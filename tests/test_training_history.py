@@ -146,7 +146,7 @@ def test_native_invalid_empty_action_and_tool_replay_matches_live_context(model,
     for cursor, record in enumerate(collected.episode.records):
         for tape in history.events_for_record(cursor, include_record=True):
             state = replay_raw_tape(model, state, tape)
-            raw = torch.tensor(tape.facets).reshape(1, *tape.facet_shape)
+            raw = torch.from_numpy(tape.facet_array().copy()).reshape(1, *tape.facet_shape)
             assert torch.equal(state.facets, raw)
         if not history.has_generated_record(cursor):
             state = observe(model, state, record)
