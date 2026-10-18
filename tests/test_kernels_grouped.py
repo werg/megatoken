@@ -74,3 +74,39 @@ def test_triton_primary_pair_and_output_widths(inner, output):
     for result, reference in zip(actual_grads, expected_grads, strict=True):
         torch.testing.assert_close(result, reference, atol=2e-2, rtol=2e-2)
     assert actual_grads[1][1].count_nonzero() == 0
+
+
+def test_auto_grouped_dispatch_keeps_cpu_reference_values_and_gradients():
+    torch.manual_seed(41)
+    x = torch.randn(11, 13, dtype=torch.float64, requires_grad=True)
+    weights = torch.randn(5, 17, 13, dtype=torch.float64, requires_grad=True)
+    ids = torch.tensor([0, 2, 4, 4, 2, 0, 1, 2, 4, 0, 3])
+    selected = grouped_linear(x, weights, ids, "auto")
+    expected = grouped_linear(x, weights, ids, "torch")
+    torch.testing.assert_close(selected, expected)
+    cotangent = torch.randn_like(selected)
+    actual_grads = torch.autograd.grad(selected, (x, weights), cotangent, retain_graph=True)
+    reference_grads = torch.autograd.grad(expected, (x, weights), cotangent)
+    for actual, reference in zip(actual_grads, reference_grads, strict=True):
+        torch.testing.assert_close(actual, reference)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA backend selection needs a GPU")
+def test_auto_dispatch_uses_triton_on_cuda(monkeypatch):
+    fast = pytest.importorskip("megatoken.kernels.triton_grouped")
+    calls = []
+    original = fast.grouped_linear_triton
+
+    def recorded(*args):
+        calls.append(1)
+        return original(*args)
+
+    monkeypatch.setattr(fast, "grouped_linear_triton", recorded)
+    x = torch.randn(43, 64, device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    weights = torch.randn(8, 96, 64, device="cuda", dtype=torch.bfloat16)
+    weights.requires_grad_()
+    ids = torch.randint(0, 8, (43,), device="cuda")
+    output = grouped_linear(x, weights, ids, "auto")
+    output.square().mean().backward()
+    assert calls == [1]
+    assert x.grad is not None and weights.grad is not None
