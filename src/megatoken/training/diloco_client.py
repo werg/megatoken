@@ -1,0 +1,453 @@
+"""Nonblocking DiLoCo worker transport, restart state and optimizer reconciliation.
+
+Network work runs on an I/O pool. Live model mutation happens exclusively
+between training optimizer transactions on the training thread; threads never
+touch CUDA tensors. Durable outbox files make failed uploads retryable.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
+
+import torch
+
+from megatoken.training.diloco_protocol import (
+    Fragment,
+    install_fragment,
+    load_tensors,
+    pack_fragment,
+    parameter_identity,
+    save_tensors,
+)
+
+
+class RemoteError(RuntimeError):
+    def __init__(self, status: int, reason: str) -> None:
+        super().__init__(f"DiLoCo coordinator HTTP {status}: {reason}")
+        self.status = status
+
+
+class Transport:
+    def __init__(self, url: str, token: str, timeout: float, allow_http: bool = False):
+        self.url = url.rstrip("/")
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username:
+            raise ValueError("Coordinator must be an absolute HTTP(S) URL")
+        if parsed.scheme == "http" and not (
+            allow_http or parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+        ):
+            raise ValueError("Use HTTPS for the coordinator outside localhost")
+        if not token or len(token) < 24:
+            raise ValueError("MEGATOKEN_DILOCO_TOKEN is missing or too short")
+        self.token = token
+        self.timeout = timeout
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict | None = None,
+        file: Path | None = None,
+        headers: dict[str, str] | None = None,
+        output: Path | None = None,
+    ) -> tuple[int, Any, dict]:
+        if json_body is not None and file is not None:
+            raise ValueError("Cannot send JSON and a binary body simultaneously")
+        body = (
+            json.dumps(json_body, sort_keys=True, allow_nan=False).encode()
+            if json_body is not None
+            else file.read_bytes() if file else None
+        )
+        request = urllib.request.Request(
+            self.url + path,
+            data=body,
+            method=method,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                **({"Content-Type": "application/json"} if json_body is not None else {}),
+                **(headers or {}),
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                response_headers = dict(response.headers)
+                if output is not None and response.status == 200:
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    with output.open("wb") as handle:
+                        for block in iter(lambda: response.read(4 << 20), b""):
+                            handle.write(block)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    return response.status, output, response_headers
+                raw = response.read()
+                return (
+                    response.status,
+                    json.loads(raw) if raw and response.headers.get_content_type() == "application/json" else raw,
+                    response_headers,
+                )
+        except urllib.error.HTTPError as error:
+            raw = error.read(4096).decode(errors="replace")
+            raise RemoteError(error.code, raw) from error
+
+    def json(self, method: str, path: str, value: dict | None = None) -> dict:
+        _, result, _ = self.request(method, path, json_body=value)
+        if not isinstance(result, dict):
+            raise ValueError(f"Expected JSON coordinator response from {path}")
+        return result
+
+    def fetch_file(self, path: str, directory: Path) -> tuple[Path | None, dict]:
+        fd, name = tempfile.mkstemp(dir=directory, suffix=".download")
+        os.close(fd)
+        target = Path(name)
+        try:
+            status, _, headers = self.request("GET", path, output=target)
+            if status == 204:
+                target.unlink()
+                return None, headers
+            if status != 200:
+                raise ValueError(f"Unexpected HTTP status {status}")
+            return target, headers
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+
+
+class DecoupledWorker:
+    """One learner per sandbox, without process groups or blocking collectives."""
+
+    def __init__(
+        self,
+        settings: Any,
+        *,
+        model_config: dict,
+        codec_fingerprint: str,
+        masters: dict[str, torch.Tensor],
+        output: Path,
+        token_budget: int,
+    ) -> None:
+        self.settings = settings
+        self.worker = settings.resolved_worker_id
+        self.transport = Transport(
+            settings.coordinator_url,
+            os.environ.get("MEGATOKEN_DILOCO_TOKEN", ""),
+            settings.timeout_seconds,
+            allow_http=settings.allow_private_http,
+        )
+        self.manifest = self.transport.json("GET", "/v1/manifest")
+        if (
+            self.manifest["run_id"] != settings.run_id
+            or self.manifest["workers"] != settings.workers
+            or self.manifest["model_config"] != model_config
+            or self.manifest["codec_fingerprint"] != codec_fingerprint
+            or self.manifest["parameter_identity"] != parameter_identity(masters)
+            or self.manifest["token_budget"] != token_budget
+        ):
+            raise ValueError("DiLoCo worker architecture/codec/topology/budget differs from syncer")
+        self.fragments = tuple(Fragment.from_dict(x) for x in self.manifest["fragments"])
+        self.output = output
+        self.outbox = output / "outbox"
+        self.outbox.mkdir(parents=True, exist_ok=True)
+        self.io = ThreadPoolExecutor(max_workers=settings.io_workers, thread_name_prefix="diloco")
+        self.session = str(uuid.uuid4())
+        self.versions = [-1] * len(self.fragments)
+        self.baselines: list[torch.Tensor | None] = [None] * len(self.fragments)
+        self.steps_since = [0] * len(self.fragments)
+        self.tokens_since = [0] * len(self.fragments)
+        self.sequences = [0] * len(self.fragments)
+        self.pending: dict[int, dict] = {}
+        self.downloads: dict[int, Future] = {}
+        self.heartbeat: Future | None = None
+        self.local_steps = 0
+        self.local_tokens = 0
+        self.global_tokens = 0
+        self.merges = 0
+        self.finished = False
+        self.last_heartbeat_step = -settings.heartbeat_steps
+        self.last_poll_step = -settings.poll_steps
+        self.last_progress_error = ""
+        self.offline_steps = 0
+        self._poll_cursor = 0
+
+    def _lease(self) -> None:
+        status = self.transport.json(
+            "POST", "/v1/lease", {"worker": self.worker, "session": self.session}
+        )
+        self._update_status(status)
+
+    def _update_status(self, value: dict) -> None:
+        self.global_tokens = int(value["global_tokens"])
+        self.merges = int(value["merges"])
+        self.finished = bool(value["finished"])
+
+    def bootstrap(self, model: torch.nn.Module, optimizer: Any) -> None:
+        """Get identical initialization, then reconcile with latest global fragments."""
+        self._lease()
+        path, _ = self.transport.fetch_file("/v1/bootstrap", self.outbox)
+        assert path is not None
+        try:
+            payload = torch.load(path, map_location="cpu", weights_only=True)
+            model.load_state_dict(payload["model"], strict=True)
+        finally:
+            path.unlink(missing_ok=True)
+        optimizer.rebase(list(optimizer.masters))
+        self._fetch_all(optimizer)
+
+    def resume(self, value: dict, optimizer: Any) -> None:
+        if value["protocol"] != 1 or value["fingerprint"] != self.manifest["fingerprint"]:
+            raise ValueError("DiLoCo checkpoint belongs to a different coordinator run")
+        if value["worker"] != self.worker:
+            raise ValueError("DiLoCo worker checkpoint belongs to another dataset shard")
+        self.session = value["session"]
+        self.versions = list(value["versions"])
+        self.baselines = [part.float().cpu() for part in value["baselines"]]
+        self.steps_since = list(value["steps_since"])
+        self.tokens_since = list(value["tokens_since"])
+        self.sequences = list(value["sequences"])
+        self.local_steps = int(value["local_steps"])
+        self.local_tokens = int(value["local_tokens"])
+        self.pending = {int(k): dict(v, future=None) for k, v in value["pending"].items()}
+        self._lease()
+        # Uploads persisted before the last checkpoint can be safely replayed;
+        # no snapshot is invented from a *later* model version.
+        for index, entry in list(self.pending.items()):
+            if not Path(entry["filename"]).exists():
+                raise FileNotFoundError(f"Lost pending DiLoCo upload {entry['filename']}")
+            self._send_async(index)
+        self._fetch_all(optimizer)
+
+    def _fetch(self, index: int, version: int) -> tuple[int, torch.Tensor] | None:
+        path, headers = self.transport.fetch_file(
+            f"/v1/fragments/{index}?after={version}", self.outbox
+        )
+        if path is None:
+            return None
+        try:
+            vector = load_tensors(path)["theta"]
+            next_version = int(headers["X-Fragment-Version"])
+            if (
+                vector.shape != (self.fragments[index].length,)
+                or vector.dtype not in (torch.bfloat16, torch.float32)
+                or not bool(vector.isfinite().all())
+            ):
+                raise ValueError("Invalid global fragment received")
+            return next_version, vector.float()
+        finally:
+            path.unlink(missing_ok=True)
+
+    def _install(self, index: int, update: tuple[int, torch.Tensor] | None, optimizer: Any) -> bool:
+        if update is None:
+            return False
+        version, tensor = update
+        if version <= self.versions[index]:
+            return False
+        install_fragment(optimizer, self.fragments[index], tensor)
+        self.versions[index] = version
+        self.baselines[index] = tensor
+        self.steps_since[index] = 0
+        self.tokens_since[index] = 0
+        return True
+
+    def _fetch_all(self, optimizer: Any) -> None:
+        for index in range(len(self.fragments)):
+            self._install(index, self._fetch(index, self.versions[index]), optimizer)
+
+    def _send(self, index: int, entry: dict) -> dict:
+        try:
+            return self.transport.json(
+                "POST", f"/v1/updates/{index}",
+            )  # never reached: binary submissions use request() below
+        except AssertionError:
+            raise
+
+    def _upload(self, index: int, entry: dict) -> dict:
+        _, response, _ = self.transport.request(
+            "POST",
+            f"/v1/updates/{index}",
+            file=Path(entry["filename"]),
+            headers={
+                "X-Worker": str(self.worker),
+                "X-Session": self.session,
+                "X-Sequence": str(entry["sequence"]),
+                "X-Base-Version": str(entry["version"]),
+                "X-Steps": str(entry["steps"]),
+                "X-Tokens": str(entry["tokens"]),
+                "Content-Type": "application/octet-stream",
+            },
+        )
+        return response
+
+    def _send_async(self, index: int) -> None:
+        entry = self.pending[index]
+        entry["future"] = self.io.submit(self._upload, index, dict(entry))
+
+    def _queue(self, index: int, optimizer: Any) -> None:
+        if index in self.pending or self.versions[index] < 0:
+            return
+        if self.steps_since[index] <= 0 or self.tokens_since[index] <= 0:
+            return
+        baseline = self.baselines[index]
+        assert baseline is not None
+        delta = baseline - pack_fragment(optimizer.masters, self.fragments[index])
+        if not torch.isfinite(delta).all():
+            raise ValueError("Nonfinite local DiLoCo pseudogradient")
+        sequence = self.sequences[index] + 1
+        filename = self.outbox / f"{index:05d}-{sequence:09d}.safetensors"
+        save_tensors(filename, {"delta": delta.to(self.settings.wire_dtype)})
+        self.sequences[index] = sequence
+        self.pending[index] = {
+            "filename": str(filename),
+            "sequence": sequence,
+            "version": self.versions[index],
+            "steps": self.steps_since[index],
+            "tokens": self.tokens_since[index],
+            "future": None,
+            "retry_after": 0,
+        }
+        self._send_async(index)
+
+    def after_step(self, optimizer: Any, *, steps: int, tokens: int) -> dict:
+        """Called *after* each complete optimizer step; never blocks on network."""
+        self.local_steps = steps
+        self.local_tokens += tokens
+        for i in range(len(self.fragments)):
+            self.steps_since[i] += 1
+            self.tokens_since[i] += tokens
+        errors = 0
+        for index, entry in list(self.pending.items()):
+            future = entry["future"]
+            if future is None or not future.done():
+                continue
+            try:
+                future.result()
+                Path(entry["filename"]).unlink(missing_ok=True)
+                del self.pending[index]
+                self.offline_steps = 0
+            except RemoteError as exc:
+                # Stale proposals are invalidated; the next pull overwrites
+                # this fragment and reestablishes a legitimate baseline.
+                if exc.status == 409 and "Stale" in str(exc):
+                    Path(entry["filename"]).unlink(missing_ok=True)
+                    del self.pending[index]
+                    self.downloads[index] = self.io.submit(self._fetch, index, -1)
+                else:
+                    errors += 1
+                    entry["future"] = None
+                    entry["retry_after"] = steps + min(64, 2 ** min(6, entry.get("attempts", 0)))
+                    entry["attempts"] = entry.get("attempts", 0) + 1
+            except (OSError, TimeoutError, ValueError) as exc:
+                errors += 1
+                entry["future"] = None
+                entry["retry_after"] = steps + min(64, 2 ** min(6, entry.get("attempts", 0)))
+                entry["attempts"] = entry.get("attempts", 0) + 1
+                self.last_progress_error = str(exc)
+        for index, entry in list(self.pending.items()):
+            if entry["future"] is None and steps >= entry["retry_after"]:
+                self._send_async(index)
+
+        updated = False
+        for index, future in list(self.downloads.items()):
+            if not future.done():
+                continue
+            try:
+                updated = self._install(index, future.result(), optimizer) or updated
+                self.offline_steps = 0
+            except (OSError, TimeoutError, ValueError, RemoteError) as exc:
+                errors += 1
+                self.last_progress_error = str(exc)
+            del self.downloads[index]
+        if steps - self.last_poll_step >= self.settings.poll_steps:
+            self.last_poll_step = steps
+            for _ in range(min(self.settings.io_workers, len(self.fragments))):
+                index = self._poll_cursor % len(self.fragments)
+                self._poll_cursor += 1
+                if index not in self.downloads:
+                    self.downloads[index] = self.io.submit(self._fetch, index, self.versions[index])
+
+        if self.heartbeat is not None and self.heartbeat.done():
+            try:
+                self._update_status(self.heartbeat.result())
+                self.offline_steps = 0
+            except (OSError, TimeoutError, ValueError, RemoteError) as exc:
+                errors += 1
+                self.last_progress_error = str(exc)
+            self.heartbeat = None
+        if (
+            self.heartbeat is None
+            and steps - self.last_heartbeat_step >= self.settings.heartbeat_steps
+        ):
+            self.last_heartbeat_step = steps
+            self.heartbeat = self.io.submit(
+                self.transport.json,
+                "POST",
+                "/v1/progress",
+                {
+                    "worker": self.worker,
+                    "session": self.session,
+                    "steps": self.local_steps,
+                    "tokens": self.local_tokens,
+                },
+            )
+
+        # H steps per fragment with stable staggered offsets; no global barrier.
+        for index in range(len(self.fragments)):
+            offset = index * self.settings.local_steps // len(self.fragments)
+            first_due = self.settings.local_steps + offset
+            if (
+                self.local_steps >= first_due
+                and self.steps_since[index] >= self.settings.local_steps
+                and index not in self.pending
+            ):
+                self._queue(index, optimizer)
+        if errors:
+            self.offline_steps += 1
+        if self.offline_steps > self.settings.max_offline_steps:
+            raise RuntimeError(
+                f"DiLoCo coordinator unreachable for too many steps: {self.last_progress_error}"
+            )
+        return {"updated": int(updated), "pending": len(self.pending), "merges": self.merges}
+
+    def state_dict(self) -> dict:
+        """Checkpoint baseline+cursor, not live Futures or socket objects."""
+        return {
+            "protocol": 1,
+            "fingerprint": self.manifest["fingerprint"],
+            "worker": self.worker,
+            "session": self.session,
+            "versions": list(self.versions),
+            "baselines": [tensor.detach().clone() for tensor in self.baselines],
+            "steps_since": list(self.steps_since),
+            "tokens_since": list(self.tokens_since),
+            "sequences": list(self.sequences),
+            "local_steps": self.local_steps,
+            "local_tokens": self.local_tokens,
+            "pending": {
+                str(k): {key: value for key, value in entry.items() if key != "future"}
+                for k, entry in self.pending.items()
+            },
+        }
+
+    def metrics(self) -> dict:
+        return {
+            "worker": self.worker,
+            "global_tokens": self.global_tokens,
+            "local_tokens": self.local_tokens,
+            "versions": self.versions,
+            "pending_uploads": len(self.pending),
+            "inflight_downloads": len(self.downloads),
+            "merges": self.merges,
+            "offline_steps": self.offline_steps,
+        }
+
+    def close(self) -> None:
+        self.io.shutdown(wait=True, cancel_futures=False)
