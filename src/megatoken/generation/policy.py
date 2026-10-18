@@ -103,7 +103,9 @@ class FacetedGenerator(nn.Module):
         if plan.mode not in {"bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be bootstrap or recurrent")
 
-    def _training_inputs(self, state, payloads, control, effort, generator, roles, plan, *, teacher_forced_action=False):
+    def _training_inputs(
+        self, state, payloads, control, effort, generator, roles, plan, *, teacher_forced_action=False
+    ):
         if not self.training_heads:
             raise RuntimeError("supervised training is disabled for this served model")
         if state.batch_size != len(payloads):
@@ -149,8 +151,11 @@ class FacetedGenerator(nn.Module):
                 # sampled action was executed.
                 reference = torch.stack(
                     [
-                        torch.as_tensor(tape.facet_array().copy(), device=target.device, dtype=torch.float32)
-                        .reshape_as(target[index])
+                        torch.as_tensor(
+                            tape.facet_array().copy(),
+                            device=target.device,
+                            dtype=torch.float32,
+                        ).reshape_as(target[index])
                         if tape is not None
                         else target[index].detach()
                         for index, tape in enumerate(pairs)
@@ -184,11 +189,25 @@ class FacetedGenerator(nn.Module):
             )
 
     def _supervised(
-        self, state, plan, payloads, control, effort, generator, roles,
-        *, teacher_forced_action=False,
+        self,
+        state,
+        plan,
+        payloads,
+        control,
+        effort,
+        generator,
+        roles,
+        *,
+        teacher_forced_action=False,
     ):
         next_state, selected, encoded_sample, target, mean, fit, alignment = self._training_inputs(
-            state, payloads, control, effort, generator, roles, plan,
+            state,
+            payloads,
+            control,
+            effort,
+            generator,
+            roles,
+            plan,
             teacher_forced_action=teacher_forced_action,
         )
         readout = _TeacherReadout(self.core, self.decoder)
