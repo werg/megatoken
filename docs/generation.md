@@ -356,9 +356,12 @@ the returned state is the same processed state used for this verification.
 Candidate weights build their own routing programs and historical KV; the tape
 contains no authoritative route or hidden cache.
 
-The tape version is `fmt-canonical-facets-v4`. It records the complete FP32 facet
-coordinates and geometry, codec and public-spec fingerprints, effort, role, output,
-validation error, behavior density, and exact causal `control_payload` bytes.
+The tape version is `fmt-canonical-facets-v4`. New tapes store the complete
+FP32 facet coordinates as immutable little-endian packed bytes (base64 in JSON),
+instead of allocating a Python float per coordinate. Earlier v4 tapes with
+explicit float tuples still parse for compatibility. Each tape also records
+geometry, codec and public-spec fingerprints, effort, role, output, validation
+error, behavior density, and exact causal `control_payload` bytes.
 Deterministic choices are an audit trace, not additional probability factors.
 Earlier tape versions are rejected because they do not provide this complete
 conditional event contract. A tape uses `valid`, not a separate state-commit flag.
