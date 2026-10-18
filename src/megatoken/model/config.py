@@ -193,6 +193,10 @@ class ModelConfig:
             max_capacity=128,
         )
         values.update(overrides)
+        if "recent_history_chunks" not in overrides:
+            values["recent_history_chunks"] = min(
+                values["recent_history_chunks"], values["max_history_chunks"]
+            )
         return cls(**values)
 
     @classmethod
