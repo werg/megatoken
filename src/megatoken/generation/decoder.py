@@ -14,7 +14,7 @@ from torch.nn import functional as F
 from megatoken.model.layers import position_features
 
 from .distributions import TiedVocabulary
-from .feasibility import wire_witness_tokens
+from .feasibility import wire_overhead_tokens, wire_witness_tokens
 from .realizer import ParallelRealizer
 from .structure import ActionSpec, Decision, FieldSpec
 from .targets import PreparedAction, PreparedTargets, planned_fields, source_ids, workspace_capacity
@@ -209,9 +209,17 @@ class DeterministicDecoder(nn.Module):
         # require more tokens for its fixed JSON envelope than for all its
         # semantic values combined. Require a schema-valid complete wire
         # witness at this limit before making it a candidate.
+        # Field lengths live in the model's workspace, but a complete tool
+        # action must also fit its literal wire syntax (keys, separators, quotes).
+        # Reserve those fixed tokens before deciding which schemas or value
+        # lengths the model may choose.
+        schema_limits = {
+            index: limit - wire_overhead_tokens(schema, self.codec)
+            for index, schema in enumerate(spec.schemas)
+        }
         feasible = []
         for index, fields in schema_fields.items():
-            if fields is None or sum(value.minimum for value in fields.values()) > limit:
+            if fields is None or sum(value.minimum for value in fields.values()) > schema_limits[index]:
                 continue
             witness = wire_witness_tokens(spec.schemas[index], self.codec)
             if witness is not None and witness > limit:
@@ -247,7 +255,9 @@ class DeterministicDecoder(nn.Module):
             if len(schema.orders) > self.layout_codes.num_embeddings:
                 raise ValueError("too many declared layouts")
             fields = schema_fields[selected]
+            field_limit = schema_limits[selected]
         else:
+            field_limit = limit
             fields = planned_fields(
                 self.codec,
                 (
@@ -316,11 +326,11 @@ class DeterministicDecoder(nn.Module):
                             and minimum_total()
                             - sum(other.minimum for other in shared)
                             + len(shared) * len(ids)
-                            <= limit
+                            <= field_limit
                         )
                     else:
                         fits = (
-                            minimum_total() - value.minimum + max(value.minimum, len(ids)) <= limit
+                            minimum_total() - value.minimum + max(value.minimum, len(ids)) <= field_limit
                         )
                     if fits:
                         allowed.append(index)
@@ -340,7 +350,7 @@ class DeterministicDecoder(nn.Module):
                 if value.fixed_ids is None:
                     shared = consumers(field_.identifier)
                     lower = max(1, *(other.minimum for other in shared))
-                    available = limit - minimum_total() + sum(other.minimum for other in shared)
+                    available = field_limit - minimum_total() + sum(other.minimum for other in shared)
                     upper = min(
                         min(other.spec.max_tokens for other in shared), available // len(shared)
                     )
@@ -391,7 +401,7 @@ class DeterministicDecoder(nn.Module):
                 value.length = len(value.fixed_ids)
             else:
                 remaining = sum(other.minimum for other in values[index + 1 :])
-                upper = min(value.spec.max_tokens, limit - assigned - remaining)
+                upper = min(value.spec.max_tokens, field_limit - assigned - remaining)
                 value.length = choose(
                     "length/" + value.spec.name,
                     self.length_codes,
