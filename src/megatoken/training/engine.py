@@ -518,6 +518,19 @@ def train(
     output = Path(config.output)
     if config.decoupled is not None:
         output = output / f"worker-{config.decoupled.resolved_worker_id:02d}"
+    checkpoint_store = None
+    if config.decoupled is not None and config.decoupled.checkpoint_s3:
+        from megatoken.training.diloco_storage import CheckpointStore
+
+        checkpoint_store = CheckpointStore(
+            config.decoupled.checkpoint_s3,
+            config.decoupled.run_id,
+            config.decoupled.resolved_worker_id,
+        )
+        if resume is None:
+            restored = checkpoint_store.restore(output / "checkpoints")
+            if restored is not None:
+                resume = str(restored)
     logger = JsonlLogger(output / "metrics.jsonl", context.is_primary)
     diloco = None
     optimizer = None
@@ -723,6 +736,8 @@ def train(
                     keep=config.keep_checkpoints,
                 )
             context.barrier()
+            if checkpoint_store is not None:
+                checkpoint_store.upload(output / "checkpoints" / name)
             last_saved = global_step
             return str(output / "checkpoints" / name)
 
@@ -780,7 +795,9 @@ def train(
             weights = dict(config.loss_weights)
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
-            learning_rate = phase.learning_rate(consumed)
+            learning_rate = phase.learning_rate(
+                diloco.global_tokens if diloco is not None else consumed
+            )
             optimizer.set_lr(learning_rate)
             model.core.dispatch_metrics(reset=True)
             step_diagnostics: dict[str, float | torch.Tensor] = {}
