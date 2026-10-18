@@ -75,6 +75,8 @@ def test_export_preserves_the_canonical_facet_policy_and_recurrent_state_exactly
     assert expected.tape == actual.tape
     for left, right in (
         (expected.state.facets, actual.state.facets),
+        (expected.state.early, actual.state.early),
+        (expected.state.final, actual.state.final),
         (expected.state.history.keys, actual.state.history.keys),
         (expected.state.history.values, actual.state.history.values),
     ):
@@ -117,7 +119,9 @@ def test_serving_uses_the_training_control_bytes_and_retains_them_for_replay(bun
     assert expected.tape == actual.tape
     assert actual.tape.control_payload == payload
     assert torch.equal(expected.state.facets, actual.state.facets)
-    assert actual.state.history.slots == 0  # Controls did not create factual observations.
+    # The selected action writes once immediately; controls write no extra record.
+    assert actual.state.history.slots == engine.config.history_slots
+    assert actual.state.records_seen.item() == 1
     assert len(session.events) == len(session.records) == 1
 
 
@@ -142,6 +146,15 @@ def test_served_tape_protocol_is_explicit(bundle):
     manifest["tape_version"] = "legacy-protocol"
     (directory / "manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="tape protocol"):
+        InferenceEngine(directory, device="cpu")
+
+
+def test_legacy_bundle_format_is_rejected_before_weight_loading(bundle):
+    _, directory, _ = bundle
+    manifest = json.loads((directory / "manifest.json").read_text())
+    manifest["format_version"] = 2
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="v4 contextual realization"):
         InferenceEngine(directory, device="cpu")
 
 
@@ -336,17 +349,17 @@ def test_jsonl_prior_and_decoder_receive_the_same_public_tools_and_controls(
     session = engine.new_session()
     monkeypatch.setattr(engine, "new_session", lambda: session)
     controls, arguments = [], []
-    process, sample = engine.model.core.process, engine.model.sample
+    predict, sample = engine.model.core.predict_facets, engine.model.sample
 
-    def capture_process(state, control=None, effort=6, **kwargs):
+    def capture_predict(state, control=None, effort=6, **kwargs):
         controls.append(control.detach().clone())
-        return process(state, control=control, effort=effort, **kwargs)
+        return predict(state, control=control, effort=effort, **kwargs)
 
     def capture_sample(*args, **kwargs):
         arguments.append(kwargs)
         return sample(*args, **kwargs)
 
-    monkeypatch.setattr(engine.model.core, "process", capture_process)
+    monkeypatch.setattr(engine.model.core, "predict_facets", capture_predict)
     monkeypatch.setattr(engine.model, "sample", capture_sample)
     tools = [{"name": "read", "parameters": {"type": "object", "properties": {}}}]
     request = {

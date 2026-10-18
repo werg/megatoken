@@ -65,7 +65,7 @@ The wire schema stores payloads as base64, preserving non-UTF-8 files and exact
 whitespace. JSON framing and chat-template delimiters are not inserted into the
 student transcript. Prepared datasets and native episodes use schema version 2;
 legacy versions fail explicitly. Native action metadata must contain complete
-version-3 facet tapes (`fmt-canonical-facets-v3`), which retain the exact public
+version-4 facet tapes (`fmt-canonical-facets-v4`), which retain the exact public
 control payload used by the prior. Older tapes must be regenerated.
 
 | Field group | Meaning |
@@ -202,11 +202,13 @@ candidate cross-entropy positions.
 `EncodedRecord.positions` is the actual ID count used for capacity checks;
 `EncodedRecord.tokens` aliases `transcript_tokens` for reference exposure.
 `EncodedRecord.P` and `TrainingWindow.P` are static masked target counts. Training
-records actual P from evaluated target plans. B0 bootstrap evaluates both
-canonical target reconstruction and prediction from prior facets, so P is twice
-the eligible target positions. Later recurrent phases evaluate only prior-decoder
-cross-entropy, so P is once the eligible positions. Their target encoder receives
-only alignment loss toward detached completed prior facets. RL lexical decoding
+records actual P from evaluated target plans. Both bootstrap and recurrent
+training evaluate a causal prediction pass and a reconstruction pass, so P is
+twice the eligible target positions. Bootstrap reconstructs from a noisy
+encoder draw directly. Recurrent reconstruction trains only the encoder through
+the fixed central/realizer map and detached pre-action context. Optional facet
+following uses only a native tape paired with the exact bytes its action produced;
+ordinary offline text does not supply a latent alignment target. RL lexical decoding
 is deterministic and contributes zero P; its stochastic work uses the separate Z
 coordinate budget.
 
@@ -502,7 +504,7 @@ inference engine, uses prior public records, and forwards the public task policy
 and tool schema through the same control builder as training and serving.
 Private environment configuration and verifier labels never enter these controls.
 It retains its exact native recurrent session between student actions. Emitted
-IDs, serialized action bytes and complete version-3 raw-facet tapes are retained,
+IDs, serialized action bytes and complete version-4 raw-facet tapes are retained,
 including each draw's exact encoded-source control bytes. Every selected facet
 draw advances state once, including an invalid decode, and its output bytes are
 not ingested again. Each tape's metadata carries a `record_cursor` giving the

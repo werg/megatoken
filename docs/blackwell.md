@@ -2,10 +2,12 @@
 
 The implementation starts with resident BF16 weights, FP32 optimizer masters and
 moments, raw recurrent facets, and bounded BF16 causal KV context. The same core
-serves training and inference: six residual body stages, a nonresidual remix,
-and ten residual prediction stages. The portable PyTorch backend is the reference.
-The optional Triton backend contains real grouped expert forward/backward GEMMs. Selecting it is an explicit configuration choice. It has no
-silent fallback that could make a CUDA benchmark measure a different backend.
+serves training and inference: four dense central blocks supply both contextual
+realization and the next predictor, whose non-residual remix precedes twelve
+residual sparse stages. Cached central features avoid a second C pass for either
+consumer. The portable PyTorch backend is the reference. The optional Triton
+backend contains grouped expert forward/backward GEMMs. Selecting it is explicit;
+there is no silent substitution of a different benchmark backend.
 
 CPU tests verify the mathematical and causal implementation. They do not establish
 Blackwell kernel compatibility, GPU memory fit, speed, or trained capability. Run
@@ -109,7 +111,7 @@ import json
 from megatoken.benchmark import benchmark
 
 report = benchmark(
-    config="recurrent32",
+    config="32x512",
     codec="artifacts/codec",
     device="cuda",
     precision="bf16",
@@ -136,7 +138,7 @@ and an FP32-master AdamW update with independent encoder clipping. The selected
 facets remain the next inputs. It still evaluates
 synthetic inputs and a fresh model, so it measures implementation work rather than
 learning progress. The real tokenizer must match the configured vocabulary. The
-benchmark will not silently substitute a 256-row output head for recurrent32.
+benchmark will not silently substitute a 256-row output head for 32x512.
 
 Set `backward=False` for sampled raw-facet actions, deterministic byte
 materialization, and learned recurrent advancement; use `prediction_chunks=1`
@@ -277,32 +279,43 @@ environment and measured B0 gate results before committing the bulk stage budget
 
 ## 6. Preserve state and optimizer correctness while tuning
 
-Raw facet state and historical KV belong to one model version. Every optimizer
-update increments that version. Reconstruct the ordered observations and raw
-sampled actions with the same process/observe chronology. The pending input is
-processed exactly once into body context before the next observation replaces
-it. There is no extra learned ingestion writer or E(D(z)) reconciliation. Every
-selected action becomes the next raw input, including invalid proposals; validity
-governs external execution. An actual error response is a subsequent observation.
-Pure `decode_mean`/`decode_facets` inspection does not advance the caller's state.
-Prefix replay costs real time and `I`, even under `no_grad`.
+Selected raw facets, central feature caches, and historical KV belong to one
+model version. Every optimizer update increments that version. Reconstruct the
+ordered observations and raw sampled actions under the new weights. Both
+`observe` and `advance_raw` immediately run the shared central processor and write
+one KV entry; the resulting early/final features serve realization and the next
+prediction. `predict_facets` is read-only and reuses those features. This eager
+chronology also handles invalid or empty selected actions. Actual environment
+responses enter through a later observation. Prefix replay costs real time and
+`I`, even under `no_grad`.
 
 Preserve causal controls with that history. Training and serving use the shared
-byte framing for policy seeds, references, and canonical tool JSON. Every v3
-action tape retains its exact `control_payload`; replay re-encodes those bytes
-under the current weights. A reference must have an `external_evidence` or
+byte framing for policy seeds, references, and canonical tool JSON. Every v4
+action tape retains its exact `control_payload`; density scoring re-encodes those
+bytes under the scoring weights. Rebuilding a fixed raw history needs only the
+observations, selected draws, and record roles: central processing does not inject
+prospective control. A reference must have an `external_evidence` or
 `earlier_history` origin. In JSONL serving, `control_seed` and `control_reference`
 are UTF-8 text, `reference_origin` declares that provenance, and `tools` feeds both
 the decoder constraints and prior control. The numeric `seed` remains the draw's
 RNG seed. Completely absent controls skip encoding; empty rows in mixed batches
 receive exact zero so batching cannot introduce an unintended control.
 
-Bootstrap uses encoder targets and teacher-forced next inputs. Later recurrent
-phases carry the live predicted facets and train E toward detached completed
-predictions. Observation and control paths detach E in those later phases; the
-control encoder and core body remain trainable. Record the representation mode
-with the phase and checkpoint so a resume cannot silently reverse that gradient
-direction.
+Bootstrap jointly trains noisy encoder reconstruction, a KL toward the detached
+encoder distribution, and contextual realization of prior samples. Teacher-forced
+next inputs fork from the pre-action state. Recurrent phases retain live sampled
+facets across their tower. Their encoder-only reconstruction branch differentiates
+through central processing and realization with those parameters held fixed, plus
+native-pair alignment when an exact facet/byte pair exists. The main recurrent
+path keeps central/predictor/realizer gradients live while observation and control
+paths detach E. Both modes evaluate two decoder CE passes per target; benchmark
+that work and retain the representation mode in checkpoints and receipts.
+
+For latent outcome RL, freeze the complete conditional decoding map: E, central
+processing and its shared KV projector, and R including core-owned U weights.
+The predictor, remix, controls, and Gaussian scale remain trainable. Reusing
+central features does not by itself implement concurrent CUDA execution; overlap
+is a separate profiling and scheduling task.
 
 Engram descriptors are optional offline assets. Import learning adds only the
 temporary bias-free descriptor map. Bake with the actual inference rounding path,
@@ -335,7 +348,7 @@ primary core. It saves diagnostic JSON, JUnit results, real dispatch
 counts, optimizer time, and measured device memory as workflow artifacts. Optional
 `--compile` includes the tensor compilation setting.
 
-To replace the primary core-only probe with a complete recurrent32 generator benchmark,
+To replace the primary core-only probe with a complete 32x512 generator benchmark,
 pass `--codec /path/to/pinned/codec`; the workflow's `codec_directory` input mounts
 an existing absolute runner path read-only. Without that asset, the primary probe
 has no lexical `D/I/P` interpretation and cannot establish full-vocabulary memory

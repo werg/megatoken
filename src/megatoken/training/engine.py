@@ -157,6 +157,10 @@ def prepare_batches(
                 config.generated_capacity, max(1, 2 ** math.ceil(math.log2(max(1, largest))))
             )
             plan = None
+            native_tapes = [
+                native_histories[id(item.episode)].paired_tape(item.window.start + offset)
+                for item in batch
+            ]
             if (
                 len(batch) == 1
                 and batch[0].episode.tools_json != "[]"
@@ -177,18 +181,27 @@ def prepare_batches(
                 if schema_index is not None:
                     bindings = supervised_bindings(spec, schema_index, record.payload)
                     for layout in range(len(spec.schemas[schema_index].orders)):
-                        candidate = model.prepare_action_target(
-                            record.payload,
-                            spec=spec,
-                            schema_index=schema_index,
-                            bindings=bindings,
-                            layout=layout,
-                            representation_mode=config.representation_training,
-                        )
+                        options = {
+                            "spec": spec,
+                            "schema_index": schema_index,
+                            "bindings": bindings,
+                            "layout": layout,
+                            "representation_mode": config.representation_training,
+                        }
+                        candidate = model.prepare_action_target(record.payload, **options)
                         # Preserve immutable original history. Serialization
                         # variants not represented by a public schema use raw CE.
                         if candidate.payload == record.payload:
-                            plan = candidate
+                            # Native pairs must match the exact selected wire
+                            # layout. Do not validate against rejected candidate
+                            # serializations encountered while searching it.
+                            plan = (
+                                model.prepare_action_target(
+                                    record.payload, **options, native_tape=native_tapes[0]
+                                )
+                                if native_tapes[0] is not None
+                                else candidate
+                            )
                             break
             if plan is None:
                 plan = model.prepare_target(
@@ -200,6 +213,7 @@ def prepare_batches(
                         for record in records
                     ],
                     representation_mode=config.representation_training,
+                    native_tapes=native_tapes,
                 )
             targets[offset] = plan
             for name, count in plan.denominators.items():
@@ -251,7 +265,6 @@ def batch_counters(batches: list[PreparedBatch]) -> Counters:
                     ),
                 )
                 result.raw_facet_replays += len(events)
-                result.control_encodes += sum(bool(tape.control_payload) for tape in events)
         if any(episode_control_payload(item.episode) for item in batch.windows):
             result.control_encodes += len(batch.windows)
     return result
@@ -439,8 +452,8 @@ def train(
         )
         optimizer = MasterAdamW(model, phase.learning_rate(0), config.weight_decay)
         if config.representation_training == "recurrent":
-            # Even clipping must respect the one-way E(bytes) -> recurrent
-            # representation fit: a large encoder error cannot scale core grads.
+            # Contextual codec auxiliaries use frozen C/R with E gradients only.
+            # Independent clipping prevents their norm scaling the main update.
             optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
         windows_config = WindowConfig(
             max_window_tokens=config.max_history_tokens,
@@ -581,9 +594,9 @@ def train(
                         continue
                     selected.append(item)
                     selected_counts["I"] += item.window.I
-                    selected_counts["P"] += item.window.P * (
-                        2 if config.representation_training == "bootstrap" else 1
-                    )
+                    # Main prediction CE and the byte-codec auxiliary are both
+                    # actually evaluated in bootstrap and recurrent modes.
+                    selected_counts["P"] += item.window.P * 2
                 global_selected = context.sum_counts(selected_counts)
                 if (
                     global_selected["P"] >= config.accumulate_scored
@@ -665,9 +678,17 @@ def train(
                         )
                 coordinates = diagnostics_global.get("facet_alignment_coordinates", 0)
                 if coordinates:
-                    diagnostics_global["facet_alignment_mse"] = (
+                    # This distance is a diagnostic, not the recurrent encoder
+                    # objective: ordinary observations have no forecast label.
+                    diagnostics_global["forecast_encoder_distance_mse"] = (
                         diagnostics_global["facet_alignment_squared_error_sum"] / coordinates
                     )
+                for term, diagnostic in (
+                    ("facet_prediction", "facet_kl_per_coordinate"),
+                    ("encoder_alignment", "native_encoder_alignment_mse"),
+                ):
+                    if global_counts[term]:
+                        diagnostics_global[diagnostic] = sums[term] / global_counts[term]
                 dispatch = model.core.dispatch_metrics(reset=True)
                 reduced = context.sum_tensors(
                     {

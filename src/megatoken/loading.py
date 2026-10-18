@@ -39,14 +39,17 @@ def load_model_config(name_or_path: str, **overrides: Any) -> ModelConfig:
 
     if name_or_path == "tiny":
         return ModelConfig.tiny(**overrides)
-    if name_or_path == "compact32":
+    if name_or_path == "32x256":
         return ModelConfig.compact32(**overrides)
-    if name_or_path == "recurrent32":
+    if name_or_path == "32x512":
         return ModelConfig(**overrides)
-    if name_or_path in {"v12", "v13", "reference"}:
+    if name_or_path in {"recurrent32", "compact32"}:
         raise ValueError(
-            "The old carry architecture is incompatible; select recurrent32 or compact32"
+            "Training/model configuration uses canonical preset names 32x512 or 32x256; "
+            "recurrent32 and compact32 are command-line aliases only"
         )
+    if name_or_path in {"v12", "v13", "reference"}:
+        raise ValueError("The old carry architecture is incompatible; select 32x512 or 32x256")
     return ModelConfig.from_dict({**read_mapping(name_or_path), **overrides})
 
 

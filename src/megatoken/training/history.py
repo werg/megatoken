@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 import torch
 
 from megatoken.contracts import ROLE_TO_ID
-from megatoken.controls import encode_controls
 from megatoken.data.schema import canonical_json
 from megatoken.generation.structure import ActionTape, strict_json_loads
 from megatoken.model import CoreState
@@ -136,6 +135,17 @@ class NativeHistory:
         self._check_cursor(cursor)
         return cursor in self._generated_records
 
+    def paired_tape(self, cursor: int) -> ActionTape | None:
+        """Return only the genuine raw action that owns this exact target record.
+
+        This is a supervised label, never a prefix event. Invalid/empty draws
+        and teacher replacements have no byte-to-facet correspondence to borrow.
+        ``from_episode`` has already validated complete bytes, original emitted
+        IDs, role, codec, and the one-record boundary for an eligible pair.
+        """
+        self._check_cursor(cursor)
+        return self._events[cursor][-1] if cursor in self._generated_records else None
+
     def events_for_record(self, cursor: int, *, include_record: bool) -> tuple[ActionTape, ...]:
         """Select events immediately preceding this record in their original order.
 
@@ -158,10 +168,12 @@ def replay_raw_tape(
     """Recur through a validated fixed event without decoding or scoring it.
 
     NativeHistory validates stored tapes once. This transition needs no schema,
-    re-encoding, random draw, or discarded prediction stack. Shared body/context
+    re-encoding, random draw, or discarded prediction stack. Central/history
     gradients remain live unless the caller establishes an explicit no_grad or
-    detach boundary. Each tape owns its exact original causal control bytes,
-    which are encoded under current weights with only E detached.
+    detach boundary. Prospective control belongs to the predictor; once the raw
+    action is known it cannot alter the contextual transition or its KV write.
+    Tape-owned controls are retained for policy-density replay, which is a
+    separate operation from this fixed-action state reconstruction.
     """
     if state.batch_size != 1:
         raise ValueError("Native raw history replay requires one independent episode")
@@ -174,5 +186,4 @@ def replay_raw_tape(
         1, *tape.facet_shape
     )
     roles = torch.tensor([tape.role_id], device=state.device, dtype=torch.long)
-    control = encode_controls(model.core, [tape.control_payload], encoder_grad=False)
-    return model.core.advance_raw(state, raw, control=control, effort=tape.effort, role_ids=roles)
+    return model.core.advance_raw(state, raw, role_ids=roles)

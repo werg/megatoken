@@ -1,4 +1,4 @@
-"""Raw next-input facets, explicitly bounded context, and decoder-only metadata."""
+"""Selected raw facets and their reusable, eagerly computed central features."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from torch import Tensor
 
 @dataclass(frozen=True)
 class KVHistory:
-    """Projected body context from earlier processed inputs, in causal order.
+    """Projected central context from selected inputs, in causal order.
 
     Keys/values are [batch, kv_heads, slots, head_dim]. None mask means every
     slot is valid, preserving fused attention eligibility for unpadded histories.
@@ -31,24 +31,23 @@ class KVHistory:
 
 @dataclass(frozen=True)
 class CoreState:
-    """The facets are the CURRENT UNPROCESSED input to the next core iteration.
+    """One exact raw tensor and derived features from its single central pass.
 
-    History contains only earlier processed input bodies. A selected prediction
-    replaces these facets verbatim; its body enters history on the next process
-    or observation. None pending_mask means all rows contain a real input.
-    has_pending_input is host metadata used to skip the initial sentinel during
-    observation; partial resets retain a mask without introducing a GPU sync.
+    ``facets`` is the selected raw input, never overwritten by contextual work.
+    ``early`` and ``final`` are cached all-slot C features, reused by realization
+    and prediction. History already includes this selected input. Only an empty
+    initial sentinel has no features; it may seed a prediction without becoming
+    a KV record. Records are counted when selected/observed, not one call later.
     """
 
     facets: Tensor
+    early: Tensor | None
+    final: Tensor | None
     history: KVHistory
     records_seen: Tensor
     last_record_ids: Tensor
-    input_record_ids: Tensor
     role_ids: Tensor
     episode_ids: Tensor
-    pending_mask: Tensor | None
-    has_pending_input: bool
     model_version: int
     routing_version: int
     geometry: tuple[int, ...]
@@ -63,24 +62,26 @@ class CoreState:
 
     def detach(self) -> CoreState:
         """An explicit TBPTT boundary across both facet recurrence and history."""
-        return replace(self, facets=self.facets.detach(), history=self.history.detach())
-
-
-@dataclass(frozen=True)
-class ConsumedInput:
-    """Call-local body result shared by prediction and observation transitions."""
-
-    facets: Tensor
-    history: KVHistory
-    records_seen: Tensor
-    last_record_ids: Tensor
+        return replace(
+            self,
+            facets=self.facets.detach(),
+            early=None if self.early is None else self.early.detach(),
+            final=None if self.final is None else self.final.detach(),
+            history=self.history.detach(),
+        )
 
 
 @dataclass(frozen=True)
 class RealizationContext:
-    """Only raw final prediction facets cross the deterministic decoder boundary."""
+    """Explicit raw/early/final decoder inputs; no hidden factual-state access.
+
+    Normal realization reuses the selected input's central features. Both
+    optional features are absent for the explicit raw-only codec auxiliary.
+    """
 
     facets: Tensor
+    early: Tensor | None = None
+    final: Tensor | None = None
 
     @property
     def route_context(self) -> Tensor:

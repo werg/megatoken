@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 
 from megatoken.generation.distributions import tiled_argmax, tiled_cross_entropy
-from megatoken.generation.latents import FacetGaussian
+from megatoken.generation.latents import DiagonalGaussian, FacetGaussian
 
 
 def test_tiled_masked_ce_and_gradients_match_dense_reference():
@@ -108,3 +108,33 @@ def test_gaussian_density_sums_exactly_the_full_canonical_tensor():
     ).log_prob(sample)
     torch.testing.assert_close(distribution.log_prob(sample), expected)
     assert distribution.log_prob(sample).shape == (3,)
+
+
+def test_gaussian_correspondence_matches_reference_and_preserves_teacher_noise():
+    torch.manual_seed(872)
+    target = DiagonalGaussian(torch.randn(2, 4, 5), torch.full((2, 4, 5), -2.3))
+    mean = torch.randn(2, 4, 5, requires_grad=True)
+    log_scale = torch.full_like(mean, -1.7, requires_grad=True)
+    prior = DiagonalGaussian(mean, log_scale)
+    expected = torch.distributions.kl_divergence(
+        torch.distributions.Independent(
+            torch.distributions.Normal(target.mean, target.log_scale.exp()), 2
+        ),
+        torch.distributions.Independent(torch.distributions.Normal(mean, log_scale.exp()), 2),
+    )
+    torch.testing.assert_close(target.kl(prior), expected)
+    target.kl(prior).sum().backward()
+    assert mean.grad.norm() > 0 and log_scale.grad.norm() > 0
+    # Equal means do not justify collapsing the predictor below the teacher's
+    # controlled noise. Point-target NLL would miss this variance contribution.
+    smaller_scale = (target.log_scale - 1).clone().requires_grad_()
+    mismatch = target.kl(DiagonalGaussian(target.mean, smaller_scale)).sum()
+    mismatch.backward()
+    assert mismatch > 0 and bool((smaller_scale.grad < 0).all())
+    torch.testing.assert_close(target.kl(target), torch.zeros(2), atol=1e-7, rtol=0)
+
+
+def test_predictor_noise_initialization_is_calibrated_to_codec_noise():
+    head = FacetGaussian(5, initial_std=0.1)
+    scale = head(torch.randn(2, 4, 5)).log_scale.exp()
+    torch.testing.assert_close(scale, torch.full_like(scale, 0.1), atol=1e-7, rtol=0)

@@ -1,6 +1,6 @@
 # Connected repository / issue / PR / build-log training, with base replay.
 phase: M1
-model: recurrent32
+model: 32x512
 dataset: artifacts/prepared
 codec: artifacts/codec
 output: runs/m1

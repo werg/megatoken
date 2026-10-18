@@ -298,6 +298,11 @@ def _engram_bake(args):
     return bake_checkpoint(args.checkpoint, args.output, codec_path=args.codec)
 
 
+def _preset_name(value: str) -> str:
+    """Keep historical user-facing aliases out of saved model configurations."""
+    return {"recurrent32": "32x512", "compact32": "32x256"}.get(value, value)
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="megatoken", description="Prepare, train, evaluate, and serve causal faceted models."
@@ -325,7 +330,7 @@ def parser() -> argparse.ArgumentParser:
     item = commands.add_parser(
         "inspect", help="Audit actual parameter owners without allocating model storage"
     )
-    item.add_argument("--model", default="tiny")
+    item.add_argument("--model", type=_preset_name, default="tiny")
     item.add_argument("--codec", default="byte")
     item.add_argument("--owners", action="store_true")
     item.set_defaults(func=_inspect)
@@ -349,7 +354,7 @@ def parser() -> argparse.ArgumentParser:
         "expert-backend",
         "representation-mode",
     ):
-        item.add_argument("--" + name)
+        item.add_argument("--" + name, type=_preset_name if name == "model" else str)
     for name in ("max-steps", "budget", "generated-capacity", "microbatch-episodes"):
         item.add_argument("--" + name, type=int)
     item.add_argument("--require-blackwell", action=argparse.BooleanOptionalAction, default=None)
@@ -383,7 +388,7 @@ def parser() -> argparse.ArgumentParser:
     item = commands.add_parser(
         "benchmark", help="Measure real end-to-end work, memory, and dispatch"
     )
-    item.add_argument("--model", default="tiny")
+    item.add_argument("--model", type=_preset_name, default="tiny")
     item.add_argument("--codec", default="byte")
     item.add_argument("--device", default="cpu")
     item.add_argument("--precision", choices=("bf16", "fp32"))
@@ -481,7 +486,7 @@ def parser() -> argparse.ArgumentParser:
     extract.add_argument("--tensor-name", required=True)
     extract.add_argument("--donor-codec", required=True)
     extract.add_argument("--output", required=True)
-    extract.add_argument("--model", default="recurrent32")
+    extract.add_argument("--model", type=_preset_name, default="32x512")
     extract.add_argument("--seed", type=int, default=17)
     extract.set_defaults(func=_engram_extract)
     bake = sub.add_parser("bake")

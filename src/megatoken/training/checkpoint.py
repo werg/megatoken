@@ -13,7 +13,7 @@ import torch
 
 from megatoken.io import fsync_directory, sha256_file, write_json
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 4
 
 
 def save_checkpoint(
@@ -36,7 +36,7 @@ def save_checkpoint(
     try:
         weights = temporary / "state.pt"
         with weights.open("wb") as handle:
-            torch.save({"format_version": FORMAT_VERSION, **payload}, handle)
+            torch.save({**payload, "format_version": FORMAT_VERSION}, handle)
             handle.flush()
             os.fsync(handle.fileno())
         complete = {
@@ -84,7 +84,10 @@ def load_checkpoint(
     directory = resolve_checkpoint(path)
     metadata = json.loads((directory / "metadata.json").read_text())
     if metadata.get("format_version") != FORMAT_VERSION:
-        raise ValueError("Unsupported checkpoint format")
+        raise ValueError(
+            "Unsupported checkpoint format: v4 requires the independent contextual core "
+            "and progressive realizer; legacy weights cannot be resumed"
+        )
     state_path = directory / "state.pt"
     if sha256_file(state_path) != metadata["state_sha256"]:
         raise ValueError(f"Checkpoint payload checksum mismatch at {directory}")

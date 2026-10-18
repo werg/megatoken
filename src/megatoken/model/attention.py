@@ -17,14 +17,41 @@ class AttentionFeatures:
 
     keys: Tensor
     values: Tensor
-    mask: Tensor | None
+    mask: Tensor | None = None
 
 
-class AttentionBranch(nn.Module):
+def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -> AttentionFeatures:
+    """Append current slots to one projected history without changing its owners."""
+    if history is None or not history.keys.shape[2]:
+        return live
+    mask = None
+    if history.mask is not None or live.mask is not None:
+        masks = []
+        for features in (history, live):
+            masks.append(
+                features.mask
+                if features.mask is not None
+                else torch.ones(
+                    features.keys.shape[0],
+                    features.keys.shape[2],
+                    device=features.keys.device,
+                    dtype=torch.bool,
+                )
+            )
+        mask = torch.cat(masks, dim=1)
+    return AttentionFeatures(
+        torch.cat((history.keys.to(live.keys.dtype), live.keys), dim=2),
+        torch.cat((history.values.to(live.values.dtype), live.values), dim=2),
+        mask,
+    )
+
+
+class AttentionRead(nn.Module):
+    """Independently owned query/output transforms over shared projected KV."""
+
     def __init__(
         self,
         query_dim: int,
-        source_dim: int,
         query_heads: int,
         kv_heads: int,
         head_dim: int,
@@ -35,18 +62,8 @@ class AttentionBranch(nn.Module):
             raise ValueError("KV heads must divide query heads")
         self.query_heads, self.kv_heads, self.head_dim = query_heads, kv_heads, head_dim
         self.query_norm = RMSNorm(query_dim, eps)
-        self.source_norm = RMSNorm(source_dim, eps)
         self.query = nn.Linear(query_dim, query_heads * head_dim, bias=False)
-        self.key_value = nn.Linear(source_dim, 2 * kv_heads * head_dim, bias=False)
         self.output = nn.Linear(query_heads * head_dim, query_dim, bias=False)
-
-    def encode(self, source: Tensor, mask: Tensor | None = None) -> AttentionFeatures:
-        batch, count, _ = source.shape
-        kv = self.key_value(self.source_norm(source)).reshape(
-            batch, count, 2, self.kv_heads, self.head_dim
-        )
-        key, value = kv.unbind(2)
-        return AttentionFeatures(key.transpose(1, 2), value.transpose(1, 2), mask)
 
     def read(self, query: Tensor, features: AttentionFeatures) -> Tensor:
         if not features.keys.shape[2]:
@@ -66,6 +83,53 @@ class AttentionBranch(nn.Module):
             enable_gqa=self.query_heads != self.kv_heads,
         )
         return self.output(result.transpose(1, 2).reshape(batch, count, -1))
+
+
+def _encode(
+    source: Tensor,
+    norm: nn.Module,
+    projection: nn.Linear,
+    kv_heads: int,
+    head_dim: int,
+    mask: Tensor | None,
+) -> AttentionFeatures:
+    batch, count, _ = source.shape
+    kv = projection(norm(source)).reshape(batch, count, 2, kv_heads, head_dim)
+    key, value = kv.unbind(2)
+    return AttentionFeatures(key.transpose(1, 2), value.transpose(1, 2), mask)
+
+
+class KVProjection(nn.Module):
+    """A single normalized KV owner shared by central and predictive readers."""
+
+    def __init__(self, source_dim: int, kv_heads: int, head_dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.kv_heads, self.head_dim = kv_heads, head_dim
+        self.source_norm = RMSNorm(source_dim, eps)
+        self.key_value = nn.Linear(source_dim, 2 * kv_heads * head_dim, bias=False)
+
+    def forward(self, source: Tensor, mask: Tensor | None = None) -> AttentionFeatures:
+        return _encode(source, self.source_norm, self.key_value, self.kv_heads, self.head_dim, mask)
+
+
+class AttentionBranch(AttentionRead):
+    """Convenience branch with its own source projection for local/cross attention."""
+
+    def __init__(
+        self,
+        query_dim: int,
+        source_dim: int,
+        query_heads: int,
+        kv_heads: int,
+        head_dim: int,
+        eps: float = 1e-6,
+    ) -> None:
+        super().__init__(query_dim, query_heads, kv_heads, head_dim, eps)
+        self.source_norm = RMSNorm(source_dim, eps)
+        self.key_value = nn.Linear(source_dim, 2 * kv_heads * head_dim, bias=False)
+
+    def encode(self, source: Tensor, mask: Tensor | None = None) -> AttentionFeatures:
+        return _encode(source, self.source_norm, self.key_value, self.kv_heads, self.head_dim, mask)
 
     def forward(self, query: Tensor, source: Tensor, mask: Tensor | None = None) -> Tensor:
         return self.read(query, self.encode(source, mask))

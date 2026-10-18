@@ -86,7 +86,7 @@ def test_record_role_is_causal_model_input():
     assistant = core.observe(ids, state, role_ids=torch.tensor([2]))
     tool = core.observe(ids, state, role_ids=torch.tensor([3]))
     torch.testing.assert_close(assistant.facets, tool.facets, rtol=0, atol=0)
-    assert not torch.equal(core.process(assistant).facets, core.process(tool).facets)
+    assert not torch.equal(core.predict_facets(assistant), core.predict_facets(tool))
 
 
 def test_empty_physical_record_is_a_role_boundary_not_a_fake_byte():
@@ -99,10 +99,10 @@ def test_empty_physical_record_is_a_role_boundary_not_a_fake_byte():
         role_ids=torch.tensor([2, 2]),
     )
     torch.testing.assert_close(observed.facets[0], observed.facets[1])
-    updated = core.process(observed)
-    assert updated.records_seen.tolist() == [1, 1]
-    torch.testing.assert_close(updated.facets[0], updated.facets[1])
-    updated.facets.square().mean().backward()
+    prediction = core.predict_facets(observed)
+    assert observed.records_seen.tolist() == [1, 1]
+    torch.testing.assert_close(prediction[0], prediction[1])
+    prediction.square().mean().backward()
     assert all(torch.isfinite(p.grad).all() for p in core.parameters() if p.grad is not None)
     assert core.frontend.bytes.weight.grad.count_nonzero() == 0
 

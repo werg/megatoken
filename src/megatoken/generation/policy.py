@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import chain
@@ -15,7 +16,7 @@ from megatoken.tensors import byte_tensor
 
 from .codec import ByteCodec
 from .decoder import DecodedAction, DeterministicDecoder
-from .latents import FacetGaussian
+from .latents import DiagonalGaussian, FacetGaussian
 from .structure import TAPE_VERSION, ActionSpec, ActionTape, Observation, TapeMismatch
 from .targets import LOSS_NAMES, PreparedAction, PreparedTargets, prepare_action, prepare_targets
 
@@ -38,12 +39,37 @@ class PolicyResult:
     latent_dimensions: int
 
 
+class _TeacherReadout(nn.Module):
+    """One functional entry point for ordinary and encoder-only decoder passes.
+
+    The wrapper shares the existing modules; it never owns copied weights or is
+    attached as another child of the generator. Functional parameter substitution
+    keeps frozen-owner gradients absent without mutating requires_grad flags.
+    """
+
+    def __init__(self, core, decoder):
+        super().__init__()
+        self.core, self.decoder = core, decoder
+
+    def forward(self, value, plan, source_state=None, roles=None):
+        if source_state is not None:
+            selected = self.core.advance_raw(
+                source_state, value, role_ids=roles, checkpointing=False
+            )
+            context = self.core.prepare_realization(selected)
+        else:
+            context = self.core.prepare_realization(value) if isinstance(value, Tensor) else value
+        if isinstance(plan, PreparedTargets):
+            return self.decoder.teacher_raw(self.core, context, plan)
+        return self.decoder(self.core, context, plan.spec, teacher=plan).losses
+
+
 class FacetedGenerator(nn.Module):
     """The same raw chunk space joins observations, predictions and realization.
 
-    Observations install E(bytes); generated actions recur through their sampled raw z.
-    There is deliberately no E(D(z)) reconciliation, posterior, or private carry.
-    All stochasticity is confined to one Gaussian before the deterministic decoder.
+    E is a local initializer. Shared C processes each selected raw input once,
+    writes its KV and provides early/final features to both R and the next P.
+    No E(D(z)) reconciliation occurs. One Gaussian supplies each served action.
     """
 
     def __init__(self, core, codec: ByteCodec | None = None, *, training_heads: bool = True):
@@ -54,7 +80,7 @@ class FacetedGenerator(nn.Module):
         if self.codec.vocab_size != self.config.vocab_size:
             raise ValueError("codec vocabulary rows must match the model configuration")
         self.training_heads = training_heads
-        self.facet_distribution = FacetGaussian(self.config.facet_dim)
+        self.facet_distribution = FacetGaussian(self.config.facet_dim, self.config.prior_noise_std)
         self.decoder = DeterministicDecoder(self.config, self.codec)
 
     @property
@@ -77,30 +103,90 @@ class FacetedGenerator(nn.Module):
         if plan.mode not in {"bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be bootstrap or recurrent")
 
-    def _training_inputs(self, state, payloads, control, effort, generator, roles, mode):
+    def _training_inputs(self, state, payloads, control, effort, generator, roles, plan):
         if not self.training_heads:
             raise RuntimeError("supervised training is disabled for this served model")
         if state.batch_size != len(payloads):
             raise ValueError("target batch and independent input-facet state batch differ")
         self.core.routing_aux_loss(clear=True)
-        # Complete the six body stages, nonresidual remix and ten predictive
-        # residual stages before exposing any current target bytes.
-        processed = self.core.process(state, control=control, effort=effort, next_role_ids=roles)
-        prior = self.facet_distribution(processed.facets)
+        # Predict from already processed history before inspecting any target.
+        mean = self.core.predict_facets(state, control=control, effort=effort)
+        prior = self.facet_distribution(mean)
         sampled = prior.sample(generator)
+        selected = self.core.advance_raw(state, sampled, role_ids=roles)
         values, lengths = byte_tensor(payloads, state.device)
         target = self.core.encode_chunk(values, lengths=lengths)
+        encoded = DiagonalGaussian(
+            target.float(),
+            torch.full_like(target, math.log(self.config.codec_noise_std), dtype=torch.float32),
+        )
+        reconstruction_sample = encoded.sample(generator)
         zero = prior.mean.sum() * 0
-        if mode == "bootstrap":
-            facet_loss = -prior.log_prob(target.detach()).sum()
+        if plan.mode == "bootstrap":
+            facet_loss = encoded.detach().kl(prior).sum()
             encoder_loss = zero
-            next_input = target  # explicit early teacher forcing, no learned writer
+            # Fork from the ORIGINAL history. The sampled branch only supplied
+            # its own primary loss; it must not pollute teacher-forced live KV.
+            next_state = self.core.advance_raw(state, target, role_ids=roles)
         else:
             facet_loss = zero
-            encoder_loss = (target.float() - prior.mean.detach()).square().sum()
-            next_input = sampled  # the tower stays live across predicted chunks
-        next_state = self.core.replace_facets(processed, next_input, role_ids=roles)
-        return next_state, sampled, target, prior.mean, facet_loss, encoder_loss
+            encoder_loss = target.float().sum() * 0
+            pairs = plan.native_tapes if isinstance(plan, PreparedTargets) else (plan.native_tape,)
+            for index, tape in enumerate(pairs):
+                if tape is not None:
+                    actual = torch.tensor(tape.facets, device=target.device, dtype=torch.float32)
+                    encoder_loss = (
+                        encoder_loss + (target[index].float().flatten() - actual).square().sum()
+                    )
+            next_state = selected
+        return (
+            next_state,
+            selected,
+            reconstruction_sample,
+            target,
+            prior.mean,
+            facet_loss,
+            encoder_loss,
+        )
+
+    def encoder_reconstruction_losses(self, source_state, encoded_sample, plan, roles):
+        """Train only E through the SAME contextual C→R readout as observations.
+
+        Detach source history and every core/readout parameter, retaining the
+        externally computed encoded sample's graph. The alternate C evaluation
+        cannot append anything to the caller's immutable live state.
+        """
+        from torch.func import functional_call
+
+        readout = _TeacherReadout(self.core, self.decoder)
+        frozen = {name: parameter.detach() for name, parameter in readout.named_parameters()}
+        with self.core.discard_routing_losses():
+            return functional_call(
+                readout, frozen, (encoded_sample, plan, source_state.detach(), roles)
+            )
+
+    def _supervised(self, state, plan, payloads, control, effort, generator, roles):
+        next_state, selected, encoded_sample, target, mean, fit, alignment = self._training_inputs(
+            state, payloads, control, effort, generator, roles, plan
+        )
+        readout = _TeacherReadout(self.core, self.decoder)
+        prior_losses = readout(self.core.prepare_realization(selected), plan)
+        reconstruction_losses = (
+            readout(encoded_sample, plan)
+            if plan.mode == "bootstrap"
+            else self.encoder_reconstruction_losses(state, encoded_sample, plan, roles)
+        )
+        return self._finish_supervision(
+            next_state,
+            target,
+            mean,
+            prior_losses,
+            reconstruction_losses,
+            fit,
+            alignment,
+            plan,
+            payloads,
+        )
 
     def _finish_supervision(
         self,
@@ -119,18 +205,17 @@ class FacetedGenerator(nn.Module):
         counts = dict.fromkeys(LOSS_NAMES, 0)
         bootstrap = plan.mode == "bootstrap"
         sums["lexical"], counts["lexical"] = prior_losses["lexical"]
-        if reconstruction_losses is not None:
-            sums["reconstruction"], counts["reconstruction"] = reconstruction_losses["lexical"]
+        sums["reconstruction"], counts["reconstruction"] = reconstruction_losses["lexical"]
         for key in ("structure", "binding", "placement", "terminal"):
             first, first_count = prior_losses[key]
-            second, second_count = (
-                (zero, 0) if reconstruction_losses is None else reconstruction_losses[key]
-            )
+            second, second_count = reconstruction_losses[key]
             sums[key], counts[key] = first + second, first_count + second_count
         sums["facet_prediction"] = facet_loss
         sums["encoder_alignment"] = encoder_loss
         counts["facet_prediction"] = target.numel() if bootstrap else 0
-        counts["encoder_alignment"] = 0 if bootstrap else target.numel()
+        pairs = plan.native_tapes if isinstance(plan, PreparedTargets) else (plan.native_tape,)
+        native_count = sum(tape is not None for tape in pairs)
+        counts["encoder_alignment"] = 0 if bootstrap else native_count * self.latent_dimensions
         balance, stabilization = self.core.routing_aux_loss(clear=True)
         batch = len(payloads)
         sums["router_balance"], sums["router_z"] = balance * batch, stabilization * batch
@@ -145,7 +230,10 @@ class FacetedGenerator(nn.Module):
             "scored_positions": plan.scored_positions,
             "capacity": plan.capacity,
             "prior_examples": batch,
-            "reconstruction_examples": batch if bootstrap else 0,
+            "reconstruction_examples": batch,
+            "reconstruction_direct_examples": batch if bootstrap else 0,
+            "reconstruction_contextual_examples": 0 if bootstrap else batch,
+            "native_alignment_examples": 0 if bootstrap else native_count,
             "prior_lexical_positions": counts["lexical"],
             "reconstruction_lexical_positions": counts["reconstruction"],
             "prior_lexical_loss_sum": sums["lexical"].detach(),
@@ -161,8 +249,8 @@ class FacetedGenerator(nn.Module):
             "facet_alignment_coordinates": target.numel(),
             "facet_encodes": batch,
             "facet_bytes_encoded": sum(map(len, payloads)),
-            "capacity_positions": (1 + int(bootstrap)) * batch * plan.capacity,
-            "lexical_passes": 1 + int(bootstrap),
+            "capacity_positions": 2 * batch * plan.capacity,
+            "lexical_passes": 2,
             "structured_actions": int(isinstance(plan, PreparedAction)),
         }
         return SupervisedResult(
@@ -182,6 +270,7 @@ class FacetedGenerator(nn.Module):
         generator=None,
         role_ids=None,
         representation_mode=None,
+        native_tapes=None,
     ) -> SupervisedResult:
         plan = plan or self.prepare_target(
             target_ids,
@@ -189,6 +278,7 @@ class FacetedGenerator(nn.Module):
             free_mask=free_mask,
             role_ids=role_ids,
             representation_mode=representation_mode or "bootstrap",
+            native_tapes=native_tapes,
         )
         self._validate_mode(plan, representation_mode)
         roles = (
@@ -196,24 +286,7 @@ class FacetedGenerator(nn.Module):
             if role_ids is None
             else role_ids.to(state.device)
         )
-        next_state, sampled, target, mean, facet_loss, encoder_loss = self._training_inputs(
-            state, plan.payloads, control, effort, generator, roles, plan.mode
-        )
-        prior_losses = self.decoder.teacher_raw(self.core, sampled, plan)
-        reconstruction_losses = (
-            self.decoder.teacher_raw(self.core, target, plan) if plan.mode == "bootstrap" else None
-        )
-        return self._finish_supervision(
-            next_state,
-            target,
-            mean,
-            prior_losses,
-            reconstruction_losses,
-            facet_loss,
-            encoder_loss,
-            plan,
-            plan.payloads,
-        )
+        return self._supervised(state, plan, plan.payloads, control, effort, generator, roles)
 
     def supervised_action(
         self,
@@ -228,34 +301,33 @@ class FacetedGenerator(nn.Module):
         self._validate_mode(plan, representation_mode)
         roles = torch.tensor([plan.role_id], device=state.device)
         payloads = [plan.payload]
-        next_state, sampled, target, mean, facet_loss, encoder_loss = self._training_inputs(
-            state, payloads, control, effort, generator, roles, plan.mode
-        )
-        prior = self.decoder(self.core, sampled, plan.spec, teacher=plan)
-        reconstruction = (
-            self.decoder(self.core, target, plan.spec, teacher=plan)
-            if plan.mode == "bootstrap"
-            else None
-        )
-        return self._finish_supervision(
-            next_state,
-            target,
-            mean,
-            prior.losses,
-            None if reconstruction is None else reconstruction.losses,
-            facet_loss,
-            encoder_loss,
-            plan,
-            payloads,
-        )
+        return self._supervised(state, plan, payloads, control, effort, generator, roles)
 
     @torch.no_grad()
-    def decode_facets(self, raw_facets: Tensor, *, spec: ActionSpec | None = None) -> DecodedAction:
-        """Pure deterministic realization; accepts E(target) or a prior sample."""
+    def decode_state(self, state, *, spec: ActionSpec | None = None) -> DecodedAction:
+        """Reuse the selected input's cached C features without processing it again."""
+        return self.decoder(self.core, self.core.prepare_realization(state), self._spec(spec))
+
+    @torch.no_grad()
+    def decode_facets(
+        self, raw_facets: Tensor, *, state=None, spec: ActionSpec | None = None, raw_only=False
+    ) -> DecodedAction:
+        """Inspect raw facets with shared C by default, or the explicit codec fallback.
+
+        The caller's immutable state is not changed. Supplying state chooses its
+        causal history; otherwise this inspection starts with empty history.
+        """
         expected = (1, self.config.n_facets, self.config.facet_dim)
         if tuple(raw_facets.shape) != expected or not bool(torch.isfinite(raw_facets).all()):
             raise ValueError(f"decode_facets requires one finite raw tensor with shape {expected}")
-        return self.decoder(self.core, raw_facets, self._spec(spec))
+        if raw_only:
+            if state is not None:
+                raise ValueError("raw-only codec realization cannot receive contextual state")
+            context = self.core.prepare_realization(raw_facets)
+        else:
+            source = self.core.initial_state(1) if state is None else state
+            context = self.core.prepare_realization(self.core.advance_raw(source, raw_facets))
+        return self.decoder(self.core, context, self._spec(spec))
 
     @torch.no_grad()
     def decode_mean(
@@ -263,8 +335,9 @@ class FacetedGenerator(nn.Module):
     ) -> DecodedAction:
         """Inspect the predictor mean without sampling or committing anything."""
         control = encode_controls(self.core, [control_payload], encoder_grad=False)
-        processed = self.core.process(state, control=control, effort=effort)
-        return self.decode_facets(processed.facets, spec=spec)
+        mean = self.core.predict_facets(state, control=control, effort=effort)
+        selected = self.core.advance_raw(state, mean)
+        return self.decode_state(selected, spec=spec)
 
     @torch.no_grad()
     def sample(
@@ -295,10 +368,11 @@ class FacetedGenerator(nn.Module):
         self.core.routing_aux_loss(clear=True)
         roles = torch.tensor([role_id], device=state.device)
         control = encode_controls(self.core, [control_payload], encoder_grad=False)
-        processed = self.core.process(state, control=control, effort=effort, next_role_ids=roles)
-        distribution = self.facet_distribution(processed.facets)
+        mean = self.core.predict_facets(state, control=control, effort=effort)
+        distribution = self.facet_distribution(mean)
         raw = distribution.sample(generator)
-        decoded = self.decode_facets(raw, spec=spec)
+        next_state = self.core.advance_raw(state, raw, role_ids=roles)
+        decoded = self.decode_state(next_state, spec=spec)
         log_prob = distribution.log_prob(raw).sum()
         tape = ActionTape(
             TAPE_VERSION,
@@ -317,7 +391,6 @@ class FacetedGenerator(nn.Module):
             decoded.error,
             control_payload,
         )
-        next_state = self.core.replace_facets(processed, raw, role_ids=roles)
         self.core.routing_aux_loss(clear=True)
         return PolicyResult(
             tape,
@@ -348,14 +421,13 @@ class FacetedGenerator(nn.Module):
         self.core.routing_aux_loss(clear=True)
         roles = torch.tensor([tape.role_id], device=state.device)
         control = encode_controls(self.core, [tape.control_payload], encoder_grad=False)
-        processed = self.core.process(
-            state, control=control, effort=tape.effort, next_role_ids=roles
-        )
-        distribution = self.facet_distribution(processed.facets)
+        mean = self.core.predict_facets(state, control=control, effort=tape.effort)
+        distribution = self.facet_distribution(mean)
         raw = torch.tensor(tape.facets, device=state.device, dtype=torch.float32).reshape(
             1, *tape.facet_shape
         )
-        decoded = self.decode_facets(raw, spec=spec)
+        next_state = self.core.advance_raw(state, raw, role_ids=roles)
+        decoded = self.decode_state(next_state, spec=spec)
         actual = (
             decoded.payload,
             decoded.emitted_ids,
@@ -374,10 +446,9 @@ class FacetedGenerator(nn.Module):
         )
         if actual != recorded:
             raise TapeMismatch(
-                "deterministic action map changed or tape materialization was tampered with"
+                "conditional action map or causal history changed, or tape materialization was tampered with"
             )
         log_prob = distribution.log_prob(raw).sum()
-        next_state = self.core.replace_facets(processed, raw, role_ids=roles)
         self.core.routing_aux_loss(clear=True)
         return PolicyResult(
             tape,
@@ -416,11 +487,12 @@ class FacetedGenerator(nn.Module):
         return state, tuple(log_probs)
 
     def deterministic_decoder_parameters(self):
-        """Owners of E and z→action, including the shared U bank, exactly once."""
+        """Owners of E, C/KV and conditional R, including shared U, exactly once."""
         seen = set()
         for parameter in chain(
             self.decoder.parameters(),
             self.core.encoder_parameters(),
+            self.core.central_parameters(),
             self.core.realizer_parameters(),
         ):
             if id(parameter) not in seen:

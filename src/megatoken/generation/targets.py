@@ -10,7 +10,14 @@ from types import MappingProxyType
 from megatoken.contracts import LOSS_NAMES
 
 from .codec import ByteCodec
-from .structure import ActionSpec, CopySource, FieldSpec, strict_json_loads
+from .structure import (
+    TAPE_VERSION,
+    ActionSpec,
+    ActionTape,
+    CopySource,
+    FieldSpec,
+    strict_json_loads,
+)
 
 
 @dataclass(frozen=True)
@@ -24,6 +31,7 @@ class PreparedTargets:
     scored_positions: int
     roles: tuple[int, ...]
     representation_mode: str = "bootstrap"
+    native_tapes: tuple[ActionTape | None, ...] = ()
 
     @property
     def mode(self) -> str:
@@ -45,6 +53,7 @@ class PreparedAction:
     scored_positions: int
     role_id: int = 2
     representation_mode: str = "bootstrap"
+    native_tape: ActionTape | None = None
 
     @property
     def mode(self) -> str:
@@ -122,25 +131,58 @@ def workspace_capacity(length: int, requested: int | None, hard_limit: int) -> i
     return capacity
 
 
-def _denominators(config, batch, lexical, structure, binding=0, placement=0, *, mode="bootstrap"):
+def _denominators(
+    config, batch, lexical, structure, binding=0, placement=0, *, mode="bootstrap", native=0
+):
     if mode not in {"bootstrap", "recurrent"}:
         raise ValueError("representation_mode must be bootstrap or recurrent")
     bootstrap = mode == "bootstrap"
-    passes = 1 + int(bootstrap)
+    passes = 2
     result = dict.fromkeys(LOSS_NAMES, 0)
     result.update(
         lexical=lexical,
-        reconstruction=lexical if bootstrap else 0,
+        reconstruction=lexical,
         structure=passes * structure,
         binding=passes * binding,
         placement=passes * placement,
         terminal=passes * batch,
         facet_prediction=batch * config.n_facets * config.facet_dim if bootstrap else 0,
-        encoder_alignment=0 if bootstrap else batch * config.n_facets * config.facet_dim,
+        encoder_alignment=0 if bootstrap else native * config.n_facets * config.facet_dim,
         router_balance=batch,
         router_z=batch,
     )
     return MappingProxyType(result)
+
+
+def _native_pairs(codec, config, payloads, ids, roles, tapes):
+    """Accept only saved actions that actually materialized the supervised bytes.
+
+    This is a target label, never a prior input. Chronological linkage to the
+    episode's record cursor is additionally checked by NativeHistory upstream.
+    """
+    tapes = (None,) * len(payloads) if tapes is None else tuple(tapes)
+    if len(tapes) != len(payloads):
+        raise ValueError("native_tapes must identify every target batch row")
+    for payload, tokens, role, tape in zip(payloads, ids, roles, tapes, strict=True):
+        if tape is None:
+            continue
+        if not isinstance(tape, ActionTape) or tape.version != TAPE_VERSION:
+            raise ValueError("native alignment requires a current complete ActionTape")
+        if tape.codec_fingerprint != codec.fingerprint or tape.facet_shape != (
+            config.n_facets,
+            config.facet_dim,
+        ):
+            raise ValueError("native alignment codec or facet geometry differs")
+        if (
+            not tape.valid
+            or tape.payload != payload
+            or tape.emitted_ids != tuple(tokens)
+            or tape.role_id != role
+        ):
+            raise ValueError(
+                "native alignment must match the actual valid output bytes, IDs and role"
+            )
+    return tapes
 
 
 def prepare_targets(
@@ -154,6 +196,7 @@ def prepare_targets(
     capacity=None,
     role_ids=None,
     representation_mode="bootstrap",
+    native_tapes=None,
 ) -> PreparedTargets:
     if (target_ids is None) == (target_bytes is None):
         raise ValueError("supply exactly one of target_ids or target_bytes")
@@ -187,7 +230,15 @@ def prepare_targets(
         raise ValueError("one supported role and terminal label are required per target")
     capacity = workspace_capacity(max(map(len, ids)), capacity, config.max_capacity)
     lexical = sum(map(sum, masks))
-    denominators = _denominators(config, batch, lexical, batch, mode=representation_mode)
+    pairs = _native_pairs(codec, config, payloads, ids, roles, native_tapes)
+    denominators = _denominators(
+        config,
+        batch,
+        lexical,
+        batch,
+        mode=representation_mode,
+        native=sum(tape is not None for tape in pairs),
+    )
     return PreparedTargets(
         payloads,
         ids,
@@ -198,6 +249,7 @@ def prepare_targets(
         denominators["lexical"] + denominators["reconstruction"],
         roles,
         representation_mode,
+        pairs,
     )
 
 
@@ -214,13 +266,14 @@ def prepare_action(
     terminal=True,
     role_id=2,
     representation_mode="bootstrap",
+    native_tape=None,
 ) -> PreparedAction:
     """Use only a public causal schema; canonicalization is visible in .payload.
 
     Teacher labels train exactly the same deterministic decisions used at
     inference. Fixed syntax, copies, and repeated identifiers incur no lexical
-    CE. Bootstrap has a prior and a reconstruction pass; recurrent training
-    evaluates only the live predictive decoder.
+    CE. Both modes have a prior and a reconstruction pass; the recurrent
+    reconstruction branch updates only E through frozen contextual processing.
     """
     if not 0 <= schema_index < len(spec.schemas):
         raise ValueError("selected schema is absent from the public action spec")
@@ -311,8 +364,18 @@ def prepare_action(
         terminal = spec.require_terminal
     if not 0 <= role_id <= 5:
         raise ValueError("target role ID is unsupported")
+    pairs = _native_pairs(
+        codec, config, (payload,), (tuple(codec.encode(payload)),), (role_id,), (native_tape,)
+    )
     denominators = _denominators(
-        config, 1, lexical, structure, binding_count, placement_count, mode=representation_mode
+        config,
+        1,
+        lexical,
+        structure,
+        binding_count,
+        placement_count,
+        mode=representation_mode,
+        native=int(pairs[0] is not None),
     )
     return PreparedAction(
         payload,
@@ -328,4 +391,5 @@ def prepare_action(
         denominators["lexical"] + denominators["reconstruction"],
         role_id,
         representation_mode,
+        pairs[0],
     )

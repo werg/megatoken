@@ -28,7 +28,13 @@ def model():
 def assert_state_equal(first, second):
     assert torch.equal(first.facets, second.facets)
     assert torch.equal(first.records_seen, second.records_seen)
-    assert torch.equal(first.input_record_ids, second.input_record_ids)
+    assert torch.equal(first.last_record_ids, second.last_record_ids)
+    for name in ("early", "final"):
+        a, b = getattr(first, name), getattr(second, name)
+        if a is None or b is None:
+            assert a is b
+        else:
+            torch.testing.assert_close(a, b, rtol=1e-6, atol=1e-6)
     # Derived attention intermediates may choose a different reduction under
     # no_grad collection and differentiable replay. The taped raw input above
     # remains exact; the recomputed causal cache agrees to FP32 roundoff.
@@ -68,7 +74,9 @@ def test_batched_two_pass_supervision_counts_free_positions_and_commits_once(mod
     assert result.losses["structure"][1] == result.losses["terminal"][1] == 4
     assert result.losses["facet_prediction"][1] == 2 * model.latent_dimensions
     assert all(result.losses[name][1] == count for name, count in plan.denominators.items())
-    assert result.state.has_pending_input and not state.has_pending_input
+    assert result.state.early is not None and result.state.final is not None
+    assert state.early is state.final is None
+    assert result.state.records_seen.tolist() == [1, 1]
     assert result.state.role_ids.tolist() == [2, 4]
     assert state.records_seen.tolist() == [0, 0]
     sum(value / count for value, count in result.losses.values() if count).backward()
@@ -104,7 +112,7 @@ def test_served_predictive_facets_do_not_see_target_bytes_or_length(model, monke
     original = model.decoder.teacher_raw
 
     def capture(core, raw, plan):
-        captured.append(raw.detach().clone())
+        captured.append(raw.facets.detach().clone())
         return original(core, raw, plan)
 
     monkeypatch.setattr(model.decoder, "teacher_raw", capture)
@@ -145,22 +153,23 @@ def test_generated_facets_commit_raw_without_encoding_decoded_bytes(model, monke
     spec = ActionSpec(min_tokens=4, max_tokens=4)
     sampled = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(9))
     raw = torch.tensor(sampled.tape.facets).reshape(1, *sampled.tape.facet_shape)
-    expected = model.core.replace_facets(model.core.process(state), raw, role_ids=torch.tensor([2]))
+    expected = model.core.advance_raw(state, raw, role_ids=torch.tensor([2]))
     assert_state_equal(sampled.state, expected)
     scored = model.score_tape(state, sampled.tape, spec=spec)
     assert_state_equal(sampled.state, scored.state)
     assert torch.equal(sampled.log_prob, scored.log_prob)
 
 
-def test_teacher_commits_the_same_canonical_tensor_used_for_reconstruction(model):
-    state = model.core.initial_state(1)
+def test_teacher_processes_clean_canonical_target_from_original_history(model):
+    values, lengths = byte_tensor([b"earlier history"], "cpu")
+    state = model.core.observe(values, model.core.initial_state(1), lengths=lengths)
     plan = model.prepare_target(target_bytes=b"observed", role_ids=[4])
     result = model.supervised_step(state, plan=plan)
     values, lengths = byte_tensor(plan.payloads, state.device)
     canonical = model.core.encode_chunk(values, lengths=lengths)
-    processed = model.core.process(state, next_role_ids=torch.tensor([4]))
-    expected = model.core.replace_facets(processed, canonical, role_ids=torch.tensor([4]))
+    expected = model.core.advance_raw(state, canonical, role_ids=torch.tensor([4]))
     assert_state_equal(result.state, expected)
+    assert result.state.records_seen.item() == state.records_seen.item() + 1
 
 
 def test_full_facet_tape_roundtrip_density_and_integrity(model):
@@ -202,7 +211,8 @@ def test_invalid_materialization_still_advances_and_replays_raw_computation(mode
     state = model.core.initial_state(1)
     result = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(5))
     assert not result.tape.valid and "including fixed syntax" in result.tape.error
-    assert result.state.has_pending_input and not state.has_pending_input
+    assert result.state.final is not None and state.final is None
+    assert result.state.records_seen.item() == 1
     assert not torch.equal(state.facets, result.state.facets)
     replay = model.score_tape(state, result.tape, spec=spec)
     assert torch.equal(result.log_prob, replay.log_prob)
@@ -221,9 +231,9 @@ def test_replay_reconstructs_state_and_candidate_density_depends_on_history(mode
     )
     assert_state_equal(state, second.state)
     torch.testing.assert_close(probabilities[1], second.log_prob, rtol=0, atol=3e-5)
-    isolated = model.score_tape(initial, second.tape, spec=spec)
-    assert isolated.payload == second.payload
-    assert not torch.allclose(isolated.log_prob, second.log_prob)
+    raw = torch.tensor(second.tape.facets).reshape(1, *second.tape.facet_shape)
+    isolated = model.facet_distribution(model.core.predict_facets(initial)).log_prob(raw).sum()
+    assert not torch.allclose(isolated, second.log_prob)
 
 
 def test_freezing_preserves_entire_encoder_and_action_map_under_latent_update(model):
@@ -386,7 +396,8 @@ def test_empty_terminal_chunk_is_a_real_raw_facet_event(model):
         spec=ActionSpec(min_tokens=0, max_tokens=0, require_terminal=True),
     )
     assert result.payload == b"" and result.scored_positions == 0 and result.tape.terminal
-    assert result.tape.valid and result.state.has_pending_input
+    assert result.tape.valid and result.state.final is not None
+    assert result.state.records_seen.item() == 1
 
 
 def test_metrics_are_detached_and_report_both_decoder_passes(model):
@@ -481,7 +492,7 @@ def test_small_predictor_and_shared_reconstruction_can_learn_a_byte_task():
     assert model.decode_facets(encoded, spec=spec).payload == b"AAAA"
 
 
-def test_recurrent_mode_has_only_encoder_following_alignment_and_one_decoder_pass(
+def test_recurrent_mode_has_encoder_only_contextual_reconstruction_and_two_passes(
     model, monkeypatch
 ):
     plan = model.prepare_target(target_bytes=b"follow", representation_mode="recurrent")
@@ -494,16 +505,20 @@ def test_recurrent_mode_has_only_encoder_following_alignment_and_one_decoder_pas
 
     monkeypatch.setattr(model.decoder, "teacher_raw", capture)
     result = model.supervised_step(model.core.initial_state(1), plan=plan)
-    assert len(calls) == 1
-    assert result.state.facets is calls[0]
-    assert plan.scored_positions == 6
-    assert result.losses["reconstruction"][1] == result.losses["facet_prediction"][1] == 0
-    assert result.losses["encoder_alignment"][1] == model.latent_dimensions
-    result.losses["encoder_alignment"][0].backward(retain_graph=True)
+    assert len(calls) == 2
+    assert result.state.facets is calls[0].facets
+    assert calls[0].early is result.state.early and calls[0].final is result.state.final
+    assert calls[1].early is not None and calls[1].final is not None
+    assert plan.scored_positions == 12
+    assert result.losses["reconstruction"][1] == 6
+    assert result.losses["facet_prediction"][1] == result.losses["encoder_alignment"][1] == 0
+    result.losses["reconstruction"][0].backward(retain_graph=True)
     assert has_gradient(model.core.encoder_parameters())
     assert not has_gradient(predictor_parameters(model))
     assert not has_gradient(model.decoder.parameters())
     assert not has_gradient(model.facet_distribution.parameters())
+    assert all(parameter.grad is None for parameter in model.core.central_parameters())
+    assert all(parameter.grad is None for parameter in model.core.realizer_parameters())
     model.zero_grad(set_to_none=True)
     result.losses["lexical"][0].backward()
     assert has_gradient(predictor_parameters(model))
@@ -543,18 +558,18 @@ def test_recurrent_observations_detach_encoder_but_preserve_body_context_gradien
     assert has_gradient(predictor_parameters(model))
 
 
-def test_structured_recurrent_counts_match_only_the_live_decoder(model):
+def test_structured_recurrent_counts_cover_live_and_encoder_only_contextual_decoders(model):
     schema = SchemaSpec("text", (FieldSpec("value", kind="ascii", max_tokens=8),))
     spec = ActionSpec(allow_text=False, schemas=(schema,), max_tokens=32)
     plan = model.prepare_action_target(
         b'{"value":"ok"}', spec=spec, representation_mode="recurrent"
     )
     result = model.supervised_action(model.core.initial_state(1), plan=plan)
-    assert plan.scored_positions == result.losses["lexical"][1] == 2
-    assert result.losses["reconstruction"][1] == result.losses["facet_prediction"][1] == 0
-    assert result.losses["encoder_alignment"][1] == model.latent_dimensions
-    assert result.losses["structure"][1] == 4
-    assert result.losses["terminal"][1] == 1
+    assert plan.scored_positions == 4
+    assert result.losses["lexical"][1] == result.losses["reconstruction"][1] == 2
+    assert result.losses["facet_prediction"][1] == result.losses["encoder_alignment"][1] == 0
+    assert result.losses["structure"][1] == 8
+    assert result.losses["terminal"][1] == 2
 
 
 def test_nonempty_control_bytes_roundtrip_and_train_only_the_served_control_path(model):
@@ -618,7 +633,7 @@ def test_fixed_facets_have_identical_decoder_output_under_different_causal_contr
     "bad",
     [None, "plain text", [], {}, {"$bytes": 1}, {"$bytes": "AA==", "extra": 1}, {"$bytes": "AB=="}],
 )
-def test_v3_tape_control_payload_requires_an_exact_serialized_byte_field(model, bad):
+def test_v4_tape_control_payload_requires_an_exact_serialized_byte_field(model, bad):
     result = model.sample(
         model.core.initial_state(1),
         spec=ActionSpec(max_tokens=0),

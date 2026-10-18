@@ -1,4 +1,4 @@
-"""Deterministic parallel realization of raw canonical facets using shared U."""
+"""Progressive realization from raw facets and their shared central features."""
 
 from __future__ import annotations
 
@@ -13,18 +13,19 @@ from megatoken.model.layers import RMSNorm, position_features
 
 
 class ParallelRealizer(nn.Module):
-    """Shared growth, block attention and one dense lexical refinement.
+    """Keep every facet identity through seeding, growth and contextual readout.
 
-    All learned inputs descend from the raw canonical facets. The conditioning
-    vector contains deterministic decoded structure and public copied values;
-    recurrent factual state and control are deliberately absent from this API.
+    Central features are computed once by the core and supplied explicitly.
+    This module cannot write history or read bytes behind the selected facets.
+    Raw-only contexts support the independent bootstrap codec objective.
     """
 
     def __init__(self, config) -> None:
         super().__init__()
         self.width = width = config.facet_dim
-        self.seed_count = min(4, config.max_capacity)
+        self.seed_count = config.n_facets
         self.seed = nn.Linear(width, width, bias=False)
+        self.early_seed = nn.Linear(width, width, bias=False)
         self.seed_codes = nn.Parameter(torch.randn(self.seed_count, width) / math.sqrt(width))
         self.split = nn.Linear(width, 2 * width, bias=False)
         self.growth_norm = RMSNorm(width, config.norm_eps)
@@ -37,6 +38,22 @@ class ParallelRealizer(nn.Module):
             config.norm_eps,
         )
         self.plan_attention = AttentionBranch(
+            width,
+            width,
+            config.query_heads,
+            config.kv_heads,
+            config.attention_head_dim,
+            config.norm_eps,
+        )
+        self.early_attention = AttentionBranch(
+            width,
+            width,
+            config.query_heads,
+            config.kv_heads,
+            config.attention_head_dim,
+            config.norm_eps,
+        )
+        self.final_attention = AttentionBranch(
             width,
             width,
             config.query_heads,
@@ -63,13 +80,25 @@ class ParallelRealizer(nn.Module):
         self.final_norm = RMSNorm(width, config.norm_eps)
         self.local_window = 64
 
-    def forward(self, core, raw_facets: Tensor, capacity: int, conditioning: Tensor) -> Tensor:
+    @staticmethod
+    def source(context, name: str, dtype) -> Tensor:
+        value = getattr(context, name)
+        return (context.facets if value is None else value).to(dtype)
+
+    def forward(self, core, context, capacity: int, conditioning: Tensor) -> Tensor:
         if not 1 <= capacity <= core.config.max_capacity:
             raise ValueError("realization workspace exceeds the configured output limit")
-        context = core.prepare_realization(raw_facets)
-        raw = raw_facets.to(self.seed.weight.dtype)
-        rows = self.seed(raw.mean(1))[:, None] + self.seed_codes[None]
-        rows = (rows + conditioning[:, None])[:, :capacity]
+        raw = context.facets.to(self.seed.weight.dtype)
+        if raw.shape[1] != self.seed_count:
+            raise ValueError("realization requires every configured raw facet slot")
+        early = self.source(context, "early", raw.dtype)
+        rows = self.seed(raw) + self.early_seed(early) + self.seed_codes[None]
+        rows = rows + conditioning[:, None]
+        rows = rows + self.early_attention(rows, early + self.seed_codes[None])
+        if capacity < self.seed_count:
+            # Short chunks still use all slots, rather than dropping the suffix.
+            rows = F.adaptive_avg_pool1d(rows.transpose(1, 2), capacity).transpose(1, 2)
+        rows = core.apply_u(self.growth_norm(rows), context, level=rows.shape[1])
         while rows.shape[1] < capacity:
             previous = rows.shape[1]
             children = self.split(self.growth_norm(rows)).reshape(
@@ -82,6 +111,7 @@ class ParallelRealizer(nn.Module):
                 + position_features(rows.shape[1], self.width, rows.device).to(rows.dtype)[None]
             )
             rows = rows + self.growth_attention(rows, rows)
+            rows = rows + self.early_attention(rows, early + self.seed_codes[None])
             rows = core.apply_u(self.growth_norm(rows), context, level=rows.shape[1])
         return self.refine(core, context, rows)
 
@@ -101,5 +131,9 @@ class ParallelRealizer(nn.Module):
             (local * mask[..., None]).sum(1) / mask.sum(1, keepdim=True).clamp_min(1)
         ).reshape(batch, padded // window, width)
         rows = rows + local_out + self.global_attention(rows, pooled)
-        rows = rows + self.plan_attention(rows, context.facets.to(rows.dtype))
+        identities = self.seed_codes[None].to(rows.dtype)
+        rows = rows + self.plan_attention(rows, context.facets.to(rows.dtype) + identities)
+        rows = rows + self.final_attention(
+            rows, self.source(context, "final", rows.dtype) + identities
+        )
         return core.lexical_refine(self.final_norm(rows))

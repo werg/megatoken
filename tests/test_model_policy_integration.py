@@ -23,7 +23,9 @@ from megatoken.model import FacetedCore, ModelConfig
         ),
     ],
 )
-def test_bf16_complete_tape_replay_and_writer_to_reader_gradient(device, backend):
+def test_bf16_conditional_tape_replay_with_frozen_central_writer_and_trainable_predictor(
+    device, backend
+):
     if backend == "triton":
         pytest.importorskip("triton")
     torch.set_num_threads(1)
@@ -47,7 +49,7 @@ def test_bf16_complete_tape_replay_and_writer_to_reader_gradient(device, backend
         )
     replay_factual = model.core.observe(prompt, model.core.initial_state(1))
     replay_first = model.score_tape(replay_factual, first.tape, spec=spec)
-    replay_first.state.history.values.retain_grad()
+    assert not replay_first.state.history.values.requires_grad
     replay_second = model.score_tape(replay_first.state, second.tape, spec=spec)
     # CPU should be bitwise stable; CUDA dispatches may differ in harmless final
     # accumulation bits. This tight density tolerance is the replay gate.
@@ -61,7 +63,11 @@ def test_bf16_complete_tape_replay_and_writer_to_reader_gradient(device, backend
         second.state.history.values, replay_second.state.history.values, rtol=0, atol=tolerance
     )
     (-replay_second.log_prob).backward()
-    assert replay_first.state.history.values.grad.float().norm() > 0
+    assert all(parameter.grad is None for parameter in model.core.central_parameters())
+    assert any(
+        parameter.grad is not None and parameter.grad.float().norm() > 0
+        for parameter in model.core.predictor_parameters()
+    )
     assert all(
         torch.isfinite(parameter.grad).all()
         for parameter in model.parameters()

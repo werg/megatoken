@@ -39,6 +39,51 @@ def test_pyramid_halves_positions_and_bounds_every_attention_source():
     assert sum(after for _, after in reductions) < 2 * reductions[0][0]
 
 
+def test_uniform_fast_path_skips_discarded_readouts_and_preserves_gradients():
+    """Length bucketing must save work without changing the learned function."""
+    encoder = ChunkEncoder(ModelConfig.tiny()).eval()
+    ids = torch.randint(256, (2, 1031))
+    calls = []
+    hook = encoder.facet_attention.register_forward_hook(
+        lambda module, inputs, output: calls.append(inputs[0].shape)
+    )
+    fast = encoder(ids)
+    assert len(calls) == 1
+    direction = torch.randn_like(fast)
+    fast_grads = torch.autograd.grad(
+        (fast * direction).sum(), tuple(encoder.parameters()), allow_unused=True
+    )
+    calls.clear()
+    explicit = encoder(ids, torch.full((2,), ids.shape[1], dtype=torch.long))
+    assert len(calls) > 1
+    explicit_grads = torch.autograd.grad(
+        (explicit * direction).sum(), tuple(encoder.parameters()), allow_unused=True
+    )
+    hook.remove()
+    torch.testing.assert_close(fast, explicit)
+    for actual, expected in zip(fast_grads, explicit_grads, strict=True):
+        if expected is None:
+            assert actual is None
+        else:
+            torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-5)
+
+
+def test_local_refinement_is_encoder_owned_and_runs_once_per_batch():
+    encoder = ChunkEncoder(ModelConfig.tiny())
+    calls = []
+    hooks = [
+        block.register_forward_hook(lambda module, inputs, output: calls.append(output.shape))
+        for block in encoder.refinement
+    ]
+    facets = encoder(torch.randint(256, (2, 513)), torch.tensor([3, 513]))
+    facets.square().mean().backward()
+    for hook in hooks:
+        hook.remove()
+    assert calls == [facets.shape] * encoder.config.encoder_layers
+    for block in encoder.refinement:
+        assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in block.parameters())
+
+
 @pytest.mark.parametrize("mode", ["fp32", "bf16", "autocast"])
 def test_padding_and_unequal_batch_membership_do_not_change_facets(mode):
     encoder = ChunkEncoder(ModelConfig.tiny()).eval()

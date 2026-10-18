@@ -2,22 +2,27 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-ARCHITECTURE_VERSION = 3
+ARCHITECTURE_VERSION = 4
 
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """Facet count and width are separate axes; compact32 is an explicit ablation."""
+    """Explicit encoder, central processor, and predictor allocations."""
 
-    name: str = "recurrent32"
+    name: str = "32x512"
     architecture_version: int = ARCHITECTURE_VERSION
     n_facets: int = 32
     facet_dim: int = 512
-    n_stages: int = 16
-    body_stages: int = 6
+    encoder_layers: int = 2
+    encoder_hidden: int = 1024
+    central_layers: int = 4
+    central_early_layer: int = 2
+    central_hidden: int = 1024
+    prediction_layers: int = 12
     remix_hidden: int = 1024
     history_slots: int = 32
     max_history_chunks: int = 1024
@@ -29,6 +34,8 @@ class ModelConfig:
     exact_bigrams: bool = True
     ngram_orders: tuple[int, ...] = (1, 2, 3, 4, 8)
     control_dim: int = 128
+    codec_noise_std: float = 0.1
+    prior_noise_std: float = 0.1
     p_experts: int = 64
     p_hidden: int = 1536
     p_always_hidden: int = 1024
@@ -37,7 +44,7 @@ class ModelConfig:
     u_always_hidden: int = 512
     eligible_experts: int = 8
     router_dim: int = 64
-    routing_version: int = 2
+    routing_version: int = 3
     query_heads: int = 4
     kv_heads: int = 2
     attention_head_dim: int = 128
@@ -51,12 +58,18 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: recurrent32 requires version 3; "
-                "old recurrent-memory checkpoints cannot be loaded as this architecture"
+                "Incompatible architecture version: shared central processing requires version 4; "
+                "earlier facet checkpoints cannot be loaded as this architecture"
             )
         positive = (
             "n_facets",
             "facet_dim",
+            "encoder_layers",
+            "encoder_hidden",
+            "central_layers",
+            "central_early_layer",
+            "central_hidden",
+            "prediction_layers",
             "source_dim",
             "byte_dim",
             "source_stride",
@@ -84,10 +97,14 @@ class ModelConfig:
         for name in positive:
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
-        if self.name in {"v12", "v13"}:
-            raise ValueError("Old architecture names are not aliases for recurrent32")
-        if self.n_stages != 16 or self.body_stages != 6:
-            raise ValueError("The shared core requires six body and ten prediction stages")
+        if self.name in {"v12", "v13", "recurrent32", "compact32"}:
+            raise ValueError("Old architecture names are not aliases for the version-4 presets")
+        if self.central_early_layer >= self.central_layers:
+            raise ValueError("central_early_layer must precede the final central layer")
+        for name in ("codec_noise_std", "prior_noise_std"):
+            value = getattr(self, name)
+            if not math.isfinite(value) or not math.exp(-4.0) < value < math.exp(1.0):
+                raise ValueError(f"{name} must lie strictly within exp(-4) and exp(1)")
         if self.history_slots > self.n_facets:
             raise ValueError("history_slots cannot exceed n_facets")
         if self.n_facets % 4:
@@ -114,11 +131,19 @@ class ModelConfig:
         return 2 * self.facet_dim
 
     @property
+    def n_stages(self) -> int:
+        """Central plus predictive depth; encoder/realizer work is additional."""
+        return self.central_layers + self.prediction_layers
+
+    @property
     def state_geometry(self) -> tuple[int, ...]:
         return (
             self.architecture_version,
             self.n_facets,
             self.facet_dim,
+            self.central_layers,
+            self.central_early_layer,
+            self.prediction_layers,
             self.history_slots,
             self.max_history_chunks,
             self.kv_heads,
@@ -132,6 +157,8 @@ class ModelConfig:
             n_facets=4,
             facet_dim=32,
             source_dim=32,
+            encoder_hidden=48,
+            central_hidden=48,
             control_dim=16,
             byte_dim=4,
             ngram_dim=8,
@@ -158,9 +185,11 @@ class ModelConfig:
     @classmethod
     def compact32(cls, **overrides: Any) -> ModelConfig:
         values: dict[str, Any] = dict(
-            name="compact32",
+            name="32x256",
             facet_dim=256,
             source_dim=128,
+            encoder_hidden=512,
+            central_hidden=512,
             attention_head_dim=64,
         )
         values.update(overrides)
@@ -170,7 +199,7 @@ class ModelConfig:
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=3; "
+                "Saved model configuration must explicitly declare architecture_version=4; "
                 "legacy checkpoints require an explicit migration, not default replacement"
             )
         unknown = set(values) - {field.name for field in fields(cls)}

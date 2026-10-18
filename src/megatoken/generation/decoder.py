@@ -82,6 +82,8 @@ class DeterministicDecoder(nn.Module):
         self.config, self.codec = config, codec
         width = config.facet_dim
         self.header_start = nn.Linear(width, width, bias=False)
+        self.header_early = nn.Linear(width, width, bias=False)
+        self.header_final = nn.Linear(width, width, bias=False)
         self.header_cell = nn.GRUCell(width, width)
         self.mode_codes = nn.Embedding(2, width)
         self.schema_codes = nn.Embedding(128, width)
@@ -136,13 +138,22 @@ class DeterministicDecoder(nn.Module):
             self._public_tokens[text] = tuple(self.codec.encode(text.encode()))
         return self.public_embedding(self._public_tokens[text], reference)
 
-    def header(self, raw_facets: Tensor) -> Tensor:
-        return self.header_start(raw_facets.to(self.header_start.weight.dtype).mean(1))
+    def header(self, context) -> Tensor:
+        raw = context if isinstance(context, Tensor) else context.facets
+        early = None if isinstance(context, Tensor) else context.early
+        final = None if isinstance(context, Tensor) else context.final
+        dtype = self.header_start.weight.dtype
+        return (
+            self.header_start(raw.to(dtype).mean(1))
+            + self.header_early((raw if early is None else early).to(dtype).mean(1))
+            + self.header_final((raw if final is None else final).to(dtype).mean(1))
+        )
 
-    def teacher_raw(self, core, raw_facets: Tensor, plan: PreparedTargets):
+    def teacher_raw(self, core, context, plan: PreparedTargets):
         """Vectorized independent examples; only the sparse CE positions are gathered."""
+        context = core.prepare_realization(context) if isinstance(context, Tensor) else context
         batch = len(plan.ids)
-        header = self.condition(self.header(raw_facets), self.mode_codes, 0)
+        header = self.condition(self.header(context), self.mode_codes, 0)
         zero = header.float().sum() * 0
         losses = {name: (zero, 0) for name in DECODER_LOSSES}
         lengths = torch.tensor([len(row) for row in plan.ids], device=header.device)
@@ -161,7 +172,7 @@ class DeterministicDecoder(nn.Module):
             batch,
         )
         header = self.condition(header, self.terminal_codes, terminals)
-        rows = self.realizer(core, raw_facets, plan.capacity, header)
+        rows = self.realizer(core, context, plan.capacity, header)
         positions, targets = [], []
         for example, (ids, mask) in enumerate(zip(plan.ids, plan.free_masks, strict=True)):
             for position, (token, scored) in enumerate(zip(ids, mask, strict=True)):
@@ -177,14 +188,13 @@ class DeterministicDecoder(nn.Module):
         )
         return losses
 
-    def forward(
-        self, core, raw_facets: Tensor, spec: ActionSpec, teacher: PreparedAction | None = None
-    ):
-        if raw_facets.shape[0] != 1:
+    def forward(self, core, context, spec: ActionSpec, teacher: PreparedAction | None = None):
+        context = core.prepare_realization(context) if isinstance(context, Tensor) else context
+        if context.facets.shape[0] != 1:
             raise ValueError("action realization takes one example; raw supervision is batched")
         if len(spec.schemas) > self.schema_codes.num_embeddings:
             raise ValueError("too many public schemas for the configured schema head")
-        header = self.header(raw_facets)
+        header = self.header(context)
         program = _Program(header, teacher)
         limit = min(spec.max_tokens, self.config.max_capacity)
         schema_fields = {
@@ -399,7 +409,7 @@ class DeterministicDecoder(nn.Module):
         capacity = workspace_capacity(
             assigned, teacher.capacity if teacher else None, self.config.max_capacity
         )
-        rows = self.realizer(core, raw_facets, capacity, header)
+        rows = self.realizer(core, context, capacity, header)
         outputs = {}
         for name, value in fields.items():
             if value.fixed_ids is not None:

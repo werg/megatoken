@@ -38,7 +38,9 @@ def evaluate_records(
 
     The target is never supplied as a control, sampled prefix, or exact-length
     hint. The sample limit is the configured public capacity for every target.
-    Bootstrap measures encoder reconstruction separately and teacher-forces E.
+    Bootstrap measures noisy raw-codec reconstruction and teacher-forces E.
+    Recurrent auxiliary reconstruction follows E -> frozen C -> frozen R from
+    the same detached causal context; it does not replace the live prediction.
     Recurrent evaluation keeps sampled facets live between consecutive targets.
     """
     was_training = model.training
@@ -81,6 +83,7 @@ def evaluate_records(
                     free_mask=encoded.free_mask,
                     terminal=record.part_index + 1 == record.part_count,
                     representation_mode=config.representation_training,
+                    native_tapes=[native.paired_tape(cursor)],
                 )
                 step = model.supervised_step(
                     state,
@@ -102,7 +105,7 @@ def evaluate_records(
                 if counts["reconstruction"]
                 else None
             ),
-            "facet_nll_per_coordinate": (
+            "facet_kl_per_coordinate": (
                 sums["facet_prediction"] / counts["facet_prediction"]
                 if counts["facet_prediction"]
                 else None

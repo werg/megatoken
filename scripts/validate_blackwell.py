@@ -85,7 +85,7 @@ def main() -> int:
             save(name, report)
         full_vocabulary = args.codec is not None
         report = benchmark(
-            config="recurrent32",
+            config="32x512",
             codec=str(args.codec) if full_vocabulary else "byte",
             device="cuda",
             precision="bf16",
@@ -102,7 +102,7 @@ def main() -> int:
             representation_mode="recurrent" if full_vocabulary else "bootstrap",
             prediction_chunks=args.prediction_chunks if full_vocabulary else 1,
         )
-        save(f"recurrent32-{backend}-{'generator' if full_vocabulary else 'core'}", report)
+        save(f"32x512-{backend}-{'generator' if full_vocabulary else 'core'}", report)
     return 0
 
 

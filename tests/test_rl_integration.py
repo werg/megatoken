@@ -10,6 +10,7 @@ from megatoken.controls import build_control_payload, encode_controls
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.environments import FixtureEnvironment
 from megatoken.generation.codec import ByteCodec
+from megatoken.generation.structure import ActionSpec
 from megatoken.loading import build_model
 from megatoken.model.config import ModelConfig
 from megatoken.tool_schema import compile_tool_spec
@@ -71,7 +72,7 @@ def initialize_balanced_tool_decoder(model, chunking):
     tools_json = json.dumps(FIXED_TOOLS)
     payload = build_control_payload(tools_json=tools_json)
     control = encode_controls(model.core, [payload], encoder_grad=False)
-    mean = model.core.process(state, control=control, effort=6).facets
+    mean = model.core.predict_facets(state, control=control, effort=6)
     center = mean.mean(1)[0, 0]
 
     decoder = model.decoder
@@ -167,8 +168,11 @@ def test_executed_facet_rl_updates_predictor_and_preserves_fixed_decoder(
     assert result["episodes"] == 8 and 0 < result["successes"] < result["episodes"]
     assert result["optimizer_updates"] > 0 and result["global_step"] > before["global_step"]
     assert result["I"] == result["collection_I"] + result["replay_I"] == 2 * result["D"]
-    frozen = after["frozen_decoder_parameters"]
+    frozen = after["frozen_conditional_parameters"]
     assert frozen and any("frontend" in name for name in frozen)
+    assert any(name.startswith("core.central.") for name in frozen)
+    assert not any(name.startswith("core.p_bank.") for name in frozen)
+    assert not any(name.startswith("core.control_encoder.") for name in frozen)
     assert any(
         not torch.equal(value, after["model"][name])
         for name, value in before["model"].items()
@@ -283,6 +287,57 @@ def test_raw_rollouts_replay_full_facets_with_history_gradients_and_fixed_encode
         if name.startswith("core.stages.") or name.startswith("core.remix.")
     )
     assert all(parameter.grad is None for parameter in model.core.encoder_parameters())
+    assert all(parameter.grad is None for parameter in model.core.central_parameters())
+
+
+def test_latent_update_preserves_fixed_action_context_and_readout_exactly():
+    torch.set_num_threads(1)
+    torch.manual_seed(611)
+    codec = ByteCodec.byte_fallback()
+    model = build_model(ModelConfig.tiny(max_capacity=8), codec).eval()
+    optimizer = MasterAdamW(model, lr=0.01)
+    names = list(model.freeze_decoder_for_rl())
+    optimizer.freeze(names)
+    chunking = ChunkingConfig().with_hard_limit(model.config.max_capacity)
+    observation = b"public causal observation"
+    original = _ingest(model, model.core.initial_state(1), observation, "user", chunking)
+    spec = ActionSpec(text_kind="ascii", min_tokens=2, max_tokens=4)
+    sampled = model.sample(
+        original, spec=spec, control_payload=b"choose", generator=torch.Generator().manual_seed(551)
+    )
+    before = {name: parameter.detach().clone() for name, parameter in model.named_parameters()}
+    scored = model.score_tape(original, sampled.tape, spec=spec)
+    (-scored.log_prob).backward()
+    optimizer.step()
+    try:
+        for name in names:
+            torch.testing.assert_close(
+                before[name], dict(model.named_parameters())[name], atol=0, rtol=0
+            )
+        assert any(
+            not torch.equal(before[name], parameter)
+            for name, parameter in model.named_parameters()
+            if name not in names
+        )
+        model.core.set_model_version(1)
+        rebuilt = _ingest(model, model.core.initial_state(1), observation, "user", chunking)
+        replayed = model.score_tape(rebuilt, sampled.tape, spec=spec)
+        assert replayed.payload == sampled.payload and replayed.emitted_ids == sampled.emitted_ids
+        for field in ("facets", "early", "final"):
+            # Compare like-for-like replay execution modes. Inference's
+            # no-grad attention path may round derived features differently.
+            torch.testing.assert_close(
+                getattr(replayed.state, field), getattr(scored.state, field), atol=0, rtol=0
+            )
+        torch.testing.assert_close(
+            replayed.state.history.keys, scored.state.history.keys, atol=0, rtol=0
+        )
+        torch.testing.assert_close(
+            replayed.state.history.values, scored.state.history.values, atol=0, rtol=0
+        )
+        assert not torch.equal(replayed.log_prob.detach(), scored.log_prob.detach())
+    finally:
+        optimizer.close()
 
 
 def test_rl_replay_gate_rejects_mismatch_before_optimizer_update(

@@ -13,11 +13,12 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from .attention import AttentionBranch
+from .blocks import DenseFacetBlock
 from .config import ModelConfig
 from .frontend import ByteFrontend, SourceFeatures
 from .layers import RMSNorm, SwiGLU, position_features
 
-INGESTION_VERSION = "byte-pyramid-v1"
+INGESTION_VERSION = "byte-pyramid-v2"
 
 
 class PairReduction(nn.Module):
@@ -105,6 +106,9 @@ class ChunkEncoder(ByteFrontend):
         )
         self.facet_ffn_norm = RMSNorm(config.facet_dim, config.norm_eps)
         self.facet_ffn = SwiGLU(config.facet_dim, 2 * config.facet_dim)
+        self.refinement = nn.ModuleList(
+            DenseFacetBlock(config, config.encoder_hidden) for _ in range(config.encoder_layers)
+        )
         # Canonical facets share the recurrent model's unconstrained coordinate
         # space. Internal pre-norms stabilize processing; the output has no
         # compulsory RMS/unit-length constraint.
@@ -129,11 +133,27 @@ class ChunkEncoder(ByteFrontend):
         facets = facets + self.facet_gates[1].sigmoid() * self.facet_ffn(
             self.facet_ffn_norm(facets)
         )
+        return facets
+
+    def _finish(self, facets: Tensor) -> Tensor:
+        """Refine once at facet resolution, then expose the shared input format."""
+        for block in self.refinement:
+            facets = block(facets)
         return self.output_projection(facets)
 
     def forward(self, byte_ids: Tensor, lengths: Tensor | None = None) -> Tensor:
         source = self.source_features(byte_ids, lengths)
         features, mask = source.features, source.mask
+        # With no lengths argument every row has the same real byte length.
+        # Its finishing level follows from static shapes: skip readouts that
+        # would be discarded without adding device-to-host synchronization.
+        # Ragged batches keep the per-row first-ready semantics below.
+        if lengths is None:
+            level = 0
+            while features.shape[1] > self.config.n_facets:
+                level += 1
+                features, mask = self.reduction(features, mask, level=level)
+            return self._finish(self._readout(features, mask))
         completed = torch.zeros(features.shape[0], device=features.device, dtype=torch.bool)
         facets = features.new_zeros(
             (features.shape[0], self.config.n_facets, self.config.facet_dim)
@@ -145,6 +165,6 @@ class ChunkEncoder(ByteFrontend):
             facets = torch.where(ready[:, None, None], candidate, facets)
             completed = completed | ready
             if features.shape[1] <= self.config.n_facets:
-                return facets
+                return self._finish(facets)
             level += 1
             features, mask = self.reduction(features, mask, level=level)

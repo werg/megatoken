@@ -50,7 +50,7 @@ def test_full_prior_inference_counts_raw_facet_actions_and_emitted_bytes():
     assert "optimizer" not in result["phase_seconds"]
 
 
-def test_recurrent_tower_benchmark_counts_one_decoder_pass_per_prediction():
+def test_recurrent_tower_benchmark_counts_both_decoder_passes_per_prediction():
     result = benchmark(
         steps=1,
         warmup=0,
@@ -64,7 +64,7 @@ def test_recurrent_tower_benchmark_counts_one_decoder_pass_per_prediction():
     assert result["configuration"]["representation_mode"] == "recurrent"
     assert result["configuration"]["prediction_chunks"] == 3
     assert result["counts"]["D"] == result["counts"]["I"] == 2 * (8 + 3 * 4)
-    assert result["counts"]["P"] == 2 * 3 * 4
+    assert result["counts"]["P"] == 2 * 3 * 4 * 2
     assert result["counts"]["facet_encodes"] == 2 * 3
     assert result["counts"]["optimizer_steps"] == 1
     assert result["phase_seconds"]["backward"] > 0
@@ -75,4 +75,4 @@ def test_no_silent_cuda_or_fake_vocabulary_benchmark():
     with pytest.raises(ValueError, match="actual CUDA"):
         benchmark(backend="triton")
     with pytest.raises(ValueError, match="real codec"):
-        benchmark(config="recurrent32", steps=1, warmup=0)
+        benchmark(config="32x512", steps=1, warmup=0)

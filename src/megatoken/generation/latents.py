@@ -35,6 +35,18 @@ class DiagonalGaussian:
         """Per-example density, summing all raw facet coordinates."""
         return self.elementwise_log_prob(value).flatten(1).sum(-1)
 
+    def kl(self, other: DiagonalGaussian) -> Tensor:
+        """Exact per-example KL(self || other), including encoder noise variance."""
+        if self.mean.shape != other.mean.shape:
+            raise ValueError("Gaussian correspondence requires identical facet geometry")
+        residual = (self.mean.float() - other.mean.float()) * (-other.log_scale).exp()
+        variance_ratio = (2 * (self.log_scale - other.log_scale)).exp()
+        elements = other.log_scale - self.log_scale + 0.5 * (variance_ratio + residual.square() - 1)
+        return elements.flatten(1).sum(-1)
+
+    def detach(self) -> DiagonalGaussian:
+        return DiagonalGaussian(self.mean.detach(), self.log_scale.detach())
+
 
 class FacetGaussian(nn.Module):
     """Preserve the predictor's mean exactly; learn only a bounded FP32 scale.
@@ -43,11 +55,14 @@ class FacetGaussian(nn.Module):
     latent. The scale head reads the predicted facets before the single draw.
     """
 
-    def __init__(self, width: int) -> None:
+    def __init__(self, width: int, initial_std: float = 0.1) -> None:
         super().__init__()
+        if not math.exp(-4) < initial_std < math.exp(1):
+            raise ValueError("initial Gaussian scale must lie strictly inside its finite bounds")
         self.log_scale = nn.Linear(width, width)
         nn.init.zeros_(self.log_scale.weight)
-        nn.init.constant_(self.log_scale.bias, math.log(4.0))
+        fraction = (math.log(initial_std) + 4.0) / 5.0
+        nn.init.constant_(self.log_scale.bias, math.log(fraction / (1.0 - fraction)))
 
     def forward(self, mean: Tensor) -> DiagonalGaussian:
         # Casting a served model to BF16 must not reduce variance precision.

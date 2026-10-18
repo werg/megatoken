@@ -231,7 +231,7 @@ def _json_bytes(value: Any) -> bytes:
     ).encode()
 
 
-TAPE_VERSION = "fmt-canonical-facets-v3"
+TAPE_VERSION = "fmt-canonical-facets-v4"
 
 
 @dataclass(frozen=True)
@@ -247,8 +247,9 @@ class ActionTape:
     """The single Gaussian action and its deterministic materialization.
 
     The full FP32 raw facet tensor is authoritative. Replay recomputes the
-    candidate Gaussian density and commits these same coordinates directly;
-    encoding the emitted bytes would describe a different state trajectory.
+    candidate Gaussian density, centrally processes these same coordinates
+    against the same causal history, and verifies conditional realization.
+    Encoding the emitted bytes would describe a different state trajectory.
     """
 
     version: str
@@ -306,7 +307,7 @@ class ActionTape:
         if value.get("version") != TAPE_VERSION:
             raise ValueError("legacy action tape version is incompatible with raw-facet replay")
         if "control_payload" not in value:
-            raise ValueError("v3 action tapes require their exact control_payload bytes")
+            raise ValueError("v4 action tapes require their exact control_payload bytes")
         value["trace"] = tuple(Decision(**decision) for decision in value.get("trace", ()))
         value["payload"] = _parse_bytes(value["payload"], "payload")
         value["control_payload"] = _parse_bytes(value["control_payload"], "control_payload")

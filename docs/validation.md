@@ -1,29 +1,42 @@
-# Recurrent32 v3 implementation validation
+# Architecture v4 implementation validation
 
-Validation date: **2026-10-18**. This report covers the current
-`architecture_version=3` implementation, its data and training contracts, and the
-software checks used before a production run. The installed-package suite passed
-with **277 tests passed and 15 GPU-only skips**. Parameter totals are taken from
-the saved v3 census files; tiny-model fixture results do not measure trained capability
-or Blackwell performance.
+Validation date: **2026-10-18**. The complete test suite passed against the built
+and installed wheel: **304 passed, 15 CUDA-only skips**, with zero failures or
+errors. The all-stage offline pipeline also completed using the installed package.
+These receipts cover software behavior for the shared-central architecture; they
+do not establish trained model quality or Blackwell throughput.
 
-## Final validation receipts
+[Machine-readable receipts](validation_receipts.json) retain the test counts,
+runtime, source checksums, actual parameter censuses, and smoke results.
 
-| Check | Current receipt |
+## Executed gates
+
+| Gate | Observed result |
 | --- | --- |
-| Complete suite against the rebuilt and installed wheel | **277 passed, 15 skipped** in 61.92 seconds; [retained receipt](validation_receipts.json) |
-| Offline preparation, all training stages, served export, and generation | Completed from the final source tree; [smoke receipt](validation_receipts.json), with observed results below |
+| Installed-package full suite | **304 passed, 15 skipped** in **49.86 seconds** |
+| Ruff lint and format | Passed for source, tests, and scripts |
+| Shell entrypoint syntax | Passed for torchrun/Slurm launch scripts |
+| Wheel and source distribution | Built successfully; wheel installed without a source-path override |
+| Source/wheel identity | All **72 Python/JSON package files** matched byte-for-byte |
+| Installed CLI runtime preflight | Passed in CPU reference mode |
+| Parameter ownership | **266 unique owners**, no aliases, for both production presets |
+| All-stage offline workflow | Prepared data; B0 through D updates; executed R collection/replay; exported and reloaded v4 bundle; generated valid bytes |
+| Independent implementation review | C/KV chronology, R/P cache reuse, functional gradient isolation, and RL freeze/replay reviewed without an additional blocker |
 
-The suite includes the final causal-control and version-3 tape changes. Ruff lint
-and formatting, shell syntax, the wheel/source-distribution build, installed CLI
-diagnostics, pinned codec construction, and served generation also passed. The
-wheel's Python modules were compared byte-for-byte with the source tree. The 15
-skips cover one CUDA vocabulary parity case, four grouped-expert cases, two
-model/policy cases, and eight GQA/masked/history attention cases. They supply no
-GPU parity evidence.
+The reference host has Python **3.12.14**, PyTorch **2.10.0+cpu**, NumPy **2.5.4**,
+tokenizers **0.23.3**, and safetensors **0.8.0**. There is no CUDA device, Triton
+runtime, or Docker runtime available for local hardware validation. Local
+loopback access was enabled for real HTTP-environment and multiprocess Gloo
+tests. The [CI workflow](../.github/workflows/ci.yml) also runs the installed
+package on Python 3.11 and 3.12; remote results belong to their corresponding
+commit and are separate from this local receipt.
 
-The installed-package gate builds both distributions, installs the wheel, and
-runs without a source-path override:
+The 15 skips are one CUDA vocabulary parity case, four grouped-expert cases,
+two complete model/policy cases, and eight grouped-query attention cases with
+production widths, masking, and long history. No skipped case supplies GPU
+correctness evidence.
+
+Reproduce the package gate with:
 
 ```bash
 python -m ruff check src tests scripts
@@ -31,254 +44,227 @@ python -m ruff format --check src tests scripts
 bash -n scripts/launch.sh scripts/slurm.sh
 python -m build --no-isolation
 python -m pip install --no-deps --force-reinstall dist/megatoken-0.1.0-py3-none-any.whl
-python -m pytest -q --junitxml=validation/recurrent32-installed-tests.xml
+python -m pytest -q --junitxml=validation/contextual32-v4-installed-tests.xml
 megatoken --help
 megatoken doctor
 ```
 
-The reference CPU environment uses Python **3.12.14**, PyTorch **2.10.0+cpu**,
-NumPy **2.5.4**, tokenizers **0.23.3**, safetensors **0.8.0**, datasets **4.8.5**,
-and PyArrow **23.0.1**. No CUDA device or Docker runtime is available in this
-local environment. The [CI workflow](../.github/workflows/ci.yml) additionally
-configures Python 3.11 and 3.12 runs; its remote execution results are separate
-from the local receipt above.
+## Measured parameter allocation
 
-## Current architecture and allocation
+Both production presets have E2 local refinement, C4 shared central processing,
+a non-residual remix, and P12 residual prediction. The realizer uses every raw
+facet plus cached early/final C features. The smaller preset changes width, not
+architecture generation. Their actual instantiated owner counts are:
 
-The primary recurrent input is **32 raw facets of width 512**. The compact
-configuration retains 32 facets at width 256. Both use six residual body stages,
-a nonresidual remix, and **ten residual prediction stages after the remix**.
-The completed predicted facets become the next recurrent input. Historical
-context retains causal body K/V with 32 slots per processed chunk and a default
-limit of 1,024 chunks. The [architecture document](architecture.md) describes
-these state transitions and their arithmetic.
-
-The saved implementation censuses report:
-
-| Configuration | Recurrent facets | Total parameters | BF16 served-weight bytes |
+| Preset | Raw facets | Served parameters | BF16 weight bytes |
 | --- | --- | ---: | ---: |
-| [recurrent32 v3](validation_receipts.json) | 32 × 512 | **477,498,706** | **954,997,412** |
-| [compact32 v3](validation_receipts.json) | 32 × 256 | **265,990,610** | **531,981,220** |
+| `32x512` | 32 × 512 | **486,174,561** | **972,349,122** |
+| `32x256` | 32 × 256 | **265,020,129** | **530,040,258** |
 
-All parameters in these default censuses are served parameters; additional
-training-only and temporary-import allocations are zero. The byte totals cover
-BF16 weights alone. Gradients, FP32 optimizer masters and moments, activations,
-K/V history, workspaces, and allocator overhead require additional memory.
-These censuses establish allocation, not device fit or throughput.
+Both censuses have zero permanent training-only parameters, zero temporary-import
+parameters, and no registration aliases. The primary central processor itself
+has **8,660,489 parameters**, compared with **301,989,888** in its shared sparse P
+bank. Independent C ownership makes the conditional decoding map freezable in RL
+while retaining the large predictor's trainable capacity. Operator code is shared
+without tying these owners together.
 
-Both configurations use 157,184 vocabulary rows and a 1,024-position output
-capacity. All production stage profiles, including B0, retain that capacity.
-The pinned `inclusionAI/Ling-3.0-tiny` tokenizer revision is
-`9a98e35fe1c9ee255f78dd64771c7ae15a799481`. The current byte-preserving codec
-fingerprint, recorded in both census files, is:
+These byte totals cover BF16 weights only. Gradients, FP32 optimizer masters and
+moments, activation graphs, KV caches, and decoder workspaces require additional
+memory. A meta-device census establishes allocation, not device fit.
+
+Reproduce the census using the pinned production codec:
+
+```bash
+megatoken codec --output artifacts/codec
+megatoken --json-output validation/32x512-v4-parameters.json \
+  inspect --model 32x512 --codec artifacts/codec --owners
+megatoken --json-output validation/32x256-v4-parameters.json \
+  inspect --model 32x256 --codec artifacts/codec --owners
+```
+
+The production vocabulary has 157,184 allocated rows. Both presets allow 1,024
+output positions and retain 32 projected KV slots per selected input. At 1,024
+cached chunks, projected BF16 KV requires 32 MiB per primary episode or 16 MiB
+for the smaller preset. These figures exclude central/raw caches and training
+graphs. Arithmetic and memory scope are documented in
+[architecture.md](architecture.md).
+
+The pinned tokenizer revision is `inclusionAI/Ling-3.0-tiny` at
+`9a98e35fe1c9ee255f78dd64771c7ae15a799481`. The byte-preserving production codec
+fingerprint is:
 
 ```text
 7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2
 ```
 
-The codec identity travels with prepared data, checkpoints, served bundles, and
-native action tapes. Tokenizer assets and model weights are acquired or generated
-through the explicit asset commands and are not committed as model binaries.
+It is recorded with prepared data, checkpoints, served bundles, and native tapes.
+Tokenizer assets and model binaries are produced by explicit commands, not
+committed into the code repository.
 
-## What the current tests establish
+## What the tests establish
 
-The [test suite](../tests) exercises concrete numerical, causal, and operational
-contracts. The final receipt above determines which checks completed in the
-reported environment.
+### Ingestion, central reuse, and prediction
 
-### Byte ingestion, recurrence, and generation
+[Ingestion tests](../tests/test_model_ingestion.py) check ordered byte/ngram
+features, exponential pair reduction, and the two local facet refinements.
+They cover binary/Unicode/empty input, all-real-byte gradients, zero padding
+gradients, unequal-batch invariance in FP32/BF16, and unconstrained raw output
+scale. The uniform-length fast path performs one terminal facet readout with
+output and all-parameter-gradient parity to explicit lengths.
 
-[Encoder tests](../tests/test_model_ingestion.py) exercise ordered byte/ngram
-features followed by hierarchical pair reductions. They check exponentially
-growing receptive fields, bounded local attention, unequal-batch and padding
-invariance in FP32/BF16, binary and Unicode inputs, empty input, and gradients
-from every real byte with no contribution from padding. The final raw facet
-projection can represent unconstrained scale.
+[Core tests](../tests/test_model_core.py) verify that every selected observation
+or raw draw triggers exactly one C computation and immediate KV write. Cached
+prediction and realization preparation trigger no additional C call. Changing
+C-final features while keeping raw facets fixed changes P; changing raw facets
+while keeping C-final/history fixed introduces no skip around C. Other gates
+cover exact FP32 selected-input identity, immediate record counts, startup
+sentinels, bounded eviction, partial resets, explicit detach boundaries,
+version/geometry rejection, live earlier-input/history gradients, and C/P
+activation-checkpoint parity.
 
-[Core tests](../tests/test_model_core.py) check the production 32-facet geometry,
-the internal nonresidual remix, and use of the completed prediction as the next
-input. They verify that a selected raw facet tensor is preserved exactly;
-consecutive observations process each preceding input once; historical K/V
-contains causal body context; and later predictions propagate gradients to
-earlier inputs and history. Reset, detach, model-version validation, bounded
-history, deterministic routes, and checkpoint recomputation are also exercised.
+[Contextual generation tests](../tests/test_generation_context.py) check actual
+output sensitivity to C features, R/P reuse of the same selected state, and
+information flow from every one of 32 facet slots even into short outputs.
+[Policy tests](../tests/test_generation_policy.py) cover one full-facet Gaussian
+draw, deterministic structure and lexical materialization, public exact copies,
+identifier bindings, output capacity, and invalid/empty selected actions.
 
-[Generation tests](../tests/test_generation_policy.py) check one full-facet
-Gaussian action with deterministic downstream materialization, full-vocabulary
-losses, legal output IDs, structured fields, exact copies, identifier bindings,
-and total output capacity. Invalid materializations and valid empty outputs
-still advance raw recurrent state. Same-weight tape replay must reproduce the
-recorded coordinates, state, and Gaussian density. Pure decoding inspection does
-not advance a served session or re-encode decoded bytes as a substitute action.
+### Bootstrap, recurrent objectives, and ownership
 
-### Phase-specific gradients and optimizer behavior
+Gaussian tests verify the analytic noisy-codec `KL(q || p)`, including variance,
+and controlled positive initial scale. Bootstrap's detached target distribution,
+noisy direct reconstruction, contextual prior realization, and alternative
+teacher-forcing branch are exercised separately. Target bytes do not condition
+the causal prior.
 
-B0 bootstrap tests distinguish prior learning toward detached encoder targets
-from encoder reconstruction learning. Bootstrap evaluates two decoder
-cross-entropy passes, so actual lexical `P` counts both. Later recurrent phases
-evaluate one prior-decoder pass and carry live predicted facets between outputs.
-Their target encoder learns alignment toward the **detached completed prior
-prediction**; target bytes and target length cannot condition that prediction.
-Observation and control paths detach the byte encoder in recurrent phases while
-preserving gradients through the trainable control encoder and causal body.
-These directions are tested in
-[generation](../tests/test_generation_policy.py),
-[controls](../tests/test_controls.py), and the core suite.
+Recurrent supervision keeps the selected prediction live across the next C/P
+iteration. E's auxiliary reconstructs through contextual C/R with those weights
+and source history detached. A frozen `functional_call` retains derivatives into
+E without updating C/KV/U/R, and disables unsafe checkpoint recomputation for
+that branch. Auxiliary router losses do not leak into main objectives.
 
-[Optimizer tests](../tests/test_training_math.py) verify FP32 master weights and
-moments with BF16 parameters, exact next-update restoration, and independent
-encoder/main-model gradient clipping. A large encoder-following gradient must
-not rescale the main model's update through a shared clipping denominator.
-[Training integration](../tests/test_training_integration.py) covers real
-parameter updates, variable-mask loss normalization, objective validation,
-phase transitions, current-work meters, and exact checkpoint/optimizer/RNG/data
-resume across the supervised stages.
+[Real-trainer v4 tests](../tests/test_training_v4.py) use multiple targets with
+activation checkpointing enabled. A later target has nonzero gradient to the
+first selected input, while auxiliary forks never append to live history.
+Multiplying the E auxiliary by **1,000×** leaves main gradients and independently
+clipped Adam updates unchanged. Bootstrap and recurrent training both count two
+actual decoder CE passes per eligible target. Native following has a nonzero
+alignment denominator only when an exact tape/byte/ID/role pair exists; ordinary
+offline targets receive no fabricated facet label.
 
-### Public controls and immutable native history
+[Optimizer and integration tests](../tests/test_training_math.py) verify FP32
+masters/moments with BF16 parameters, variable-mask global normalization,
+phase transitions, current-work meters, and exact model/optimizer/RNG/cursor
+resume. The package exposes disjoint E, C, P, and core-owned R groups.
 
-Training, serving, and student collection share one control payload builder.
-Tests preserve seed/reference bytes exactly, canonicalize only the public tool
-JSON, reject noncausal reference origins, and keep absent controls neutral in
-both single-example and mixed batches. A declared external reference is still
-an operator-provided provenance assertion; the implementation cannot infer
-whether arbitrary supplied evidence was honestly labeled.
+### Native history, controls, and outcome RL
 
-The native protocol is **`fmt-canonical-facets-v3`**. Each tape owns the complete
-FP32 facet draw and its exact source-byte `control_payload`, which replay encodes
-under the current weights. Legacy versions and malformed or altered identities
-fail explicitly. [Serving tests](../tests/test_inference.py) check that prior
-controls match training and that request errors leave sessions intact.
-[Collection tests](../tests/test_data_cli.py) exercise public policy/tool
-forwarding, hidden verifier exclusion, valid-empty continuation, and complete
-tape preservation through actual episode and ledger export.
+[Native-history tests](../tests/test_training_history.py) preserve the original
+interleaving of observed records, invalid draws, valid empty draws, and valid
+nonempty actions. A scored target's own tape cannot appear in its prefix.
+Fixed-action history replay runs C without re-encoding decoded bytes or
+recomputing P/control. Density replay instead re-encodes the tape's public
+control source and checks the conditional deterministic materialization.
 
-[Native-history tests](../tests/test_training_history.py) preserve the ordered
-interleaving of observed records and raw native draws. Valid nonempty draws own
-one unchanged assistant record; invalid and valid empty draws own no record and
-may share a cursor. Tests reject altered cursors, records, IDs, geometry, and
-facets; compare replay with live context; preserve earlier-history gradients;
-and exclude the target draw from its own conditioning in training and evaluation.
+The `fmt-canonical-facets-v4` protocol retains exact FP32 raw coordinates and
+control bytes. Checkpoint/bundle format 4 and explicit model geometry reject
+older incompatible assets. Controls share one byte-framing implementation across
+training, evaluation, serving, and student collection. Tests check neutral absent
+controls, mixed batches, public schema forwarding, hidden verifier exclusion,
+and unchanged serving sessions after request errors.
 
-### Preparation, windows, and distributed scheduling
+[RL tests](../tests/test_rl_integration.py) execute fixture actions with verified
+outcomes. A real predictor update changes the latent density while frozen E/C/KV/
+U/R weights, replayed raw/early/final features, KV, and decoded bytes/IDs remain
+unchanged under matched execution modes. The frozen FP32 masters and moments are
+preserved too. Replay mismatch fails before Adam; exact RL resume restores task
+cursor and RNG. Equal-reward groups skip the optimizer, including momentum and
+weight-decay-only updates. Lexical decoding contributes zero P; Gaussian work
+uses Z.
 
-[Semantic chunk tests](../tests/test_data_chunking.py) cover the shared
-256-token target, 512-token soft limit, and 1,024-token hard limit. They preserve
-bytes and original reference-ID slices through paragraph, list, and code
-boundaries, including Unicode, CRLF, oversized units, and forced cuts. Native
-generated records keep immutable boundaries and fail explicitly if oversized.
-Preparation/checkpoint/serving identities include the chunker, configuration,
-codec, and parser-runtime identity.
+Raw saved facets are exact. Derived floating-point activations and densities use
+backend-appropriate tolerances when execution modes differ; the tests do not
+assume that no-grad and autograd select numerically identical attention kernels.
 
-Data tests also cover family splits before descendant generation, exact/near
-deduplication, benchmark quarantine, causal action/result links, policy/recovery
-masks, interrupted preparation, indexed shard integrity, and separate
-`U/D/I/P/T/Z` accounting. The [reader tests](../tests/test_data_readers.py) use
-real multi-row-group Parquet and the installed datasets streaming library over
-local files. Hub resolution is redirected to a fixture; this does not validate
-network acquisition or production-source yield. Teacher collection tests charge
-rejected and interrupted requests and re-execute changed student actions against
-their actual environment state.
+### Data, distributed execution, assets, and serving
 
-[Window-stream tests](../tests/test_training_stream.py) use actual prepared
-SQLite/JSONL datasets and synchronized thread reductions. Three episodes with
-1, 3, and 2 windows across two ranks are visited exactly once per epoch. The
-suite checks synchronized block slots, idle ranks, resume inside padded tails,
-identical mixture choices from global `D/I/P` charges, atomic cursor restoration,
-collective preparation failures, and collective rejection of rank cursor drift.
+[Semantic chunk tests](../tests/test_data_chunking.py) cover the shared 256-token
+packing target, 512 soft limit, and 1,024 hard limit. Original bytes and codec-ID
+slices survive paragraph/list/code boundaries, Unicode, CRLF, oversized units,
+and forced cuts. Native generated IDs and boundaries stay immutable.
 
-Separate [two-process Gloo tests](../tests/test_distributed.py) compare distributed
-FP32/BF16 gradients and master updates with a combined-batch reference. Cases
-include uneven masks, experts active on only one rank, a completely idle rank,
-and reduction buckets split across parameter boundaries. Full engine restart
-and phase transition check rank agreement on cursors and master weights.
+Data preparation and reader tests exercise streaming local datasets/Parquet,
+lineage and family splits, exact/near deduplication, quarantine, causal
+execution links, interrupted preparation, shard integrity, and separate
+U/D/I/P/T/Z meters. Fixture Hub resolution does not validate production source
+yield. Teacher/student collection tests retain executed observations, charge
+rejected attempts, and rerun changed actions against actual environment state.
 
-### Executed RL, assets, and packaging
+The [window stream](../tests/test_training_stream.py) is checked on unequal
+per-episode window counts, synchronized epoch/block advancement, idle ranks,
+mixture exposure, cursor drift, and collective preparation errors. Real
+[two-process Gloo tests](../tests/test_distributed.py) compare uneven-mask,
+idle-rank, and sparse-expert gradients/master updates with a combined-batch
+reference, then exercise full trainer checkpoint/resume and phase transition.
+They supply CPU distributed evidence; NCCL remains a GPU gate.
 
-[RL integration tests](../tests/test_rl_integration.py) execute fixture actions
-and use independently verified rewards. They check predictor updates while the
-byte encoder and deterministic decoder remain frozen, complete raw-facet replay
-with history gradients, rejection of replay mismatch before Adam, and exact
-restoration of weights, optimizer, RNG, and task cursor. Equal-reward groups
-perform no momentum or weight-decay-only update. RL samples Gaussian coordinates
-under `Z`; deterministic lexical decoding contributes zero policy `P`.
+Asset tests exercise optional n-gram descriptor import, exact rounding-aware
+bake, optimizer-state cleanup, and export. Codec tests preserve byte fallback
+when special-token rows reuse ordinary BPE merges. Serving tests cover bundled
+checksums, independent sessions, observations, native replay, strict ownership,
+and JSONL request limits. CLI tests also distinguish canonical model names from
+legacy CLI aliases and literal served-bundle paths.
 
-[Asset tests](../tests/test_assets.py) exercise optional descriptor extraction,
-installation, exact bake parity, optimizer-state cleanup, and served export.
-[CLI tests](../tests/test_cli.py) include operation without importing PyTorch for
-non-ML commands. Export/serving tests check checksums, bundled codec and chunking
-identity, independent sessions, strict model ownership, and bounded JSONL request
-handling. The installed-wheel gate adds package layout and entrypoint coverage
-beyond tests run directly against the source tree.
-
-## Completed all-stage smoke
-
-The final source tree completed the following command:
+## Completed installed-package smoke
 
 ```bash
-PYTHONPATH=src python -m megatoken --debug \
-  --json-output validation/recurrent32-smoke.json \
-  smoke --output runs/recurrent32-final-smoke
+python -m megatoken --json-output validation/contextual32-v4-smoke.json \
+  smoke --output runs/contextual32-v4-final-smoke
 ```
 
-The [saved receipt](validation_receipts.json) records preparation of
-a local fixture corpus, every stage, served export, and generation after reload:
+The [receipt](validation_receipts.json) records the following actual work:
 
 | Observed work | Result |
 | --- | --- |
 | B0, P1, M1, M2, LC, S, D | One optimizer update each; supervised global step **7** |
-| Fresh executed R | **8 episodes**, **5 independently verified fixture successes** |
-| R optimizer work | **2 updates**; final global step **9** |
-| R policy meters | Lexical `P = 0`; Gaussian `Z = 1,024` |
-| R deterministic emitted positions | **431** |
-| R transcript exposure | `D = 5,237` |
-| R ingestion | Collection `I = 5,237`; replay `I = 5,237`; total `I = 10,474` |
-| Served reload and generation | Bundle loaded; sampled output reported `sample_valid = true` |
+| Per-supervised-phase meters | `D = 398`, `I = 398`, `P = 222` |
+| Fresh executed R | **8 episodes** across **2 task seeds**, **0 fixture successes** |
+| R optimizer work | **0 updates**, correctly skipped for equal-reward groups |
+| R policy work | Lexical `P = 0`; Gaussian `Z = 1,024`; 256 emitted positions |
+| R transcript/ingestion | `D = 5,032`; collection `I = 5,032`; replay `I = 5,032` |
+| Served reload and generation | Format 4 / model version 7; `sample_valid = true` |
 
-B0 recorded `P = 222`; each later supervised phase recorded `P = 111` for the
-same fixture target counts, exercising the two-pass/bootstrap and
-one-pass/recurrent accounting split. Phase transitions retained optimizer state.
-The exported bundle identifies the version-3 tape protocol and model version 9.
-The source-run smoke and the installed-wheel suite are separate validation
-receipts. A repeat smoke must use a fresh output directory.
+The smoke's R phase checks collection, execution, replay, accounting, and the
+zero-advantage skip path. The separate RL integration regression above supplies
+evidence for a real optimizer update and a fixed conditional action map. The
+fixture's success count is not a model-quality estimate. Phase transitions kept
+FP32 optimizer state; all supervised stages now exercised the same two-pass P
+accounting. A repeated smoke needs a fresh output directory.
 
-This smoke uses the tiny configuration and explicit byte fallback codec. It
-checks end-to-end execution and phase compatibility. It does not train the
-recurrent32 allocation, validate the production vocabulary's GPU memory use,
-or estimate task quality.
+This run uses the tiny model with an explicit byte fallback codec and a reduced
+128-position chunk/output cap. It does not train the production allocation or
+measure full-vocabulary GPU memory use.
 
-## Blackwell and production-data gates
+## Remaining hardware and learned-quality gates
 
-The 15 CUDA-only cases skipped in the CPU run require a provisioned GPU. Local evidence does not include Blackwell
-throughput, CUDA/Triton parity, maximum-profile memory fit, NCCL execution, or a
-Docker image build.
-
-Use the commands and environment requirements in the
-[Blackwell runbook](blackwell.md). On the target machine, retain diagnostics and
-run the numerical gates before measuring throughput:
+Run the [Blackwell gate](blackwell.md) on the target machine before a long
+allocation:
 
 ```bash
-python -c 'import json; from megatoken.runtime import doctor; print(json.dumps(doctor(require_cuda=True, require_blackwell=True), indent=2))'
-nvidia-smi
-pytest -q tests/test_kernels_grouped.py tests/test_runtime.py tests/test_model_policy_integration.py
-pytest -q
+megatoken doctor --require-blackwell
 megatoken codec --output artifacts/codec
 python scripts/validate_blackwell.py --output runs/hardware-gate --codec artifacts/codec
 ```
 
-The hardware gate exercises BF16 execution, grouped expert/GQA values and
-gradients, complete tape replay, and measured training/inference work for the
-selected backends. Supplying the pinned codec enables the full recurrent32
-lexical benchmark: by default it uses four live recurrent prediction chunks,
-256 output positions, and eight history records. Use `--capacity 1024
---prediction-chunks 8` to request the larger capacity/tower gate. A primary
-core-only probe cannot establish full-vocabulary fit or throughput. Retain
-measurements at the intended batch, capacity, and history distribution. The
-manual CI hardware job additionally builds the actual container and retains its
-results.
+The gate checks BF16 device execution, grouped expert and GQA values/gradients,
+complete tape replay, and actual training/inference costs. The production codec
+is required for a full-vocabulary measurement; a core-only probe cannot establish
+that memory fit. Record performance at the intended batch, output capacities,
+and history distribution after the numerical gate. No concurrency or speedup is
+claimed solely from caching C features.
 
-Production corpus acquisition, source approvals and ancestry joins, paid teacher
-collection, an external task service, and full-budget training have not been
-performed during this implementation. The pinned inventory and fixture pipelines
-provide executable starting points. Supply reviewed data and task environments,
-then run a bounded B0 transaction, checkpoint/resume check, and fixed executed
-evaluation on the chosen hardware before scaling the curriculum.
+Production corpus acquisition, paid teacher collection, a Blackwell/Docker/NCCL
+run, large-profile device fit, and learned capability have not been established
+by these CPU receipts. The code and commands are ready for an initial B0 pilot;
+its reconstruction, prior output loss, representation norms, validity, and
+held-out task results determine whether to scale the configured budgets.

@@ -116,10 +116,13 @@ def collected(model):
 
 def assert_same_context(actual, expected):
     assert torch.equal(actual.facets, expected.facets)
-    for name in ("records_seen", "last_record_ids", "input_record_ids", "role_ids", "episode_ids"):
+    for name in ("records_seen", "last_record_ids", "role_ids", "episode_ids"):
         assert torch.equal(getattr(actual, name), getattr(expected, name))
-    assert actual.has_pending_input == expected.has_pending_input
-    assert actual.pending_mask is expected.pending_mask is None
+    for name in ("early", "final"):
+        left, right = getattr(actual, name), getattr(expected, name)
+        assert (left is None) == (right is None)
+        if left is not None:
+            torch.testing.assert_close(left, right, atol=1e-6, rtol=1e-6)
     assert actual.history.mask is expected.history.mask is None
     torch.testing.assert_close(actual.history.keys, expected.history.keys, atol=1e-6, rtol=1e-6)
     torch.testing.assert_close(actual.history.values, expected.history.values, atol=1e-6, rtol=1e-6)
@@ -135,6 +138,9 @@ def test_native_invalid_empty_action_and_tool_replay_matches_live_context(model,
         collected.action.tape,
     )
     assert history.has_generated_record(1)
+    assert history.paired_tape(1) == collected.action.tape
+    assert history.paired_tape(0) is None
+    assert history.paired_tape(3) is None
     assert not history.has_generated_record(3)
     state = model.core.initial_state(1)
     for cursor, record in enumerate(collected.episode.records):
@@ -148,7 +154,7 @@ def test_native_invalid_empty_action_and_tool_replay_matches_live_context(model,
     for tape in history.events_for_record(history.record_count, include_record=True):
         state = replay_raw_tape(model, state, tape)
     assert_same_context(state, collected.trailing.state)
-    assert state.records_seen.item() == 5  # Includes invalid and empty pending inputs.
+    assert state.records_seen.item() == 6  # Every selected event was already C-processed.
 
 
 def test_target_native_tape_is_excluded_but_earlier_zero_record_events_recur(model, collected):
@@ -340,7 +346,7 @@ def test_valid_empty_student_draw_does_not_require_an_absent_record_on_next_requ
         assert response.content == b"" and not response.calls
         assert json.loads(response.native_tape_json)["valid"] is True
     assert engine.observations == 1 and engine.draws == 2
-    assert engine.session.state.records_seen.item() == 2
+    assert engine.session.state.records_seen.item() == 3
 
 
 def integration_episodes(model, collected):
@@ -386,7 +392,7 @@ def integration_episodes(model, collected):
 def capture_core_calls(model, monkeypatch):
     trace = SimpleNamespace(encoded=[], predictions=[], native_controls=[])
     original_encode = model.core.encode_chunk
-    original_process = model.core.process
+    original_predict = model.core.predict_facets
     original_advance = model.core.advance_raw
 
     def encode(values, lengths=None):
@@ -396,17 +402,17 @@ def capture_core_calls(model, monkeypatch):
         )
         return original_encode(values, lengths)
 
-    def process(state, *args, **kwargs):
+    def predict(state, *args, **kwargs):
         control = kwargs.get("control", args[0] if args else None)
         trace.predictions.append((state.detach(), None if control is None else control.detach()))
-        return original_process(state, *args, **kwargs)
+        return original_predict(state, *args, **kwargs)
 
     def advance(state, raw, *args, **kwargs):
         trace.native_controls.append(kwargs.get("control", args[0] if args else None))
         return original_advance(state, raw, *args, **kwargs)
 
     monkeypatch.setattr(model.core, "encode_chunk", encode)
-    monkeypatch.setattr(model.core, "process", process)
+    monkeypatch.setattr(model.core, "predict_facets", predict)
     monkeypatch.setattr(model.core, "advance_raw", advance)
     return trace
 
@@ -515,7 +521,9 @@ def test_evaluation_replays_native_prefix_and_excludes_native_target_facets(
             assert trace.encoded.count(collected.action.payload) == 1
 
 
-def test_native_raw_replay_owns_each_nonempty_control_and_retains_its_gradients(model):
+def test_fixed_native_replay_retains_central_gradients_and_ignores_prospective_controls(
+    model, monkeypatch
+):
     prompt = PhysicalRecord("prompt", "user", b"continue with controls")
     state = observe(model, model.core.initial_state(1), prompt)
     spec = ActionSpec(text_kind="ascii", min_tokens=3, max_tokens=3)
@@ -559,6 +567,11 @@ def test_native_raw_replay_owns_each_nonempty_control_and_retains_its_gradients(
     )
     native = NativeHistory.from_episode(episode, model)
     replayed = observe(model, model.core.initial_state(1), prompt)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("fixed-action C replay encoded a prospective control")
+
+    monkeypatch.setattr(model.core, "encode_control", forbidden)
     for cursor in (1, 2):
         (tape,) = native.events_for_record(cursor, include_record=True)
         replayed = replay_raw_tape(model, replayed, tape)
@@ -566,6 +579,7 @@ def test_native_raw_replay_owns_each_nonempty_control_and_retains_its_gradients(
     replayed.history.values.square().sum().backward()
     assert any(
         parameter.grad is not None and parameter.grad.float().norm() > 0
-        for parameter in model.core.control_encoder.parameters()
+        for parameter in model.core.central_parameters()
     )
+    assert all(parameter.grad is None for parameter in model.core.control_encoder.parameters())
     assert all(parameter.grad is None for parameter in model.core.encoder_parameters())

@@ -80,8 +80,8 @@ def test_mixed_empty_control_is_neutral_and_nonempty_matches_single_example(core
         nonempty = encode_controls(core, [b"causal tool policy"])
         assert torch.equal(mixed[0], torch.zeros_like(mixed[0]))
         torch.testing.assert_close(mixed[1:], nonempty, atol=1e-6, rtol=1e-6)
-        alone = core.process(core.initial_state(1), effort=1).facets
-        together = core.process(core.initial_state(2), control=mixed, effort=1).facets[:1]
+        alone = core.predict_facets(core.initial_state(1), effort=1)
+        together = core.predict_facets(core.initial_state(2), control=mixed, effort=1)[:1]
     torch.testing.assert_close(together, alone, atol=2e-6, rtol=2e-5)
 
 

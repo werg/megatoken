@@ -1,72 +1,83 @@
 # Training and operations
 
-## One representation, two directions of training
+## Two representation-training modes
 
-The recurrent input is a `[batch, 32, 512]` facet tensor. The core applies six residual
-body stages, a non-residual slot/channel remix, and ten residual prediction stages.
-The **completed prediction**, after those ten stages, is the Gaussian mean. One sampled
-raw facet tensor drives the deterministic realizer and the next recurrent iteration.
-The byte encoder `E(bytes)` builds the same shape through ordered byte/n-gram processing
-and repeated halving. See [architecture.md](architecture.md) for the tensor graph.
+The recurrent input is a `[batch, 32, 512]` raw facet tensor, or `[batch, 32, 256]`
+in the smaller preset. E builds the same format through ordered byte/ngram processing,
+repeated halving, and two dense facet refinement blocks. Four independently owned
+central stages process every selected input and write its one causal KV entry. A
+non-residual remix and twelve sparse prediction stages produce the next Gaussian mean.
+The realizer reads raw facets and cached early/final central features without rerunning
+C. See [architecture.md](architecture.md) for the tensor graph.
 
 `TrainConfig.representation_mode` selects `bootstrap` or `recurrent`. The value `auto`
-resolves to bootstrap for B0 and recurrent for every other supervised phase. Checked-in
-production YAMLs make the choice explicit. Prepared loss plans record their mode;
-forward execution rejects a different mode or a changed denominator.
+resolves to bootstrap for B0 and recurrent for every other supervised phase. Production
+YAMLs make the choice explicit. Prepared loss plans record their mode, exact masks,
+optional native labels, and denominators; forward rejects a different mode or denominator.
 
-### Bootstrap: the byte representation initially provides the target
+### Bootstrap: train a noisy byte codec and its causal predictor
 
-For a target chunk `x` following the current input/context:
+Let `e = E(x)` encode the next exact byte chunk. The codec target distribution is
+`q(z | x) = Normal(e, tau**2 I)`, with positive fixed `tau = codec_noise_std` (default 0.1).
+It is a controlled noisy codec, with no private posterior network or learned q head.
+The causal prior has its own learned scale initialized by `prior_noise_std` (default 0.1).
 
-```python
-processed = core.process(state, control=control, effort=effort)
-prior = facet_distribution(processed.facets)
-z = prior.sample(generator)
-e = core.encode_chunk(target_bytes, lengths)
+Bootstrap combines three objectives:
 
-facet_prediction = -prior.log_prob(e.detach())
-lexical = decoder.teacher(z, target)
-reconstruction = decoder.teacher(e, target)
-next_state = core.replace_facets(processed, e)
-```
+- Draw `z` from the causal prior, process it through C from the original pre-action
+  context, and score the target with the normal contextual realizer `R(z, C_early, C_final)`.
+- Reconstruct the target from `e + tau * epsilon` through the explicit raw-only realizer
+  entry. This cheaper auxiliary trains both E and R.
+- Minimize `KL(stop_gradient(q) || p)` over all facet coordinates. The analytic Gaussian
+  KL includes q's `tau**2` variance. It trains the causal prior without moving E to fit
+  an unrelated forecast, and does not collapse to point-target Gaussian NLL.
 
-This pseudocode names the three objectives; raw and structured training use the same
-prepared target machinery. Gaussian NLL trains the completed predictor toward the
-encoded target, including its learned scale. Reconstruction trains E and the shared
-decoder. Teacher forcing substitutes E as the next input, without an extra learned
-writer. The next chunk can also train that earlier E through the live bootstrap window.
-The target is never supplied to the current prediction or used as a control.
+The live bootstrap trajectory teacher-forces the clean encoded target, processed by C
+from the same original pre-action context. The sampled reconstruction/prediction branches
+never append their hypothetical histories to that trajectory. Later targets can train
+an earlier teacher-forced E through the selected live window. The target does not enter
+its own causal prediction or prospective controls.
 
-### Recurrent towers: the byte representation follows the predictor
+### Recurrent towers: keep predictions live and train ingestion on its own branch
 
-```python
-processed = core.process(state, control=control, effort=effort)
-prior = facet_distribution(processed.facets)
-z = prior.sample(generator)
-e = core.encode_chunk(target_bytes, lengths)
+Recurrent phases return the selected prior draw after its central pass. Consecutive
+predictions keep both the sampled tensor and its historical KV graph live, so later
+losses can train earlier prediction and contextual computation within the window.
 
-lexical = decoder.teacher(z, target)
-encoder_alignment = (e.float() - prior.mean.detach()).square().sum()
-next_state = core.replace_facets(processed, z)
-```
+Every ordinary target also receives an encoder-only codec auxiliary. Noisy `E(x)` is
+processed through C against a detached copy of the original pre-action history, then
+reconstructed by R. C, its memory projections, and R/U parameters are held fixed in this
+branch while gradients through their inputs reach E. The auxiliary state is discarded.
+There is no E-to-causal-forecast MSE and no recurrent KL pulling the prior toward E.
 
-The sampled facets remain live through consecutive predictions. Later decoder losses
-can train earlier recurrent computation. There is one decoder pass, no reconstruction
-objective, and no E-target objective pulling the predictor toward a byte representation.
-The follower target is the completed prediction mean, avoiding arbitrary Gaussian noise
-in the encoder's target. Only E receives encoder-alignment gradients.
+For a genuine saved native pair, an additional encoder alignment term can fit E to the
+recorded raw tensor that produced those exact bytes. Eligibility requires a valid v4
+tape, matching codec and facet geometry, exact original emitted IDs and payload, and
+ownership of that one whole physical record. Teacher corrections, unrelated observed
+bytes, invalid draws, and empty draws cannot borrow an alignment target. A native label
+is supervision only; it is excluded from the prefix before its own prediction.
 
-Observed byte inputs and the frontend features used for causal controls are detached
-from main-model losses in recurrent mode. The control encoder and the body remain
-trainable. Encoder and main-model owners also have independent gradient clipping: a
-large E alignment error cannot reduce a core update through a shared clipping norm.
-Their parameters retain ordinary independent FP32 Adam moments in one optimizer.
+Observed byte inputs and frontend features used by prospective controls are detached
+from main-model losses in recurrent mode. Control projection, the predictor, C, memory,
+and R still learn from their own main objectives. E has an independent gradient-clipping
+domain, so a large auxiliary reconstruction or native alignment error cannot scale the
+main-model update. FP32 Adam moments remain owned once per parameter.
 
-Default loss weights are defined once in `megatoken.contracts`: lexical 1.0,
-reconstruction 1.0, encoder alignment 1.0, facet prediction 0.1, structure 0.25,
-binding 0.5, placement 0.25, terminal 0.1, router balance 0.005, and router z-loss 1e-4.
-An inactive objective has a zero denominator. These weights are starting settings;
-held-out causal generation and executed tasks determine whether they should change.
+| Objective | Bootstrap | Recurrent |
+|---|---|---|
+| Prior draw -> C -> contextual R target CE | Main-model gradients; causal prefix E may learn | Main-model gradients; observed E detached |
+| Noisy E target reconstruction | Raw-only R; trains E and R | Contextual C/R with frozen owners and detached history; trains E only |
+| Analytic q-to-prior Gaussian KL | Prior gradients; q detached | Inactive |
+| Exact native raw/byte pair alignment | Inactive | E only, when a genuine pair exists |
+| Live next input | Clean E target, processed once | Selected raw prior draw, processed once |
+
+Both modes evaluate two free lexical CE passes per target. Fixed syntax and explicit
+copies remain excluded from free lexical masks. Default objective weights are defined
+once in `megatoken.contracts`: lexical 1.0, reconstruction 1.0, native encoder alignment
+1.0, facet-distribution KL 0.1, structure 0.25, binding 0.5, placement 0.25, terminal 0.1,
+router balance 0.005, and router z-loss 1e-4. Inactive objectives have zero denominators.
+These settings require held-out reconstruction, causal generation, and executed-task
+pilots before treating them as quality recommendations.
 
 ## What one optimizer transaction does
 
@@ -79,10 +90,11 @@ when batched with nonempty controls.
 The JSONL generation request accepts `control_seed`, `control_reference`, and
 `reference_origin`; its `tools` also condition the core. The numeric `seed` remains the
 random generator seed. Python callers use the matching `InferenceEngine.generate`
-arguments. Version-3 action tapes store the source control bytes for every draw. Replay
+arguments. Version-4 action tapes store the source control bytes for every draw. Replay
 re-encodes those bytes under the current weights instead of trusting stale encoded
 features, and rejects an explicitly different control. Control changes occur upstream
-of the one facet draw; deterministic realization of a fixed raw tensor is unchanged.
+of the one facet draw. For a fixed raw tensor and causal history, contextual realization
+is independent of prospective controls.
 
 The trainer selects independent episode windows and plans the eligible loss denominators.
 Compatible raw-record event schedules batch together without inspecting target content
@@ -103,12 +115,14 @@ model or routing versions fail explicitly. The prefix boundary is the explicit T
 boundary. Encoder teacher anchoring at an offline window boundary is a training choice,
 not a second network state or a serving reconciliation step.
 
-The KV cache contains processed earlier input bodies. `state.facets` is the current
-unprocessed input. `process` consumes it once, stores body context, and predicts the
-next input. `observe` consumes a pending prior input through the same body, then installs
-E of the new observation. This preserves system→user and generated action→tool chronology.
-A historical native tape uses `advance_raw`, which shares that body transition but skips
-prediction work whose output would be discarded.
+The KV cache already contains the selected current input. `state.facets` retains its
+exact raw values, while `state.early` and `state.final` cache its one C pass. `observe`
+encodes and processes the new observation immediately; `advance_raw` processes a saved
+or sampled raw tensor immediately. Both append one KV record. `predict_facets` reads the
+cached features without changing history, and `prepare_realization(state)` exposes
+those same cached features to R. Replaying a historical native draw therefore needs no
+E, decoder, random draw, or discarded prediction. Its prospective controls are relevant
+when scoring its density, but not when reconstructing fixed-action C/KV history.
 
 `max_history_tokens` bounds the differentiable **new-window** transcript. It does not
 truncate the full reconstructed episode prefix. `scored_decisions` limits the number
@@ -166,15 +180,16 @@ parameter owner, one FP32 master, and one optimizer slot. Non-finite gradients a
 before an update.
 
 ```bash
-megatoken inspect --model recurrent32 --codec artifacts/codec --owners
+megatoken inspect --model 32x512 --codec artifacts/codec --owners
 megatoken --json-output runs/recurrent-benchmark.json benchmark \
-  --model recurrent32 --codec artifacts/codec --device cuda --precision bf16 \
+  --model 32x512 --codec artifacts/codec --device cuda --precision bf16 \
   --backward --representation-mode recurrent --prediction-chunks 8 \
   --batch 8 --capacity 256 --history-records 128 --steps 20
 ```
 
-The primary model has 477,498,706 permanent served parameters and no private training
-heads. `inspect` performs a meta-device owner census without allocating full weight
+The two production presets are `32x512` and `32x256`; both use all 32 facet slots.
+Run `inspect` for the current actual unique-owner count, including E, independent dense
+C, sparse P, and R. There are no private posterior or alignment heads. `inspect` performs a meta-device owner census without allocating full weight
 storage. Activations, gradients, optimizer state, and KV are separate from weight counts.
 
 Experts use a PyTorch reference or explicit Triton grouped kernels with row and weight
@@ -197,24 +212,28 @@ covered in [blackwell.md](blackwell.md). CPU correctness is not GPU throughput e
 | Z | Coordinates of stochastic facet actions evaluated in outcome RL |
 | T | Newly generated teacher output, including rejected attempts |
 
-B0 counts both prediction and reconstruction lexical passes in P. Recurrent stages count
-one pass. Fixed syntax and declared copies contribute transcript exposure and no free
-lexical CE. Actual emitted IDs can partition bytes differently from the reference codec;
+Both bootstrap and recurrent stages count their prediction and reconstruction lexical
+passes in P. A loss weight of zero does not erase an actually evaluated pass. Fixed
+syntax and declared copies contribute transcript exposure and no free lexical CE.
+Actual emitted IDs can partition bytes differently from the reference codec;
 scoring retains emitted IDs rather than retokenizing them. Generated raw facet replay is
 recorded separately from byte encoding. Outcome RL scores a latent density with P=0;
 its output token count is not a lexical policy likelihood.
 
 `metrics.jsonl` records per-term sums/denominators, causal and reconstruction lexical CE,
-encoder alignment MSE, predicted/encoded facet norms, D/I/P/Z rates, source bytes, physical
-record exposure, prefix reconstruction, facet/control encoding, raw tape replay, expert
+genuine-pair encoder alignment MSE, predicted/encoded facet norms, D/I/P/Z rates, source
+bytes, physical record exposure, prefix reconstruction, facet/control encoding, raw tape replay, expert
 eligible/routed/learning rows, dispatch padding, optimizer time, gradient norms, and peak
 memory. Learning-row counts exclude no-grad reconstruction and checkpoint recomputation.
 Training diagnostics use detached device scalars and are materialized at logging boundaries.
+`forecast_encoder_distance_mse` is only a representation-distance diagnostic;
+`native_encoder_alignment_mse` reports the actual alignment loss on eligible saved pairs.
 
-Evaluation follows the checkpoint's representation mode. Bootstrap reconstruction and
-facet NLL are inactive in recurrent evaluation; their report fields are null, not false
-zero losses. Recurrent evaluation reports encoder alignment separately from causal CE.
-Generated exactness and validity remain distinct from independently verified task success.
+Evaluation follows the checkpoint's representation mode and separates causal CE from
+noisy-codec reconstruction CE. Gaussian correspondence KL is active only in bootstrap;
+native alignment is reported only when genuine paired labels exist. Inactive report
+fields are null. Generated exactness and validity remain distinct from independently
+verified task success.
 
 ## Checkpoints and transitions
 
@@ -222,8 +241,8 @@ Generated exactness and validity remain distinct from independently verified tas
 and `metadata.json`. The metadata hashes the payload and the pointer hashes the metadata.
 Loading uses PyTorch's restricted weights-only format. Checkpoints include model/config,
 codec and semantic chunk identities, FP32 optimizer state, global step, phase counters,
-and per-rank RNG and cursor. Checkpoint and served format version 2 contain model
-architecture version 3; older architecture weights are rejected, not guessed into shape.
+and per-rank RNG and cursor. Checkpoint, served bundle, and model architecture are
+version 4. Earlier weights and action-tape protocols are explicitly incompatible.
 
 Periodic retention is bounded by `keep_checkpoints`. Phase boundaries, run-end snapshots,
 pre-RL state, and explicit baked checkpoints are retained. SIGINT/SIGTERM finishes the
@@ -259,7 +278,7 @@ Only exact unigrams/bigrams receive imports; longer orders remain native hashed 
 ```bash
 megatoken engram extract --embedding-file /path/to/selected-embeddings.safetensors \
   --tensor-name model.embed_tokens.weight --donor-codec /path/to/raw-donor-tokenizer.json \
-  --output artifacts/engram --model recurrent32
+  --output artifacts/engram --model 32x512
 megatoken engram bake --checkpoint runs/p1/checkpoints \
   --codec artifacts/codec --output runs/baked
 ```
@@ -272,9 +291,11 @@ Export requires a completed bake. No donor model runs during training or serving
 ## Fresh executed outcome RL
 
 RL draws one raw Gaussian facet action per chunk and runs the fixed deterministic decoder.
-The byte encoder and every decoder owner, including shared U experts, are frozen during
-latent-only optimization. Their model weights, FP32 masters, and Adam moments remain
-unchanged. This is necessary because changing a deterministic mapping while scoring only
+The complete conditional decoding map is frozen: E, all four dense C stages, their
+role/position inputs and history/KV projections, and R including U experts. These owners
+have independent parameters from the twelve sparse P stages. The predictor, remix,
+prospective-control projection, and Gaussian scale remain trainable. Frozen model weights,
+FP32 masters, and Adam moments remain unchanged. This is necessary because changing a deterministic mapping while scoring only
 its input density would not represent the same policy-gradient objective.
 
 Collection retains every raw action, invalid or valid. Invalid actions receive no external
@@ -285,8 +306,8 @@ raw tape includes the action, codec/spec identities, effort, role, exact payload
 validity, terminal flag, causal control bytes, behavior density, and deterministic decode trace.
 
 Before updating, every rank checks fresh same-weight replay against behavior density.
-Candidate history is rebuilt under current weights with recorded raw actions; old expert
-routes are not forced onto it. Same-task leave-one-out advantages are computed from
+Candidate history is rebuilt from frozen E/C and recorded raw actions, giving the same
+conditional R map. Current P routes are recomputed rather than copied from the old tape. Same-task leave-one-out advantages are computed from
 independently verified outcomes. Equal reward groups skip the optimizer entirely, avoiding
 a momentum or weight-decay-only update. There is no PPO reuse of stale rollouts.
 
@@ -320,8 +341,8 @@ execution are provisioned separately from student training.
 
 ## Decisions before scaling
 
-Use frozen held-out families and executed tasks. Track causal generation, encoder
-alignment error and coordinate norms, exact bytes/copies, structured validity, task
+Use frozen held-out families and executed tasks. Track causal generation, noisy encoder
+reconstruction, genuine-pair alignment, and coordinate norms, exact bytes/copies, structured validity, task
 success, expert learning coverage, and end-to-end throughput from the first stage.
 Bootstrap reconstruction alone does not establish a useful recurrent model. Increasing
 facet width, cache capacity, or tower length needs measured quality and memory evidence.

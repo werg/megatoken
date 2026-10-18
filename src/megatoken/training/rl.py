@@ -276,7 +276,7 @@ def _json_safe(value: Any) -> Any:
 def write_rollout(handle: Any, rollout: Rollout, model_version: int) -> None:
     value = asdict(rollout)
     value.update(
-        format_version=2,
+        format_version=4,
         model_version=model_version,
         likelihood="canonical_facet_gaussian_density",
         replay="full_differentiable",
@@ -325,11 +325,14 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         optimizer = MasterAdamW(model, PHASES["R"].learning_rate(0))
         optimizer.load_state_dict(payload["optimizer"])
         # Preserve all master/moment ownership from supervised training. Frozen
-        # decoder owners retain grad=None, so Adam applies neither momentum nor
-        # decay to the deterministic facet-to-action map during latent-only RL.
+        # conditional-decoder owners retain grad=None, so Adam applies neither
+        # momentum nor decay to E, C/history, or R during latent-only RL. C has
+        # independent weights from P; prospective-control/P owners remain live.
         model.freeze_decoder_for_rl()
-        frozen_decoder = sorted(name for name, p in model.named_parameters() if not p.requires_grad)
-        optimizer.freeze(frozen_decoder)
+        frozen_conditional = sorted(
+            name for name, p in model.named_parameters() if not p.requires_grad
+        )
+        optimizer.freeze(frozen_conditional)
         seed_everything(config.seed + context.rank)
         factory = environment_factory(config.environment)
         output = Path(config.output)
@@ -353,8 +356,8 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         next_group = 0
         task_fingerprint = content_hash(tasks[: config.task_seeds])
         if "rl_config" in payload:
-            if payload.get("frozen_decoder_parameters") != frozen_decoder:
-                raise ValueError("RL deterministic decoder ownership changed during resume")
+            if payload.get("frozen_conditional_parameters") != frozen_conditional:
+                raise ValueError("RL conditional decoder ownership changed during resume")
             mutable = {
                 "checkpoint",
                 "output",
@@ -393,7 +396,7 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
                         "chunking": chunking.identity(codec),
                         "global_step": step,
                         "rl_config": asdict(config),
-                        "frozen_decoder_parameters": frozen_decoder,
+                        "frozen_conditional_parameters": frozen_conditional,
                         "policy_likelihood": "canonical_facet_gaussian_density",
                         "rl_counters": totals,
                         "rank_state": ranks,
