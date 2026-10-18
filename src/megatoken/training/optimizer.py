@@ -104,7 +104,7 @@ class MasterAdamW:
                         p.grad = None
 
                 self._hooks[name] = parameter.register_post_accumulate_grad_hook(accumulate)
-        if not groups:
+        if not groups and not muon_groups:
             raise ValueError("The model has no trainable parameters")
         cuda = all(p.device.type == "cuda" for p in self.masters.values())
         self.optimizer = (
