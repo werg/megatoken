@@ -152,21 +152,90 @@ class CentralProcessor(nn.Module):
         return early, facets
 
     def write(self, final: Tensor, history: KVHistory) -> KVHistory:
+        """Append one selected input, compressing only *completed* old records.
+
+        Recent records keep every projected slot. Earlier records retain a
+        differentiable, masked average of contiguous slot groups. Thus attention
+        remains causal, while its steady-state input scales with coarse history
+        rather than 32 full KV slots per ancient tiny tool event.
+        """
+        c = self.config
         pooled = (
             final
             if self.history_pool is None
             else self.history_pool(final.transpose(1, 2)).transpose(1, 2)
         )
-        addition = self.memory(pooled)
-        combined = join_attention(
-            addition, AttentionFeatures(history.keys, history.values, history.mask)
-        )
-        limit = self.config.history_slots * self.config.max_history_chunks
-        return KVHistory(
-            combined.keys[:, :, -limit:],
-            combined.values[:, :, -limit:],
-            None if combined.mask is None else combined.mask[:, -limit:],
-        )
+        added = self.memory(pooled)
+        archive = history.archived_chunks
+        recent_start = archive * c.archived_slots_per_chunk
+        recent_slots = history.slots - recent_start
+        recent_limit = c.recent_history_chunks * c.history_slots
+        evict = recent_slots + c.history_slots > recent_limit
+        archived = archive
+        keys, values = history.keys, history.values
+        mask = history.mask
+        if evict:
+            group = c.history_slots // c.archived_slots_per_chunk
+            first_key = keys[:, :, recent_start : recent_start + c.history_slots]
+            first_value = values[:, :, recent_start : recent_start + c.history_slots]
+            first_mask = (
+                None if mask is None else mask[:, recent_start : recent_start + c.history_slots]
+            )
+
+            def summarize(rows: Tensor) -> Tensor:
+                shaped = rows.reshape(
+                    rows.shape[0], rows.shape[1], c.archived_slots_per_chunk,
+                    group, rows.shape[-1],
+                )
+                if first_mask is None:
+                    return shaped.mean(3)
+                weight = first_mask.reshape(first_mask.shape[0], c.archived_slots_per_chunk, group)
+                numerator = (shaped * weight[:, None, :, :, None]).sum(3)
+                denominator = weight.sum(-1).clamp_min(1)[:, None, :, None]
+                return numerator / denominator
+
+            old_key = keys[:, :, :recent_start]
+            old_value = values[:, :, :recent_start]
+            rest_key = keys[:, :, recent_start + c.history_slots :]
+            rest_value = values[:, :, recent_start + c.history_slots :]
+            keep_archive = c.max_history_chunks - c.recent_history_chunks
+            if keep_archive:
+                keys = torch.cat((old_key, summarize(first_key), rest_key), dim=2)
+                values = torch.cat((old_value, summarize(first_value), rest_value), dim=2)
+                archived += 1
+                if mask is not None:
+                    first_group = first_mask.reshape(
+                        first_mask.shape[0], c.archived_slots_per_chunk, group
+                    ).any(-1)
+                    mask = torch.cat(
+                        (
+                            mask[:, :recent_start],
+                            first_group,
+                            mask[:, recent_start + c.history_slots :],
+                        ),
+                        dim=1,
+                    )
+            else:
+                # Tiny/reference configurations can retain only recent full KV.
+                keys, values = rest_key, rest_value
+                if mask is not None:
+                    mask = mask[:, recent_start + c.history_slots :]
+        keys = torch.cat((keys, added.keys), dim=2)
+        values = torch.cat((values, added.values), dim=2)
+        if mask is not None:
+            mask = torch.cat(
+                (mask, torch.ones(mask.shape[0], c.history_slots, dtype=torch.bool, device=mask.device)),
+                dim=1,
+            )
+        max_archived = c.max_history_chunks - c.recent_history_chunks
+        if archived > max_archived:
+            # Evict one *coarse* record, preserving the recent high-resolution tail.
+            drop = c.archived_slots_per_chunk
+            keys, values = keys[:, :, drop:], values[:, :, drop:]
+            if mask is not None:
+                mask = mask[:, drop:]
+            archived -= 1
+        return KVHistory(keys, values, mask, archived)
 
 
 class FacetedCore(nn.Module):
@@ -386,8 +455,15 @@ class FacetedCore(nn.Module):
         expected = (state.batch_size, c.kv_heads, history.slots, c.attention_head_dim)
         if history.keys.shape != expected or history.values.shape != expected:
             raise ValueError("Causal KV history has incompatible geometry")
-        if history.slots > c.history_slots * c.max_history_chunks:
-            raise ValueError("Causal KV history exceeds its configured bound")
+        maximum_slots = (
+            c.recent_history_chunks * c.history_slots
+            + (c.max_history_chunks - c.recent_history_chunks) * c.archived_slots_per_chunk
+        )
+        if not 0 <= history.archived_chunks <= c.max_history_chunks - c.recent_history_chunks:
+            raise ValueError("Invalid coarse KV archive count")
+        remaining = history.slots - history.archived_chunks * c.archived_slots_per_chunk
+        if remaining < 0 or remaining % c.history_slots or history.slots > maximum_slots:
+            raise ValueError("Causal KV history exceeds or violates the compact contract")
         if state.final is None and history.slots:
             raise ValueError("Only the empty initial sentinel may lack central features")
         if history.mask is not None and (
@@ -771,6 +847,7 @@ class FacetedCore(nn.Module):
                 state.history.keys * keep[:, None, None, None],
                 state.history.values * keep[:, None, None, None],
                 history_mask & keep[:, None],
+                state.history.archived_chunks,
             ),
             records_seen=state.records_seen * keep,
             last_record_ids=torch.where(rows, -1, state.last_record_ids),
