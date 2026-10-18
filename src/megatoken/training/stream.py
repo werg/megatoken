@@ -213,6 +213,43 @@ class WindowStream:
         self._opened = False
 
 
+class IndependentWindowStream(WindowStream):
+    """Stable disjoint shards; no cross-worker block maxima or collective barriers."""
+
+    def __init__(self, dataset: PreparedDataset, codec: Any, config: WindowConfig, *,
+                 seed: int, rank: int, world_size: int) -> None:
+        if len(dataset) < world_size:
+            raise ValueError("Independent shards require at least one episode per worker")
+        super().__init__(
+            dataset, codec, config, seed=seed, rank=rank, world_size=world_size,
+            reduce_counts=lambda counts: counts,
+        )
+
+    def _open_block(self) -> None:
+        # The synchronized stream pads to a shared longest episode. That would
+        # require an all-reduce on every block; instead, each learner moves to
+        # its next assigned episode at its own speed.
+        if self.block_start + self.rank >= len(self.dataset):
+            self.epoch += 1
+            self.block_start = 0
+        episode = self.dataset[self._episode_index()]
+        length = sum(1 for _ in iter_windows(episode, self.codec, self.config))
+        if length <= 0 or self.block_length not in (0, length) or self.slot >= length:
+            raise ValueError("Invalid independent episode cursor or empty episode")
+        self.block_length = self.local_length = length
+        self._episode = episode
+        self._windows = islice(iter_windows(episode, self.codec, self.config), self.slot, None)
+        self._opened = True
+
+    def state_dict(self) -> dict[str, Any]:
+        return {**super().state_dict(), "independent": True}
+
+    def _validate_state_dict(self, value: dict[str, Any]) -> tuple[int, int, int, int]:
+        if value.get("independent") is not True:
+            raise ValueError("Cannot resume synchronized data cursor in independent mode")
+        return super()._validate_state_dict(value)
+
+
 def compatible_batches(windows: list[EpisodeWindow], batch_size: int) -> list[list[EpisodeWindow]]:
     buckets: dict[tuple[Any, ...], list[EpisodeWindow]] = defaultdict(list)
     for window in windows:
@@ -239,8 +276,10 @@ class MixtureWindowStream:
         rank: int,
         world_size: int,
         reduce_counts: Callable[[dict[str, int]], dict[str, int]] | None = None,
+        independent: bool = False,
     ) -> None:
         _validate_topology(rank, world_size, reduce_counts)
+        self.independent = independent
         if not mixture or any(
             not isinstance(name, str)
             or not name
@@ -268,15 +307,17 @@ class MixtureWindowStream:
                             f"Stage needs at least one episode in stream {name!r}; "
                             "prepare the declared streams before launching this recipe"
                         )
-                    self.streams[name] = WindowStream(
-                        dataset,
-                        codec,
-                        config,
-                        seed=seed + index * 1009,
-                        rank=rank,
-                        world_size=world_size,
-                        reduce_counts=reduce_counts,
-                    )
+                    if independent:
+                        self.streams[name] = IndependentWindowStream(
+                            dataset, codec, config, seed=seed + index * 1009,
+                            rank=rank, world_size=world_size,
+                        )
+                    else:
+                        self.streams[name] = WindowStream(
+                            dataset, codec, config, seed=seed + index * 1009,
+                            rank=rank, world_size=world_size,
+                            reduce_counts=reduce_counts,
+                        )
                 except BaseException:
                     dataset.close()
                     raise
@@ -301,6 +342,7 @@ class MixtureWindowStream:
         return {
             "version": 2,
             "kind": "mixture",
+            **({"independent": True} if self.independent else {}),
             "mixture": dict(self.mixture),
             "meter": self.meter,
             "exposure": dict(self.exposure),
@@ -313,6 +355,7 @@ class MixtureWindowStream:
             or type(value.get("version")) is not int
             or value.get("version") != 2
             or value.get("kind") != "mixture"
+            or (value.get("independent", False) is True) != self.independent
             or value.get("mixture") != self.mixture
             or value.get("meter") != self.meter
         ):
