@@ -137,6 +137,7 @@ class DecoupledWorker:
         output: Path,
         token_budget: int,
         train_identity: str,
+        dataset_fingerprint: str,
     ) -> None:
         self.settings = settings
         self.worker = settings.resolved_worker_id
@@ -155,6 +156,7 @@ class DecoupledWorker:
             or self.manifest["parameter_identity"] != parameter_identity(masters)
             or self.manifest["token_budget"] != token_budget
             or self.manifest["train_identity"] != train_identity
+            or self.manifest["dataset_fingerprint"] != dataset_fingerprint
         ):
             raise ValueError("DiLoCo worker architecture/codec/topology/budget differs from syncer")
         self.fragments = tuple(Fragment.from_dict(x) for x in self.manifest["fragments"])
