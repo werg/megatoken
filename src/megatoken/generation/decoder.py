@@ -114,10 +114,10 @@ class _Program:
             )
             chosen.index_copy_(0, target, sampled)
         ids = chosen.tolist()  # Exactly one GPU -> host readback for all free fields.
-        return {
-            name: tuple(ids[start : start + length])
-            for name, (start, length) in offsets.items()
-        }
+        result = {}
+        for name, (start, length) in offsets.items():
+            result[name] = tuple(ids[start : start + length])
+        return result
 
 
 class DeterministicDecoder(nn.Module):
