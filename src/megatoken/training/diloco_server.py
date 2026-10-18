@@ -285,7 +285,6 @@ class Coordinator:
     def _try_merge(self, index: int) -> None:
         fragment = self.fragments[index]
         path = self._path(index)
-        data = load_tensors(path)
         meta = _metadata(path)
         version = int(meta["version"])
         last_seq = json.loads(meta.get("last_seq", "{}"))
@@ -311,6 +310,7 @@ class Coordinator:
         ):
             return
         self.quorum_since.pop(index, None)
+        data = load_tensors(path)
         delta = merge_pseudogradients(
             [load_tensors(file)["delta"] for file, _, _ in proposals],
             [int(item["tokens"]) for _, item, _ in proposals],
@@ -375,8 +375,8 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
             self.end_headers()
             self.wfile.write(body)
 
-        def _file(self, path: Path, version: int | None = None) -> None:
-            with path.open("rb") as file:
+        def _stream_file(self, file, version: int | None = None) -> None:
+            with file:
                 size = os.fstat(file.fileno()).st_size
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
@@ -387,6 +387,9 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                 self.end_headers()
                 for chunk in iter(lambda: file.read(4 << 20), b""):
                     self.wfile.write(chunk)
+
+        def _file(self, path: Path) -> None:
+            self._stream_file(path.open("rb"))
 
         def _read_json(self) -> dict:
             size = int(self.headers.get("Content-Length", "0"))
@@ -413,14 +416,16 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                     with coordinator.lock:
                         version = coordinator._version(index)
                         query = parse_qs(parsed.query)
-                        if query.get("after") == [str(version)]:
-                            self.send_response(204)
-                            self.send_header("Content-Length", "0")
-                            self.end_headers()
-                        else:
-                            # Published weights are written atomically.
-                            coordinator._file_version = version
-                            self._file(coordinator._published(index), version)
+                        unchanged = query.get("after") == [str(version)]
+                        # Open under the state lock, but never hold that lock
+                        # while a slow HTTP client streams many MiB.
+                        file = None if unchanged else coordinator._published(index).open("rb")
+                    if unchanged:
+                        self.send_response(204)
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                    else:
+                        self._stream_file(file, version)
                 else:
                     self._json(404, {"error": "Unknown endpoint"})
             except (ValueError, OSError) as exc:
