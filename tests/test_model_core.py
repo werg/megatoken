@@ -60,14 +60,15 @@ def test_versioned_geometry_and_explicit_width_presets():
     assert (large.query_heads, large.kv_heads, large.attention_head_dim) == (4, 2, 128)
     assert (large.history_slots, large.max_history_chunks) == (32, 1024)
     assert large.codec_noise_std == large.prior_noise_std == 0.1
+    assert (large.recent_history_chunks, large.archived_slots_per_chunk) == (64, 2)
+    cache_slots = (
+        large.history_slots * large.recent_history_chunks
+        + large.archived_slots_per_chunk
+        * (large.max_history_chunks - large.recent_history_chunks)
+    )
     assert (
-        2
-        * large.kv_heads
-        * large.attention_head_dim
-        * large.history_slots
-        * large.max_history_chunks
-        * 2
-        == 32 << 20
+        2 * large.kv_heads * large.attention_head_dim * cache_slots * 2
+        == 4_063_232
     )
     assert ModelConfig.from_dict(large.to_dict()) == large
     legacy = large.to_dict()
