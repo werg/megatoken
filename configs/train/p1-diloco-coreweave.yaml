@@ -3,9 +3,9 @@
 # Phase recipes own token budgets, stream proportions, and effort probabilities.
 phase: P1
 model: 32x512
-dataset: artifacts/prepared
-codec: artifacts/codec
-output: runs/p1-diloco
+dataset: /work/artifacts/prepared
+codec: /work/artifacts/codec
+output: /work/runs/p1-diloco
 device: cuda
 precision: bf16
 require_blackwell: true
