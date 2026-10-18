@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import os
 import signal
 import time
 from dataclasses import asdict, dataclass
@@ -35,6 +36,7 @@ from megatoken.tool_schema import (
 from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.distributed import DistributedContext
+from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.history import NativeHistory, replay_raw_tape
 from megatoken.training.losses import LossLedger
 from megatoken.training.metrics import (
@@ -49,6 +51,7 @@ from megatoken.training.schedule import PHASES
 from megatoken.training.stream import (
     EpisodeWindow,
     MixtureWindowStream,
+    IndependentWindowStream,
     WindowStream,
     compatible_batches,
 )
@@ -464,6 +467,8 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
         "expert_backend",
         "engram_import",
         "weight_decay",
+        "inner_optimizer",
+        "decoupled",
     )
     if not phase_transition:
         critical += (
@@ -503,9 +508,17 @@ def train(
         raise ValueError("Outcome RL requires executed episodes: use the rl command")
     if phase_transition and not resume:
         raise ValueError("A phase transition requires the previous phase's checkpoint")
+    if config.decoupled is not None and (
+        int(os.environ.get("WORLD_SIZE", "1")) != 1
+        or (torch.distributed.is_available() and torch.distributed.is_initialized())
+    ):
+        raise ValueError("Decoupled learners require one independent process per sandbox, not torchrun")
     context = DistributedContext.initialize(config.device)
     output = Path(config.output)
+    if config.decoupled is not None:
+        output = output / f"worker-{config.decoupled.resolved_worker_id:02d}"
     logger = JsonlLogger(output / "metrics.jsonl", context.is_primary)
+    diloco = None
     optimizer = None
     dataset = stream = None
     old_handlers = {}
@@ -557,7 +570,10 @@ def train(
         phase = dataclasses.replace(
             PHASES[config.phase], budget=config.budget or PHASES[config.phase].budget
         )
-        optimizer = MasterAdamW(model, phase.learning_rate(0), config.weight_decay)
+        optimizer = MasterAdamW(
+            model, phase.learning_rate(0), config.weight_decay,
+            inner_optimizer=config.inner_optimizer,
+        )
         if config.representation_training == "recurrent":
             # Contextual codec auxiliaries use frozen C/R with E gradients only.
             # Independent clipping prevents their norm scaling the main update.
@@ -580,6 +596,8 @@ def train(
             and payload["chunking"] != chunking_identity
         ):
             raise ValueError("Exact resume changed the semantic chunking policy")
+        data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
+        data_world = config.decoupled.workers if config.decoupled else context.world_size
         if config.use_stage_mixture:
             recipe = stage_recipe(config.phase)
             stream = MixtureWindowStream(
@@ -589,25 +607,44 @@ def train(
                 recipe.mixture,
                 phase.meter,
                 seed=config.seed,
-                rank=context.rank,
-                world_size=context.world_size,
+                rank=data_rank,
+                world_size=data_world,
                 reduce_counts=context.sum_counts,
+                independent=config.decoupled is not None,
             )
         else:
-            stream = WindowStream(
-                dataset,
-                codec,
-                windows_config,
-                seed=config.seed,
-                rank=context.rank,
-                world_size=context.world_size,
-                reduce_counts=context.sum_counts,
+            stream = (
+                IndependentWindowStream(
+                    dataset, codec, windows_config, seed=config.seed,
+                    rank=data_rank, world_size=data_world,
+                )
+                if config.decoupled is not None
+                else WindowStream(
+                    dataset, codec, windows_config, seed=config.seed,
+                    rank=context.rank, world_size=context.world_size,
+                    reduce_counts=context.sum_counts,
+                )
             )
+        if config.decoupled is not None:
+            diloco = DecoupledWorker(
+                config.decoupled,
+                model_config=model_config.to_dict(),
+                codec_fingerprint=codec.fingerprint,
+                masters=optimizer.masters,
+                output=output / "diloco",
+                token_budget=phase.budget,
+            )
+            if payload is None:
+                diloco.bootstrap(model, optimizer)
         global_step = 0
         consumed = 0
         counters = Counters()
         if payload is not None:
             optimizer.load_state_dict(payload["optimizer"])
+            if diloco is not None:
+                if phase_transition:
+                    raise ValueError("Start a new coordinator run for a phase transition")
+                diloco.resume(payload["diloco"], optimizer)
             global_step = payload["global_step"]
             if not phase_transition:
                 if len(payload["rank_state"]) != context.world_size:
@@ -618,10 +655,10 @@ def train(
                 consumed = payload["phase_consumed"]
                 counters = Counters(**payload["counters"])
             else:
-                seed_everything(config.seed + context.rank, config.deterministic)
+                seed_everything(config.seed + data_rank, config.deterministic)
         else:
             # Initialization is identical; sampling/exploration is rank-specific.
-            seed_everything(config.seed + context.rank, config.deterministic)
+            seed_everything(config.seed + data_rank, config.deterministic)
         if config.compile:
             # Compile the reusable tensor operators, not Python action tapes,
             # data cursors, or mutable runtime history management.
@@ -637,7 +674,8 @@ def train(
             phase=phase.name,
             budget=phase.budget,
             meter=phase.meter,
-            world_size=context.world_size,
+            world_size=data_world,
+            mode="decoupled_diloco" if diloco is not None else "synchronous",
             model=model_config.name,
             served_parameters=parameter_report(model)["totals"]["served"],
         )
@@ -659,6 +697,7 @@ def train(
                     {
                         "model": model.state_dict(),
                         "optimizer": optimizer.state_dict(),
+                        **({"diloco": diloco.state_dict()} if diloco is not None else {}),
                         "model_config": model_config.to_dict(),
                         "train_config": asdict(config),
                         "codec_fingerprint": codec.fingerprint,
@@ -688,8 +727,10 @@ def train(
         last_checkpoint = str(resolve_checkpoint(resume)) if resume else ""
         if phase_transition:
             last_checkpoint = checkpoint("phase-start", pinned=True)
-        while consumed < phase.budget and (
-            config.max_steps is None or updates_this_run < config.max_steps
+        while (
+            consumed < phase.budget
+            and (diloco is None or not diloco.finished)
+            and (config.max_steps is None or updates_this_run < config.max_steps)
         ):
             started = time.perf_counter()
             selected = []
@@ -753,10 +794,17 @@ def train(
             step_metrics = optimizer.step(config.grad_clip)
             optimizer_seconds = time.perf_counter() - optimizer_started
             global_step += 1
-            model.core.set_model_version(global_step)
             updates_this_run += 1
             consumed += getattr(global_work, phase.meter)
             counters.add(global_work)
+            diloco_metrics = (
+                diloco.after_step(
+                    optimizer, steps=global_step, tokens=getattr(global_work, phase.meter)
+                )
+                if diloco is not None
+                else {}
+            )
+            model.core.set_model_version(global_step)
             local_sums = ledger.sums
             merged_sums = context.all_gather_object(local_sums)
             sums = {
@@ -817,6 +865,8 @@ def train(
                     loss={k: sums[k] / v for k, v in global_counts.items() if v},
                     denominators=global_counts,
                     lr=learning_rate,
+                    decoupled=diloco.metrics() if diloco is not None else None,
+                    decoupled_step=diloco_metrics,
                     counters=asdict(counters),
                     step_counters=asdict(global_work),
                     optimizer_seconds=optimizer_seconds,
@@ -836,7 +886,9 @@ def train(
                 from megatoken.training.evaluation import evaluate_records
 
                 rng = capture_rng()
-                if context.is_primary:
+                if context.is_primary and (
+                    diloco is None or config.decoupled.resolved_worker_id == 0
+                ):
                     validation = PreparedDataset(config.dataset, split="validation")
                     try:
                         logger.log(
@@ -863,7 +915,9 @@ def train(
             "global_step": global_step,
             "phase": phase.name,
             "phase_consumed": consumed,
-            "complete": consumed >= phase.budget,
+            "complete": consumed >= phase.budget or (
+                diloco is not None and diloco.finished
+            ),
             "checkpoint": last_checkpoint,
             "counters": asdict(counters),
         }
@@ -872,6 +926,8 @@ def train(
     finally:
         for signum, handler in old_handlers.items():
             signal.signal(signum, handler)
+        if diloco is not None:
+            diloco.close()
         if optimizer is not None:
             optimizer.close()
         if stream is not None:
