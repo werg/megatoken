@@ -5,9 +5,10 @@ moments, raw recurrent facets, and bounded BF16 causal KV context. The same core
 serves training and inference: four dense central blocks supply both contextual
 realization and the next predictor, whose non-residual remix precedes twelve
 residual sparse stages. Cached central features avoid a second C pass for either
-consumer. The portable PyTorch backend is the reference. The optional Triton
-backend contains grouped expert forward/backward GEMMs. Selecting it is explicit;
-there is no silent substitution of a different benchmark backend.
+consumer. The portable PyTorch backend is the CPU/numerical reference.
+Production CUDA recipes explicitly select Triton grouped expert forward/backward
+GEMMs; the `auto` setting uses Triton on CUDA and torch on CPU. Missing Triton on
+CUDA is an error rather than a silent fallback to the synchronizing reference.
 
 CPU tests verify the mathematical and causal implementation. They do not establish
 Blackwell kernel compatibility, GPU memory fit, speed, or trained capability. Run
@@ -90,7 +91,10 @@ eight prefix records. Pass `--capacity 1024 --prediction-chunks 8` for the maxim
 output and a longer tower. Without the real codec, its primary result is explicitly
 core-only. These short gates precede the full workload sweep below.
 
-`ModelConfig(expert_backend="triton")` enables the CUDA grouped operators. Keep `torch` if a gate fails. Compare actual assignment distributions,
+`ModelConfig(expert_backend="auto")` dispatches to Triton on CUDA and to torch on
+CPU; `expert_backend="triton"` fails fast when run without CUDA. Production GPU
+training should use the explicit Triton setting after passing the parity gate.
+Compare actual assignment distributions,
 including one record, eight independent records, and larger compatible batches.
 The PyTorch implementation sorts rows and reads the group-count vector on the host;
 that synchronization is a known reference-path cost. The Triton implementation
