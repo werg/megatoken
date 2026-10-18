@@ -46,6 +46,18 @@ def assert_state_equal(first, second):
         assert torch.equal(first.history.mask, second.history.mask)
 
 
+def assert_replay_density_close(actual, expected, latent_dimensions):
+    # Recomputed no_grad/autograd attention and the FP32 density reduction may
+    # differ by a few rounding steps. Bound their average error per coordinate,
+    # rather than putting an architecture-dependent absolute cap on the sum.
+    torch.testing.assert_close(
+        actual / latent_dimensions,
+        expected / latent_dimensions,
+        rtol=0,
+        atol=4 * torch.finfo(torch.float32).eps,
+    )
+
+
 def predictor_parameters(model):
     excluded = {id(parameter) for parameter in model.deterministic_decoder_parameters()}
     return [parameter for parameter in model.core.parameters() if id(parameter) not in excluded]
@@ -230,7 +242,7 @@ def test_replay_reconstructs_state_and_candidate_density_depends_on_history(mode
         initial, [prompt, first.tape, second.tape], specs=[spec, spec]
     )
     assert_state_equal(state, second.state)
-    torch.testing.assert_close(probabilities[1], second.log_prob, rtol=0, atol=3e-5)
+    assert_replay_density_close(probabilities[1], second.log_prob, model.latent_dimensions)
     raw = torch.tensor(second.tape.facets).reshape(1, *second.tape.facet_shape)
     isolated = model.facet_distribution(model.core.predict_facets(initial)).log_prob(raw).sum()
     assert not torch.allclose(isolated, second.log_prob)
@@ -590,7 +602,7 @@ def test_nonempty_control_bytes_roundtrip_and_train_only_the_served_control_path
     assert restored.control_payload == payload
     replay = model.score_tape(state, restored, spec=spec)
     explicit = model.score_tape(state, restored, spec=spec, control_payload=payload)
-    torch.testing.assert_close(result.log_prob, replay.log_prob, rtol=0, atol=3e-5)
+    assert_replay_density_close(result.log_prob, replay.log_prob, model.latent_dimensions)
     torch.testing.assert_close(replay.log_prob, explicit.log_prob, rtol=0, atol=0)
     assert_state_equal(result.state, replay.state)
     (-replay.log_prob / model.latent_dimensions).backward()
