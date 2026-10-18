@@ -14,7 +14,7 @@ from torch.nn import functional as F
 from megatoken.model.layers import position_features
 
 from .distributions import TiedVocabulary
-from .feasibility import wire_witness_tokens
+from .feasibility import wire_overhead_tokens, wire_witness_tokens
 from .realizer import ParallelRealizer
 from .structure import ActionSpec, Decision, FieldSpec
 from .targets import PreparedAction, PreparedTargets, planned_fields, source_ids, workspace_capacity
@@ -78,6 +78,46 @@ class _Program:
         target = torch.tensor(ids, device=states.device, dtype=torch.long)
         self.add("lexical", decoder.vocabulary.loss(states, target, valid).sum(), len(ids))
         return ids
+
+
+    def lexical_batch(self, decoder, states, requests):
+        """Sample independent free spans by alphabet with one host readback.
+
+        Header choices, identifiers, and bindings retain their serial semantic
+        dependencies. Once all output states exist, ordinary free fields do
+        not: gather those positions by alphabet, execute one vocabulary call
+        per alphabet, then materialize the chosen IDs with one .tolist().
+        """
+        if self.teacher is not None:
+            raise RuntimeError("Batch sampling is only used for unforced realization")
+        offsets = {}
+        kinds = {}
+        count = 0
+        for name, positions, kind in requests:
+            offsets[name] = (count, len(positions))
+            if positions:
+                # Both JSON and UTF-8 use the same lexical token alphabet.
+                alphabet = "utf8" if kind == "json" else kind
+                group = kinds.setdefault(alphabet, ([], []))
+                group[0].extend(positions)
+                group[1].extend(range(count, count + len(positions)))
+            count += len(positions)
+        if not count:
+            return {name: () for name in offsets}
+
+        chosen = torch.empty(count, dtype=torch.long, device=states.device)
+        for kind, (positions, destinations) in kinds.items():
+            indices = torch.tensor(positions, dtype=torch.long, device=states.device)
+            target = torch.tensor(destinations, dtype=torch.long, device=states.device)
+            sampled = decoder.vocabulary.argmax(
+                states.index_select(0, indices), decoder.alphabet(kind)
+            )
+            chosen.index_copy_(0, target, sampled)
+        ids = chosen.tolist()  # Exactly one GPU -> host readback for all free fields.
+        result = {}
+        for name, (start, length) in offsets.items():
+            result[name] = tuple(ids[start : start + length])
+        return result
 
 
 class DeterministicDecoder(nn.Module):
@@ -209,9 +249,19 @@ class DeterministicDecoder(nn.Module):
         # require more tokens for its fixed JSON envelope than for all its
         # semantic values combined. Require a schema-valid complete wire
         # witness at this limit before making it a candidate.
+        # Field lengths live in the model's workspace, but a complete tool
+        # action must also fit its literal wire syntax (keys, separators, quotes).
+        # Reserve those fixed tokens before deciding which schemas or value
+        # lengths the model may choose.
+        schema_limits = {
+            index: limit - wire_overhead_tokens(schema, self.codec)
+            for index, schema in enumerate(spec.schemas)
+        }
         feasible = []
         for index, fields in schema_fields.items():
-            if fields is None or sum(value.minimum for value in fields.values()) > limit:
+            if fields is None or (
+                sum(value.minimum for value in fields.values()) > schema_limits[index]
+            ):
                 continue
             witness = wire_witness_tokens(spec.schemas[index], self.codec)
             if witness is not None and witness > limit:
@@ -247,7 +297,9 @@ class DeterministicDecoder(nn.Module):
             if len(schema.orders) > self.layout_codes.num_embeddings:
                 raise ValueError("too many declared layouts")
             fields = schema_fields[selected]
+            field_limit = schema_limits[selected]
         else:
+            field_limit = limit
             fields = planned_fields(
                 self.codec,
                 (
@@ -316,11 +368,14 @@ class DeterministicDecoder(nn.Module):
                             and minimum_total()
                             - sum(other.minimum for other in shared)
                             + len(shared) * len(ids)
-                            <= limit
+                            <= field_limit
                         )
                     else:
                         fits = (
-                            minimum_total() - value.minimum + max(value.minimum, len(ids)) <= limit
+                            minimum_total()
+                            - value.minimum
+                            + max(value.minimum, len(ids))
+                            <= field_limit
                         )
                     if fits:
                         allowed.append(index)
@@ -340,7 +395,9 @@ class DeterministicDecoder(nn.Module):
                 if value.fixed_ids is None:
                     shared = consumers(field_.identifier)
                     lower = max(1, *(other.minimum for other in shared))
-                    available = limit - minimum_total() + sum(other.minimum for other in shared)
+                    available = (
+                        field_limit - minimum_total() + sum(other.minimum for other in shared)
+                    )
                     upper = min(
                         min(other.spec.max_tokens for other in shared), available // len(shared)
                     )
@@ -391,7 +448,7 @@ class DeterministicDecoder(nn.Module):
                 value.length = len(value.fixed_ids)
             else:
                 remaining = sum(other.minimum for other in values[index + 1 :])
-                upper = min(value.spec.max_tokens, limit - assigned - remaining)
+                upper = min(value.spec.max_tokens, field_limit - assigned - remaining)
                 value.length = choose(
                     "length/" + value.spec.name,
                     self.length_codes,
@@ -421,23 +478,42 @@ class DeterministicDecoder(nn.Module):
             assigned, teacher.capacity if teacher else None, self.config.max_capacity
         )
         rows = self.realizer(core, context, capacity, header)
+        # Unlike the earlier header and identifier decisions, free fields are
+        # conditionally independent once the final realizer states exist. Batch
+        # their lexical selections and transfer all chosen IDs together.
+        sampled_fields = (
+            program.lexical_batch(
+                self,
+                rows[0],
+                [
+                    (name, value.free_positions, value.spec.kind)
+                    for name, value in fields.items()
+                    if value.fixed_ids is None
+                ],
+            )
+            if teacher is None
+            else {}
+        )
         outputs = {}
         for name, value in fields.items():
             if value.fixed_ids is not None:
                 outputs[name] = value.fixed_ids
                 continue
-            positions = torch.tensor(value.free_positions, device=rows.device, dtype=torch.long)
-            forced = None
-            if teacher is not None:
+            if teacher is None:
+                free_ids = sampled_fields[name]
+            else:
+                positions = torch.tensor(
+                    value.free_positions, device=rows.device, dtype=torch.long
+                )
                 labels = teacher.field_ids[name]
                 forced = tuple(
                     token
                     for index, token in enumerate(labels)
                     if not value.placement <= index < value.placement + len(value.copy_ids)
                 )
-            free_ids = program.lexical(
-                self, rows[0].index_select(0, positions), value.spec.kind, forced=forced
-            )
+                free_ids = program.lexical(
+                    self, rows[0].index_select(0, positions), value.spec.kind, forced=forced
+                )
             outputs[name] = value.assemble(free_ids)
         payload, emitted, error = b"", (), None
         try:

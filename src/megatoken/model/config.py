@@ -54,7 +54,7 @@ class ModelConfig:
     output_rank: int = 128
     max_capacity: int = 1024
     norm_eps: float = 1e-6
-    expert_backend: str = "torch"
+    expert_backend: str = "auto"
     checkpoint_stages: bool = False
 
     def __post_init__(self) -> None:
@@ -125,8 +125,8 @@ class ModelConfig:
             raise ValueError("ngram_orders must contain orders in [1, 8]")
         if self.ngram_rows <= self.exact_rows:
             raise ValueError("ngram_rows must leave space for the hashed fallback")
-        if self.expert_backend not in {"torch", "triton"}:
-            raise ValueError("Backend must be torch or triton; CUDA is explicitly gated")
+        if self.expert_backend not in {"auto", "torch", "triton"}:
+            raise ValueError("Backend must be auto, torch or triton")
 
     @property
     def exact_rows(self) -> int:

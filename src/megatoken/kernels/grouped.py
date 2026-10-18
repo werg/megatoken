@@ -1,8 +1,8 @@
 """Sorted expert dispatch without per-row weight replication.
 
-``torch`` is the portable, differentiable numerical reference. ``triton`` uses
-actual grouped GEMMs for forward, input gradient, and packed weight gradient.
-It is opt-in until the hardware parity and representative-load benchmarks pass.
+``auto`` selects the GPU-resident Triton grouped GEMM on CUDA and the
+portable differentiable ``torch`` reference on CPU. CUDA does not silently
+fall back to the synchronizing reference implementation if Triton is unavailable.
 The public API is identical on CPU, CUDA, training, and serving.
 """
 
@@ -48,8 +48,10 @@ def grouped_linear_reference(x: Tensor, weights: Tensor, expert_ids: Tensor) -> 
 
 
 def grouped_linear(
-    x: Tensor, weights: Tensor, expert_ids: Tensor, backend: str = "torch"
+    x: Tensor, weights: Tensor, expert_ids: Tensor, backend: str = "auto"
 ) -> Tensor:
+    if backend == "auto":
+        backend = "triton" if x.is_cuda else "torch"
     if backend == "torch":
         return grouped_linear_reference(x, weights, expert_ids)
     if backend != "triton":

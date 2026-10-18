@@ -41,7 +41,7 @@ class TrainConfig:
     gradient_checkpointing: bool = True
     compile: bool = False
     compile_mode: str = "default"
-    expert_backend: str = "torch"
+    expert_backend: str = "auto"
     representation_mode: str = "auto"
     deterministic: bool = False
     require_blackwell: bool = False
@@ -62,6 +62,8 @@ class TrainConfig:
             raise ValueError("Only bf16 or fp32 are supported; FP8 requires a measured extension")
         if self.effort not in {1, 2, 3, 6}:
             raise ValueError("effort must be one of 1, 2, 3, 6")
+        if self.expert_backend not in {"auto", "torch", "triton"}:
+            raise ValueError("expert_backend must be auto, torch, or triton")
         if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
         positive = (

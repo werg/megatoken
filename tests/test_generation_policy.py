@@ -216,13 +216,30 @@ def test_full_facet_tape_roundtrip_density_and_integrity(model):
         model.sample(state, rl=True, effort=3)
 
 
-def test_invalid_materialization_still_advances_and_replays_raw_computation(model):
-    # The value alone fits; deterministic outer JSON syntax exceeds this limit.
+def test_invalid_materialization_still_advances_and_replays_raw_computation(model, monkeypatch):
+    # An impossible fixed schema now fails feasibility *before* sampling.
     schema = SchemaSpec("integer", (FieldSpec("value", kind="json", fixed_json="0"),))
-    spec = ActionSpec(allow_text=False, schemas=(schema,), max_tokens=1)
     state = model.core.initial_state(1)
+    with pytest.raises(ValueError, match="no public output mode fits"):
+        model.sample(
+            state,
+            spec=ActionSpec(allow_text=False, schemas=(schema,), max_tokens=1),
+            generator=torch.Generator().manual_seed(5),
+        )
+
+    # Actual lexical invalidity remains a first-class sampled outcome. Force
+    # one invalid UTF-8 byte, and verify that its *raw* facets still advance
+    # causal state and replay exactly.
+    spec = ActionSpec(text_kind="utf8", min_tokens=1, max_tokens=1)
+    monkeypatch.setattr(
+        model.decoder.vocabulary,
+        "argmax",
+        lambda states, allowed: torch.full(
+            (states.shape[0],), 255, device=states.device, dtype=torch.long
+        ),
+    )
     result = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(5))
-    assert not result.tape.valid and "including fixed syntax" in result.tape.error
+    assert not result.tape.valid and "UnicodeDecodeError" in result.tape.error
     assert result.state.final is not None and state.final is None
     assert result.state.records_seen.item() == 1
     assert not torch.equal(state.facets, result.state.facets)
