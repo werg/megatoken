@@ -38,8 +38,10 @@ def _validate_tape(tape: ActionTape, model: FacetedGenerator) -> None:
         raise ValueError("native tape validity and terminal status must be booleans")
     # Generated tapes store exact FP32 values. Reject a finite JSON float that
     # would overflow or change when installed as the authoritative action tensor.
-    raw = torch.tensor(tape.facets, dtype=torch.float32, device="cpu")
-    if not bool(torch.isfinite(raw).all()) or raw.tolist() != list(tape.facets):
+    raw = torch.from_numpy(tape.facet_array().copy())
+    if not bool(torch.isfinite(raw).all()) or (
+        not isinstance(tape.facets, bytes) and raw.tolist() != list(tape.facets)
+    ):
         raise ValueError("native tape coordinates are not finite exact FP32 values")
     if any(type(token) is not int for token in tape.emitted_ids):
         raise ValueError("native tape emitted IDs must be integers")
@@ -182,8 +184,8 @@ def replay_raw_tape(
         model.config.facet_dim,
     ):
         raise ValueError("Native tape codec or facet geometry differs from this model")
-    raw = torch.tensor(tape.facets, device=state.device, dtype=torch.float32).reshape(
-        1, *tape.facet_shape
-    )
+    raw = torch.as_tensor(
+        tape.facet_array().copy(), device=state.device, dtype=torch.float32
+    ).reshape(1, *tape.facet_shape)
     roles = torch.tensor([tape.role_id], device=state.device, dtype=torch.long)
     return model.core.advance_raw(state, raw, role_ids=roles)
