@@ -35,6 +35,9 @@ def main() -> int:
     parser.add_argument("--cpu", default="8")
     parser.add_argument("--memory", default="32Gi")
     parser.add_argument("--scratch", default="80Gi")
+    parser.add_argument("--data-s3", help="S3 prefix containing codec/ and prepared/ inputs")
+    parser.add_argument("--s3-endpoint", default="https://cwobject.com")
+    parser.add_argument("--s3-region", help="CoreWeave object-storage region, if required")
     parser.add_argument("--lifetime-seconds", type=int, default=86400)
     parser.add_argument(
         "--secret", action="append", default=["MEGATOKEN_DILOCO_TOKEN"],
@@ -72,12 +75,23 @@ def main() -> int:
                 )
             ],
             secrets=secrets,
-            environment_variables={"MEGATOKEN_WORKER_ID": str(worker)},
+            environment_variables={
+                "MEGATOKEN_WORKER_ID": str(worker),
+                "AWS_ENDPOINT_URL_S3": args.s3_endpoint,
+                **({"AWS_REGION": args.s3_region} if args.s3_region else {}),
+            },
             network={"egress_mode": "internet"},
             max_lifetime_seconds=args.lifetime_seconds,
         ) as sandbox:
             check = sandbox.exec(["nvidia-smi", "-L"], timeout_seconds=120).result()
             print(f"worker {worker}: GPU {check.stdout.strip()}", flush=True)
+            if args.data_s3:
+                staged = sandbox.exec(
+                    ["python", "scripts/stage_coreweave_data.py",
+                     "--s3", args.data_s3, "--destination", "artifacts"],
+                    timeout_seconds=max(120, args.lifetime_seconds // 3),
+                ).result()
+                print(f"worker {worker}: {staged.stdout.strip()}", flush=True)
             command = ["megatoken", "train", "--config", args.config]
             if args.resume_template:
                 command += ["--resume", args.resume_template.format(worker=worker)]
