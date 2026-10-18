@@ -139,9 +139,12 @@ class EpochRouter(nn.Module):
         ids = eligible.gather(-1, local_choice)
         row_confidence = row_probability.gather(-1, local_choice[..., None]).squeeze(-1)
         palette_confidence = selected_palette.gather(-1, local_choice)
-        # Unit expected scale under a uniform router, with nonconstant task paths
-        # to the chosen palette and row probabilities even for top-1 dispatch.
-        confidence = palette_confidence * self.experts * row_confidence * eligible_count
+        # Normalize around unit scale under uniform routing, but strictly bound
+        # confident palettes. The previous unbounded product could amplify one
+        # routed expert by experts*eligible (512x in production). Keep a smooth,
+        # nonzero gradient through both selected palette and row probabilities.
+        unbounded = palette_confidence * self.experts * row_confidence * eligible_count
+        confidence = 2.0 * unbounded / (1.0 + unbounded)
         assignments = ids.detach().flatten()
         fractions = torch.zeros(self.experts, device=ids.device, dtype=torch.float32)
         fractions.scatter_add_(0, assignments, torch.ones_like(assignments, dtype=torch.float32))
