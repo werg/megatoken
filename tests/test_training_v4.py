@@ -15,8 +15,8 @@ from megatoken.training.config import TrainConfig
 from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.optimizer import MasterAdamW
-from megatoken.training.stream import EpisodeWindow
 from megatoken.tensors import byte_tensor
+from megatoken.training.stream import EpisodeWindow
 
 
 def window_fixture(*, mask_first=False):
@@ -191,8 +191,10 @@ def test_offline_tool_result_uses_recorded_action_not_counterfactual_sample(monk
         ),
         Lineage("fixture", "v4", "tool-causality"),
         actions=(
-            LogicalAction("a1", "call1", "read", '{"path":"A"}', ("call",),
-                          digest_bytes(call), execution_id="e1"),
+            LogicalAction(
+                "a1", "call1", "read", '{"path":"A"}', ("call",),
+                digest_bytes(call), execution_id="e1",
+            ),
         ),
     )
     codec = ByteCodec.byte_fallback()
@@ -206,7 +208,9 @@ def test_offline_tool_result_uses_recorded_action_not_counterfactual_sample(monk
 
     def capture(state, *args, **kwargs):
         result = original(state, *args, **kwargs)
-        seen.append((kwargs.get("teacher_forced_action"), result.state.facets.detach().clone()))
+        seen.append(
+            (kwargs.get("teacher_forced_action"), result.state.facets.detach().clone())
+        )
         return result
 
     monkeypatch.setattr(model, "supervised_step", capture)
