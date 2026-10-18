@@ -32,7 +32,7 @@ def _window(*, verified: bool, suffix: bytes = b"success", causal: bytes = b"pub
         ),
     )
     codec = ByteCodec.byte_fallback()
-    window, = iter_windows(episode, codec, WindowConfig(max_records=5, max_decisions=5))
+    (window,) = iter_windows(episode, codec, WindowConfig(max_records=5, max_decisions=5))
     return EpisodeWindow(episode, window)
 
 
@@ -75,15 +75,17 @@ def test_verified_reference_is_detached_and_noisy_but_public_control_is_trainabl
     gradients = torch.autograd.grad(
         control[0].sum(), upstream, allow_unused=True, retain_graph=True
     )
-    assert all(g is None or g.abs().sum() == 0 for g in gradients)
+    assert all(g is None or torch.count_nonzero(g) == 0 for g in gradients)
 
     model.zero_grad(set_to_none=True)
     model.core.control_injection(control).square().sum().backward()
     assert model.core.control_injection.weight.grad.norm() > 0
     # The causal branch still trains the public control head, whereas the
     # trajectory-derived reference has been fully detached before injection.
-    assert any(p.grad is not None and p.grad.norm() > 0
-               for p in model.core.control_encoder.parameters())
+    assert any(
+        p.grad is not None and p.grad.norm() > 0
+        for p in model.core.control_encoder.parameters()
+    )
     assert all(p.grad is None for p in model.core.encoder_parameters())
 
 
@@ -96,6 +98,10 @@ def test_training_reference_noise_only_applies_to_verified_success(model, monkey
     a, used_a = make_training_control(model, [teacher], torch.device("cpu"), recurrent=True)
     b, used_b = make_training_control(model, [alternative], torch.device("cpu"), recurrent=True)
     assert used_a == used_b == 1 and not torch.allclose(a, b)
+    state = model.core.initial_state(1)
+    predicted_a = model.core.predict_facets(state, control=a, effort=1)
+    predicted_b = model.core.predict_facets(state, control=b, effort=1)
+    assert not torch.allclose(predicted_a, predicted_b)
     none, count = make_training_control(model, [unknown], torch.device("cpu"), recurrent=True)
     assert none is None and count == 0
     none, count = make_training_control(model, [unknown], torch.device("cpu"), recurrent=False)
