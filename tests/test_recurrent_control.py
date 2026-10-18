@@ -70,8 +70,11 @@ def test_verified_reference_is_detached_and_noisy_but_public_control_is_trainabl
     )
     torch.testing.assert_close(control[0], expected_teacher[0], rtol=0, atol=0)
     # The mixed batch can require grad through its *other* (causal) row;
-    # the teacher row must not differentiate the encoder.\n    upstream = tuple(model.core.control_encoder.parameters())
-    gradients = torch.autograd.grad(control[0].sum(), upstream, allow_unused=True, retain_graph=True)
+    # the teacher row must not differentiate the encoder.
+    upstream = tuple(model.core.control_encoder.parameters())
+    gradients = torch.autograd.grad(
+        control[0].sum(), upstream, allow_unused=True, retain_graph=True
+    )
     assert all(g is None or g.abs().sum() == 0 for g in gradients)
 
     model.zero_grad(set_to_none=True)
