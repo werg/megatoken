@@ -692,7 +692,10 @@ def test_public_required_json_argument_has_constructible_wire_witness(model):
             FieldSpec("name", kind="json", fixed_json='"read"', max_tokens=128),
             FieldSpec(
                 "arguments", kind="json",
-                json_schema='{"type":"object","required":["path"],"properties":{"path":{"type":"string"}}}',
+                json_schema=(
+                    '{"type":"object","required":["path"],'
+                    '"properties":{"path":{"type":"string"}}}'
+                ),
                 max_tokens=128,
             ),
         ),
@@ -719,7 +722,11 @@ def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model)
     assert isinstance(decoded.facets, tuple)
     assert decoded.facet_array().tobytes() == tape.facets
     torch.testing.assert_close(
-        model.score_tape(model.core.initial_state(1), decoded, spec=ActionSpec(max_tokens=0)).log_prob,
+        model.score_tape(
+            model.core.initial_state(1),
+            decoded,
+            spec=ActionSpec(max_tokens=0),
+        ).log_prob,
         result.log_prob,
         rtol=0,
         atol=1e-5,
