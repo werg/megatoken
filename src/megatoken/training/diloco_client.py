@@ -21,6 +21,7 @@ from typing import Any
 
 import torch
 
+from megatoken.io import content_hash
 from megatoken.training.diloco_protocol import (
     Fragment,
     install_fragment,
@@ -149,7 +150,7 @@ class DecoupledWorker:
         if (
             self.manifest["run_id"] != settings.run_id
             or self.manifest["workers"] != settings.workers
-            or self.manifest["model_config"] != model_config
+            or content_hash(self.manifest["model_config"]) != content_hash(model_config)
             or self.manifest["codec_fingerprint"] != codec_fingerprint
             or self.manifest["parameter_identity"] != parameter_identity(masters)
             or self.manifest["token_budget"] != token_budget
