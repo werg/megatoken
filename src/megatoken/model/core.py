@@ -224,7 +224,15 @@ class CentralProcessor(nn.Module):
         values = torch.cat((values, added.values), dim=2)
         if mask is not None:
             mask = torch.cat(
-                (mask, torch.ones(mask.shape[0], c.history_slots, dtype=torch.bool, device=mask.device)),
+                (
+                    mask,
+                    torch.ones(
+                        mask.shape[0],
+                        c.history_slots,
+                        dtype=torch.bool,
+                        device=mask.device,
+                    ),
+                ),
                 dim=1,
             )
         max_archived = c.max_history_chunks - c.recent_history_chunks
