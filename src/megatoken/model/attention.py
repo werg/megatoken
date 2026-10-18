@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
@@ -161,8 +161,14 @@ class KVProjection(nn.Module):
         slot_codes: Tensor | None = None,
     ) -> AttentionFeatures:
         return _encode(
-            source, self.source_norm, self.key_value, self.kv_heads, self.head_dim,
-            mask, temporal_positions, slot_codes,
+            source,
+            self.source_norm,
+            self.key_value,
+            self.kv_heads,
+            self.head_dim,
+            mask,
+            temporal_positions,
+            slot_codes,
         )
 
 
