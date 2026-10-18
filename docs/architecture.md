@@ -224,6 +224,13 @@ unchanged. Nonempty references follow `\n<reference>\n`; public tools follow
 outcomes are excluded. Absent controls encode to exact zero, including empty rows
 in a mixed batch. Public controls create no extra observation or KV record.
 
+**Recurrent supervised training only:** verified successful recorded trajectories
+can also provide a bounded noisy reference vector at the same P injection site.
+That noncausal vector is detached before perturbation and held fixed per scored
+window. It is never converted into a public control, history event, serving/RL
+input, or tape source; remaining supervised windows retain ordinary causal
+conditioning. See [training.md](training.md) for the explicit teacher mixture.
+
 Every `fmt-canonical-facets-v4` tape owns its control source and complete FP32 raw
 draw. Density scoring re-encodes those controls and requires a matching conditional
 materialization. Fixed raw-history replay skips P and runs only E for observations
