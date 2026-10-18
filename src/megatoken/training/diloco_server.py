@@ -53,6 +53,7 @@ def initialize_coordinator(
     model_config: dict,
     codec_fingerprint: str,
     train_identity: str,
+    dataset_fingerprint: str = "",
     workers: int = 8,
     min_quorum: int = 4,
     fragment_bytes: int = 64 << 20,
@@ -91,6 +92,7 @@ def initialize_coordinator(
         "model_config": model_config,
         "codec_fingerprint": codec_fingerprint,
         "train_identity": train_identity,
+        "dataset_fingerprint": dataset_fingerprint,
         "parameter_identity": parameter_identity(masters),
         "fragments": [item.to_dict() for item in fragments],
     }
