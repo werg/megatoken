@@ -1,9 +1,9 @@
 # Bootstrap the full architecture on the prepared bootstrap stream.
-# Prepare this pilot with max_record_tokens=256. All source streams live under
+# Use the shared 256 target / 512 soft / 1024 hard chunk policy. Source streams live under
 # artifacts/prepared; immutable data/codec identities are checked at launch.
 # Canonical B0 budget, learning rate, losses, and effort mix come from shared code.
 phase: B0
-model: v13
+model: recurrent32
 dataset: artifacts/prepared
 codec: artifacts/codec
 output: runs/b0
@@ -11,20 +11,19 @@ device: cuda
 precision: bf16
 require_blackwell: true
 expert_backend: torch
-recurrent_backend: torch
+representation_mode: bootstrap
 gradient_checkpointing: true
 compile: false
 microbatch_episodes: 8
 max_history_tokens: 4096
 max_window_records: 8
 max_record_bytes: 16384
-generated_capacity: 256
+generated_capacity: 1024
 scored_decisions: 2
 accumulate_scored: 65536
 accumulate_ingested: 1048576
 max_accumulation_windows: 256
 use_stage_mixture: true
 use_effort_mixture: true
-prior_probability: 0.5
 checkpoint_every: 100
 eval_every: 100

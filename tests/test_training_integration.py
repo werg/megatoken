@@ -102,8 +102,14 @@ def test_bf16_checkpointed_training_and_evaluation(training_config):
 
 def test_resume_rejects_changed_objective(training_config):
     first = train(training_config)
-    with pytest.raises(ValueError, match="prior_probability"):
-        train(replace(training_config, prior_probability=1), resume=first["checkpoint"])
+    with pytest.raises(ValueError, match="loss_weights"):
+        train(
+            replace(
+                training_config,
+                loss_weights={**training_config.loss_weights, "facet_prediction": 0.2},
+            ),
+            resume=first["checkpoint"],
+        )
 
 
 def test_legacy_action_without_public_tools_uses_raw_targets(training_config):

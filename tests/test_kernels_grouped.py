@@ -51,3 +51,26 @@ def test_explicit_cuda_backend_does_not_silently_fall_back():
         grouped_linear(
             torch.randn(1, 2), torch.randn(1, 3, 2), torch.zeros(1, dtype=torch.long), "triton"
         )
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA primary-width gate requires a GPU")
+@pytest.mark.parametrize("inner,output", [(1024, 3072), (512, 2048)])
+def test_triton_primary_pair_and_output_widths(inner, output):
+    """Exercise real P/U projection widths with uneven and unused expert groups."""
+    pytest.importorskip("triton")
+    torch.manual_seed(19)
+    dtype = torch.bfloat16
+    x = torch.randn(97, inner, device="cuda", dtype=dtype, requires_grad=True)
+    w = torch.randn(4, output, inner, device="cuda", dtype=dtype) / inner**0.5
+    w.requires_grad_()
+    ids = torch.tensor([0] * 64 + [2] * 32 + [3], device="cuda")
+    ids = ids[torch.randperm(ids.numel(), device="cuda")]
+    actual = grouped_linear(x, w, ids, "triton")
+    expected = grouped_linear(x, w, ids, "torch")
+    torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)
+    cotangent = torch.randn_like(actual) / output**0.5
+    actual_grads = torch.autograd.grad(actual, (x, w), cotangent, retain_graph=True)
+    expected_grads = torch.autograd.grad(expected, (x, w), cotangent)
+    for result, reference in zip(actual_grads, expected_grads, strict=True):
+        torch.testing.assert_close(result, reference, atol=2e-2, rtol=2e-2)
+    assert actual_grads[1][1].count_nonzero() == 0

@@ -39,10 +39,14 @@ def load_model_config(name_or_path: str, **overrides: Any) -> ModelConfig:
 
     if name_or_path == "tiny":
         return ModelConfig.tiny(**overrides)
-    if name_or_path in {"v12", "reference"}:
-        return ModelConfig.v12(**overrides)
-    if name_or_path == "v13":
+    if name_or_path == "compact32":
+        return ModelConfig.compact32(**overrides)
+    if name_or_path == "recurrent32":
         return ModelConfig(**overrides)
+    if name_or_path in {"v12", "v13", "reference"}:
+        raise ValueError(
+            "The old carry architecture is incompatible; select recurrent32 or compact32"
+        )
     return ModelConfig.from_dict({**read_mapping(name_or_path), **overrides})
 
 
@@ -79,9 +83,7 @@ def parameter_report(model: torch.nn.Module) -> dict[str, Any]:
             aliases.append({"alias": name, "owner": seen[identity]})
             continue
         seen[identity] = name
-        if "posterior" in name or "content_alignment" in name:
-            category = "training_only"
-        elif "import_map" in name or "descriptor_map" in name:
+        if "import_map" in name or "descriptor_map" in name:
             category = "temporary_import"
         else:
             category = "served"

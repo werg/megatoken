@@ -5,24 +5,25 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass
 from functools import cached_property, lru_cache
 from typing import Any
 
+from megatoken.io import strict_json_loads
 
-def strict_json_loads(value: str | bytes) -> Any:
-    def invalid_constant(name):
-        raise ValueError(f"nonstandard JSON constant {name}")
 
-    def unique_object(pairs):
-        value = {}
-        for key, item in pairs:
-            if key in value:
-                raise ValueError(f"duplicate JSON object key {key}")
-            value[key] = item
-        return value
-
-    return json.loads(value, parse_constant=invalid_constant, object_pairs_hook=unique_object)
+def _parse_bytes(value: Any, field: str) -> bytes:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"$bytes"}
+        or not isinstance(value["$bytes"], str)
+    ):
+        raise ValueError(f"{field} must use the serialized base64 byte representation")
+    decoded = base64.b64decode(value["$bytes"], validate=True)
+    if base64.b64encode(decoded).decode("ascii") != value["$bytes"]:
+        raise ValueError(f"{field} has a noncanonical base64 encoding")
+    return decoded
 
 
 @lru_cache(maxsize=256)
@@ -117,12 +118,12 @@ class FieldSpec:
             if self.json_schema is not None:
                 _validator(self.json_schema).validate(fixed)
             if self.identifier or self.bound_to:
-                raise ValueError("fixed syntax cannot define a sampled identifier")
+                raise ValueError("fixed syntax cannot define a generated identifier")
 
 
 @dataclass(frozen=True)
 class SchemaSpec:
-    """A JSON object with fixed keys and typed sampled value spans.
+    """A JSON object with fixed keys and typed decoded value spans.
 
     More complex tool schemas should be compiled into fixed syntax plus typed
     fields upstream. A single complete validated object is the execution unit.
@@ -194,9 +195,7 @@ class ActionSpec:
     schemas: tuple[SchemaSpec, ...] = ()
     copy_sources: tuple[CopySource, ...] = ()
     min_tokens: int = 0
-    max_tokens: int = 4096
-    max_repairs: int = 1
-    repair_probability: float = 0.0
+    max_tokens: int = 512
     require_terminal: bool | None = None
 
     def __post_init__(self) -> None:
@@ -208,10 +207,6 @@ class ActionSpec:
             raise ValueError("invalid text alphabet")
         if not 0 <= self.min_tokens <= self.max_tokens:
             raise ValueError("invalid action token limits")
-        if not 0 <= self.max_repairs <= 8:
-            raise ValueError("repair count must be bounded between zero and eight")
-        if not 0 <= self.repair_probability <= 1:
-            raise ValueError("invalid repair probability")
         if len({source.name for source in self.copy_sources}) != len(self.copy_sources):
             raise ValueError("copy source names must be unique")
 
@@ -236,86 +231,85 @@ def _json_bytes(value: Any) -> bytes:
     ).encode()
 
 
+TAPE_VERSION = "fmt-canonical-facets-v3"
+
+
 @dataclass(frozen=True)
-class Choice:
-    """One sampled categorical event, in causal execution order."""
+class Decision:
+    """An auditable deterministic decoder choice, never a policy factor."""
 
     name: str
     value: int
 
 
 @dataclass(frozen=True)
-class LexicalDraw:
-    """A parallel draw; IDs include noncanonical segmentations verbatim."""
-
-    name: str
-    ids: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "ids", tuple(self.ids))
-
-
-@dataclass(frozen=True)
-class DraftAttempt:
-    draws: tuple[LexicalDraw, ...]
-    valid: bool
-    error: str | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "draws", tuple(self.draws))
-
-
-@dataclass(frozen=True)
 class ActionTape:
-    """Complete augmented policy sample, including rejected draft/repair attempts.
+    """The single Gaussian action and its deterministic materialization.
 
-    No cached hidden state or behavior-policy expert routes are authoritative.
-    Candidate scoring reconstructs state and chooses its own deterministic routes.
+    The full FP32 raw facet tensor is authoritative. Replay recomputes the
+    candidate Gaussian density and commits these same coordinates directly;
+    encoding the emitted bytes would describe a different state trajectory.
     """
 
     version: str
     codec_fingerprint: str
     spec_fingerprint: str
+    facet_shape: tuple[int, int]
+    facets: tuple[float, ...]
     effort: int
-    root: tuple[float, ...]
-    regional: tuple[float, ...]
-    choices: tuple[Choice, ...]
-    identifiers: tuple[LexicalDraw, ...]
-    attempts: tuple[DraftAttempt, ...]
+    role_id: int
     payload: bytes
     emitted_ids: tuple[int, ...]
-    committed: bool
+    valid: bool
     terminal: bool
     behavior_log_prob: float
-    scored_positions: int
+    trace: tuple[Decision, ...] = ()
+    error: str | None = None
+    control_payload: bytes = b""
 
     def __post_init__(self) -> None:
-        for name in ("root", "regional", "choices", "identifiers", "attempts", "emitted_ids"):
+        if self.version != TAPE_VERSION:
+            raise ValueError("legacy action tapes cannot be replayed by the canonical-facet policy")
+        for name in ("facet_shape", "facets", "emitted_ids", "trace"):
             object.__setattr__(self, name, tuple(getattr(self, name)))
         object.__setattr__(self, "payload", bytes(self.payload))
+        if not isinstance(self.control_payload, bytes):
+            raise TypeError("control_payload must contain exact immutable bytes")
+        if len(self.facet_shape) != 2 or any(value <= 0 for value in self.facet_shape):
+            raise ValueError("facet_shape must contain a positive facet count and width")
+        if len(self.facets) != math.prod(self.facet_shape):
+            raise ValueError("tape does not contain its complete raw facet tensor")
+        if not all(math.isfinite(value) for value in self.facets):
+            raise ValueError("raw facet actions must be finite")
+        if not math.isfinite(self.behavior_log_prob):
+            raise ValueError("behavior Gaussian density must be finite")
+        if not 0 <= self.role_id <= 5:
+            raise ValueError("tape role ID is unsupported")
+
+    @property
+    def latent_dimensions(self) -> int:
+        return math.prod(self.facet_shape)
+
+    @property
+    def scored_positions(self) -> int:
+        """Deterministic lexical outputs contribute no policy likelihood."""
+        return 0
 
     def to_json(self) -> str:
         return _json_bytes(asdict(self)).decode()
 
     @classmethod
     def from_json(cls, text: str) -> ActionTape:
-        value = json.loads(text)
-        value["root"] = tuple(value["root"])
-        value["regional"] = tuple(value["regional"])
-        value["choices"] = tuple(Choice(**choice) for choice in value["choices"])
-        value["identifiers"] = tuple(
-            LexicalDraw(draw["name"], tuple(draw["ids"])) for draw in value["identifiers"]
-        )
-        value["attempts"] = tuple(
-            DraftAttempt(
-                tuple(LexicalDraw(draw["name"], tuple(draw["ids"])) for draw in attempt["draws"]),
-                attempt["valid"],
-                attempt.get("error"),
-            )
-            for attempt in value["attempts"]
-        )
-        value["payload"] = base64.b64decode(value["payload"]["$bytes"], validate=True)
-        value["emitted_ids"] = tuple(value["emitted_ids"])
+        value = strict_json_loads(text)
+        if not isinstance(value, dict):
+            raise ValueError("action tape must be a JSON object")
+        if value.get("version") != TAPE_VERSION:
+            raise ValueError("legacy action tape version is incompatible with raw-facet replay")
+        if "control_payload" not in value:
+            raise ValueError("v3 action tapes require their exact control_payload bytes")
+        value["trace"] = tuple(Decision(**decision) for decision in value.get("trace", ()))
+        value["payload"] = _parse_bytes(value["payload"], "payload")
+        value["control_payload"] = _parse_bytes(value["control_payload"], "control_payload")
         return cls(**value)
 
 

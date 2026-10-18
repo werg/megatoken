@@ -23,6 +23,7 @@ from typing import Any, Protocol
 from megatoken.environments import Environment, EnvironmentResult
 from megatoken.io import atomic_binary_writer, content_hash, write_json
 
+from .chunking import ChunkingConfig
 from .dedup import DedupStore
 from .masking import tool_free_spans
 from .recipes import load_recipes
@@ -161,6 +162,7 @@ class TeacherRequest:
     # Local student inference receives only public physical records, never the
     # Episode supervision/environment configuration. HTTP ignores these fields.
     records: tuple[PhysicalRecord, ...] = ()
+    control_seed: bytes = b""
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,12 +296,15 @@ class CollectionConfig:
     max_output_per_request: int = 4096
     max_requests_per_attempt: int = 64
     max_record_bytes: int = 16384
-    max_record_tokens: int = 4096
+    max_record_tokens: int = 1024
+    chunking: ChunkingConfig = ChunkingConfig()
     include_reasoning: bool = False
     # Fractions are by independent task seeds, not rows or token length.
     seed_mix: tuple[tuple[str, float], ...] = tuple(_PILOT["seed_mix"].items())
 
     def __post_init__(self) -> None:
+        if not isinstance(self.chunking, ChunkingConfig):
+            raise TypeError("Collection chunking must be a ChunkingConfig")
         if (
             min(
                 self.distinct_tasks,
@@ -317,6 +322,12 @@ class CollectionConfig:
             weight < 0 for _, weight in self.seed_mix
         ):
             raise ValueError("Seed mix must be a probability distribution")
+
+    @property
+    def chunking_policy(self) -> ChunkingConfig:
+        return self.chunking.with_hard_limit(
+            self.max_record_tokens, max_bytes=self.max_record_bytes
+        )
 
 
 class CollectionLedger:
@@ -346,7 +357,9 @@ class CollectionLedger:
                 input_state TEXT NOT NULL,action_sha256 TEXT NOT NULL,output_state TEXT NOT NULL,
                 execution_id TEXT NOT NULL,observation_sha256 TEXT NOT NULL,provenance TEXT NOT NULL);
         """)
-        identity = canonical_json(asdict(config))
+        identity = canonical_json(
+            asdict(config) | {"chunking_fingerprint": config.chunking_policy.fingerprint}
+        )
         row = self.connection.execute("SELECT value FROM meta WHERE key='config'").fetchone()
         if row and row[0] != identity:
             raise ValueError(
@@ -727,16 +740,17 @@ class Collector:
                 execution_id=execution_id,
                 codec=self.codec if emitted_ids is None else None,
                 max_tokens=self.config.max_record_tokens if emitted_ids is None else None,
+                chunking=self.config.chunking_policy if emitted_ids is None else None,
             )
             if emitted_ids is not None:
                 if self.codec.decode(emitted_ids) != payload:
-                    raise ValueError("Committed student IDs do not decode to the executed bytes")
+                    raise ValueError("Native student IDs do not decode to the executed bytes")
                 if (
-                    len(emitted_ids) > self.config.max_record_tokens
+                    len(emitted_ids) > self.config.chunking_policy.hard_max_tokens
                     or len(payload) > self.config.max_record_bytes
                 ):
                     raise ValueError(
-                        "A native committed action exceeds the configured physical record capacity"
+                        "A native generated action exceeds the configured physical record capacity"
                     )
                 values = (
                     replace(
@@ -790,6 +804,7 @@ class Collector:
                     codec_fingerprint=self.codec.fingerprint,
                     session_id=attempt_id,
                     records=tuple(records),
+                    control_seed=seed.policy,
                 )
                 raw_input = len(
                     self.codec.encode((request.messages_json + request.tools_json).encode())
@@ -799,11 +814,21 @@ class Collector:
                         attempt_id, request_id, output_limit=output_limit, raw_input=raw_input
                     )
                 response = actor.respond(request)
+                native_tape = None
                 if response.native_tape_json is not None:
+                    from megatoken.generation.structure import ActionTape
+
+                    native_tape = ActionTape.from_json(response.native_tape_json)
+                    if native_tape.codec_fingerprint != self.codec.fingerprint:
+                        raise ValueError("Native action tape and collection meter codecs differ")
                     native_tapes.append(
                         {
                             "request_id": request_id,
                             "provenance": "student" if is_student else "teacher",
+                            # A rejected decode advances latent state without
+                            # producing an executable transcript record. This
+                            # cursor retains its position among physical events.
+                            "record_cursor": len(records),
                             "tape": json.loads(response.native_tape_json),
                         }
                     )
@@ -811,8 +836,18 @@ class Collector:
                     self.ledger.settle(
                         request_id,
                         response,
-                        raw_output=len(self.codec.encode(response.output_bytes())),
+                        raw_output=len(
+                            self.codec.encode(
+                                native_tape.payload
+                                if native_tape is not None
+                                else response.output_bytes()
+                            )
+                        ),
                     )
+                if native_tape is not None and not native_tape.valid:
+                    # The actor already advanced its recurrent state. No tool
+                    # execution or invented observation follows an invalid decode.
+                    continue
                 provenance = "student" if is_student else "teacher"
                 scored = not is_student
                 visible = (

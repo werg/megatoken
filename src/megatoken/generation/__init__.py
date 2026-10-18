@@ -14,6 +14,7 @@ __all__ = [
     "PreparedTargets",
     "PreparedAction",
     "Observation",
+    "DecodedAction",
 ]
 
 
@@ -31,4 +32,8 @@ def __getattr__(name):
         from . import structure
 
         return getattr(structure, name)
+    if name == "DecodedAction":
+        from .decoder import DecodedAction
+
+        return DecodedAction
     raise AttributeError(name)

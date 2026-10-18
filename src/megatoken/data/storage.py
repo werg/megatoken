@@ -18,10 +18,11 @@ from megatoken.io import (
     write_json,
 )
 
+from .chunking import ChunkingConfig, ChunkingStats
 from .dedup import DedupStore
 from .schema import Codec, Episode, encode_record
 
-DATASET_VERSION = 1
+DATASET_VERSION = 2
 
 
 def export_prepared(
@@ -32,10 +33,13 @@ def export_prepared(
     source_receipts: list[dict[str, Any]],
     pipeline_fingerprint: str,
     shard_bytes: int = 128 << 20,
+    chunking: ChunkingConfig | None = None,
 ) -> dict[str, Any]:
     """The manifest is the commit marker; an interrupted export is safely rerun."""
     if shard_bytes < 1:
         raise ValueError("shard_bytes must be positive")
+    chunking = chunking or ChunkingConfig()
+    chunking_stats = ChunkingStats()
     root = Path(output)
     root.mkdir(parents=True, exist_ok=True)
     temporary_index = root / "index.building.sqlite"
@@ -92,6 +96,18 @@ def export_prepared(
     try:
         for entry_id, row in enumerate(store.accepted_rows()):
             episode = Episode.from_dict(json.loads(row["episode_json"]))
+            record_token_counts = []
+            for record in episode.records:
+                encoded = encode_record(record, codec)
+                record_token_counts.append(encoded.tokens)
+                chunking_stats.observe(
+                    positions=encoded.positions,
+                    reference_tokens=encoded.tokens,
+                    byte_count=len(record.payload),
+                    boundary=record.chunk_boundary,
+                    forced=record.forced_chunk_split,
+                    soft_max=chunking.soft_max_tokens,
+                )
             if any(
                 record.provenance == "executed" and record.role in {"tool", "environment"}
                 for record in episode.records
@@ -152,7 +168,7 @@ def export_prepared(
             # Prefix identity includes roles, bytes, and their preceding prefix.
             # It reports shared causal context without dropping it from episodes.
             prefix_digest = hashlib.sha256()
-            for record in episode.records:
+            for record, token_count in zip(episode.records, record_token_counts, strict=True):
                 if record.policy_mask:
                     break
                 prefix_digest.update(record.role.encode() + b"\0")
@@ -161,7 +177,6 @@ def export_prepared(
                 previous = connection.execute(
                     "SELECT tokens FROM shared_prefixes WHERE hash=?", (key,)
                 ).fetchone()
-                token_count = encode_record(record, codec).tokens
                 if previous:
                     shared_prefix_tokens += token_count
                     shared_prefix_bytes += len(record.payload)
@@ -187,6 +202,8 @@ def export_prepared(
             "schema_version": DATASET_VERSION,
             "codec_fingerprint": codec.fingerprint,
             "pipeline_fingerprint": pipeline_fingerprint,
+            "chunking": chunking.identity(codec),
+            "chunking_stats": chunking_stats.to_dict(),
             "sources": source_receipts,
             "dedup": json.loads(store.get_meta("dedup_config") or "{}"),
             "census": census,

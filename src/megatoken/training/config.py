@@ -6,21 +6,9 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from megatoken.contracts import DEFAULT_LOSS_WEIGHTS
 from megatoken.io import content_hash, read_mapping
 from megatoken.training.schedule import PHASES
-
-DEFAULT_LOSS_WEIGHTS = {
-    "lexical": 1.0,
-    "structure": 0.25,
-    "binding": 0.5,
-    "placement": 0.25,
-    "terminal": 0.1,
-    "prior_fit": 0.1,
-    "posterior_pressure": 0.05,
-    "content_alignment": 0.05,
-    "router_balance": 0.005,
-    "router_z": 1e-4,
-}
 
 
 @dataclass(frozen=True)
@@ -43,7 +31,7 @@ class TrainConfig:
     max_window_records: int = 8
     scored_decisions: int = 2
     max_record_bytes: int = 4096
-    generated_capacity: int = 256
+    generated_capacity: int = 128
     effort: int = 6
     checkpoint_every: int = 100
     keep_checkpoints: int = 3
@@ -54,20 +42,17 @@ class TrainConfig:
     compile: bool = False
     compile_mode: str = "default"
     expert_backend: str = "torch"
-    recurrent_backend: str = "torch"
+    representation_mode: str = "auto"
     deterministic: bool = False
     require_blackwell: bool = False
     grad_clip: float = 1.0
     weight_decay: float = 0.1
-    posterior_pressure_warmup: float = 0.1
-    repair_fraction: float = 0.0
     loss_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LOSS_WEIGHTS))
     model_overrides: dict[str, Any] = field(default_factory=dict)
     allow_byte_codec: bool = False
     allow_unverified_data: bool = False
     use_stage_mixture: bool = True
     use_effort_mixture: bool = True
-    prior_probability: float = 0.5
     engram_import: str | None = None
 
     def __post_init__(self) -> None:
@@ -77,6 +62,8 @@ class TrainConfig:
             raise ValueError("Only bf16 or fp32 are supported; FP8 requires a measured extension")
         if self.effort not in {1, 2, 3, 6}:
             raise ValueError("effort must be one of 1, 2, 3, 6")
+        if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
+            raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
         positive = (
             "microbatch_episodes",
             "accumulate_scored",
@@ -101,20 +88,18 @@ class TrainConfig:
             raise ValueError("max_steps must be positive when supplied")
         if self.budget is not None and self.budget <= 0:
             raise ValueError("budget must be positive when supplied")
-        if not 0 <= self.repair_fraction <= 0.2:
-            raise ValueError("repair_fraction must lie in [0, 0.2]")
-        if not 0 <= self.posterior_pressure_warmup <= 1:
-            raise ValueError("posterior_pressure_warmup must lie in [0, 1]")
-        if not 0 < self.prior_probability <= 1:
-            raise ValueError(
-                "The served prior must receive lexical supervision from the first batch"
-            )
         if self.grad_clip <= 0 or self.weight_decay < 0:
             raise ValueError("Invalid gradient clipping or decay")
         if set(self.loss_weights) != set(DEFAULT_LOSS_WEIGHTS):
             raise ValueError(f"loss_weights must define exactly {tuple(DEFAULT_LOSS_WEIGHTS)}")
         if any(value < 0 for value in self.loss_weights.values()):
             raise ValueError("Loss weights cannot be negative")
+
+    @property
+    def representation_training(self) -> str:
+        if self.representation_mode != "auto":
+            return self.representation_mode
+        return "bootstrap" if self.phase == "B0" else "recurrent"
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> TrainConfig:

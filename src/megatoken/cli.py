@@ -77,7 +77,7 @@ def _train(args):
             "require_blackwell",
             "compile",
             "expert_backend",
-            "recurrent_backend",
+            "representation_mode",
         )
         if getattr(args, name) is not None
     }
@@ -181,6 +181,8 @@ def _benchmark(args):
         profile=args.profile,
         core_only=args.core_only,
         effort=args.effort,
+        representation_mode=args.representation_mode,
+        prediction_chunks=args.prediction_chunks,
     )
 
 
@@ -221,21 +223,35 @@ def _generate(args):
     session = engine.new_session()
     payload = Path(args.prompt_file).read_bytes() if args.prompt_file else args.prompt.encode()
     engine.observe(session, payload)
+    maximum = min(512, engine.config.max_capacity) if args.max_tokens is None else args.max_tokens
     spec = ActionSpec(
         min_tokens=args.min_tokens,
-        max_tokens=args.max_tokens,
+        max_tokens=maximum,
         text_kind=args.kind,
-        max_repairs=args.max_repairs,
     )
+    tools_json = Path(args.tools).read_text(encoding="utf-8") if args.tools else "[]"
     if args.tools:
         from megatoken.tool_schema import compile_tool_spec
 
-        spec = compile_tool_spec(Path(args.tools).read_text(), args.max_tokens, args.max_repairs)
-    result = engine.generate(session, spec=spec, effort=args.effort, seed=args.seed)
+        spec = compile_tool_spec(tools_json, maximum)
+    result = engine.generate(
+        session,
+        spec=spec,
+        effort=args.effort,
+        seed=args.seed,
+        control_seed=Path(args.control_seed_file).read_bytes() if args.control_seed_file else b"",
+        control_reference=(
+            Path(args.control_reference_file).read_bytes() if args.control_reference_file else b""
+        ),
+        reference_origin=args.reference_origin,
+        tools_json=tools_json,
+    )
     response = {
         "payload_b64": base64.b64encode(result.payload).decode(),
         "emitted_ids": list(result.emitted_ids),
-        "committed": result.tape.committed,
+        "valid": result.tape.valid,
+        "latent_dimensions": result.tape.latent_dimensions,
+        "likelihood": "canonical_facet_gaussian_density",
         "terminal": result.tape.terminal,
         "tape": json.loads(result.tape.to_json()),
     }
@@ -331,7 +347,7 @@ def parser() -> argparse.ArgumentParser:
         "device",
         "precision",
         "expert-backend",
-        "recurrent-backend",
+        "representation-mode",
     ):
         item.add_argument("--" + name)
     for name in ("max-steps", "budget", "generated-capacity", "microbatch-episodes"):
@@ -379,9 +395,13 @@ def parser() -> argparse.ArgumentParser:
         ("capacity", 64),
         ("effort", 6),
         ("history-records", 0),
+        ("prediction-chunks", 1),
     ):
         item.add_argument("--" + name, type=int, default=default)
     item.add_argument("--backend", choices=("torch", "triton"), default="torch")
+    item.add_argument(
+        "--representation-mode", choices=("bootstrap", "recurrent"), default="bootstrap"
+    )
     item.add_argument("--compile-mode")
     for name in ("backward", "profile", "core-only"):
         item.add_argument("--" + name, action="store_true")
@@ -397,10 +417,9 @@ def parser() -> argparse.ArgumentParser:
         "max-steps-per-episode",
         "max-updates",
         "max-task-groups",
-        "max-scored-positions",
+        "max-latent-coordinates",
         "max-total-episodes",
         "capacity",
-        "max-repairs",
         "seed",
         "checkpoint-every",
     ):
@@ -422,11 +441,17 @@ def parser() -> argparse.ArgumentParser:
     prompts.add_argument("--prompt")
     prompts.add_argument("--prompt-file")
     item.add_argument("--tools", help="Public JSON tool schemas")
+    item.add_argument("--control-seed-file", help="Raw-byte causal policy control file")
+    item.add_argument("--control-reference-file", help="Raw-byte causal reference evidence file")
+    item.add_argument(
+        "--reference-origin",
+        choices=("external_evidence", "earlier_history"),
+        help="Required causal provenance when a nonempty reference control is supplied",
+    )
     item.add_argument("--kind", choices=("bytes", "utf8", "ascii"), default="utf8")
     for name, default in (
         ("min-tokens", 0),
-        ("max-tokens", 256),
-        ("max-repairs", 1),
+        ("max-tokens", None),
         ("effort", 6),
         ("seed", 17),
     ):
@@ -456,7 +481,7 @@ def parser() -> argparse.ArgumentParser:
     extract.add_argument("--tensor-name", required=True)
     extract.add_argument("--donor-codec", required=True)
     extract.add_argument("--output", required=True)
-    extract.add_argument("--model", default="v13")
+    extract.add_argument("--model", default="recurrent32")
     extract.add_argument("--seed", type=int, default=17)
     extract.set_defaults(func=_engram_extract)
     bake = sub.add_parser("bake")

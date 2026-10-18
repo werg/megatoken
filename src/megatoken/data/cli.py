@@ -16,6 +16,7 @@ from typing import Any
 from megatoken.io import content_hash, read_mapping, sha256_file
 
 from .adapters import PROFILES
+from .chunking import ChunkingConfig
 from .collection import (
     CollectionConfig,
     CollectionLedger,
@@ -78,6 +79,10 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
         dedup=config,
         max_record_bytes=args.max_record_bytes,
         max_record_tokens=args.max_record_tokens,
+        chunking=ChunkingConfig(
+            target_tokens=args.chunk_target_tokens,
+            soft_max_tokens=args.chunk_soft_max_tokens,
+        ),
         shard_bytes=args.shard_mib << 20,
         benchmark_quarantine=quarantine,
         reject_invalid=args.reject_invalid,
@@ -89,6 +94,8 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
             "codec_fingerprint": dataset.manifest["codec_fingerprint"],
             "counts": dataset.manifest["counts"],
             "census": dataset.manifest["census"],
+            "chunking": dataset.manifest["chunking"],
+            "chunking_stats": dataset.manifest["chunking_stats"],
         }
 
 
@@ -211,6 +218,8 @@ def _collection_config(args: argparse.Namespace) -> CollectionConfig:
     if "seed_mix" in value:
         mix = value["seed_mix"]
         value["seed_mix"] = tuple(mix.items()) if isinstance(mix, dict) else tuple(map(tuple, mix))
+    if "chunking" in value:
+        value["chunking"] = ChunkingConfig(**value["chunking"])
     return CollectionConfig(**value)
 
 
@@ -403,7 +412,9 @@ def add_data_commands(subparsers: argparse._SubParsersAction) -> None:
         help="Pinned codec directory/tokenizer JSON, or byte for smoke tests",
     )
     prepare.add_argument("--max-record-bytes", type=int, default=16384)
-    prepare.add_argument("--max-record-tokens", type=int, default=4096)
+    prepare.add_argument("--max-record-tokens", type=int, default=1024)
+    prepare.add_argument("--chunk-target-tokens", type=int, default=256)
+    prepare.add_argument("--chunk-soft-max-tokens", type=int, default=512)
     prepare.add_argument("--shard-mib", type=int, default=128)
     prepare.add_argument("--dedup-config")
     prepare.add_argument("--benchmark-quarantine")

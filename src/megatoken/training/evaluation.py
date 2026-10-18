@@ -1,4 +1,4 @@
-"""Fixed-harness diagnostics which keep served-prior quality separate from q."""
+"""Fixed-harness diagnostics separating next-facet prediction and reconstruction."""
 
 from __future__ import annotations
 
@@ -9,10 +9,11 @@ from typing import Any
 import torch
 
 from megatoken.contracts import ROLE_TO_ID
+from megatoken.controls import encode_controls
 from megatoken.data import encode_record
 from megatoken.generation.structure import ActionSpec
-from megatoken.tensors import byte_tensor
-from megatoken.training.engine import ingest_records
+from megatoken.training.engine import episode_control_payload, ingest_records
+from megatoken.training.history import NativeHistory, replay_raw_tape
 
 
 def wilson_interval(
@@ -33,11 +34,12 @@ def wilson_interval(
 def evaluate_records(
     model: Any, dataset: Any, codec: Any, config: Any, device: torch.device
 ) -> dict[str, Any]:
-    """Prior-conditioned CE and actual prior samples on the same fixed holdout.
+    """Causal CE and actual samples under the phase's representation mode.
 
     The target is never supplied as a control, sampled prefix, or exact-length
     hint. The sample limit is the configured public capacity for every target.
-    q reconstruction metrics must be reported separately by the caller.
+    Bootstrap measures encoder reconstruction separately and teacher-forces E.
+    Recurrent evaluation keeps sampled facets live between consecutive targets.
     """
     was_training = model.training
     model.eval()
@@ -51,40 +53,38 @@ def evaluate_records(
                 break
             counts["episodes"] += 1
             state = model.core.initial_state(1, device=device)
-            control_payload = episode.control_seed
-            if episode.control_reference:
-                control_payload += b"\n<reference>\n" + episode.control_reference
-            if episode.tools_json != "[]":
-                control_payload += b"\n<tools>\n" + episode.tools_json.encode()
-            control = None
-            if control_payload:
-                control_ids, control_lengths = byte_tensor([control_payload], device)
-                control = model.core.encode_control(control_ids, lengths=control_lengths)
-            for record in episode.records:
+            native = NativeHistory.from_episode(episode, model)
+            control_payload = episode_control_payload(episode)
+            control = encode_controls(model.core, [control_payload], encoder_grad=False)
+            for cursor, record in enumerate(episode.records):
                 encoded = encode_record(record, codec)
-                if not record.policy_mask or len(encoded.token_ids) > config.generated_capacity:
-                    state = ingest_records(model, state, [encoded], device)
+                scored = record.policy_mask and len(encoded.token_ids) <= config.generated_capacity
+                for tape in native.events_for_record(cursor, include_record=not scored):
+                    state = replay_raw_tape(model, state, tape)
+                if not scored:
+                    if not native.has_generated_record(cursor):
+                        state = ingest_records(model, state, [encoded], device)
                     continue
                 sample = model.sample(
                     state,
                     spec=ActionSpec(max_tokens=config.generated_capacity),
                     effort=config.effort,
-                    control=control,
+                    control_payload=control_payload,
                 )
                 attempted += 1
-                legal += int(sample.tape.committed)
-                exact += int(sample.tape.committed and sample.payload == record.payload)
-                # State returned by sampling does not enter held-out teacher-
-                # forced CE. Both branches start from the same actual prefix.
+                legal += int(sample.tape.valid)
+                exact += int(sample.tape.valid and sample.payload == record.payload)
+                # Both diagnostics start from the same causal state. The
+                # supervised branch then advances under the configured mode.
                 plan = model.prepare_target(
                     target_ids=encoded.token_ids,
                     free_mask=encoded.free_mask,
                     terminal=record.part_index + 1 == record.part_count,
+                    representation_mode=config.representation_training,
                 )
                 step = model.supervised_step(
                     state,
                     plan=plan,
-                    prior_probability=1.0,
                     effort=config.effort,
                     control=control,
                     role_ids=torch.tensor([ROLE_TO_ID[record.role]], device=device),
@@ -95,7 +95,23 @@ def evaluate_records(
                     counts[name] += denominator
         return {
             "episodes": episodes,
+            "representation_mode": config.representation_training,
             "prior_lexical_ce": sums["lexical"] / max(1, counts["lexical"]),
+            "reconstruction_lexical_ce": (
+                sums["reconstruction"] / counts["reconstruction"]
+                if counts["reconstruction"]
+                else None
+            ),
+            "facet_nll_per_coordinate": (
+                sums["facet_prediction"] / counts["facet_prediction"]
+                if counts["facet_prediction"]
+                else None
+            ),
+            "encoder_alignment_mse": (
+                sums["encoder_alignment"] / counts["encoder_alignment"]
+                if counts["encoder_alignment"]
+                else None
+            ),
             "prior_scored_positions": counts["lexical"],
             "generated_chunks": attempted,
             "prior_exact_chunks": exact,

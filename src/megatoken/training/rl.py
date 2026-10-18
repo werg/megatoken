@@ -1,8 +1,8 @@
-"""Fresh-policy outcome RL with complete augmented-action replay.
+"""Fresh-policy outcome RL over canonical facet actions.
 
 This is a score-function update with independent same-task leave-one-out
 baselines. It intentionally has no PPO clipping, stale rollout reuse, teacher
-token KL, or likelihood shortcut through final repaired strings.
+token KL, or invented categorical factors for deterministic decoded strings.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ from typing import Any
 import torch
 
 from megatoken.contracts import ROLE_TO_ID
+from megatoken.controls import build_control_payload
+from megatoken.data.chunking import ChunkingConfig, segment_bytes
 from megatoken.environments import (
     FIXTURE_TOOLS,
     Environment,
@@ -54,10 +56,9 @@ class RLConfig:
     max_steps_per_episode: int = 8
     max_updates: int | None = None
     max_task_groups: int | None = None
-    max_scored_positions: int = 1_000_000_000
+    max_latent_coordinates: int = 32_000_000_000
     max_total_episodes: int = 200_000
-    capacity: int = 256
-    max_repairs: int = 1
+    capacity: int = 512
     seed: int = 17
     replay_atol: float = 1e-4
     replay_rtol: float = 1e-5
@@ -73,16 +74,16 @@ class RLConfig:
             )
         if self.task_seeds * self.rollouts_per_seed > self.max_total_episodes:
             raise ValueError("Requested rollouts exceed the total episode ceiling")
-        if not 0 < self.max_scored_positions <= 1_000_000_000:
-            raise ValueError("RL's scored-P ceiling is at most one billion")
+        if not 0 < self.max_latent_coordinates <= 32_000_000_000:
+            raise ValueError("RL's latent-coordinate ceiling must be in (0, 32 billion]")
         if min(self.max_steps_per_episode, self.capacity, self.checkpoint_every) < 1:
             raise ValueError("Episode, capacity, and checkpoint limits must be positive")
         if self.max_updates is not None and self.max_updates < 1:
             raise ValueError("max_updates must be positive")
         if self.max_task_groups is not None and self.max_task_groups < 1:
             raise ValueError("max_task_groups must be positive")
-        if not 0 <= self.max_repairs <= 2 or min(self.replay_atol, self.replay_rtol) < 0:
-            raise ValueError("Invalid bounded repair count or replay tolerances")
+        if min(self.replay_atol, self.replay_rtol) < 0:
+            raise ValueError("Invalid replay tolerances")
 
 
 @dataclass(frozen=True)
@@ -100,26 +101,31 @@ class Rollout:
     task_id: str
     rollout_id: str
     initial_observation: bytes
+    chunking_identity: dict[str, Any]
     steps: tuple[RolloutStep, ...]
     reward: float
     verified_success: bool
     behavior_log_prob: float
     scored_positions: int
+    latent_dimensions: int
+    emitted_positions: int
     ingested_tokens: int
     source_bytes: int
     environment_seconds: float
 
 
-def _ingest(model: Any, state: Any, payload: bytes, role: str):
-    device = state.facets.device
-    ids, lengths = byte_tensor([payload], device)
-    return model.core.ingest(
-        ids,
-        state,
-        lengths=lengths,
-        role_ids=torch.tensor([ROLE_TO_ID[role]], device=device),
-        deterministic=True,
-    )
+def _ingest(model: Any, state: Any, payload: bytes, role: str, chunking: ChunkingConfig):
+    device = state.device
+    for chunk in segment_bytes(payload, model.codec, chunking):
+        ids, lengths = byte_tensor([chunk.payload], device)
+        state = model.core.observe(
+            ids,
+            state,
+            lengths=lengths,
+            role_ids=torch.tensor([ROLE_TO_ID[role]], device=device),
+            encoder_grad=False,
+        )
+    return state
 
 
 def _public_tools(task: dict[str, Any], observation: bytes, fallback: bool) -> str | None:
@@ -141,50 +147,62 @@ def collect_rollout(
     task: dict[str, Any],
     make_environment: Callable[[], Environment],
     config: RLConfig,
+    *,
+    chunking: ChunkingConfig | None = None,
 ) -> Rollout:
+    chunking = (chunking or ChunkingConfig()).with_hard_limit(model.config.max_capacity)
     environment = make_environment()
     started = time.perf_counter()
     observed = environment.reset(task)
     environment_seconds = time.perf_counter() - started
     state = model.core.initial_state(1, device=next(model.parameters()).device)
-    state = _ingest(model, state, observed.observation, "user")
+    state = _ingest(model, state, observed.observation, "user", chunking)
     tools = _public_tools(task, observed.observation, config.environment == "fixture")
     histories = [observed.observation]
     initial = observed.observation
     steps = []
     log_prob = 0.0
     positions = 0
+    latent_dimensions = emitted_positions = 0
     ingested = len(codec.encode(initial))
     byte_count = len(initial)
     invalid = 0
     rollout_id = uuid.uuid4().hex
     for index in range(config.max_steps_per_episode):
         if config.use_tool_schema and tools:
-            spec = compile_tool_spec(tools, config.capacity, config.max_repairs)
+            spec = compile_tool_spec(tools, config.capacity)
             spec = replace(spec, copy_sources=recent_copy_sources(histories))
         else:
-            spec = ActionSpec(max_tokens=config.capacity, max_repairs=config.max_repairs)
-        sampled = model.sample(state, spec=spec, effort=6, rl=True)
+            spec = ActionSpec(max_tokens=config.capacity)
+        public_control_seed = task.get("control_seed", "")
+        if not isinstance(public_control_seed, str):
+            raise ValueError("RL task control_seed must be public UTF-8 text")
+        control_payload = build_control_payload(
+            seed=public_control_seed.encode(), tools_json=tools or "[]"
+        )
+        sampled = model.sample(state, spec=spec, effort=6, rl=True, control_payload=control_payload)
         state = sampled.state
         action_id = f"{rollout_id}:{index}"
         expected_state = observed.state_id
-        if sampled.tape.committed:
+        # Every selected facet action has already advanced recurrence. Wire
+        # validity only determines whether its bytes can enter the executor.
+        ingested += len(codec.encode(sampled.payload))
+        byte_count += len(sampled.payload)
+        histories.append(sampled.payload)
+        if sampled.tape.valid:
             started = time.perf_counter()
             result = environment.step(
                 sampled.payload, action_id=action_id, expected_state_id=expected_state
             )
             environment_seconds += time.perf_counter() - started
-            ingested += len(codec.encode(sampled.payload))
-            byte_count += len(sampled.payload)
-            histories.append(sampled.payload)
         else:
             invalid += 1
             # Validation failures have a deterministic, public feedback event.
             # The invalid bytes are never sent to the environment executor.
             result = EnvironmentResult(
-                b'{"error":"invalid_action_after_bounded_repair"}', observed.state_id
+                b'{"error":"invalid_deterministic_action"}', observed.state_id
             )
-        state = _ingest(model, state, result.observation, "tool")
+        state = _ingest(model, state, result.observation, "tool", chunking)
         ingested += len(codec.encode(result.observation))
         byte_count += len(result.observation)
         histories.append(result.observation)
@@ -200,6 +218,8 @@ def collect_rollout(
         )
         log_prob += sampled.tape.behavior_log_prob
         positions += sampled.scored_positions
+        latent_dimensions += sampled.tape.latent_dimensions
+        emitted_positions += len(sampled.emitted_ids)
         observed = result
         tools = _public_tools({}, result.observation, False) or tools
         if result.done:
@@ -217,11 +237,14 @@ def collect_rollout(
         str(task["task_id"]),
         rollout_id,
         initial,
+        chunking.identity(codec),
         tuple(steps),
         reward,
         success,
         log_prob,
         positions,
+        latent_dimensions,
+        emitted_positions,
         ingested,
         byte_count,
         environment_seconds,
@@ -229,13 +252,14 @@ def collect_rollout(
 
 
 def score_rollout(model: Any, rollout: Rollout) -> torch.Tensor:
+    chunking = ChunkingConfig.from_identity(rollout.chunking_identity, model.codec)
     state = model.core.initial_state(1, device=next(model.parameters()).device)
-    state = _ingest(model, state, rollout.initial_observation, "user")
+    state = _ingest(model, state, rollout.initial_observation, "user", chunking)
     log_prob = state.facets.float().sum() * 0
     for step in rollout.steps:
         scored = model.score_tape(state, step.tape, spec=step.spec)
         log_prob = log_prob + scored.log_prob
-        state = _ingest(model, scored.state, step.observation, "tool")
+        state = _ingest(model, scored.state, step.observation, "tool", chunking)
     return log_prob
 
 
@@ -252,9 +276,9 @@ def _json_safe(value: Any) -> Any:
 def write_rollout(handle: Any, rollout: Rollout, model_version: int) -> None:
     value = asdict(rollout)
     value.update(
-        format_version=1,
+        format_version=2,
         model_version=model_version,
-        likelihood="complete_augmented_action_tape",
+        likelihood="canonical_facet_gaussian_density",
         replay="full_differentiable",
     )
     handle.write(json.dumps(_json_safe(value), sort_keys=True, allow_nan=False) + "\n")
@@ -284,11 +308,13 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
             raise RuntimeError("RL runtime preflight failed: " + "; ".join(diagnostics["errors"]))
         payload, _ = load_checkpoint(config.checkpoint)
         model_config = ModelConfig.from_dict(payload["model_config"])
-        if model_config.router_exploration:
-            raise ValueError("Initial RL requires deterministic routing with exploration disabled")
+        if config.capacity > model_config.max_capacity:
+            raise ValueError("RL capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
         if codec.fingerprint != payload["codec_fingerprint"]:
             raise ValueError("RL checkpoint and codec identities differ")
+        chunking = ChunkingConfig.from_identity(payload["chunking"], codec)
+        chunking = chunking.with_hard_limit(model_config.max_capacity)
         precision = payload["train_config"]["precision"]
         model = build_model(model_config, codec, device=context.device, precision=precision)
         model.load_state_dict(payload["model"], strict=True)
@@ -298,6 +324,12 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
             torch.set_num_threads(min(4, torch.get_num_threads()))
         optimizer = MasterAdamW(model, PHASES["R"].learning_rate(0))
         optimizer.load_state_dict(payload["optimizer"])
+        # Preserve all master/moment ownership from supervised training. Frozen
+        # decoder owners retain grad=None, so Adam applies neither momentum nor
+        # decay to the deterministic facet-to-action map during latent-only RL.
+        model.freeze_decoder_for_rl()
+        frozen_decoder = sorted(name for name, p in model.named_parameters() if not p.requires_grad)
+        optimizer.freeze(frozen_decoder)
         seed_everything(config.seed + context.rank)
         factory = environment_factory(config.environment)
         output = Path(config.output)
@@ -305,6 +337,8 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         logger = JsonlLogger(output / "metrics.jsonl", context.is_primary)
         totals = {
             "P": 0,
+            "Z": 0,
+            "emitted_positions": 0,
             "D": 0,
             "I": 0,
             "collection_I": 0,
@@ -319,6 +353,8 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         next_group = 0
         task_fingerprint = content_hash(tasks[: config.task_seeds])
         if "rl_config" in payload:
+            if payload.get("frozen_decoder_parameters") != frozen_decoder:
+                raise ValueError("RL deterministic decoder ownership changed during resume")
             mutable = {
                 "checkpoint",
                 "output",
@@ -354,8 +390,11 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
                         "model_config": model_config.to_dict(),
                         "train_config": {**payload["train_config"], "phase": "R"},
                         "codec_fingerprint": codec.fingerprint,
+                        "chunking": chunking.identity(codec),
                         "global_step": step,
                         "rl_config": asdict(config),
+                        "frozen_decoder_parameters": frozen_decoder,
+                        "policy_likelihood": "canonical_facet_gaussian_density",
                         "rl_counters": totals,
                         "rank_state": ranks,
                         "task_fingerprint": task_fingerprint,
@@ -366,6 +405,7 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
                         "phase": "R",
                         "routing_version": model_config.routing_version,
                         "codec_fingerprint": codec.fingerprint,
+                        "chunking_fingerprint": chunking.identity(codec)["fingerprint"],
                     },
                     pinned=not label.startswith("periodic"),
                 )
@@ -383,7 +423,7 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
                         config.max_task_groups is not None
                         and groups_this_run >= config.max_task_groups
                     )
-                    or totals["P"] >= config.max_scored_positions
+                    or totals["Z"] >= config.max_latent_coordinates
                     or totals["episodes"] >= config.max_total_episodes
                 ):
                     break
@@ -392,12 +432,16 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
                 if task_index < config.task_seeds:
                     task = tasks[task_index]
                     for _ in range(config.rollouts_per_seed):
-                        rollout = collect_rollout(model, codec, task, factory, config)
+                        rollout = collect_rollout(
+                            model, codec, task, factory, config, chunking=chunking
+                        )
                         write_rollout(journal, rollout, step)
                         rollouts.append(rollout)
                 ingestion = sum(r.ingested_tokens for r in rollouts)
                 local = {
                     "P": sum(r.scored_positions for r in rollouts),
+                    "Z": sum(r.latent_dimensions for r in rollouts),
+                    "emitted_positions": sum(r.emitted_positions for r in rollouts),
                     "D": ingestion,
                     "I": 2 * ingestion,
                     "collection_I": ingestion,
@@ -442,7 +486,7 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
                 varied_global = gate["varied"]
                 if varied_global:
                     context.synchronize_gradients(optimizer.parameters)
-                    optimizer.set_lr(PHASES["R"].learning_rate(totals["P"]))
+                    optimizer.set_lr(PHASES["R"].learning_rate(totals["Z"]))
                     optimizer.step()
                     step += 1
                     totals["optimizer_updates"] += 1
@@ -461,7 +505,7 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
                     success_wilson95=wilson_interval(totals["successes"], totals["episodes"]),
                 )
                 if (
-                    totals["P"] >= config.max_scored_positions
+                    totals["Z"] >= config.max_latent_coordinates
                     or totals["episodes"] >= config.max_total_episodes
                 ):
                     break
@@ -476,7 +520,7 @@ def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
             **totals,
             "global_step": step,
             "checkpoint": last_checkpoint,
-            "P_overshoot": max(0, totals["P"] - config.max_scored_positions),
+            "Z_overshoot": max(0, totals["Z"] - config.max_latent_coordinates),
         }
         if context.is_primary:
             write_json(output / "summary.json", result)

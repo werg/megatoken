@@ -2,7 +2,8 @@
 
 This module intentionally has no torch dependency: data workers can use the same
 contract as serving without importing the model runtime. Output IDs are evidence;
-never replace them by an encode(decode(ids)) round trip in policy likelihoods.
+preserve them for supervised targets and deterministic tape verification instead
+of replacing them with an encode(decode(ids)) round trip.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ LING_REPOSITORY = "inclusionAI/Ling-3.0-tiny"
 LING_REVISION = "9a98e35fe1c9ee255f78dd64771c7ae15a799481"
 LING_TOKENIZER_SHA256 = "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60"
 LING_VOCAB_SIZE = 157_184
-CODEC_VERSION = "raw-byte-bpe-v1;binary=single-byte-v1"
+CODEC_VERSION = "raw-byte-bpe-v2;binary=single-byte-v1;special-merges=masked"
 
 
 def _byte_alphabet() -> dict[str, int]:
@@ -58,7 +59,13 @@ class ByteCodec:
         if missing:
             raise ValueError(f"codec lacks single-byte fallbacks: {missing[:8]}")
         self._byte_ids = tuple(self._ids[bytes([b])] for b in range(256))
-        self._merges = dict(merge_ranks or {})
+        # An added special token may reuse a base BPE row. Such a row must
+        # never be created as a merge result or used as an intermediate piece.
+        self._merges = {
+            pair: rank
+            for pair, rank in (merge_ranks or {}).items()
+            if pair[0] in self._ids and pair[1] in self._ids and pair[0] + pair[1] in self._ids
+        }
         self._split_pattern = split_pattern
         self._fast_tokenizer = None
         if tokenizer_document is not None:
@@ -77,6 +84,19 @@ class ByteCodec:
                     truncation=None,
                     padding=None,
                 )
+                model = dict(document["model"])
+                alphabet = _byte_alphabet()
+
+                def legal_merge(merge):
+                    left, right = merge.split(" ") if isinstance(merge, str) else merge
+                    pair = bytes(alphabet[c] for c in left), bytes(alphabet[c] for c in right)
+                    return pair in self._merges
+
+                model["merges"] = [merge for merge in model.get("merges", []) if legal_merge(merge)]
+                # Direct multi-byte vocabulary lookup could bypass a removed
+                # merge and return the masked protocol row again.
+                model["ignore_merges"] = False
+                document["model"] = model
                 self._fast_tokenizer = Tokenizer.from_str(json.dumps(document))
         if fingerprint is None:
             digest = hashlib.sha256(CODEC_VERSION.encode())

@@ -81,6 +81,8 @@ def doctor(require_cuda: bool = False, require_blackwell: bool = False) -> dict[
                 product = matrix @ matrix.T
                 torch.cuda.synchronize(index)
                 valid = bool(torch.isfinite(product).all())
+                if not valid:
+                    errors.append(f"CUDA device {index} produced nonfinite BF16 matrix products")
             except RuntimeError as error:
                 errors.append(f"CUDA device {index} failed BF16 execution: {error}")
         blackwell = capability[0] in {10, 12}

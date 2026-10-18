@@ -81,7 +81,7 @@ def extract_engram(
     donor_codec: str,
     output: str | Path,
     *,
-    model: str = "v13",
+    model: str = "recurrent32",
     seed: int = 17,
     chunk_rows: int = 2048,
     support_target: int = 32,

@@ -2,8 +2,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from megatoken.generation.distributions import tiled_cross_entropy, tiled_sample
-from megatoken.generation.latents import GaussianHead
+from megatoken.generation.distributions import tiled_argmax, tiled_cross_entropy
+from megatoken.generation.latents import FacetGaussian
 
 
 def test_tiled_masked_ce_and_gradients_match_dense_reference():
@@ -45,38 +45,36 @@ def test_tiled_loss_does_not_save_a_positions_by_vocabulary_matrix():
     assert all(len(shape) != 2 or shape[1] <= 7 for shape in sizes)
 
 
-def test_tiled_sampler_has_full_masked_support():
-    torch.set_num_threads(2)
-    hidden = torch.ones(12_000, 1)
-    weight = torch.tensor([[0.0], [0.8], [50.0], [-0.3]])
-    valid = torch.tensor([True, True, False, True])
-    ids = tiled_sample(
-        hidden,
-        weight,
-        valid,
-        generator=torch.Generator().manual_seed(117),
-        position_tile=257,
-        vocabulary_tile=2,
-    )
-    counts = torch.bincount(ids, minlength=4).float() / len(ids)
-    expected = weight[:, 0].masked_fill(~valid, -torch.inf).softmax(-1)
-    assert torch.max((counts - expected).abs()) < 0.015
-    assert counts[2] == 0
+def test_tiled_argmax_is_exact_masked_and_uses_lowest_id_for_ties():
+    torch.manual_seed(117)
+    hidden = torch.randn(37, 9)
+    weight = torch.randn(79, 9)
+    valid = torch.ones(79, dtype=torch.bool)
+    valid[::7] = False
+    rng_before = torch.random.get_rng_state()
+    ids = tiled_argmax(hidden, weight, valid, position_tile=11, vocabulary_tile=13)
+    expected = (hidden @ weight.T).masked_fill(~valid, -torch.inf).argmax(-1)
+    assert torch.equal(ids, expected)
+    assert torch.equal(rng_before, torch.random.get_rng_state())
+    tied = tiled_argmax(torch.zeros(3, 9), weight, valid, vocabulary_tile=2)
+    assert torch.equal(tied, torch.ones(3, dtype=torch.long))
 
 
 def test_masked_invalid_targets_and_empty_support_are_rejected():
     hidden, weight = torch.ones(1, 2), torch.ones(3, 2)
     with pytest.raises(ValueError, match="empty support"):
-        tiled_sample(hidden, weight, torch.zeros(3, dtype=torch.bool))
+        tiled_argmax(hidden, weight, torch.zeros(3, dtype=torch.bool))
     with pytest.raises(ValueError, match="masked support"):
         tiled_cross_entropy(hidden, weight, torch.tensor([1]), torch.tensor([True, False, True]))
 
 
 def test_gaussian_statistics_remain_float32_in_bfloat16_model():
-    head = GaussianHead(8, 3, 6).bfloat16()
-    distribution = head(torch.randn(2, 8).bfloat16())
+    head = FacetGaussian(8).bfloat16()
+    mean = torch.randn(2, 4, 8).bfloat16()
+    distribution = head(mean)
+    assert torch.equal(distribution.mean, mean.float())
     assert distribution.mean.dtype == distribution.log_scale.dtype == torch.float32
-    assert bool((distribution.log_scale >= -4).all()) and bool((distribution.log_scale <= 2).all())
+    assert bool((distribution.log_scale >= -4).all()) and bool((distribution.log_scale <= 1).all())
     assert torch.isfinite(distribution.log_prob(distribution.sample())).all()
 
 
@@ -99,3 +97,14 @@ def test_cuda_bfloat16_tile_path_matches_float32_reference():
     ref_grad = torch.autograd.grad(reference.mean(), (hidden, weight))
     for actual, expected in zip(fast_grad, ref_grad, strict=True):
         assert torch.allclose(actual.float(), expected.float(), atol=0.005, rtol=0.04)
+
+
+def test_gaussian_density_sums_exactly_the_full_canonical_tensor():
+    head = FacetGaussian(5)
+    distribution = head(torch.randn(3, 4, 5))
+    sample = distribution.sample(torch.Generator().manual_seed(73))
+    expected = torch.distributions.Independent(
+        torch.distributions.Normal(distribution.mean, distribution.log_scale.exp()), 2
+    ).log_prob(sample)
+    torch.testing.assert_close(distribution.log_prob(sample), expected)
+    assert distribution.log_prob(sample).shape == (3,)

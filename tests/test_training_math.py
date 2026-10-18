@@ -85,6 +85,86 @@ def test_optimizer_resume_preserves_next_update(tmp_path):
     resumed_optimizer.close()
 
 
+def test_freezing_decoder_preserves_bf16_owners_fp32_masters_and_adam_moments():
+    torch.manual_seed(31)
+    model = torch.nn.Sequential(torch.nn.Linear(3, 4), torch.nn.Linear(4, 2)).bfloat16()
+    optimizer = MasterAdamW(model, lr=0.01, weight_decay=0.2)
+    values = torch.ones(2, 3, dtype=torch.bfloat16)
+    model(values).float().square().sum().backward()
+    optimizer.step()
+    optimizer.zero_grad()
+    frozen = [name for name, _ in model.named_parameters() if name.startswith("1.")]
+    optimizer.freeze(frozen)
+    weights = {name: p.detach().clone() for name, p in model.named_parameters()}
+    masters = {name: optimizer.masters[name].detach().clone() for name in frozen}
+    moments = {
+        name: copy.deepcopy(optimizer.optimizer.state[optimizer.masters[name]]) for name in frozen
+    }
+    model(values * 2).float().square().sum().backward()
+    optimizer.step()
+    assert not torch.equal(weights["0.weight"], model[0].weight)
+    for name in frozen:
+        torch.testing.assert_close(weights[name], optimizer.model_parameters[name], rtol=0, atol=0)
+        torch.testing.assert_close(masters[name], optimizer.masters[name], rtol=0, atol=0)
+        for key, value in moments[name].items():
+            torch.testing.assert_close(
+                value, optimizer.optimizer.state[optimizer.masters[name]][key], rtol=0, atol=0
+            )
+    optimizer.close()
+
+
+def test_encoder_follower_cannot_rescale_main_model_gradient_clipping():
+    torch.manual_seed(19)
+    baseline = torch.nn.ModuleDict(
+        {"encoder": torch.nn.Linear(2, 2), "core": torch.nn.Linear(2, 2)}
+    )
+    networks = [copy.deepcopy(baseline), copy.deepcopy(baseline)]
+    optimizers = [MasterAdamW(model, lr=0.01) for model in networks]
+    for optimizer in optimizers:
+        optimizer.set_gradient_domains(
+            {
+                "encoder": [name for name in optimizer.masters if name.startswith("encoder.")],
+                "model": [name for name in optimizer.masters if name.startswith("core.")],
+            }
+        )
+    for step in range(3):
+        reports = []
+        for index, (model, optimizer) in enumerate(zip(networks, optimizers, strict=True)):
+            optimizer.zero_grad()
+            inputs = torch.tensor([[1.0 + step, -2.0]])
+            loss = model["core"](inputs).square().sum()
+            loss = loss + (1 if index == 0 else 1000) * model["encoder"](inputs).square().sum()
+            loss.backward()
+            reports.append(optimizer.step(max_norm=0.1))
+        assert reports[0]["gradient_norm_model"] == reports[1]["gradient_norm_model"]
+        assert reports[1]["gradient_norm_encoder"] > 100 * reports[0]["gradient_norm_encoder"]
+        for name in ("core.weight", "core.bias"):
+            torch.testing.assert_close(
+                optimizers[0].masters[name], optimizers[1].masters[name], rtol=0, atol=0
+            )
+            for key in ("exp_avg", "exp_avg_sq"):
+                torch.testing.assert_close(
+                    optimizers[0].optimizer.state[optimizers[0].masters[name]][key],
+                    optimizers[1].optimizer.state[optimizers[1].masters[name]][key],
+                    rtol=0,
+                    atol=0,
+                )
+    for optimizer in optimizers:
+        optimizer.close()
+
+
+def test_gradient_domains_require_disjoint_complete_ownership():
+    optimizer = MasterAdamW(torch.nn.Linear(2, 2), lr=0.01)
+    for invalid in (
+        {"a": ["weight"]},
+        {"a": ["weight", "bias"], "b": ["bias"]},
+        {"a": ["missing", "bias"]},
+    ):
+        with pytest.raises(ValueError, match="partition"):
+            optimizer.set_gradient_domains(invalid)
+    optimizer.close()
+
+
 def test_checkpoint_corruption_and_retention(tmp_path):
     first = save_checkpoint(
         tmp_path, "phase-B0", {"value": torch.ones(2)}, {"global_step": 0}, pinned=True, keep=1
@@ -111,7 +191,8 @@ def test_rng_resume_is_exact():
 def test_phase_meters_and_schedules():
     assert sum(PHASES[name].budget for name in ("P1", "M1", "M2", "LC")) == 520_000_000_000
     assert PHASES["B0"].meter == "I"
-    assert PHASES["D"].meter == PHASES["R"].meter == "P"
+    assert PHASES["D"].meter == "P"
+    assert PHASES["R"].meter == "Z"
     assert PHASES["B0"].learning_rate(0) == pytest.approx(2e-5)
     assert PHASES["P1"].learning_rate(320_000_000_000) == pytest.approx(2e-4)
     assert PHASES["P1"].learning_rate(400_000_000_000) == pytest.approx(4e-5)
@@ -127,5 +208,5 @@ def test_leave_one_out_groups_by_task():
 def test_configuration_rejects_unknown_or_invalid_fields():
     with pytest.raises(ValueError, match="Unknown"):
         TrainConfig.from_dict({"leaning_rate": 0.01})
-    with pytest.raises(ValueError, match="repair_fraction"):
-        TrainConfig(repair_fraction=0.4)
+    with pytest.raises(ValueError, match="Unknown.*repair_fraction"):
+        TrainConfig.from_dict({"repair_fraction": 0.4})

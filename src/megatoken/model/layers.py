@@ -38,10 +38,15 @@ class SwiGLU(nn.Module):
 def position_features(length: int, dim: int, device: torch.device, *, offset: int = 0) -> Tensor:
     """Fixed positional descriptors never introduce a live-state routing dependency."""
     positions = torch.arange(offset, offset + length, device=device, dtype=torch.float32)
+    return position_features_at(positions, dim)
+
+
+def position_features_at(positions: Tensor, dim: int) -> Tensor:
+    """Sinusoidal descriptors for an explicit position tensor of any shape."""
     frequencies = torch.exp(
-        -math.log(10_000.0) * torch.arange(0, dim, 2, device=device).float() / dim
+        -math.log(10_000.0) * torch.arange(0, dim, 2, device=positions.device).float() / dim
     )
-    angles = positions[:, None] * frequencies[None]
+    angles = positions.float()[..., None] * frequencies
     return torch.stack((angles.sin(), angles.cos()), dim=-1).flatten(-2)[..., :dim]
 
 

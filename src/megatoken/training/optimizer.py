@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,14 +31,9 @@ def parameter_rules(module: nn.Module, weight_decay: float) -> dict[str, Paramet
         lookup = id(parameter) in lookup_ids or any(
             x in lower for x in ("lookup", "ngram", "embedding", "vocabulary", "byte_table")
         )
-        sensitive = any(
-            x in lower for x in ("log_decay", "decay_log", "beta_bias", "recurrent_gate")
-        ) or (".gdn." in lower and ".gates." in lower)
-        slower = lookup or "prior" in lower or "control" in lower
-        multiplier = 0.25 if sensitive else (0.5 if slower else 1.0)
-        no_decay = (
-            lookup or sensitive or parameter.ndim < 2 or lower.endswith("bias") or "norm" in lower
-        )
+        slower = lookup or "control" in lower
+        multiplier = 0.5 if slower else 1.0
+        no_decay = lookup or parameter.ndim < 2 or lower.endswith("bias") or "norm" in lower
         result[name] = ParameterRule(multiplier, 0.0 if no_decay else weight_decay)
     return result
 
@@ -63,6 +59,8 @@ class MasterAdamW:
         self.model_parameters: dict[str, nn.Parameter] = {}
         self.masters: dict[str, nn.Parameter] = {}
         self._hooks: dict[str, Any] = {}
+        self.frozen_names: set[str] = set()
+        self.gradient_domains: dict[str, tuple[str, ...]] = {}
         groups: dict[ParameterRule, list[nn.Parameter]] = defaultdict(list)
         for name, parameter in module.named_parameters():
             if not parameter.requires_grad:
@@ -120,17 +118,70 @@ class MasterAdamW:
         for parameter in self.model_parameters.values():
             parameter.grad = None
 
+    def freeze(self, names: list[str]) -> None:
+        """Freeze owners without losing their checkpointed masters or moments."""
+        missing = set(names) - self.model_parameters.keys()
+        if missing:
+            raise ValueError(f"Cannot freeze unowned parameters: {sorted(missing)}")
+        for name in names:
+            self.model_parameters[name].requires_grad_(False)
+            self.model_parameters[name].grad = None
+            self.masters[name].grad = None
+        self.frozen_names.update(names)
+
+    def set_gradient_domains(self, domains: dict[str, list[str]]) -> None:
+        """Clip disjoint owners independently, without coupling follower losses.
+
+        Domain membership is training policy, derived from the phase config;
+        Adam moments and parameter ownership stay unchanged across phases.
+        """
+        names = [name for members in domains.values() for name in members]
+        if (
+            not domains
+            or any(not key or not members for key, members in domains.items())
+            or len(names) != len(set(names))
+            or set(names) != self.masters.keys()
+        ):
+            raise ValueError("Gradient domains must partition all optimizer parameter owners")
+        self.gradient_domains = {key: tuple(members) for key, members in domains.items()}
+
+    def isolate_gradient_parameters(self, name: str, parameters: Iterable[nn.Parameter]) -> None:
+        """Separate an auxiliary learner from all remaining model owners."""
+        if name == "model":
+            raise ValueError("The auxiliary gradient domain needs its own name")
+        selected = {id(parameter) for parameter in parameters}
+        owned = {id(parameter) for parameter in self.model_parameters.values()}
+        if not selected <= owned:
+            raise ValueError("The auxiliary learner contains unowned optimizer parameters")
+        self.set_gradient_domains(
+            {
+                name: [key for key, p in self.model_parameters.items() if id(p) in selected],
+                "model": [key for key, p in self.model_parameters.items() if id(p) not in selected],
+            }
+        )
+
     @torch.no_grad()
     def step(self, max_norm: float = 1.0) -> dict[str, float]:
-        grad_norm = torch.nn.utils.clip_grad_norm_(
-            self.parameters, max_norm, error_if_nonfinite=True
-        )
+        if any(self.masters[name].grad is not None for name in self.frozen_names):
+            raise RuntimeError("A frozen deterministic decoder received an optimizer gradient")
+        domains = self.gradient_domains or {"model": tuple(self.masters)}
+        metric_device = next(iter(self.masters.values())).device
+        norms = {
+            key: torch.nn.utils.clip_grad_norm_(
+                [self.masters[name] for name in names], max_norm, error_if_nonfinite=True
+            ).to(metric_device)
+            for key, names in domains.items()
+        }
+        grad_norm = torch.stack(list(norms.values())).square().sum().sqrt()
         self.optimizer.step()
         for name, parameter in self.model_parameters.items():
             master = self.masters[name]
             if master is not parameter:
                 parameter.copy_(master)
-        return {"gradient_norm": float(grad_norm)}
+        metrics = {"gradient_norm": float(grad_norm)}
+        if len(norms) > 1:
+            metrics.update({f"gradient_norm_{key}": float(value) for key, value in norms.items()})
+        return metrics
 
     @torch.no_grad()
     def rebase(self, names: list[str]) -> None:
@@ -175,6 +226,7 @@ class MasterAdamW:
                 self.optimizer.state.pop(removed_master, None)
                 self.model_parameters.pop(name)
                 self.rules.pop(name)
+                self.frozen_names.discard(name)
                 hook = self._hooks.pop(name, None)
                 if hook is not None:
                     hook.remove()
@@ -185,6 +237,11 @@ class MasterAdamW:
         self.optimizer.param_groups = [
             group for group in self.optimizer.param_groups if group["params"]
         ]
+        self.gradient_domains = {
+            key: tuple(name for name in names if name in self.masters)
+            for key, names in self.gradient_domains.items()
+            if any(name in self.masters for name in names)
+        }
 
     def state_dict(self) -> dict[str, Any]:
         return {

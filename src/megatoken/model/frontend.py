@@ -32,7 +32,7 @@ class NativeNGramTable(nn.Module):
     """Exact unigrams/bigrams and collision-labelled longer n-gram fallback.
 
     Every byte retains its ordered embedding path. Hashed n-grams are explicitly
-    a fallback, never presented as exact strings. In the v13 configuration the
+    a fallback, never presented as exact strings. In the production configuration the
     entire table has exactly 2,500,000 x 16 = 40,000,000 trainable values.
     """
 
@@ -217,6 +217,13 @@ class NativeNGramTable(nn.Module):
 
 
 class ByteFrontend(nn.Module):
+    """Causal stride-sized byte features, shared by ingestion and seed control.
+
+    Every byte has an ordered embedding path. A learned, content-dependent
+    mixture adds the available n-gram orders without treating prefix padding
+    as native source bytes. Hierarchical reduction belongs to ChunkEncoder.
+    """
+
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
         self.config = config
@@ -228,6 +235,8 @@ class ByteFrontend(nn.Module):
         self.ngram_projection = nn.Linear(
             len(config.ngram_orders) * config.ngram_dim, config.source_dim, bias=False
         )
+        self.ngram_mixture = nn.Linear(config.byte_dim, len(config.ngram_orders), bias=False)
+        nn.init.zeros_(self.ngram_mixture.weight)
         self.convolution = nn.Conv1d(config.source_dim, 2 * config.source_dim, 3, bias=False)
         self.norm = RMSNorm(config.source_dim, config.norm_eps)
         self.residual_gate = nn.Parameter(torch.tensor(-2.0))
@@ -240,23 +249,33 @@ class ByteFrontend(nn.Module):
         if bool(((byte_ids < 0) | (byte_ids > 255)).any()):
             raise ValueError("Input byte values must lie in [0,255]")
         batch, length = byte_ids.shape
+        if batch < 1:
+            raise ValueError("A physical record batch must contain at least one record")
         if lengths is None:
             lengths = torch.full((batch,), length, device=byte_ids.device, dtype=torch.long)
+        if lengths.dtype not in (torch.int32, torch.int64, torch.uint8):
+            raise TypeError("Record lengths must be integer byte counts")
         if lengths.shape != (batch,) or bool(((lengths < 0) | (lengths > length)).any()):
             raise ValueError("Every record length must be in [0, padded byte length]")
         if length == 0:
             byte_ids = byte_ids.new_zeros((batch, 1))
             length = 1
-        lengths = lengths.to(byte_ids.device)
+        lengths = lengths.to(device=byte_ids.device, dtype=torch.long)
         mask = torch.arange(length, device=byte_ids.device)[None] < lengths[:, None]
         stride = self.config.source_stride
         padding = (-length) % stride
         ids = byte_ids.long()
-        ordered = self.bytes(ids) * mask[..., None]
-        ordered = F.pad(ordered, (0, 0, 0, padding)).reshape(
+        byte_features = self.bytes(ids) * mask[..., None]
+        ordered = F.pad(byte_features, (0, 0, 0, padding)).reshape(
             batch, -1, stride * self.config.byte_dim
         )
-        ngrams = self.ngrams(ids).flatten(-2) * mask[..., None]
+        indices, available = self.ngrams.indices(ids)
+        mixture_logits = self.ngram_mixture(byte_features).float()
+        mixture = mixture_logits.masked_fill(~available, torch.finfo(torch.float32).min).softmax(-1)
+        mixture = mixture * available
+        ngrams = self.ngrams.lookup(indices)
+        ngrams = (ngrams * mixture.to(ngrams.dtype).unsqueeze(-1)).flatten(-2)
+        ngrams = ngrams * mask[..., None]
         ngrams = (
             F.pad(ngrams, (0, 0, 0, padding)).reshape(batch, -1, stride, ngrams.shape[-1]).mean(-2)
         )

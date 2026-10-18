@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "plan_version": "v13",
+  "plan_version": "recurrent32-v3",
   "procurement": {
     "unique_transcript_U": [200000000000, 350000000000],
     "unique_executed_U_subtarget": [15000000000, 25000000000],
@@ -12,10 +12,10 @@
     "B0": {
       "meter": "I", "limit": 250000000,
       "mixture": {"bootstrap": 1.0},
-      "mixture_status": "Implementation pilot stratum; v13 specifies skills rather than fixed stream percentages.",
+      "mixture_status": "Implementation pilot stratum; mix concrete reconstruction, next-facet, structure, and copy skills.",
       "history_schedule": [{"until": 250000000, "lengths": [4096]}],
       "effort_mix": {"6": 1.0},
-      "constraints": {"initial_generated_capacity": 256, "later_generated_capacities": [512, 1024], "prior_from_first_batch": true, "max_decisions_initial": 2, "max_decisions_final": 4}
+      "constraints": {"representation_mode": "bootstrap", "maximum_generated_capacity": 1024, "workspace_follows_target_length": true, "prior_from_first_batch": true, "max_decisions_initial": 2, "max_decisions_final": 4}
     },
     "P1": {
       "meter": "D", "limit": 400000000000,
@@ -23,14 +23,14 @@
       "unique_acquisition_targets": {"natural_documents": [50000000000, 70000000000], "natural_code": [30000000000, 50000000000], "synthetic_documents": [60000000000, 85000000000], "synthetic_code_rewrite": [30000000000, 45000000000], "synthetic_code_dialogue": [20000000000, 30000000000], "synthetic_reasoning": [15000000000, 25000000000], "chat": [3000000000, 7000000000], "executed_trajectories": [8000000000, 15000000000]},
       "history_schedule": [{"until": 20000000000, "lengths": [8192]}, {"until": 200000000000, "lengths": [32768]}, {"until": 400000000000, "lengths": [32768, 65536]}],
       "effort_mix": {"6": 0.8, "3": 0.15, "2": 0.04, "1": 0.01},
-      "constraints": {"short_examples_min_fraction": 0.2, "max_decisions_initial": 2, "max_decisions_final": 4, "selected_max_decisions": 8, "large_capacity_initial_max_fraction": 0.1, "large_capacities_require_prior_gate": true, "bake_engram_near_end": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_follows_detached_prediction": true, "short_examples_min_fraction": 0.2, "max_decisions_initial": 4, "max_decisions_final": 8, "selected_max_decisions": 16, "large_capacity_initial_max_fraction": 0.1, "large_capacities_require_prior_gate": true, "bake_engram_near_end": true}
     },
     "M1": {
       "meter": "D", "limit": 60000000000,
       "mixture": {"issue_pr_sequences": 0.408, "connected_repositories": 0.2, "executed_trajectories": 0.1, "code_evolution": 0.03, "build_logs": 0.012, "base_replay": 0.2, "long_context": 0.05},
       "history_schedule": [{"until": 60000000000, "lengths": [65536, 262144]}],
       "effort_mix": {"6": 0.8, "3": 0.15, "2": 0.04, "1": 0.01},
-      "constraints": {"preserve_short_replay": true, "trace_loss": "assistant_only", "pre_change_state_before_patch": true, "diagnostic_sft_at_boundary": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_follows_detached_prediction": true, "preserve_short_replay": true, "trace_loss": "assistant_only", "pre_change_state_before_patch": true, "diagnostic_sft_at_boundary": true}
     },
     "M2": {
       "meter": "D", "limit": 40000000000,
@@ -38,35 +38,35 @@
       "trajectory_mix": {"repository": 0.5, "terminal": 0.2, "structured_tools": 0.2, "evidence": 0.1},
       "history_schedule": [{"until": 40000000000, "lengths": [32768, 65536, 131072, 262144]}],
       "effort_mix": {"6": 0.8, "3": 0.15, "2": 0.04, "1": 0.01},
-      "constraints": {"fim_max_fraction": 0.02, "student_prefix_fraction_initial": 0.1, "student_prefix_fraction_final": 0.3, "changed_actions_require_new_observations": true, "diagnostic_sft_at_boundary": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_follows_detached_prediction": true, "fim_max_fraction": 0.02, "student_prefix_fraction_initial": 0.1, "student_prefix_fraction_final": 0.3, "changed_actions_require_new_observations": true, "diagnostic_sft_at_boundary": true}
     },
     "LC": {
       "meter": "D", "limit": 20000000000,
       "mixture": {"long_verified_dependencies": 0.5, "long_natural_code_replay": 0.25, "mixed_quality_episodes": 0.25},
       "history_schedule": [{"until": 20000000000, "lengths": [32768, 65536, 131072, 262144]}],
       "effort_mix": {"6": 0.8, "3": 0.15, "2": 0.04, "1": 0.01},
-      "constraints": {"long_episode_min_tokens": 131072, "long_episode_max_tokens": 262144, "long_dependency_D_min_fraction": 0.5, "writer_reader_scored_windows_min_fraction": 0.3, "preserve_short_medium": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_follows_detached_prediction": true, "long_episode_min_tokens": 131072, "long_episode_max_tokens": 262144, "long_dependency_D_min_fraction": 0.5, "writer_reader_scored_windows_min_fraction": 0.3, "preserve_short_medium": true}
     },
     "S": {
       "meter": "P", "limit": 2000000000,
       "mixture": {"verified_successful_multiturn": 0.6, "recovery_clarification": 0.15, "tested_artifacts": 0.1, "typed_exact_instructions": 0.1, "natural_document_replay": 0.05},
       "history_schedule": [{"until": 2000000000, "lengths": [4096, 32768, 65536, 131072, 262144]}],
       "effort_mix": {"6": 0.6, "3": 0.25, "2": 0.1, "1": 0.05},
-      "constraints": {"long_context_exposure_min_fraction": 0.2, "seed_only_control_fraction": 0.7, "valid_reference_control_fraction": 0.3, "future_control_fraction": 0.0, "initial_serving_effort": 6}
+      "constraints": {"representation_mode": "recurrent", "encoder_follows_detached_prediction": true, "long_context_exposure_min_fraction": 0.2, "seed_only_control_fraction": 0.7, "valid_reference_control_fraction": 0.3, "future_control_fraction": 0.0, "initial_serving_effort": 6}
     },
     "D": {
       "meter": "P", "limit": 1000000000,
       "mixture": {"student_state_corrections": 0.5, "successful_replay": 0.5},
       "history_schedule": [{"until": 1000000000, "lengths": [4096, 32768, 65536, 131072, 262144]}],
       "effort_mix": {"6": 0.6, "3": 0.25, "2": 0.1, "1": 0.05},
-      "constraints": {"frozen_student_collection": true, "corrected_windows_initial_fraction": 0.5, "corrected_windows_max_fraction": 0.8, "correction_ramp_requires_coverage_gate": true, "direct_teacher_token_kl": false, "entry_requires_legal_prior_tasks": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_follows_detached_prediction": true, "frozen_student_collection": true, "corrected_windows_initial_fraction": 0.5, "corrected_windows_max_fraction": 0.8, "correction_ramp_requires_coverage_gate": true, "direct_teacher_token_kl": false, "entry_requires_legal_prior_tasks": true}
     },
     "R": {
-      "meter": "P", "limit": 1000000000,
+      "meter": "Z", "limit": 32000000000,
       "mixture": {"fresh_executed_rollouts": 1.0},
-      "history_schedule": [{"until": 1000000000, "lengths": [4096, 32768, 65536, 131072, 262144]}],
+      "history_schedule": [{"until": 32000000000, "lengths": [4096, 32768, 65536, 131072, 262144]}],
       "effort_mix": {"6": 1.0},
-      "constraints": {"initial_task_seeds": 10000, "rollouts_per_seed": 4, "initial_episodes": 40000, "maximum_task_seeds": 50000, "maximum_total_episodes": 200000, "temperature": 1.0, "top_k": null, "top_p": null, "same_weight_replay_gate": true, "initial_full_differentiable_replay": true, "candidate_state_rebuild": true}
+      "constraints": {"initial_task_seeds": 10000, "rollouts_per_seed": 4, "initial_episodes": 40000, "maximum_task_seeds": 50000, "maximum_total_episodes": 200000, "likelihood": "canonical_facet_gaussian_density", "freeze_encoder_and_decoder": true, "latent_draws_per_chunk": 1, "deterministic_decoding": true, "same_weight_replay_gate": true, "initial_full_differentiable_replay": true, "candidate_state_rebuild": true}
     }
   },
   "collection_pilot": {

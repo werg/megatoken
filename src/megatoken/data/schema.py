@@ -15,7 +15,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal, Protocol
 
-SCHEMA_VERSION = 1
+from .chunking import ChunkingConfig, segment_bytes
+
+SCHEMA_VERSION = 2
 Role = Literal["system", "user", "assistant", "tool", "document", "environment"]
 Provenance = Literal["natural", "teacher", "student", "executed", "simulated", "unknown"]
 Outcome = Literal["success", "failure", "unknown", "incomplete"]
@@ -127,8 +129,19 @@ class Supervision:
             raise ValueError("A success label needs an explicit verification source")
         if self.reward is not None and not math.isfinite(self.reward):
             raise ValueError("Reward must be finite")
-        if not isinstance(json.loads(self.annotations_json), dict):
+        annotations = json.loads(self.annotations_json)
+        if not isinstance(annotations, dict):
             raise ValueError("Supervision annotations must encode an object")
+        if "native_action_tapes" in annotations:
+            from megatoken.generation.structure import ActionTape
+
+            try:
+                for entry in annotations["native_action_tapes"]:
+                    ActionTape.from_json(canonical_json(entry["tape"]))
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(
+                    "Native action metadata contains an incompatible legacy or malformed tape"
+                ) from error
 
     @property
     def verified_success(self) -> bool:
@@ -184,6 +197,9 @@ class PhysicalRecord:
     execution_id: str | None = None
     media_type: str = "text/plain; charset=utf-8"
     auxiliary_observation_loss: bool = False
+    chunk_boundary: str | None = None
+    chunking_fingerprint: str | None = None
+    forced_chunk_split: bool = False
 
     def __post_init__(self) -> None:
         if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
@@ -201,6 +217,8 @@ class PhysicalRecord:
             raise TypeError("Records need an identity and immutable payload bytes")
         if self.turn_index < 0 or not 0 <= self.part_index < self.part_count:
             raise ValueError("Invalid turn/physical part index")
+        if (self.chunk_boundary is None) != (self.chunking_fingerprint is None):
+            raise ValueError("Semantic records require both boundary and chunking identity")
         if self.policy_mask and self.role not in {"assistant", "document"}:
             raise ValueError("Only assistant/document emission can carry policy loss")
         if self.auxiliary_observation_loss and self.role not in {"tool", "environment"}:
@@ -396,8 +414,10 @@ class Episode:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> Episode:
         obj = dict(value)
-        if obj.pop("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
-            raise ValueError("Unsupported episode schema version")
+        if obj.pop("schema_version", None) != SCHEMA_VERSION:
+            raise ValueError(
+                "Unsupported episode schema version; legacy records require explicit fresh preparation"
+            )
         lineage = dict(obj["lineage"])
         lineage["ancestor_ids"] = tuple(lineage.get("ancestor_ids", ()))
         obj["lineage"] = Lineage(**lineage)
@@ -546,45 +566,32 @@ def make_records(
     free_spans: tuple[ByteSpan, ...] | None = None,
     codec: Codec | None = None,
     max_tokens: int | None = None,
+    chunking: ChunkingConfig | None = None,
+    content_kind: str = "auto",
+    language: str | None = None,
 ) -> tuple[PhysicalRecord, ...]:
     if max_tokens is not None and (codec is None or max_tokens <= 0):
         raise ValueError("A positive token chunk limit requires an explicit raw codec")
     token_chunks: list[tuple[int, ...]] = []
+    semantic_chunks = None
+    chunking_fingerprint = None
     if codec is None:
+        if chunking is not None:
+            raise ValueError("Semantic chunking requires the explicit reference codec")
         pieces = list(split_payload(payload, max_bytes))
     else:
-        ids = tuple(codec.encode(payload))
-        if codec.decode(ids) != payload:
-            raise ValueError("The raw codec changed source bytes")
-        encoded_pieces = [codec.decode([token]) for token in ids]
-        if b"".join(encoded_pieces) != payload or any(not piece for piece in encoded_pieces):
-            raise ValueError("The raw codec requires nonempty compositional token bytes")
-        pieces = []
-        token_start = byte_offset = 0
-        while token_start < len(ids):
-            end, byte_count = token_start, 0
-            limit = min(len(ids), token_start + (max_tokens or len(ids)))
-            while end < limit and byte_count + len(encoded_pieces[end]) <= max_bytes:
-                byte_count += len(encoded_pieces[end])
-                end += 1
-            if end == token_start:
-                raise ValueError("One indivisible codec token exceeds max_record_bytes")
-            # Prefer a real semantic break in the latter half of a full chunk.
-            if end < len(ids):
-                candidate_end = end
-                candidate_bytes = byte_count
-                while candidate_end > token_start + (end - token_start) // 2:
-                    if encoded_pieces[candidate_end - 1].endswith((b"\n", b" ")):
-                        end, byte_count = candidate_end, candidate_bytes
-                        break
-                    candidate_end -= 1
-                    candidate_bytes -= len(encoded_pieces[candidate_end])
-            piece = payload[byte_offset : byte_offset + byte_count]
-            pieces.append((byte_offset, piece))
-            token_chunks.append(ids[token_start:end])
-            token_start, byte_offset = end, byte_offset + byte_count
-        if not pieces:
-            pieces, token_chunks = [(0, b"")], [()]
+        policy = chunking or ChunkingConfig()
+        policy = policy.with_hard_limit(max_tokens or policy.hard_max_tokens, max_bytes=max_bytes)
+        semantic_chunks = segment_bytes(
+            payload,
+            codec,
+            policy,
+            content_kind="json" if action_id is not None else content_kind,
+            language=language,
+        )
+        pieces = [(item.byte_start, item.payload) for item in semantic_chunks]
+        token_chunks = [item.token_ids for item in semantic_chunks]
+        chunking_fingerprint = policy.identity(codec)["fingerprint"]
     result = []
     for index, (offset, chunk) in enumerate(pieces):
         local_spans = (
@@ -616,6 +623,9 @@ def make_records(
                 execution_id=execution_id,
                 cached_ids=token_chunks[index] if codec is not None else None,
                 codec_fingerprint=codec.fingerprint if codec is not None else None,
+                chunk_boundary=semantic_chunks[index].boundary if semantic_chunks else None,
+                chunking_fingerprint=chunking_fingerprint,
+                forced_chunk_split=semantic_chunks[index].forced if semantic_chunks else False,
             )
         )
     return tuple(result)

@@ -6,6 +6,7 @@ The data package has no PyTorch dependency. Codec implementations remain in
 
 from .accounting import Budget, TokenMeters
 from .adapters import PROFILES, AdapterContext, SchemaError, adapt_row
+from .chunking import CHUNKING_VERSION, ChunkingConfig, ChunkingStats, SemanticChunk, segment_bytes
 from .collection import (
     CollectionConfig,
     CollectionLedger,
@@ -56,6 +57,10 @@ __all__ = [
     "Budget",
     "ByteSpan",
     "Codec",
+    "CHUNKING_VERSION",
+    "ChunkingConfig",
+    "ChunkingStats",
+    "SemanticChunk",
     "DedupConfig",
     "DedupStore",
     "Dependency",
@@ -90,6 +95,7 @@ __all__ = [
     "pin_hf_source",
     "pin_local_source",
     "prepare_sources",
+    "segment_bytes",
     "stage_recipe",
     "write_demo_source",
     "write_source_manifest",

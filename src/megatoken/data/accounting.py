@@ -1,4 +1,4 @@
-"""Independent U/D/I/P/T meters; no ambiguous aggregate token counter."""
+"""Independent U/D/I/P/T/Z meters; latent coordinates are not lexical tokens."""
 
 from __future__ import annotations
 
@@ -15,11 +15,12 @@ class TokenMeters:
     D: int = 0
     I: int = 0  # noqa: E741 - the plan defines I as actual transcript ingestion.
     P: int = 0
+    Z: int = 0
     T: int = 0
     teacher_input: int = 0
     teacher_cache_read: int = 0
     teacher_cache_write: int = 0
-    posterior_encodes: int = 0
+    facet_encodes: int = 0
     control_encodes: int = 0
     record_ingestions: int = 0
     reconstruction_ingestions: int = 0
@@ -34,16 +35,15 @@ class TokenMeters:
         self,
         window: TrainingWindow,
         *,
-        actual_scored_positions: int | None = None,
-        repair_positions: int = 0,
-        identifier_positions: int = 0,
+        actual_scored_positions: int,
+        latent_coordinates: int = 0,
     ) -> None:
-        scored = window.P if actual_scored_positions is None else actual_scored_positions
-        if min(scored, repair_positions, identifier_positions) < 0:
+        if min(actual_scored_positions, latent_coordinates) < 0:
             raise ValueError("Actual lexical work cannot be negative")
         self.D += window.D
         self.I += window.I
-        self.P += scored + repair_positions + identifier_positions
+        self.P += actual_scored_positions
+        self.Z += latent_coordinates
         self.record_ingestions += window.record_ingestions
         self.reconstruction_ingestions += window.prefix_count
 
@@ -57,7 +57,7 @@ class Budget:
     limit: int
 
     def __post_init__(self) -> None:
-        if self.meter not in {"U", "D", "I", "P", "T"} or self.limit <= 0:
+        if self.meter not in {"U", "D", "I", "P", "T", "Z"} or self.limit <= 0:
             raise ValueError("A budget requires one explicit meter and a positive limit")
 
     def exhausted(self, meters: TokenMeters) -> bool:

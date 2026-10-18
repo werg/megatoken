@@ -13,7 +13,7 @@ import torch
 
 from megatoken.io import fsync_directory, sha256_file, write_json
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 def save_checkpoint(

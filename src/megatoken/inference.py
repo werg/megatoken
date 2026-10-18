@@ -9,6 +9,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -18,8 +19,10 @@ from jsonschema.exceptions import SchemaError, ValidationError
 from safetensors.torch import load_file, save_file
 
 from megatoken.contracts import ROLE_TO_ID
-from megatoken.generation.structure import ActionSpec, ActionTape, Observation, strict_json_loads
-from megatoken.io import fsync_directory, sha256_file, write_json
+from megatoken.controls import build_control_payload
+from megatoken.data.chunking import ChunkingConfig, segment_bytes
+from megatoken.generation.structure import TAPE_VERSION, ActionSpec, ActionTape, Observation
+from megatoken.io import fsync_directory, sha256_file, strict_json_loads, write_json
 from megatoken.loading import build_model, load_codec, parameter_report
 from megatoken.model.config import ModelConfig
 from megatoken.tensors import byte_tensor
@@ -35,6 +38,8 @@ def export_served(
     codec = load_codec(codec_path, vocab_size=config.vocab_size)
     if codec.fingerprint != payload["codec_fingerprint"]:
         raise ValueError("Export codec does not match the trained checkpoint")
+    chunking = ChunkingConfig.from_identity(payload["chunking"], codec)
+    chunking = chunking.with_hard_limit(config.max_capacity)
     precision = payload["train_config"]["precision"]
     model = build_model(config, codec, precision=precision)
     model.load_state_dict(payload["model"], strict=True)
@@ -53,7 +58,6 @@ def export_served(
         )
         served_config = config.to_dict()
         served_config["checkpoint_stages"] = False
-        served_config["router_exploration"] = 0.0
         write_json(temporary / "model_config.json", served_config)
         bundled_codec = "byte"
         if codec_path != "byte":
@@ -70,14 +74,17 @@ def export_served(
             with artifact.open("rb") as handle:
                 os.fsync(handle.fileno())
         manifest = {
-            "format_version": 1,
+            "format_version": 2,
             "model_sha256": sha256_file(temporary / "model.safetensors"),
             "config_sha256": sha256_file(temporary / "model_config.json"),
             "codec_file": bundled_codec,
             "codec_fingerprint": codec.fingerprint,
+            "chunking": chunking.identity(codec),
+            "policy_likelihood": "canonical_facet_gaussian_density",
             "precision": precision,
             "model_version": payload["global_step"],
             "routing_version": config.routing_version,
+            "tape_version": TAPE_VERSION,
             "checkpoint_sha256": metadata["state_sha256"],
             "parameters": parameter_report(model)["totals"]["served"],
             "training_heads": False,
@@ -109,8 +116,12 @@ class InferenceEngine:
     def __init__(self, bundle: str | Path, *, device: str = "auto", compile: bool = False) -> None:
         directory = Path(bundle)
         manifest = json.loads((directory / "manifest.json").read_text())
-        if manifest.get("format_version") != 1 or manifest.get("training_heads") is not False:
+        if manifest.get("format_version") != 2 or manifest.get("training_heads") is not False:
             raise ValueError("Unsupported or training-only bundle")
+        if manifest.get("policy_likelihood") != "canonical_facet_gaussian_density":
+            raise ValueError("Unsupported served action likelihood")
+        if manifest.get("tape_version") != TAPE_VERSION:
+            raise ValueError("Served tape protocol differs from the current control-aware policy")
         if manifest.get("precision") not in {"fp32", "bf16"}:
             raise ValueError("Unsupported served precision")
         if sha256_file(directory / "model.safetensors") != manifest["model_sha256"]:
@@ -134,6 +145,9 @@ class InferenceEngine:
         )
         if self.codec.fingerprint != manifest["codec_fingerprint"]:
             raise ValueError("Served codec mapping differs from the training codec")
+        self.chunking = ChunkingConfig.from_identity(manifest["chunking"], self.codec)
+        if self.chunking.hard_max_tokens > self.config.max_capacity:
+            raise ValueError("Served chunk policy exceeds the configured model capacity")
         self.device = (
             torch.device("cuda" if torch.cuda.is_available() else "cpu")
             if device == "auto"
@@ -171,20 +185,58 @@ class InferenceEngine:
             )
 
     @torch.inference_mode()
-    def observe(self, session: Session, payload: bytes, *, role: str = "user") -> None:
+    def observe(
+        self,
+        session: Session,
+        payload: bytes,
+        *,
+        role: str = "user",
+        content_kind: str = "auto",
+        language: str | None = None,
+    ) -> None:
+        chunks = segment_bytes(
+            payload, self.codec, self.chunking, content_kind=content_kind, language=language
+        )
+        self._append_observations(session, [chunk.payload for chunk in chunks], role)
+
+    @torch.inference_mode()
+    def observe_physical(
+        self,
+        session: Session,
+        payload: bytes,
+        *,
+        role: str = "user",
+        token_ids: Sequence[int] | None = None,
+    ) -> None:
+        """Ingest an already prepared physical record without changing its boundary."""
+        ids = self.codec.encode(payload) if token_ids is None else list(token_ids)
+        if self.codec.decode(ids) != payload:
+            raise ValueError("Physical observation token IDs do not reproduce its exact bytes")
+        if len(ids) > self.chunking.hard_max_tokens or len(payload) > self.chunking.max_bytes:
+            raise ValueError("Physical observation exceeds the served chunk policy")
+        self._append_observations(session, [payload], role)
+
+    def _append_observations(self, session: Session, payloads: list[bytes], role: str) -> None:
         self._check_session(session)
         if role not in ROLE_TO_ID:
             raise ValueError(f"Unknown physical-record role {role!r}")
-        ids, lengths = byte_tensor([payload], self.device)
-        session.state = self.model.core.ingest(
-            ids,
-            session.state,
-            lengths=lengths,
-            role_ids=torch.tensor([ROLE_TO_ID[role]], device=self.device),
-            deterministic=True,
-        )
-        session.records.append((role, payload))
-        session.events.append(Observation(payload, ROLE_TO_ID[role]))
+        # The same versioned semantic boundaries define training and live
+        # recurrent writes. Record each physical observation for exact replay.
+        state = session.state
+        events = []
+        for payload in payloads:
+            ids, lengths = byte_tensor([payload], self.device)
+            state = self.model.core.observe(
+                ids,
+                state,
+                lengths=lengths,
+                role_ids=torch.tensor([ROLE_TO_ID[role]], device=self.device),
+            )
+            events.append(Observation(payload, ROLE_TO_ID[role]))
+        # An invalid observation cannot leave a partially appended transcript.
+        session.state = state
+        session.records.extend((role, event.payload) for event in events)
+        session.events.extend(events)
 
     @torch.inference_mode()
     def generate(
@@ -195,18 +247,39 @@ class InferenceEngine:
         effort: int = 6,
         seed: int | None = None,
         generator: torch.Generator | None = None,
+        control_seed: bytes = b"",
+        control_reference: bytes = b"",
+        reference_origin: str | None = None,
+        tools_json: str = "[]",
     ) -> Any:
+        """Sample once with the same explicit causal controls used in training.
+
+        ``seed`` selects the random draw. ``control_seed`` is model input bytes;
+        neither reference controls nor public tool descriptions are observations.
+        The exact framed payload is retained by the returned action tape.
+        """
         self._check_session(session)
+        control_payload = build_control_payload(
+            seed=control_seed,
+            reference=control_reference,
+            reference_origin=reference_origin,
+            tools_json=tools_json,
+        )
         if seed is not None:
             if generator is not None:
                 raise ValueError("provide seed or generator, not both")
             generator = torch.Generator(device=self.device).manual_seed(seed)
-        result = self.model.sample(session.state, spec=spec, effort=effort, generator=generator)
+        result = self.model.sample(
+            session.state,
+            spec=spec,
+            effort=effort,
+            generator=generator,
+            control_payload=control_payload,
+        )
         session.state = result.state
         session.tapes.append(result.tape)
         session.events.append(result.tape)
-        if result.tape.committed:
-            session.records.append(("assistant", result.payload))
+        session.records.append(("assistant", result.payload))
         return result
 
 
@@ -226,11 +299,38 @@ def _request_payload(request: dict[str, Any]) -> bytes:
         raise ValueError("payload_b64 is not valid base64") from exc
 
 
-def _request_spec(engine: InferenceEngine, session: Session, request: dict[str, Any]) -> ActionSpec:
-    maximum = int(request.get("max_tokens", min(256, engine.config.max_capacity)))
+def _request_tools_json(request: dict[str, Any]) -> str | None:
+    if "tools" in request and "tools_json" in request:
+        raise ValueError("provide tools or tools_json, not both")
+    if "tools_json" in request:
+        if not isinstance(request["tools_json"], str):
+            raise ValueError("tools_json must be a JSON string")
+        return request["tools_json"]
+    if "tools" in request:
+        return json.dumps(request["tools"], ensure_ascii=False, allow_nan=False)
+    return None
+
+
+def _request_control_bytes(request: dict[str, Any], name: str) -> bytes:
+    value = request.get(name, "")
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a UTF-8 string")
+    return value.encode("utf-8")
+
+
+def _request_spec(
+    engine: InferenceEngine,
+    session: Session,
+    request: dict[str, Any],
+    tools_json: str | None = None,
+) -> ActionSpec:
+    obsolete = {"max_repairs", "repair_probability", "temperature", "top_p", "top_k"}
+    if obsolete.intersection(request):
+        raise ValueError("Decoder sampling and repair controls are not part of the facet policy")
+    maximum = int(request.get("max_tokens", min(512, engine.config.max_capacity)))
     if not 0 <= maximum <= engine.config.max_capacity:
         raise ValueError("max_tokens exceeds this model's configured capacity")
-    if "tools" in request:
+    if tools_json is not None:
         from dataclasses import replace
 
         from megatoken.tool_schema import compile_tool_spec, recent_copy_sources
@@ -241,9 +341,8 @@ def _request_spec(engine: InferenceEngine, session: Session, request: dict[str, 
         ):
             raise ValueError("unknown tool wire format")
         spec = compile_tool_spec(
-            json.dumps(request["tools"], sort_keys=True),
+            tools_json,
             maximum,
-            max_repairs=int(request.get("max_repairs", 1)),
             wire_formats=formats,
         )
         sources = recent_copy_sources([payload for _, payload in session.records])
@@ -252,8 +351,6 @@ def _request_spec(engine: InferenceEngine, session: Session, request: dict[str, 
         text_kind=request.get("kind", "bytes"),
         min_tokens=int(request.get("min_tokens", 0)),
         max_tokens=maximum,
-        max_repairs=int(request.get("max_repairs", 1)),
-        repair_probability=float(request.get("repair_probability", 0)),
         require_terminal=request.get("require_terminal"),
     )
 
@@ -296,24 +393,35 @@ def serve_jsonl(
                 session = sessions[session_id]
                 if operation == "observe":
                     engine.observe(
-                        session, _request_payload(request), role=request.get("role", "user")
+                        session,
+                        _request_payload(request),
+                        role=request.get("role", "user"),
+                        content_kind=request.get("content_kind", "auto"),
+                        language=request.get("language"),
                     )
                     response = {"session": session_id, "records": len(session.records)}
                 elif operation == "generate":
-                    spec = _request_spec(engine, session, request)
+                    tools_json = _request_tools_json(request)
+                    spec = _request_spec(engine, session, request, tools_json)
                     result = engine.generate(
                         session,
                         spec=spec,
                         effort=int(request.get("effort", 6)),
                         seed=request.get("seed"),
+                        control_seed=_request_control_bytes(request, "control_seed"),
+                        control_reference=_request_control_bytes(request, "control_reference"),
+                        reference_origin=request.get("reference_origin"),
+                        tools_json="[]" if tools_json is None else tools_json,
                     )
                     response = {
                         "session": session_id,
                         "payload_b64": base64.b64encode(result.payload).decode(),
                         "emitted_ids": list(result.emitted_ids),
-                        "committed": result.tape.committed,
+                        "valid": result.tape.valid,
                         "terminal": result.tape.terminal,
                         "scored_positions": result.scored_positions,
+                        "latent_dimensions": result.tape.latent_dimensions,
+                        "likelihood": "canonical_facet_gaussian_density",
                         "log_prob": float(result.log_prob),
                         "tape": json.loads(result.tape.to_json()),
                     }

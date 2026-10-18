@@ -104,11 +104,12 @@ def iter_windows(
     dependencies = [
         (positions[dep.writer_id], positions[dep.reader_id], dep) for dep in episode.dependencies
     ]
-    # A physical chunk boundary is not permission to truncate a logical tool.
+    # Semantic prose/observation parts are independently schedulable. A physical
+    # chunk boundary is still not permission to truncate a logical tool action.
     groups: list[tuple[int, int]] = []
     start = 0
     for index, record in enumerate(episode.records):
-        if record.part_index + 1 == record.part_count:
+        if not record.action_id or record.part_index + 1 == record.part_count:
             groups.append((start, index + 1))
             start = index + 1
     group_index, window_index = 0, 0

@@ -6,13 +6,16 @@ from dataclasses import replace
 import pytest
 import torch
 
+from megatoken.controls import build_control_payload, encode_controls
+from megatoken.data.chunking import ChunkingConfig
 from megatoken.environments import FixtureEnvironment
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model.config import ModelConfig
+from megatoken.tool_schema import compile_tool_spec
 from megatoken.training.checkpoint import load_checkpoint, save_checkpoint
 from megatoken.training.optimizer import MasterAdamW
-from megatoken.training.rl import RLConfig, collect_rollout, score_rollout, train_rl
+from megatoken.training.rl import RLConfig, _ingest, collect_rollout, score_rollout, train_rl
 
 FIXED_TOOLS = [
     {
@@ -53,21 +56,70 @@ def assert_equal_tree(left, right):
         assert left == right
 
 
+@torch.no_grad()
+def initialize_balanced_tool_decoder(model, chunking):
+    """Make the first tool depend on Gaussian noise around its causal prior mean.
+
+    The real decoder emits either a complete fixed write or a complete finish.
+    Its schema decision is a threshold on one mean facet coordinate, centered
+    using the same public observation and tools as collection. No reward,
+    sampled facet, or production policy is replaced by the fixture.
+    """
+    model.eval()
+    observation = FixtureEnvironment().reset(fixture_tasks(1)[0]).observation
+    state = _ingest(model, model.core.initial_state(1), observation, "user", chunking)
+    tools_json = json.dumps(FIXED_TOOLS)
+    payload = build_control_payload(tools_json=tools_json)
+    control = encode_controls(model.core, [payload], encoder_grad=False)
+    mean = model.core.process(state, control=control, effort=6).facets
+    center = mean.mean(1)[0, 0]
+
+    decoder = model.decoder
+    width = model.config.facet_dim
+    decoder.header_start.weight.zero_()
+    decoder.header_start.weight[0, 0] = 1
+    decoder.public_projection.weight.zero_()
+    decoder.schema_codes.weight.zero_()
+    decoder.schema_codes.weight[0, 0] = 1  # Write on positive noise.
+    decoder.schema_codes.weight[1, 0] = -1  # Finish on negative noise.
+    for parameter in decoder.header_cell.parameters():
+        parameter.zero_()
+    # GRU gates are (reset, update, candidate): r=1/2, z~=0, so the
+    # forced-mode update maps h[0] to tanh(h[0] - center).
+    decoder.header_cell.bias_ih[width : 2 * width] = -30
+    decoder.header_cell.weight_hh[2 * width, 0] = 2
+    decoder.header_cell.bias_hh[2 * width] = -2 * center
+
+    # Validate the designed decision boundary through the complete serializer.
+    spec = compile_tool_spec(tools_json, model.config.max_capacity)
+    for direction, name in ((1, "write"), (-1, "finish")):
+        raw = mean.clone()
+        raw[:, :, 0] += direction
+        decoded = model.decode_facets(raw, spec=spec)
+        assert decoded.valid
+        assert json.loads(decoded.payload)["name"] == name
+    model.core.routing_aux_loss(clear=True)
+
+
 @pytest.fixture
 def initial_checkpoint(tmp_path):
     torch.set_num_threads(1)
     torch.manual_seed(901)
     codec = ByteCodec.byte_fallback()
-    config = ModelConfig.tiny(max_capacity=64)
+    config = ModelConfig.tiny(max_capacity=128)
     model = build_model(config, codec)
     optimizer = MasterAdamW(model, lr=1e-4)
     # Populate Adam's moments before entering RL. A skipped equal-reward group
     # must preserve those moments and must not apply residual momentum or decay.
     plan = model.prepare_target(target_bytes=[b"initial"], capacity=8)
-    step = model.supervised_step(model.core.initial_state(1), plan=plan, prior_probability=1)
+    step = model.supervised_step(model.core.initial_state(1), plan=plan)
     sum(value / max(count, 1) for value, count in step.losses.values()).backward()
     optimizer.step()
     optimizer.zero_grad()
+    chunking = ChunkingConfig().with_hard_limit(config.max_capacity)
+    # FP32 parameters are their own masters; retain the populated Adam moments
+    # while setting a balanced, deterministic action map for the executed test.
+    initialize_balanced_tool_decoder(model, chunking)
     checkpoint = save_checkpoint(
         tmp_path / "initial",
         "supervised",
@@ -76,6 +128,7 @@ def initial_checkpoint(tmp_path):
             "optimizer": optimizer.state_dict(),
             "model_config": config.to_dict(),
             "codec_fingerprint": codec.fingerprint,
+            "chunking": chunking.identity(codec),
             "global_step": 1,
             "train_config": {"precision": "fp32", "phase": "D"},
         },
@@ -94,40 +147,53 @@ def rl_config(checkpoint, output, **overrides):
         task_seeds=2,
         rollouts_per_seed=4,
         max_steps_per_episode=2,
-        max_scored_positions=1000,
+        max_latent_coordinates=100_000,
         max_total_episodes=8,
-        capacity=64,
-        max_repairs=0,
+        capacity=128,
         seed=17,
     )
     values.update(overrides)
     return RLConfig(**values)
 
 
-def test_executed_structural_rl_updates_with_zero_free_lexical_positions(
+def test_executed_facet_rl_updates_predictor_and_preserves_fixed_decoder(
     initial_checkpoint, tmp_path
 ):
     result = train_rl(rl_config(initial_checkpoint, tmp_path / "rl"), fixture_tasks())
     before, _ = load_checkpoint(initial_checkpoint)
     after, _ = load_checkpoint(result["checkpoint"])
-    assert result["P"] == 0  # Public singleton tool arguments contain no lexical choice.
+    assert result["P"] == 0  # All decoded structure and lexical choices are deterministic.
+    assert result["Z"] > 0 and result["emitted_positions"] > 0
     assert result["episodes"] == 8 and 0 < result["successes"] < result["episodes"]
     assert result["optimizer_updates"] > 0 and result["global_step"] > before["global_step"]
     assert result["I"] == result["collection_I"] + result["replay_I"] == 2 * result["D"]
-    assert not torch.equal(
-        before["model"]["schema_codes.weight"], after["model"]["schema_codes.weight"]
+    frozen = after["frozen_decoder_parameters"]
+    assert frozen and any("frontend" in name for name in frozen)
+    assert any(
+        not torch.equal(value, after["model"][name])
+        for name, value in before["model"].items()
+        if name not in frozen and isinstance(value, torch.Tensor)
     )
     assert_equal_tree(
-        {k: v for k, v in before["model"].items() if k.startswith("posterior.")},
-        {k: v for k, v in after["model"].items() if k.startswith("posterior.")},
+        {k: before["model"][k] for k in frozen},
+        {k: after["model"][k] for k in frozen},
+    )
+    assert_equal_tree(
+        {k: before["optimizer"]["master_weights"][k] for k in frozen},
+        {k: after["optimizer"]["master_weights"][k] for k in frozen},
     )
     records = [
         json.loads(line)
         for line in (tmp_path / "rl" / "rollouts-rank0.jsonl").read_text().splitlines()
     ]
     assert len(records) == 8
-    assert all(record["likelihood"] == "complete_augmented_action_tape" for record in records)
-    assert all(step["execution_id"] for record in records for step in record["steps"])
+    assert all(record["likelihood"] == "canonical_facet_gaussian_density" for record in records)
+    assert all(
+        step["execution_id"]
+        for record in records
+        for step in record["steps"]
+        if step["tape"]["valid"]
+    )
     assert any(record["verified_success"] for record in records)
 
 
@@ -183,18 +249,18 @@ def test_equal_reward_groups_skip_decay_momentum_and_actual_update_budget(
     assert all(record["skipped_equal_reward_update"] for record in records)
 
 
-def test_raw_rollouts_replay_all_variable_length_tokens_with_history_gradients():
+def test_raw_rollouts_replay_full_facets_with_history_gradients_and_fixed_encoder():
     torch.set_num_threads(1)
     torch.manual_seed(231)
     codec = ByteCodec.byte_fallback()
     model = build_model(ModelConfig.tiny(max_capacity=8), codec).eval()
+    model.freeze_decoder_for_rl()
     config = RLConfig(
         checkpoint="unused",
         task_seeds=1,
         rollouts_per_seed=4,
         max_steps_per_episode=2,
         capacity=8,
-        max_repairs=0,
         use_tool_schema=False,
         device="cpu",
     )
@@ -202,8 +268,9 @@ def test_raw_rollouts_replay_all_variable_length_tokens_with_history_gradients()
         collect_rollout(model, codec, fixture_tasks(1)[0], FixtureEnvironment, config)
         for _ in range(4)
     ]
-    assert len({rollout.scored_positions for rollout in rollouts}) > 1
-    assert sum(rollout.scored_positions for rollout in rollouts) > 0
+    assert all(rollout.scored_positions == 0 for rollout in rollouts)
+    assert all(rollout.latent_dimensions == len(rollout.steps) * 4 * 32 for rollout in rollouts)
+    assert len({rollout.steps[0].tape.facets for rollout in rollouts}) == len(rollouts)
     for rollout in rollouts:
         score = score_rollout(model, rollout)
         torch.testing.assert_close(
@@ -213,8 +280,9 @@ def test_raw_rollouts_replay_all_variable_length_tokens_with_history_gradients()
     assert any(
         parameter.grad is not None and bool(parameter.grad.abs().sum() > 0)
         for name, parameter in model.named_parameters()
-        if name.startswith("core.frontend.")
+        if name.startswith("core.stages.") or name.startswith("core.remix.")
     )
+    assert all(parameter.grad is None for parameter in model.core.encoder_parameters())
 
 
 def test_rl_replay_gate_rejects_mismatch_before_optimizer_update(
@@ -240,5 +308,5 @@ def test_rl_resume_rejects_changed_task_content_and_objective(initial_checkpoint
     resumed = replace(config, checkpoint=first["checkpoint"])
     with pytest.raises(ValueError, match="task content or order"):
         train_rl(resumed, list(reversed(tasks)))
-    with pytest.raises(ValueError, match="max_repairs"):
-        train_rl(replace(resumed, max_repairs=1), tasks)
+    with pytest.raises(ValueError, match="capacity"):
+        train_rl(replace(resumed, capacity=64), tasks)

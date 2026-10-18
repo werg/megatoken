@@ -1,10 +1,10 @@
 # Blackwell execution and measurement
 
 The implementation starts with resident BF16 weights, FP32 optimizer masters and
-moments, FP32 recurrent states, and the same causal model for training and serving.
-The portable PyTorch backend is the reference. The optional Triton backend contains
-real grouped expert forward/backward GEMMs and a fused record recurrence with an
-analytic backward. Selecting it is an explicit configuration choice. It has no
+moments, raw recurrent facets, and bounded BF16 causal KV context. The same core
+serves training and inference: six residual body stages, a nonresidual remix,
+and ten residual prediction stages. The portable PyTorch backend is the reference.
+The optional Triton backend contains real grouped expert forward/backward GEMMs. Selecting it is an explicit configuration choice. It has no
 silent fallback that could make a CUDA benchmark measure a different backend.
 
 CPU tests verify the mathematical and causal implementation. They do not establish
@@ -21,7 +21,7 @@ the image's constrained framework package and records the complete package set i
 reference. These are distinct environments, each with its own validation evidence.
 A GPU name alone is insufficient:
 NVIDIA lists B200/GB200 as compute capability 10.0, B300/GB300 as 10.3, and several
-RTX Blackwell products as 12.0. Select builds for the actual device, and record the
+RTX Blackwell products as 12.0, with GB10/DGX Spark at 12.1. Select builds for the actual device, and record the
 driver, PyTorch CUDA build, Triton version, and compute capability in every run.
 See NVIDIA's [compute capability table](https://developer.nvidia.com/cuda/gpus).
 
@@ -41,7 +41,7 @@ nvidia-smi
 ```
 
 The diagnostic executes a BF16 matrix multiplication on each visible GPU and fails
-if requested CUDA/Blackwell support is absent. Retain its JSON next to the training
+if requested CUDA/Blackwell support is absent, execution fails, or the result is nonfinite. Retain its JSON next to the training
 configuration and checkpoint. An image can include CUDA libraries while the host
 driver or container device configuration still prevents execution.
 
@@ -66,20 +66,29 @@ does not provide accepted training data or a tokenizer asset by itself.
 Run the complete test suite on the GPU machine and confirm the CUDA tests execute:
 
 ```bash
-pytest -q tests/test_kernels_grouped.py tests/test_kernels_recurrent.py
+pytest -q tests/test_kernels_grouped.py tests/test_runtime.py tests/test_model_policy_integration.py
 pytest -q
 ```
 
 The grouped tests compare values and gradients for sorted, uneven assignments and
-unused experts. The recurrence tests compare both returned outputs and all six
-input gradients. The CPU suite also verifies earlier-writer credit, FP32 independent
-recurrent states, deterministic route replay, factual/predictive separation, BF16
-core paths, actual parameter ownership, and engram bake parity. The hardware run
+unused experts, including the primary pair/output input widths of 1,024 and 512.
+Runtime tests compare unmasked Flash GQA with the math reference at 32 facets,
+four query heads, two KV heads, and head widths 128/64, including long projected
+histories. Separate masked-source cases include completely empty records. CPU
+tests verify raw next-input identity, the internal nonresidual remix, observation
+chronology, earlier-input/cache credit, checkpointed gradients, deterministic
+route replay, BF16 paths, actual parameter ownership, and engram bake parity. The hardware run
 must retain these results, then run an integrated BF16 training transaction and
-same-weight action-tape replay using the chosen backend.
+same-weight raw-facet tape replay using the chosen backend.
 
-`ModelConfig(expert_backend="triton", recurrent_backend="triton")` enables both CUDA
-operators. Keep `torch` if a gate fails. Compare actual assignment distributions,
+`scripts/validate_blackwell.py --codec artifacts/codec --output runs/hardware-gate`
+runs those parity tests and measures both expert backends. Its full-vocabulary
+primary workload uses a four-chunk recurrent tower at 256 output positions with
+eight prefix records. Pass `--capacity 1024 --prediction-chunks 8` for the maximum
+output and a longer tower. Without the real codec, its primary result is explicitly
+core-only. These short gates precede the full workload sweep below.
+
+`ModelConfig(expert_backend="triton")` enables the CUDA grouped operators. Keep `torch` if a gate fails. Compare actual assignment distributions,
 including one record, eight independent records, and larger compatible batches.
 The PyTorch implementation sorts rows and reads the group-count vector on the host;
 that synchronization is a known reference-path cost. The Triton implementation
@@ -100,7 +109,7 @@ import json
 from megatoken.benchmark import benchmark
 
 report = benchmark(
-    config="v13",
+    config="recurrent32",
     codec="artifacts/codec",
     device="cuda",
     precision="bf16",
@@ -112,29 +121,37 @@ report = benchmark(
     history_records=32,
     effort=6,
     backward=True,
+    representation_mode="recurrent",
+    prediction_chunks=4,
     backend="torch",
     profile=True,
 )
 print(json.dumps(report, indent=2))
 ```
 
-This runs the complete supervised generator path: causal ingestion, served-prior
-draws, ordered decisions, capacity growth, full-vocabulary lexical loss, actual
-commit ingestion, backward, and an FP32-master AdamW update. It still evaluates
+This runs the complete recurrent supervised path: observed-byte encoding, four
+live full-facet predictions and deterministic realizations, full-vocabulary losses,
+encoder alignment to detached completed predictions, backward through the tower,
+and an FP32-master AdamW update with independent encoder clipping. The selected
+facets remain the next inputs. It still evaluates
 synthetic inputs and a fresh model, so it measures implementation work rather than
 learning progress. The real tokenizer must match the configured vocabulary. The
-benchmark will not silently substitute a 256-row output head for v13.
+benchmark will not silently substitute a 256-row output head for recurrent32.
 
-Set `backward=False` for actual sampled, validated, committed prior actions.
+Set `backward=False` for sampled raw-facet actions, deterministic byte
+materialization, and learned recurrent advancement; use `prediction_chunks=1`
+for that inference measurement. To measure B0, select `representation_mode="bootstrap"`:
+its prediction and reconstruction decoder passes both contribute to lexical P,
+and teacher forcing installs the encoded target as the next input.
 The current general action-tape interface samples one episode at a time; this
 benchmark labels `batch > 1` inference as `serial_requests`. Raw supervised work
 and core-only ingestion use vectorized independent episodes. The report therefore
 does not imply a batched inference scheduler that has not been implemented.
 
-Set `core_only=True` to measure factual ingestion without a codec asset. That mode
+Set `core_only=True` to measure the recurrent core without a codec asset. That mode
 reports source bytes and actual records, with `D` and `I` unavailable and `P=0`.
-Its synthetic facet objective can exercise backward, but it is not a lexical
-pretraining objective. Use full-vocabulary measurements before making capacity
+Backward uses a causal predicted-facet objective after ingestion. It is useful for
+operator validation and does not replace the real lexical training objective. Use full-vocabulary measurements before making capacity
 or throughput decisions.
 
 Every measured report includes:
@@ -158,22 +175,28 @@ to phase ranges. PyTorch's [profiler documentation](https://docs.pytorch.org/doc
 describes CPU/CUDA activities, shape recording, and memory profiling. Measure
 profile overhead separately, as this benchmark does.
 
-Sweep capacities 64/256/1024/4096, efforts 1/2/3/6, short and long physical records,
-and empty/partially filled/full historical caches. Record memory and latency at
-each point. Context exposure is compressed through bounded historical slots and
-record-time recurrence; 256K transcript tokens do not imply full 256K token attention.
+Sweep capacities 64/256/512/1024, efforts 1/2/3/6, short and long physical records,
+and different prefix lengths. Record memory and latency at each point. The
+raw recurrent sample occupies 64 KiB per episode in primary and 32 KiB in compact
+when stored in FP32. Historical BF16 K/V grows by 32 KiB per processed chunk in
+primary, up to 32 MiB at the default 1,024-chunk limit; compact uses half. These
+figures exclude activations, temporary concatenations, and autograd history.
+Attention reads the retained facet slots, so its work grows with this context:
+maximum-history QK/AV products alone cost about 34.36 GFLOPs per primary iteration.
+Prefix reconstruction and training graphs add their own measured cost. See
+[architecture and arithmetic](architecture.md) for the precise 32-facet geometry.
 
 ## 4. Compile only the appropriate numerical boundary
 
-`core.compile_kernels(mode="default")` compiles tensor-only dense FFNs, control
-encoding, and carry reconciliation. It uses `nn.Module.compile`, which preserves
+`core.compile_kernels(mode="default")` compiles tensor-only stage/encoder/output
+FFNs and control encoding. It uses `nn.Module.compile`, which preserves
 module parameter identity and normal state-dict names; see the
 [PyTorch module API](https://docs.pytorch.org/docs/2.10/generated/torch.nn.Module.html).
-The immutable factual state, action-tape control flow, and routing epochs stay
-explicit. Compare `default` with a measured alternative only after parity tests.
+The immutable raw-facet state, bounded KV history, action-tape control flow,
+and routing epochs stay explicit. Compare `default` with a measured alternative only after parity tests.
 
 Whole-policy CUDA graph capture is not claimed. Dynamic capacities, per-request
-schemas, host action-tape serialization, variable retained histories, and the eager
+schemas, raw-facet tape serialization, prefix replay loops, and the eager
 reference dispatch have different capture constraints. Do not report a dense-FFN
 compile result as compilation of the complete serving policy.
 
@@ -222,13 +245,30 @@ allocated; every node inherits the same coordinator and job-specific rendezvous 
 Do not depend on the copied Slurm batch script's filesystem location: the launcher
 uses `SLURM_SUBMIT_DIR`, or an explicit shared `MEGATOKEN_ROOT`.
 
+The prepared corpus can use the same semantic chunking policy for every
+production phase. For example, after collecting reviewed local source records:
+
+```bash
+megatoken prepare --demo artifacts/bootstrap.jsonl --codec artifacts/codec \
+  --chunk-target-tokens 256 --chunk-soft-max-tokens 512 --max-record-tokens 1024 \
+  --output artifacts/prepared
+NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml --max-steps 100
+```
+
+The bootstrap/demo input is only an execution fixture; use accepted corpus
+manifests for a substantive training run. This short pilot verifies the actual
+configuration, loss paths, checkpoint/resume, and measured GPU work before a long
+allocation.
+
 The phase YAML files are launch profiles. Shared recipes provide phase budgets,
 stream proportions, and effort probabilities. Their history limits are explicit
 static window bounds; the JSON history curriculum is not automatically applied by
-the launcher. B0 starts with 256 output positions and requires data prepared to
-that bound. Subsequent profiles accept up to 4096 positions per physical record.
-Native executed record boundaries cannot be silently shortened to make a profile
-fit. Adjust preprocessing and validated configuration together.
+the launcher. All checked-in production profiles, including B0, allow 1,024 output
+positions. Actual decoder workspaces follow each target's capacity. Preparation
+uses a 256-token target, 512-token soft limit, and 1,024-token hard limit, shared
+across the phases. A smaller B0 output cap is an explicit experiment requiring
+compatible preparation. Native executed record boundaries cannot be silently
+shortened to make a profile fit. Adjust preprocessing and configuration together.
 
 Begin with a short multi-GPU transaction and a resume/replay test. Confirm rank
 agreement on codec/data fingerprints, loss denominators, completed windows, routing
@@ -237,10 +277,32 @@ environment and measured B0 gate results before committing the bulk stage budget
 
 ## 6. Preserve state and optimizer correctness while tuning
 
-Runtime recurrent, historical, source, and carry caches belong to one model version.
-Every optimizer update increments that version. Reconstruct caches from actual
-records and complete action tapes; do not recycle parameter-dependent caches across
-an update. Prefix replay costs real time and `I`, even under `no_grad`.
+Raw facet state and historical KV belong to one model version. Every optimizer
+update increments that version. Reconstruct the ordered observations and raw
+sampled actions with the same process/observe chronology. The pending input is
+processed exactly once into body context before the next observation replaces
+it. There is no extra learned ingestion writer or E(D(z)) reconciliation. Every
+selected action becomes the next raw input, including invalid proposals; validity
+governs external execution. An actual error response is a subsequent observation.
+Pure `decode_mean`/`decode_facets` inspection does not advance the caller's state.
+Prefix replay costs real time and `I`, even under `no_grad`.
+
+Preserve causal controls with that history. Training and serving use the shared
+byte framing for policy seeds, references, and canonical tool JSON. Every v3
+action tape retains its exact `control_payload`; replay re-encodes those bytes
+under the current weights. A reference must have an `external_evidence` or
+`earlier_history` origin. In JSONL serving, `control_seed` and `control_reference`
+are UTF-8 text, `reference_origin` declares that provenance, and `tools` feeds both
+the decoder constraints and prior control. The numeric `seed` remains the draw's
+RNG seed. Completely absent controls skip encoding; empty rows in mixed batches
+receive exact zero so batching cannot introduce an unintended control.
+
+Bootstrap uses encoder targets and teacher-forced next inputs. Later recurrent
+phases carry the live predicted facets and train E toward detached completed
+predictions. Observation and control paths detach E in those later phases; the
+control encoder and core body remain trainable. Record the representation mode
+with the phase and checkpoint so a resume cannot silently reverse that gradient
+direction.
 
 Engram descriptors are optional offline assets. Import learning adds only the
 temporary bias-free descriptor map. Bake with the actual inference rounding path,
@@ -267,13 +329,13 @@ python scripts/validate_blackwell.py --output validation
 ```
 
 The gate fails if Blackwell BF16 execution or Triton is unavailable, executes
-grouped/recurrent forward and backward parity plus complete action-tape replay,
+grouped/GQA forward and backward parity plus complete raw-facet tape replay,
 and measures both backends on full tiny generator training/inference and the
-primary factual core. It saves diagnostic JSON, JUnit results, real dispatch
+primary core. It saves diagnostic JSON, JUnit results, real dispatch
 counts, optimizer time, and measured device memory as workflow artifacts. Optional
 `--compile` includes the tensor compilation setting.
 
-To replace the primary core-only probe with a complete v13 generator benchmark,
+To replace the primary core-only probe with a complete recurrent32 generator benchmark,
 pass `--codec /path/to/pinned/codec`; the workflow's `codec_directory` input mounts
 an existing absolute runner path read-only. Without that asset, the primary probe
 has no lexical `D/I/P` interpretation and cannot establish full-vocabulary memory

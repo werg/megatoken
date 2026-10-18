@@ -1,7 +1,7 @@
 # Dependency-preserving writer-to-reader windows. Profile the full 256K case
 # with the actual data and hardware before choosing a larger microbatch.
 phase: LC
-model: v13
+model: recurrent32
 dataset: artifacts/prepared
 codec: artifacts/codec
 output: runs/lc
@@ -9,20 +9,19 @@ device: cuda
 precision: bf16
 require_blackwell: true
 expert_backend: torch
-recurrent_backend: torch
+representation_mode: recurrent
 gradient_checkpointing: true
 compile: false
 microbatch_episodes: 1
 max_history_tokens: 262144
 max_window_records: 64
 max_record_bytes: 16384
-generated_capacity: 4096
-scored_decisions: 2
+generated_capacity: 1024
+scored_decisions: 16
 accumulate_scored: 65536
 accumulate_ingested: 1048576
 max_accumulation_windows: 256
 use_stage_mixture: true
 use_effort_mixture: true
-prior_probability: 0.5
 checkpoint_every: 100
 eval_every: 100

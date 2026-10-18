@@ -90,7 +90,6 @@ def run_smoke(
             rollouts_per_seed=4,
             max_steps_per_episode=1,
             capacity=128,
-            max_repairs=0,
         ),
         tasks,
     )
@@ -98,14 +97,12 @@ def run_smoke(
     engine = InferenceEngine(root / "served", device=device)
     session = engine.new_session()
     engine.observe(session, b"What changed in answer.txt?")
-    sample = engine.generate(
-        session, spec=ActionSpec(min_tokens=4, max_tokens=4, max_repairs=0), seed=17
-    )
+    sample = engine.generate(session, spec=ActionSpec(min_tokens=4, max_tokens=4), seed=17)
     result = {
         "stages": phases,
         "served": str(root / "served"),
         "export": exported,
-        "sample_committed": sample.tape.committed,
+        "sample_valid": sample.tape.valid,
         "sample_bytes_hex": sample.payload.hex(),
         "note": "Tiny offline integration gate; no model quality or Blackwell throughput claim.",
     }

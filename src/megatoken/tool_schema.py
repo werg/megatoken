@@ -19,8 +19,7 @@ from megatoken.generation.structure import (
 @lru_cache(maxsize=128)
 def compile_tool_spec(
     tools_json: str,
-    max_tokens: int = 4096,
-    max_repairs: int = 1,
+    max_tokens: int = 1024,
     wire_formats: tuple[str, ...] = ("canonical",),
 ) -> ActionSpec:
     """Use only schemas available before the action, never infer one from its target.
@@ -144,7 +143,6 @@ def compile_tool_spec(
         allow_text=False,
         schemas=tuple(schemas),
         max_tokens=max_tokens,
-        max_repairs=max_repairs,
         require_terminal=False,
     )
 

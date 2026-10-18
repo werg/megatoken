@@ -19,7 +19,9 @@ from typing import Any
 import torch
 
 from megatoken.contracts import ROLE_TO_ID
+from megatoken.controls import build_control_payload, encode_controls
 from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
+from megatoken.data.chunking import ChunkingConfig
 from megatoken.io import content_hash, write_json
 from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
@@ -33,6 +35,7 @@ from megatoken.tool_schema import (
 from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.distributed import DistributedContext
+from megatoken.training.history import NativeHistory, replay_raw_tape
 from megatoken.training.losses import LossLedger
 from megatoken.training.metrics import (
     Counters,
@@ -57,36 +60,36 @@ class PreparedBatch:
     targets: dict[int, Any]
     counts: dict[str, int]
     effort: int = 6
+    native_history: NativeHistory | None = None
 
 
-def ingest_records(model: Any, state: Any, records: list[Any], device: torch.device):
+def ingest_records(
+    model: Any, state: Any, records: list[Any], device: torch.device, *, encoder_grad: bool = True
+):
     payloads = [record.payload for record in records]
     ids, lengths = byte_tensor(payloads, device)
     roles = torch.tensor([ROLE_TO_ID[record.record.role] for record in records], device=device)
-    return model.core.ingest(ids, state, lengths=lengths, role_ids=roles)
+    return model.core.observe(
+        ids, state, lengths=lengths, role_ids=roles, encoder_grad=encoder_grad
+    )
 
 
-def _control_payload(episode: Any) -> bytes:
+def episode_control_payload(episode: Any) -> bytes:
     # Controls have explicit provenance and are never constructed from a
     # matching target or a hidden verifier annotation.
-    payload = episode.control_seed
-    if episode.control_reference:
-        if episode.reference_origin not in {"external_evidence", "earlier_history"}:
-            raise ValueError("Reference control has no causal provenance")
-        payload += b"\n<reference>\n" + episode.control_reference
-    if episode.tools_json != "[]":
-        payload += b"\n<tools>\n" + episode.tools_json.encode()
-    return payload
+    return build_control_payload(
+        seed=episode.control_seed,
+        reference=episode.control_reference,
+        reference_origin=episode.reference_origin,
+        tools_json=episode.tools_json,
+    )
 
 
 def make_control(
-    model: Any, windows: list[EpisodeWindow], device: torch.device
+    model: Any, windows: list[EpisodeWindow], device: torch.device, *, encoder_grad: bool = True
 ) -> torch.Tensor | None:
-    payloads = [_control_payload(item.episode) for item in windows]
-    if not any(payloads):
-        return None
-    ids, lengths = byte_tensor(payloads, device)
-    return model.core.encode_control(ids, lengths=lengths)
+    payloads = [episode_control_payload(item.episode) for item in windows]
+    return encode_controls(model.core, payloads, encoder_grad=encoder_grad)
 
 
 def prepare_batches(
@@ -94,7 +97,10 @@ def prepare_batches(
 ) -> list[PreparedBatch]:
     result = []
     raw_windows, action_windows = [], []
+    native_histories: dict[int, NativeHistory] = {}
     for item in windows:
+        if id(item.episode) not in native_histories:
+            native_histories[id(item.episode)] = NativeHistory.from_episode(item.episode, model)
         if any(
             len(record.payload) > config.max_record_bytes
             for record in (*item.window.prefix, *item.window.records)
@@ -121,8 +127,9 @@ def prepare_batches(
             raise ValueError(
                 "Long dependency data requires explicit causal writer/reader annotations"
             )
-        if item.episode.tools_json != "[]" and any(
-            record.record.action_id for record in item.window.records
+        if native_histories[id(item.episode)].has_events or (
+            item.episode.tools_json != "[]"
+            and any(record.record.action_id for record in item.window.records)
         ):
             action_windows.append(item)
         else:
@@ -149,7 +156,6 @@ def prepare_batches(
             capacity = min(
                 config.generated_capacity, max(1, 2 ** math.ceil(math.log2(max(1, largest))))
             )
-            repair = bool(torch.rand(()) < config.repair_fraction)
             plan = None
             if (
                 len(batch) == 1
@@ -176,8 +182,8 @@ def prepare_batches(
                             spec=spec,
                             schema_index=schema_index,
                             bindings=bindings,
-                            repair=repair,
                             layout=layout,
+                            representation_mode=config.representation_training,
                         )
                         # Preserve immutable original history. Serialization
                         # variants not represented by a public schema use raw CE.
@@ -189,11 +195,11 @@ def prepare_batches(
                     [record.token_ids for record in records],
                     free_mask=[record.free_mask for record in records],
                     capacity=capacity,
-                    repair=repair,
                     terminal=[
                         record.record.part_index + 1 == record.record.part_count
                         for record in records
                     ],
+                    representation_mode=config.representation_training,
                 )
             targets[offset] = plan
             for name, count in plan.denominators.items():
@@ -205,7 +211,10 @@ def prepare_batches(
             effort = choices[
                 int(torch.multinomial(torch.tensor([mixture[key] for key in choices]), 1))
             ]
-        result.append(PreparedBatch(batch, targets, counts, effort))
+        native = native_histories[id(batch[0].episode)]
+        result.append(
+            PreparedBatch(batch, targets, counts, effort, native if native.has_events else None)
+        )
     return result
 
 
@@ -231,8 +240,19 @@ def batch_counters(batches: list[PreparedBatch]) -> Counters:
                 )
             )
         result.P += sum(plan.scored_positions for plan in batch.targets.values())
-        result.posterior_encodes += sum(len(batch.windows) for _ in batch.targets)
-        if any(_control_payload(item.episode) for item in batch.windows):
+        result.facet_encodes += sum(len(batch.windows) for _ in batch.targets)
+        if batch.native_history is not None:
+            window = batch.windows[0].window
+            for cursor in range(window.end):
+                events = batch.native_history.events_for_record(
+                    cursor,
+                    include_record=(
+                        cursor < window.start or cursor - window.start not in batch.targets
+                    ),
+                )
+                result.raw_facet_replays += len(events)
+                result.control_encodes += sum(bool(tape.control_payload) for tape in events)
+        if any(episode_control_payload(item.episode) for item in batch.windows):
             result.control_encodes += len(batch.windows)
     return result
 
@@ -248,14 +268,27 @@ def forward_batch(
     state = model.core.initial_state(len(batch.windows), device=device, model_version=model_version)
     with torch.no_grad():
         for offset in range(len(batch.windows[0].window.prefix)):
+            if batch.native_history is not None:
+                for tape in batch.native_history.events_for_record(offset, include_record=True):
+                    state = replay_raw_tape(model, state, tape)
+                if batch.native_history.has_generated_record(offset):
+                    continue
             state = ingest_records(
                 model, state, [item.window.prefix[offset] for item in batch.windows], device
             )
-    control = make_control(model, batch.windows, device)
+    control = make_control(
+        model, batch.windows, device, encoder_grad=config.representation_training == "bootstrap"
+    )
     losses = []
     metrics: dict[str, float | torch.Tensor] = {}
     for offset in range(len(batch.windows[0].window.records)):
         records = [item.window.records[offset] for item in batch.windows]
+        cursor = batch.windows[0].window.start + offset
+        if batch.native_history is not None:
+            for tape in batch.native_history.events_for_record(
+                cursor, include_record=offset not in batch.targets
+            ):
+                state = replay_raw_tape(model, state, tape)
         if offset in batch.targets:
             roles = torch.tensor(
                 [ROLE_TO_ID[record.record.role] for record in records], device=device
@@ -266,7 +299,6 @@ def forward_batch(
                     state,
                     plan=plan,
                     effort=batch.effort,
-                    prior_probability=config.prior_probability,
                     control=control,
                 )
             else:
@@ -274,7 +306,6 @@ def forward_batch(
                     state,
                     plan=plan,
                     effort=batch.effort,
-                    prior_probability=config.prior_probability,
                     control=control,
                     role_ids=roles,
                 )
@@ -286,7 +317,17 @@ def forward_batch(
                         value.detach() if isinstance(value, torch.Tensor) else value
                     )
         else:
-            state = ingest_records(model, state, records, device)
+            if batch.native_history is not None and batch.native_history.has_generated_record(
+                cursor
+            ):
+                continue
+            state = ingest_records(
+                model,
+                state,
+                records,
+                device,
+                encoder_grad=config.representation_training == "bootstrap",
+            )
     if losses:
         torch.stack(losses).sum().backward()
     # Retain graph only inside this differentiable writer-to-reader window.
@@ -301,7 +342,6 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
         "codec",
         "precision",
         "expert_backend",
-        "recurrent_backend",
         "engram_import",
         "weight_decay",
     )
@@ -315,20 +355,18 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "max_window_records",
             "scored_decisions",
             "generated_capacity",
-            "repair_fraction",
             "accumulate_scored",
             "accumulate_ingested",
             "max_accumulation_windows",
             "use_stage_mixture",
             "use_effort_mixture",
             "effort",
-            "prior_probability",
-            "posterior_pressure_warmup",
             "loss_weights",
             "grad_clip",
             "budget",
             "deterministic",
             "gradient_checkpointing",
+            "representation_mode",
         )
     for key in critical:
         if old.get(key) != current.get(key):
@@ -373,10 +411,11 @@ def train(
         overrides = {
             **config.model_overrides,
             "expert_backend": config.expert_backend,
-            "recurrent_backend": config.recurrent_backend,
             "checkpoint_stages": config.gradient_checkpointing,
         }
         model_config = load_model_config(config.model, **overrides)
+        if config.generated_capacity > model_config.max_capacity:
+            raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
         model = build_model(model_config, codec, device=context.device, precision=config.precision)
         payload = None
@@ -399,6 +438,10 @@ def train(
             PHASES[config.phase], budget=config.budget or PHASES[config.phase].budget
         )
         optimizer = MasterAdamW(model, phase.learning_rate(0), config.weight_decay)
+        if config.representation_training == "recurrent":
+            # Even clipping must respect the one-way E(bytes) -> recurrent
+            # representation fit: a large encoder error cannot scale core grads.
+            optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
         windows_config = WindowConfig(
             max_window_tokens=config.max_history_tokens,
             max_decisions=config.scored_decisions,
@@ -409,6 +452,14 @@ def train(
         dataset = PreparedDataset(config.dataset)
         if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
             raise ValueError("Prepared dataset uses a different codec")
+        chunking = ChunkingConfig.from_identity(dataset.manifest["chunking"], codec)
+        chunking_identity = chunking.identity(codec)
+        if (
+            payload is not None
+            and not phase_transition
+            and payload["chunking"] != chunking_identity
+        ):
+            raise ValueError("Exact resume changed the semantic chunking policy")
         if config.use_stage_mixture:
             recipe = stage_recipe(config.phase)
             stream = MixtureWindowStream(
@@ -420,6 +471,7 @@ def train(
                 seed=config.seed,
                 rank=context.rank,
                 world_size=context.world_size,
+                reduce_counts=context.sum_counts,
             )
         else:
             stream = WindowStream(
@@ -429,6 +481,7 @@ def train(
                 seed=config.seed,
                 rank=context.rank,
                 world_size=context.world_size,
+                reduce_counts=context.sum_counts,
             )
         global_step = 0
         consumed = 0
@@ -489,6 +542,7 @@ def train(
                         "model_config": model_config.to_dict(),
                         "train_config": asdict(config),
                         "codec_fingerprint": codec.fingerprint,
+                        "chunking": chunking_identity,
                         "rank_state": rank_state,
                         "global_step": global_step,
                         "phase_consumed": consumed,
@@ -500,6 +554,7 @@ def train(
                         "phase_consumed": consumed,
                         "dataset_fingerprint": stream.fingerprint,
                         "codec_fingerprint": codec.fingerprint,
+                        "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
                     },
@@ -522,16 +577,33 @@ def train(
             for _ in range(config.max_accumulation_windows):
                 for _ in range(config.microbatch_episodes):
                     item = stream.next()
+                    if item is None:
+                        continue
                     selected.append(item)
                     selected_counts["I"] += item.window.I
-                    selected_counts["P"] += item.window.P
+                    selected_counts["P"] += item.window.P * (
+                        2 if config.representation_training == "bootstrap" else 1
+                    )
                 global_selected = context.sum_counts(selected_counts)
                 if (
                     global_selected["P"] >= config.accumulate_scored
                     or global_selected["I"] >= config.accumulate_ingested
                 ):
                     break
-            batches = prepare_batches(model, selected, config)
+            preparation_error = None
+            try:
+                batches = prepare_batches(model, selected, config)
+            except Exception as error:
+                preparation_error = error
+                batches = []
+            rejected = context.sum_counts({"rejected_batches": int(preparation_error is not None)})
+            if rejected["rejected_batches"]:
+                raise ValueError(
+                    "Distributed target preparation failed: "
+                    + str(
+                        preparation_error or "another rank rejected its targets or native history"
+                    )
+                ) from preparation_error
             local_counts = {
                 key: sum(batch.counts[key] for batch in batches) for key in DEFAULT_LOSS_WEIGHTS
             }
@@ -543,10 +615,6 @@ def train(
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
             weights = dict(config.loss_weights)
-            if config.posterior_pressure_warmup:
-                weights["posterior_pressure"] *= min(
-                    1.0, consumed / (phase.budget * config.posterior_pressure_warmup)
-                )
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
             learning_rate = phase.learning_rate(consumed)
@@ -583,12 +651,23 @@ def train(
                     key: sum(item.get(key, 0.0) for item in gathered)
                     for key in set().union(*(item.keys() for item in gathered))
                 }
-                for branch in ("prior", "posterior"):
+                for branch in ("prior", "reconstruction"):
                     positions = diagnostics_global.get(f"{branch}_lexical_positions", 0)
                     if positions:
                         diagnostics_global[f"{branch}_lexical_ce"] = (
                             diagnostics_global[f"{branch}_lexical_loss_sum"] / positions
                         )
+                examples = diagnostics_global.get("facet_examples", 0)
+                if examples:
+                    for kind in ("prediction", "encoded"):
+                        diagnostics_global[f"{kind}_facet_norm"] = (
+                            diagnostics_global[f"{kind}_facet_norm_sum"] / examples
+                        )
+                coordinates = diagnostics_global.get("facet_alignment_coordinates", 0)
+                if coordinates:
+                    diagnostics_global["facet_alignment_mse"] = (
+                        diagnostics_global["facet_alignment_squared_error_sum"] / coordinates
+                    )
                 dispatch = model.core.dispatch_metrics(reset=True)
                 reduced = context.sum_tensors(
                     {

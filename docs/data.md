@@ -39,10 +39,11 @@ from megatoken.data import PreparedDataset, WindowConfig, iter_windows
 from megatoken.loading import load_codec
 
 codec = load_codec("work/codec")
-with PreparedDataset("work/prepared", split="train", stream="chat") as data:
+with PreparedDataset("work/prepared", split="train", stream="natural_documents") as data:
     for episode in data.iter_episodes(rank=0, world_size=1):
         for window in iter_windows(
-            episode, codec,
+            episode,
+            codec,
             WindowConfig(max_window_tokens=8192, max_decisions=4, max_records=32),
         ):
             # Rebuild window.prefix under current weights without loss.
@@ -62,7 +63,10 @@ returns a reader over all non-quarantined splits for census inspection.
 and `Supervision` are frozen dataclasses. They use immutable bytes and tuples.
 The wire schema stores payloads as base64, preserving non-UTF-8 files and exact
 whitespace. JSON framing and chat-template delimiters are not inserted into the
-student transcript.
+student transcript. Prepared datasets and native episodes use schema version 2;
+legacy versions fail explicitly. Native action metadata must contain complete
+version-3 facet tapes (`fmt-canonical-facets-v3`), which retain the exact public
+control payload used by the prior. Older tapes must be regenerated.
 
 | Field group | Meaning |
 | --- | --- |
@@ -70,7 +74,8 @@ student transcript.
 | `lineage` | Source revision, original family, all known ancestors, repository/task identities, original row hash and optional inherited split |
 | `actions` | Complete tool action descriptor, immutable serialized-byte hash, exact physical members, call ID and execution ID |
 | `result_of` | An observation's exact prior completed action; a changed action cannot inherit another action's result |
-| `policy_mask`, `free_spans`, `emitted_free_mask` | Role/turn eligibility and the lexical bytes or actual emitted positions eligible for likelihood |
+| `policy_mask`, `free_spans`, `emitted_free_mask` | Role/turn eligibility and lexical bytes or emitted positions eligible for supervised decoder cross-entropy |
+| `chunk_boundary`, `chunking_fingerprint`, `forced_chunk_split` | Auditable semantic boundary, exact chunking policy identity, and unavoidable token-cut marker |
 | `supervision` | Outcomes, verification, rewards, benchmark tags and diagnostic metadata; never rendered into model records |
 | `tools_json`, `control_seed` | Public tools and task policy available before generation |
 | `control_reference`, `reference_origin` | An explicitly available reference; future-target references are rejected |
@@ -98,51 +103,131 @@ recovery turns receive imitation loss. Unknown and incomplete executions are
 separate from verified successes. A simulator judge is recorded as simulation
 provenance and cannot satisfy executed-success quotas.
 
-## Keep the five token meters separate
+## Semantic megatokens
+
+New codec-backed imports use one shared, deterministic chunker with a **256-token
+target, 512-token soft limit, and 1,024-token hard limit**. These are reference
+BPE positions, not bytes or words. Complete paragraphs, fenced code blocks,
+functions and list items stay intact when they fit the soft limit. Small adjacent
+units from the same logical event pack toward the target. Roles, turns, source
+events and episodes are never merged to fill a chunk.
+
+Oversized units use statement, sentence, line and whitespace boundaries in that
+order of structural suitability. Python functions and statements use source
+coordinates from the standard-library AST. Other code uses a conservative brace,
+string and comment scanner, with line boundaries as a fallback. Large indivisible
+code or list units may exceed the soft limit while respecting the hard limit;
+complete JSON tool actions can use the entire hard capacity. If a source has no
+suitable boundary, the chunker cuts at reference-token boundaries and records
+`forced_chunk_split=true`. Invalid UTF-8 follows this lossless binary path.
+
+The parser borrows block distinctions from the
+[CommonMark specification](https://spec.commonmark.org/0.31.2/) and uses
+[Python AST source locations](https://docs.python.org/3/library/ast.html#ast.AST)
+for Python code. It only locates boundaries: it never renders Markdown,
+reformats code, replaces NUL, changes newlines, trims whitespace or normalizes
+Unicode. Sentence and unknown-language boundaries are deterministic heuristics;
+the configured token targets are engineering defaults to evaluate on real data.
+
+The complete logical source field is encoded once. Every output chunk retains
+contiguous byte offsets and a contiguous slice of those original reference IDs.
+A boundary falling inside a BPE token is used only when it can move within a
+whitespace separator; otherwise the candidate is skipped. No alternate decoder
+IDs are invented to force an exact character boundary. This keeps accepted U
+independent of the physical chunk size. UTF-8 scalar and CRLF boundaries are
+preserved when the configured physical caps allow them; extremely small test
+caps can force a byte-exact partial scalar or newline, which remains marked as a
+forced cut.
+
+```python
+from megatoken.data.chunking import ChunkingConfig, segment_bytes
+
+policy = ChunkingConfig()  # target=256, soft=512, hard=1024
+for chunk in segment_bytes(payload, codec, policy, content_kind="code", language="python"):
+    assert chunk.payload == payload[chunk.byte_start : chunk.byte_end]
+    assert codec.decode(chunk.token_ids) == chunk.payload
+```
+
+`--max-record-tokens 256` explicitly clamps both target and soft limit to 256.
+All production stages, including B0, use the 1,024-token hard capacity.
+`--chunk-target-tokens` and `--chunk-soft-max-tokens` expose the two semantic
+settings; `--max-record-bytes` remains an independent physical byte ceiling.
+Source `options.content_kind` and `options.language` supply explicit parser hints;
+the code adapter also reads a declared source language field. A preparation's
+manifest stores `chunking` with the algorithm version, complete config, codec
+identity and Python AST runtime identity. `ChunkingConfig.from_identity(identity,
+codec)` rejects missing, altered or incompatible identities. Checkpoints and
+served bundles retain that same policy.
+
+`manifest["chunking_stats"]` reports record counts, byte and reference-token
+totals, actual decoder positions, a fixed size histogram, mean/max positions,
+soft-limit exceedances, boundary kinds, forced cuts and unversioned native
+records. These are accepted-inventory statistics, not training exposures.
+Native generated output keeps its original IDs, tape and physical boundary;
+an oversized native record is rejected instead of silently changing its state
+trajectory. Existing prepared artifacts must be regenerated for the new schema
+and chunking identity.
+
+Inference's logical `observe` method applies this same chunker to a complete
+event. Already prepared records use `observe_physical` to preserve their supplied
+boundaries and token IDs. Every selected action advances recurrent state with
+its sampled raw facets, including invalid decodes; validation gates environment
+execution only. Its deterministic output bytes are never encoded again to
+approximate that latent action. Training supervises each chunk's exact output
+length and marks only the last physical part of a logical output as terminal.
+
+## Keep accounting units separate
 
 | Meter | Definition | When it increments |
 | --- | --- | --- |
 | U | Reference-codec tokens in accepted deduplicated transcript inventory | Preparation census |
 | D | Newly scheduled transcript exposure | Actual training window consumption |
 | I | Actual ingestion, including D and repeated no-loss prefix reconstruction | Actual current-weight reconstruction and training |
-| P | Actually scored free lexical positions, including applicable repair and identifier draws | Loss evaluation |
+| P | Actually evaluated supervised decoder cross-entropy positions | Loss evaluation |
 | T | Newly generated teacher output, including rejected attempts and exposed reasoning | Collection request settlement |
+| Z | Gaussian facet coordinates in sampled RL actions | Actual latent action generation |
 
 There is no combined total that adds these unlike quantities. Prepared manifests
-report D/I/P/T as zero and give `free_position_candidates` separately from actual
+report D/I/P/T/Z as zero and give `free_position_candidates` separately from actual
 training P. Per-source/stream/split census includes eligible assistant tokens,
 observation tokens, executed observations, accepted families, duplicate and
 quarantine counts. The export also reports executed/simulated transcript U,
 verified-success U, incomplete U, and repeated initial-prefix bytes and tokens.
 These categories can overlap and should not be summed into another inventory.
 
-`EncodedRecord.token_ids` preserves an actual model's sampled IDs. A noncanonical
+`EncodedRecord.token_ids` preserves an actual model's emitted IDs. A noncanonical
 two-ID sample may decode to bytes that the reference codec encodes as one token:
-its D contribution is one, while its free lexical P may be two.
+its D contribution is one, while each applicable decoder objective has two
+candidate cross-entropy positions.
 `EncodedRecord.positions` is the actual ID count used for capacity checks;
 `EncodedRecord.tokens` aliases `transcript_tokens` for reference exposure.
 `EncodedRecord.P` and `TrainingWindow.P` are static masked target counts. Training
-records actual P from evaluated target plans, including applicable identifier
-and repair draws.
+records actual P from evaluated target plans. B0 bootstrap evaluates both
+canonical target reconstruction and prediction from prior facets, so P is twice
+the eligible target positions. Later recurrent phases evaluate only prior-decoder
+cross-entropy, so P is once the eligible positions. Their target encoder receives
+only alignment loss toward detached completed prior facets. RL lexical decoding
+is deterministic and contributes zero P; its stochastic work uses the separate Z
+coordinate budget.
 
 For imported text, preparation tokenizes the complete logical source field once
 and partitions those reference IDs at semantic/token boundaries. Its
 `cached_ids` are declared reference chunks, keeping U independent of the chosen
 preparation chunk limit. Native imports validate such caches against the complete
-logical field. Original committed native boundaries and emitted IDs are retained;
+logical field. Original native generated boundaries and emitted IDs are retained;
 uncached native records use reference tokenization of their exact physical
-payload for D/I. Neither convention retokenizes the sampled IDs used for policy
-likelihood.
+payload for D/I. Native IDs remain intact; the Gaussian policy likelihood is
+evaluated on the tape's raw facet coordinates.
 
 When public tool schemas are supplied, data masks exclude fixed outer keys,
 delimiters, constant fields and bound repetitions from the auxiliary raw
 reconstruction objective. A free JSON field retains its whole value, including
-nested punctuation sampled by the current realizer. Non-JSON strings exclude
+nested punctuation represented by the decoder. Non-JSON strings exclude
 their quote/escape framing. Masks are derived on the complete logical action and
 then projected onto its original physical boundaries; any actual token crossing
 a free/fixed boundary is conservatively unscored. Unsupported legacy envelopes
-retain their explicit raw-text objective. This auxiliary reconstruction is
-separate from exact augmented `ActionTape` likelihood.
+retain their explicit raw-text objective. Auxiliary decoder reconstruction and
+the native tape's Gaussian likelihood are separate objectives.
 
 ## Pin and import a real source
 
@@ -180,7 +265,7 @@ After review, inspect a bounded preparation:
 
 ```bash
 megatoken prepare --sources work/sources.json --output work/prepared \
-  --codec work/codec --max-record-tokens 4096 --max-record-bytes 16384 \
+  --codec work/codec --max-record-tokens 1024 --max-record-bytes 16384 \
   --benchmark-quarantine work/benchmark-quarantine.json
 ```
 
@@ -300,8 +385,10 @@ not been benchmarked on a multi-hundred-billion-token acquisition run.
 `iter_windows` never shuffles, crosses episodes, truncates actual earlier history,
 or splits a complete logical action. Each record appears exactly once as new D
 in one pass. Later windows carry the complete actual prefix as reconstruction
-I, with no policy loss on the prefix. A token, decision or `max_records` limit is
-soft at a logical boundary; any token overshoot is reported.
+I, with no policy loss on the prefix. Ordinary prose and observation parts are
+valid window boundaries, so a long document cannot defeat `max_records` merely
+by retaining one logical source ID. Limits remain soft for complete tool actions
+and explicitly extended dependencies; any token overshoot is reported.
 
 An annotated writer receives gradient from a later reader only if both are in
 the window's differentiable `records`. With `respect_dependencies=True`, packing
@@ -325,14 +412,15 @@ The canonical stage recipes live once in packaged
 | LC | 20B D | Long dependencies, code replay and mixed-quality context |
 | S | 2B P | Verified assistant behavior, recovery, tested artifacts and exact instructions |
 | D | 1B P | Frozen-student-state corrections and successful replay |
-| R | 1B P | Fresh executed rollouts through the shared RL environment path |
+| R | 32B Z | Fresh executed rollouts with one Gaussian facet action per prediction |
 
 The JSON preserves the stated effort and history schedules, exposure mixtures,
 LC requirements (at least 50% long-dependency D and 30% differentiable
 writer-reader scored windows), S context/control constraints, and correction/RL
 gates. B0's single `bootstrap` source stream is explicitly an implementation
 choice. R rollout collection and PPO replay belong to the training runtime;
-teacher T does not substitute for RL P.
+teacher T does not substitute for RL Z. R also retains its independent episode
+ceiling; emitted byte/BPE counts are reported separately from Gaussian work.
 
 ## Run a budgeted collection pilot
 
@@ -410,12 +498,20 @@ the export; failed branches remain context with their explicit recovery masks.
 Add `--student-bundle work/frozen-served-student --student-prefix-steps 2` to
 collection with a new output directory: an existing ledger is bound to its
 original student configuration. `ModelTeacher` loads the shared checksum-verified
-inference engine,
-uses only prior public records and tools, and retains its exact native recurrent
-session between student actions. Sampled IDs, serialized action bytes and complete
-augmented action tapes are retained. A committed action is not ingested again;
-new actual observations are. The collector executes every sampled action against
-the current environment before giving the resulting full history to the teacher.
+inference engine, uses prior public records, and forwards the public task policy
+and tool schema through the same control builder as training and serving.
+Private environment configuration and verifier labels never enter these controls.
+It retains its exact native recurrent session between student actions. Emitted
+IDs, serialized action bytes and complete version-3 raw-facet tapes are retained,
+including each draw's exact encoded-source control bytes. Every selected facet
+draw advances state once, including an invalid decode, and its output bytes are
+not ingested again. Each tape's metadata carries a `record_cursor` giving the
+number of physical records that preceded the draw, so invalid attempts retain
+their exact chronological position. Valid empty draws also own no transcript
+record and retain their position through this cursor.
+The collector executes only valid actions against the current environment;
+invalid actions produce no invented environment observation. New actual
+observations are ingested before giving the resulting full history to the teacher.
 Student outputs are context, teacher corrections are targets, and student draws
 do not inflate teacher T.
 
@@ -441,7 +537,11 @@ failed-trace recovery; native publisher schemas; exact/near dedup and family
 quarantine; inherited splits; checksummed lineage joins; tampered files; interrupted
 preparation; rank partitioning; raw budget overshoot and unresolved hidden output;
 fresh executed student correction; frozen native tape retention; CLI pin/prepare
-round trips and no-network dry runs.
+round trips and no-network dry runs. Real local PyArrow/datasets integration
+covers multiple row groups, resume offsets and null rejection. Semantic chunk
+tests cover paragraph/list/code preservation, token-crossing boundaries, Unicode,
+CRLF, binary input, forced cuts, stage caps, immutable native output, versioned
+identity, size statistics and bounded document windows.
 
 These tests establish implementation invariants on small CPU fixtures. They do
 not establish public-source yield, large-scale near-dedup recall, remote sandbox

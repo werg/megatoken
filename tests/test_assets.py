@@ -6,6 +6,7 @@ import torch
 from safetensors.torch import save_file
 
 from megatoken.assets import bake_checkpoint, extract_engram, install_engram_asset
+from megatoken.data.chunking import ChunkingConfig
 from megatoken.generation.codec import ByteCodec
 from megatoken.inference import export_served
 from megatoken.loading import build_model, load_model_config
@@ -46,6 +47,7 @@ def test_offline_engram_extract_install_checkpoint_bake_and_export(tmp_path):
             "train_config": asdict(train_config),
             "global_step": 1,
             "codec_fingerprint": codec.fingerprint,
+            "chunking": ChunkingConfig().with_hard_limit(config.max_capacity).identity(codec),
             "rank_state": [{"rng": capture_rng()}],
         },
         {"global_step": 1, "phase": "B0"},

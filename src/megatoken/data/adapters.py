@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from .chunking import ChunkingConfig
 from .schema import (
     Codec,
     Dependency,
@@ -45,12 +46,14 @@ class AdapterProfile:
     require_parent: bool = False
     trajectory: bool = False
     unknown_imitation: bool = False
+    content_kind: str = "auto"
 
 
 DEFAULT_FIELDS = {
     "messages": ("messages", "conversations"),
     "id": ("trajectory_id", "uuid", "id"),
     "text": ("text", "content", "code"),
+    "language": ("language", "metadata.language", "metadata.lang"),
     "family": (
         "family_id",
         "parent_id",
@@ -95,7 +98,7 @@ PROFILES: dict[str, AdapterProfile] = {
         kind="document", fields=_fields(text="text"), require_parent=True
     ),
     "nemotron_code": AdapterProfile(
-        kind="document", fields=_fields(text="content"), require_parent=True
+        kind="document", fields=_fields(text="content"), require_parent=True, content_kind="code"
     ),
     "nemotron_stem": AdapterProfile(
         kind="document", fields=_fields(text="text"), require_parent=True
@@ -150,6 +153,7 @@ class AdapterContext:
     options: Mapping[str, Any] = field(default_factory=dict)
     codec: Codec | None = None
     max_record_tokens: int | None = None
+    chunking: ChunkingConfig | None = None
 
 
 def _object(value: Any, label: str) -> Any:
@@ -358,6 +362,14 @@ class _EpisodeBuilder:
             execution_id=result.execution_id if result else None,
             codec=self.reader.context.codec,
             max_tokens=self.reader.context.max_record_tokens,
+            chunking=self.reader.context.chunking,
+            content_kind=self.reader.context.options.get(
+                "content_kind",
+                "code"
+                if self.reader.profile.kind in {"repository", "fim"}
+                else self.reader.profile.content_kind,
+            ),
+            language=self.reader.context.options.get("language", self.reader.get("language")),
         )
         self.records.extend(records)
         return records

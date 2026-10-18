@@ -6,13 +6,15 @@ from types import SimpleNamespace
 import pytest
 from test_data_collection import RepairTeacher, registry, seed
 
-from megatoken.data import PreparedDataset, WindowConfig, iter_windows, make_demo_episodes
+from megatoken.controls import build_control_payload
+from megatoken.data import Episode, PreparedDataset, WindowConfig, iter_windows, make_demo_episodes
 from megatoken.data.cli import add_data_commands
 from megatoken.data.collection import CollectionConfig, CollectionLedger, Collector
 from megatoken.data.schema import canonical_json
 from megatoken.data.student import ModelTeacher
 from megatoken.environments import FixtureEnvironment
 from megatoken.generation.codec import ByteCodec
+from megatoken.generation.structure import TAPE_VERSION, ActionTape
 
 
 def invoke(arguments):
@@ -170,7 +172,8 @@ def test_collection_cli_uses_shared_executed_collector(tmp_path, monkeypatch):
     assert prepared["census"]["executed_transcript_U"] > 0
 
 
-def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_path):
+@pytest.mark.parametrize("invalid_prefix", [False, True])
+def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_path, invalid_prefix):
     task, codec = seed(), ByteCodec.byte_fallback()
     families = registry(tmp_path / "families", [task])
     ledger = CollectionLedger(
@@ -185,21 +188,45 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
             self.codec, self.observed, self.draws = codec, [], 0
 
         def new_session(self):
-            return SimpleNamespace()
+            return SimpleNamespace(facet_advances=0)
 
-        def observe(self, session, payload, *, role):
+        def observe_physical(self, session, payload, *, role, token_ids=None):
+            assert codec.decode(token_ids) == payload
             self.observed.append((role, payload))
 
         def generate(self, session, **kwargs):
+            assert session.facet_advances == self.draws
+            session.facet_advances += 1
             self.draws += 1
             if self.draws == 1:
+                self.initial_observations = tuple(self.observed)
+            valid_draw = self.draws - int(invalid_prefix)
+            if valid_draw == 0:
+                payload = b'{"name":"write","arguments":'
+            elif valid_draw == 1:
+                assert tuple(self.observed) == self.initial_observations
                 payload = (
                     b'{"name": "write", "arguments": {"path": "answer.txt", "content": "green"}}'
                 )
             else:
-                assert [role for role, _ in self.observed] == ["user", "environment", "tool"]
+                assert tuple(self.observed[:-1]) == self.initial_observations
+                assert self.observed[-1][0] == "tool"
+                assert all(role != "assistant" for role, _ in self.observed)
                 payload = b'{"name":"read","arguments":{"path":"answer.txt"}}'
-            tape = SimpleNamespace(committed=True, to_json=lambda: json.dumps({"draw": self.draws}))
+            tape = ActionTape(
+                version=TAPE_VERSION,
+                codec_fingerprint=codec.fingerprint,
+                spec_fingerprint="fixture",
+                facet_shape=(1, 1),
+                facets=(float(self.draws),),
+                effort=6,
+                role_id=2,
+                payload=payload,
+                emitted_ids=tuple(codec.encode(payload)),
+                valid=valid_draw > 0,
+                terminal=False,
+                behavior_log_prob=0.0,
+            )
             return SimpleNamespace(
                 payload=payload, emitted_ids=tuple(codec.encode(payload)), tape=tape
             )
@@ -207,19 +234,142 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
     engine = Engine()
     student = ModelTeacher(_engine=engine)
     episode = Collector(RepairTeacher(), FixtureEnvironment, codec, ledger, families).collect(
-        task, student=student, student_snapshot=student.snapshot, student_prefix_steps=2
+        task,
+        student=student,
+        student_snapshot=student.snapshot,
+        student_prefix_steps=2 + int(invalid_prefix),
     )
     assert episode.supervision.verified_success
     sampled = [record for record in episode.records if record.provenance == "student"]
     assert len(sampled) == 2 and all(record.emitted_ids for record in sampled)
     assert sampled[0].payload.startswith(b'{"name": "write"')
-    assert len(json.loads(episode.supervision.annotations_json)["native_action_tapes"]) == 2
+    tapes = json.loads(episode.supervision.annotations_json)["native_action_tapes"]
+    assert len(tapes) == engine.draws == 2 + int(invalid_prefix)
+    if invalid_prefix:
+        assert tapes[0]["tape"]["valid"] is False
+        assert tapes[0]["record_cursor"] == tapes[1]["record_cursor"]
+        assert all(record.payload != b'{"name":"write","arguments":' for record in episode.records)
+    assert len(list(ledger.connection.execute("SELECT * FROM executions"))) == 4
     assert len(list(ledger.connection.execute("SELECT * FROM requests"))) == 2
     ledger.close()
     families.close()
 
 
-def test_record_limit_is_soft_at_complete_logical_boundaries():
+def test_student_public_controls_and_empty_draw_tapes_survive_collection(tmp_path):
+    codec = ByteCodec.byte_fallback()
+    private_target = "PRIVATE_VERIFIER_TARGET_DO_NOT_EXPOSE"
+    initial_task = seed()
+    environment = json.loads(initial_task.environment_json)
+    environment["expected_files"]["answer.txt"] = private_target
+    task = replace(
+        initial_task,
+        policy=b"PUBLIC_POLICY: read the current file before choosing an edit.\r\n",
+        environment_json=canonical_json(environment),
+    )
+    expected_control = build_control_payload(seed=task.policy, tools_json=task.tools_json)
+
+    class Engine:
+        manifest = {"model_sha256": "b" * 64}
+        config = SimpleNamespace(max_capacity=128)
+
+        def __init__(self):
+            self.codec, self.observed, self.tapes = codec, [], []
+
+        def new_session(self):
+            return SimpleNamespace(facet_advances=0)
+
+        def observe_physical(self, session, payload, *, role, token_ids=None):
+            assert codec.decode(token_ids) == payload
+            self.observed.append((role, payload))
+
+        def generate(self, session, **kwargs):
+            assert kwargs["control_seed"] == task.policy
+            assert kwargs["tools_json"] == task.tools_json
+            assert private_target not in repr(kwargs)
+            control = build_control_payload(
+                seed=kwargs["control_seed"], tools_json=kwargs["tools_json"]
+            )
+            assert control == expected_control
+            # A valid empty draw owns no physical record; the next request must
+            # use the advanced session without re-observing its existing prefix.
+            payload = (
+                b"" if not self.tapes else b'{"name":"read","arguments":{"path":"answer.txt"}}'
+            )
+            if self.tapes:
+                assert self.observed == self.initial_observations
+            else:
+                self.initial_observations = list(self.observed)
+            session.facet_advances += 1
+            tape = ActionTape(
+                version=TAPE_VERSION,
+                codec_fingerprint=codec.fingerprint,
+                spec_fingerprint=kwargs["spec"].fingerprint,
+                facet_shape=(1, 2),
+                facets=(float(session.facet_advances), -0.5),
+                effort=kwargs["effort"],
+                role_id=2,
+                payload=payload,
+                emitted_ids=tuple(codec.encode(payload)),
+                valid=True,
+                terminal=False,
+                behavior_log_prob=-1.25,
+                control_payload=control,
+            )
+            self.tapes.append(tape)
+            return SimpleNamespace(payload=payload, emitted_ids=tape.emitted_ids, tape=tape)
+
+    class RecordingStudent(ModelTeacher):
+        def __init__(self, engine):
+            super().__init__(_engine=engine)
+            self.requests = []
+
+        def respond(self, request):
+            self.requests.append(request)
+            return super().respond(request)
+
+    engine, teacher = Engine(), RepairTeacher()
+    student = RecordingStudent(engine)
+    with (
+        registry(tmp_path / "families", [task]) as families,
+        CollectionLedger(
+            tmp_path / "ledger",
+            CollectionConfig(distinct_tasks=1, seed_mix=(("terminal", 1.0),)),
+        ) as ledger,
+    ):
+        episode = Collector(teacher, FixtureEnvironment, codec, ledger, families).collect(
+            task,
+            student=student,
+            student_snapshot=student.snapshot,
+            student_prefix_steps=2,
+        )
+        assert episode.control_seed == task.policy and episode.tools_json == task.tools_json
+        assert episode.supervision.outcome == "failure"  # The private target stays unmet.
+        for request in student.requests + teacher.requests:
+            assert request.control_seed == task.policy and request.tools_json == task.tools_json
+            assert private_target not in request.messages_json
+            assert private_target.encode() not in b"".join(
+                record.payload for record in request.records
+            )
+        assert private_target.encode() not in b"".join(payload for _, payload in engine.observed)
+        entries = json.loads(episode.supervision.annotations_json)["native_action_tapes"]
+        assert len(entries) == 2 and entries[0]["record_cursor"] == entries[1]["record_cursor"]
+        assert [entry["tape"] for entry in entries] == [
+            json.loads(tape.to_json()) for tape in engine.tapes
+        ]
+        assert all(entry["provenance"] == "student" for entry in entries)
+        assert len([record for record in episode.records if record.provenance == "student"]) == 1
+        assert len(list(ledger.connection.execute("SELECT * FROM executions"))) == 3
+        ledger.export(tmp_path / "export")
+        exported = Episode.from_dict(json.loads((tmp_path / "export" / "failed.jsonl").read_text()))
+        assert exported.to_dict() == episode.to_dict()
+        replay_entries = json.loads(exported.supervision.annotations_json)["native_action_tapes"]
+        assert all(
+            ActionTape.from_json(canonical_json(entry["tape"])).control_payload == expected_control
+            for entry in replay_entries
+        )
+
+
+def test_record_limit_splits_semantic_parts_but_keeps_actions_complete():
     episode = next(make_demo_episodes(1, max_record_bytes=16))
     episode = replace(episode, dependencies=())
     windows = list(
@@ -227,9 +377,11 @@ def test_record_limit_is_soft_at_complete_logical_boundaries():
             episode, ByteCodec.byte_fallback(), WindowConfig(max_window_tokens=4096, max_records=1)
         )
     )
-    assert all(window.records[0].record.part_index == 0 for window in windows)
-    assert all(
-        window.records[-1].record.part_index + 1 == window.records[-1].record.part_count
-        for window in windows
-    )
+    for window in windows:
+        actions = [record.record for record in window.records if record.record.action_id]
+        if actions:
+            assert actions[0].part_index == 0
+            assert actions[-1].part_index + 1 == actions[-1].part_count
+        else:
+            assert len(window.records) == 1
     assert sum(len(window.records) for window in windows) == len(episode.records)

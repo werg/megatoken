@@ -11,10 +11,11 @@ from typing import Any
 from megatoken.io import content_hash, write_json
 
 from .adapters import AdapterContext, SchemaError, adapt_row
+from .chunking import ChunkingConfig
 from .dedup import DedupConfig, DedupStore
 from .lineage import LineageJoin
 from .quality import QualityPolicy, validate_quality, validate_row_filters
-from .schema import Codec, encode_record
+from .schema import SCHEMA_VERSION, Codec, encode_record
 from .sources import SourceSpec, iter_source_rows, load_source_manifest
 from .storage import PreparedDataset, export_prepared
 
@@ -26,7 +27,8 @@ def prepare_sources(
     *,
     dedup: DedupConfig | None = None,
     max_record_bytes: int = 16384,
-    max_record_tokens: int = 4096,
+    max_record_tokens: int = 1024,
+    chunking: ChunkingConfig | None = None,
     shard_bytes: int = 128 << 20,
     benchmark_quarantine: dict[str, Any] | None = None,
     reject_invalid: bool = False,
@@ -43,6 +45,12 @@ def prepare_sources(
     dedup = dedup or DedupConfig()
     if min(max_record_bytes, max_record_tokens, shard_bytes) < 1:
         raise ValueError("Physical record and shard limits must be positive")
+    chunking = (chunking or ChunkingConfig()).with_hard_limit(
+        max_record_tokens, max_bytes=max_record_bytes
+    )
+    max_record_tokens = chunking.hard_max_tokens
+    max_record_bytes = chunking.max_bytes
+    chunking_identity = chunking.identity(codec)
     source_list = tuple(
         load_source_manifest(sources) if isinstance(sources, (str, Path)) else sources
     )
@@ -62,10 +70,11 @@ def prepare_sources(
             "dedup": asdict(dedup),
             "max_record_bytes": max_record_bytes,
             "max_record_tokens": max_record_tokens,
+            "chunking": chunking_identity,
             "benchmark_quarantine": quarantine,
             "reject_invalid": reject_invalid,
-            "adapter_version": 2,
-            "schema_version": 1,
+            "adapter_version": 3,
+            "schema_version": SCHEMA_VERSION,
         }
     )
     if (root / "manifest.json").exists():
@@ -116,6 +125,7 @@ def prepare_sources(
                         options=source.options,
                         codec=codec,
                         max_record_tokens=max_record_tokens,
+                        chunking=chunking,
                     )
                     with store.transaction():
                         try:
@@ -132,10 +142,11 @@ def prepare_sources(
                             validate_quality(episode, codec, QualityPolicy(**quality))
                             if any(
                                 encode_record(record, codec).positions > max_record_tokens
+                                or len(record.payload) > max_record_bytes
                                 for record in episode.records
                             ):
                                 raise ValueError(
-                                    "A committed native physical record exceeds max_record_tokens; preserve its boundary or configure a larger supported capacity"
+                                    "A native generated physical record exceeds max_record_tokens or max_record_bytes; old generated records/tapes cannot be silently rechunked for a smaller model"
                                 )
                             status = store.add(episode, codec)
                             detail = episode.episode_id
@@ -175,6 +186,7 @@ def prepare_sources(
             source_receipts=receipts,
             pipeline_fingerprint=identity,
             shard_bytes=shard_bytes,
+            chunking=chunking,
         )
         # Quarantine/reject details are metadata, never concatenated to transcripts.
         report = {

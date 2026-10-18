@@ -147,24 +147,18 @@ def tiled_cross_entropy(
 
 
 @torch.no_grad()
-def tiled_sample(
+def tiled_argmax(
     hidden: Tensor,
     weight: Tensor,
     valid: Tensor,
     *,
-    generator: torch.Generator | None = None,
     position_tile: int = 128,
     vocabulary_tile: int = 4096,
-    temperature: float = 1.0,
     tensorcore: bool = True,
 ) -> Tensor:
-    """Gumbel-max over every allowed row, with no top-k/top-p approximation.
-
-    Continuous draws are made in a fixed position-tile, vocabulary-tile order.
-    The emitted IDs, rather than RNG state, are the policy action ancestors.
-    """
-    if temperature <= 0:
-        raise ValueError("temperature must be positive")
+    """Exact deterministic full-vocabulary argmax; equal logits prefer lower IDs."""
+    if position_tile <= 0 or vocabulary_tile <= 0:
+        raise ValueError("tile sizes must be positive")
     _validate(hidden, weight, None, valid)
     output = torch.empty(hidden.shape[0], device=hidden.device, dtype=torch.long)
     dtype = _dtype(hidden)
@@ -176,14 +170,7 @@ def tiled_sample(
             ids = torch.zeros(end - start, dtype=torch.long, device=h.device)
             for row in range(0, weight.shape[0], vocabulary_tile):
                 upper = min(row + vocabulary_tile, weight.shape[0])
-                logits = _gemm(h, weight[row:upper].T, dtype, tensorcore) / temperature
-                uniform = torch.rand(
-                    logits.shape, device=h.device, dtype=dtype, generator=generator
-                )
-                # Exclude exact endpoints without truncating the categorical
-                # vocabulary support. Finite PRNGs necessarily discretize U.
-                uniform.clamp_(min=torch.finfo(dtype).tiny, max=1 - torch.finfo(dtype).eps)
-                scores = (logits - (-uniform.log()).log()).masked_fill(
+                scores = _gemm(h, weight[row:upper].T, dtype, tensorcore).masked_fill(
                     ~valid[row:upper][None], -torch.inf
                 )
                 values, indices = scores.max(dim=-1)
@@ -195,7 +182,7 @@ def tiled_sample(
 
 
 class TiedVocabulary(nn.Module):
-    """Rank-factorized output matrix reused for draft embeddings and repairs."""
+    """One rank-factorized output matrix for logits and public value embeddings."""
 
     def __init__(
         self, width: int, vocabulary: int, rank: int, *, vocabulary_tile: int = 4096
@@ -218,12 +205,10 @@ class TiedVocabulary(nn.Module):
             vocabulary_tile=self.vocabulary_tile,
         )
 
-    def sample(self, states: Tensor, valid: Tensor, *, generator=None, temperature=1.0) -> Tensor:
-        return tiled_sample(
+    def argmax(self, states: Tensor, valid: Tensor) -> Tensor:
+        return tiled_argmax(
             self.projection(states),
             self.embedding.weight,
             valid,
-            generator=generator,
-            temperature=temperature,
             vocabulary_tile=self.vocabulary_tile,
         )

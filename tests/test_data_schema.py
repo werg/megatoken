@@ -250,8 +250,10 @@ def test_windows_count_reconstruction_separately_and_preserve_dependency_credit(
     )
     assert sum(window.I for window in windows) > sum(window.D for window in windows)
     for window in windows:
-        assert window.records[0].record.part_index == 0
-        assert window.records[-1].record.part_index + 1 == window.records[-1].record.part_count
+        actions = [entry.record for entry in window.records if entry.record.action_id]
+        if actions:
+            assert actions[0].part_index == 0
+            assert actions[-1].part_index + 1 == actions[-1].part_count
         assert tuple(entry.record for entry in window.prefix) == episode.records[: window.start]
     merged = list(
         iter_windows(

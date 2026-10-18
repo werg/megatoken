@@ -22,12 +22,16 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=Path("validation"))
     parser.add_argument("--codec", type=Path, help="Pinned primary codec directory")
     parser.add_argument("--steps", type=int, default=3)
+    parser.add_argument("--capacity", type=int, default=256, help="Primary lexical positions")
+    parser.add_argument(
+        "--prediction-chunks", type=int, default=4, help="Primary live recurrent tower depth"
+    )
     parser.add_argument(
         "--compile", action="store_true", help="Also validate tensor operator compilation"
     )
     args = parser.parse_args()
-    if args.steps < 1:
-        parser.error("--steps must be positive")
+    if args.steps < 1 or args.prediction_chunks < 1 or not 1 <= args.capacity <= 1024:
+        parser.error("Steps and tower depth must be positive; capacity must be in [1, 1024]")
     args.output.mkdir(parents=True, exist_ok=True)
 
     def save(name: str, value: dict) -> None:
@@ -50,7 +54,7 @@ def main() -> int:
             "pytest",
             "-q",
             "tests/test_kernels_grouped.py",
-            "tests/test_kernels_recurrent.py",
+            "tests/test_runtime.py",
             "tests/test_model_policy_integration.py",
             "tests/test_generation_distributions.py",
             f"--junitxml={args.output / 'cuda-tests.xml'}",
@@ -75,11 +79,13 @@ def main() -> int:
                 record_bytes=128,
                 history_records=1,
                 compile_mode=mode,
+                representation_mode="recurrent",
+                prediction_chunks=2 if backward else 1,
             )
             save(name, report)
         full_vocabulary = args.codec is not None
         report = benchmark(
-            config="v13",
+            config="recurrent32",
             codec=str(args.codec) if full_vocabulary else "byte",
             device="cuda",
             precision="bf16",
@@ -88,13 +94,15 @@ def main() -> int:
             batch=1,
             steps=args.steps,
             warmup=1,
-            capacity=64,
-            record_bytes=256,
-            history_records=1,
+            capacity=args.capacity if full_vocabulary else 64,
+            record_bytes=1024,
+            history_records=8,
             core_only=not full_vocabulary,
             compile_mode=mode,
+            representation_mode="recurrent" if full_vocabulary else "bootstrap",
+            prediction_chunks=args.prediction_chunks if full_vocabulary else 1,
         )
-        save(f"v13-{backend}-{'generator' if full_vocabulary else 'core'}", report)
+        save(f"recurrent32-{backend}-{'generator' if full_vocabulary else 'core'}", report)
     return 0
 
 

@@ -217,7 +217,7 @@ def test_source_revision_and_terms_are_explicit():
         TermsReview().require_approval()
 
 
-def test_stage_budget_units_and_exact_proposed_mixtures():
+def test_current_stage_budget_units_and_proposed_mixtures():
     assert {
         phase: (stage_recipe(phase).meter, stage_recipe(phase).limit)
         for phase in ("B0", "P1", "M1", "M2", "LC", "S", "D", "R")
@@ -229,7 +229,7 @@ def test_stage_budget_units_and_exact_proposed_mixtures():
         "LC": ("D", 20_000_000_000),
         "S": ("P", 2_000_000_000),
         "D": ("P", 1_000_000_000),
-        "R": ("P", 1_000_000_000),
+        "R": ("Z", 32_000_000_000),
     }
     assert stage_recipe("M1").exposures["issue_pr_sequences"] == 24_480_000_000
     assert stage_recipe("M1").exposures["build_logs"] == 720_000_000

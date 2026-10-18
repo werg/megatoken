@@ -50,12 +50,16 @@ jobs:
       - name: Lint and validate shell entrypoints
         run: |
           python -m ruff check src tests scripts
+          python -m ruff format --check src tests scripts
           bash -n scripts/launch.sh scripts/slurm.sh
-      - name: Run the complete CPU suite
-        run: python -m pytest -q --junitxml=validation/cpu-tests.xml
-      - name: Build distribution and inspect the installed CLI
+      - name: Build and install the distribution under test
         run: |
           python -m build
+          python -m pip install --no-deps --force-reinstall dist/megatoken-0.1.0-py3-none-any.whl
+      - name: Run the complete CPU suite
+        run: python -m pytest -q --junitxml=validation/cpu-tests.xml
+      - name: Inspect the installed CLI
+        run: |
           megatoken --help
           megatoken doctor
       - name: Retain tests and package artifacts

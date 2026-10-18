@@ -12,6 +12,23 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 
+def strict_json_loads(value: str | bytes) -> Any:
+    """Read standard JSON without silently accepting ambiguous object keys."""
+
+    def invalid_constant(name):
+        raise ValueError(f"nonstandard JSON constant {name}")
+
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON object key {key}")
+            value[key] = item
+        return value
+
+    return json.loads(value, parse_constant=invalid_constant, object_pairs_hook=unique_object)
+
+
 def canonical_json(value: Any) -> bytes:
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False

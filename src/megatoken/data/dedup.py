@@ -505,6 +505,7 @@ class DedupStore:
             "I": 0,
             "P": 0,
             "T": 0,
+            "Z": 0,
             "free_position_candidates": sum(row["free_position_candidates"] for row in accepted),
             "accepted_episodes": sum(row["episodes"] for row in accepted),
             "independent_families": self.connection.execute(
