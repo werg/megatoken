@@ -168,6 +168,7 @@ class DecoupledWorker:
         self.tokens_since = [0] * len(self.fragments)
         self.sequences = [0] * len(self.fragments)
         self.pending: dict[int, dict] = {}
+        self.awaiting_global: set[int] = set()
         self.downloads: dict[int, Future] = {}
         self.heartbeat: Future | None = None
         self.local_steps = 0
@@ -219,12 +220,18 @@ class DecoupledWorker:
         self.local_steps = int(value["local_steps"])
         self.local_tokens = int(value["local_tokens"])
         self.pending = {int(k): dict(v, future=None) for k, v in value["pending"].items()}
+        self.awaiting_global = set(value.get("awaiting_global", []))
         self._lease()
-        # Uploads persisted before the last checkpoint can be safely replayed;
-        # no snapshot is invented from a *later* model version.
+        # The committed checkpoint embeds each pending upload for recovery when
+        # a sandbox's ephemeral scratch volume has been discarded.
         for index, entry in list(self.pending.items()):
-            if not Path(entry["filename"]).exists():
-                raise FileNotFoundError(f"Lost pending DiLoCo upload {entry['filename']}")
+            filename = self.outbox / f"{index:05d}-{entry['sequence']:09d}.safetensors"
+            if not filename.exists():
+                payload = value.get("pending_payloads", {}).get(str(index))
+                if payload is None:
+                    raise FileNotFoundError(f"Checkpoint lacks pending upload {index}")
+                save_tensors(filename, {"delta": payload})
+            entry["filename"] = str(filename)
             self._send_async(index)
         self._fetch_all(optimizer)
 
@@ -258,6 +265,7 @@ class DecoupledWorker:
         self.baselines[index] = tensor
         self.steps_since[index] = 0
         self.tokens_since[index] = 0
+        self.awaiting_global.discard(index)
         return True
 
     def _fetch_all(self, optimizer: Any) -> None:
@@ -286,7 +294,7 @@ class DecoupledWorker:
         entry["future"] = self.io.submit(self._upload, index, dict(entry))
 
     def _queue(self, index: int, optimizer: Any) -> None:
-        if index in self.pending or self.versions[index] < 0:
+        if index in self.pending or index in self.awaiting_global or self.versions[index] < 0:
             return
         if self.steps_since[index] <= 0 or self.tokens_since[index] <= 0:
             return
@@ -331,6 +339,7 @@ class DecoupledWorker:
                 future.result()
                 Path(entry["filename"]).unlink(missing_ok=True)
                 del self.pending[index]
+                self.awaiting_global.add(index)
                 self.offline_steps = 0
             except RemoteError as exc:
                 # Stale proposals are invalidated; the next pull overwrites
@@ -406,6 +415,7 @@ class DecoupledWorker:
                 self.local_steps >= first_due
                 and self.steps_since[index] >= self.settings.local_steps
                 and index not in self.pending
+                and index not in self.awaiting_global
             ):
                 self._queue(index, optimizer)
         if errors:
@@ -432,6 +442,11 @@ class DecoupledWorker:
             "local_tokens": self.local_tokens,
             "pending": {
                 str(k): {key: value for key, value in entry.items() if key != "future"}
+                for k, entry in self.pending.items()
+            },
+            "awaiting_global": sorted(self.awaiting_global),
+            "pending_payloads": {
+                str(k): load_tensors(entry["filename"])["delta"]
                 for k, entry in self.pending.items()
             },
         }
