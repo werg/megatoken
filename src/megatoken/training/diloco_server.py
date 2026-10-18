@@ -196,9 +196,12 @@ class Coordinator:
             if type(steps) is not int or type(tokens) is not int or steps < 0 or tokens < 0:
                 raise ValueError("Progress counters must be nonnegative integers")
             previous = self.progress["workers"].get(str(worker), {"steps": 0, "tokens": 0})
-            if steps < previous["steps"] or tokens < previous["tokens"]:
-                raise Conflict("Progress counters rolled back; restore the latest worker checkpoint")
-            self.progress["workers"][str(worker)] = {"steps": steps, "tokens": tokens}
+            # Restored learner checkpoints can replay already reported windows.
+            # A high-water mark prevents this replay counting training tokens twice.
+            self.progress["workers"][str(worker)] = {
+                "steps": max(steps, previous["steps"]),
+                "tokens": max(tokens, previous["tokens"]),
+            }
             self.progress["leases"][str(worker)]["expires"] = time.time() + 180
             self._write_progress()
             return self.status()
@@ -218,6 +221,7 @@ class Coordinator:
                 "live_workers": sum(
                     x["expires"] >= time.time() for x in self.progress["leases"].values()
                 ),
+                "worker_progress": self.progress["workers"],
                 "pending": {
                     str(f.index): len(list(self._pending_dir(f.index).glob("*.safetensors")))
                     for f in self.fragments
