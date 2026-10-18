@@ -161,6 +161,13 @@ def _diloco_serve(args):
     )
 
 
+def _diloco_export(args):
+    from megatoken.training.config import TrainConfig
+    from megatoken.training.diloco_export import export_coordinator
+
+    return export_coordinator(args.root, args.output, TrainConfig.load(args.config))
+
+
 def _pipeline(args):
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.config import TrainConfig
@@ -458,6 +465,11 @@ def parser() -> argparse.ArgumentParser:
     serving.add_argument("--host", default="127.0.0.1")
     serving.add_argument("--port", type=int, default=8823)
     serving.set_defaults(func=_diloco_serve)
+    exporting = sub.add_parser("export", help="Export a stopped syncer's global model for evaluation")
+    exporting.add_argument("--root", required=True)
+    exporting.add_argument("--output", required=True)
+    exporting.add_argument("--config", required=True)
+    exporting.set_defaults(func=_diloco_export)
     item = commands.add_parser(
         "pipeline", help="Run complete supervised phases in order; pause when a phase is incomplete"
     )
