@@ -1,0 +1,46 @@
+# Broad pretraining, resumed from B0 with --phase-transition.
+# This is the initial 8K window profile. Raise it only after memory/quality gates.
+# Phase recipes own token budgets, stream proportions, and effort probabilities.
+phase: P1
+model: 32x512
+dataset: artifacts/prepared
+codec: artifacts/codec
+output: runs/p1-diloco
+device: cuda
+precision: bf16
+require_blackwell: true
+# Production requires the Blackwell parity gate before the budgeted run.
+expert_backend: triton
+representation_mode: recurrent
+gradient_checkpointing: true
+compile: false
+microbatch_episodes: 8
+max_history_tokens: 8192
+max_window_records: 8
+max_record_bytes: 16384
+generated_capacity: 1024
+scored_decisions: 4
+accumulate_scored: 65536
+accumulate_ingested: 1048576
+max_accumulation_windows: 256
+use_stage_mixture: true
+use_effort_mixture: true
+checkpoint_every: 100
+eval_every: 100
+
+# Each of 8 CoreWeave GPU sandboxes executes one independent learner.
+# MEGATOKEN_WORKER_ID (0..7) comes from the sandbox launcher.
+inner_optimizer: muon
+decoupled:
+  run_id: p1-8x-rp6000-001
+  coordinator_url: https://REPLACE-WITH-COORDINATOR-HOST
+  workers: 8
+  local_steps: 256
+  poll_steps: 4
+  heartbeat_steps: 8
+  io_workers: 4
+  timeout_seconds: 120
+  max_offline_steps: 2048
+  wire_dtype: bf16
+  # Strongly recommended: CoreWeave AI Object Storage / compatible S3.
+  # checkpoint_s3: s3://YOUR-BUCKET/megatoken-checkpoints
