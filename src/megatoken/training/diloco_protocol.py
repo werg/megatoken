@@ -47,6 +47,20 @@ class Fragment:
         )
 
 
+def training_identity(config: Any) -> str:
+    """Objective identity excludes local paths, worker IDs and logging cadence."""
+    fields = (
+        "phase", "model", "codec", "precision", "seed", "model_overrides",
+        "expert_backend", "representation_mode", "generated_capacity",
+        "microbatch_episodes", "accumulate_scored", "accumulate_ingested",
+        "max_accumulation_windows", "max_history_tokens", "max_window_records",
+        "scored_decisions", "max_record_bytes", "effort", "use_stage_mixture",
+        "use_effort_mixture", "loss_weights", "grad_clip", "weight_decay",
+        "inner_optimizer", "gradient_checkpointing",
+    )
+    return content_hash({name: getattr(config, name) for name in fields})
+
+
 def parameter_identity(masters: Mapping[str, torch.Tensor]) -> str:
     return content_hash({name: list(p.shape) for name, p in sorted(masters.items())})
 
