@@ -210,13 +210,12 @@ class CentralProcessor(nn.Module):
             mask = torch.cat(
                 (
                     history.mask,
-                    torch.ones(
-                        final.shape[0], c.n_facets, dtype=torch.bool, device=final.device
-                    ),
+                    torch.ones(final.shape[0], c.n_facets, dtype=torch.bool, device=final.device),
                 ),
                 dim=1,
             )[:, -max_slots:]
         return KVHistory(keys, values, mask)
+
 
 class FacetedCore(nn.Module):
     """E2 / C4 / nonresidual remix / P12 with one exact selected raw tensor.

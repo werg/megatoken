@@ -136,20 +136,30 @@ def test_old_rotated_keys_and_values_survive_until_full_chunk_eviction():
     third = core.advance_raw(second, torch.randn_like(raw))
     assert third.history.slots == 3 * config.n_facets
     torch.testing.assert_close(
-        third.history.keys[:, :, : config.n_facets], rotated, rtol=0, atol=0
+        third.history.keys[:, :, : config.n_facets],
+        rotated,
+        rtol=0,
+        atol=0,
     )
     torch.testing.assert_close(
-        third.history.values[:, :, : config.n_facets], original_values, rtol=0, atol=0
+        third.history.values[:, :, : config.n_facets],
+        original_values,
+        rtol=0,
+        atol=0,
     )
     fourth = core.advance_raw(third, torch.randn_like(raw))
     assert fourth.history.slots == 3 * config.n_facets
     torch.testing.assert_close(
         fourth.history.keys[:, :, : config.n_facets],
-        second.history.keys[:, :, config.n_facets :], rtol=0, atol=0,
+        second.history.keys[:, :, config.n_facets :],
+        rtol=0,
+        atol=0,
     )
     torch.testing.assert_close(
         fourth.history.values[:, :, : config.n_facets],
-        second.history.values[:, :, config.n_facets :], rtol=0, atol=0,
+        second.history.values[:, :, config.n_facets :],
+        rtol=0,
+        atol=0,
     )
 
 

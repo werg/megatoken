@@ -518,33 +518,35 @@ def test_fixed_pair_reduction_matches_incident_facet_average_and_gradient(effort
             torch.testing.assert_close(actual_grad, expected_grad, rtol=0, atol=0)
 
 
-def test_all_32_facets_remain_exact_until_whole_megatoken_eviction():
+def test_all_facets_remain_exact_until_whole_megatoken_eviction():
     config = ModelConfig.tiny(max_history_chunks=4)
     core = FacetedCore(config)
     state = core.initial_state(1)
     raw = torch.randn(1, config.n_facets, config.facet_dim, requires_grad=True)
     chunks = []
     for index in range(4):
-        state = core.advance_raw(
-            state, raw if index == 0 else torch.randn_like(raw)
-        )
+        source = raw if index == 0 else torch.randn_like(raw)
+        state = core.advance_raw(state, source)
         slot_start = index * config.n_facets
-        chunks.append(
-            (
-                state.history.keys[:, :, slot_start : slot_start + config.n_facets].detach().clone(),
-                state.history.values[:, :, slot_start : slot_start + config.n_facets].detach().clone(),
-            )
+        keys = state.history.keys[:, :, slot_start : slot_start + config.n_facets].detach().clone()
+        values = (
+            state.history.values[:, :, slot_start : slot_start + config.n_facets].detach().clone()
         )
+        chunks.append((keys, values))
         assert state.history.slots == (index + 1) * config.n_facets
-        for earlier, (keys, values) in enumerate(chunks):
+        for earlier, (old_keys, old_values) in enumerate(chunks):
             start = earlier * config.n_facets
             torch.testing.assert_close(
                 state.history.keys[:, :, start : start + config.n_facets],
-                keys, rtol=0, atol=0,
+                old_keys,
+                rtol=0,
+                atol=0,
             )
             torch.testing.assert_close(
                 state.history.values[:, :, start : start + config.n_facets],
-                values, rtol=0, atol=0,
+                old_values,
+                rtol=0,
+                atol=0,
             )
 
     # The oldest retained full-resolution input remains differentiable.
@@ -557,11 +559,15 @@ def test_all_32_facets_remain_exact_until_whole_megatoken_eviction():
         start = index * config.n_facets
         torch.testing.assert_close(
             state.history.keys[:, :, start : start + config.n_facets],
-            keys, rtol=0, atol=0,
+            keys,
+            rtol=0,
+            atol=0,
         )
         torch.testing.assert_close(
             state.history.values[:, :, start : start + config.n_facets],
-            values, rtol=0, atol=0,
+            values,
+            rtol=0,
+            atol=0,
         )
     assert state.records_seen.item() == 5
     assert state.history.keys.isfinite().all()
@@ -573,9 +579,7 @@ def test_partial_reset_masks_whole_retained_slots_and_oldest_chunk_eviction():
     core = FacetedCore(config).eval()
     state = core.initial_state(2)
     for _ in range(3):
-        state = core.advance_raw(
-            state, torch.randn(2, config.n_facets, config.facet_dim)
-        )
+        state = core.advance_raw(state, torch.randn(2, config.n_facets, config.facet_dim))
     previous = state.history.keys.clone()
     reset = core.reset_state(state, rows=torch.tensor([True, False]))
     assert reset.history.slots == 3 * config.n_facets
@@ -583,9 +587,7 @@ def test_partial_reset_masks_whole_retained_slots_and_oldest_chunk_eviction():
     assert not reset.history.mask[0].any()
     assert reset.history.mask[1].all()
 
-    after = core.advance_raw(
-        reset, torch.randn(2, config.n_facets, config.facet_dim)
-    )
+    after = core.advance_raw(reset, torch.randn(2, config.n_facets, config.facet_dim))
     assert after.history.slots == 3 * config.n_facets
     assert after.history.mask is not None
     assert not after.history.mask[0, :-config.n_facets].any()
@@ -593,7 +595,9 @@ def test_partial_reset_masks_whole_retained_slots_and_oldest_chunk_eviction():
     assert after.history.mask[1].all()
     torch.testing.assert_close(
         after.history.keys[1, :, :-config.n_facets],
-        previous[1, :, config.n_facets :], rtol=0, atol=0,
+        previous[1, :, config.n_facets :],
+        rtol=0,
+        atol=0,
     )
 
 
