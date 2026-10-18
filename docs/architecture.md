@@ -245,9 +245,9 @@ See [generation.md](generation.md) for tape and decoder details.
 | P experts / hidden width | `64 / 1536` | `64 / 1536` |
 | Stage-private P dense hidden width | 1,024 | 1,024 |
 | U experts / hidden width | `32 / 1024` | `32 / 1024` |
-| Historical slots per selected input | 32 | 32 |
+| Recent / archived historical slots per input | 32 / 2 | 32 / 2 |
 | Maximum cached chunks | 1,024 | 1,024 |
-| Maximum BF16 projected KV per episode | 32 MiB | 16 MiB |
+| Maximum BF16 projected KV per episode | 3.875 MiB | 1.938 MiB |
 | One FP32 raw sampled input | 64 KiB | 32 KiB |
 | Maximum output positions | 1,024 | 1,024 |
 
@@ -258,10 +258,13 @@ and output projection. `history_slots < n_facets` is a compressed ablation, not
 the default. Additional width and KV heads are configurable experiments; their
 quality benefit is not established by parameter counts.
 
-At production width, one chunk's projected K/V storage is
-`2 x 2 heads x 128 x 32 slots x 2 BF16 bytes = 32,768 bytes`. The 1,024-chunk bound
-is 33,554,432 bytes. This excludes raw facets, central caches, masks, activation
-graphs, temporary concatenations, decoder workspaces, and optimizer state.
+At production width a new full-resolution record uses 32,768 bytes of projected
+KV. The latest 64 records keep all 32 slots; earlier records are compressed to two
+masked, differentiable coarse slots. At 1,024 retained records this is
+`(64*32 + 960*2) * 1,024 = 4,063,232` bytes (3.875 MiB). The compression
+changes the trained history representation; it does not promise exact retrieval
+of every old full-resolution slot. This excludes raw facets, central caches,
+masks, decoder workspaces, and optimizer state.
 
 Counting a multiply and add as two FLOPs, one selected P row uses
 `6 x (2D) x (1536 + 1024)` matrix FLOPs. Full effort evaluates 96 pair rows per P
@@ -270,12 +273,11 @@ width 256. This scoped count excludes C, E, attention, routing, padding, output
 realization, nonlinearities, and backward. Parameter and FLOP arithmetic is not
 an end-to-end throughput measurement.
 
-Historical attention remains material. At the 32,768-slot bound, sixteen C/P
-reads with 32 queries and combined query width 512 require up to about
-34.36 GFLOPs of historical QK/AV products alone. The bounded cache prevents
-unbounded storage growth; it does not make context reads constant-cost with
-respect to the configured bound. Actual cache concatenation and grouped expert
-padding must be measured on Blackwell at the intended batch and length mix.
+At the 3,968-slot recent-plus-archive bound, sixteen C/P reads with 32
+queries and combined query width 512 require up to approximately 4.16 GFLOPs
+of historical QK/AV products. The old record summaries remain causally
+readable but are lower resolution. Actual concatenation, compression, and
+grouped expert costs still require Blackwell profiling.
 
 Unpadded attention passes `attn_mask=None` to preserve fused SDPA eligibility.
 Partial resets and padded/empty sources retain real masks. See the
