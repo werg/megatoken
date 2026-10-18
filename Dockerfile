@@ -26,7 +26,7 @@ import torch
 
 framework = torch.__version__
 subprocess.run([
-    sys.executable, "-m", "pip", "install", "--no-cache-dir", "--pre", ".[train,data,dev]"
+    sys.executable, "-m", "pip", "install", "--no-cache-dir", "--pre", ".[train,data,dev,storage]"
 ], check=True)
 installed = subprocess.check_output([
     sys.executable, "-c", "import torch; print(torch.__version__)"
