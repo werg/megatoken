@@ -283,9 +283,9 @@ and `metadata.json`. The metadata hashes the payload and the pointer hashes the 
 Loading uses PyTorch's restricted weights-only format. Checkpoints include model/config,
 codec and semantic chunk identities, FP32 optimizer state, global step, phase counters,
 and per-rank RNG and cursor. Checkpoint, served bundle, and model architecture are
-version 5. The action-tape serialization format remains v4, but prior model
-weights/caches are incompatible with the new staged-KV and temporal-RoPE
-parameters and cannot be silently loaded.
+version 6. The action-tape serialization format remains v4, but v5
+weights/caches are incompatible with the new full-resolution KV geometry
+and cannot be silently loaded.
 
 Periodic retention is bounded by `keep_checkpoints`. Phase boundaries, run-end snapshots,
 pre-RL state, and explicit baked checkpoints are retained. SIGINT/SIGTERM finishes the

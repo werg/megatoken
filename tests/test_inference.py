@@ -120,7 +120,7 @@ def test_serving_uses_the_training_control_bytes_and_retains_them_for_replay(bun
     assert actual.tape.control_payload == payload
     assert torch.equal(expected.state.facets, actual.state.facets)
     # The selected action writes once immediately; controls write no extra record.
-    assert actual.state.history.slots == engine.config.history_slots
+    assert actual.state.history.slots == engine.config.n_facets
     assert actual.state.records_seen.item() == 1
     assert len(session.events) == len(session.records) == 1
 

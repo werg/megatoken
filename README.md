@@ -34,8 +34,8 @@ corpus. Model quality and GPU throughput require measurement on the training har
 | Semantic packing target / soft / hard limit | 256 / 512 / 1,024 reference codec tokens |
 | Maximum realizer output positions | 1,024, including fixed syntax |
 | Attention | 4 query heads and 2 KV heads, each 128 coordinates wide |
-| Historical KV | 32 slots for each of 64 recent records; 2 coarse slots for each older retained record |
-| History bound | 1,024 chunks; approximately 3.88 MiB of BF16 KV per 32x512 episode |
+| Historical KV | Exactly 32 full-resolution slots per retained megatoken, at every age |
+| History bound | 1,024 full chunks; 32 MiB of BF16 KV per 32x512 episode |
 
 One generated step is `predict → sample → central processing and KV write → realize`.
 The returned state already contains the central computation that the **next**

@@ -125,30 +125,41 @@ def test_predictor_reads_history_at_only_four_fixed_stages(monkeypatch):
     torch.testing.assert_close(state.history.values, history_before[1], atol=0, rtol=0)
 
 
-def test_archive_averages_already_rotated_keys_without_new_phase():
-    config = ModelConfig.tiny(
-        max_history_chunks=4, recent_history_chunks=2, archived_slots_per_chunk=1
-    )
+def test_old_rotated_keys_and_values_survive_until_full_chunk_eviction():
+    config = ModelConfig.tiny(max_history_chunks=3)
     core = FacetedCore(config).eval()
-    state = core.initial_state(1)
-    first = core.advance_raw(state, torch.randn(1, 4, 32))
+    raw = torch.randn(1, config.n_facets, config.facet_dim)
+    first = core.advance_raw(core.initial_state(1), raw)
     rotated = first.history.keys.clone()
-    state = core.advance_raw(first, torch.randn(1, 4, 32))
-    state = core.advance_raw(state, torch.randn(1, 4, 32))
-    assert state.history.archived_chunks == 1
+    original_values = first.history.values.clone()
+    second = core.advance_raw(first, torch.randn_like(raw))
+    third = core.advance_raw(second, torch.randn_like(raw))
+    assert third.history.slots == 3 * config.n_facets
     torch.testing.assert_close(
-        state.history.keys[:, :, :1], rotated.mean(2, keepdim=True),
-        rtol=0, atol=1e-6,
+        third.history.keys[:, :, : config.n_facets], rotated, rtol=0, atol=0
+    )
+    torch.testing.assert_close(
+        third.history.values[:, :, : config.n_facets], original_values, rtol=0, atol=0
+    )
+    fourth = core.advance_raw(third, torch.randn_like(raw))
+    assert fourth.history.slots == 3 * config.n_facets
+    torch.testing.assert_close(
+        fourth.history.keys[:, :, : config.n_facets],
+        second.history.keys[:, :, config.n_facets :], rtol=0, atol=0,
+    )
+    torch.testing.assert_close(
+        fourth.history.values[:, :, : config.n_facets],
+        second.history.values[:, :, config.n_facets :], rtol=0, atol=0,
     )
 
 
 def test_old_architecture_version_cannot_reuse_rotary_history_cache():
     config = ModelConfig.tiny()
-    with pytest.raises(ValueError, match="version 5"):
-        ModelConfig.tiny(architecture_version=4)
-    with pytest.raises(ValueError, match="architecture_version=5"):
-        ModelConfig.from_dict({**config.to_dict(), "architecture_version": 4})
+    with pytest.raises(ValueError, match="version 6"):
+        ModelConfig.tiny(architecture_version=5)
+    with pytest.raises(ValueError, match="architecture_version=6"):
+        ModelConfig.from_dict({**config.to_dict(), "architecture_version": 5})
     core = FacetedCore(config)
     state = core.advance_raw(core.initial_state(1), torch.randn(1, 4, 32))
     with pytest.raises(ValueError, match="geometry"):
-        core.predict_facets(replace(state, geometry=(4, *state.geometry[1:])))
+        core.predict_facets(replace(state, geometry=(5, *state.geometry[1:])))

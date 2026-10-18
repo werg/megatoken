@@ -1,4 +1,4 @@
-# Architecture v5: three-stage contextual KV and chronological RoPE
+# Architecture v6: full-resolution contextual KV and chronological RoPE
 
 **Both realization and next-chunk prediction use the central core's computation.**
 Byte ingestion and prediction meet at one format: **32 raw facets of width 512**.
@@ -11,8 +11,8 @@ means preserving the exact selected input; it does not bypass central processing
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version 5, tape **format** version 4, and saved model geometry are
-explicit. Model/checkpoint geometry is intentionally incompatible with v4 caches. Legacy CLI names `recurrent32` and `compact32` select the corresponding
+Architecture version 6, tape **format** version 4, and saved model geometry are
+explicit. Model/checkpoint geometry is intentionally incompatible with v5 archives and caches. Legacy CLI names `recurrent32` and `compact32` select the corresponding
 new presets for fresh construction only; old checkpoints are not reinterpreted.
 
 ## Computation and recurrence
@@ -88,8 +88,8 @@ all 32 temporary slots are discarded at the end of this central pass.
 Every facet has a learned, stable **slot-address embedding** (32 x D) injected
 into the central representation and the query/key projection inputs. This is
 an *identity*, not an ordered facet position. Stage-specific content is
-distinguished by C blocks and projections. The optional pooled writer for
-fewer than 32 slots pools these slot embeddings with the same pool weights.
+distinguished by C blocks and projections. Every selected input writes all
+32 projected slots; no history pooling module or reduced-slot configuration exists.
 
 Historical Q and K use **interleaved 128D (64D compact) temporal RoPE** with
 fixed base **1,000,000** and FP64 phase construction / FP32 rotation arithmetic.
@@ -97,8 +97,9 @@ The RoPE position is the committed **megatoken index**: all facets and all
 temporary C writers for record t use the same t. Neither C depth nor P effort
 advances time. Only KV4 is rotated at publication and cached; later queries
 rotate by their own chronological positions. Values are never rotated.
-Previously rotated old-record keys remain rotated when archived into two
-pooled slots, since each archived group comes from one record at one t.
+Previously rotated keys are never pooled, averaged, or re-projected. They
+remain identical for their entire retention lifetime, and the oldest complete
+32-slot block is dropped only when the hard history bound is exceeded.
 
 Four fixed predictive stages—**P3, P6, P9 and P12**—read persistent history.
 The other eight P stages attend only to their current live facets. On those
@@ -289,26 +290,26 @@ See [generation.md](generation.md) for tape and decoder details.
 | P experts / hidden width | `64 / 1536` | `64 / 1536` |
 | Stage-private P dense hidden width | 1,024 | 1,024 |
 | U experts / hidden width | `32 / 1024` | `32 / 1024` |
-| Recent / archived historical slots per input | 32 / 2 | 32 / 2 |
+| Historical slots per retained input, at every age | 32 | 32 |
 | Maximum cached chunks | 1,024 | 1,024 |
-| Maximum BF16 projected KV per episode | 3.875 MiB | 1.938 MiB |
+| Maximum BF16 projected KV per episode | 32 MiB | 16 MiB |
 | One FP32 raw sampled input | 64 KiB | 32 KiB |
 | Maximum output positions | 1,024 | 1,024 |
 
 Width 512 is the primary training choice: 32 slots still carry 16,384 coordinates,
 while full-width queries and 256-wide K and V avoid an unusually narrow history
-interface. Every C/P layer can read the same 32-slot history through its own query
-and output projection. `history_slots < n_facets` is a compressed ablation, not
-the default. Additional width and KV heads are configurable experiments; their
-quality benefit is not established by parameter counts.
+interface. Every retained input has all 32 slots for every C/P historical read,
+with separate stage-owned query/output projections. There is no alternate
+fewer-slot geometry. Additional width and KV heads remain configurable
+experiments; their quality benefit is not established by parameter counts.
 
-At production width a new full-resolution record uses 32,768 bytes of projected
-**rotated-final-only** KV. The latest 64 records keep all 32 slots; earlier records are compressed to two
-masked, differentiable coarse slots. At 1,024 retained records this is
-`(64*32 + 960*2) * 1,024 = 4,063,232` bytes (3.875 MiB). The compression
-changes the trained history representation; it does not promise exact retrieval
-of every old full-resolution slot. This excludes raw facets, central caches,
-masks, decoder workspaces, and optimizer state.
+At production width, every full-resolution record uses 32,768 bytes of
+**rotated-final-only** BF16 KV. All 1,024 retained records keep their full
+32-slot K/V blocks: `1,024 records × 32 slots × 2 KV heads × 128 dimensions
+× 2 (K+V) × 2 bytes = 33,554,432 bytes` (**32 MiB**). The compact model
+uses **16 MiB**. Eviction drops whole oldest records; no age-dependent
+representation changes occur. These bounds exclude raw facets, central
+activations, masks, decoder workspaces, and training graphs.
 
 Counting a multiply and add as two FLOPs, one selected P row uses
 `6 x (2D) x (1536 + 1024)` matrix FLOPs. Full effort evaluates 96 pair rows per P
@@ -317,12 +318,14 @@ width 256. This scoped count excludes C, E, attention, routing, padding, output
 realization, nonlinearities, and backward. Parameter and FLOP arithmetic is not
 an end-to-end throughput measurement.
 
-At the 3,968-slot recent-plus-archive bound, eight C/P reads with 32
-queries and combined query width 512 require up to approximately 2.08 GFLOPs
-of historical QK/AV products. Three additional 32-slot temporary C reads cost
-about 3.15M MACs in their QK/AV products, excluding projections. The old record summaries remain causally
-readable but are lower resolution. Actual concatenation, compression, and
-grouped expert costs still require Blackwell profiling.
+At the 32,768-slot full-history bound, eight C/P reads with 32 queries
+and combined query width 512 require up to approximately **17.18 GFLOPs**
+of historical QK/AV products, before projections. Three additional 32-slot
+temporary C reads cost about 3.15M MACs in QK/AV products. This is
+approximately **8.26×** the historical attention arithmetic of the former
+recent-plus-archive representation at its bound; it is not a measured
+end-to-end slowdown. Full-history concatenation, activation memory, and
+grouped expert costs require Blackwell profiling.
 
 Unpadded attention passes `attn_mask=None` to preserve fused SDPA eligibility.
 Partial resets and padded/empty sources retain real masks. See the

@@ -77,11 +77,11 @@ The grouped tests compare values and gradients for sorted, uneven assignments an
 unused experts, including the primary pair/output input widths of 1,024 and 512.
 The CPU temporal-KV suite checks three stage-local C writes/reads, the final-only
 history publication, relative/late-time RoPE, slot identities, fixed P3/6/9/12
-historical readers, archive pooling, gradients, and v4 checkpoint rejection.
+historical readers, whole-record FIFO eviction, gradients, and v5 checkpoint rejection.
 Repeat checkpointed and uncheckpointed parity tests under the new architecture.
 Runtime tests compare unmasked Flash GQA with the math reference at 32 facets,
-four query heads, two KV heads, and head widths 128/64, including long projected
-histories. Separate masked-source cases include completely empty records. CPU
+four query heads, two KV heads, and head widths 128/64, including the full
+32-slot history bound (32 MiB BF16 KV per main-model episode). Separate masked-source cases include completely empty records. CPU
 tests verify raw next-input identity, the internal nonresidual remix, observation
 chronology, earlier-input/cache credit, checkpointed gradients, deterministic
 route replay, BF16 paths, actual parameter ownership, and engram bake parity. The hardware run
