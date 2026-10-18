@@ -40,9 +40,14 @@ its own causal prediction or prospective controls.
 
 ### Recurrent towers: keep predictions live and train ingestion on its own branch
 
-Recurrent phases return the selected prior draw after its central pass. Consecutive
-predictions keep both the sampled tensor and its historical KV graph live, so later
-losses can train earlier prediction and contextual computation within the window.
+Recurrent phases return the selected prior draw after its central pass for
+ordinary continuation, preserving full-facet gradients across adjacent chunks.
+**Offline executed tool traces are different:** when a recorded action has a
+dependent tool observation, the successor state uses that recorded action's
+exact native facet tape when available, otherwise a detached E(recorded bytes)
+approximation. Prior samples still receive contextual lexical loss, but are
+not allowed to inherit an observation from a different unexecuted tool call.
+Live sampled actions may continue only through their own executed observations.
 
 Every ordinary target also receives an encoder-only codec auxiliary. Noisy `E(x)` is
 processed through C against a detached copy of the original pre-action history, then
@@ -69,7 +74,7 @@ main-model update. FP32 Adam moments remain owned once per parameter.
 | Noisy E target reconstruction | Raw-only R; trains E and R | Contextual C/R with frozen owners and detached history; trains E only |
 | Analytic q-to-prior Gaussian KL | Prior gradients; q detached | Inactive |
 | Exact native raw/byte pair alignment | Inactive | E only, when a genuine pair exists |
-| Live next input | Clean E target, processed once | Selected raw prior draw, processed once |
+| Live next input | Clean E target, processed once | Selected prior draw except teacher-consistent offline tool continuations |
 
 Both modes evaluate two free lexical CE passes per target. Fixed syntax and explicit
 copies remain excluded from free lexical masks. Default objective weights are defined
