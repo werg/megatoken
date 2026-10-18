@@ -535,3 +535,27 @@ def test_completed_old_history_uses_coarse_slots_with_live_writer_gradients():
         assert state.history.archived_chunks == 2
     assert state.records_seen.item() == 5
     assert state.history.keys.isfinite().all()
+
+
+def test_coarse_history_partial_reset_masks_all_previous_episode_evidence():
+    config = ModelConfig.tiny(
+        max_history_chunks=4, recent_history_chunks=2, archived_slots_per_chunk=1
+    )
+    core = FacetedCore(config).eval()
+    state = core.initial_state(2)
+    for _ in range(3):
+        state = core.advance_raw(
+            state, torch.randn(2, config.n_facets, config.facet_dim)
+        )
+    assert state.history.archived_chunks == 1
+    reset = core.reset_state(state, rows=torch.tensor([True, False]))
+    assert reset.history.mask is not None
+    assert not reset.history.mask[0].any()
+    assert reset.history.mask[1].all()
+    next_raw = torch.randn(2, config.n_facets, config.facet_dim)
+    after = core.advance_raw(reset, next_raw)
+    assert after.history.archived_chunks == 2
+    assert after.history.mask is not None
+    assert not after.history.mask[0, :-config.history_slots].any()
+    assert after.history.mask[0, -config.history_slots :].all()
+    assert after.history.mask[1].all()
