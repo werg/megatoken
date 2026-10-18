@@ -134,20 +134,27 @@ def make_training_control(
     Remaining windows use the ordinary trainable, serving-compatible causal
     control. One choice and one noise draw is reused across a window's chunks.
     """
-    causal = make_control(model, windows, device, encoder_grad=not recurrent)
     if not recurrent:
-        return causal, 0
+        return make_control(model, windows, device, encoder_grad=True), 0
     eligible = [
         index
         for index, item in enumerate(windows)
         if item.episode.supervision.verified_success
         and any(record.policy_mask for record in item.episode.records)
     ]
-    if not eligible:
-        return causal, 0
     selection = torch.rand(len(eligible)).tolist()
-    selected = [index for index, draw in zip(eligible, selection, strict=True)
-                if draw < _RECURRENT_REFERENCE_FRACTION]
+    selected = [
+        index
+        for index, draw in zip(eligible, selection, strict=True)
+        if draw < _RECURRENT_REFERENCE_FRACTION
+    ]
+    # Encode each window *once*: the teacher and causal rows are disjoint.
+    selected_set = set(selected)
+    causal_payloads = [
+        b"" if index in selected_set else episode_control_payload(item.episode)
+        for index, item in enumerate(windows)
+    ]
+    causal = encode_controls(model.core, causal_payloads, encoder_grad=False)
     if not selected:
         return causal, 0
     # Explicitly training-only: this adds the *current* successful trajectory's
