@@ -291,7 +291,6 @@ class Coordinator:
             return {"status": "queued", "version": self._version(index)}
 
     def _try_merge(self, index: int) -> None:
-        fragment = self.fragments[index]
         path = self._path(index)
         meta = _metadata(path)
         version = int(meta["version"])
@@ -341,7 +340,7 @@ class Coordinator:
             metadata={"version": str(version + 1), "last_seq": json.dumps(last_seq)},
         )
         save_tensors(
-            self._published(index), {"theta": theta.to(torch.bfloat16)},
+            self._published(index), {"theta": theta},
             metadata={"version": str(version + 1)},
         )
         for file, _, _ in proposals:
