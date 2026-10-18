@@ -6,7 +6,7 @@ import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-ARCHITECTURE_VERSION = 4
+ARCHITECTURE_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -60,7 +60,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: shared central processing requires version 4; "
+                "Incompatible architecture version: temporal RoPE and staged KV require version 5; "
                 "earlier facet checkpoints cannot be loaded as this architecture"
             )
         positive = (
@@ -121,6 +121,8 @@ class ModelConfig:
             raise ValueError("n_facets must be divisible by four for pair schedules")
         if self.query_heads % self.kv_heads:
             raise ValueError("kv_heads must divide query_heads")
+        if self.attention_head_dim % 2:
+            raise ValueError("attention_head_dim must be even for temporal RoPE")
         if not self.ngram_orders or any(order < 1 or order > 8 for order in self.ngram_orders):
             raise ValueError("ngram_orders must contain orders in [1, 8]")
         if self.ngram_rows <= self.exact_rows:
@@ -215,10 +217,10 @@ class ModelConfig:
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
         if "recent_history_chunks" not in values or "archived_slots_per_chunk" not in values:
-            raise ValueError("Saved v4 config lacks the explicit hierarchical history contract")
+            raise ValueError("Saved v5 config lacks the explicit hierarchical history contract")
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=4; "
+                "Saved model configuration must explicitly declare architecture_version=5; "
                 "legacy checkpoints require an explicit migration, not default replacement"
             )
         unknown = set(values) - {field.name for field in fields(cls)}
