@@ -728,18 +728,22 @@ class FacetedCore(nn.Module):
         wrapper = self.stages[stage - 1]
         facets = facets + self.stage_codes[stage - 1]
         addresses = self.central.slot_codes()
+        # For local-only attention every live facet shares time t, so RoPE
+        # cancels out of Q·K. Avoid unnecessary rotations at eight P sites.
+        reads_history = stage in P_HISTORY_READ_STAGES
+        time = positions if reads_history else None
         live = self.central.memory(
-            facets, temporal_positions=positions, slot_codes=addresses
+            facets, temporal_positions=time, slot_codes=addresses
         )
         # Every P stage mixes live facets. Exactly four fixed stages also query
         # old committed records; prediction never writes a new KV representation.
         historical = (
             AttentionFeatures(history.keys, history.values, history.mask)
-            if stage in P_HISTORY_READ_STAGES else None
+            if reads_history else None
         )
         projected = join_attention(live, historical)
         facets = facets + wrapper.attention_gate.sigmoid() * wrapper.attention.read(
-            facets, projected, temporal_positions=positions, slot_codes=addresses
+            facets, projected, temporal_positions=time, slot_codes=addresses
         )
         route_start = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
