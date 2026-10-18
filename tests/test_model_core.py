@@ -508,3 +508,29 @@ def test_fixed_pair_reduction_matches_incident_facet_average_and_gradient(effort
             )
             (actual_grad,) = torch.autograd.grad(actual, contribution, upstream)
             torch.testing.assert_close(actual_grad, expected_grad, rtol=0, atol=0)
+
+
+def test_completed_old_history_uses_coarse_slots_with_live_writer_gradients():
+    config = ModelConfig.tiny(
+        max_history_chunks=4, recent_history_chunks=2, archived_slots_per_chunk=1
+    )
+    core = FacetedCore(config)
+    state = core.initial_state(1)
+    raw = torch.randn(1, config.n_facets, config.facet_dim, requires_grad=True)
+    state = core.advance_raw(state, raw)
+    assert state.history.slots == 4 and state.history.archived_chunks == 0
+    state = core.advance_raw(state, torch.randn_like(raw))
+    assert state.history.slots == 8 and state.history.archived_chunks == 0
+    state = core.advance_raw(state, torch.randn_like(raw))
+    assert state.history.slots == 9 and state.history.archived_chunks == 1
+    core.predict_facets(state, effort=1).square().mean().backward()
+    assert raw.grad is not None and raw.grad.norm() > 0
+
+    # Exactly two older records remain coarse, plus two complete recent ones;
+    # a fifth action evicts only the oldest coarse record.
+    for expected in (10, 10):
+        state = core.advance_raw(state.detach(), torch.randn_like(raw).detach())
+        assert state.history.slots == expected
+        assert state.history.archived_chunks == 2
+    assert state.records_seen.item() == 5
+    assert state.history.keys.isfinite().all()
