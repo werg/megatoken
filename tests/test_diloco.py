@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import copy
-import json
-import shutil
 import uuid
 
 import pytest
 import torch
 from torch import nn
 
-from megatoken.data import WindowConfig, prepare_sources, write_demo_source
+from megatoken.data import PreparedDataset, WindowConfig, prepare_sources, write_demo_source
 from megatoken.generation.codec import ByteCodec
 from megatoken.training.diloco_protocol import (
     install_fragment,
@@ -26,7 +24,6 @@ from megatoken.training.diloco_protocol import (
 from megatoken.training.diloco_server import Conflict, Coordinator, initialize_coordinator
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.stream import IndependentWindowStream
-from megatoken.data import PreparedDataset
 
 
 def _coordinator(tmp_path, *, workers=3, quorum=2, max_staleness=0):
