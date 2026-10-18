@@ -95,7 +95,7 @@ class FacetRemix(nn.Module):
 
 
 class CentralProcessor(nn.Module):
-    """Dense contextual C with one shared KV owner and separate block readers.
+    """Dense contextual C with three temporary KV writers and one cached final writer.
 
     No prospective control, random draw, sparse P expert, or decoder owner is
     involved. Its derived features may be cached and reused until model weights
@@ -195,7 +195,7 @@ class CentralProcessor(nn.Module):
         return early, facets
 
     def write(self, final: Tensor, history: KVHistory, positions: Tensor) -> KVHistory:
-        """Append one selected input, compressing only *completed* old records.
+        """Append only final position-rotated KV; compress *completed* old records.
 
         Recent records keep every projected slot. Earlier records retain a
         differentiable, masked average of contiguous slot groups. Thus attention
