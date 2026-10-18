@@ -147,6 +147,8 @@ def test_reference_is_one_window_level_control_for_recurrent_supervision(model, 
     assert observed_controls[0] is observed_controls[1]
     assert observed_controls[0] is not None
     assert not observed_controls[0].requires_grad
+    assert model.core.control_injection.weight.grad is not None
+    assert model.core.control_injection.weight.grad.norm() > 0
 
 
 def test_recurrent_noisy_reference_never_changes_causal_control_protocol(model, monkeypatch):
