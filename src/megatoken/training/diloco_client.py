@@ -135,6 +135,7 @@ class DecoupledWorker:
         masters: dict[str, torch.Tensor],
         output: Path,
         token_budget: int,
+        train_identity: str,
     ) -> None:
         self.settings = settings
         self.worker = settings.resolved_worker_id
@@ -152,6 +153,7 @@ class DecoupledWorker:
             or self.manifest["codec_fingerprint"] != codec_fingerprint
             or self.manifest["parameter_identity"] != parameter_identity(masters)
             or self.manifest["token_budget"] != token_budget
+            or self.manifest["train_identity"] != train_identity
         ):
             raise ValueError("DiLoCo worker architecture/codec/topology/budget differs from syncer")
         self.fragments = tuple(Fragment.from_dict(x) for x in self.manifest["fragments"])
@@ -262,14 +264,6 @@ class DecoupledWorker:
         for index in range(len(self.fragments)):
             self._install(index, self._fetch(index, self.versions[index]), optimizer)
 
-    def _send(self, index: int, entry: dict) -> dict:
-        try:
-            return self.transport.json(
-                "POST", f"/v1/updates/{index}",
-            )  # never reached: binary submissions use request() below
-        except AssertionError:
-            raise
-
     def _upload(self, index: int, entry: dict) -> dict:
         _, response, _ = self.transport.request(
             "POST",
@@ -303,7 +297,12 @@ class DecoupledWorker:
             raise ValueError("Nonfinite local DiLoCo pseudogradient")
         sequence = self.sequences[index] + 1
         filename = self.outbox / f"{index:05d}-{sequence:09d}.safetensors"
-        save_tensors(filename, {"delta": delta.to(self.settings.wire_dtype)})
+        save_tensors(
+            filename,
+            {"delta": delta.to(
+                torch.bfloat16 if self.settings.wire_dtype == "bf16" else torch.float32
+            )},
+        )
         self.sequences[index] = sequence
         self.pending[index] = {
             "filename": str(filename),
