@@ -76,8 +76,11 @@ def _example_json(schema: Mapping[str, Any], depth: int = 0) -> Any:
         return int(candidate) if kind == "integer" else candidate
     if kind == "boolean":
         return False
-    if kind == "null" or kind is None:
+    if kind == "null":
         return None
+    if kind is None:
+        # A valid one-byte JSON number is a smaller witness than "null".
+        return 0
     raise ValueError(f"Unsupported field type {kind!r}")
 
 
@@ -89,7 +92,7 @@ def _field_witness(field: FieldSpec) -> bytes:
         return json.dumps(
             _example_json(schema), ensure_ascii=False, separators=(",", ":")
         ).encode("utf-8")
-    return ("a" * max(1, field.min_tokens)).encode("utf-8")
+    return ("a" * field.min_tokens).encode("utf-8")
 
 
 def wire_witness_tokens(schema: SchemaSpec, codec: Any) -> int | None:
