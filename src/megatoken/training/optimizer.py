@@ -1,0 +1,213 @@
+"""AdamW with FP32 master parameters, moments, and accumulation buffers."""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Any
+
+import torch
+from torch import nn
+
+
+@dataclass(frozen=True)
+class ParameterRule:
+    lr_multiplier: float
+    weight_decay: float
+
+
+def parameter_rules(module: nn.Module, weight_decay: float) -> dict[str, ParameterRule]:
+    """Use owning module semantics first; shared tensors get one optimizer slot."""
+    lookup_ids = {
+        id(p)
+        for m in module.modules()
+        if isinstance(m, nn.Embedding)
+        for p in m.parameters(recurse=False)
+    }
+    result = {}
+    for name, parameter in module.named_parameters():
+        lower = name.lower()
+        lookup = id(parameter) in lookup_ids or any(
+            x in lower for x in ("lookup", "ngram", "embedding", "vocabulary", "byte_table")
+        )
+        sensitive = any(
+            x in lower for x in ("log_decay", "decay_log", "beta_bias", "recurrent_gate")
+        ) or (".gdn." in lower and ".gates." in lower)
+        slower = lookup or "prior" in lower or "control" in lower
+        multiplier = 0.25 if sensitive else (0.5 if slower else 1.0)
+        no_decay = (
+            lookup or sensitive or parameter.ndim < 2 or lower.endswith("bias") or "norm" in lower
+        )
+        result[name] = ParameterRule(multiplier, 0.0 if no_decay else weight_decay)
+    return result
+
+
+class MasterAdamW:
+    """A small adapter around PyTorch's maintained fused/foreach AdamW kernels.
+
+    BF16 leaf gradients are moved into FP32 buffers after each backward, avoiding
+    low-precision accumulation over many windows. Parameters already in FP32 are
+    their own masters. Checkpoints retain both precise masters and served weights.
+    """
+
+    def __init__(
+        self,
+        module: nn.Module,
+        lr: float,
+        weight_decay: float = 0.1,
+        betas: tuple[float, float] = (0.9, 0.95),
+        eps: float = 1e-8,
+    ) -> None:
+        self.module = module
+        self.rules = parameter_rules(module, weight_decay)
+        self.model_parameters: dict[str, nn.Parameter] = {}
+        self.masters: dict[str, nn.Parameter] = {}
+        self._hooks: dict[str, Any] = {}
+        groups: dict[ParameterRule, list[nn.Parameter]] = defaultdict(list)
+        for name, parameter in module.named_parameters():
+            if not parameter.requires_grad:
+                continue
+            self.model_parameters[name] = parameter
+            master = (
+                parameter
+                if parameter.dtype == torch.float32
+                else nn.Parameter(parameter.detach().float())
+            )
+            self.masters[name] = master
+            groups[self.rules[name]].append(master)
+            if master is not parameter:
+
+                def accumulate(p: nn.Parameter, destination: nn.Parameter = master) -> None:
+                    if p.grad is not None:
+                        gradient = p.grad.detach().float()
+                        if destination.grad is None:
+                            destination.grad = gradient
+                        else:
+                            destination.grad.add_(gradient)
+                        p.grad = None
+
+                self._hooks[name] = parameter.register_post_accumulate_grad_hook(accumulate)
+        if not groups:
+            raise ValueError("The model has no trainable parameters")
+        cuda = all(p.device.type == "cuda" for p in self.masters.values())
+        self.optimizer = torch.optim.AdamW(
+            [
+                {
+                    "params": params,
+                    "lr": lr * rule.lr_multiplier,
+                    "lr_multiplier": rule.lr_multiplier,
+                    "weight_decay": rule.weight_decay,
+                }
+                for rule, params in groups.items()
+            ],
+            lr=lr,
+            betas=betas,
+            eps=eps,
+            fused=cuda,
+            foreach=None if cuda else True,
+        )
+
+    @property
+    def parameters(self) -> list[nn.Parameter]:
+        return list(self.masters.values())
+
+    def set_lr(self, lr: float) -> None:
+        for group in self.optimizer.param_groups:
+            group["lr"] = lr * group["lr_multiplier"]
+
+    def zero_grad(self) -> None:
+        self.optimizer.zero_grad(set_to_none=True)
+        for parameter in self.model_parameters.values():
+            parameter.grad = None
+
+    @torch.no_grad()
+    def step(self, max_norm: float = 1.0) -> dict[str, float]:
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            self.parameters, max_norm, error_if_nonfinite=True
+        )
+        self.optimizer.step()
+        for name, parameter in self.model_parameters.items():
+            master = self.masters[name]
+            if master is not parameter:
+                parameter.copy_(master)
+        return {"gradient_norm": float(grad_norm)}
+
+    @torch.no_grad()
+    def rebase(self, names: list[str]) -> None:
+        """Use after baking static features: replace masters and reset their moments."""
+        for name in names:
+            parameter, master = self.model_parameters[name], self.masters[name]
+            master.copy_(parameter.float())
+            self.optimizer.state.pop(master, None)
+
+    @torch.no_grad()
+    def on_engram_bake(
+        self,
+        table_parameter: nn.Parameter,
+        rows: torch.Tensor,
+        removed_parameters: list[nn.Parameter],
+    ) -> None:
+        """Reset only baked-row moments, and remove every temporary map slot."""
+        table_name = next(
+            (
+                name
+                for name, parameter in self.model_parameters.items()
+                if parameter is table_parameter
+            ),
+            None,
+        )
+        if table_name is None:
+            raise ValueError("Baked table is not owned by this optimizer")
+        master = self.masters[table_name]
+        row_ids = rows.to(device=master.device, dtype=torch.long)
+        if master is not table_parameter:
+            master.index_copy_(0, row_ids, table_parameter[row_ids].float())
+        state = self.optimizer.state.get(master, {})
+        for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+            if key in state:
+                state[key].index_fill_(0, row_ids, 0.0)
+        removed_ids = {id(parameter) for parameter in removed_parameters}
+        removed_masters = set()
+        for name, parameter in list(self.model_parameters.items()):
+            if id(parameter) in removed_ids:
+                removed_master = self.masters.pop(name)
+                removed_masters.add(id(removed_master))
+                self.optimizer.state.pop(removed_master, None)
+                self.model_parameters.pop(name)
+                self.rules.pop(name)
+                hook = self._hooks.pop(name, None)
+                if hook is not None:
+                    hook.remove()
+        for group in self.optimizer.param_groups:
+            group["params"] = [
+                parameter for parameter in group["params"] if id(parameter) not in removed_masters
+            ]
+        self.optimizer.param_groups = [
+            group for group in self.optimizer.param_groups if group["params"]
+        ]
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "format_version": 1,
+            "names": list(self.masters),
+            "master_weights": {name: p.detach() for name, p in self.masters.items()},
+            "optimizer": self.optimizer.state_dict(),
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        if state.get("format_version") != 1 or state["names"] != list(self.masters):
+            raise ValueError("Optimizer parameter ownership differs from the checkpoint")
+        with torch.no_grad():
+            for name, parameter in self.masters.items():
+                parameter.copy_(state["master_weights"][name])
+        self.optimizer.load_state_dict(state["optimizer"])
+        # Optimizer.load_state_dict must not cast FP32 moments to served BF16.
+        for value in self.optimizer.state.values():
+            for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
+                if key in value and value[key].dtype != torch.float32:
+                    raise RuntimeError(f"AdamW {key} lost FP32 precision")
+
+    def close(self) -> None:
+        for hook in self._hooks.values():
+            hook.remove()
+        self._hooks.clear()

@@ -1,0 +1,674 @@
+"""A single optimizer engine for bootstrap through student-state distillation.
+
+Windows are independent optimizer transactions: reconstruct the actual prefix
+under current weights, retain gradients through selected writer/reader records,
+and discard all runtime state after updating parameters. No stale cache survives
+an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import math
+import signal
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+import torch
+
+from megatoken.contracts import ROLE_TO_ID
+from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
+from megatoken.io import content_hash, write_json
+from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
+from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
+from megatoken.tensors import byte_tensor
+from megatoken.tool_schema import (
+    compile_tool_spec,
+    matching_schema,
+    recent_copy_sources,
+    supervised_bindings,
+)
+from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
+from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
+from megatoken.training.distributed import DistributedContext
+from megatoken.training.losses import LossLedger
+from megatoken.training.metrics import (
+    Counters,
+    JsonlLogger,
+    dispatch_summary,
+    materialize_scalars,
+    rates,
+)
+from megatoken.training.optimizer import MasterAdamW
+from megatoken.training.schedule import PHASES
+from megatoken.training.stream import (
+    EpisodeWindow,
+    MixtureWindowStream,
+    WindowStream,
+    compatible_batches,
+)
+
+
+@dataclass
+class PreparedBatch:
+    windows: list[EpisodeWindow]
+    targets: dict[int, Any]
+    counts: dict[str, int]
+    effort: int = 6
+
+
+def ingest_records(model: Any, state: Any, records: list[Any], device: torch.device):
+    payloads = [record.payload for record in records]
+    ids, lengths = byte_tensor(payloads, device)
+    roles = torch.tensor([ROLE_TO_ID[record.record.role] for record in records], device=device)
+    return model.core.ingest(ids, state, lengths=lengths, role_ids=roles)
+
+
+def _control_payload(episode: Any) -> bytes:
+    # Controls have explicit provenance and are never constructed from a
+    # matching target or a hidden verifier annotation.
+    payload = episode.control_seed
+    if episode.control_reference:
+        if episode.reference_origin not in {"external_evidence", "earlier_history"}:
+            raise ValueError("Reference control has no causal provenance")
+        payload += b"\n<reference>\n" + episode.control_reference
+    if episode.tools_json != "[]":
+        payload += b"\n<tools>\n" + episode.tools_json.encode()
+    return payload
+
+
+def make_control(
+    model: Any, windows: list[EpisodeWindow], device: torch.device
+) -> torch.Tensor | None:
+    payloads = [_control_payload(item.episode) for item in windows]
+    if not any(payloads):
+        return None
+    ids, lengths = byte_tensor(payloads, device)
+    return model.core.encode_control(ids, lengths=lengths)
+
+
+def prepare_batches(
+    model: Any, windows: list[EpisodeWindow], config: TrainConfig
+) -> list[PreparedBatch]:
+    result = []
+    raw_windows, action_windows = [], []
+    for item in windows:
+        if any(
+            len(record.payload) > config.max_record_bytes
+            for record in (*item.window.prefix, *item.window.records)
+        ):
+            raise ValueError(
+                "A physical record exceeds max_record_bytes; prepare at the configured byte limit"
+            )
+        verified_streams = {
+            "verified_trajectories",
+            "verified_successful_multiturn",
+            "tested_artifacts",
+            "successful_replay",
+            "long_verified_dependencies",
+        }
+        if (
+            not config.allow_unverified_data
+            and item.episode.stream in verified_streams
+            and not item.episode.supervision.verified_success
+        ):
+            raise ValueError(
+                f"Stream {item.episode.stream} requires independent success verification"
+            )
+        if item.episode.stream == "long_verified_dependencies" and not item.episode.dependencies:
+            raise ValueError(
+                "Long dependency data requires explicit causal writer/reader annotations"
+            )
+        if item.episode.tools_json != "[]" and any(
+            record.record.action_id for record in item.window.records
+        ):
+            action_windows.append(item)
+        else:
+            raw_windows.append(item)
+    batches = compatible_batches(raw_windows, config.microbatch_episodes) + [
+        [item] for item in action_windows
+    ]
+    for batch in batches:
+        targets = {}
+        counts = dict.fromkeys(DEFAULT_LOSS_WEIGHTS, 0)
+        for offset in range(len(batch[0].window.records)):
+            records = [item.window.records[offset] for item in batch]
+            if not any(record.record.policy_mask for record in records):
+                continue
+            if not all(record.record.policy_mask for record in records):
+                raise ValueError("Incompatible record ownership in a supervised microbatch")
+            largest = max(len(record.token_ids) for record in records)
+            if largest > config.generated_capacity:
+                raise ValueError(
+                    f"Target has {largest} codec positions, exceeding generated_capacity="
+                    f"{config.generated_capacity}; prepare smaller physical records or "
+                    "explicitly raise the trained capacity"
+                )
+            capacity = min(
+                config.generated_capacity, max(1, 2 ** math.ceil(math.log2(max(1, largest))))
+            )
+            repair = bool(torch.rand(()) < config.repair_fraction)
+            plan = None
+            if (
+                len(batch) == 1
+                and batch[0].episode.tools_json != "[]"
+                and records[0].record.action_id
+                and records[0].record.part_count == 1
+            ):
+                item, record = batch[0], records[0]
+                spec = compile_tool_spec(
+                    item.episode.tools_json,
+                    config.generated_capacity,
+                    wire_formats=("canonical", "openai", "anthropic"),
+                )
+                earlier = [
+                    entry.payload for entry in (*item.window.prefix, *item.window.records[:offset])
+                ]
+                spec = dataclasses.replace(spec, copy_sources=recent_copy_sources(earlier))
+                schema_index = matching_schema(spec, record.payload)
+                if schema_index is not None:
+                    bindings = supervised_bindings(spec, schema_index, record.payload)
+                    for layout in range(len(spec.schemas[schema_index].orders)):
+                        candidate = model.prepare_action_target(
+                            record.payload,
+                            spec=spec,
+                            schema_index=schema_index,
+                            bindings=bindings,
+                            repair=repair,
+                            layout=layout,
+                        )
+                        # Preserve immutable original history. Serialization
+                        # variants not represented by a public schema use raw CE.
+                        if candidate.payload == record.payload:
+                            plan = candidate
+                            break
+            if plan is None:
+                plan = model.prepare_target(
+                    [record.token_ids for record in records],
+                    free_mask=[record.free_mask for record in records],
+                    capacity=capacity,
+                    repair=repair,
+                    terminal=[
+                        record.record.part_index + 1 == record.record.part_count
+                        for record in records
+                    ],
+                )
+            targets[offset] = plan
+            for name, count in plan.denominators.items():
+                counts[name] += count
+        effort = config.effort
+        if config.use_effort_mixture:
+            mixture = stage_recipe(config.phase).effort_mix
+            choices = sorted(mixture)
+            effort = choices[
+                int(torch.multinomial(torch.tensor([mixture[key] for key in choices]), 1))
+            ]
+        result.append(PreparedBatch(batch, targets, counts, effort))
+    return result
+
+
+def batch_counters(batches: list[PreparedBatch]) -> Counters:
+    result = Counters()
+    for batch in batches:
+        for item in batch.windows:
+            window = item.window
+            prefix_tokens = sum(record.tokens for record in window.prefix)
+            new_tokens = sum(record.tokens for record in window.records)
+            result.add(
+                Counters(
+                    D=new_tokens,
+                    I=new_tokens + prefix_tokens,
+                    source_bytes=sum(
+                        len(record.payload) for record in (*window.prefix, *window.records)
+                    ),
+                    record_ingestions=len(window.prefix) + len(window.records),
+                    reconstruction_tokens=prefix_tokens,
+                    reconstruction_records=len(window.prefix),
+                    scored_windows=int(bool(window.P)),
+                    writer_reader_windows=int(bool(window.writer_reader_pairs)),
+                )
+            )
+        result.P += sum(plan.scored_positions for plan in batch.targets.values())
+        result.posterior_encodes += sum(len(batch.windows) for _ in batch.targets)
+        if any(_control_payload(item.episode) for item in batch.windows):
+            result.control_encodes += len(batch.windows)
+    return result
+
+
+def forward_batch(
+    model: Any,
+    batch: PreparedBatch,
+    ledger: LossLedger,
+    config: TrainConfig,
+    device: torch.device,
+    model_version: int,
+) -> dict[str, float | torch.Tensor]:
+    state = model.core.initial_state(len(batch.windows), device=device, model_version=model_version)
+    with torch.no_grad():
+        for offset in range(len(batch.windows[0].window.prefix)):
+            state = ingest_records(
+                model, state, [item.window.prefix[offset] for item in batch.windows], device
+            )
+    control = make_control(model, batch.windows, device)
+    losses = []
+    metrics: dict[str, float | torch.Tensor] = {}
+    for offset in range(len(batch.windows[0].window.records)):
+        records = [item.window.records[offset] for item in batch.windows]
+        if offset in batch.targets:
+            roles = torch.tensor(
+                [ROLE_TO_ID[record.record.role] for record in records], device=device
+            )
+            plan = batch.targets[offset]
+            if hasattr(plan, "spec"):
+                step = model.supervised_action(
+                    state,
+                    plan=plan,
+                    effort=batch.effort,
+                    prior_probability=config.prior_probability,
+                    control=control,
+                )
+            else:
+                step = model.supervised_step(
+                    state,
+                    plan=plan,
+                    effort=batch.effort,
+                    prior_probability=config.prior_probability,
+                    control=control,
+                    role_ids=roles,
+                )
+            state = step.state
+            losses.append(ledger.backward_loss(step.losses))
+            for key, value in step.metrics.items():
+                if isinstance(value, (float, int, torch.Tensor)):
+                    metrics[key] = metrics.get(key, 0.0) + (
+                        value.detach() if isinstance(value, torch.Tensor) else value
+                    )
+        else:
+            state = ingest_records(model, state, records, device)
+    if losses:
+        torch.stack(losses).sum().backward()
+    # Retain graph only inside this differentiable writer-to-reader window.
+    return metrics
+
+
+def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transition: bool) -> None:
+    current = asdict(config)
+    critical = (
+        "model",
+        "model_overrides",
+        "codec",
+        "precision",
+        "expert_backend",
+        "recurrent_backend",
+        "engram_import",
+        "weight_decay",
+    )
+    if not phase_transition:
+        critical += (
+            "phase",
+            "dataset",
+            "seed",
+            "microbatch_episodes",
+            "max_history_tokens",
+            "max_window_records",
+            "scored_decisions",
+            "generated_capacity",
+            "repair_fraction",
+            "accumulate_scored",
+            "accumulate_ingested",
+            "max_accumulation_windows",
+            "use_stage_mixture",
+            "use_effort_mixture",
+            "effort",
+            "prior_probability",
+            "posterior_pressure_warmup",
+            "loss_weights",
+            "grad_clip",
+            "budget",
+            "deterministic",
+            "gradient_checkpointing",
+        )
+    for key in critical:
+        if old.get(key) != current.get(key):
+            raise ValueError(
+                f"Resume configuration changed {key}; use an explicit phase transition "
+                "only when the architecture/codec are unchanged"
+            )
+
+
+def train(
+    config: TrainConfig, *, resume: str | None = None, phase_transition: bool = False
+) -> dict[str, Any]:
+    if config.phase == "R":
+        raise ValueError("Outcome RL requires executed episodes: use the rl command")
+    if phase_transition and not resume:
+        raise ValueError("A phase transition requires the previous phase's checkpoint")
+    context = DistributedContext.initialize(config.device)
+    output = Path(config.output)
+    logger = JsonlLogger(output / "metrics.jsonl", context.is_primary)
+    optimizer = None
+    dataset = stream = None
+    old_handlers = {}
+    stop_requested = False
+
+    def request_stop(signum, frame):
+        nonlocal stop_requested
+        stop_requested = True
+
+    try:
+        diagnostics = doctor(
+            require_cuda=config.require_blackwell, require_blackwell=config.require_blackwell
+        )
+        if not diagnostics["ok"]:
+            raise RuntimeError("Runtime preflight failed: " + "; ".join(diagnostics["errors"]))
+        if config.codec == "byte" and config.model != "tiny" and not config.allow_byte_codec:
+            raise ValueError(
+                "Large runs require the pinned raw codec; allow_byte_codec is only an explicit experiment"
+            )
+        if context.device.type == "cpu":
+            torch.set_num_threads(min(4, torch.get_num_threads()))
+        seed_everything(config.seed, config.deterministic)
+        overrides = {
+            **config.model_overrides,
+            "expert_backend": config.expert_backend,
+            "recurrent_backend": config.recurrent_backend,
+            "checkpoint_stages": config.gradient_checkpointing,
+        }
+        model_config = load_model_config(config.model, **overrides)
+        codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+        model = build_model(model_config, codec, device=context.device, precision=config.precision)
+        payload = None
+        if resume:
+            payload, _ = load_checkpoint(resume, map_location="cpu")
+            _resume_compatible(payload["train_config"], config, phase_transition)
+            if payload["codec_fingerprint"] != codec.fingerprint:
+                raise ValueError("Checkpoint codec identity differs")
+            if payload["model_config"] != model_config.to_dict():
+                raise ValueError("Checkpoint model configuration differs")
+            # Dynamic temporary imports must be restored before optimizer owner
+            # enumeration, or their FP32 masters and hooks would be missing.
+            model.load_state_dict(payload["model"], strict=True)
+        elif config.engram_import:
+            from megatoken.assets import install_engram_asset
+
+            install_engram_asset(model, config.engram_import)
+        context.broadcast_model(model)
+        phase = dataclasses.replace(
+            PHASES[config.phase], budget=config.budget or PHASES[config.phase].budget
+        )
+        optimizer = MasterAdamW(model, phase.learning_rate(0), config.weight_decay)
+        windows_config = WindowConfig(
+            max_window_tokens=config.max_history_tokens,
+            max_decisions=config.scored_decisions,
+            max_records=config.max_window_records,
+            respect_dependencies=config.phase == "LC",
+            max_dependency_tokens=config.max_history_tokens,
+        )
+        dataset = PreparedDataset(config.dataset)
+        if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
+            raise ValueError("Prepared dataset uses a different codec")
+        if config.use_stage_mixture:
+            recipe = stage_recipe(config.phase)
+            stream = MixtureWindowStream(
+                config.dataset,
+                codec,
+                windows_config,
+                recipe.mixture,
+                phase.meter,
+                seed=config.seed,
+                rank=context.rank,
+                world_size=context.world_size,
+            )
+        else:
+            stream = WindowStream(
+                dataset,
+                codec,
+                windows_config,
+                seed=config.seed,
+                rank=context.rank,
+                world_size=context.world_size,
+            )
+        global_step = 0
+        consumed = 0
+        counters = Counters()
+        if payload is not None:
+            optimizer.load_state_dict(payload["optimizer"])
+            global_step = payload["global_step"]
+            if not phase_transition:
+                if len(payload["rank_state"]) != context.world_size:
+                    raise ValueError("Exact resume requires the checkpoint's rank count")
+                rank_state = payload["rank_state"][context.rank]
+                stream.load_state_dict(rank_state["cursor"])
+                restore_rng(rank_state["rng"])
+                consumed = payload["phase_consumed"]
+                counters = Counters(**payload["counters"])
+            else:
+                seed_everything(config.seed + context.rank, config.deterministic)
+        else:
+            # Initialization is identical; sampling/exploration is rank-specific.
+            seed_everything(config.seed + context.rank, config.deterministic)
+        if config.compile:
+            # Compile the reusable tensor operators, not Python action tapes,
+            # data cursors, or mutable runtime history management.
+            model.core.compile_kernels(mode=config.compile_mode)
+        model.train()
+        model.core.set_model_version(global_step)
+        if context.is_primary:
+            write_json(output / "config.json", asdict(config))
+            write_json(output / "runtime.json", diagnostics)
+            write_json(output / "parameters.json", parameter_report(model))
+        logger.log(
+            "start",
+            phase=phase.name,
+            budget=phase.budget,
+            meter=phase.meter,
+            world_size=context.world_size,
+            model=model_config.name,
+            served_parameters=parameter_report(model)["totals"]["served"],
+        )
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            old_handlers[signum] = signal.signal(signum, request_stop)
+        last_saved = global_step if resume and not phase_transition else -1
+        updates_this_run = 0
+
+        def checkpoint(label: str, pinned: bool = False) -> str:
+            nonlocal last_saved
+            rank_state = context.all_gather_object(
+                {"cursor": stream.state_dict(), "rng": capture_rng()}
+            )
+            name = f"{phase.name}-{global_step:09d}-{label}"
+            if context.is_primary:
+                save_checkpoint(
+                    output / "checkpoints",
+                    name,
+                    {
+                        "model": model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "model_config": model_config.to_dict(),
+                        "train_config": asdict(config),
+                        "codec_fingerprint": codec.fingerprint,
+                        "rank_state": rank_state,
+                        "global_step": global_step,
+                        "phase_consumed": consumed,
+                        "counters": asdict(counters),
+                    },
+                    {
+                        "global_step": global_step,
+                        "phase": phase.name,
+                        "phase_consumed": consumed,
+                        "dataset_fingerprint": stream.fingerprint,
+                        "codec_fingerprint": codec.fingerprint,
+                        "routing_version": model_config.routing_version,
+                        "config_fingerprint": content_hash(asdict(config)),
+                    },
+                    pinned=pinned,
+                    keep=config.keep_checkpoints,
+                )
+            context.barrier()
+            last_saved = global_step
+            return str(output / "checkpoints" / name)
+
+        last_checkpoint = str(resolve_checkpoint(resume)) if resume else ""
+        if phase_transition:
+            last_checkpoint = checkpoint("phase-start", pinned=True)
+        while consumed < phase.budget and (
+            config.max_steps is None or updates_this_run < config.max_steps
+        ):
+            started = time.perf_counter()
+            selected = []
+            selected_counts = {"I": 0, "P": 0}
+            for _ in range(config.max_accumulation_windows):
+                for _ in range(config.microbatch_episodes):
+                    item = stream.next()
+                    selected.append(item)
+                    selected_counts["I"] += item.window.I
+                    selected_counts["P"] += item.window.P
+                global_selected = context.sum_counts(selected_counts)
+                if (
+                    global_selected["P"] >= config.accumulate_scored
+                    or global_selected["I"] >= config.accumulate_ingested
+                ):
+                    break
+            batches = prepare_batches(model, selected, config)
+            local_counts = {
+                key: sum(batch.counts[key] for batch in batches) for key in DEFAULT_LOSS_WEIGHTS
+            }
+            global_counts = context.sum_counts(local_counts)
+            if not any(global_counts.values()):
+                raise RuntimeError(
+                    "Accumulation window contains no supervision; audit role/turn masks"
+                )
+            global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
+            global_work.validate()
+            weights = dict(config.loss_weights)
+            if config.posterior_pressure_warmup:
+                weights["posterior_pressure"] *= min(
+                    1.0, consumed / (phase.budget * config.posterior_pressure_warmup)
+                )
+            ledger = LossLedger(local_counts, global_counts, weights)
+            optimizer.zero_grad()
+            learning_rate = phase.learning_rate(consumed)
+            optimizer.set_lr(learning_rate)
+            model.core.dispatch_metrics(reset=True)
+            step_diagnostics: dict[str, float | torch.Tensor] = {}
+            for batch in batches:
+                diagnostics_batch = forward_batch(
+                    model, batch, ledger, config, context.device, global_step
+                )
+                for key, value in diagnostics_batch.items():
+                    step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
+            ledger.finish()
+            context.synchronize_gradients(optimizer.parameters)
+            optimizer_started = time.perf_counter()
+            step_metrics = optimizer.step(config.grad_clip)
+            optimizer_seconds = time.perf_counter() - optimizer_started
+            global_step += 1
+            model.core.set_model_version(global_step)
+            updates_this_run += 1
+            consumed += getattr(global_work, phase.meter)
+            counters.add(global_work)
+            local_sums = ledger.sums
+            merged_sums = context.all_gather_object(local_sums)
+            sums = {
+                key: sum(values.get(key, 0.0) for values in merged_sums) for key in global_counts
+            }
+            if context.device.type == "cuda":
+                torch.cuda.synchronize(context.device)
+            elapsed = time.perf_counter() - started
+            if global_step % config.log_every == 0:
+                gathered = context.all_gather_object(materialize_scalars(step_diagnostics))
+                diagnostics_global = {
+                    key: sum(item.get(key, 0.0) for item in gathered)
+                    for key in set().union(*(item.keys() for item in gathered))
+                }
+                for branch in ("prior", "posterior"):
+                    positions = diagnostics_global.get(f"{branch}_lexical_positions", 0)
+                    if positions:
+                        diagnostics_global[f"{branch}_lexical_ce"] = (
+                            diagnostics_global[f"{branch}_lexical_loss_sum"] / positions
+                        )
+                dispatch = model.core.dispatch_metrics(reset=True)
+                reduced = context.sum_tensors(
+                    {
+                        f"{family}/{key}": value
+                        for family, values in dispatch.items()
+                        for key, value in values.items()
+                    }
+                )
+                dispatch = {
+                    family: {key: reduced[f"{family}/{key}"] for key in values}
+                    for family, values in dispatch.items()
+                }
+                logger.log(
+                    "train",
+                    global_step=global_step,
+                    phase=phase.name,
+                    phase_consumed=consumed,
+                    phase_meter=phase.meter,
+                    loss={k: sums[k] / v for k, v in global_counts.items() if v},
+                    denominators=global_counts,
+                    lr=learning_rate,
+                    counters=asdict(counters),
+                    step_counters=asdict(global_work),
+                    optimizer_seconds=optimizer_seconds,
+                    step_seconds=elapsed,
+                    peak_memory_bytes=torch.cuda.max_memory_allocated()
+                    if context.device.type == "cuda"
+                    else 0,
+                    batch_sizes=[len(batch.windows) for batch in batches],
+                    efforts=[batch.effort for batch in batches],
+                    generator=diagnostics_global,
+                    experts=dispatch_summary(dispatch),
+                    budget_overshoot=max(0, consumed - phase.budget),
+                    **rates(global_work, elapsed),
+                    **step_metrics,
+                )
+            if config.eval_every and global_step % config.eval_every == 0:
+                from megatoken.training.evaluation import evaluate_records
+
+                rng = capture_rng()
+                if context.is_primary:
+                    validation = PreparedDataset(config.dataset, split="validation")
+                    try:
+                        logger.log(
+                            "evaluation",
+                            global_step=global_step,
+                            **evaluate_records(model, validation, codec, config, context.device),
+                        )
+                    finally:
+                        validation.close()
+                context.barrier()
+                restore_rng(rng)
+                model.train()
+            if config.checkpoint_every and global_step % config.checkpoint_every == 0:
+                last_checkpoint = checkpoint("periodic")
+            stops = context.sum_counts({"stop": int(stop_requested)})
+            if stops["stop"]:
+                last_checkpoint = checkpoint("interrupted", pinned=True)
+                break
+        if (updates_this_run > 0 and consumed >= phase.budget) or last_saved != global_step:
+            last_checkpoint = checkpoint(
+                "phase-end" if consumed >= phase.budget else "run-end", pinned=True
+            )
+        result = {
+            "global_step": global_step,
+            "phase": phase.name,
+            "phase_consumed": consumed,
+            "complete": consumed >= phase.budget,
+            "checkpoint": last_checkpoint,
+            "counters": asdict(counters),
+        }
+        logger.log("finished", **result)
+        return result
+    finally:
+        for signum, handler in old_handlers.items():
+            signal.signal(signum, handler)
+        if optimizer is not None:
+            optimizer.close()
+        if stream is not None:
+            stream.close()
+        if dataset is not None:
+            dataset.close()
+        context.close()

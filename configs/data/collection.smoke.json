@@ -1,0 +1,8 @@
+{
+  "distinct_tasks": 1,
+  "attempts_per_task": 1,
+  "teacher_output_limit": 16384,
+  "max_output_per_request": 512,
+  "max_requests_per_attempt": 8,
+  "seed_mix": {"terminal": 1.0}
+}

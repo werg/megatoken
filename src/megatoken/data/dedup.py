@@ -1,0 +1,525 @@
+"""Disk-backed deduplication, ancestor union, and frozen family splits.
+
+The full corpus remains in SQLite while ancestor components are resolved. No
+training shard is released until the component graph and benchmark quarantine
+are final. Near dedup uses bounded bottom-k word-shingle sketches and exact
+sketch Jaccard checks; its approximation is declared in the output manifest.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import heapq
+import re
+import sqlite3
+import struct
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from .schema import Codec, Episode, canonical_json, encode_record
+
+
+def _utc_timestamp(value: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError("Source dates and evaluation cutoffs must be ISO-8601 strings")
+    try:
+        instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Source dates and evaluation cutoffs must be ISO-8601 strings") from exc
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
+    return instant.astimezone(UTC).isoformat(timespec="microseconds")
+
+
+@dataclass(frozen=True, slots=True)
+class DedupConfig:
+    near_threshold: float = 0.94
+    shingle_words: int = 5
+    sketch_size: int = 256
+    anchor_count: int = 8
+    max_candidates: int = 4096
+    min_near_words: int = 40
+    max_descendants_per_parent: int = 5
+    train_fraction: float = 0.98
+    validation_fraction: float = 0.01
+    split_seed: str = "fmt-v13-family-split-v1"
+    evaluation_after: str | None = None
+
+    def __post_init__(self) -> None:
+        if not 0 < self.near_threshold <= 1:
+            raise ValueError("near_threshold must lie in (0, 1]")
+        if min(self.shingle_words, self.sketch_size, self.anchor_count, self.max_candidates) <= 0:
+            raise ValueError("Sketch parameters must be positive")
+        if self.anchor_count > self.sketch_size:
+            raise ValueError("Cannot use more anchors than sketch values")
+        if (
+            not 0 <= self.train_fraction <= 1
+            or not 0 <= self.validation_fraction <= 1 - self.train_fraction
+        ):
+            raise ValueError("Invalid train/validation/test proportions")
+        if self.min_near_words < 0 or self.max_descendants_per_parent < 1:
+            raise ValueError("Near minimum/descendant cap must be nonnegative/positive")
+        if self.evaluation_after is not None:
+            object.__setattr__(self, "evaluation_after", _utc_timestamp(self.evaluation_after))
+
+
+def _word_hashes(episode: Episode, config: DedupConfig) -> tuple[tuple[int, ...], int]:
+    heap: list[int] = []
+    selected: set[int] = set()
+    window: list[bytes] = []
+    words = 0
+    # Whitespace/case normalization is retrieval only. The retained bytes never
+    # change, and exact matching uses the original role-aware transcript hash.
+    for group in episode.iter_logical_records():
+        window.clear()  # Do not invent shingles across action/observation boundaries.
+        for match in re.finditer(rb"\S+", b"".join(record.payload for record in group)):
+            words += 1
+            window.append(match.group().lower())
+            if len(window) > config.shingle_words:
+                del window[0]
+            if len(window) != config.shingle_words:
+                continue
+            hashed = int.from_bytes(
+                hashlib.blake2b(
+                    b"\0".join(window), digest_size=8, person=b"fmt-shingle-v1"
+                ).digest(),
+                "little",
+            )
+            if hashed in selected:
+                continue
+            if len(heap) < config.sketch_size:
+                selected.add(hashed)
+                heapq.heappush(heap, -hashed)
+            elif hashed < -heap[0]:
+                selected.remove(-heapq.heapreplace(heap, -hashed))
+                selected.add(hashed)
+    return tuple(sorted(selected)), words
+
+
+def _pack(values: tuple[int, ...]) -> bytes:
+    return struct.pack(f"<{len(values)}Q", *values)
+
+
+def _unpack(value: bytes) -> set[int]:
+    return set(struct.unpack(f"<{len(value) // 8}Q", value))
+
+
+class DedupStore:
+    def __init__(self, path: str | Path, config: DedupConfig | None = None):
+        config = config or DedupConfig()
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.config = config
+        self.connection = sqlite3.connect(self.path)
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA journal_mode=WAL")
+        self.connection.execute("PRAGMA synchronous=FULL")
+        self.connection.executescript("""
+            CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS families(key TEXT PRIMARY KEY, parent TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS splits(family_id TEXT PRIMARY KEY, split TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS benchmarks(key TEXT PRIMARY KEY, kind TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS episodes(
+                ordinal INTEGER PRIMARY KEY AUTOINCREMENT, episode_id TEXT NOT NULL UNIQUE,
+                content_sha256 TEXT NOT NULL, family_key TEXT NOT NULL, resolved_family TEXT,
+                stream TEXT NOT NULL, source_id TEXT NOT NULL, episode_json TEXT NOT NULL,
+                sketch BLOB NOT NULL, word_count INTEGER NOT NULL, token_count INTEGER NOT NULL,
+                scored_positions INTEGER NOT NULL, assistant_tokens INTEGER NOT NULL,
+                observation_tokens INTEGER NOT NULL, executed_tokens INTEGER NOT NULL,
+                outcome TEXT NOT NULL, verified_success INTEGER NOT NULL, created_at TEXT,
+                duplicate_of TEXT, quarantine_reason TEXT, split TEXT, variant_key TEXT NOT NULL,
+                inherited_split TEXT
+            );
+            CREATE INDEX IF NOT EXISTS episode_content ON episodes(content_sha256);
+            CREATE INDEX IF NOT EXISTS episode_family ON episodes(family_key);
+            CREATE TABLE IF NOT EXISTS anchors(anchor TEXT NOT NULL, episode_id TEXT NOT NULL,
+                                               PRIMARY KEY(anchor, episode_id));
+            CREATE TABLE IF NOT EXISTS source_rows(source_key TEXT NOT NULL, row_index INTEGER NOT NULL,
+                status TEXT NOT NULL, detail TEXT, PRIMARY KEY(source_key, row_index));
+            CREATE TABLE IF NOT EXISTS source_progress(source_key TEXT PRIMARY KEY, next_row INTEGER NOT NULL,
+                                                        complete INTEGER NOT NULL DEFAULT 0);
+        """)
+        if "inherited_split" not in {
+            row[1] for row in self.connection.execute("PRAGMA table_info(episodes)")
+        }:
+            self.connection.execute("ALTER TABLE episodes ADD COLUMN inherited_split TEXT")
+        prior = self.get_meta("dedup_config")
+        current = canonical_json(asdict(config))
+        if prior is not None and prior != current:
+            raise ValueError("Dedup/split configuration changed; use a new preparation directory")
+        self.set_meta("dedup_config", current)
+        self.connection.commit()
+
+    def close(self) -> None:
+        self.connection.close()
+
+    def __enter__(self) -> DedupStore:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        with self.connection:
+            yield
+
+    def get_meta(self, key: str) -> str | None:
+        row = self.connection.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.connection.execute(
+            "INSERT INTO meta VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+
+    @property
+    def frozen(self) -> bool:
+        return self.get_meta("families_frozen") == "true"
+
+    def _find(self, key: str) -> str:
+        path = []
+        current = key
+        while True:
+            row = self.connection.execute(
+                "SELECT parent FROM families WHERE key=?", (current,)
+            ).fetchone()
+            if row is None:
+                if self.frozen:
+                    raise ValueError(f"Unknown ancestor after family splits were frozen: {key}")
+                self.connection.execute("INSERT INTO families VALUES(?,?)", (current, current))
+                root = current
+                break
+            if row[0] == current:
+                root = current
+                break
+            path.append(current)
+            current = row[0]
+        for node in path:
+            self.connection.execute("UPDATE families SET parent=? WHERE key=?", (root, node))
+        return root
+
+    def register_family(self, keys: Iterable[str]) -> str:
+        """Register ancestors before any synthetic descendants are generated."""
+        keys = tuple(sorted(set(keys)))
+        if not keys:
+            raise ValueError("At least one ancestor family is required")
+        roots = sorted({self._find(key) for key in keys})
+        if self.frozen and len(roots) != 1:
+            raise ValueError("Cannot merge separately assigned families after splitting")
+        root = roots[0]
+        for other in roots[1:]:
+            self.connection.execute("UPDATE families SET parent=? WHERE key=?", (root, other))
+        return root
+
+    def register_episode_lineage(self, episode: Episode) -> str:
+        """Known benchmark ancestry survives later quality rejection of a row."""
+        root = self.register_family(episode.lineage.family_keys)
+        if (
+            episode.supervision.benchmark_tags
+            or self.connection.execute(
+                "SELECT 1 FROM benchmarks WHERE key=? AND kind='content'", (episode.content_sha256,)
+            ).fetchone()
+        ):
+            self.connection.execute("INSERT OR IGNORE INTO benchmarks VALUES(?, 'family')", (root,))
+        return root
+
+    def quarantine_benchmarks(
+        self, *, family_keys: Iterable[str] = (), content_sha256: Iterable[str] = ()
+    ) -> None:
+        if self.frozen:
+            raise ValueError("Register the benchmark snapshot before freezing families")
+        for key in family_keys:
+            self.connection.execute("INSERT OR IGNORE INTO benchmarks VALUES(?, 'family')", (key,))
+            self._find(key)
+        for digest in content_sha256:
+            self.connection.execute(
+                "INSERT OR IGNORE INTO benchmarks VALUES(?, 'content')", (digest,)
+            )
+        self.connection.commit()
+
+    def source_cursor(self, key: str) -> tuple[int, bool]:
+        row = self.connection.execute(
+            "SELECT next_row,complete FROM source_progress WHERE source_key=?", (key,)
+        ).fetchone()
+        return (row[0], bool(row[1])) if row else (0, False)
+
+    def mark_source(
+        self, key: str, row: int, *, status: str, detail: str = "", complete: bool = False
+    ) -> None:
+        self.connection.execute(
+            "INSERT OR IGNORE INTO source_rows VALUES(?,?,?,?)", (key, row, status, detail[:2048])
+        )
+        self.connection.execute(
+            "INSERT INTO source_progress VALUES(?,?,?) ON CONFLICT(source_key) DO UPDATE SET next_row=excluded.next_row,complete=excluded.complete",
+            (key, row + 1, int(complete)),
+        )
+
+    def add(self, episode: Episode, codec: Codec) -> str:
+        if self.frozen:
+            raise ValueError(
+                "Base ingestion is closed after splits freeze; export descendants to a new preparation run with inherited frozen splits"
+            )
+        prior_episode = self.connection.execute(
+            "SELECT episode_json FROM episodes WHERE episode_id=?", (episode.episode_id,)
+        ).fetchone()
+        if prior_episode:
+            if prior_episode[0] != canonical_json(episode.to_dict()):
+                raise ValueError(
+                    "An immutable episode ID was reused with changed bytes, masks, or metadata"
+                )
+            return "already_present"
+        root = self.register_episode_lineage(episode)
+        sketch, word_count = _word_hashes(episode, self.config)
+        duplicate = self.connection.execute(
+            "SELECT episode_id,family_key FROM episodes WHERE content_sha256=? ORDER BY ordinal LIMIT 1",
+            (episode.content_sha256,),
+        ).fetchone()
+        reason = None
+        duplicate_of = duplicate[0] if duplicate else None
+        if duplicate:
+            root = self.register_family((root, duplicate[1]))
+        elif len(sketch) >= self.config.shingle_words and word_count >= self.config.min_near_words:
+            anchors = [f"{value:016x}" for value in sketch[: self.config.anchor_count]]
+            placeholders = ",".join("?" for _ in anchors)
+            candidates = self.connection.execute(
+                f"SELECT DISTINCT episode_id FROM anchors WHERE anchor IN ({placeholders}) LIMIT ?",
+                (*anchors, self.config.max_candidates + 1),
+            ).fetchall()
+            if len(candidates) > self.config.max_candidates:
+                # Do not silently claim deduplication when a template is saturated.
+                reason = "near_dedup_candidate_saturation"
+            else:
+                own = set(sketch)
+                for candidate in candidates:
+                    other = self.connection.execute(
+                        "SELECT sketch,family_key,word_count FROM episodes WHERE episode_id=?",
+                        (candidate[0],),
+                    ).fetchone()
+                    if (
+                        min(word_count, other[2]) / max(word_count, other[2], 1)
+                        < self.config.near_threshold
+                    ):
+                        continue
+                    values = _unpack(other[0])
+                    similarity = len(own & values) / max(1, len(own | values))
+                    if similarity >= self.config.near_threshold:
+                        root = self.register_family((root, other[1]))
+                        if duplicate_of is None:
+                            duplicate_of = candidate[0]
+        encoded = tuple(encode_record(record, codec) for record in episode.records)
+        if (
+            episode.supervision.benchmark_tags
+            or self.connection.execute(
+                "SELECT 1 FROM benchmarks WHERE key=? AND kind='content'", (episode.content_sha256,)
+            ).fetchone()
+        ):
+            reason = "benchmark_contamination"
+        variant = (
+            f"task:{episode.lineage.task_id}"
+            if episode.lineage.task_id
+            else episode.lineage.family_id
+        )
+        if variant.startswith("repository:"):
+            variant = episode.lineage.raw_sha256 or episode.episode_id
+        self.connection.execute(
+            """INSERT INTO episodes(
+            episode_id,content_sha256,family_key,stream,source_id,episode_json,sketch,word_count,
+            token_count,scored_positions,assistant_tokens,observation_tokens,executed_tokens,
+            outcome,verified_success,created_at,duplicate_of,quarantine_reason,variant_key,inherited_split)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                episode.episode_id,
+                episode.content_sha256,
+                root,
+                episode.stream,
+                episode.lineage.source_id,
+                canonical_json(episode.to_dict()),
+                _pack(sketch),
+                word_count,
+                sum(record.tokens for record in encoded),
+                sum(record.P for record in encoded),
+                sum(
+                    record.tokens
+                    for record in encoded
+                    if record.record.role == "assistant" and record.record.policy_mask
+                ),
+                sum(
+                    record.tokens
+                    for record in encoded
+                    if record.record.role in {"tool", "environment"}
+                ),
+                sum(record.tokens for record in encoded if record.record.provenance == "executed"),
+                episode.supervision.outcome,
+                int(episode.supervision.verified_success),
+                _utc_timestamp(episode.lineage.created_at) if episode.lineage.created_at else None,
+                duplicate_of,
+                reason,
+                variant,
+                episode.lineage.frozen_split,
+            ),
+        )
+        if not duplicate_of and reason in {None, "benchmark_contamination"}:
+            self.connection.executemany(
+                "INSERT OR IGNORE INTO anchors VALUES(?,?)",
+                (
+                    (f"{value:016x}", episode.episode_id)
+                    for value in sketch[: self.config.anchor_count]
+                ),
+            )
+        return "quarantine" if reason else "duplicate" if duplicate_of else "accepted_candidate"
+
+    def freeze(self) -> None:
+        """Resolve complete ancestor components, then assign and propagate splits."""
+        if self.frozen:
+            return
+        with self.connection:
+            benchmark_roots = {
+                self._find(row[0])
+                for row in self.connection.execute("SELECT key FROM benchmarks WHERE kind='family'")
+            }
+            for row in self.connection.execute(
+                "SELECT ordinal,family_key FROM episodes ORDER BY ordinal"
+            ):
+                root = self._find(row[1])
+                self.connection.execute(
+                    "UPDATE episodes SET resolved_family=? WHERE ordinal=?", (root, row[0])
+                )
+            benchmark_roots.update(
+                row[0]
+                for row in self.connection.execute(
+                    "SELECT DISTINCT resolved_family FROM episodes WHERE quarantine_reason='benchmark_contamination'"
+                )
+            )
+            timed_roots: set[str] = set()
+            if self.config.evaluation_after:
+                # Both source timestamps and cutoffs were normalized to UTC.
+                timed_roots = {
+                    row[0]
+                    for row in self.connection.execute(
+                        "SELECT DISTINCT resolved_family FROM episodes WHERE created_at >= ?",
+                        (self.config.evaluation_after,),
+                    )
+                }
+            for row in self.connection.execute(
+                "SELECT key FROM families WHERE parent=key ORDER BY key"
+            ):
+                root = row[0]
+                inherited = {
+                    item[0]
+                    for item in self.connection.execute(
+                        "SELECT DISTINCT inherited_split FROM episodes WHERE resolved_family=? AND inherited_split IS NOT NULL",
+                        (root,),
+                    )
+                }
+                if root in benchmark_roots:
+                    split = "quarantine"
+                elif len(inherited) > 1:
+                    # New cross-source joins cannot move a previously held-out
+                    # descendant into training. Quarantine the entire conflict.
+                    split = "quarantine"
+                elif inherited:
+                    split = next(iter(inherited))
+                elif root in timed_roots:
+                    split = "test"
+                else:
+                    value = (
+                        int.from_bytes(
+                            hashlib.sha256(f"{self.config.split_seed}\0{root}".encode()).digest()[
+                                :8
+                            ],
+                            "big",
+                        )
+                        / 2**64
+                    )
+                    split = (
+                        "train"
+                        if value < self.config.train_fraction
+                        else "validation"
+                        if value < self.config.train_fraction + self.config.validation_fraction
+                        else "test"
+                    )
+                self.connection.execute("INSERT OR REPLACE INTO splits VALUES(?,?)", (root, split))
+                self.connection.execute(
+                    "UPDATE episodes SET split=? WHERE resolved_family=?", (split, root)
+                )
+                if split == "quarantine":
+                    self.connection.execute(
+                        "UPDATE episodes SET quarantine_reason='benchmark_family' WHERE resolved_family=?",
+                        (root,),
+                    )
+            if self.config.max_descendants_per_parent:
+                # SQL window functions avoid keeping all variant/task counts in RAM.
+                self.connection.execute(
+                    """UPDATE episodes SET quarantine_reason='parent_variant_cap'
+                    WHERE ordinal IN (SELECT ordinal FROM (
+                        SELECT ordinal, ROW_NUMBER() OVER (PARTITION BY variant_key ORDER BY ordinal) AS n
+                        FROM episodes WHERE duplicate_of IS NULL AND quarantine_reason IS NULL
+                    ) WHERE n > ?)""",
+                    (self.config.max_descendants_per_parent,),
+                )
+            self.set_meta("families_frozen", "true")
+
+    def split_of(self, family_key: str) -> str:
+        if not self.frozen:
+            raise ValueError("Freeze source/parent families before creating descendants")
+        root = self._find(family_key)
+        row = self.connection.execute(
+            "SELECT split FROM splits WHERE family_id=?", (root,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("Family has no frozen split")
+        return row[0]
+
+    def assert_descendant(self, episode: Episode) -> str:
+        """Collection uses this BEFORE a teacher is called, and again on export."""
+        roots = {self._find(key) for key in episode.lineage.family_keys}
+        if len(roots) != 1:
+            raise ValueError("Descendant introduces cross-split lineage")
+        return self.split_of(next(iter(roots)))
+
+    def accepted_rows(self) -> Iterator[sqlite3.Row]:
+        if not self.frozen:
+            raise ValueError("Family splits must be frozen before shards are written")
+        yield from self.connection.execute(
+            "SELECT * FROM episodes WHERE duplicate_of IS NULL AND quarantine_reason IS NULL ORDER BY ordinal"
+        )
+
+    def census(self) -> dict[str, Any]:
+        rows = self.connection.execute("""SELECT stream,source_id,split,COUNT(*) AS episodes,
+            SUM(token_count) AS U,SUM(scored_positions) AS free_position_candidates,
+            SUM(assistant_tokens) AS eligible_assistant_tokens,SUM(observation_tokens) AS tool_observation_tokens,
+            SUM(executed_tokens) AS executed_observation_tokens,COUNT(DISTINCT resolved_family) AS families
+            FROM episodes WHERE duplicate_of IS NULL AND quarantine_reason IS NULL
+            GROUP BY stream,source_id,split ORDER BY stream,source_id,split""").fetchall()
+        accepted = [dict(row) for row in rows]
+        total = sum(row["U"] for row in accepted)
+        return {
+            "U": total,
+            "D": 0,
+            "I": 0,
+            "P": 0,
+            "T": 0,
+            "free_position_candidates": sum(row["free_position_candidates"] for row in accepted),
+            "accepted_episodes": sum(row["episodes"] for row in accepted),
+            "independent_families": self.connection.execute(
+                "SELECT COUNT(DISTINCT resolved_family) FROM episodes WHERE duplicate_of IS NULL AND quarantine_reason IS NULL"
+            ).fetchone()[0],
+            "duplicates": self.connection.execute(
+                "SELECT COUNT(*) FROM episodes WHERE duplicate_of IS NOT NULL"
+            ).fetchone()[0],
+            "quarantined": self.connection.execute(
+                "SELECT COUNT(*) FROM episodes WHERE quarantine_reason IS NOT NULL"
+            ).fetchone()[0],
+            "rejected_rows": self.connection.execute(
+                "SELECT COUNT(*) FROM source_rows WHERE status='rejected'"
+            ).fetchone()[0],
+            "strata": accepted,
+            "U_definition": "Raw-codec tokens in accepted deduplicated complete transcripts, including shared context; shared prefixes reported separately.",
+            "P_definition": "P is zero until loss is actually evaluated. free_position_candidates is the static masked target inventory.",
+        }

@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "megatoken"
+version = "0.1.0"
+description = "Causal faceted sparse models: byte-exact data, training, and generation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26,<3", "PyYAML>=6.0,<7", "jsonschema>=4.23,<5"]
+
+[project.optional-dependencies]
+train = ["torch>=2.10,<2.15", "safetensors>=0.5,<1"]
+data = ["tokenizers>=0.21,<1", "regex>=2024.11", "huggingface-hub>=0.28,<2", "pyarrow>=18,<24", "datasets>=3,<5", "zstandard>=0.23,<1"]
+dev = ["pytest>=8.3,<9", "ruff>=0.11,<1", "build>=1.2,<2"]
+
+[project.scripts]
+megatoken = "megatoken.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/megatoken"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["cuda: requires a CUDA GPU", "distributed: starts multiple processes", "slow: extended integration gate"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
