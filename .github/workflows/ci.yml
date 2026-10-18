@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -86,6 +87,27 @@ jobs:
         run: |
           megatoken --help
           megatoken doctor
+      - name: Report same-repo PR diagnostics
+        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo 'CI diagnostics from ${{ github.sha }}'
+            for path in /tmp/lint.log /tmp/format.log /tmp/shell.log /tmp/tests.log; do
+              if [[ -f "$path" ]]; then
+                echo
+                echo "### $path"
+                echo '```text'
+                tail -c 4000 "$path"
+                echo
+                echo '```'
+              fi
+            done
+          } > /tmp/pr-diagnostics.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/pr-diagnostics.md
+
       - name: Retain tests and package artifacts
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
