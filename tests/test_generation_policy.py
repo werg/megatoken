@@ -661,3 +661,41 @@ def test_v4_tape_control_payload_requires_an_exact_serialized_byte_field(model, 
         ActionTape.from_json(json.dumps(encoded))
     with pytest.raises(TypeError, match="immutable bytes"):
         replace(result.tape, control_payload="not bytes")
+
+
+def test_schema_with_fixed_wire_envelope_larger_than_limit_is_not_selected(model):
+    from megatoken.generation.feasibility import wire_witness_tokens
+
+    schema = SchemaSpec(
+        "long-tool",
+        (
+            FieldSpec(
+                "name", kind="json", fixed_json='"ridiculously_long_tool_name"',
+                max_tokens=128,
+            ),
+            FieldSpec("arguments", kind="json", fixed_json="{}", max_tokens=128),
+        ),
+    )
+    witness = wire_witness_tokens(schema, model.codec)
+    assert witness is not None and witness > 8
+    spec = ActionSpec(allow_text=False, schemas=(schema,), max_tokens=8)
+    with pytest.raises(ValueError, match="no public output mode"):
+        model.sample(model.core.initial_state(1), spec=spec)
+
+
+def test_public_required_json_argument_has_constructible_wire_witness(model):
+    from megatoken.generation.feasibility import wire_witness_tokens
+
+    schema = SchemaSpec(
+        "read",
+        (
+            FieldSpec("name", kind="json", fixed_json='"read"', max_tokens=128),
+            FieldSpec(
+                "arguments", kind="json",
+                json_schema='{"type":"object","required":["path"],"properties":{"path":{"type":"string"}}}',
+                max_tokens=128,
+            ),
+        ),
+    )
+    witness = wire_witness_tokens(schema, model.codec)
+    assert witness == len(model.codec.encode(b'{"name":"read","arguments":{"path":""}}'))
