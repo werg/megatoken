@@ -110,8 +110,9 @@ def initialize_coordinator(
                 {"theta": values},
                 metadata={"version": "0"},
             )
-        write_json(root / "manifest.json", manifest)
         write_json(root / "progress.json", {"workers": {}, "leases": {}, "merges": 0})
+        # Manifest is the last write: a run is discoverable only when complete.
+        write_json(root / "manifest.json", manifest)
     except BaseException:
         # Partial initialization is not a valid run (manifest is committed last).
         (root / "manifest.json").unlink(missing_ok=True)
