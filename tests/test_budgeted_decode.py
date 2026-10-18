@@ -1,7 +1,7 @@
 """Regression gates for tool-wire capacity and batched lexical realization."""
 
-import torch
 import pytest
+import torch
 
 from megatoken.generation import ActionSpec, ByteCodec, FacetedGenerator, FieldSpec, SchemaSpec
 from megatoken.generation.feasibility import wire_overhead_tokens, wire_witness_tokens
