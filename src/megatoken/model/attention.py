@@ -144,7 +144,7 @@ def _encode(
 
 
 class KVProjection(nn.Module):
-    """A single normalized KV owner shared by central and predictive readers."""
+    """Normalized projection; C has three private temporary and one final KV owner."""
 
     def __init__(self, source_dim: int, kv_heads: int, head_dim: int, eps: float = 1e-6):
         super().__init__()
