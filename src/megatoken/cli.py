@@ -93,11 +93,13 @@ def _diloco_initialize(args):
     """Create immutable coordinator bootstrap from the exact train architecture."""
     import torch
 
+    from megatoken.data import PreparedDataset
     from megatoken.loading import build_model, load_codec, load_model_config
     from megatoken.runtime import seed_everything
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.config import TrainConfig
     from megatoken.training.diloco_protocol import training_identity
+    from megatoken.io import content_hash
     from megatoken.training.diloco_server import initialize_coordinator
     from megatoken.training.schedule import PHASES
 
@@ -131,6 +133,8 @@ def _diloco_initialize(args):
         for name, parameter in model.named_parameters()
         if parameter.requires_grad
     }
+    with PreparedDataset(config.dataset) as prepared:
+        dataset_fingerprint = content_hash(prepared.manifest)
     return initialize_coordinator(
         args.root,
         run_id=config.decoupled.run_id,
@@ -139,6 +143,7 @@ def _diloco_initialize(args):
         model_config=model_config.to_dict(),
         codec_fingerprint=codec.fingerprint,
         train_identity=training_identity(config),
+        dataset_fingerprint=dataset_fingerprint,
         workers=config.decoupled.workers,
         min_quorum=args.quorum,
         fragment_bytes=args.fragment_mib * 1024 * 1024,
