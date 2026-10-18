@@ -648,6 +648,7 @@ def train(
                 output=output / "diloco",
                 token_budget=phase.budget,
                 train_identity=training_identity(config),
+                dataset_fingerprint=content_hash(dataset.manifest),
             )
             if payload is None:
                 diloco.bootstrap(model, optimizer)
