@@ -26,6 +26,8 @@ class ModelConfig:
     remix_hidden: int = 1024
     history_slots: int = 32
     max_history_chunks: int = 1024
+    recent_history_chunks: int = 64
+    archived_slots_per_chunk: int = 2
     source_dim: int = 256
     byte_dim: int = 8
     source_stride: int = 8
@@ -87,6 +89,8 @@ class ModelConfig:
             "remix_hidden",
             "history_slots",
             "max_history_chunks",
+            "recent_history_chunks",
+            "archived_slots_per_chunk",
             "query_heads",
             "kv_heads",
             "attention_head_dim",
@@ -107,6 +111,12 @@ class ModelConfig:
                 raise ValueError(f"{name} must lie strictly within exp(-4) and exp(1)")
         if self.history_slots > self.n_facets:
             raise ValueError("history_slots cannot exceed n_facets")
+        if self.recent_history_chunks > self.max_history_chunks:
+            raise ValueError("recent history cannot exceed the retained record count")
+        if self.archived_slots_per_chunk > self.history_slots or (
+            self.history_slots % self.archived_slots_per_chunk
+        ):
+            raise ValueError("archive slots must evenly divide the per-record KV slots")
         if self.n_facets % 4:
             raise ValueError("n_facets must be divisible by four for pair schedules")
         if self.query_heads % self.kv_heads:
@@ -146,6 +156,8 @@ class ModelConfig:
             self.prediction_layers,
             self.history_slots,
             self.max_history_chunks,
+            self.recent_history_chunks,
+            self.archived_slots_per_chunk,
             self.kv_heads,
             self.attention_head_dim,
         )
@@ -174,12 +186,17 @@ class ModelConfig:
             remix_hidden=48,
             history_slots=4,
             max_history_chunks=8,
+            recent_history_chunks=8,
             attention_head_dim=8,
             vocab_size=256,
             output_rank=16,
             max_capacity=128,
         )
         values.update(overrides)
+        if "recent_history_chunks" not in overrides:
+            values["recent_history_chunks"] = min(
+                values["recent_history_chunks"], values["max_history_chunks"]
+            )
         return cls(**values)
 
     @classmethod
@@ -197,6 +214,8 @@ class ModelConfig:
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
+        if "recent_history_chunks" not in values or "archived_slots_per_chunk" not in values:
+            raise ValueError("Saved v4 config lacks the explicit hierarchical history contract")
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
                 "Saved model configuration must explicitly declare architecture_version=4; "

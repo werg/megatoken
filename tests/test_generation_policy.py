@@ -147,7 +147,7 @@ def test_one_gaussian_draw_and_no_stochastic_downstream_work(model):
     assert torch.equal(global_rng, torch.random.get_rng_state())
     assert result.scored_positions == result.tape.scored_positions == 0
     assert result.latent_dimensions == result.tape.latent_dimensions == model.latent_dimensions
-    raw = torch.tensor(result.tape.facets).reshape(1, *result.tape.facet_shape)
+    raw = torch.from_numpy(result.tape.facet_array().copy()).reshape(1, *result.tape.facet_shape)
     decoded = model.decode_facets(raw, spec=ActionSpec(min_tokens=4, max_tokens=4))
     torch.manual_seed(9981)
     again = model.decode_facets(raw, spec=ActionSpec(min_tokens=4, max_tokens=4))
@@ -164,7 +164,7 @@ def test_generated_facets_commit_raw_without_encoding_decoded_bytes(model, monke
     state = model.core.initial_state(1)
     spec = ActionSpec(min_tokens=4, max_tokens=4)
     sampled = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(9))
-    raw = torch.tensor(sampled.tape.facets).reshape(1, *sampled.tape.facet_shape)
+    raw = torch.from_numpy(sampled.tape.facet_array().copy()).reshape(1, *sampled.tape.facet_shape)
     expected = model.core.advance_raw(state, raw, role_ids=torch.tensor([2]))
     assert_state_equal(sampled.state, expected)
     scored = model.score_tape(state, sampled.tape, spec=spec)
@@ -243,7 +243,7 @@ def test_replay_reconstructs_state_and_candidate_density_depends_on_history(mode
     )
     assert_state_equal(state, second.state)
     assert_replay_density_close(probabilities[1], second.log_prob, model.latent_dimensions)
-    raw = torch.tensor(second.tape.facets).reshape(1, *second.tape.facet_shape)
+    raw = torch.from_numpy(second.tape.facet_array().copy()).reshape(1, *second.tape.facet_shape)
     isolated = model.facet_distribution(model.core.predict_facets(initial)).log_prob(raw).sum()
     assert not torch.allclose(isolated, second.log_prob)
 
@@ -661,3 +661,73 @@ def test_v4_tape_control_payload_requires_an_exact_serialized_byte_field(model, 
         ActionTape.from_json(json.dumps(encoded))
     with pytest.raises(TypeError, match="immutable bytes"):
         replace(result.tape, control_payload="not bytes")
+
+
+def test_schema_with_fixed_wire_envelope_larger_than_limit_is_not_selected(model):
+    from megatoken.generation.feasibility import wire_witness_tokens
+
+    schema = SchemaSpec(
+        "long-tool",
+        (
+            FieldSpec(
+                "name", kind="json", fixed_json='"ridiculously_long_tool_name"',
+                max_tokens=128,
+            ),
+            FieldSpec("arguments", kind="json", fixed_json="{}", max_tokens=128),
+        ),
+    )
+    witness = wire_witness_tokens(schema, model.codec)
+    assert witness is not None and witness > 8
+    spec = ActionSpec(allow_text=False, schemas=(schema,), max_tokens=8)
+    with pytest.raises(ValueError, match="no public output mode"):
+        model.sample(model.core.initial_state(1), spec=spec)
+
+
+def test_public_required_json_argument_has_constructible_wire_witness(model):
+    from megatoken.generation.feasibility import wire_witness_tokens
+
+    schema = SchemaSpec(
+        "read",
+        (
+            FieldSpec("name", kind="json", fixed_json='"read"', max_tokens=128),
+            FieldSpec(
+                "arguments", kind="json",
+                json_schema=(
+                    '{"type":"object","required":["path"],'
+                    '"properties":{"path":{"type":"string"}}}'
+                ),
+                max_tokens=128,
+            ),
+        ),
+    )
+    witness = wire_witness_tokens(schema, model.codec)
+    assert witness == len(model.codec.encode(b'{"name":"read","arguments":{"path":""}}'))
+
+
+def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model):
+    result = model.sample(
+        model.core.initial_state(1),
+        spec=ActionSpec(max_tokens=0),
+        generator=torch.Generator().manual_seed(117),
+    )
+    tape = result.tape
+    assert isinstance(tape.facets, bytes)
+    assert len(tape.facets) == 4 * tape.latent_dimensions
+    restored = ActionTape.from_json(tape.to_json())
+    assert restored.facets == tape.facets
+    assert restored == tape
+    legacy = json.loads(tape.to_json())
+    legacy["facets"] = tape.facet_array().tolist()
+    decoded = ActionTape.from_json(json.dumps(legacy))
+    assert isinstance(decoded.facets, tuple)
+    assert decoded.facet_array().tobytes() == tape.facets
+    torch.testing.assert_close(
+        model.score_tape(
+            model.core.initial_state(1),
+            decoded,
+            spec=ActionSpec(max_tokens=0),
+        ).log_prob,
+        result.log_prob,
+        rtol=0,
+        atol=1e-5,
+    )

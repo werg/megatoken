@@ -307,12 +307,28 @@ def forward_batch(
                 [ROLE_TO_ID[record.record.role] for record in records], device=device
             )
             plan = batch.targets[offset]
+            # The recorded tool result is only causally compatible with its
+            # recorded action. Preserve that action's native raw tape when
+            # available, otherwise teacher-force E(recorded action) solely for
+            # the *successor* state. The sampled prior branch still receives
+            # its own ordinary lexical supervision.
+            teacher_forced_action = any(
+                (
+                    action_id := item.window.records[offset].record.action_id
+                ) is not None
+                and any(
+                    future.result_of == action_id
+                    for future in item.episode.records[cursor + 1 :]
+                )
+                for item in batch.windows
+            )
             if hasattr(plan, "spec"):
                 step = model.supervised_action(
                     state,
                     plan=plan,
                     effort=batch.effort,
                     control=control,
+                    teacher_forced_action=teacher_forced_action,
                 )
             else:
                 step = model.supervised_step(
@@ -321,6 +337,7 @@ def forward_batch(
                     effort=batch.effort,
                     control=control,
                     role_ids=roles,
+                    teacher_forced_action=teacher_forced_action,
                 )
             state = step.state
             losses.append(ledger.backward_loss(step.losses))

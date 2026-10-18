@@ -256,7 +256,7 @@ class ActionTape:
     codec_fingerprint: str
     spec_fingerprint: str
     facet_shape: tuple[int, int]
-    facets: tuple[float, ...]
+    facets: tuple[float, ...] | bytes
     effort: int
     role_id: int
     payload: bytes
@@ -271,21 +271,42 @@ class ActionTape:
     def __post_init__(self) -> None:
         if self.version != TAPE_VERSION:
             raise ValueError("legacy action tapes cannot be replayed by the canonical-facet policy")
-        for name in ("facet_shape", "facets", "emitted_ids", "trace"):
+        for name in ("facet_shape", "emitted_ids", "trace"):
             object.__setattr__(self, name, tuple(getattr(self, name)))
+        if isinstance(self.facets, (bytes, bytearray)):
+            object.__setattr__(self, "facets", bytes(self.facets))
+        else:
+            object.__setattr__(self, "facets", tuple(self.facets))
         object.__setattr__(self, "payload", bytes(self.payload))
         if not isinstance(self.control_payload, bytes):
             raise TypeError("control_payload must contain exact immutable bytes")
         if len(self.facet_shape) != 2 or any(value <= 0 for value in self.facet_shape):
             raise ValueError("facet_shape must contain a positive facet count and width")
-        if len(self.facets) != math.prod(self.facet_shape):
-            raise ValueError("tape does not contain its complete raw facet tensor")
-        if not all(math.isfinite(value) for value in self.facets):
-            raise ValueError("raw facet actions must be finite")
+        import numpy as np
+
+        if isinstance(self.facets, bytes):
+            if len(self.facets) != 4 * math.prod(self.facet_shape):
+                raise ValueError("tape does not contain its complete raw facet tensor (packed FP32 length)")
+            values = np.frombuffer(self.facets, dtype="<f4")
+            if not bool(np.isfinite(values).all()):
+                raise ValueError("raw facet actions must be finite")
+        else:
+            if len(self.facets) != math.prod(self.facet_shape):
+                raise ValueError("tape does not contain its complete raw facet tensor")
+            if not all(math.isfinite(value) for value in self.facets):
+                raise ValueError("raw facet actions must be finite")
         if not math.isfinite(self.behavior_log_prob):
             raise ValueError("behavior Gaussian density must be finite")
         if not 0 <= self.role_id <= 5:
             raise ValueError("tape role ID is unsupported")
+
+    def facet_array(self):
+        """Raw FP32 array without allocating thousands of Python float objects."""
+        import numpy as np
+
+        if isinstance(self.facets, bytes):
+            return np.frombuffer(self.facets, dtype="<f4")
+        return np.asarray(self.facets, dtype=np.float32)
 
     @property
     def latent_dimensions(self) -> int:
@@ -311,6 +332,8 @@ class ActionTape:
         value["trace"] = tuple(Decision(**decision) for decision in value.get("trace", ()))
         value["payload"] = _parse_bytes(value["payload"], "payload")
         value["control_payload"] = _parse_bytes(value["control_payload"], "control_payload")
+        if isinstance(value.get("facets"), dict):
+            value["facets"] = _parse_bytes(value["facets"], "facets")
         return cls(**value)
 
 

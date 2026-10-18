@@ -14,6 +14,7 @@ from torch.nn import functional as F
 from megatoken.model.layers import position_features
 
 from .distributions import TiedVocabulary
+from .feasibility import wire_witness_tokens
 from .realizer import ParallelRealizer
 from .structure import ActionSpec, Decision, FieldSpec
 from .targets import PreparedAction, PreparedTargets, planned_fields, source_ids, workspace_capacity
@@ -54,7 +55,10 @@ class _Program:
         support = torch.tensor(allowed, device=logits.device, dtype=torch.long)
         selected_logits = logits.float().reshape(-1).index_select(0, support)
         if self.teacher is None:
-            value = allowed[int(selected_logits.argmax())]
+            # Public singleton decisions have no uncertainty. Do not insert a
+            # GPU->host synchronization just to rediscover a forced schema,
+            # tool mode, fixed length, or required terminal.
+            value = allowed[0] if len(allowed) == 1 else allowed[int(selected_logits.argmax())]
         else:
             if forced is None or int(forced) not in allowed:
                 raise ValueError(f"teacher decision {name}={forced} is outside public constraints")
@@ -201,11 +205,18 @@ class DeterministicDecoder(nn.Module):
             index: planned_fields(self.codec, schema.fields)
             for index, schema in enumerate(spec.schemas)
         }
-        feasible = [
-            index
-            for index, fields in schema_fields.items()
-            if fields is not None and sum(value.minimum for value in fields.values()) <= limit
-        ]
+        # The model's field lengths are not the wire length. A tool may
+        # require more tokens for its fixed JSON envelope than for all its
+        # semantic values combined. Require a schema-valid complete wire
+        # witness at this limit before making it a candidate.
+        feasible = []
+        for index, fields in schema_fields.items():
+            if fields is None or sum(value.minimum for value in fields.values()) > limit:
+                continue
+            witness = wire_witness_tokens(spec.schemas[index], self.codec)
+            if witness is not None and witness > limit:
+                continue
+            feasible.append(index)
         modes = ([0] if spec.allow_text and spec.min_tokens <= limit else []) + (
             [1] if feasible else []
         )

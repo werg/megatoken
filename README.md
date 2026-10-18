@@ -34,8 +34,8 @@ corpus. Model quality and GPU throughput require measurement on the training har
 | Semantic packing target / soft / hard limit | 256 / 512 / 1,024 reference codec tokens |
 | Maximum realizer output positions | 1,024, including fixed syntax |
 | Attention | 4 query heads and 2 KV heads, each 128 coordinates wide |
-| Historical KV | All 32 slots per selected input; one KV projector with block-specific readers |
-| History bound | 1,024 chunks; 32 MiB of BF16 KV per episode |
+| Historical KV | 32 slots for each of 64 recent records; 2 coarse slots for each older retained record |
+| History bound | 1,024 chunks; approximately 3.88 MiB of BF16 KV per 32x512 episode |
 
 One generated step is `predict → sample → central processing and KV write → realize`.
 The returned state already contains the central computation that the **next**
@@ -154,7 +154,7 @@ mark a phase complete. Resume with the same configuration:
 NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml --resume runs/b0/checkpoints
 ```
 
-The default CUDA path uses BF16 PyTorch operators and SDPA. An explicit Triton grouped
+The production CUDA configs select Triton grouped dispatch after the required Blackwell numerical gate. An explicit Triton grouped
 expert backend includes forward/backward parity gates. After the hardware gate succeeds,
 benchmark it in a separately named experiment:
 

@@ -141,3 +141,17 @@ def test_bake_updates_fp32_masters_and_removes_map_ownership():
     replacement.load_state_dict(checkpoint)
     optimizer.close()
     replacement.close()
+
+
+def test_confident_router_cannot_amplify_expert_above_twofold():
+    router = EpochRouter(8, 8, 64, 8)
+    with torch.no_grad():
+        router.palette_codes.zero_()
+        router.row_codes.zero_()
+        router.palette_codes[0].fill_(100.0)
+        router.row_codes[0].fill_(100.0)
+    route = router.route(torch.randn(1, 8), 7, 12)
+    assert torch.isfinite(route.confidence).all()
+    assert route.confidence.min() > 0
+    assert route.confidence.max() <= 2.0
+    assert route.confidence.shape == (1, 12)

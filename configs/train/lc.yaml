@@ -8,7 +8,8 @@ output: runs/lc
 device: cuda
 precision: bf16
 require_blackwell: true
-expert_backend: torch
+# Production requires the Blackwell parity gate before the budgeted run.
+expert_backend: triton
 representation_mode: recurrent
 gradient_checkpointing: true
 compile: false

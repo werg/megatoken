@@ -265,7 +265,7 @@ def score_rollout(model: Any, rollout: Rollout) -> torch.Tensor:
 
 def _json_safe(value: Any) -> Any:
     if isinstance(value, bytes):
-        return {"base64": base64.b64encode(value).decode()}
+        return {"$bytes": base64.b64encode(value).decode()}
     if isinstance(value, dict):
         return {key: _json_safe(item) for key, item in value.items()}
     if isinstance(value, (tuple, list)):

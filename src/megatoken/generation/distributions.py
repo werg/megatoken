@@ -162,6 +162,15 @@ def tiled_argmax(
     _validate(hidden, weight, None, valid)
     output = torch.empty(hidden.shape[0], device=hidden.device, dtype=torch.long)
     dtype = _dtype(hidden)
+    # The full tiled scan launches ~39 tiny GEMMs for the Ling vocabulary.
+    # For a few free positions, one bounded full-vocabulary GEMM is quicker
+    # to schedule and consumes at most 32 * vocabulary * 4 temporary bytes.
+    # Large outputs retain the memory-bounded tiled path.
+    if hidden.is_cuda and 0 < hidden.shape[0] <= 32:
+        with torch.autocast(device_type=hidden.device.type, enabled=False):
+            scores = _gemm(hidden, weight.T, dtype, tensorcore)
+            scores = scores.masked_fill(~valid[None], -torch.inf)
+            return scores.argmax(dim=-1)
     with torch.autocast(device_type=hidden.device.type, enabled=False):
         for start in range(0, hidden.shape[0], position_tile):
             end = min(start + position_tile, hidden.shape[0])

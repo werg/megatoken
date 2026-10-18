@@ -1,10 +1,10 @@
 # Architecture v4 implementation validation
 
-Validation date: **2026-10-18**. The complete test suite passed against the built
-and installed wheel: **304 passed, 15 CUDA-only skips**, with zero failures or
-errors. The all-stage offline pipeline also completed using the installed package.
-These receipts cover software behavior for the shared-central architecture; they
-do not establish trained model quality or Blackwell throughput.
+Validation date: **2026-10-18**, for the unmodified v4 main-branch build.
+The installed wheel passed **304 CPU tests with 15 CUDA-only skips** before the
+short-call and causal-training fixes in PR #2. These historical receipts do not
+establish validation of the changed branch. The PR requires a fresh installed
+CPU suite and the Blackwell gate; quality and throughput remain unmeasured.
 
 [Machine-readable receipts](validation_receipts.json) retain the test counts,
 runtime, source checksums, actual parameter censuses, and smoke results.
@@ -84,8 +84,9 @@ megatoken --json-output validation/32x256-v4-parameters.json \
 
 The production vocabulary has 157,184 allocated rows. Both presets allow 1,024
 output positions and retain 32 projected KV slots per selected input. At 1,024
-cached chunks, projected BF16 KV requires 32 MiB per primary episode or 16 MiB
-for the smaller preset. These figures exclude central/raw caches and training
+cached chunks, the new recent-plus-coarse archive uses about 3.875 MiB of projected
+KV for the primary episode and 1.938 MiB for the smaller preset, rather than
+retaining full-resolution KV for all older records. These figures exclude central/raw caches and training
 graphs. Arithmetic and memory scope are documented in
 [architecture.md](architecture.md).
 

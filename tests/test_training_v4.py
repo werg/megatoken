@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from megatoken.data import WindowConfig, iter_windows
-from megatoken.data.schema import Episode, Lineage, PhysicalRecord
+from megatoken.data.schema import Episode, Lineage, LogicalAction, PhysicalRecord, digest_bytes
 from megatoken.generation import ByteCodec
 from megatoken.loading import build_model, load_model_config
 from megatoken.model import ModelConfig
@@ -15,6 +15,7 @@ from megatoken.training.config import TrainConfig
 from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.optimizer import MasterAdamW
+from megatoken.tensors import byte_tensor
 from megatoken.training.stream import EpisodeWindow
 
 
@@ -167,3 +168,57 @@ def test_canonical_presets_and_legacy_architecture_rejection():
             load_model_config(alias)
     with pytest.raises(ValueError, match="architecture_version=4"):
         ModelConfig.from_dict({**ModelConfig.tiny().to_dict(), "architecture_version": 3})
+
+
+def test_offline_tool_result_uses_recorded_action_not_counterfactual_sample(monkeypatch):
+    """An offline tool result must never condition on a different sampled call."""
+    torch.set_num_threads(1)
+    torch.manual_seed(901)
+    call = b'{"name":"read","arguments":{"path":"A"}}'
+    episode = Episode(
+        "tool-causality",
+        (
+            PhysicalRecord("prompt", "user", b"read A", turn_index=0),
+            PhysicalRecord(
+                "call", "assistant", call, turn_index=1,
+                policy_mask=True, action_id="a1", execution_id="e1",
+            ),
+            PhysicalRecord(
+                "observation", "tool", b"A contents", turn_index=2,
+                result_of="a1", execution_id="e1", provenance="executed",
+            ),
+            PhysicalRecord("next", "assistant", b"done", turn_index=3, policy_mask=True),
+        ),
+        Lineage("fixture", "v4", "tool-causality"),
+        actions=(
+            LogicalAction(
+                "a1", "call1", "read", '{"path":"A"}', ("call",),
+                digest_bytes(call), execution_id="e1",
+            ),
+        ),
+    )
+    codec = ByteCodec.byte_fallback()
+    windows = list(iter_windows(episode, codec, WindowConfig(max_records=8, max_decisions=4)))
+    assert len(windows) == 1
+    model = build_model(ModelConfig.tiny(), codec)
+    config = replace(config_for("recurrent"), generated_capacity=64)
+    (batch,) = prepare_batches(model, [EpisodeWindow(episode, windows[0])], config)
+    seen = []
+    original = model.supervised_step
+
+    def capture(state, *args, **kwargs):
+        result = original(state, *args, **kwargs)
+        seen.append(
+            (kwargs.get("teacher_forced_action"), result.state.facets.detach().clone())
+        )
+        return result
+
+    monkeypatch.setattr(model, "supervised_step", capture)
+    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    ledger.finish()
+    assert [forced for forced, _ in seen] == [True, False]
+    ids, lengths = byte_tensor([call], torch.device("cpu"))
+    with torch.no_grad():
+        encoded_recorded_call = model.core.encode_chunk(ids, lengths)
+    torch.testing.assert_close(seen[0][1], encoded_recorded_call, atol=0, rtol=0)

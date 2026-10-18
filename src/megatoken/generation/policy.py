@@ -103,7 +103,9 @@ class FacetedGenerator(nn.Module):
         if plan.mode not in {"bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be bootstrap or recurrent")
 
-    def _training_inputs(self, state, payloads, control, effort, generator, roles, plan):
+    def _training_inputs(
+        self, state, payloads, control, effort, generator, roles, plan, *, teacher_forced_action=False
+    ):
         if not self.training_heads:
             raise RuntimeError("supervised training is disabled for this served model")
         if state.batch_size != len(payloads):
@@ -134,11 +136,32 @@ class FacetedGenerator(nn.Module):
             pairs = plan.native_tapes if isinstance(plan, PreparedTargets) else (plan.native_tape,)
             for index, tape in enumerate(pairs):
                 if tape is not None:
-                    actual = torch.tensor(tape.facets, device=target.device, dtype=torch.float32)
+                    actual = torch.as_tensor(
+                        tape.facet_array().copy(), device=target.device, dtype=torch.float32
+                    )
                     encoder_loss = (
                         encoder_loss + (target[index].float().flatten() - actual).square().sum()
                     )
             next_state = selected
+            if teacher_forced_action:
+                # An offline tool observation belongs to the *recorded* action.
+                # Never attach it to an unrelated prior sample. A native action
+                # tape is exact; otherwise E(recorded bytes) is explicitly an
+                # approximate teacher-forced state, never a claim that the
+                # sampled action was executed.
+                reference = torch.stack(
+                    [
+                        torch.as_tensor(
+                            tape.facet_array().copy(),
+                            device=target.device,
+                            dtype=torch.float32,
+                        ).reshape_as(target[index])
+                        if tape is not None
+                        else target[index].detach()
+                        for index, tape in enumerate(pairs)
+                    ]
+                )
+                next_state = self.core.advance_raw(state, reference, role_ids=roles)
         return (
             next_state,
             selected,
@@ -165,9 +188,27 @@ class FacetedGenerator(nn.Module):
                 readout, frozen, (encoded_sample, plan, source_state.detach(), roles)
             )
 
-    def _supervised(self, state, plan, payloads, control, effort, generator, roles):
+    def _supervised(
+        self,
+        state,
+        plan,
+        payloads,
+        control,
+        effort,
+        generator,
+        roles,
+        *,
+        teacher_forced_action=False,
+    ):
         next_state, selected, encoded_sample, target, mean, fit, alignment = self._training_inputs(
-            state, payloads, control, effort, generator, roles, plan
+            state,
+            payloads,
+            control,
+            effort,
+            generator,
+            roles,
+            plan,
+            teacher_forced_action=teacher_forced_action,
         )
         readout = _TeacherReadout(self.core, self.decoder)
         prior_losses = readout(self.core.prepare_realization(selected), plan)
@@ -186,6 +227,7 @@ class FacetedGenerator(nn.Module):
             alignment,
             plan,
             payloads,
+            teacher_forced_action=teacher_forced_action,
         )
 
     def _finish_supervision(
@@ -199,6 +241,8 @@ class FacetedGenerator(nn.Module):
         encoder_loss,
         plan,
         payloads,
+        *,
+        teacher_forced_action=False,
     ):
         zero = mean.sum() * 0
         sums = dict.fromkeys(LOSS_NAMES, zero)
@@ -252,6 +296,9 @@ class FacetedGenerator(nn.Module):
             "capacity_positions": 2 * batch * plan.capacity,
             "lexical_passes": 2,
             "structured_actions": int(isinstance(plan, PreparedAction)),
+            "teacher_forced_action_continuations": int(
+                plan.mode == "recurrent" and teacher_forced_action
+            ),
         }
         return SupervisedResult(
             {name: (sums[name], counts[name]) for name in LOSS_NAMES}, next_state, metrics
@@ -271,6 +318,7 @@ class FacetedGenerator(nn.Module):
         role_ids=None,
         representation_mode=None,
         native_tapes=None,
+        teacher_forced_action=False,
     ) -> SupervisedResult:
         plan = plan or self.prepare_target(
             target_ids,
@@ -286,7 +334,10 @@ class FacetedGenerator(nn.Module):
             if role_ids is None
             else role_ids.to(state.device)
         )
-        return self._supervised(state, plan, plan.payloads, control, effort, generator, roles)
+        return self._supervised(
+            state, plan, plan.payloads, control, effort, generator, roles,
+            teacher_forced_action=teacher_forced_action,
+        )
 
     def supervised_action(
         self,
@@ -297,11 +348,15 @@ class FacetedGenerator(nn.Module):
         control=None,
         generator=None,
         representation_mode=None,
+        teacher_forced_action=False,
     ) -> SupervisedResult:
         self._validate_mode(plan, representation_mode)
         roles = torch.tensor([plan.role_id], device=state.device)
         payloads = [plan.payload]
-        return self._supervised(state, plan, payloads, control, effort, generator, roles)
+        return self._supervised(
+            state, plan, payloads, control, effort, generator, roles,
+            teacher_forced_action=teacher_forced_action,
+        )
 
     @torch.no_grad()
     def decode_state(self, state, *, spec: ActionSpec | None = None) -> DecodedAction:
@@ -379,7 +434,7 @@ class FacetedGenerator(nn.Module):
             self.codec.fingerprint,
             spec.fingerprint,
             (self.config.n_facets, self.config.facet_dim),
-            tuple(raw[0].flatten().tolist()),
+            raw[0].detach().float().contiguous().cpu().numpy().astype("<f4", copy=False).tobytes(),
             effort,
             role_id,
             decoded.payload,
@@ -423,9 +478,9 @@ class FacetedGenerator(nn.Module):
         control = encode_controls(self.core, [tape.control_payload], encoder_grad=False)
         mean = self.core.predict_facets(state, control=control, effort=tape.effort)
         distribution = self.facet_distribution(mean)
-        raw = torch.tensor(tape.facets, device=state.device, dtype=torch.float32).reshape(
-            1, *tape.facet_shape
-        )
+        raw = torch.as_tensor(
+            tape.facet_array().copy(), device=state.device, dtype=torch.float32
+        ).reshape(1, *tape.facet_shape)
         next_state = self.core.advance_raw(state, raw, role_ids=roles)
         decoded = self.decode_state(next_state, spec=spec)
         actual = (
