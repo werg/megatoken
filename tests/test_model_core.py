@@ -110,7 +110,11 @@ def test_observation_processes_new_input_immediately_and_skips_initial_sentinel(
     assert state.early.shape == state.final.shape == state.facets.shape
     assert core.dispatch_metrics()["p"]["routed_rows"].sum().item() == 0
     assert initial.history.slots == 0 and initial.final is None
-    projected = core.central.memory(state.final)
+    projected = core.central.memory(
+        state.final,
+        temporal_positions=initial.records_seen,
+        slot_codes=core.central.slot_codes(),
+    )
     torch.testing.assert_close(state.history.keys, projected.keys, rtol=0, atol=0)
     torch.testing.assert_close(state.history.values, projected.values, rtol=0, atol=0)
 
@@ -479,6 +483,13 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     assert (
         sum(name == "central.memory.key_value.weight" for name, _ in core.named_parameters()) == 1
     )
+    assert len(core.central.temporary_memories) == 3
+    assert sum(
+        name.startswith("central.temporary_memories.") and name.endswith(".key_value.weight")
+        for name, _ in core.named_parameters()
+    ) == 3
+    assert core.central.slot_embedding.shape == (config.n_facets, config.facet_dim)
+    assert all(core.central.layers[index].temporary_gate is not None for index in (1, 2, 3))
     assert sum(name == "u_always.gate_up.weight" for name, _ in core.named_parameters()) == 1
     assert not any("gdn" in name or "carry" in name for name, _ in core.named_parameters())
 

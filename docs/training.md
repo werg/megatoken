@@ -5,7 +5,8 @@
 The recurrent input is a `[batch, 32, 512]` raw facet tensor, or `[batch, 32, 256]`
 in the smaller preset. E builds the same format through ordered byte/ngram processing,
 repeated halving, and two dense facet refinement blocks. Four independently owned
-central stages process every selected input and write its one causal KV entry. A
+central stages process every selected input, use three temporary KV read/write
+transitions, then publish only the final rotated KV entry. A
 non-residual remix and twelve sparse prediction stages produce the next Gaussian mean.
 The realizer reads raw facets and cached early/final central features without rerunning
 C. See [architecture.md](architecture.md) for the tensor graph.
@@ -282,7 +283,9 @@ and `metadata.json`. The metadata hashes the payload and the pointer hashes the 
 Loading uses PyTorch's restricted weights-only format. Checkpoints include model/config,
 codec and semantic chunk identities, FP32 optimizer state, global step, phase counters,
 and per-rank RNG and cursor. Checkpoint, served bundle, and model architecture are
-version 4. Earlier weights and action-tape protocols are explicitly incompatible.
+version 5. The action-tape serialization format remains v4, but prior model
+weights/caches are incompatible with the new staged-KV and temporal-RoPE
+parameters and cannot be silently loaded.
 
 Periodic retention is bounded by `keep_checkpoints`. Phase boundaries, run-end snapshots,
 pre-RL state, and explicit baked checkpoints are retained. SIGINT/SIGTERM finishes the

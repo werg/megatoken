@@ -166,7 +166,7 @@ def test_canonical_presets_and_legacy_architecture_rejection():
     for alias in ("recurrent32", "compact32"):
         with pytest.raises(ValueError, match="command-line aliases"):
             load_model_config(alias)
-    with pytest.raises(ValueError, match="architecture_version=4"):
+    with pytest.raises(ValueError, match="architecture_version=5"):
         ModelConfig.from_dict({**ModelConfig.tiny().to_dict(), "architecture_version": 3})
 
 
