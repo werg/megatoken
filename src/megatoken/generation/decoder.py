@@ -96,7 +96,9 @@ class _Program:
         for name, positions, kind in requests:
             offsets[name] = (count, len(positions))
             if positions:
-                group = kinds.setdefault(kind, ([], []))
+                # Both JSON and UTF-8 use the same lexical token alphabet.
+                alphabet = "utf8" if kind == "json" else kind
+                group = kinds.setdefault(alphabet, ([], []))
                 group[0].extend(positions)
                 group[1].extend(range(count, count + len(positions)))
             count += len(positions)
@@ -112,7 +114,10 @@ class _Program:
             )
             chosen.index_copy_(0, target, sampled)
         ids = chosen.tolist()  # Exactly one GPU -> host readback for all free fields.
-        return {name: tuple(ids[start : start + length]) for name, (start, length) in offsets.items()}
+        return {
+            name: tuple(ids[start : start + length])
+            for name, (start, length) in offsets.items()
+        }
 
 
 class DeterministicDecoder(nn.Module):
@@ -254,7 +259,9 @@ class DeterministicDecoder(nn.Module):
         }
         feasible = []
         for index, fields in schema_fields.items():
-            if fields is None or sum(value.minimum for value in fields.values()) > schema_limits[index]:
+            if fields is None or (
+                sum(value.minimum for value in fields.values()) > schema_limits[index]
+            ):
                 continue
             witness = wire_witness_tokens(spec.schemas[index], self.codec)
             if witness is not None and witness > limit:
@@ -365,7 +372,10 @@ class DeterministicDecoder(nn.Module):
                         )
                     else:
                         fits = (
-                            minimum_total() - value.minimum + max(value.minimum, len(ids)) <= field_limit
+                            minimum_total()
+                            - value.minimum
+                            + max(value.minimum, len(ids))
+                            <= field_limit
                         )
                     if fits:
                         allowed.append(index)
@@ -385,7 +395,9 @@ class DeterministicDecoder(nn.Module):
                 if value.fixed_ids is None:
                     shared = consumers(field_.identifier)
                     lower = max(1, *(other.minimum for other in shared))
-                    available = field_limit - minimum_total() + sum(other.minimum for other in shared)
+                    available = (
+                        field_limit - minimum_total() + sum(other.minimum for other in shared)
+                    )
                     upper = min(
                         min(other.spec.max_tokens for other in shared), available // len(shared)
                     )
