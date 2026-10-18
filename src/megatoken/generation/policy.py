@@ -429,19 +429,29 @@ class FacetedGenerator(nn.Module):
         next_state = self.core.advance_raw(state, raw, role_ids=roles)
         decoded = self.decode_state(next_state, spec=spec)
         log_prob = distribution.log_prob(raw).sum()
+        # Tape replay requires exact FP32 raw coordinates and the scalar
+        # behavior density. Copy them to the host together, not with two
+        # separate CUDA synchronizations; retain packed facet bytes.
+        snapshot = (
+            torch.cat((raw[0].detach().float().reshape(-1), log_prob.detach().float().reshape(1)))
+            .contiguous()
+            .cpu()
+            .numpy()
+            .astype("<f4", copy=False)
+        )
         tape = ActionTape(
             TAPE_VERSION,
             self.codec.fingerprint,
             spec.fingerprint,
             (self.config.n_facets, self.config.facet_dim),
-            raw[0].detach().float().contiguous().cpu().numpy().astype("<f4", copy=False).tobytes(),
+            snapshot[:-1].tobytes(),
             effort,
             role_id,
             decoded.payload,
             decoded.emitted_ids,
             decoded.valid,
             decoded.terminal,
-            float(log_prob),
+            float(snapshot[-1]),
             decoded.trace,
             decoded.error,
             control_payload,
