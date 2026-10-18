@@ -23,13 +23,14 @@ from .config import ModelConfig
 from .experts import ExpertBank
 from .frontend import SeedControlEncoder
 from .ingestion import ChunkEncoder
-from .layers import RMSNorm, SwiGLU, position_features_at
+from .layers import RMSNorm, SwiGLU
 from .routing import EpochRouter, RowRoute
 from .state import CoreState, KVHistory, RealizationContext, assert_cache_version
 
 ROLE_IDS = ROLE_TO_ID
 RECORD_ROLES = tuple(ROLE_TO_ID)
 EFFORTS = (1, 2, 3, 6)
+P_HISTORY_READ_STAGES = (3, 6, 9, 12)
 
 
 class PairStage(nn.Module):
@@ -104,20 +105,35 @@ class CentralProcessor(nn.Module):
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
         self.config = c = config
+        # C1-C3 write intermediate KV read only by the next central block.
+        # C4's separate projection alone owns the cross-record cached KV.
+        self.temporary_memories = nn.ModuleList(
+            KVProjection(c.facet_dim, c.kv_heads, c.attention_head_dim, c.norm_eps)
+            for _ in range(c.central_layers - 1)
+        )
         self.memory = KVProjection(c.facet_dim, c.kv_heads, c.attention_head_dim, c.norm_eps)
         self.layers = nn.ModuleList(
-            DenseFacetBlock(c, c.central_hidden, shared_kv=True) for _ in range(c.central_layers)
+            DenseFacetBlock(
+                c, c.central_hidden, shared_kv=True, temporary_read=index > 0
+            )
+            for index in range(c.central_layers)
         )
         self.layer_codes = nn.Parameter(torch.empty(c.central_layers, c.facet_dim))
-        self.position_gate = nn.Parameter(torch.tensor(-2.0))
+        self.slot_embedding = nn.Parameter(torch.empty(c.n_facets, c.facet_dim))
+        self.slot_gate = nn.Parameter(torch.tensor(-2.0))
         self.role_embedding = nn.Embedding(len(RECORD_ROLES), c.facet_dim)
         nn.init.normal_(self.layer_codes, std=0.02)
+        nn.init.normal_(self.slot_embedding, std=0.02)
         nn.init.normal_(self.role_embedding.weight, std=0.02)
         self.history_pool = (
             nn.Linear(c.n_facets, c.history_slots, bias=False)
             if c.history_slots < c.n_facets
             else None
         )
+
+    def slot_codes(self) -> Tensor:
+        """Stable learned facet addresses, independent of temporal RoPE phases."""
+        return self.slot_gate.sigmoid() * self.slot_embedding
 
     def forward(
         self,
@@ -129,29 +145,56 @@ class CentralProcessor(nn.Module):
         checkpointing: bool | None = None,
     ) -> tuple[Tensor, Tensor]:
         facets = raw.to(self.role_embedding.weight.dtype)
-        position = position_features_at(positions, self.config.facet_dim).to(facets.dtype)
+        addresses = self.slot_codes()
         facets = facets + self.role_embedding(roles)[:, None]
-        facets = facets + self.position_gate.sigmoid() * position[:, None]
+        facets = facets + addresses.to(facets.dtype)[None]
         projected = AttentionFeatures(history.keys, history.values, history.mask)
         early = None
+        temporary = None
         for index, layer in enumerate(self.layers):
             facets = facets + self.layer_codes[index]
+            projector = (
+                self.temporary_memories[index]
+                if index < len(self.temporary_memories)
+                else self.memory
+            )
             enabled = self.config.checkpoint_stages if checkpointing is None else checkpointing
             if enabled and self.training and torch.is_grad_enabled():
+                # Pin captured intermediates per layer for exact checkpoint replay.
                 facets = checkpoint(
-                    lambda value, block=layer: block(value, projected, projector=self.memory),
+                    lambda value, block=layer, writer=projector, previous=temporary: block(
+                        value,
+                        projected,
+                        projector=writer,
+                        temporary=previous,
+                        temporal_positions=positions,
+                        slot_codes=addresses,
+                    ),
                     facets,
                     use_reentrant=False,
                     preserve_rng_state=False,
                 )
             else:
-                facets = layer(facets, projected, projector=self.memory)
+                facets = layer(
+                    facets,
+                    projected,
+                    projector=projector,
+                    temporary=temporary,
+                    temporal_positions=positions,
+                    slot_codes=addresses,
+                )
+            # Stage i publishes only a short-lived, position-rotated KV for i+1.
+            # Neither these projections nor their tensors enter KVHistory.
+            if index < len(self.temporary_memories):
+                temporary = projector(
+                    facets, temporal_positions=positions, slot_codes=addresses
+                )
             if index + 1 == self.config.central_early_layer:
                 early = facets
         assert early is not None
         return early, facets
 
-    def write(self, final: Tensor, history: KVHistory) -> KVHistory:
+    def write(self, final: Tensor, history: KVHistory, positions: Tensor) -> KVHistory:
         """Append one selected input, compressing only *completed* old records.
 
         Recent records keep every projected slot. Earlier records retain a
@@ -160,12 +203,17 @@ class CentralProcessor(nn.Module):
         rather than 32 full KV slots per ancient tiny tool event.
         """
         c = self.config
-        pooled = (
-            final
-            if self.history_pool is None
-            else self.history_pool(final.transpose(1, 2)).transpose(1, 2)
+        codes = self.slot_codes().to(final.dtype)
+        if self.history_pool is None:
+            pooled, pooled_codes = final, codes
+        else:
+            pooled = self.history_pool(final.transpose(1, 2)).transpose(1, 2)
+            pooled_codes = self.history_pool(codes.transpose(0, 1)).transpose(0, 1)
+        # Cache only final-stage keys, rotated once at committed record time.
+        # Archived slot groups preserve their already-rotated temporal phase.
+        added = self.memory(
+            pooled, temporal_positions=positions, slot_codes=pooled_codes
         )
-        added = self.memory(pooled)
         archive = history.archived_chunks
         recent_start = archive * c.archived_slots_per_chunk
         recent_slots = history.slots - recent_start
@@ -543,7 +591,7 @@ class FacetedCore(nn.Module):
             facets=raw_facets,
             early=early,
             final=final,
-            history=self.central.write(final, state.history),
+            history=self.central.write(final, state.history, state.records_seen),
             records_seen=state.records_seen + 1,
             last_record_ids=record_ids,
             role_ids=roles,
@@ -617,7 +665,7 @@ class FacetedCore(nn.Module):
         self._record_routing_loss(program.balance_loss, program.stabilization_loss)
         for stage in stages:
             facets = self._execute_pair_stage(
-                facets, stage, program.at(stage), effort, state.history
+                facets, stage, program.at(stage), effort, state.history, state.records_seen
             )
         return facets
 
@@ -675,15 +723,23 @@ class FacetedCore(nn.Module):
         route: RowRoute,
         effort: int,
         history: KVHistory,
+        positions: Tensor,
     ) -> Tensor:
         wrapper = self.stages[stage - 1]
         facets = facets + self.stage_codes[stage - 1]
-        projected = join_attention(
-            self.central.memory(facets),
-            AttentionFeatures(history.keys, history.values, history.mask),
+        addresses = self.central.slot_codes()
+        live = self.central.memory(
+            facets, temporal_positions=positions, slot_codes=addresses
         )
+        # Every P stage mixes live facets. Exactly four fixed stages also query
+        # old committed records; prediction never writes a new KV representation.
+        historical = (
+            AttentionFeatures(history.keys, history.values, history.mask)
+            if stage in P_HISTORY_READ_STAGES else None
+        )
+        projected = join_attention(live, historical)
         facets = facets + wrapper.attention_gate.sigmoid() * wrapper.attention.read(
-            facets, projected
+            facets, projected, temporal_positions=positions, slot_codes=addresses
         )
         route_start = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
@@ -716,6 +772,7 @@ class FacetedCore(nn.Module):
         route: RowRoute,
         effort: int,
         history: KVHistory,
+        positions: Tensor,
     ) -> Tensor:
         start = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
@@ -727,12 +784,12 @@ class FacetedCore(nn.Module):
             start += count
         if self.config.checkpoint_stages and self.training and torch.is_grad_enabled():
             return checkpoint(
-                lambda value: self._pair_stage(value, stage, route, effort, history),
+                lambda value: self._pair_stage(value, stage, route, effort, history, positions),
                 facets,
                 use_reentrant=False,
                 preserve_rng_state=False,
             )
-        return self._pair_stage(facets, stage, route, effort, history)
+        return self._pair_stage(facets, stage, route, effort, history, positions)
 
     def _record_routing_loss(self, balance: Tensor, stabilization: Tensor) -> None:
         # Outside checkpointed operators: loss collection never affects routing.
