@@ -119,3 +119,28 @@ def wire_witness_tokens(schema: SchemaSpec, codec: Any) -> int | None:
         return min(sizes) if sizes else None
     except (KeyError, TypeError, ValueError, ValidationError, UnicodeError, RecursionError):
         return None
+
+
+def wire_overhead_tokens(schema: SchemaSpec, codec: Any) -> int:
+    """Reserve the fixed JSON wire, independently of modelled field-value tokens.
+
+    Tokenize literal syntax fragments separately. For byte-fallback this is
+    exact; for BPE this is a conservative reservation that does not rely on
+    merges across the boundary between a field value and its envelope.
+    Fixed JSON field values are *not* included: planned_fields already charges
+    their tokenized lengths. Additional escaping of sampled string contents
+    remains subject to the final exact serialized-size check.
+    """
+    costs = []
+    fields = {field.name: field for field in schema.fields}
+    for order in schema.orders:
+        parts = [b"{", b"}"]
+        for index, name in enumerate(order):
+            if index:
+                parts.append(b",")
+            parts.append(json.dumps(name, ensure_ascii=False).encode("utf-8") + b":")
+            field = fields[name]
+            if field.fixed_json is None and field.kind != "json":
+                parts.extend((b'"', b'"'))
+        costs.append(sum(len(codec.encode(part)) for part in parts))
+    return max(costs)
