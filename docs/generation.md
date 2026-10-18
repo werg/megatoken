@@ -8,7 +8,7 @@ serving uses those same parameter owners.
 
 ## One selected tensor, one shared central computation
 
-Architecture version 5 uses 32 input facets. The primary `32x512` profile
+Architecture version 6 uses 32 input facets. The primary `32x512` profile
 has width 512; `32x256` has width 256. Encoder E initializes observations with
 a byte/ngram hierarchy followed by two local facet refinement blocks. Four dense
 central layers C process each selected

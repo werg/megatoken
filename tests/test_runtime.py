@@ -156,7 +156,7 @@ def test_full_history_projected_flash_gqa_values_and_gradients(compact):
     shape = (
         1,
         config.kv_heads,
-        config.history_slots * config.max_history_chunks,
+        config.n_facets * config.max_history_chunks,
         config.attention_head_dim,
     )
     keys = torch.randn(shape, device="cuda", dtype=torch.bfloat16, requires_grad=True)

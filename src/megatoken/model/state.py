@@ -20,7 +20,6 @@ class KVHistory:
     keys: Tensor
     values: Tensor
     mask: Tensor | None = None
-    archived_chunks: int = 0
 
     def detach(self) -> KVHistory:
         return replace(self, keys=self.keys.detach(), values=self.values.detach())
