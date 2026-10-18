@@ -1,7 +1,5 @@
 """Training-only noisy trajectory references and causal-control isolation."""
 
-from dataclasses import replace
-
 import pytest
 import torch
 
@@ -71,7 +69,10 @@ def test_verified_reference_is_detached_and_noisy_but_public_control_is_trainabl
         encoder_grad=False,
     )
     torch.testing.assert_close(control[0], expected_teacher[0], rtol=0, atol=0)
-    assert not control[0].requires_grad
+    # The mixed batch can require grad through its *other* (causal) row;
+    # the teacher row must not differentiate the encoder.\n    upstream = tuple(model.core.control_encoder.parameters())
+    gradients = torch.autograd.grad(control[0].sum(), upstream, allow_unused=True, retain_graph=True)
+    assert all(g is None or g.abs().sum() == 0 for g in gradients)
 
     model.zero_grad(set_to_none=True)
     model.core.control_injection(control).square().sum().backward()
@@ -148,7 +149,7 @@ def test_recurrent_noisy_reference_never_changes_causal_control_protocol(model, 
     injected, count = make_training_control(model, [teacher], torch.device("cpu"), recurrent=True)
     assert count == 1 and injected is not None
     assert engine.episode_control_payload(teacher.episode) == payload
-    assert b"recorded good result" not in payload
+    assert b"success" not in payload
     assert b"\n<reference>\n" in (
         engine.episode_control_payload(teacher.episode)
         + b"\n<reference>\n"
