@@ -1,0 +1,241 @@
+# Decoupled DiLoCo on eight CoreWeave GPU sandboxes
+
+This is an **independent-worker** alternative to the existing, unchanged torchrun
+DDP trainer. Its goal is useful multi-GPU pretraining with no GPU-to-GPU
+interconnect. The design follows [Decoupled DiLoCo](https://arxiv.org/abs/2604.21428):
+each learner runs local steps, partitions its trainable FP32 weights into
+independent fragments, and sends pseudo-gradients to a persistent coordinator.
+The coordinator merges fragment contributions after a quorum and a bounded
+grace interval, using token-weighted updates and Nesterov outer momentum.
+Workers poll for newer fragment versions while continuing to train. This is
+a practical asynchronous implementation, not a reproduction of the paper's
+proprietary orchestration infrastructure or its adaptive performance controller.
+
+## Prerequisites
+
+- A Forge organization allowlisted for GPU sandboxes (private preview) and a
+  quota of at least eight concurrent GPUs. Serverless GPU capacity currently
+  offers **one NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB) per sandbox**.
+  [CoreWeave GPU docs](https://docs.coreweave.com/products/sandboxes/serverless/gpu-sandboxes).
+- A persistent coordinator host with public/private HTTPS ingress, a **durable
+  filesystem** for `--root`, and enough storage for the global FP32 weights,
+  momentum, bootstrap, and queued worker updates. Budget **tens of GiB**
+  for ~450M parameters and eight workers; monitor actual usage.
+- Immutable prepared input dataset, pinned codec, and CUDA-sm_120-capable
+  training image. The existing Dockerfile uses NVIDIA NGC CUDA/PyTorch. The
+  container now includes optional S3 data and checkpoint dependencies.
+- A private S3-compatible bucket with workload credentials to persist worker
+  checkpoints (strongly recommended). CoreWeave AI Object Storage uses the
+  `https://cwobject.com` endpoint and virtual-hosted addressing.
+- An unguessable token called `MEGATOKEN_DILOCO_TOKEN` in the Forge team
+  Secret Manager and the **same** value installed on the coordinator host.
+  Optionally store `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+  `AWS_SESSION_TOKEN` as separate Forge secrets. Use short-lived credentials
+  or workload identity instead where available.
+
+## Configure
+
+Edit `configs/train/p1-diloco-coreweave.yaml`:
+
+- `decoupled.run_id`: unique immutable run ID. Never reuse for a changed
+  objective, dataset, or experimental restart.
+- `decoupled.coordinator_url`: resolvable **HTTPS** endpoint. The Python
+  syncer serves HTTP bound on localhost; terminate TLS at a reverse proxy.
+  `allow_private_http: true` is only for explicitly secured private networks.
+- `workers: 8` with stable IDs `0..7` injected as `MEGATOKEN_WORKER_ID`.
+- `inner_optimizer: muon`: applies PyTorch Muon to eligible hidden 2D
+  matrices. Embeddings, norms, biases, controls, and packed rank-3 expert
+  tensors use AdamW. FP32 masters/momenta survive checkpoints.
+- `local_steps: 256`: per-fragment local optimizer updates between submissions.
+  Start with 256, then benchmark 64/128/512 for wall-clock loss and network use.
+- `decoupled.checkpoint_s3: s3://YOUR-BUCKET/megatoken-checkpoints`:
+  enable remote atomic checkpoint publication and automatic resume. Worker
+  objects are separated by `run_id/worker-XX/`.
+
+If your prepared artifacts are not baked into the image, stage them to the
+paths in the example config. **The coordinator initialization host must also
+be able to read the codec path**; it does not need a GPU. The example uses
+`/work/artifacts/codec` and `/work/artifacts/prepared`. Copy those files
+there on the host or mount the same prepared inputs.
+
+Data S3 layout:
+
+```text
+s3://YOUR-BUCKET/megatoken-input/
+  codec/codec.json
+  codec/<pinned tokenizer>
+  prepared/manifest.json
+  prepared/<prepared data referenced by manifest>
+```
+
+Prepare these once using the existing `megatoken data` pipeline. The staging
+script validates object sizes and required manifests, while the existing
+dataset/codec code validates domain-specific identities during training.
+Make all workers use the **same immutable S3 prefix**.
+
+## Start a persistent coordinator
+
+Install the package with `pip install -e '.[train,storage]'` on the
+coordinator host, then:
+
+```bash
+export MEGATOKEN_DILOCO_TOKEN="$(cat /secure/path/diloco-token)"
+# Stage codec + prepared data at /work/artifacts before initializing.
+megatoken diloco init \
+  --config configs/train/p1-diloco-coreweave.yaml \
+  --root /persistent/megatoken/diloco-p1 \
+  --quorum 4 --fragment-mib 64 \
+  --outer-lr 0.7 --outer-momentum 0.9 \
+  --max-staleness 2 --grace-seconds 8
+
+megatoken diloco serve --root /persistent/megatoken/diloco-p1 \
+  --host 127.0.0.1 --port 8823
+```
+
+Publish port 8823 behind a properly authenticated HTTPS ingress or mesh with
+TLS termination, rate/size limits, and a firewall restricting access to the
+workers. Do **not** expose bare HTTP on a public interface. Configure the
+coordinator as a persistent service managed by systemd/Kubernetes with durable
+storage; do not run it inside an ephemeral worker sandbox. The syncer
+authoritatively persists every fragment's global FP32 parameters, momentum,
+deduplicating sequence numbers, and high-water token counters. Its in-memory
+quorum grace timer is restored conservatively, not precisely, after a restart.
+
+The `init` command deliberately refuses to replace any existing coordinator
+directory. To begin a new phase/experiment, choose a new run ID and root.
+`--resume` can warm-start **weights** from a previous standard checkpoint;
+it does not transplant the previous outer optimizer history.
+
+Inspect authenticated status:
+
+```bash
+curl -fsS -H "Authorization: Bearer $MEGATOKEN_DILOCO_TOKEN" \
+  https://YOUR-COORDINATOR/v1/status
+```
+
+Status contains global token high water, active leases, per-fragment versions,
+pending submissions, and accepted merges. Worker JSONL metrics include
+per-step wall time, per-domain gradient norms, local/global tokens, pending
+uploads, fragment versions, and coordinator-visible merge progress.
+
+## Build and run eight GPU sandboxes
+
+The existing `Dockerfile` builds a Blackwell-compatible CUDA/PyTorch image.
+Build and push it to a registry visible to the sandboxes, using an immutable
+image digest in production. This image contains the CLI, SDK-independent
+learner, S3 storage library, source, tests, and staging script.
+
+On the orchestration machine:
+
+```bash
+python -m pip install 'cwsandbox>=1.14.2'
+export FORGE_API_KEY='...'
+# Optional: export FORGE_TEAM='your-team'
+python scripts/coreweave_diloco.py \
+  --image registry.example/megatoken@sha256:YOUR_IMAGE_DIGEST \
+  --config configs/train/p1-diloco-coreweave.yaml \
+  --workers 8 --cpu 8 --memory 32Gi --scratch 80Gi \
+  --lifetime-seconds 86400 \
+  --data-s3 s3://YOUR-BUCKET/megatoken-input \
+  --s3-endpoint https://cwobject.com \
+  --s3-region YOUR_COREWEAVE_REGION \
+  --secret AWS_ACCESS_KEY_ID \
+  --secret AWS_SECRET_ACCESS_KEY
+```
+
+The launcher uses the current Forge `AuthHeaders` and `Secret(store="wandb")`
+APIs, assigns one GPU and a unique rank per sandbox, stages the data from S3,
+and runs `megatoken train` without torchrun. The shared DiLoCo token is
+always requested from Forge Secret Manager, never sent in CLI arguments.
+All eight workers may start and finish independently. A failed worker does
+not block fragment updates as long as the configured quorum remains available.
+The client sends only outbound HTTPS; no worker needs inbound networking.
+
+The default sandbox lifetime limit is explicit and cannot be extended on a
+running sandbox; the CoreWeave maximum is 30 days. If a run exceeds a sandbox
+lifetime, launch a replacement with the same worker ID and S3 checkpoint
+namespace. The coordinator's lease can take up to three minutes to expire
+before a *different* worker session may reuse the slot.
+
+## Recovery and integrity
+
+- The coordinator's root directory **must persist** across process/host
+  restarts. Fragment commits are atomic, and an independent publication step
+  is reconciled after a crash. A worker sequence is deduplicated before a
+  pseudo-gradient can be applied again.
+- Worker checkpoints preserve the model, hybrid optimizer, exact data cursor,
+  RNG, local counters, fragment baseline tensors, versions, pending
+  submissions, and the actual pending delta payloads. S3 latest pointers are
+  published only after data/metadata objects are uploaded.
+- On a replacement sandbox, the trainer restores its last committed S3
+  checkpoint automatically when `checkpoint_s3` is configured and
+  `--resume` is omitted. Explicit `--resume` selects a local checkpoint.
+- The syncer enforces per-worker leases, maximum allowed staleness,
+  fragment shape/finiteness checks, model/codec/optimizer ownership identity,
+  and a shared training-objective fingerprint. A stale submission must
+  download a newer global fragment rather than being silently applied.
+- If a checkpoint precedes already-credited training tokens, coordinator
+  accounting uses the worker's reported **high-water marks**, preventing
+  duplicate token credit from replay. Exact once-only dataset processing across
+  uncommitted worker crashes is not guaranteed: deduplication is for optimizer
+  contributions and counters, not for raw example delivery.
+- Sandbox scratch storage is **ephemeral**. Without `checkpoint_s3` (or an
+  equivalent persistent per-worker volume), a sandbox replacement cannot
+  recover its inner optimizer or exact stream cursor. Do not treat HTTP
+  coordinator state alone as a complete restartable run.
+- Runtime faults and HTTP retry schedules are logged; a missing quorum cannot
+  be repaired algorithmically. The operator must restore enough workers.
+
+## Final model and evaluation
+
+The coordinator owns global trainable FP32 fragments, while learner
+checkpoints own inner optimizer state and non-trainable buffers. For a
+coherent **offline** snapshot, stop the coordinator service first and run:
+
+```bash
+megatoken diloco export \
+  --config configs/train/p1-diloco-coreweave.yaml \
+  --root /persistent/megatoken/diloco-p1 \
+  --output /persistent/megatoken/exports
+megatoken evaluate \
+  --checkpoint /persistent/megatoken/exports/latest.json \
+  --dataset /work/artifacts/prepared \
+  --codec /work/artifacts/codec
+```
+
+Exported checkpoints are **evaluation/inference only** and do not contain
+the workers' inner optimizer/data cursors. Their `global_step` reflects the
+highest fragment outer version, not a synchronized learner step. For the next
+curriculum phase, initialize a new coordinator from a full compatible
+*training checkpoint* or use the exported weights as a deliberate new
+initialization, not an exact optimizer resume.
+
+## Validation checklist before a large-budget run
+
+1. Run the CPU test suite, including `tests/test_diloco.py`, and
+   `ruff check/format --check`. The existing synchronous two-rank Gloo
+   suite must remain green.
+2. On a Blackwell sandbox, run the repository's hardware gate
+   `scripts/validate_blackwell.py` and a short two-worker real-training
+   test. Confirm sm_120 kernels and Muon/AdamW moments are finite.
+3. Kill and restart the syncer during a quorum merge; verify no version
+   applies a worker's sequence twice and public fragments recover from
+   authoritative FP32 state.
+4. Kill a learner with a pending submission; restart from S3 and validate
+   the optimizer/cursor and no double-credited token budget. Simulate
+   late, duplicate, malformed, and stale uploads.
+5. Compare one GPU, synchronous DDP if networking allows, and 8-worker
+   DiLoCo at **equal global data tokens and held-out loss**, accounting
+   for WAN throughput, S3 checkpoint overhead, staleness, and quorum delays.
+
+CPU/unit tests do not establish GPU parity or reproduce full-scale convergence.
+The original single-machine and torchrun paths remain available for
+baselines.
+
+## References
+
+- [Decoupled DiLoCo (Douillard et al., 2026)](https://arxiv.org/abs/2604.21428)
+- [CoreWeave serverless GPU sandboxes](https://docs.coreweave.com/products/sandboxes/serverless/gpu-sandboxes)
+- [Sandbox configuration and lifetime](https://docs.coreweave.com/products/sandboxes/client/guides/sandbox-configuration)
+- [Forge Secret Manager injection](https://docs.coreweave.com/products/sandboxes/secrets)
+- [PyTorch Muon](https://docs.pytorch.org/docs/stable/generated/torch.optim.Muon.html)
