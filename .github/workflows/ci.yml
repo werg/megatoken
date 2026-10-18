@@ -49,15 +49,39 @@ jobs:
           python -m pip install -e '.[train,data,dev]'
       - name: Lint and validate shell entrypoints
         run: |
-          python -m ruff check src tests scripts
-          python -m ruff format --check src tests scripts
-          bash -n scripts/launch.sh scripts/slurm.sh
+          set +e
+          python -m ruff check src tests scripts > /tmp/lint.log 2>&1
+          lint=$?
+          python -m ruff format --check src tests scripts > /tmp/format.log 2>&1
+          fmt=$?
+          bash -n scripts/launch.sh scripts/slurm.sh > /tmp/shell.log 2>&1
+          shell=$?
+          set -e
+          if (( lint || fmt || shell )); then
+            {
+              echo '### Lint / format diagnostics'
+              echo '```text'
+              cat /tmp/lint.log /tmp/format.log /tmp/shell.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
       - name: Build and install the distribution under test
         run: |
           python -m build
           python -m pip install --no-deps --force-reinstall dist/megatoken-0.1.0-py3-none-any.whl
       - name: Run the complete CPU suite
-        run: python -m pytest -q --junitxml=validation/cpu-tests.xml
+        run: |
+          python -m pytest -q --tb=short --junitxml=validation/cpu-tests.xml > /tmp/tests.log 2>&1 || {
+            {
+              echo '### Failing CPU tests'
+              echo '```text'
+              tail -n 200 /tmp/tests.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/tests.log
+            exit 1
+          }
       - name: Inspect the installed CLI
         run: |
           megatoken --help
