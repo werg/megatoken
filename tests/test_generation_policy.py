@@ -147,7 +147,7 @@ def test_one_gaussian_draw_and_no_stochastic_downstream_work(model):
     assert torch.equal(global_rng, torch.random.get_rng_state())
     assert result.scored_positions == result.tape.scored_positions == 0
     assert result.latent_dimensions == result.tape.latent_dimensions == model.latent_dimensions
-    raw = torch.tensor(result.tape.facets).reshape(1, *result.tape.facet_shape)
+    raw = torch.from_numpy(result.tape.facet_array().copy()).reshape(1, *result.tape.facet_shape)
     decoded = model.decode_facets(raw, spec=ActionSpec(min_tokens=4, max_tokens=4))
     torch.manual_seed(9981)
     again = model.decode_facets(raw, spec=ActionSpec(min_tokens=4, max_tokens=4))
@@ -164,7 +164,7 @@ def test_generated_facets_commit_raw_without_encoding_decoded_bytes(model, monke
     state = model.core.initial_state(1)
     spec = ActionSpec(min_tokens=4, max_tokens=4)
     sampled = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(9))
-    raw = torch.tensor(sampled.tape.facets).reshape(1, *sampled.tape.facet_shape)
+    raw = torch.from_numpy(sampled.tape.facet_array().copy()).reshape(1, *sampled.tape.facet_shape)
     expected = model.core.advance_raw(state, raw, role_ids=torch.tensor([2]))
     assert_state_equal(sampled.state, expected)
     scored = model.score_tape(state, sampled.tape, spec=spec)
@@ -243,7 +243,7 @@ def test_replay_reconstructs_state_and_candidate_density_depends_on_history(mode
     )
     assert_state_equal(state, second.state)
     assert_replay_density_close(probabilities[1], second.log_prob, model.latent_dimensions)
-    raw = torch.tensor(second.tape.facets).reshape(1, *second.tape.facet_shape)
+    raw = torch.from_numpy(second.tape.facet_array().copy()).reshape(1, *second.tape.facet_shape)
     isolated = model.facet_distribution(model.core.predict_facets(initial)).log_prob(raw).sum()
     assert not torch.allclose(isolated, second.log_prob)
 
