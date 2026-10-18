@@ -184,8 +184,11 @@ class CentralProcessor(nn.Module):
 
             def summarize(rows: Tensor) -> Tensor:
                 shaped = rows.reshape(
-                    rows.shape[0], rows.shape[1], c.archived_slots_per_chunk,
-                    group, rows.shape[-1],
+                    rows.shape[0],
+                    rows.shape[1],
+                    c.archived_slots_per_chunk,
+                    group,
+                    rows.shape[-1],
                 )
                 if first_mask is None:
                     return shaped.mean(3)

@@ -13,10 +13,10 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
-from megatoken.io import content_hash, read_mapping, sha256_file
+from megatoken.io import content_hash, read_mapping, sha256_file, write_json
 
 from .adapters import PROFILES
-from .chunking import ChunkingConfig
+from .chunking import ChunkingConfig, segment_with_report
 from .collection import (
     CollectionConfig,
     CollectionLedger,
@@ -28,6 +28,7 @@ from .collection import (
 from .dedup import DedupConfig, DedupStore
 from .demo import write_demo_source
 from .prepare import prepare_sources
+from .review import ParserReviewPolicy, ParserReviewQueue
 from .schema import canonical_json
 from .sources import (
     TermsReview,
@@ -46,6 +47,105 @@ def _codec(path: str):
 
 def _log(value: dict[str, Any]) -> None:
     print(json.dumps(value, sort_keys=True), file=sys.stderr, flush=True)
+
+
+def _chunking_config(args: argparse.Namespace) -> ChunkingConfig:
+    values = read_mapping(args.chunking_config) if getattr(args, "chunking_config", None) else {}
+    for argument, setting in (
+        ("chunk_target_tokens", "target_tokens"),
+        ("chunk_soft_max_tokens", "soft_max_tokens"),
+        ("parser_backend", "parser_backend"),
+    ):
+        value = getattr(args, argument, None)
+        if value is not None:
+            values[setting] = value
+    return ChunkingConfig(**values)
+
+
+def _parser_review_policy(path: str | None) -> ParserReviewPolicy:
+    values = read_mapping(path) if path else {}
+    if "hard_codes" in values:
+        values["hard_codes"] = tuple(values["hard_codes"])
+    return ParserReviewPolicy(**values)
+
+
+def _chunks(args: argparse.Namespace) -> dict[str, Any]:
+    if args.chunks_command == "coverage":
+        from .parsing.registry import coverage_report
+
+        result = coverage_report(validate=not args.catalog_only)
+    elif args.chunks_command == "inspect":
+        codec = _codec(args.codec)
+        policy = _chunking_config(args).with_hard_limit(
+            args.max_record_tokens, max_bytes=args.max_record_bytes
+        )
+        payload = Path(args.input).read_bytes()
+        report = segment_with_report(
+            payload,
+            codec,
+            policy,
+            content_kind=args.content_kind,
+            language=args.language,
+            filename=args.filename or Path(args.input).name,
+            mime_type=args.mime_type,
+            locale=args.locale,
+            chat_template=args.chat_template,
+        )
+        result = {
+            "source_sha256": sha256_file(args.input),
+            "bytes": len(payload),
+            "identity": policy.identity(codec),
+            **report.to_dict(include_payload=args.include_payload),
+        }
+    else:
+        with ParserReviewQueue(args.queue) as review:
+            command = args.review_command
+            if command == "list":
+                return {
+                    "summary": review.summary(),
+                    "items": review.list_items(status=args.status, limit=args.limit),
+                }
+            if command == "export":
+                return review.export_tasks(args.output, limit=args.limit)
+            if command == "claim":
+                return {
+                    "task": review.claim(
+                        args.owner, sample_id=args.sample, lease_seconds=args.lease_seconds
+                    ),
+                    "summary": review.summary(),
+                }
+            if command == "release":
+                review.release(args.sample, args.owner)
+                return {"released": args.sample, "summary": review.summary()}
+            if command == "renew":
+                review.renew(args.sample, args.owner, lease_seconds=args.lease_seconds)
+                return {"renewed": args.sample, "summary": review.summary()}
+            if command == "replay":
+                policy = _chunking_config(args) if args.chunking_config else None
+                return review.replay(
+                    args.sample,
+                    _codec(args.codec),
+                    owner=args.owner,
+                    fix_ref=args.fix_ref,
+                    chunking=policy,
+                )
+            raise ValueError(f"Unknown review command: {command}")
+    if args.output:
+        write_json(args.output, result)
+        if args.chunks_command == "coverage":
+            return {
+                "output": str(Path(args.output).resolve()),
+                "validated": result["validated"],
+                "grammar_count": result["grammar_count"],
+                "failures": result["failures"],
+            }
+        return {
+            "output": str(Path(args.output).resolve()),
+            "bytes": result.get("bytes"),
+            "chunks": len(result.get("chunks", ())),
+            "diagnostics": len(result.get("diagnostics", ())),
+        }
+    return result
 
 
 def _demo(args: argparse.Namespace) -> dict[str, Any]:
@@ -79,10 +179,8 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
         dedup=config,
         max_record_bytes=args.max_record_bytes,
         max_record_tokens=args.max_record_tokens,
-        chunking=ChunkingConfig(
-            target_tokens=args.chunk_target_tokens,
-            soft_max_tokens=args.chunk_soft_max_tokens,
-        ),
+        chunking=_chunking_config(args),
+        review=_parser_review_policy(args.parser_review_config),
         shard_bytes=args.shard_mib << 20,
         benchmark_quarantine=quarantine,
         reject_invalid=args.reject_invalid,
@@ -96,6 +194,7 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
             "census": dataset.manifest["census"],
             "chunking": dataset.manifest["chunking"],
             "chunking_stats": dataset.manifest["chunking_stats"],
+            "parser_review": dataset.manifest["parser_review"],
         }
 
 
@@ -413,13 +512,83 @@ def add_data_commands(subparsers: argparse._SubParsersAction) -> None:
     )
     prepare.add_argument("--max-record-bytes", type=int, default=16384)
     prepare.add_argument("--max-record-tokens", type=int, default=1024)
-    prepare.add_argument("--chunk-target-tokens", type=int, default=256)
-    prepare.add_argument("--chunk-soft-max-tokens", type=int, default=512)
+    prepare.add_argument("--chunk-target-tokens", type=int, help="Packing target (default: 512)")
+    prepare.add_argument("--chunk-soft-max-tokens", type=int, help="Soft limit (default: 768)")
+    prepare.add_argument("--chunking-config", help="Versioned parser/planner policy JSON or YAML")
+    prepare.add_argument("--parser-backend", choices=["tree_sitter", "fallback"])
+    prepare.add_argument(
+        "--parser-review-config",
+        help="Parser review policy JSON or YAML; quarantine is enabled by default",
+    )
     prepare.add_argument("--shard-mib", type=int, default=128)
     prepare.add_argument("--dedup-config")
     prepare.add_argument("--benchmark-quarantine")
     prepare.add_argument("--reject-invalid", action="store_true")
     prepare.set_defaults(func=_prepare)
+
+    chunks = subparsers.add_parser(
+        "chunks", help="Inspect recursive parsing, grammar coverage, and parser repair tasks"
+    )
+    chunk_commands = chunks.add_subparsers(dest="chunks_command", required=True)
+    coverage = chunk_commands.add_parser(
+        "coverage", help="Verify locally installed grammars without network access"
+    )
+    coverage.add_argument("--catalog-only", action="store_true")
+    coverage.add_argument("--output")
+    coverage.set_defaults(func=_chunks)
+    inspect = chunk_commands.add_parser(
+        "inspect", help="Explain original byte ranges and the selected chunk plan"
+    )
+    inspect.add_argument("--input", required=True)
+    inspect.add_argument("--codec", default="byte")
+    inspect.add_argument(
+        "--content-kind",
+        default="auto",
+        choices=["auto", "text", "prose", "markdown", "code", "json", "html", "xml", "binary"],
+    )
+    inspect.add_argument("--language")
+    inspect.add_argument("--filename")
+    inspect.add_argument("--mime-type")
+    inspect.add_argument("--locale")
+    inspect.add_argument("--chat-template")
+    inspect.add_argument("--chunking-config")
+    inspect.add_argument("--chunk-target-tokens", type=int)
+    inspect.add_argument("--chunk-soft-max-tokens", type=int)
+    inspect.add_argument("--parser-backend", choices=["tree_sitter", "fallback"])
+    inspect.add_argument("--max-record-tokens", type=int, default=1024)
+    inspect.add_argument("--max-record-bytes", type=int, default=16384)
+    inspect.add_argument("--include-payload", action="store_true")
+    inspect.add_argument("--output")
+    inspect.set_defaults(func=_chunks)
+    review = chunk_commands.add_parser(
+        "review", help="Claim, export, and replay quarantined parser cases"
+    )
+    review_commands = review.add_subparsers(dest="review_command", required=True)
+    for name in ("list", "export", "claim", "renew", "release", "replay"):
+        command = review_commands.add_parser(name)
+        command.add_argument(
+            "--queue",
+            required=True,
+            help="Preparation's preparation.sqlite or a parser review SQLite ledger",
+        )
+        if name in {"list", "export"}:
+            command.add_argument("--limit", type=int, default=100)
+        if name == "list":
+            command.add_argument("--status", choices=["pending", "claimed", "verified"])
+        if name == "export":
+            command.add_argument("--output", required=True)
+        if name in {"claim", "renew", "release", "replay"}:
+            command.add_argument("--owner", required=True)
+            command.add_argument("--sample", required=name != "claim")
+        if name in {"claim", "renew"}:
+            command.add_argument("--lease-seconds", type=int, default=1800)
+        if name == "replay":
+            command.add_argument("--codec", required=True)
+            command.add_argument(
+                "--fix-ref", required=True, help="Commit or PR identifying the parser amendment"
+            )
+            command.add_argument("--chunking-config")
+        command.set_defaults(func=_chunks)
 
     sources = subparsers.add_parser(
         "sources", help="Pin source files/revisions without accepting their terms"

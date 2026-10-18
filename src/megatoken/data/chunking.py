@@ -1,115 +1,34 @@
-"""Deterministic semantic records over one byte-exact reference tokenization.
+"""Chat framing, recursive content parsing, and lossless tree-aware planning.
 
-Parsers identify offsets only. They never render, normalize, strip, overlap, or
-re-tokenize source text. The same entry point is used for data and observations.
+The same entry point serves preparation and observed runtime inputs. A logical
+event is tokenized once; physical chunks only slice that canonical token stream.
+Serialized chat is framed before tokenization so latency boundaries are exact,
+even when a codec could otherwise merge bytes from adjacent messages.
 """
 
 from __future__ import annotations
 
-import ast
-import bisect
-import re
-import sys
 from collections import Counter
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
-from megatoken.io import content_hash
+from .parsing.config import CHUNKING_VERSION, ChunkingConfig
+from .parsing.planner import TokenIndex, plan_chunks
+from .parsing.types import Boundary, Diagnostic, ParseResult, Region
 
 if TYPE_CHECKING:
     from .schema import Codec
 
-
-CHUNKING_VERSION = "semantic-v1"
-_LINES = re.compile(rb"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
-_FENCE = re.compile(rb" {0,3}(`{3,}|~{3,})(.*)")
-_LIST = re.compile(rb"([ \t]*)(?:[-+*]|[0-9]{1,9}[.)])[ \t]+")
-_SENTENCE = re.compile(rb"[.!?](?:[\"')\]]*)(?=[ \t\r\n]|$)|\xe3\x80[\x82\x81]|\xef\xbc[\x81\x9f]")
-_PRIORITY = {
-    "token": 0,
-    "whitespace": 1,
-    "line": 2,
-    "sentence": 3,
-    "statement": 4,
-    "paragraph": 5,
-    "list_item": 5,
-    "function": 6,
-    "code_block": 7,
-    "json": 7,
-    "end": 5,
-}
+__all__ = [
+    "CHUNKING_VERSION",
+    "ChunkingConfig",
+    "ChunkingReport",
+    "ChunkingStats",
+    "SemanticChunk",
+    "segment_bytes",
+    "segment_with_report",
+]
 _HISTOGRAM_BOUNDS = (0, 32, 64, 96, 128, 192, 256, 384, 512, 768, 1024)
-
-
-@dataclass(frozen=True, slots=True)
-class ChunkingConfig:
-    target_tokens: int = 256
-    soft_max_tokens: int = 512
-    hard_max_tokens: int = 1024
-    max_bytes: int = 16384
-    version: str = CHUNKING_VERSION
-
-    def __post_init__(self) -> None:
-        if any(
-            type(value) is not int
-            for value in (
-                self.target_tokens,
-                self.soft_max_tokens,
-                self.hard_max_tokens,
-                self.max_bytes,
-            )
-        ):
-            raise ValueError("Chunk sizes must be integer counts")
-        if not 1 <= self.target_tokens <= self.soft_max_tokens <= self.hard_max_tokens:
-            raise ValueError("Chunk sizes must satisfy 1 <= target <= soft <= hard")
-        if self.max_bytes < 1:
-            raise ValueError("Chunk max_bytes must be positive")
-        if self.version != CHUNKING_VERSION:
-            raise ValueError(f"Unsupported chunking version: {self.version}")
-
-    def with_hard_limit(self, limit: int, *, max_bytes: int | None = None) -> ChunkingConfig:
-        """Respect a smaller stage capacity without silently raising this policy."""
-        if type(limit) is not int or limit < 1:
-            raise ValueError("The stage hard limit must be a positive integer")
-        hard = min(self.hard_max_tokens, limit)
-        return replace(
-            self,
-            target_tokens=min(self.target_tokens, hard),
-            soft_max_tokens=min(self.soft_max_tokens, hard),
-            hard_max_tokens=hard,
-            max_bytes=self.max_bytes if max_bytes is None else min(self.max_bytes, max_bytes),
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    @property
-    def fingerprint(self) -> str:
-        # Python syntax support can change between runtimes. Persist its identity
-        # even when a particular batch happens to contain no Python source.
-        return content_hash({"config": self.to_dict(), "python_ast": list(sys.version_info[:2])})
-
-    def identity(self, codec: Codec) -> dict[str, Any]:
-        value = {
-            "config": self.to_dict(),
-            "config_fingerprint": self.fingerprint,
-            "codec_fingerprint": codec.fingerprint,
-            "python_ast": list(sys.version_info[:2]),
-        }
-        return value | {"fingerprint": content_hash(value)}
-
-    @classmethod
-    def from_identity(cls, identity: dict[str, Any], codec: Codec) -> ChunkingConfig:
-        """Restore only an exact matching chunker, codec, and parser runtime."""
-        try:
-            config = cls(**identity["config"])
-            if identity != config.identity(codec):
-                raise ValueError("identity differs")
-        except (KeyError, TypeError, ValueError) as error:
-            raise ValueError(
-                "Incompatible chunker, codec, or Python parser runtime; regenerate/replay with the declared preparation policy"
-            ) from error
-        return config
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,204 +41,249 @@ class SemanticChunk:
     token_end: int
     boundary: str
     forced: bool = False
+    context: tuple[str, ...] = ()
+    languages: tuple[str, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    tree_distance: float = 0.0
 
 
-@dataclass(frozen=True, slots=True)
-class _Unit:
-    start: int
-    end: int
-    kind: str
+@dataclass(frozen=True)
+class ChunkingReport:
+    chunks: tuple[SemanticChunk, ...]
+    parse: ParseResult
+    chat_template: str | None
+    canonical_events: tuple[tuple[int, int], ...]
+    planner_cost: float
+    planner_candidates: int
+    planner_edges: int
+
+    def to_dict(self, *, include_payload: bool = False) -> dict[str, Any]:
+        chunks = []
+        for chunk in self.chunks:
+            item = {
+                "byte_start": chunk.byte_start,
+                "byte_end": chunk.byte_end,
+                "token_start": chunk.token_start,
+                "token_end": chunk.token_end,
+                "tokens": len(chunk.token_ids),
+                "boundary": chunk.boundary,
+                "forced": chunk.forced,
+                "context": list(chunk.context),
+                "languages": list(chunk.languages),
+                "diagnostics": list(chunk.diagnostics),
+                "tree_distance": chunk.tree_distance,
+            }
+            if include_payload:
+                item["payload_hex"] = chunk.payload.hex()
+                item["token_ids"] = list(chunk.token_ids)
+            chunks.append(item)
+        return {
+            "version": CHUNKING_VERSION,
+            "chat_template": self.chat_template,
+            "canonical_events": self.canonical_events,
+            "chunks": chunks,
+            "parsers": sorted(self.parse.parsers),
+            "languages": sorted(self.parse.languages),
+            "diagnostics": [asdict(item) for item in self.parse.diagnostics],
+            "regions": [asdict(item) for item in self.parse.regions],
+            "boundaries": [asdict(item) for item in self.parse.boundaries],
+            "planner": {
+                "cost": self.planner_cost,
+                "candidates": self.planner_candidates,
+                "evaluated_edges": self.planner_edges,
+            },
+        }
 
 
-def _line_offsets(payload: bytes) -> list[tuple[int, int, bytes]]:
-    return [
-        (match.start(), match.end(), match[0].rstrip(b"\r\n")) for match in _LINES.finditer(payload)
-    ]
-
-
-def _python_units(payload: bytes, offset: int = 0) -> list[_Unit]:
-    """Use AST source coordinates, never ast.unparse or a reformatted source."""
-    try:
-        tree = ast.parse(payload.decode("utf-8"))
-    except (SyntaxError, UnicodeError, ValueError, RecursionError):
-        return []
-    lines = _line_offsets(payload)
-    units = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.stmt) or node.end_lineno is None:
-            continue
-        first = node.lineno
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            first = min([first, *(item.lineno for item in node.decorator_list)])
-            kind = "function"
-        else:
-            kind = "statement"
-        units.append(
-            _Unit(offset + lines[first - 1][0], offset + lines[node.end_lineno - 1][1], kind)
+def _materialize(index: TokenIndex, parsed: ParseResult, config: ChunkingConfig):
+    plan = plan_chunks(index, parsed, config)
+    regions = sorted(parsed.regions, key=lambda r: (r.start, -r.end, r.depth, r.kind))
+    diagnostics = sorted(parsed.diagnostics, key=lambda d: (d.start, d.end, d.code))
+    region_cursor = diagnostic_cursor = 0
+    active_regions: list[Region] = []
+    active_diagnostics: list[Diagnostic] = []
+    chunks = []
+    for part in plan.chunks:
+        start, end = index.offsets[part.start], index.offsets[part.end]
+        while region_cursor < len(regions) and regions[region_cursor].start < end:
+            active_regions.append(regions[region_cursor])
+            region_cursor += 1
+        active_regions = [item for item in active_regions if item.end > start]
+        while diagnostic_cursor < len(diagnostics) and diagnostics[diagnostic_cursor].start <= end:
+            active_diagnostics.append(diagnostics[diagnostic_cursor])
+            diagnostic_cursor += 1
+        active_diagnostics = [item for item in active_diagnostics if item.end >= start]
+        context = tuple(
+            dict.fromkeys(
+                f"{item.language or 'content'}:{item.kind}"
+                for item in sorted(active_regions, key=lambda r: (r.depth, r.start, -r.end))
+            )
         )
-    return units
+        languages = tuple(sorted({item.language for item in active_regions if item.language}))
+        codes = tuple(sorted({item.code for item in active_diagnostics}))
+        chunks.append(
+            SemanticChunk(
+                index.payload[start:end],
+                index.ids[part.start : part.end],
+                start,
+                end,
+                part.start,
+                part.end,
+                part.boundary,
+                part.forced,
+                context,
+                languages,
+                codes,
+                part.tree_distance,
+            )
+        )
+    return tuple(chunks), plan
 
 
-def _code_units(payload: bytes, offset: int = 0, language: str | None = None) -> list[_Unit]:
-    if language in {"py", "python", "python3"}:
-        parsed = _python_units(payload, offset)
-        if parsed:
-            return parsed
-    # A conservative C/JS-style lexical scanner provides block/statement cuts
-    # without mistaking braces inside strings or comments for syntax. Unknown
-    # languages still have line/paragraph fallbacks; this is not a compiler.
-    units: list[_Unit] = []
-    braces: list[int] = []
-    quote = 0
-    escaped = False
-    comment = ""
-    parentheses = 0
-    line_start = statement_start = 0
-    index = 0
-    while index < len(payload):
-        value = payload[index]
-        pair = payload[index : index + 2]
-        if value in (10, 13):
-            line_start = index + 1
-            if comment == "line":
-                comment = ""
-        if comment == "block":
-            if pair == b"*/":
-                comment = ""
-                index += 2
-                continue
-        elif comment == "line":
-            pass
-        elif quote:
-            if escaped:
-                escaped = False
-            elif value == 92:
-                escaped = True
-            elif value == quote:
-                quote = 0
-        elif pair in (b"//", b"/*"):
-            comment = "line" if pair == b"//" else "block"
-            index += 2
-            continue
-        elif value in (34, 39, 96):
-            quote = value
-        elif value in (40, 91):
-            parentheses += 1
-        elif value in (41, 93):
-            parentheses = max(0, parentheses - 1)
-        elif value == 123:
-            braces.append(line_start)
-            statement_start = index + 1
-        elif value == 125 and braces:
-            start = braces.pop()
-            end = index + 1
-            while end < len(payload) and payload[end] in b"; \t\r\n":
-                end += 1
-            kind = "function" if not braces else "statement"
-            units.append(_Unit(offset + start, offset + end, kind))
-            statement_start = index + 1
-        elif value == 59 and not parentheses:
-            units.append(_Unit(offset + statement_start, offset + index + 1, "statement"))
-            statement_start = index + 1
-        index += 1
-    return units
+def segment_with_report(
+    payload: bytes,
+    codec: Codec,
+    config: ChunkingConfig | None = None,
+    *,
+    content_kind: str = "auto",
+    language: str | None = None,
+    filename: str | None = None,
+    mime_type: str | None = None,
+    locale: str | None = None,
+    chat_template: str | None = None,
+) -> ChunkingReport:
+    """Parse arbitrary input and expose the evidence behind every physical cut.
 
+    Structured adapters pass chat_template='none' because their message and tool
+    boundaries are authoritative. Raw templates are parsed only at this outermost
+    level, never recursively inside code, strings, or message bodies.
+    """
+    from .parsing.chat import parse_chat
+    from .parsing.engine import parse_content
 
-def _boundaries(
-    payload: bytes, content_kind: str, language: str | None
-) -> tuple[dict[int, str], list[_Unit]]:
-    boundaries: dict[int, str] = {len(payload): "end"}
-    units: list[_Unit] = []
-
-    def add(end: int, kind: str) -> None:
-        if end > 0 and _PRIORITY[kind] >= _PRIORITY.get(boundaries.get(end, "token"), 0):
-            boundaries[end] = kind
-
+    config = config or ChunkingConfig()
+    if not isinstance(payload, bytes):
+        raise TypeError("Semantic chunking requires immutable bytes")
+    for name, value in (
+        ("language", language),
+        ("filename", filename),
+        ("mime_type", mime_type),
+        ("locale", locale),
+        ("chat_template", chat_template),
+    ):
+        if value is not None and not isinstance(value, str):
+            raise TypeError(f"{name} must be a string or null")
+    if content_kind not in {
+        "auto",
+        "text",
+        "prose",
+        "markdown",
+        "code",
+        "json",
+        "html",
+        "xml",
+        "binary",
+    }:
+        raise ValueError(f"Unsupported semantic content kind: {content_kind}")
+    selected_template = chat_template if chat_template is not None else config.chat_template
     if content_kind == "binary":
-        return boundaries, units
-    lines = _line_offsets(payload)
-    paragraph_start = 0
-    fence: tuple[int, bytes, int, bytes] | None = None
-    list_start: int | None = None
-    list_indent = 0
-    for start, end, body in lines:
-        add(end, "line")
-        marker = _FENCE.fullmatch(body) if content_kind != "code" else None
-        if fence is not None:
-            opening, delimiter, body_start, tag = fence
-            if (
-                marker
-                and marker[1][:1] == delimiter[:1]
-                and len(marker[1]) >= len(delimiter)
-                and not marker[2].strip()
-            ):
-                units.append(_Unit(opening, end, "code_block"))
-                add(opening, "paragraph")
-                add(end, "code_block")
-                units.extend(
-                    _code_units(
-                        payload[body_start:start], body_start, tag.decode("ascii", errors="ignore")
+        selected_template = "none"
+    chat = parse_chat(payload, selected_template, max_frames=config.limits.max_regions)
+    parsed_all = ParseResult(diagnostics=list(chat.diagnostics))
+    if chat.detected:
+        chat.validate(len(payload))
+        frames = [(f.start, f.end, f.header_end, f.body_end, f.role) for f in chat.frames]
+        parsed_all.parsers.add(f"chat:{chat.template}")
+    else:
+        frames = [(0, len(payload), 0, len(payload), None)]
+    chunks: list[SemanticChunk] = []
+    events: list[tuple[int, int]] = []
+    token_base = candidates = edges = 0
+    objective = 0.0
+    for frame_start, frame_end, body_start, body_end, role in frames:
+        source = payload[frame_start:frame_end]
+        index = TokenIndex.encode(source, codec)
+        local_body = body_start - frame_start
+
+        def needs_refinement(
+            start: int, end: int, *, token_index=index, body_offset=local_body
+        ) -> bool:
+            return (
+                token_index.count(body_offset + start, body_offset + end) > config.soft_max_tokens
+                or end - start > config.max_bytes
+            )
+
+        parsed = ParseResult()
+        if content_kind != "binary":
+            inner = parse_content(
+                payload[body_start:body_end],
+                content_kind=content_kind,
+                language=language,
+                filename=filename,
+                mime_type=mime_type,
+                locale=locale,
+                limits=config.limits,
+                backend=config.parser_backend,
+                use_icu=config.use_icu,
+                needs_refinement=needs_refinement,
+            )
+            inner.validate(body_end - body_start)
+            parsed.extend(inner, offset=local_body, depth=1 if chat.detected else 0)
+        else:
+            parsed.parsers.add("binary")
+        if chat.detected:
+            parsed.regions.append(
+                Region(0, len(source), "chat_message", role, 0, False, f"chat:{chat.template}")
+            )
+            for start, end in ((0, local_body), (body_end - frame_start, len(source))):
+                if end > start:
+                    parsed.regions.append(
+                        Region(
+                            start, end, "template_marker", None, 1, True, f"chat:{chat.template}"
+                        )
                     )
-                )
-                fence = None
-                paragraph_start = end
-            continue
-        if marker:
-            if list_start is not None:
-                units.append(_Unit(list_start, start, "list_item"))
-                add(start, "list_item")
-                list_start = None
-            fence = (start, marker[1], end, marker[2].strip().split(b" ", 1)[0].lower())
-            continue
-        if not body.strip(b" \t"):
-            add(end, "paragraph")
-            if paragraph_start < start:
-                units.append(_Unit(paragraph_start, end, "paragraph"))
-            paragraph_start = end
-            continue
-        item = _LIST.match(body) if content_kind != "code" else None
-        if item:
-            indent = len(item[1].expandtabs(4))
-            if list_start is not None and indent <= list_indent:
-                units.append(_Unit(list_start, start, "list_item"))
-                add(start, "list_item")
-                list_start = None
-            if list_start is None:
-                list_start, list_indent = start, indent
-        elif list_start is not None and len(body) - len(body.lstrip(b" \t")) <= list_indent:
-            units.append(_Unit(list_start, start, "list_item"))
-            add(start, "list_item")
-            list_start = None
-    if fence is not None:
-        opening, _, body_start, tag = fence
-        units.append(_Unit(opening, len(payload), "code_block"))
-        add(opening, "paragraph")
-        add(len(payload), "code_block")
-        units.extend(
-            _code_units(payload[body_start:], body_start, tag.decode("ascii", errors="ignore"))
+            parsed.boundaries.append(
+                Boundary(len(source), "chat", source=f"chat:{chat.template}", mandatory=True)
+            )
+        parsed.boundaries.append(Boundary(len(source), "end"))
+        parsed.diagnostics.extend(
+            replace(
+                d, start=max(0, d.start - frame_start), end=min(len(source), d.end - frame_start)
+            )
+            for d in chat.diagnostics
+            if d.start <= frame_end and d.end >= frame_start
         )
-    if list_start is not None:
-        units.append(_Unit(list_start, len(payload), "list_item"))
-        add(len(payload), "list_item")
-    if content_kind == "code":
-        units.extend(_code_units(payload, language=language))
-    if content_kind == "json":
-        # Structured actions remain complete while they fit their hard capacity.
-        # Oversized legacy actions can still become ordered physical parts.
-        units.append(_Unit(0, len(payload), "json"))
-        add(len(payload), "json")
-    for unit in units:
-        if unit.kind in {"function", "statement"}:
-            add(unit.start, unit.kind)
-            add(unit.end, unit.kind)
-    for match in _SENTENCE.finditer(payload):
-        add(match.end(), "sentence")
-    for match in re.finditer(rb"[ \t]+", payload):
-        # Both sides are candidates: a BPE may absorb leading whitespace into
-        # the next word. No source token is split just to hit a text offset.
-        add(match.start(), "whitespace")
-        add(match.end(), "whitespace")
-    return boundaries, units
+        parsed.validate(len(source))
+        physical, plan = _materialize(index, parsed, config)
+        chunks.extend(
+            replace(
+                part,
+                byte_start=part.byte_start + frame_start,
+                byte_end=part.byte_end + frame_start,
+                token_start=part.token_start + token_base,
+                token_end=part.token_end + token_base,
+                boundary="chat"
+                if chat.detected and part.byte_end == len(source)
+                else part.boundary,
+            )
+            for part in physical
+        )
+        parsed_all.extend(parsed, offset=frame_start)
+        events.append((frame_start, frame_end))
+        token_base += len(index.ids)
+        candidates += plan.candidate_count
+        edges += plan.evaluated_edges
+        objective += plan.cost
+    parsed_all.diagnostics[:] = list(dict.fromkeys(parsed_all.diagnostics))
+    return ChunkingReport(
+        tuple(chunks),
+        parsed_all,
+        chat.template if chat.detected else None,
+        tuple(events),
+        objective,
+        candidates,
+        edges,
+    )
 
 
 def segment_bytes(
@@ -329,167 +293,27 @@ def segment_bytes(
     *,
     content_kind: str = "auto",
     language: str | None = None,
+    filename: str | None = None,
+    mime_type: str | None = None,
+    locale: str | None = None,
+    chat_template: str | None = None,
 ) -> tuple[SemanticChunk, ...]:
-    """Partition one logical event, preserving bytes and original reference IDs.
-
-    Paragraph/list/code units fitting the soft cap remain intact. Larger units
-    use statement, sentence, line, then whitespace boundaries near the target.
-    An indivisible code/list/JSON unit may exceed the soft cap up to the hard
-    cap. Last-resort token cuts are reported, including binary input.
-    """
-    config = config or ChunkingConfig()
-    if not isinstance(payload, bytes):
-        raise TypeError("Semantic chunking requires immutable bytes")
-    if content_kind not in {"auto", "text", "markdown", "code", "json", "binary"}:
-        raise ValueError(f"Unsupported semantic content kind: {content_kind}")
-    if language is not None and not isinstance(language, str):
-        raise TypeError("The source language must be a string or null")
-    language = language.casefold() if language else None
-    ids = tuple(codec.encode(payload))
-    pieces = [codec.decode([token]) for token in ids]
-    if b"".join(pieces) != payload or any(not piece for piece in pieces):
-        raise ValueError("The raw codec must have nonempty, byte-exact compositional tokens")
-    offsets = [0]
-    for piece in pieces:
-        offsets.append(offsets[-1] + len(piece))
-    if not ids:
-        return (SemanticChunk(b"", (), 0, 0, 0, 0, "end"),)
-    valid_utf8 = True
-    try:
-        payload.decode("utf-8")
-    except UnicodeError:
-        valid_utf8 = False
-        content_kind = "binary"
-    raw_boundaries, units = _boundaries(payload, content_kind, language)
-    boundary_ids: dict[int, str] = {}
-    for offset, kind in raw_boundaries.items():
-        index = bisect.bisect_left(offsets, offset)
-        if offsets[index] != offset:
-            # Moving within a separator run preserves its block boundary. A
-            # token containing real text on both sides makes this cut ineligible.
-            if payload[offsets[index - 1] : offsets[index]].strip(b" \t\r\n"):
-                continue
-        if index and _PRIORITY[kind] >= _PRIORITY.get(boundary_ids.get(index, "token"), 0):
-            boundary_ids[index] = kind
-    protected: list[tuple[int, int]] = []
-    atomic: list[tuple[int, int, str]] = []
-    for unit in units:
-        left = bisect.bisect_left(offsets, unit.start)
-        right = bisect.bisect_left(offsets, unit.end)
-        if unit.kind in {"function", "code_block", "list_item", "json"}:
-            if right - left <= config.soft_max_tokens and unit.end - unit.start <= config.max_bytes:
-                protected.append((left, right))
-            atomic.append((left, right, unit.kind))
-    # Merge protected intervals once; boundary selection must not compare every
-    # candidate with every function/list in a long source file.
-    merged: list[list[int]] = []
-    for left, right in sorted(protected):
-        if merged and left < merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], right)
-        else:
-            merged.append([left, right])
-    protected_starts = [left for left, _ in merged]
-
-    def blocked(index: int) -> bool:
-        position = bisect.bisect_left(protected_starts, index) - 1
-        return position >= 0 and index < merged[position][1]
-
-    candidates = sorted(boundary_ids)
-    atomic.sort()
-    atomic_index = 0
-    active_units: list[tuple[int, int, str]] = []
-    chunks: list[SemanticChunk] = []
-    start = 0
-    while start < len(ids):
-        while atomic_index < len(atomic) and atomic[atomic_index][0] <= start:
-            active_units.append(atomic[atomic_index])
-            atomic_index += 1
-        active_units = [unit for unit in active_units if unit[1] > start]
-        hard = min(
-            len(ids),
-            start + config.hard_max_tokens,
-            bisect.bisect_right(offsets, offsets[start] + config.max_bytes) - 1,
-        )
-        if hard <= start:
-            raise ValueError("One indivisible codec token exceeds max_record_bytes")
-        soft = min(hard, start + config.soft_max_tokens)
-        target = min(soft, start + config.target_tokens)
-
-        def safe(index: int) -> bool:
-            byte = offsets[index]
-            return payload[max(0, byte - 1) : byte + 1] != b"\r\n" and (
-                not valid_utf8 or byte == len(payload) or payload[byte] & 0xC0 != 0x80
-            )
-
-        choices = [
-            index
-            for index in candidates[
-                bisect.bisect_right(candidates, start) : bisect.bisect_right(candidates, soft)
-            ]
-            if safe(index) and not blocked(index)
-        ]
-        # Complete JSON is one action, even when larger than the prose soft cap.
-        whole_json = next(
-            (
-                right
-                for left, right, kind in active_units
-                if kind == "json" and left == start and right <= hard
-            ),
-            None,
-        )
-        if whole_json is not None:
-            end, kind = whole_json, "json"
-        elif choices:
-            primary = [index for index in choices if _PRIORITY[boundary_ids[index]] >= 5]
-            semantic = [index for index in choices if _PRIORITY[boundary_ids[index]] >= 3]
-            selected = primary or semantic or choices
-            best_priority = max(_PRIORITY[boundary_ids[index]] for index in selected)
-            if not primary:
-                selected = [
-                    index for index in selected if _PRIORITY[boundary_ids[index]] == best_priority
-                ]
-            end = min(selected, key=lambda index: (abs(index - target), -index))
-            kind = boundary_ids[end]
-        else:
-            complete = [
-                (right, kind)
-                for left, right, kind in active_units
-                if left <= start < right <= hard and safe(right)
-            ]
-            if complete:
-                end, kind = min(complete, key=lambda pair: pair[0])
-            else:
-                end, kind = target, "token"
-                while end > start and not safe(end):
-                    end -= 1
-                # Tiny explicit byte/token limits can be smaller than one UTF-8
-                # scalar. First expand up to the hard cap to finish the scalar
-                # or CRLF when possible; otherwise preserve bytes and progress.
-                if end == start:
-                    end = next(
-                        (index for index in range(target + 1, hard + 1) if safe(index)), target
-                    )
-        if end == len(ids):
-            kind = "end"
-        chunks.append(
-            SemanticChunk(
-                payload[offsets[start] : offsets[end]],
-                ids[start:end],
-                offsets[start],
-                offsets[end],
-                start,
-                end,
-                kind,
-                kind == "token",
-            )
-        )
-        start = end
-    return tuple(chunks)
+    return segment_with_report(
+        payload,
+        codec,
+        config,
+        content_kind=content_kind,
+        language=language,
+        filename=filename,
+        mime_type=mime_type,
+        locale=locale,
+        chat_template=chat_template,
+    ).chunks
 
 
 @dataclass
 class ChunkingStats:
-    """Bounded-memory counters over accepted physical records, not exposures."""
+    """Bounded counters over accepted physical records, not training exposures."""
 
     records: int = 0
     bytes: int = 0
@@ -501,6 +325,8 @@ class ChunkingStats:
     unversioned_records: int = 0
     boundaries: Counter = field(default_factory=Counter)
     histogram: Counter = field(default_factory=Counter)
+    languages: Counter = field(default_factory=Counter)
+    diagnostics: Counter = field(default_factory=Counter)
 
     def observe(
         self,
@@ -511,6 +337,8 @@ class ChunkingStats:
         boundary: str | None,
         forced: bool,
         soft_max: int,
+        languages: tuple[str, ...] = (),
+        diagnostics: tuple[str, ...] = (),
     ) -> None:
         self.records += 1
         self.bytes += byte_count
@@ -521,12 +349,15 @@ class ChunkingStats:
         self.forced_splits += forced
         self.unversioned_records += boundary is None
         self.boundaries[boundary or "native_preserved"] += 1
+        self.languages.update(set(languages))
+        self.diagnostics.update(set(diagnostics))
         bucket = next((str(bound) for bound in _HISTOGRAM_BOUNDS if positions <= bound), ">1024")
         self.histogram[bucket] += 1
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
-        result["boundaries"] = dict(self.boundaries)
+        for key in ("boundaries", "languages", "diagnostics"):
+            result[key] = dict(getattr(self, key))
         result["mean_positions"] = self.positions / max(1, self.records)
         result["histogram"] = {
             str(bound): self.histogram[str(bound)] for bound in _HISTOGRAM_BOUNDS

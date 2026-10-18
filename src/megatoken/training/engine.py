@@ -403,12 +403,9 @@ def forward_batch(
             # the *successor* state. The sampled prior branch still receives
             # its own ordinary lexical supervision.
             teacher_forced_action = any(
-                (
-                    action_id := item.window.records[offset].record.action_id
-                ) is not None
+                (action_id := item.window.records[offset].record.action_id) is not None
                 and any(
-                    future.result_of == action_id
-                    for future in item.episode.records[cursor + 1 :]
+                    future.result_of == action_id for future in item.episode.records[cursor + 1 :]
                 )
                 for item in batch.windows
             )

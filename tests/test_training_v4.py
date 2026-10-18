@@ -11,11 +11,11 @@ from megatoken.data.schema import Episode, Lineage, LogicalAction, PhysicalRecor
 from megatoken.generation import ByteCodec
 from megatoken.loading import build_model, load_model_config
 from megatoken.model import ModelConfig
+from megatoken.tensors import byte_tensor
 from megatoken.training.config import TrainConfig
 from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.optimizer import MasterAdamW
-from megatoken.tensors import byte_tensor
 from megatoken.training.stream import EpisodeWindow
 
 
@@ -180,20 +180,35 @@ def test_offline_tool_result_uses_recorded_action_not_counterfactual_sample(monk
         (
             PhysicalRecord("prompt", "user", b"read A", turn_index=0),
             PhysicalRecord(
-                "call", "assistant", call, turn_index=1,
-                policy_mask=True, action_id="a1", execution_id="e1",
+                "call",
+                "assistant",
+                call,
+                turn_index=1,
+                policy_mask=True,
+                action_id="a1",
+                execution_id="e1",
             ),
             PhysicalRecord(
-                "observation", "tool", b"A contents", turn_index=2,
-                result_of="a1", execution_id="e1", provenance="executed",
+                "observation",
+                "tool",
+                b"A contents",
+                turn_index=2,
+                result_of="a1",
+                execution_id="e1",
+                provenance="executed",
             ),
             PhysicalRecord("next", "assistant", b"done", turn_index=3, policy_mask=True),
         ),
         Lineage("fixture", "v4", "tool-causality"),
         actions=(
             LogicalAction(
-                "a1", "call1", "read", '{"path":"A"}', ("call",),
-                digest_bytes(call), execution_id="e1",
+                "a1",
+                "call1",
+                "read",
+                '{"path":"A"}',
+                ("call",),
+                digest_bytes(call),
+                execution_id="e1",
             ),
         ),
     )
@@ -208,9 +223,7 @@ def test_offline_tool_result_uses_recorded_action_not_counterfactual_sample(monk
 
     def capture(state, *args, **kwargs):
         result = original(state, *args, **kwargs)
-        seen.append(
-            (kwargs.get("teacher_forced_action"), result.state.facets.detach().clone())
-        )
+        seen.append((kwargs.get("teacher_forced_action"), result.state.facets.detach().clone()))
         return result
 
     monkeypatch.setattr(model, "supervised_step", capture)

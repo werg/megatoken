@@ -1,0 +1,2679 @@
+{
+  "base_commit": "4c383b883ea746c14d9b924a94bb646beb493ed0",
+  "date": "2026-10-18",
+  "gates": {
+    "all-stage-smoke": {
+      "exit_code": 0,
+      "seconds": 11.551
+    },
+    "base_commit": "4c383b883ea746c14d9b924a94bb646beb493ed0",
+    "build": {
+      "exit_code": 0,
+      "seconds": 0.723
+    },
+    "cli-help": {
+      "exit_code": 0,
+      "seconds": 0.121
+    },
+    "doctor": {
+      "exit_code": 0,
+      "seconds": 1.452
+    },
+    "grammar-coverage": {
+      "exit_code": 0,
+      "seconds": 0.144
+    },
+    "install": {
+      "exit_code": 0,
+      "seconds": 0.553
+    },
+    "installed-pytest": {
+      "exit_code": 0,
+      "seconds": 76.515
+    },
+    "package_identity": {
+      "files": 85,
+      "installed_path": "/workspace/scratch/163db561cc60/.venv/lib/python3.12/site-packages/megatoken",
+      "sha256": {
+        "src/megatoken/__init__.py": "594c1ab72051eb2019d36ebc2721e23051aac9c343e14e81d9c90735bfebf872",
+        "src/megatoken/__main__.py": "148004a7709ca61e9b9a0d9b976e5513af7768f50e95fc82271c5f5bae4886a9",
+        "src/megatoken/assets.py": "a31cb57ea637479034154c924a12fbc301ed49b6064db1c3535e1f1307f358dc",
+        "src/megatoken/benchmark.py": "86adaa46f59234aab7b45a5a6665c22c94c3e59ea5889bb11b76e05e61d2410d",
+        "src/megatoken/cli.py": "a3d67e1793e04435fabccb6dc7eb6cd4e23e66844956c5f33f027f029a594ab4",
+        "src/megatoken/contracts.py": "36936586e6e033a31f07df654a9c5debe511e11bb9d33655a88733e89c61f51b",
+        "src/megatoken/controls.py": "ffdcb60f7d5afac4253cfe4ae3f5e0aab6b8a2d0ad7b91fe53b92b9dec7917d1",
+        "src/megatoken/data/__init__.py": "cc237dfcedea2343fad2e50c04bc464e6ea1b4c22bbe0720a5afaa8e446f33c2",
+        "src/megatoken/data/accounting.py": "b9f49653052e61d02c42e9fd1e0513c788d5dda8e393cc60780899795dfc20f6",
+        "src/megatoken/data/adapters.py": "028af002d6ca93d238cb8b873e006f683e33145361f44a5ca997214a2f382399",
+        "src/megatoken/data/chunking.py": "f6c5d7fbef79d4cf79b4563790aca3cd6aefcf3d8766261d6e76abc324fd8ce6",
+        "src/megatoken/data/cli.py": "7e6dcfe72a7c746a313a9fabbf8eaf572f48febf88a69f664952597d54b9a2f8",
+        "src/megatoken/data/collection.py": "a3dc39441118523c0a7bc66ba0a9a957f934181279d02af34ab787a7ce237e5e",
+        "src/megatoken/data/dedup.py": "f4fb0245ce83ae134667b70927202bd7da6ba63e9f0270dd4ebb1b5352c6662e",
+        "src/megatoken/data/demo.py": "b382f682a37228e17f05b98291a06470e4eb5b1b463ab87fa9575db8621d51d8",
+        "src/megatoken/data/lineage.py": "9659028054dc01ad7a50685c7459ee4ebf2c4295397e38bc9bd7b2aef3b65902",
+        "src/megatoken/data/masking.py": "41c0d6dafee1b7f5c8b7a3367d3d215782e6232a429e5f21c6a631cd7c9db780",
+        "src/megatoken/data/packing.py": "6f065e8ca4384232aa9ee415fbb16661345270125e1fc7edd1378385b4374d63",
+        "src/megatoken/data/parsing/__init__.py": "9bc7779c180aedc2af4308c0498dccdc430a0dc6afbbdfea9a4470ee04489f47",
+        "src/megatoken/data/parsing/chat.py": "8b96b25ed8d8fb0444bcd11574f79c07907bad44846f1b159a266f48feea73c4",
+        "src/megatoken/data/parsing/config.py": "7c0139e2e46fb411a95612685a306cf44412ba1a870a35ef4ac642e56653cbc1",
+        "src/megatoken/data/parsing/documents.py": "46af63dedf62f71840d6eb3efa06492026bc1d1ffbf8dc8b419eef2bd412f7cb",
+        "src/megatoken/data/parsing/engine.py": "af8b1a0c91e8dd41da6d2abf5d469436f65bb990c22e66bdd24f79a8d4f3b7b6",
+        "src/megatoken/data/parsing/planner.py": "4b831f452accb9149503f39bf76d07d530a7f4eaf2a6626ecde72d931b75adec",
+        "src/megatoken/data/parsing/prose.py": "39ccfcfc4b9dc74b453420b0f4fc21a9862d8cca78c1812a902809ede754f9a8",
+        "src/megatoken/data/parsing/registry.py": "36e2903737294220aae1a9e6334d2b01b90b583f8955747c44be3dbc5375170c",
+        "src/megatoken/data/parsing/syntax.py": "eb9bcc34c6fe3ad56e495dab64b3b775ac4f7497d6277e604d6649e3d071d7e7",
+        "src/megatoken/data/parsing/types.py": "085c63af223efbbc8d0061304e90cc6f48ec85c6de02777fbf8dab3201613a8b",
+        "src/megatoken/data/parsing/workers.py": "c70360be14f6f05f309727aa80801330d3470742a31bb581f1382ae76225a5c1",
+        "src/megatoken/data/prepare.py": "7bd0785730b0f636f9be503dab9dcef7423b87a73d1f93af845835f8ef9b1477",
+        "src/megatoken/data/quality.py": "566644707e973b7be3eebdb7593362c409e6f2dcffabbde242f203698bc4b9ec",
+        "src/megatoken/data/recipes.py": "10bcce0011d04a3678a01e9625d00a6979cdb67cd3bca832ef0858be5f5e5bff",
+        "src/megatoken/data/review.py": "41f00217025d8e620976f19969355b89014f9efad6685cd364a974606b5f7e64",
+        "src/megatoken/data/schema.py": "535b565995300401c2e6331c8b1150b284a53a31d3752ba2559dd386bef2172e",
+        "src/megatoken/data/sources.py": "d5f1319829edab4597f05e2e2366ad6cd2cb012c4689abee6f9306ec4f7bf5ef",
+        "src/megatoken/data/stages.json": "c6c00ba71d1f3a400981ff677d8f72d35afbd0bd5a963da2dc7f562fcf058501",
+        "src/megatoken/data/storage.py": "be97e7f4dbaa8b855652c364e5e57876ffc7e706de634bf140a5a9509f4d536b",
+        "src/megatoken/data/student.py": "1c64d0fb1816f4f47f7fc116ca841c2c3e48599960e521c769f906a066627f6b",
+        "src/megatoken/environments.py": "f74bb75ac148476dc782c4146721f79028ea72e98aefc9823da10343f4752648",
+        "src/megatoken/generation/__init__.py": "ad8659955a0f34ccebf6672d678572b84c0832f7035bfb994a004e8b566f393d",
+        "src/megatoken/generation/codec.py": "aac9c10c6b0232ecac38a6f516e13a643679748963843e028b0c6ce9e57d0fae",
+        "src/megatoken/generation/decoder.py": "dc224107d02f01976cebd49b4b84eeb160d9364d162a475bb74811e0a634fea0",
+        "src/megatoken/generation/distributions.py": "c8663cb49025365fd525345d9f68fcac3dc724bc692df9831a0b17c0a7a42faf",
+        "src/megatoken/generation/feasibility.py": "8cf462fbc3b6a4f4a50e82d9d8f75fa9c6cb0cf174188a48db8724e70529ac32",
+        "src/megatoken/generation/latents.py": "9e136220785fac182d838aa22f519eb7c4e98faff1c59be95b076b3ca0723964",
+        "src/megatoken/generation/policy.py": "8fe1794932f6dab895e4cf75968d411f4f0ca2a9a4f8c00ec802a8a4f32f3c5e",
+        "src/megatoken/generation/realizer.py": "2581bfe3691aa8b6dd0a50ca282af0939285d92b1f28025f08a81088b449d9dd",
+        "src/megatoken/generation/structure.py": "8625cdf4214a284c7499a2bb17bfe003f5c68244e56fc32f37fa5fa64ab62a38",
+        "src/megatoken/generation/targets.py": "e50acd8ca45669d0608d26332ffab624e59f64dcd8247aa12d21125930c5af2c",
+        "src/megatoken/inference.py": "b1a06fabff17a1ea6ae04920323adaf500aca9128945152480122f57023f4911",
+        "src/megatoken/io.py": "782e32a2c3e79f610b78f2b5fd19c4bc0b58171db407a458aaec2b8eef93e400",
+        "src/megatoken/kernels/__init__.py": "54176c4c8adea906ce59dda17bc96e1ee117c3896ce16ba533ddef7adc9bc62b",
+        "src/megatoken/kernels/grouped.py": "bd2420aba57915bf66af1b099c88d7775ae69edb64416f1f11260cfae2760d3c",
+        "src/megatoken/kernels/triton_grouped.py": "77fae1053e18dc347473e18414bf6dfe592a0eb3bc494378112020fc2746f74e",
+        "src/megatoken/kernels/triton_recurrent.py": "07e180cd53fcf069649174800ebbcedc5be5e7f80577d88a03f5d1bed7ea2be5",
+        "src/megatoken/loading.py": "4f0ff971375fa73b0ff4272de16a49167db01b9946519f8e06b0ab925b93e4b0",
+        "src/megatoken/model/__init__.py": "740432e82b677a9a856f7f72ebe988f8c2286fdc1fa62667a9ee5992f24caab5",
+        "src/megatoken/model/attention.py": "6a20c9bd7350784d68acb2f1ad5ef0e5f53263bdd5c7c52ec98f55430f4930e3",
+        "src/megatoken/model/audit.py": "441ee1db27352757dc9bd1d433889711f37beea4cff9140105f24c0835accdf7",
+        "src/megatoken/model/blocks.py": "a19f0a8a7a475f44ba915b76a0dacb775001318c7f72926053443d14092da162",
+        "src/megatoken/model/config.py": "48599fe7b7a1512ff54b103ceb4beeef990c983901124f65348d739035d044fd",
+        "src/megatoken/model/core.py": "a970f36b84d7baecde24830709b7d056c18298a70b412ef98060717e7b493fae",
+        "src/megatoken/model/experts.py": "89958a6b9c2d87430459c1942a196b0509c97d246a86bda7fab1df1f06ecf361",
+        "src/megatoken/model/frontend.py": "08e51d021c6b0d761b5fa65d65b754cc34ecd54e3685b70d5b17157acfb6da69",
+        "src/megatoken/model/ingestion.py": "7aee410c81e032ff7a66cac871673e5aa07cb1edb322b356ed8b35ca4dc78717",
+        "src/megatoken/model/layers.py": "a067684c22eb39afd680ced5e1be9476baaec8189b235697243a5b3a1dee06d1",
+        "src/megatoken/model/routing.py": "9a78e33480dfdf5983ffc1879bdad416c9f1bcf48efc6c1eb97451c10dff1d5b",
+        "src/megatoken/model/state.py": "bd7ab3dacc5bed7de50f4d131169f9875dfe052e2914c088676ad4321f1341e2",
+        "src/megatoken/runtime.py": "7c041391b4e4c8fe803e4db0314d88b23c0e9aa09489d9288899face44707f62",
+        "src/megatoken/smoke.py": "10e13075a01826e5ac5cd3a806863c9ac14ae024a474e33b55ee46d03e85dd65",
+        "src/megatoken/tensors.py": "795f948de24dde821c92480afdd3ac144e090478827639501d91e6e0381d3609",
+        "src/megatoken/tool_schema.py": "21b39f5540a1916158f56ea0dae0c0220096dc361e60cb04c5af97807ffe2330",
+        "src/megatoken/training/__init__.py": "0b190b224dcdb931d11d3a7a678495c64af658f02f8919d64bc157e007ad1faa",
+        "src/megatoken/training/checkpoint.py": "965136d69e2d86bb36633381b49b737763a76c241ade679430c9ab437e75fb36",
+        "src/megatoken/training/config.py": "9499d2af9da344999b565630873d920522a95c396c3ec1ba68e094e392144d26",
+        "src/megatoken/training/distributed.py": "064ef9c66d8c6fd54c88f4c3b92523c512979b40db38809a909183a032834970",
+        "src/megatoken/training/engine.py": "928e6d3c24fa4043a43fc0ddbc4c228347ff7db6ebd93652e11c0b77b01fa9ae",
+        "src/megatoken/training/evaluation.py": "a7d79d74f76d430ba2494e3ed792730855814a9c292cef535e952fc93b42dd19",
+        "src/megatoken/training/history.py": "865f2ad82c6a66909217672b18d873ad8f0b80958985535631758b4d417fc40d",
+        "src/megatoken/training/losses.py": "8b9cc155d5c5d577bb31ce2783dc043742f5adbeb45a04d832eede4665ca91dd",
+        "src/megatoken/training/metrics.py": "4ccae9d7d1668bcc7ac0510d591db5470a4b666cc4138eb2a6cae7af8c57e8ba",
+        "src/megatoken/training/optimizer.py": "445188f1799d70ef026005f8bad66940141a422db920e6e531751d8550a11015",
+        "src/megatoken/training/rl.py": "a16d80db2eedafab15452b4c3d2f760a748d1fb31140a6adb3483e5d33e895ee",
+        "src/megatoken/training/schedule.py": "a5331ba088c977428b9d561243e5d92d7e8a3805eac15d0d02831c89b085d208",
+        "src/megatoken/training/stream.py": "7b12c4dafc76624e6a1c8200d92dd20e3de297603869f0b0e47d95660ebb53b0"
+      }
+    },
+    "ruff-check": {
+      "exit_code": 0,
+      "seconds": 0.031
+    },
+    "ruff-format": {
+      "exit_code": 0,
+      "seconds": 0.026
+    },
+    "runtime": {
+      "packages": {
+        "markdown-it-py": "4.0.0",
+        "numpy": "2.5.4",
+        "pytest": "8.4.2",
+        "ruff": "0.17.1",
+        "tokenizers": "0.23.3",
+        "torch": "2.10.0+cpu",
+        "tree-sitter": "0.25.2",
+        "tree-sitter-language-pack": "0.13.0",
+        "uniseg": "0.10.1"
+      },
+      "python": "3.12.14"
+    },
+    "shell-syntax": {
+      "exit_code": 0,
+      "seconds": 0.002
+    },
+    "tests": {
+      "errors": 0,
+      "failures": 0,
+      "passed": 644,
+      "skip_reasons": [
+        "CUDA Tensor Core parity requires GPU hardware",
+        "CUDA attention gate requires a GPU",
+        "CUDA backend selection needs a GPU",
+        "CUDA historical-KV gate requires a GPU",
+        "CUDA masked-source gate requires a GPU",
+        "CUDA parity gate requires a GPU",
+        "CUDA primary-width gate requires a GPU",
+        "CUDA unavailable",
+        "Optional ICU integration runs in the i18n CI job"
+      ],
+      "skipped": 21,
+      "tests": 665
+    },
+    "wheel_sha256": "c6b0de4cd04ba64f274870051c0820f568752f4961122d86fa90c251ab72261a"
+  },
+  "grammar_coverage": {
+    "aliases": {
+      "adoc": "asciidoc",
+      "asciidoc": "asciidoc",
+      "asm": "asm",
+      "assembly": "asm",
+      "bash-session": "bash",
+      "c#": "csharp",
+      "c++": "cpp",
+      "c_sharp": "csharp",
+      "cc": "cpp",
+      "cfg": "ini",
+      "cjs": "javascript",
+      "cl": "commonlisp",
+      "clj": "clojure",
+      "cljc": "clojure",
+      "cljs": "clojure",
+      "cmakelists": "cmake",
+      "commonmark": "markdown",
+      "conf": "ini",
+      "console": "bash",
+      "containerfile": "dockerfile",
+      "cs": "csharp",
+      "cu": "cuda",
+      "cxx": "cpp",
+      "docker": "dockerfile",
+      "dosini": "ini",
+      "edn": "clojure",
+      "ejs": "embeddedtemplate",
+      "elisp": "elisp",
+      "emacs-lisp": "elisp",
+      "erb": "embeddedtemplate",
+      "erl": "erlang",
+      "erlastic": "erlang",
+      "ex": "elixir",
+      "exs": "elixir",
+      "f#": "fsharp",
+      "fennel": "fennel",
+      "fs": "fsharp",
+      "gfm": "markdown",
+      "glslang": "glsl",
+      "gnumakefile": "make",
+      "golang": "go",
+      "gql": "graphql",
+      "hrl": "erlang",
+      "hs": "haskell",
+      "htm": "html",
+      "html+erb": "embeddedtemplate",
+      "html+jinja": "embeddedtemplate",
+      "j2": "embeddedtemplate",
+      "jinja": "embeddedtemplate",
+      "jinja2": "embeddedtemplate",
+      "jl": "julia",
+      "js": "javascript",
+      "json5": "json",
+      "jsonc": "json",
+      "jsonl": "json",
+      "jsx": "javascript",
+      "kt": "kotlin",
+      "kts": "kotlin",
+      "lisp": "commonlisp",
+      "makefile": "make",
+      "md": "markdown",
+      "mdown": "markdown",
+      "mdx": "markdown",
+      "mjs": "javascript",
+      "mkd": "markdown",
+      "ml": "ocaml",
+      "mli": "ocaml_interface",
+      "mysql": "sql",
+      "natural": "prose",
+      "natural_language": "prose",
+      "ndjson": "json",
+      "node": "javascript",
+      "nodejs": "javascript",
+      "obj-c": "objc",
+      "objc++": "objc",
+      "objective-c": "objc",
+      "objectivec": "objc",
+      "ocaml-interface": "ocaml_interface",
+      "orgmode": "org",
+      "perl6": "raku",
+      "pl": "perl",
+      "plain": "prose",
+      "plaintext": "prose",
+      "pm": "perl",
+      "postgres": "sql",
+      "postgresql": "sql",
+      "protobuf": "proto",
+      "protobuf3": "proto",
+      "ps1": "powershell",
+      "pwsh": "powershell",
+      "py": "python",
+      "pycon": "python",
+      "python2": "python",
+      "python3": "python",
+      "qmd": "markdown",
+      "raku": "raku",
+      "rb": "ruby",
+      "rest": "rst",
+      "restructuredtext": "rst",
+      "rkt": "racket",
+      "rmarkdown": "markdown",
+      "rs": "rust",
+      "scm": "scheme",
+      "sh": "bash",
+      "shell": "bash",
+      "shell-session": "bash",
+      "shellscript": "bash",
+      "sml": "sml",
+      "sqlite": "sql",
+      "sv": "verilog",
+      "svg": "xml",
+      "systemverilog": "verilog",
+      "tex": "latex",
+      "text": "prose",
+      "tf": "terraform",
+      "ts": "typescript",
+      "tscript": "typescript",
+      "tsql": "sql",
+      "txt": "prose",
+      "vb": "vb",
+      "vhd": "vhdl",
+      "visualbasic": "vb",
+      "xhtml": "html",
+      "xsl": "xml",
+      "xslt": "xml",
+      "yml": "yaml",
+      "zsh": "bash"
+    },
+    "backend": "tree_sitter",
+    "extensions": {
+      "ada": "ada",
+      "adb": "ada",
+      "adoc": "asciidoc",
+      "ads": "ada",
+      "agda": "agda",
+      "as": "actionscript",
+      "asc": "asciidoc",
+      "asciidoc": "asciidoc",
+      "asm": "asm",
+      "astro": "astro",
+      "atom": "xml",
+      "axi": "netlinx",
+      "axs": "netlinx",
+      "bash": "bash",
+      "bashrc": "bash",
+      "bazel": "starlark",
+      "bb": "bitbake",
+      "bbappend": "bitbake",
+      "bbclass": "bitbake",
+      "bean": "beancount",
+      "beancount": "beancount",
+      "bib": "bibtex",
+      "bicep": "bicep",
+      "bicepparam": "bicep",
+      "bsl": "bsl",
+      "bzl": "starlark",
+      "c": "c",
+      "c++": "cpp",
+      "cairo": "cairo",
+      "capnp": "capnp",
+      "cbl": "cobol",
+      "cc": "cpp",
+      "cfg": "ini",
+      "cjs": "javascript",
+      "cl": "commonlisp",
+      "clar": "clarity",
+      "clj": "clojure",
+      "cljc": "clojure",
+      "cljs": "clojure",
+      "cls": "latex",
+      "cmake": "cmake",
+      "cob": "cobol",
+      "comp": "glsl",
+      "conf": "ini",
+      "cpp": "cpp",
+      "cpy": "cobol",
+      "crt": "pem",
+      "cs": "csharp",
+      "css": "css",
+      "csv": "csv",
+      "csx": "csharp",
+      "cts": "typescript",
+      "cu": "cuda",
+      "cuh": "cuda",
+      "cxx": "cpp",
+      "d": "d",
+      "dart": "dart",
+      "ddl": "sql",
+      "di": "d",
+      "dml": "sql",
+      "dockerfile": "dockerfile",
+      "editorconfig": "ini",
+      "edn": "clojure",
+      "ejs": "embeddedtemplate",
+      "el": "elisp",
+      "elm": "elm",
+      "erb": "embeddedtemplate",
+      "erl": "erlang",
+      "ex": "elixir",
+      "exs": "elixir",
+      "f": "fortran",
+      "f03": "fortran",
+      "f08": "fortran",
+      "f90": "fortran",
+      "f95": "fortran",
+      "fc": "func",
+      "fir": "firrtl",
+      "fish": "fish",
+      "fnl": "fennel",
+      "for": "fortran",
+      "fpp": "fortran",
+      "frag": "glsl",
+      "fs": "fsharp",
+      "fsi": "fsharp_signature",
+      "fsx": "fsharp",
+      "fx": "hlsl",
+      "gd": "gdscript",
+      "gemspec": "ruby",
+      "geom": "glsl",
+      "gleam": "gleam",
+      "glsl": "glsl",
+      "gn": "gn",
+      "gni": "gn",
+      "go": "go",
+      "gql": "graphql",
+      "gradle": "groovy",
+      "graphql": "graphql",
+      "groovy": "groovy",
+      "gvy": "groovy",
+      "h": "c",
+      "h++": "cpp",
+      "ha": "hare",
+      "hack": "hack",
+      "hcl": "hcl",
+      "heex": "heex",
+      "hh": "cpp",
+      "hhi": "hack",
+      "hlsl": "hlsl",
+      "hlsli": "hlsl",
+      "hpp": "cpp",
+      "hrl": "erlang",
+      "hs": "haskell",
+      "htm": "html",
+      "html": "html",
+      "hx": "haxe",
+      "hxx": "cpp",
+      "inc": "asm",
+      "ini": "ini",
+      "ino": "cpp",
+      "ipynb": "json",
+      "ispc": "ispc",
+      "j2": "embeddedtemplate",
+      "janet": "janet",
+      "java": "java",
+      "jinja": "embeddedtemplate",
+      "jinja2": "embeddedtemplate",
+      "jl": "julia",
+      "js": "javascript",
+      "json": "json",
+      "json5": "json",
+      "jsonc": "json",
+      "jsonl": "json",
+      "jsonnet": "jsonnet",
+      "jsx": "javascript",
+      "kdl": "kdl",
+      "key": "pem",
+      "kt": "kotlin",
+      "kts": "kotlin",
+      "lagda": "agda",
+      "ld": "linkerscript",
+      "lds": "linkerscript",
+      "less": "less",
+      "lhs": "haskell",
+      "libsonnet": "jsonnet",
+      "license": "prose",
+      "lisp": "commonlisp",
+      "ll": "llvm",
+      "log": "prose",
+      "lpr": "pascal",
+      "lsp": "commonlisp",
+      "ltx": "latex",
+      "lua": "lua",
+      "luau": "luau",
+      "m": "objc",
+      "magik": "magik",
+      "mak": "make",
+      "make": "make",
+      "markdown": "markdown",
+      "matlab": "matlab",
+      "md": "markdown",
+      "mdown": "markdown",
+      "mdx": "markdown",
+      "mermaid": "mermaid",
+      "meson": "meson",
+      "mjs": "javascript",
+      "mk": "make",
+      "mkd": "markdown",
+      "ml": "ocaml",
+      "mli": "ocaml_interface",
+      "mll": "ocaml",
+      "mly": "ocaml",
+      "mm": "objc",
+      "mmd": "mermaid",
+      "mts": "typescript",
+      "ndjson": "json",
+      "nfo": "prose",
+      "nim": "nim",
+      "nims": "nim",
+      "ninja": "ninja",
+      "nix": "nix",
+      "nut": "squirrel",
+      "odin": "odin",
+      "org": "org",
+      "os": "bsl",
+      "pas": "pascal",
+      "pem": "pem",
+      "pgn": "pgn",
+      "php": "php",
+      "php3": "php",
+      "php4": "php",
+      "php5": "php",
+      "phtml": "php",
+      "pl": "perl",
+      "plist": "xml",
+      "pm": "perl",
+      "po": "po",
+      "pony": "pony",
+      "pot": "po",
+      "pp": "puppet",
+      "prisma": "prisma",
+      "properties": "properties",
+      "props": "xml",
+      "proto": "proto",
+      "ps1": "powershell",
+      "psd1": "powershell",
+      "psm1": "powershell",
+      "psv": "psv",
+      "purs": "purescript",
+      "pxd": "python",
+      "py": "python",
+      "pyi": "python",
+      "pyw": "python",
+      "pyx": "python",
+      "qmd": "markdown",
+      "qml": "qmljs",
+      "r": "r",
+      "rake": "ruby",
+      "rb": "ruby",
+      "re": "re2c",
+      "readme": "prose",
+      "rego": "rego",
+      "rest": "rst",
+      "rkt": "racket",
+      "rktd": "racket",
+      "rktl": "racket",
+      "rmd": "markdown",
+      "ron": "ron",
+      "rs": "rust",
+      "rss": "xml",
+      "rst": "rst",
+      "ru": "ruby",
+      "s": "asm",
+      "sass": "scss",
+      "sc": "scala",
+      "scala": "scala",
+      "scm": "scheme",
+      "scss": "scss",
+      "sh": "bash",
+      "sld": "scheme",
+      "smali": "smali",
+      "smithy": "smithy",
+      "sol": "solidity",
+      "sql": "sql",
+      "ss": "scheme",
+      "sty": "latex",
+      "sv": "verilog",
+      "svelte": "svelte",
+      "svg": "xml",
+      "svh": "verilog",
+      "swift": "swift",
+      "t": "perl",
+      "tal": "uxntal",
+      "targets": "xml",
+      "tcl": "tcl",
+      "td": "tablegen",
+      "tesc": "glsl",
+      "tese": "glsl",
+      "tex": "latex",
+      "text": "prose",
+      "tf": "terraform",
+      "tfvars": "terraform",
+      "thrift": "thrift",
+      "tk": "tcl",
+      "toml": "toml",
+      "trigger": "apex",
+      "ts": "typescript",
+      "tsv": "tsv",
+      "tsx": "tsx",
+      "twig": "twig",
+      "txt": "prose",
+      "typ": "typst",
+      "ungram": "ungrammar",
+      "v": "verilog",
+      "vert": "glsl",
+      "vh": "verilog",
+      "vhd": "vhdl",
+      "vhdl": "vhdl",
+      "vim": "vim",
+      "vue": "vue",
+      "vv": "v",
+      "wast": "wast",
+      "wat": "wat",
+      "wgsl": "wgsl",
+      "xhtml": "html",
+      "xml": "xml",
+      "xsd": "xml",
+      "xsl": "xml",
+      "xslt": "xml",
+      "yaml": "yaml",
+      "yml": "yaml",
+      "yuck": "yuck",
+      "zig": "zig",
+      "zon": "zig",
+      "zsh": "bash",
+      "zshrc": "bash"
+    },
+    "failures": {},
+    "fallback": "bounded lexical structure and Unicode prose segmentation",
+    "grammar_count": 173,
+    "grammar_dependencies": {
+      "tree-sitter-c-sharp": "0.23.5",
+      "tree-sitter-embedded-template": "0.25.0",
+      "tree-sitter-yaml": "0.7.2"
+    },
+    "grammars": [
+      "actionscript",
+      "ada",
+      "agda",
+      "apex",
+      "arduino",
+      "asm",
+      "astro",
+      "bash",
+      "beancount",
+      "bibtex",
+      "bicep",
+      "bitbake",
+      "bsl",
+      "c",
+      "cairo",
+      "capnp",
+      "chatito",
+      "clarity",
+      "clojure",
+      "cmake",
+      "cobol",
+      "comment",
+      "commonlisp",
+      "cpon",
+      "cpp",
+      "csharp",
+      "css",
+      "csv",
+      "cuda",
+      "d",
+      "dart",
+      "dockerfile",
+      "doxygen",
+      "dtd",
+      "elisp",
+      "elixir",
+      "elm",
+      "embeddedtemplate",
+      "erlang",
+      "fennel",
+      "firrtl",
+      "fish",
+      "fortran",
+      "fsharp",
+      "fsharp_signature",
+      "func",
+      "gdscript",
+      "gitattributes",
+      "gitcommit",
+      "gitignore",
+      "gleam",
+      "glsl",
+      "gn",
+      "go",
+      "gomod",
+      "gosum",
+      "graphql",
+      "groovy",
+      "gstlaunch",
+      "hack",
+      "hare",
+      "haskell",
+      "haxe",
+      "hcl",
+      "heex",
+      "hlsl",
+      "html",
+      "hyprlang",
+      "ini",
+      "ispc",
+      "janet",
+      "java",
+      "javascript",
+      "jsdoc",
+      "json",
+      "jsonnet",
+      "julia",
+      "kconfig",
+      "kdl",
+      "kotlin",
+      "latex",
+      "linkerscript",
+      "llvm",
+      "lua",
+      "luadoc",
+      "luap",
+      "luau",
+      "magik",
+      "make",
+      "markdown",
+      "markdown_inline",
+      "matlab",
+      "mermaid",
+      "meson",
+      "netlinx",
+      "nim",
+      "ninja",
+      "nix",
+      "nqc",
+      "objc",
+      "ocaml",
+      "ocaml_interface",
+      "odin",
+      "org",
+      "pascal",
+      "pem",
+      "perl",
+      "pgn",
+      "php",
+      "po",
+      "pony",
+      "powershell",
+      "printf",
+      "prisma",
+      "properties",
+      "proto",
+      "psv",
+      "puppet",
+      "purescript",
+      "pymanifest",
+      "python",
+      "qmldir",
+      "qmljs",
+      "query",
+      "r",
+      "racket",
+      "re2c",
+      "readline",
+      "rego",
+      "requirements",
+      "ron",
+      "rst",
+      "ruby",
+      "rust",
+      "scala",
+      "scheme",
+      "scss",
+      "smali",
+      "smithy",
+      "solidity",
+      "sparql",
+      "sql",
+      "squirrel",
+      "starlark",
+      "svelte",
+      "swift",
+      "tablegen",
+      "tcl",
+      "terraform",
+      "test",
+      "thrift",
+      "toml",
+      "tsv",
+      "tsx",
+      "twig",
+      "typescript",
+      "typst",
+      "udev",
+      "ungrammar",
+      "uxntal",
+      "v",
+      "verilog",
+      "vhdl",
+      "vim",
+      "vue",
+      "wast",
+      "wat",
+      "wgsl",
+      "xcompose",
+      "xml",
+      "yaml",
+      "yuck",
+      "zig"
+    ],
+    "markdown_it_py": "4.0.0",
+    "network": "disabled",
+    "providers": [],
+    "registry": "offline-grammar-registry-v1",
+    "tree_sitter": "0.25.2",
+    "tree_sitter_language_pack": "0.13.0",
+    "validated": true
+  },
+  "junit_note": "One PytestWarning: per-test record_property metadata uses an extension to xunit2. All tests completed with zero failures/errors.",
+  "pilot": {
+    "cases": [
+      {
+        "above_soft_limit": 0,
+        "attachments": {
+          "eligible": 43,
+          "independent_fixture_expectations": 0,
+          "regions": {
+            "signature_attachment": 43
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 38579,
+        "canonical_ids_sha256_le_u32": "55ad4eb3797ab4a20679b2d5d8ab46a3f31648b3ec1b5adc40142759c23bea98",
+        "canonical_tokens": 9096,
+        "case": "src/megatoken/model/core.py",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          276,
+          426,
+          201,
+          309,
+          305,
+          243,
+          499,
+          214,
+          632,
+          93,
+          191,
+          182,
+          623,
+          379,
+          47,
+          121,
+          515,
+          150,
+          101,
+          409,
+          238,
+          458,
+          77,
+          305,
+          492,
+          275,
+          368,
+          125,
+          183,
+          110,
+          549
+        ],
+        "chunks": 31,
+        "content_parser_faults": [],
+        "diagnostics": {
+          "semantic_boundary_projected": 8
+        },
+        "diagnostics_by_run": [
+          {
+            "semantic_boundary_projected": 8
+          },
+          {
+            "semantic_boundary_projected": 8
+          },
+          {
+            "semantic_boundary_projected": 8
+          }
+        ],
+        "event_token_counts": [
+          9096
+        ],
+        "events": [
+          [
+            0,
+            38579
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "prose",
+          "python",
+          "text"
+        ],
+        "parsers": [
+          "recursive-content-v1",
+          "tree_sitter:python",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 233,
+          "cost": 48.497836425781244,
+          "evaluated_edges": 4730
+        },
+        "scope": "Content segmentation; no training episode is prepared.",
+        "snapshot": "inputs/src/megatoken/model/core.py",
+        "source_sha256": "a970f36b84d7baecde24830709b7d056c18298a70b412ef98060717e7b493fae",
+        "timing_seconds": {
+          "median": 0.091811,
+          "runs": [
+            0.223856,
+            0.091811,
+            0.087872
+          ],
+          "warm_median": 0.089842,
+          "warm_tokens_per_second": 101244.6
+        },
+        "tokens_per_chunk": {
+          "count": 31,
+          "max": 632,
+          "mean": 293.42,
+          "median": 275.0,
+          "min": 47,
+          "p10": 101.0,
+          "p90": 515.0,
+          "p95": 586.0
+        }
+      },
+      {
+        "above_soft_limit": 1,
+        "attachments": {
+          "eligible": 21,
+          "independent_fixture_expectations": 0,
+          "regions": {
+            "signature_attachment": 21
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 19846,
+        "canonical_ids_sha256_le_u32": "6d14c663e6a6b0bf6e123f88a1f1b245c36d14acdaef749bebc28b6d568c3170",
+        "canonical_tokens": 4645,
+        "case": "src/megatoken/data/parsing/engine.py",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          434,
+          550,
+          415,
+          419,
+          230,
+          273,
+          119,
+          84,
+          49,
+          49,
+          103,
+          169,
+          494,
+          52,
+          316,
+          889
+        ],
+        "chunks": 16,
+        "content_parser_faults": [],
+        "diagnostics": {
+          "grammar_unavailable": 7,
+          "semantic_boundary_projected": 3
+        },
+        "diagnostics_by_run": [
+          {
+            "grammar_unavailable": 7,
+            "semantic_boundary_projected": 3
+          },
+          {
+            "grammar_unavailable": 7,
+            "semantic_boundary_projected": 3
+          },
+          {
+            "grammar_unavailable": 7,
+            "semantic_boundary_projected": 3
+          }
+        ],
+        "event_token_counts": [
+          4645
+        ],
+        "events": [
+          [
+            0,
+            19846
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "base",
+          "child_language",
+          "injection.language",
+          "prose",
+          "python",
+          "text"
+        ],
+        "parsers": [
+          "generic_lexical:v1",
+          "recursive-content-v1",
+          "tree_sitter:python",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 155,
+          "cost": 97.8492648010254,
+          "evaluated_edges": 4227
+        },
+        "scope": "Content segmentation; no training episode is prepared.",
+        "snapshot": "inputs/src/megatoken/data/parsing/engine.py",
+        "source_sha256": "af8b1a0c91e8dd41da6d2abf5d469436f65bb990c22e66bdd24f79a8d4f3b7b6",
+        "timing_seconds": {
+          "median": 0.067712,
+          "runs": [
+            0.067712,
+            0.063871,
+            0.070208
+          ],
+          "warm_median": 0.067039,
+          "warm_tokens_per_second": 69287.6
+        },
+        "tokens_per_chunk": {
+          "count": 16,
+          "max": 889,
+          "mean": 290.31,
+          "median": 251.5,
+          "min": 49,
+          "p10": 50.5,
+          "p90": 522.0,
+          "p95": 634.75
+        }
+      },
+      {
+        "above_soft_limit": 0,
+        "attachments": {
+          "eligible": 35,
+          "independent_fixture_expectations": 0,
+          "regions": {
+            "signature_attachment": 35
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 31283,
+        "canonical_ids_sha256_le_u32": "c6162dcc1252bfdb85c7021997737fc5abed3e009a1484190cbc6940443165f8",
+        "canonical_tokens": 7582,
+        "case": "src/megatoken/data/parsing/planner.py",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          151,
+          251,
+          80,
+          59,
+          418,
+          96,
+          179,
+          238,
+          256,
+          67,
+          760,
+          39,
+          95,
+          339,
+          310,
+          248,
+          593,
+          124,
+          484,
+          494,
+          109,
+          202,
+          134,
+          259,
+          195,
+          162,
+          259,
+          653,
+          328
+        ],
+        "chunks": 29,
+        "content_parser_faults": [],
+        "diagnostics": {
+          "semantic_boundary_projected": 3
+        },
+        "diagnostics_by_run": [
+          {
+            "semantic_boundary_projected": 3
+          },
+          {
+            "semantic_boundary_projected": 3
+          },
+          {
+            "semantic_boundary_projected": 3
+          }
+        ],
+        "event_token_counts": [
+          7582
+        ],
+        "events": [
+          [
+            0,
+            31283
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "prose",
+          "python",
+          "text"
+        ],
+        "parsers": [
+          "recursive-content-v1",
+          "tree_sitter:python",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 251,
+          "cost": 77.43087274169922,
+          "evaluated_edges": 6938
+        },
+        "scope": "Content segmentation; no training episode is prepared.",
+        "snapshot": "inputs/src/megatoken/data/parsing/planner.py",
+        "source_sha256": "4b831f452accb9149503f39bf76d07d530a7f4eaf2a6626ecde72d931b75adec",
+        "timing_seconds": {
+          "median": 0.469313,
+          "runs": [
+            0.479059,
+            0.469313,
+            0.466914
+          ],
+          "warm_median": 0.468114,
+          "warm_tokens_per_second": 16196.9
+        },
+        "tokens_per_chunk": {
+          "count": 29,
+          "max": 760,
+          "mean": 261.45,
+          "median": 238.0,
+          "min": 39,
+          "p10": 77.4,
+          "p90": 513.8,
+          "p95": 629.0
+        }
+      },
+      {
+        "above_soft_limit": 0,
+        "attachments": {
+          "eligible": 8,
+          "independent_fixture_expectations": 0,
+          "regions": {
+            "heading_attachment": 8
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 17235,
+        "canonical_ids_sha256_le_u32": "ff579c7dbcea44c1a3e1dafaead73b70649ce2f73eaa31d862056785fbcc8e58",
+        "canonical_tokens": 4155,
+        "case": "README.md",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          266,
+          684,
+          312,
+          475,
+          343,
+          440,
+          330,
+          763,
+          542
+        ],
+        "chunks": 9,
+        "content_parser_faults": [],
+        "diagnostics": {
+          "grammar_unavailable": 21
+        },
+        "diagnostics_by_run": [
+          {
+            "grammar_unavailable": 21
+          },
+          {
+            "grammar_unavailable": 21
+          },
+          {
+            "grammar_unavailable": 21
+          }
+        ],
+        "event_token_counts": [
+          4155
+        ],
+        "events": [
+          [
+            0,
+            17235
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "bash",
+          "markdown",
+          "markdown_inline",
+          "prose",
+          "text",
+          "unknown"
+        ],
+        "parsers": [
+          "generic_lexical:v1",
+          "recursive-content-v1",
+          "tree_sitter:bash",
+          "tree_sitter:markdown",
+          "tree_sitter:markdown_inline",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 52,
+          "cost": 1.2642530212402345,
+          "evaluated_edges": 464
+        },
+        "scope": "Content segmentation; no training episode is prepared.",
+        "snapshot": "inputs/README.md",
+        "source_sha256": "164c958be92bd9ff4de6b0a76968899bf1bf213439fb5f6461a7e28fc1612b72",
+        "timing_seconds": {
+          "median": 0.282928,
+          "runs": [
+            0.282928,
+            0.303991,
+            0.264749
+          ],
+          "warm_median": 0.28437,
+          "warm_tokens_per_second": 14611.2
+        },
+        "tokens_per_chunk": {
+          "count": 9,
+          "max": 763,
+          "mean": 461.67,
+          "median": 440.0,
+          "min": 266,
+          "p10": 302.8,
+          "p90": 699.8,
+          "p95": 731.4
+        }
+      },
+      {
+        "above_soft_limit": 0,
+        "attachments": {
+          "eligible": 14,
+          "independent_fixture_expectations": 0,
+          "regions": {
+            "heading_attachment": 14
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 38159,
+        "canonical_ids_sha256_le_u32": "11f863032bf67819505a37a70b66a56a65cc63036a2a6b61917d9ccb58bc409f",
+        "canonical_tokens": 8247,
+        "case": "docs/data.md",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          656,
+          720,
+          475,
+          386,
+          197,
+          587,
+          714,
+          392,
+          547,
+          694,
+          636,
+          603,
+          404,
+          529,
+          454,
+          253
+        ],
+        "chunks": 16,
+        "content_parser_faults": [],
+        "diagnostics": {
+          "grammar_unavailable": 137
+        },
+        "diagnostics_by_run": [
+          {
+            "grammar_unavailable": 137
+          },
+          {
+            "grammar_unavailable": 137
+          },
+          {
+            "grammar_unavailable": 137
+          }
+        ],
+        "event_token_counts": [
+          8247
+        ],
+        "events": [
+          [
+            0,
+            38159
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "bash",
+          "json",
+          "markdown",
+          "markdown_inline",
+          "prose",
+          "python",
+          "text",
+          "unknown"
+        ],
+        "parsers": [
+          "generic_lexical:v1",
+          "recursive-content-v1",
+          "tree_sitter:bash",
+          "tree_sitter:json",
+          "tree_sitter:markdown",
+          "tree_sitter:markdown_inline",
+          "tree_sitter:python",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 104,
+          "cost": 5.8888079528808595,
+          "evaluated_edges": 1268
+        },
+        "scope": "Content segmentation; no training episode is prepared.",
+        "snapshot": "inputs/docs/data.md",
+        "source_sha256": "6469fd3b09dd431658ea8b175a296f8bc46d8dff7c22893f31c6075e889d3b60",
+        "timing_seconds": {
+          "median": 0.144824,
+          "runs": [
+            0.145405,
+            0.144824,
+            0.143356
+          ],
+          "warm_median": 0.14409,
+          "warm_tokens_per_second": 57235.0
+        },
+        "tokens_per_chunk": {
+          "count": 16,
+          "max": 720,
+          "mean": 515.44,
+          "median": 538.0,
+          "min": 197,
+          "p10": 319.5,
+          "p90": 704.0,
+          "p95": 715.5
+        }
+      },
+      {
+        "above_soft_limit": 0,
+        "attachments": {
+          "eligible": 14,
+          "independent_fixture_expectations": 0,
+          "regions": {
+            "heading_attachment": 14
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 27983,
+        "canonical_ids_sha256_le_u32": "e5b6b88f7c2c097391d6421bd8a953d1e10b35c38b035991cfa7c724c95ff9d6",
+        "canonical_tokens": 6152,
+        "case": "docs/chunking.md",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          257,
+          659,
+          548,
+          560,
+          476,
+          597,
+          460,
+          568,
+          386,
+          457,
+          655,
+          529
+        ],
+        "chunks": 12,
+        "content_parser_faults": [],
+        "diagnostics": {
+          "grammar_unavailable": 58
+        },
+        "diagnostics_by_run": [
+          {
+            "grammar_unavailable": 58
+          },
+          {
+            "grammar_unavailable": 58
+          },
+          {
+            "grammar_unavailable": 58
+          }
+        ],
+        "event_token_counts": [
+          6152
+        ],
+        "events": [
+          [
+            0,
+            27983
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "bash",
+          "markdown",
+          "markdown_inline",
+          "prose",
+          "python",
+          "text",
+          "unknown",
+          "yaml"
+        ],
+        "parsers": [
+          "generic_lexical:v1",
+          "recursive-content-v1",
+          "tree_sitter:bash",
+          "tree_sitter:markdown",
+          "tree_sitter:markdown_inline",
+          "tree_sitter:python",
+          "tree_sitter:yaml",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 73,
+          "cost": 11.546826232910156,
+          "evaluated_edges": 659
+        },
+        "scope": "Content segmentation; no training episode is prepared.",
+        "snapshot": "inputs/docs/chunking.md",
+        "source_sha256": "836b6734dd6cde164e24caa1c43ca8ff7928dd31351726a34e34cff99b8d6059",
+        "timing_seconds": {
+          "median": 0.441961,
+          "runs": [
+            0.436962,
+            0.467629,
+            0.441961
+          ],
+          "warm_median": 0.454795,
+          "warm_tokens_per_second": 13527.0
+        },
+        "tokens_per_chunk": {
+          "count": 12,
+          "max": 659,
+          "mean": 512.67,
+          "median": 538.5,
+          "min": 257,
+          "p10": 393.1,
+          "p90": 649.2,
+          "p95": 656.8
+        }
+      },
+      {
+        "above_soft_limit": 1,
+        "attachments": {
+          "eligible": 7,
+          "independent_fixture_expectations": 1,
+          "regions": {
+            "heading_attachment": 5,
+            "signature_attachment": 2
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 11772,
+        "canonical_ids_sha256_le_u32": "65ee42a7e197ad2aa0a1ca22840e632c10f79346868059932caff52baa408716",
+        "canonical_tokens": 3086,
+        "case": "fixture/mixed-document.md",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          544,
+          536,
+          536,
+          540,
+          781,
+          149
+        ],
+        "chunks": 6,
+        "content_parser_faults": [],
+        "diagnostics": {
+          "semantic_boundary_projected": 3
+        },
+        "diagnostics_by_run": [
+          {
+            "semantic_boundary_projected": 3
+          },
+          {
+            "semantic_boundary_projected": 3
+          },
+          {
+            "semantic_boundary_projected": 3
+          }
+        ],
+        "event_token_counts": [
+          3086
+        ],
+        "events": [
+          [
+            0,
+            11772
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "css",
+          "html",
+          "javascript",
+          "json",
+          "markdown",
+          "markdown_inline",
+          "prose",
+          "python",
+          "sql",
+          "text"
+        ],
+        "parsers": [
+          "recursive-content-v1",
+          "tree_sitter:css",
+          "tree_sitter:html",
+          "tree_sitter:javascript",
+          "tree_sitter:json",
+          "tree_sitter:markdown",
+          "tree_sitter:markdown_inline",
+          "tree_sitter:python",
+          "tree_sitter:sql",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 453,
+          "cost": 2.8019790649414067,
+          "evaluated_edges": 26666
+        },
+        "scope": "Content segmentation; no training episode is prepared.",
+        "snapshot": "inputs/fixture/mixed-document.md",
+        "source_sha256": "970deba1fc8dcaaaf74a158c55df01c09cf07f4ab15727907df48a0d137fef4c",
+        "timing_seconds": {
+          "median": 0.49051,
+          "runs": [
+            0.49051,
+            0.484728,
+            0.502832
+          ],
+          "warm_median": 0.49378,
+          "warm_tokens_per_second": 6249.7
+        },
+        "tokens_per_chunk": {
+          "count": 6,
+          "max": 781,
+          "mean": 514.33,
+          "median": 538.0,
+          "min": 149,
+          "p10": 342.5,
+          "p90": 662.5,
+          "p95": 721.75
+        }
+      },
+      {
+        "above_soft_limit": 1,
+        "attachments": {
+          "eligible": 9,
+          "independent_fixture_expectations": 1,
+          "regions": {
+            "heading_attachment": 7,
+            "signature_attachment": 2
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 12140,
+        "canonical_ids_sha256_le_u32": "2dac11798f8f6465cf73bb0c75990018f0c9a55c1572b17db6252574f5e731fc",
+        "canonical_tokens": 3206,
+        "case": "fixture/mixed-chat.txt",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_chat_roles": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          18,
+          7,
+          544,
+          536,
+          536,
+          540,
+          781,
+          131,
+          23,
+          36,
+          27,
+          27
+        ],
+        "chunks": 12,
+        "content_parser_faults": [],
+        "diagnostics": {
+          "semantic_boundary_projected": 3
+        },
+        "diagnostics_by_run": [
+          {
+            "semantic_boundary_projected": 3
+          },
+          {
+            "semantic_boundary_projected": 3
+          },
+          {
+            "semantic_boundary_projected": 3
+          }
+        ],
+        "event_token_counts": [
+          18,
+          3098,
+          36,
+          27,
+          27
+        ],
+        "events": [
+          [
+            0,
+            66
+          ],
+          [
+            66,
+            11865
+          ],
+          [
+            11865,
+            11963
+          ],
+          [
+            11963,
+            12045
+          ],
+          [
+            12045,
+            12140
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "css",
+          "html",
+          "javascript",
+          "json",
+          "markdown",
+          "markdown_inline",
+          "prose",
+          "python",
+          "sql",
+          "text"
+        ],
+        "parsers": [
+          "chat:chatml",
+          "recursive-content-v1",
+          "tree_sitter:css",
+          "tree_sitter:html",
+          "tree_sitter:javascript",
+          "tree_sitter:json",
+          "tree_sitter:markdown",
+          "tree_sitter:markdown_inline",
+          "tree_sitter:python",
+          "tree_sitter:sql",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 472,
+          "cost": 8.78416534423828,
+          "evaluated_edges": 26700
+        },
+        "scope": "Parser/framing-only ChatML fixture. Its tool role has no causal call/execution IDs; it is not a training-ready episode and the serialized-chat preparation adapter would quarantine missing dependency IDs.",
+        "snapshot": "inputs/fixture/mixed-chat.txt",
+        "source_sha256": "f0e1f097f42d9b844ff0d0a895fa4970ca4cf135fc33c03751df501f11dcb044",
+        "timing_seconds": {
+          "median": 0.518964,
+          "runs": [
+            0.518964,
+            0.558823,
+            0.501868
+          ],
+          "warm_median": 0.530345,
+          "warm_tokens_per_second": 6045.1
+        },
+        "tokens_per_chunk": {
+          "count": 12,
+          "max": 781,
+          "mean": 267.17,
+          "median": 83.5,
+          "min": 7,
+          "p10": 18.5,
+          "p90": 543.6,
+          "p95": 650.65
+        }
+      },
+      {
+        "above_soft_limit": 0,
+        "attachments": {
+          "eligible": 4,
+          "independent_fixture_expectations": 1,
+          "regions": {
+            "signature_attachment": 3
+          },
+          "standalone_heading_tails": [],
+          "violations": []
+        },
+        "bytes": 5541,
+        "canonical_ids_sha256_le_u32": "d2e6b15eb8c5a1e0d839ef6713e3130ef63ab20320b9da831a65a9b855055895",
+        "canonical_tokens": 2449,
+        "case": "fixture/attachment-trap.py",
+        "checks": {
+          "bounded_planner_edges": true,
+          "byte_cap": true,
+          "canonical_byte_coverage": true,
+          "canonical_per_event_ids": true,
+          "causal_boundaries": true,
+          "contiguous_chunks": true,
+          "exact_source_bytes": true,
+          "exact_source_ranges": true,
+          "expected_event_ranges": true,
+          "expected_native_parsers": true,
+          "feasible_attachments_intact": true,
+          "individual_decode": true,
+          "no_content_parser_faults": true,
+          "no_standalone_heading_tails": true,
+          "nonempty_chunks": true,
+          "repeatable_chunks": true,
+          "token_cap": true
+        },
+        "chunk_token_counts": [
+          516,
+          640,
+          644,
+          649
+        ],
+        "chunks": 4,
+        "content_parser_faults": [],
+        "diagnostics": {},
+        "diagnostics_by_run": [
+          {},
+          {},
+          {}
+        ],
+        "event_token_counts": [
+          2449
+        ],
+        "events": [
+          [
+            0,
+            5541
+          ]
+        ],
+        "forced_chunks": 0,
+        "languages": [
+          "prose",
+          "python",
+          "text"
+        ],
+        "parsers": [
+          "recursive-content-v1",
+          "tree_sitter:python",
+          "unicode-prose"
+        ],
+        "passed": true,
+        "planner": {
+          "candidates": 213,
+          "cost": 1.6320013732910155,
+          "evaluated_edges": 11366
+        },
+        "scope": "Content segmentation; no training episode is prepared.",
+        "snapshot": "inputs/fixture/attachment-trap.py",
+        "source_sha256": "c4f0a4767fea3f6470f502a1f7861e0ea73344b54945cd32350d4484519bd55d",
+        "timing_seconds": {
+          "median": 0.034519,
+          "runs": [
+            0.035719,
+            0.034519,
+            0.033847
+          ],
+          "warm_median": 0.034183,
+          "warm_tokens_per_second": 71644.0
+        },
+        "tokens_per_chunk": {
+          "count": 4,
+          "max": 649,
+          "mean": 612.25,
+          "median": 642.0,
+          "min": 516,
+          "p10": 553.2,
+          "p90": 647.5,
+          "p95": 648.25
+        }
+      }
+    ],
+    "chunking_identity": {
+      "codec_fingerprint": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+      "config": {
+        "chat_template": "auto",
+        "code_tree_scale": 1.5,
+        "hard_max_tokens": 1024,
+        "limits": {
+          "isolate_native": true,
+          "max_depth": 12,
+          "max_injections": 2048,
+          "max_nodes": 100000,
+          "max_parse_bytes": 1048576,
+          "max_parse_milliseconds": 0,
+          "max_regions": 20000,
+          "max_tree_depth": 128,
+          "worker_timeout_ms": 5000
+        },
+        "max_bytes": 16384,
+        "parser_backend": "tree_sitter",
+        "planner_max_edges": 64,
+        "soft_max_tokens": 768,
+        "target_tokens": 512,
+        "tree_distance_budget": 4.0,
+        "tree_distance_weight": 0.15,
+        "use_icu": false,
+        "version": "recursive-parser-v2"
+      },
+      "config_fingerprint": "e14b28eca984874acf14a1151b153dde3dd768cc5ea686162e48ec125b6670b9",
+      "fingerprint": "7fe90e0d6f84269d23ba661be3bfcfcbce0307a6356a08ca5afe52615dfbbc07",
+      "parsers": {
+        "chat": {
+          "templates": {
+            "chatml": {
+              "aliases": [
+                "qwen"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 0,
+              "channel_markers": [],
+              "ends": [
+                "3c7c696d5f656e647c3e"
+              ],
+              "format_markers": [],
+              "mode": "delimited",
+              "name": "chatml",
+              "prefixes": [],
+              "separator": "0a",
+              "start": "3c7c696d5f73746172747c3e"
+            },
+            "deepseek": {
+              "aliases": [
+                "deepseek-v3",
+                "deepseek-r1"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 0,
+              "channel_markers": [],
+              "ends": [
+                "3cefbd9c656e64e296816f66e2968173656e74656e6365efbd9c3e"
+              ],
+              "format_markers": [],
+              "mode": "deepseek",
+              "name": "deepseek",
+              "prefixes": [
+                "3cefbd9c626567696ee296816f66e2968173656e74656e6365efbd9c3e"
+              ],
+              "separator": "3cefbd9c417373697374616e74efbd9c3e",
+              "start": "3cefbd9c55736572efbd9c3e"
+            },
+            "gemma": {
+              "aliases": [
+                "gemma2",
+                "gemma3"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 0,
+              "channel_markers": [],
+              "ends": [
+                "3c656e645f6f665f7475726e3e"
+              ],
+              "format_markers": [],
+              "mode": "delimited",
+              "name": "gemma",
+              "prefixes": [
+                "3c626f733e"
+              ],
+              "separator": "0a",
+              "start": "3c73746172745f6f665f7475726e3e"
+            },
+            "harmony": {
+              "aliases": [],
+              "allow_named_tools": true,
+              "body_newlines": 0,
+              "channel_markers": [
+                "3c7c6368616e6e656c7c3e"
+              ],
+              "ends": [
+                "3c7c656e647c3e",
+                "3c7c72657475726e7c3e",
+                "3c7c63616c6c7c3e"
+              ],
+              "format_markers": [
+                "3c7c636f6e73747261696e7c3e"
+              ],
+              "mode": "delimited",
+              "name": "harmony",
+              "prefixes": [],
+              "separator": "3c7c6d6573736167657c3e",
+              "start": "3c7c73746172747c3e"
+            },
+            "harmony_legacy": {
+              "aliases": [],
+              "allow_named_tools": true,
+              "body_newlines": 0,
+              "channel_markers": [
+                "3c7c6d6574615f7365707c3e"
+              ],
+              "ends": [
+                "3c7c696d5f656e647c3e",
+                "3c7c66696d5f7375666669787c3e",
+                "3c7c676869737375657c3e"
+              ],
+              "format_markers": [
+                "3c7c6d6574615f73746172747c3e"
+              ],
+              "mode": "delimited",
+              "name": "harmony_legacy",
+              "prefixes": [
+                "3c7c656e646f66746578747c3e"
+              ],
+              "separator": "3c7c696d5f7365707c3e",
+              "start": "3c7c696d5f73746172747c3e"
+            },
+            "inst": {
+              "aliases": [
+                "llama2",
+                "llama-2",
+                "mistral"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 0,
+              "channel_markers": [],
+              "ends": [
+                "3c2f733e"
+              ],
+              "format_markers": [],
+              "mode": "inst",
+              "name": "inst",
+              "prefixes": [
+                "3c733e"
+              ],
+              "separator": "5b2f494e53545d",
+              "start": "5b494e53545d"
+            },
+            "llama3": {
+              "aliases": [
+                "llama-3",
+                "llama3.1",
+                "llama3.2",
+                "llama3.3"
+              ],
+              "allow_named_tools": true,
+              "body_newlines": 2,
+              "channel_markers": [],
+              "ends": [
+                "3c7c656f745f69647c3e",
+                "3c7c656f6d5f69647c3e",
+                "3c7c656e645f6f665f746578747c3e"
+              ],
+              "format_markers": [],
+              "mode": "delimited",
+              "name": "llama3",
+              "prefixes": [
+                "3c7c626567696e5f6f665f746578747c3e"
+              ],
+              "separator": "3c7c656e645f6865616465725f69647c3e",
+              "start": "3c7c73746172745f6865616465725f69647c3e"
+            },
+            "phi3": {
+              "aliases": [
+                "phi-3",
+                "phi4"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 1,
+              "channel_markers": [],
+              "ends": [
+                "3c7c656e647c3e",
+                "3c7c656e646f66746578747c3e"
+              ],
+              "format_markers": [],
+              "mode": "delimited",
+              "name": "phi3",
+              "prefixes": [],
+              "separator": "7c3e",
+              "start": "3c7c"
+            }
+          },
+          "version": "chat-framing-v1"
+        },
+        "implementation": "b6fc7e65e4fbc463a9c67d2b34c256f7aa8a24ee5a54dfe279990e860c5216f3",
+        "prose": {
+          "icu": null,
+          "rules": "unicode-prose-v1",
+          "unicode": "16.0.0",
+          "uniseg": "0.10.1"
+        },
+        "syntax": {
+          "backend": "tree_sitter",
+          "grammar_dependencies": {
+            "tree-sitter-c-sharp": "0.23.5",
+            "tree-sitter-embedded-template": "0.25.0",
+            "tree-sitter-yaml": "0.7.2"
+          },
+          "markdown_it_py": "4.0.0",
+          "network": "disabled",
+          "providers": [],
+          "registry": "offline-grammar-registry-v1",
+          "tree_sitter": "0.25.2",
+          "tree_sitter_language_pack": "0.13.0"
+        }
+      }
+    },
+    "codec": {
+      "asset": {
+        "codec_fingerprint": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+        "format_version": 1,
+        "lexical_rows": 156891,
+        "normalization": "disabled; exact raw bytes",
+        "repository": "inclusionAI/Ling-3.0-tiny",
+        "revision": "9a98e35fe1c9ee255f78dd64771c7ae15a799481",
+        "tokenizer_file": "tokenizer.json",
+        "tokenizer_sha256": "40fb9d7d7795b8bd305aeff39ce9963f3f450915b9553f2938e009be9a1fed60",
+        "vocab_size": 157184
+      },
+      "fingerprint": "7f52faca2fe82273a889023defd2f1a6fd6080a21096ec77e97f4798a0a370b2",
+      "lexical_rows": 156891,
+      "load_seconds": 1.632444,
+      "path": "/workspace/scratch/163db561cc60/chunker-pilot/codec",
+      "vocab_size": 157184
+    },
+    "created_at": "2026-10-18T16:12:29.505012+00:00",
+    "driver_sha256": "2dd08092e244abab85c47b5c346b8b5b0d34730063e6e6b793dfb68800829542",
+    "environment": {
+      "dependencies": {
+        "markdown-it-py": "4.0.0",
+        "regex": "2026.9.29",
+        "tokenizers": "0.23.3",
+        "tree-sitter": "0.25.2",
+        "tree-sitter-language-pack": "0.13.0",
+        "uniseg": "0.10.1"
+      },
+      "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+      "python": "3.12.14"
+    },
+    "output": "/workspace/scratch/163db561cc60/chunker-pilot/validated",
+    "passed": true,
+    "repeats": 3,
+    "repository": "/workspace/scratch/163db561cc60/megatoken",
+    "scope": {
+      "chat_fixture": "Framing only: no causal tool-call/execution IDs; not a preparation-accepted training episode.",
+      "excluded": "Training-episode admission, source/quality/dedup gates, GPU throughput, model quality, and general corpus performance.",
+      "parser_fault_gate": "Classifies content report diagnostics only; does not replace the full preparation adapter and review gate.",
+      "tested": "Reference-codec content segmentation and serialized-chat framing on nine fixed cases."
+    },
+    "summary": {
+      "bytes": 202538,
+      "canonical_tokens": 48618,
+      "cases": 9,
+      "chunks": 135,
+      "eligible_attachments": 155,
+      "failed_cases": [],
+      "planner_candidates": 2006,
+      "planner_edges": 83018,
+      "tokens_per_chunk": {
+        "count": 135,
+        "max": 889,
+        "mean": 360.13,
+        "median": 343.0,
+        "min": 7,
+        "p10": 78.2,
+        "p90": 647.0,
+        "p95": 700.0
+      },
+      "warm_total_seconds": 2.566558
+    },
+    "timing_method": "Each case runs repeatedly in one process. The first case's first run includes native-worker startup. Warm medians use runs after the first. Encoding, parsing, planning and materialization are timed; asset loading and verification are separate. Shared CPU environment, not a controlled throughput benchmark.",
+    "unchanged_implementation": true,
+    "version": "reference-codec-chunking-pilot-v1"
+  },
+  "scope": "Installed CPU implementation validation and a nine-case reference-codec parsing pilot; no Blackwell throughput or model-quality measurement.",
+  "smoke": {
+    "exported_chunking_identity": {
+      "codec_fingerprint": "494921d89e35a8e0d482a14d3d27f2ed53eecd2060174f6e6dc040fbd34d3d4e",
+      "config": {
+        "chat_template": "auto",
+        "code_tree_scale": 1.5,
+        "hard_max_tokens": 128,
+        "limits": {
+          "isolate_native": true,
+          "max_depth": 12,
+          "max_injections": 2048,
+          "max_nodes": 100000,
+          "max_parse_bytes": 1048576,
+          "max_parse_milliseconds": 0,
+          "max_regions": 20000,
+          "max_tree_depth": 128,
+          "worker_timeout_ms": 5000
+        },
+        "max_bytes": 16384,
+        "parser_backend": "tree_sitter",
+        "planner_max_edges": 64,
+        "soft_max_tokens": 128,
+        "target_tokens": 128,
+        "tree_distance_budget": 4.0,
+        "tree_distance_weight": 0.15,
+        "use_icu": false,
+        "version": "recursive-parser-v2"
+      },
+      "config_fingerprint": "505fc05df307c07e9c3310e1ae063752b20532117818d014ca47db88c283b57d",
+      "fingerprint": "c76c73322be9f8f2ceb1aa1cd0d0795a65f8d2d42ce963da820caf2ce235f889",
+      "parsers": {
+        "chat": {
+          "templates": {
+            "chatml": {
+              "aliases": [
+                "qwen"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 0,
+              "channel_markers": [],
+              "ends": [
+                "3c7c696d5f656e647c3e"
+              ],
+              "format_markers": [],
+              "mode": "delimited",
+              "name": "chatml",
+              "prefixes": [],
+              "separator": "0a",
+              "start": "3c7c696d5f73746172747c3e"
+            },
+            "deepseek": {
+              "aliases": [
+                "deepseek-v3",
+                "deepseek-r1"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 0,
+              "channel_markers": [],
+              "ends": [
+                "3cefbd9c656e64e296816f66e2968173656e74656e6365efbd9c3e"
+              ],
+              "format_markers": [],
+              "mode": "deepseek",
+              "name": "deepseek",
+              "prefixes": [
+                "3cefbd9c626567696ee296816f66e2968173656e74656e6365efbd9c3e"
+              ],
+              "separator": "3cefbd9c417373697374616e74efbd9c3e",
+              "start": "3cefbd9c55736572efbd9c3e"
+            },
+            "gemma": {
+              "aliases": [
+                "gemma2",
+                "gemma3"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 0,
+              "channel_markers": [],
+              "ends": [
+                "3c656e645f6f665f7475726e3e"
+              ],
+              "format_markers": [],
+              "mode": "delimited",
+              "name": "gemma",
+              "prefixes": [
+                "3c626f733e"
+              ],
+              "separator": "0a",
+              "start": "3c73746172745f6f665f7475726e3e"
+            },
+            "harmony": {
+              "aliases": [],
+              "allow_named_tools": true,
+              "body_newlines": 0,
+              "channel_markers": [
+                "3c7c6368616e6e656c7c3e"
+              ],
+              "ends": [
+                "3c7c656e647c3e",
+                "3c7c72657475726e7c3e",
+                "3c7c63616c6c7c3e"
+              ],
+              "format_markers": [
+                "3c7c636f6e73747261696e7c3e"
+              ],
+              "mode": "delimited",
+              "name": "harmony",
+              "prefixes": [],
+              "separator": "3c7c6d6573736167657c3e",
+              "start": "3c7c73746172747c3e"
+            },
+            "harmony_legacy": {
+              "aliases": [],
+              "allow_named_tools": true,
+              "body_newlines": 0,
+              "channel_markers": [
+                "3c7c6d6574615f7365707c3e"
+              ],
+              "ends": [
+                "3c7c696d5f656e647c3e",
+                "3c7c66696d5f7375666669787c3e",
+                "3c7c676869737375657c3e"
+              ],
+              "format_markers": [
+                "3c7c6d6574615f73746172747c3e"
+              ],
+              "mode": "delimited",
+              "name": "harmony_legacy",
+              "prefixes": [
+                "3c7c656e646f66746578747c3e"
+              ],
+              "separator": "3c7c696d5f7365707c3e",
+              "start": "3c7c696d5f73746172747c3e"
+            },
+            "inst": {
+              "aliases": [
+                "llama2",
+                "llama-2",
+                "mistral"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 0,
+              "channel_markers": [],
+              "ends": [
+                "3c2f733e"
+              ],
+              "format_markers": [],
+              "mode": "inst",
+              "name": "inst",
+              "prefixes": [
+                "3c733e"
+              ],
+              "separator": "5b2f494e53545d",
+              "start": "5b494e53545d"
+            },
+            "llama3": {
+              "aliases": [
+                "llama-3",
+                "llama3.1",
+                "llama3.2",
+                "llama3.3"
+              ],
+              "allow_named_tools": true,
+              "body_newlines": 2,
+              "channel_markers": [],
+              "ends": [
+                "3c7c656f745f69647c3e",
+                "3c7c656f6d5f69647c3e",
+                "3c7c656e645f6f665f746578747c3e"
+              ],
+              "format_markers": [],
+              "mode": "delimited",
+              "name": "llama3",
+              "prefixes": [
+                "3c7c626567696e5f6f665f746578747c3e"
+              ],
+              "separator": "3c7c656e645f6865616465725f69647c3e",
+              "start": "3c7c73746172745f6865616465725f69647c3e"
+            },
+            "phi3": {
+              "aliases": [
+                "phi-3",
+                "phi4"
+              ],
+              "allow_named_tools": false,
+              "body_newlines": 1,
+              "channel_markers": [],
+              "ends": [
+                "3c7c656e647c3e",
+                "3c7c656e646f66746578747c3e"
+              ],
+              "format_markers": [],
+              "mode": "delimited",
+              "name": "phi3",
+              "prefixes": [],
+              "separator": "7c3e",
+              "start": "3c7c"
+            }
+          },
+          "version": "chat-framing-v1"
+        },
+        "implementation": "b6fc7e65e4fbc463a9c67d2b34c256f7aa8a24ee5a54dfe279990e860c5216f3",
+        "prose": {
+          "icu": null,
+          "rules": "unicode-prose-v1",
+          "unicode": "16.0.0",
+          "uniseg": "0.10.1"
+        },
+        "syntax": {
+          "backend": "tree_sitter",
+          "grammar_dependencies": {
+            "tree-sitter-c-sharp": "0.23.5",
+            "tree-sitter-embedded-template": "0.25.0",
+            "tree-sitter-yaml": "0.7.2"
+          },
+          "markdown_it_py": "4.0.0",
+          "network": "disabled",
+          "providers": [],
+          "registry": "offline-grammar-registry-v1",
+          "tree_sitter": "0.25.2",
+          "tree_sitter_language_pack": "0.13.0"
+        }
+      }
+    },
+    "note": "Tiny byte-codec integration: seven supervised optimizer updates; eight executed/replayed RL episodes have equal zero rewards, so the smoke correctly skips the RL optimizer update. This is not a learned-task success claim.",
+    "phases": {
+      "B0": {
+        "complete": true,
+        "counters": {
+          "D": 398,
+          "I": 398,
+          "P": 222,
+          "T": 0,
+          "Z": 0,
+          "accepted_episodes": 0,
+          "attempted_episodes": 0,
+          "control_encodes": 2,
+          "facet_encodes": 4,
+          "raw_facet_replays": 0,
+          "reconstruction_records": 0,
+          "reconstruction_tokens": 0,
+          "record_ingestions": 10,
+          "scored_windows": 2,
+          "source_bytes": 398,
+          "teacher_cached_input_tokens": 0,
+          "teacher_input_tokens": 0,
+          "writer_reader_windows": 2
+        },
+        "global_step": 1,
+        "phase_consumed": 398
+      },
+      "D": {
+        "complete": true,
+        "counters": {
+          "D": 398,
+          "I": 398,
+          "P": 222,
+          "T": 0,
+          "Z": 0,
+          "accepted_episodes": 0,
+          "attempted_episodes": 0,
+          "control_encodes": 2,
+          "facet_encodes": 4,
+          "raw_facet_replays": 0,
+          "reconstruction_records": 0,
+          "reconstruction_tokens": 0,
+          "record_ingestions": 10,
+          "scored_windows": 2,
+          "source_bytes": 398,
+          "teacher_cached_input_tokens": 0,
+          "teacher_input_tokens": 0,
+          "writer_reader_windows": 2
+        },
+        "global_step": 7,
+        "phase_consumed": 222
+      },
+      "LC": {
+        "complete": true,
+        "counters": {
+          "D": 398,
+          "I": 398,
+          "P": 222,
+          "T": 0,
+          "Z": 0,
+          "accepted_episodes": 0,
+          "attempted_episodes": 0,
+          "control_encodes": 2,
+          "facet_encodes": 4,
+          "raw_facet_replays": 0,
+          "reconstruction_records": 0,
+          "reconstruction_tokens": 0,
+          "record_ingestions": 10,
+          "scored_windows": 2,
+          "source_bytes": 398,
+          "teacher_cached_input_tokens": 0,
+          "teacher_input_tokens": 0,
+          "writer_reader_windows": 2
+        },
+        "global_step": 5,
+        "phase_consumed": 398
+      },
+      "M1": {
+        "complete": true,
+        "counters": {
+          "D": 398,
+          "I": 398,
+          "P": 222,
+          "T": 0,
+          "Z": 0,
+          "accepted_episodes": 0,
+          "attempted_episodes": 0,
+          "control_encodes": 2,
+          "facet_encodes": 4,
+          "raw_facet_replays": 0,
+          "reconstruction_records": 0,
+          "reconstruction_tokens": 0,
+          "record_ingestions": 10,
+          "scored_windows": 2,
+          "source_bytes": 398,
+          "teacher_cached_input_tokens": 0,
+          "teacher_input_tokens": 0,
+          "writer_reader_windows": 2
+        },
+        "global_step": 3,
+        "phase_consumed": 398
+      },
+      "M2": {
+        "complete": true,
+        "counters": {
+          "D": 398,
+          "I": 398,
+          "P": 222,
+          "T": 0,
+          "Z": 0,
+          "accepted_episodes": 0,
+          "attempted_episodes": 0,
+          "control_encodes": 2,
+          "facet_encodes": 4,
+          "raw_facet_replays": 0,
+          "reconstruction_records": 0,
+          "reconstruction_tokens": 0,
+          "record_ingestions": 10,
+          "scored_windows": 2,
+          "source_bytes": 398,
+          "teacher_cached_input_tokens": 0,
+          "teacher_input_tokens": 0,
+          "writer_reader_windows": 2
+        },
+        "global_step": 4,
+        "phase_consumed": 398
+      },
+      "P1": {
+        "complete": true,
+        "counters": {
+          "D": 398,
+          "I": 398,
+          "P": 222,
+          "T": 0,
+          "Z": 0,
+          "accepted_episodes": 0,
+          "attempted_episodes": 0,
+          "control_encodes": 2,
+          "facet_encodes": 4,
+          "raw_facet_replays": 0,
+          "reconstruction_records": 0,
+          "reconstruction_tokens": 0,
+          "record_ingestions": 10,
+          "scored_windows": 2,
+          "source_bytes": 398,
+          "teacher_cached_input_tokens": 0,
+          "teacher_input_tokens": 0,
+          "writer_reader_windows": 2
+        },
+        "global_step": 2,
+        "phase_consumed": 398
+      },
+      "S": {
+        "complete": true,
+        "counters": {
+          "D": 398,
+          "I": 398,
+          "P": 222,
+          "T": 0,
+          "Z": 0,
+          "accepted_episodes": 0,
+          "attempted_episodes": 0,
+          "control_encodes": 2,
+          "facet_encodes": 4,
+          "raw_facet_replays": 0,
+          "reconstruction_records": 0,
+          "reconstruction_tokens": 0,
+          "record_ingestions": 10,
+          "scored_windows": 2,
+          "source_bytes": 398,
+          "teacher_cached_input_tokens": 0,
+          "teacher_input_tokens": 0,
+          "writer_reader_windows": 2
+        },
+        "global_step": 6,
+        "phase_consumed": 222
+      }
+    },
+    "rl": {
+      "D": 5032,
+      "I": 10064,
+      "P": 0,
+      "Z": 1024,
+      "Z_overshoot": 0,
+      "collection_I": 5032,
+      "emitted_positions": 256,
+      "episodes": 8,
+      "global_step": 7,
+      "optimizer_updates": 0,
+      "replay_I": 5032,
+      "source_bytes": 10064,
+      "successes": 0,
+      "task_seeds": 2
+    },
+    "sample_bytes_hex": "c60c9e15",
+    "sample_valid": true
+  },
+  "tests_sha256": {
+    "tests/test_assets.py": "85fd9e0113657b263334dc7a21eeec68e6203b55da4d24a036f26ca7955372f4",
+    "tests/test_benchmark.py": "084e5aba0c0da5ee2981e160c33a0350a19659d14df55783bef8f9fe9ebdcb63",
+    "tests/test_budgeted_decode.py": "630162005c62747c3c71469c35f9943d39aa7c17dccd740b70c9185fe490f7a3",
+    "tests/test_chunking_chat.py": "d17fa25872efcab4643c192117deec946d2d4b433ac61f1aeb80a320e1e85e95",
+    "tests/test_chunking_cli.py": "f4d8442297757bd03ea77fb4094972d7fa9ac81cc4931b9546f2915dc120c286",
+    "tests/test_chunking_parsers.py": "e98965da01cb279052dd5f1309a9b9c6151e3ce868be5f86a3f030b2881f7082",
+    "tests/test_chunking_planner.py": "36faa8c13d39859fe217c22fcb97f7af40785618042ae23bb4e62fe8d485d01f",
+    "tests/test_chunking_prose.py": "905d06ac8256b4c5dce6d60d91c4c285e664f6b7597eb6fb9f448d3c1566e0d9",
+    "tests/test_chunking_tree.py": "b795b568ec1dd505e1b536fa0ceeccbdb344e798a5aaae351df15b4a492a6edc",
+    "tests/test_cli.py": "55d8470944409418eb3d1dcd783492c08e4f22f9f8fc4ad5b5e209c074cf3172",
+    "tests/test_controls.py": "9acd1e1e15ce86e3e3059f71de2c493e131876b6fd8ab675c768654350d443fe",
+    "tests/test_data_chunking.py": "52a3779e29e579cdea604ed3dd442b874f23e86efd95e410c8a32efbc479f29a",
+    "tests/test_data_cli.py": "5e81cc4a8f70d4ab79e5a2a713377349546bc61e2b9ddce54de469a82acb8d63",
+    "tests/test_data_collection.py": "7fd1aa13394331262eedb5895de2ad9dbe60d3896bd7297d5bbe070190b93555",
+    "tests/test_data_preparation.py": "b79608781b30d24655139ae97a6483a17b7ff45fa6e2cbb3b1043aef951847cd",
+    "tests/test_data_readers.py": "5ca7b0023eb7abc4ed1ba17237212dac8bcf133d4b116ef476000465688a9e6f",
+    "tests/test_data_schema.py": "0987dbffa82fca66bcb9066b66cb0d4bbaa24a10508283bb1038ccb42c207163",
+    "tests/test_distributed.py": "043f9530ec6a1c653e4086d39be5b4085573f17a7d9dc6f6d6d3e4336a1f227e",
+    "tests/test_environments.py": "834e76c0763dcfb32494c22fdbf0e872219a69c920525c538ccae73e73c09249",
+    "tests/test_generation_codec.py": "d87e98bc8ffbde32c353d88caee5a972ad5cb83dcf24df2cc5086149660a587d",
+    "tests/test_generation_context.py": "3e84020abf5eedf5cb088395b876e140fa1f35b69f334e5e46167151ea32f880",
+    "tests/test_generation_distributions.py": "9e98b846180d55ed7bd19777570bc06d65ce48c6fb4a39d5f32535b4df8780d5",
+    "tests/test_generation_policy.py": "a723a7742fd9330d260bcd1e33c2bf9b7c968c4bc5143f22982d83cfcb2f8b35",
+    "tests/test_inference.py": "02559375074586c37d6bec38371febf7c97ed836895698c8d31c6f35750c45c7",
+    "tests/test_kernels_grouped.py": "5d439ebfa088b3f92740c2297c3cb0519365eb7152632a37d6ef0942b69922d7",
+    "tests/test_model_core.py": "5712cf4ac44069a3b217359a3d69769e12b2bcf602c2745d6c5e302b8ecafb56",
+    "tests/test_model_frontend_routing.py": "89da8ede00f2ab525df5969c739edf42371c4d9d89a1c109c1950569f27e82fa",
+    "tests/test_model_ingestion.py": "0115a4a60caad8a29e44d10852be454df42638f7f99dc52b1bf36fca7d8957bb",
+    "tests/test_model_policy_integration.py": "0ad4e0e2a47d2d27ae3722599a9d0afb1954f539a47dae90f7ff1060def02267",
+    "tests/test_parser_review.py": "d7644073ab252a3ef69b366e91413da6917c7e5aba4b96b1242976023d5f19a7",
+    "tests/test_parser_workers.py": "cd21920277d542278de18e640743c6adfff9455def9d75f217023a84c33dc17d",
+    "tests/test_recurrent_control.py": "f22b22d676769ff6b07a2cf24e7caeb6a40e49e20c74be27cb05e3476853b7d8",
+    "tests/test_rl_integration.py": "57f2a7d6678281cbdd5c6599db304caf877ca40d1eeb8ce95fa0305b75c2676b",
+    "tests/test_runtime.py": "242b70d419706559af64103601fb2cf4e6912b13563ac7f604c61e11a475fa43",
+    "tests/test_training_history.py": "48e55b38ada4f152c0cfbd299afb928fe552629a270bd03f1f084bba238badbc",
+    "tests/test_training_integration.py": "8468517c23ac2364d6f69569d18aecf7ab0a1fa787df8d18fdc1acfd249051c2",
+    "tests/test_training_math.py": "5d2acd8925cd5fda2907d3afd3c143d23db2d9058893599c176529e6990821b7",
+    "tests/test_training_stream.py": "7480660fd69bf54d4161cf6fd45970f4dcc861068d08df060565a9ecf39a2c4b",
+    "tests/test_training_v4.py": "b26d34f39d79e9c4fee7402987b9e9c7aebbb7c4240f53b2829d0b0dabf69064"
+  },
+  "version": "recursive-parser-v2-validation-v1"
+}

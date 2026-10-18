@@ -22,8 +22,9 @@ processing of an already selected input.
 
 Ingestion retains a narrow byte/ngram hierarchy and adds two dense refinement
 blocks at facet resolution. The production geometry stays 32 x 512, with
-32 x 256 as the smaller preset. Packing remains 256 reference-codec tokens,
-with a soft limit of 512 and a hard output capacity of 1,024.
+32 x 256 as the smaller preset. Packing originally used 256 reference-codec tokens with a soft limit of 512.
+[ADR 0005](0005-recursive-parser-chunking.md) supersedes those preparation values
+with a 512-token target and 768-token soft limit; the hard output capacity remains 1,024.
 
 ## Why
 

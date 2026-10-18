@@ -241,7 +241,7 @@ R, and R cannot append history.
 
 The model hard limit is 1,024 output positions in production. The default public
 text request permits at most 512, or the model's smaller configured maximum.
-The data chunker's target of 256 is a boundary preference, not a forced generated
+The data chunker's target of 512 is a boundary preference, not a forced generated
 length. The exact length head learns from semantic chunk targets. Tiny CPU profiles
 use smaller limits. The final serialized output must also fit the public and model
 limits, including fixed JSON punctuation, copied bytes, and escaped strings.

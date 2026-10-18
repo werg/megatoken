@@ -200,6 +200,9 @@ class PhysicalRecord:
     chunk_boundary: str | None = None
     chunking_fingerprint: str | None = None
     forced_chunk_split: bool = False
+    chunk_context: tuple[str, ...] = ()
+    chunk_languages: tuple[str, ...] = ()
+    chunk_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
@@ -219,6 +222,10 @@ class PhysicalRecord:
             raise ValueError("Invalid turn/physical part index")
         if (self.chunk_boundary is None) != (self.chunking_fingerprint is None):
             raise ValueError("Semantic records require both boundary and chunking identity")
+        for name in ("chunk_context", "chunk_languages", "chunk_diagnostics"):
+            values = getattr(self, name)
+            if not isinstance(values, tuple) or any(not isinstance(item, str) for item in values):
+                raise TypeError(f"{name} must be an immutable tuple of strings")
         if self.policy_mask and self.role not in {"assistant", "document"}:
             raise ValueError("Only assistant/document emission can carry policy loss")
         if self.auxiliary_observation_loss and self.role not in {"tool", "environment"}:
@@ -433,7 +440,14 @@ class Episode:
                 record["source_span"] = SourceSpan(**record["source_span"])
             if record.get("free_spans") is not None:
                 record["free_spans"] = tuple(ByteSpan(**span) for span in record["free_spans"])
-            for key in ("emitted_ids", "cached_ids", "emitted_free_mask"):
+            for key in (
+                "emitted_ids",
+                "cached_ids",
+                "emitted_free_mask",
+                "chunk_context",
+                "chunk_languages",
+                "chunk_diagnostics",
+            ):
                 if record.get(key) is not None:
                     record[key] = tuple(record[key])
             records.append(PhysicalRecord(**record))
@@ -569,7 +583,21 @@ def make_records(
     chunking: ChunkingConfig | None = None,
     content_kind: str = "auto",
     language: str | None = None,
+    filename: str | None = None,
+    mime_type: str | None = None,
+    locale: str | None = None,
+    chat_template: str | None = None,
 ) -> tuple[PhysicalRecord, ...]:
+    """Split one authoritative role-owned logical field without reframing it.
+
+    Serialized conversations must first pass through a source adapter so roles,
+    turn masks, source offsets, and canonical encoding units stay aligned.
+    """
+    if chat_template is not None and chat_template != "none":
+        raise ValueError(
+            "make_records owns one role-framed logical field; use the serialized_chat "
+            "adapter to frame a conversation before creating records"
+        )
     if max_tokens is not None and (codec is None or max_tokens <= 0):
         raise ValueError("A positive token chunk limit requires an explicit raw codec")
     token_chunks: list[tuple[int, ...]] = []
@@ -588,6 +616,10 @@ def make_records(
             policy,
             content_kind="json" if action_id is not None else content_kind,
             language=language,
+            filename=filename,
+            mime_type=mime_type,
+            locale=locale,
+            chat_template="none",
         )
         pieces = [(item.byte_start, item.payload) for item in semantic_chunks]
         token_chunks = [item.token_ids for item in semantic_chunks]
@@ -626,6 +658,9 @@ def make_records(
                 chunk_boundary=semantic_chunks[index].boundary if semantic_chunks else None,
                 chunking_fingerprint=chunking_fingerprint,
                 forced_chunk_split=semantic_chunks[index].forced if semantic_chunks else False,
+                chunk_context=semantic_chunks[index].context if semantic_chunks else (),
+                chunk_languages=semantic_chunks[index].languages if semantic_chunks else (),
+                chunk_diagnostics=semantic_chunks[index].diagnostics if semantic_chunks else (),
             )
         )
     return tuple(result)

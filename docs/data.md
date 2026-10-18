@@ -23,8 +23,8 @@ megatoken prepare --demo work/demo.jsonl --output work/prepared-demo \
 
 `demo` also writes `work/demo.jsonl.sources.json`, including its exact file hash
 and the local fixture provenance. `prepare` writes `manifest.json`, independent
-checksummed JSONL shards, `index.sqlite`, `preparation.sqlite`, and a rejection
-report. An identical invocation resumes an interrupted build or returns the
+checksummed JSONL shards, `index.sqlite`, `preparation.sqlite`, a rejection
+report, and `parser-review.json`. An identical invocation resumes an interrupted build or returns the
 already committed dataset. Changing a source, codec, adapter configuration,
 split policy, quarantine snapshot, or chunking policy requires a different output
 directory.
@@ -75,7 +75,8 @@ control payload used by the prior. Older tapes must be regenerated.
 | `actions` | Complete tool action descriptor, immutable serialized-byte hash, exact physical members, call ID and execution ID |
 | `result_of` | An observation's exact prior completed action; a changed action cannot inherit another action's result |
 | `policy_mask`, `free_spans`, `emitted_free_mask` | Role/turn eligibility and lexical bytes or emitted positions eligible for supervised decoder cross-entropy |
-| `chunk_boundary`, `chunking_fingerprint`, `forced_chunk_split` | Auditable semantic boundary, exact chunking policy identity, and unavoidable token-cut marker |
+| `chunk_boundary`, `chunking_fingerprint`, `forced_chunk_split` | Auditable semantic boundary, exact chunking policy identity, and unavoidable cut marker |
+| `chunk_context`, `chunk_languages`, `chunk_diagnostics` | Original parser context, language labels, and bounded diagnostic codes for each physical record |
 | `supervision` | Outcomes, verification, rewards, benchmark tags and diagnostic metadata; never rendered into model records |
 | `tools_json`, `control_seed` | Public tools and task policy available before generation |
 | `control_reference`, `reference_origin` | An explicitly available reference; future-target references are rejected |
@@ -105,76 +106,132 @@ provenance and cannot satisfy executed-success quotas.
 
 ## Semantic megatokens
 
-New codec-backed imports use one shared, deterministic chunker with a **256-token
-target, 512-token soft limit, and 1,024-token hard limit**. These are reference
-BPE positions, not bytes or words. Complete paragraphs, fenced code blocks,
-functions and list items stay intact when they fit the soft limit. Small adjacent
-units from the same logical event pack toward the target. Roles, turns, source
-events and episodes are never merged to fill a chunk.
+New codec-backed imports use the shared **512-token target, 768-token soft limit,
+and 1,024-token hard limit**. Tokens here mean positions in the configured raw
+reference codec, not words or characters. The independent physical byte limit is
+16 KiB. Explicitly smaller stage limits clamp both semantic sizes to the available
+capacity. The 32-facet architecture and 1,024-position realizer allocation are
+unchanged by the new data policy.
 
-Oversized units use statement, sentence, line and whitespace boundaries in that
-order of structural suitability. Python functions and statements use source
-coordinates from the standard-library AST. Other code uses a conservative brace,
-string and comment scanner, with line boundaries as a fallback. Large indivisible
-code or list units may exceed the soft limit while respecting the hard limit;
-complete JSON tool actions can use the entire hard capacity. If a source has no
-suitable boundary, the chunker cuts at reference-token boundaries and records
-`forced_chunk_split=true`. Invalid UTF-8 follows this lossless binary path.
+The parser establishes outer conversation boundaries before interpreting content.
+Structured user messages, assistant emissions, tool calls, and tool results are
+separate logical fields. Every user message and every tool result has a boundary
+on both sides; tiny events never borrow adjacent events to fill spare capacity.
+Known serialized chat formats are framed before their header/body/footer fields
+receive canonical encodings. A quoted chat example inside an already structured
+message is ordinary content. The `serialized_chat` adapter and automatic transcript
+recognition for documents preserve exact source ranges and role provenance.
 
-The parser borrows block distinctions from the
-[CommonMark specification](https://spec.commonmark.org/0.31.2/) and uses
-[Python AST source locations](https://docs.python.org/3/library/ast.html#ast.AST)
-for Python code. It only locates boundaries: it never renders Markdown,
-reformats code, replaces NUL, changes newlines, trims whitespace or normalizes
-Unicode. Sentence and unknown-language boundaries are deterministic heuristics;
-the configured token targets are engineering defaults to evaluate on real data.
+Inside an event, parsing proceeds through a shared hierarchy: Markdown and other
+documents, source code, markup, strings, comments, nested code, and prose. The
+installed offline grammar baseline has 173 bindings. Generic lexical analysis
+handles unknown languages and incomplete snippets explicitly; a grammar name alone
+is not a claim of perfect parsing. Multilingual prose starts with paragraphs,
+Unicode separators, and script-appropriate punctuation. Sentence/word and optional
+locale refinement run only for spans that need subdivision. Extended grapheme
+clusters, CRLF, raw escapes, and exact source offsets are retained.
 
-The complete logical source field is encoded once. Every output chunk retains
-contiguous byte offsets and a contiguous slice of those original reference IDs.
-A boundary falling inside a BPE token is used only when it can move within a
-whitespace separator; otherwise the candidate is skipped. No alternate decoder
-IDs are invented to force an exact character boundary. This keeps accepted U
-independent of the physical chunk size. UTF-8 scalar and CRLF boundaries are
-preserved when the configured physical caps allow them; extremely small test
-caps can force a byte-exact partial scalar or newline, which remains marked as a
-forced cut.
+The planner selects a path through legal canonical token boundaries using bounded
+dynamic programming. It considers the remaining source, penalizes tiny tails and
+soft-limit overflow, and adds a language-sensitive cost for excessive movement
+through the parse tree. Headings, decorators, and function signatures attach to
+their own following content. Whole small containers can pack together; large
+following sections and functions introduce structural barriers. Complete JSON
+values and protected introductions may use available hard capacity. Unavoidable
+cuts remain explicit in `forced_chunk_split` and diagnostic metadata.
 
 ```python
-from megatoken.data.chunking import ChunkingConfig, segment_bytes
+from megatoken.data import ChunkingConfig, segment_with_report
 
-policy = ChunkingConfig()  # target=256, soft=512, hard=1024
-for chunk in segment_bytes(payload, codec, policy, content_kind="code", language="python"):
-    assert chunk.payload == payload[chunk.byte_start : chunk.byte_end]
-    assert codec.decode(chunk.token_ids) == chunk.payload
+policy = ChunkingConfig()  # target=512, soft=768, hard=1024
+report = segment_with_report(
+    payload, codec, policy, content_kind="code", language="python", chat_template="none"
+)
+assert b"".join(part.payload for part in report.chunks) == payload
+for part in report.chunks:
+    assert part.payload == payload[part.byte_start : part.byte_end]
+    assert codec.decode(part.token_ids) == part.payload
 ```
 
-`--max-record-tokens 256` explicitly clamps both target and soft limit to 256.
-All production stages, including B0, use the 1,024-token hard capacity.
-`--chunk-target-tokens` and `--chunk-soft-max-tokens` expose the two semantic
-settings; `--max-record-bytes` remains an independent physical byte ceiling.
-Source `options.content_kind` and `options.language` supply explicit parser hints;
-the code adapter also reads a declared source language field. A preparation's
-manifest stores `chunking` with the algorithm version, complete config, codec
-identity and Python AST runtime identity. `ChunkingConfig.from_identity(identity,
-codec)` rejects missing, altered or incompatible identities. Checkpoints and
-served bundles retain that same policy.
+Each logical input field is encoded once. Physical records contain contiguous
+slices of its canonical token IDs. Serialized framing establishes independent
+canonical fields first, so no BPE token can cross a latency boundary. Their
+concatenated IDs are not claimed to equal a separate whole-transcript encoding.
+A content boundary inside a BPE token is skipped unless it can move within a
+whitespace separator. No alternate IDs or rewritten text are used to force an AST
+boundary. `U` therefore remains independent of physical packing within the same
+logical-field/framing policy.
 
-`manifest["chunking_stats"]` reports record counts, byte and reference-token
-totals, actual decoder positions, a fixed size histogram, mean/max positions,
-soft-limit exceedances, boundary kinds, forced cuts and unversioned native
-records. These are accepted-inventory statistics, not training exposures.
-Native generated output keeps its original IDs, tape and physical boundary;
-an oversized native record is rejected instead of silently changing its state
-trajectory. Existing prepared artifacts must be regenerated for the new schema
-and chunking identity.
+Use `--chunking-config configs/data/chunking.production.json` for the full parser
+and planning policy. `--chunk-target-tokens`, `--chunk-soft-max-tokens`,
+`--max-record-tokens`, and `--max-record-bytes` provide explicit overrides and stage
+caps. Parsing hints include `content_kind`, `language`, `filename`, `mime_type`,
+`locale`, and outer `chat_template`. Source options, row metadata, messages, and
+content blocks share one allowlisted hint path; a more local hint takes precedence.
+`locale` is the preferred natural-language hint. Templates are interpreted only
+at the outer framing layer.
 
-Inference's logical `observe` method applies this same chunker to a complete
-event. Already prepared records use `observe_physical` to preserve their supplied
-boundaries and token IDs. Every selected action advances recurrent state with
-its sampled raw facets, including invalid decodes; validation gates environment
-execution only. Its deterministic output bytes are never encoded again to
-approximate that latent action. Training supervises each chunk's exact output
-length and marks only the last physical part of a logical output as terminal.
+The manifest records the algorithm version, complete policy, exact codec identity,
+parser package/provider versions, Unicode/optional ICU identity, and an
+implementation hash covering parsing and logical-field construction.
+`ChunkingConfig.from_identity(identity, codec)` rejects an incompatible runtime.
+Prepared data, exact training resume, and served observations use the same policy.
+`recursive-parser-v2` replaces `semantic-v1`; regenerate old prepared artifacts
+under the new identity. Native generated actions retain their physical records,
+IDs, and facet tapes. An oversized native action is rejected; it cannot be silently
+rechunked into a different recurrent trajectory.
+
+`manifest["chunking_stats"]` reports accepted record counts, byte/reference-token
+totals, actual decoder positions, size histograms, mean/maximum positions,
+soft-limit exceedances, boundary kinds, forced cuts, languages, and diagnostic
+counts. These are inventory statistics rather than training exposures.
+
+### Agent review during preparation
+
+Parser faults, exhausted analysis budgets, severe syntax failure, invalid nested
+ranges, and ambiguous conversation framing are held out of accepted shards by
+default. Preparation captures the exact decoded source row, pinned source receipt,
+lineage, parser identity, sizes, quality policy, diagnostics, and lossless episode
+where available. The capture and source cursor commit in one SQLite transaction.
+Known ancestry is registered even for held-out rows so parser failures cannot
+hide benchmark family relationships from split quarantine.
+
+```bash
+megatoken chunks review list --queue work/prepared/preparation.sqlite
+megatoken chunks review claim --queue work/prepared/preparation.sqlite \
+  --owner parser-agent-01
+megatoken chunks review export --queue work/prepared/preparation.sqlite \
+  --output work/parser-tasks
+```
+
+The exported tasks contain fixed `AGENT_TASK.md` instructions plus separate exact
+sample files. Agents amend the shared parser or registry and add a regression case;
+they never edit the captured training example. Claims have renewable leases, so
+multiple agents can work without taking the same task. After the fix, the claiming
+agent runs `chunks review replay` with the original codec and a commit/PR reference.
+Only a changed parser identity that passes the normal adapter, source, quality,
+capacity, and review gates can mark the task verified. Failed replay writes its
+receipt and exits with status 1. Verified repair requires a new preparation output
+from the same pinned sources; existing accepted shards remain frozen.
+
+`parser-review.json` is the preparation-time summary, and `manifest["parser_review"]`
+records the same snapshot. Use the queue CLI for current claims and verified tasks.
+`--parser-review-config configs/data/parser-review.json` selects the review policy.
+Ordinary unknown grammar and localized syntax recovery remain accepted under the
+lenient default; the explicit policy can hold them out as well. Native records and
+tapes are exempt from resegmentation and historical parser diagnostic review.
+
+See [the parser and review runbook](chunking.md) for supported template families,
+nested content behavior, resource bounds, extension interfaces, replay commands,
+identity migration, and operational limitations.
+
+Inference's logical `observe` method applies the same content chunker to a complete
+authoritative event. Already prepared records use `observe_physical` to preserve
+supplied boundaries and token IDs. Every selected action advances recurrent state
+with its sampled raw facets, including invalid decodes; validation gates environment
+execution only. Deterministic output bytes are never re-encoded to approximate that
+latent action. Training supervises each chunk's exact output length and marks only
+the last physical part of a logical output as terminal.
 
 ## Keep accounting units separate
 
@@ -271,7 +328,8 @@ megatoken prepare --sources work/sources.json --output work/prepared \
   --benchmark-quarantine work/benchmark-quarantine.json
 ```
 
-Malformed rows stop the default build with their source and row number.
+Parser failures enter the durable review queue described above. Ordinary malformed
+rows stop the default build with their source and row number.
 `--reject-invalid` records rejection receipts and continues. The full rejected
 row status remains in the preparation journal; `rejections.json` contains an
 explicitly labeled bounded sample and the full count. A source that rejects
@@ -286,8 +344,10 @@ Anthropic ordered text/tool blocks, Terminus-2 command batches and mini-SWE-agen
 single-bash actions reuse that contract. Importing a recorded command never
 executes a local shell.
 
-The generic adapters are `document`, `chat`, `artifact`, `repository`, `fim` and
-`native`. Repository repair places issue and pre-change files before the patch
+The generic adapters are `document`, `chat`, `serialized_chat`, `artifact`,
+`repository`, `fim` and `native`. Serialized tool trajectories require the original
+structured call/result identities; the importer never invents causal dependencies
+from ambiguous markup. Repository repair places issue and pre-change files before the patch
 target; review places the supplied patch before the review target. FIM explicitly
 observes prefix/suffix before scoring the missing middle. Arbitrary corpus
 variants use declared `field_map` dotted paths, not per-dataset parser forks.

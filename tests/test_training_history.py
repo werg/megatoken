@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
+from test_generation_policy import invalid_materialization_spec
 
 from megatoken.contracts import ROLE_TO_ID
 from megatoken.data import WindowConfig, iter_windows
@@ -44,11 +45,7 @@ def annotation_entry(cursor, tape):
 def collected(model):
     prompt = PhysicalRecord("prompt", "user", b"choose an action")
     tool = PhysicalRecord("tool", "tool", b'{"ok":true}', turn_index=2)
-    invalid_spec = ActionSpec(
-        allow_text=False,
-        schemas=(SchemaSpec("invalid", (FieldSpec("value", kind="json", fixed_json="0"),)),),
-        max_tokens=1,
-    )
+    invalid_spec = invalid_materialization_spec(model)
     empty_spec = ActionSpec(min_tokens=0, max_tokens=0)
     action_spec = ActionSpec(
         allow_text=False,
@@ -79,7 +76,10 @@ def collected(model):
         trailing = model.sample(
             after_tool, spec=empty_spec, generator=torch.Generator().manual_seed(6)
         )
-    assert not invalid.tape.valid
+    assert not invalid.tape.valid and "including fixed syntax" in invalid.tape.error
+    assert invalid.payload in {
+        invalid_spec.schemas[0].serialize({"value": value}) for value in (b"\t", b"\n")
+    }
     assert empty.tape.valid and empty.payload == b""
     assert action.tape.valid and action.payload
     generated = PhysicalRecord(
@@ -257,7 +257,9 @@ def test_native_tape_identity_and_raw_tensor_are_checked(model, collected, kind)
     elif kind == "bytes":
         value["emitted_ids"] = [1]
     elif kind == "fp32":
-        value["facets"] = [0.1, *value["facets"][1:]]
+        # V4 normally packs FP32 bytes. Exercise the list input's precision
+        # guard explicitly: the Python float 0.1 is not exactly representable.
+        value["facets"] = [0.1, *collected.invalid.tape.facet_array().tolist()[1:]]
     elif kind == "effort":
         value["effort"] = 5
     else:

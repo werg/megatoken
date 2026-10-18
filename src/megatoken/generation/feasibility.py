@@ -5,10 +5,12 @@ example serializes within the requested total token budget. This is a feasibilit
 gate, not a proof that every later lexical choice fits: final serialization still
 checks the exact chosen bytes and BPE boundaries.
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from jsonschema.exceptions import ValidationError
 
@@ -44,10 +46,7 @@ def _example_json(schema: Mapping[str, Any], depth: int = 0) -> Any:
             required = required[: schema["minProperties"]]
         if any(k not in properties for k in required):
             raise ValueError("Unknown required property")
-        return {
-            name: _example_json(properties[name], depth + 1)
-            for name in required
-        }
+        return {name: _example_json(properties[name], depth + 1) for name in required}
     if kind == "array":
         count = schema.get("minItems", 0)
         if count > 32:
@@ -55,8 +54,7 @@ def _example_json(schema: Mapping[str, Any], depth: int = 0) -> Any:
         prefix = schema.get("prefixItems", ())
         rest = schema.get("items", {})
         return [
-            _example_json(prefix[i] if i < len(prefix) else rest, depth + 1)
-            for i in range(count)
+            _example_json(prefix[i] if i < len(prefix) else rest, depth + 1) for i in range(count)
         ]
     if kind == "string":
         if any(key in schema for key in ("pattern", "format")):
@@ -89,9 +87,9 @@ def _field_witness(field: FieldSpec) -> bytes:
         return field.fixed_json.encode("utf-8")
     if field.kind == "json":
         schema = json.loads(field.json_schema) if field.json_schema else {}
-        return json.dumps(
-            _example_json(schema), ensure_ascii=False, separators=(",", ":")
-        ).encode("utf-8")
+        return json.dumps(_example_json(schema), ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
     return ("a" * field.min_tokens).encode("utf-8")
 
 

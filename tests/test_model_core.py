@@ -63,13 +63,9 @@ def test_versioned_geometry_and_explicit_width_presets():
     assert (large.recent_history_chunks, large.archived_slots_per_chunk) == (64, 2)
     cache_slots = (
         large.history_slots * large.recent_history_chunks
-        + large.archived_slots_per_chunk
-        * (large.max_history_chunks - large.recent_history_chunks)
+        + large.archived_slots_per_chunk * (large.max_history_chunks - large.recent_history_chunks)
     )
-    assert (
-        2 * large.kv_heads * large.attention_head_dim * cache_slots * 2
-        == 4_063_232
-    )
+    assert 2 * large.kv_heads * large.attention_head_dim * cache_slots * 2 == 4_063_232
     assert ModelConfig.from_dict(large.to_dict()) == large
     legacy = large.to_dict()
     del legacy["architecture_version"]
@@ -544,9 +540,7 @@ def test_coarse_history_partial_reset_masks_all_previous_episode_evidence():
     core = FacetedCore(config).eval()
     state = core.initial_state(2)
     for _ in range(3):
-        state = core.advance_raw(
-            state, torch.randn(2, config.n_facets, config.facet_dim)
-        )
+        state = core.advance_raw(state, torch.randn(2, config.n_facets, config.facet_dim))
     assert state.history.archived_chunks == 1
     reset = core.reset_state(state, rows=torch.tensor([True, False]))
     assert reset.history.mask is not None
@@ -556,6 +550,6 @@ def test_coarse_history_partial_reset_masks_all_previous_episode_evidence():
     after = core.advance_raw(reset, next_raw)
     assert after.history.archived_chunks == 2
     assert after.history.mask is not None
-    assert not after.history.mask[0, :-config.history_slots].any()
+    assert not after.history.mask[0, : -config.history_slots].any()
     assert after.history.mask[0, -config.history_slots :].all()
     assert after.history.mask[1].all()

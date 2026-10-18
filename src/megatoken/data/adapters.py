@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
-from typing import Any
+from dataclasses import asdict, dataclass, field, replace
+from typing import TYPE_CHECKING, Any
 
 from .chunking import ChunkingConfig
 from .schema import (
@@ -29,9 +29,20 @@ from .schema import (
     stable_id,
 )
 
+if TYPE_CHECKING:
+    from .parsing.chat import ChatParse
+
 
 class SchemaError(ValueError):
     """A source row does not satisfy its selected, versioned adapter contract."""
+
+
+class ChatFramingError(SchemaError):
+    """Captured framing evidence needs parser review before assigning losses."""
+
+    def __init__(self, message: str, diagnostics: tuple[str, ...]):
+        super().__init__(message)
+        self.diagnostics = diagnostics
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +65,11 @@ DEFAULT_FIELDS = {
     "id": ("trajectory_id", "uuid", "id"),
     "text": ("text", "content", "code"),
     "language": ("language", "metadata.language", "metadata.lang"),
+    "filename": ("filename", "path", "file_path", "metadata.filename", "metadata.path"),
+    "mime_type": ("mime_type", "mime", "metadata.mime_type", "metadata.mime"),
+    "locale": ("locale", "metadata.locale"),
+    "content_kind": ("content_kind", "metadata.content_kind"),
+    "chat_template": ("chat_template", "metadata.chat_template"),
     "family": (
         "family_id",
         "parent_id",
@@ -89,6 +105,7 @@ PROFILES: dict[str, AdapterProfile] = {
     "native": AdapterProfile(kind="native"),
     "document": AdapterProfile(kind="document", emission_provenance="natural"),
     "chat": AdapterProfile(),
+    "serialized_chat": AdapterProfile(kind="serialized_chat"),
     "artifact": AdapterProfile(kind="artifact"),
     "repository": AdapterProfile(
         kind="repository", emission_provenance="natural", require_parent=True
@@ -252,7 +269,7 @@ def _supervision(reader: _Reader) -> Supervision:
     )
 
 
-def _lineage(reader: _Reader, raw_sha: str) -> Lineage:
+def _lineage(reader: _Reader, raw_sha: str, prompt_override: bytes | None = None) -> Lineage:
     repository = reader.get("repository")
     task = reader.get("task")
     family = reader.get("family")
@@ -270,7 +287,7 @@ def _lineage(reader: _Reader, raw_sha: str) -> Lineage:
             )
         else:
             # Prompt hashing groups repeated completions of the same prompt.
-            prompt = reader.get("prompt")
+            prompt = prompt_override if prompt_override is not None else reader.get("prompt")
             messages = reader.get("messages")
             if prompt is None and isinstance(messages, list):
                 prompt = next(
@@ -298,6 +315,55 @@ def _lineage(reader: _Reader, raw_sha: str) -> Lineage:
     )
 
 
+def _source_chat(reader: _Reader, payload: bytes) -> ChatParse:
+    """Apply source framing once, before any role-owned logical fields exist."""
+    from .parsing.chat import parse_chat
+
+    policy = reader.context.chunking or ChunkingConfig()
+    template = reader.context.options.get("chat_template", reader.get("chat_template"))
+    if template is None:
+        template = policy.chat_template
+    if not isinstance(template, str):
+        raise SchemaError("Parser hint 'chat_template' must be a string or null")
+    content_kind = reader.context.options.get(
+        "content_kind", reader.get("content_kind", reader.profile.content_kind)
+    )
+    if reader.profile.kind == "document" and content_kind == "binary":
+        template = "none"
+    return parse_chat(payload, template, max_frames=policy.limits.max_regions)
+
+
+def source_row_lineage(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> Lineage:
+    """Resolve declared ancestry even when message framing needs later repair."""
+    if adapter not in PROFILES or PROFILES[adapter].kind == "native":
+        raise SchemaError("Unparsed source lineage requires a non-native adapter")
+    reader = _Reader(row, PROFILES[adapter], context)
+    prompt = None
+    if reader.profile.kind in {"serialized_chat", "document"}:
+        payload = reader.get("text")
+        if isinstance(payload, (str, bytes)):
+            payload = _bytes(payload, "text")
+            parsed = _source_chat(reader, payload)
+            prompt = next(
+                (
+                    payload[frame.header_end : frame.body_end]
+                    for frame in parsed.frames
+                    if frame.role == "user"
+                ),
+                None,
+            )
+    return _lineage(reader, digest_bytes(canonical_json(row).encode("utf-8")), prompt)
+
+
+def source_row_supervision(
+    row: Mapping[str, Any], adapter: str, context: AdapterContext
+) -> Supervision:
+    """Keep benchmark/recovery annotations available for quarantined source rows."""
+    if adapter not in PROFILES or PROFILES[adapter].kind == "native":
+        raise SchemaError("Unparsed source supervision requires a non-native adapter")
+    return _supervision(_Reader(row, PROFILES[adapter], context))
+
+
 def _tools(value: Any) -> str:
     schemas = _object(value, "tools") if value is not None else []
     if not isinstance(schemas, list):
@@ -316,6 +382,42 @@ class _EpisodeBuilder:
         self.actions: list[LogicalAction] = []
         self.pending: dict[str, LogicalAction] = {}
         self.completed: set[str] = set()
+        self.parser_annotations: dict[str, Any] = {}
+        self.family_prompt: bytes | None = None
+
+    def content_hints(self, *objects: Mapping[str, Any]) -> dict[str, Any]:
+        """Specific block/message hints override source options and row defaults.
+
+        Only an allowlist of parser hints leaves this method. Outcome labels and
+        arbitrary metadata are never rendered or treated as content hints.
+        """
+        keys = ("content_kind", "language", "filename", "mime_type", "locale", "chat_template")
+        hints = {key: self.reader.context.options.get(key, self.reader.get(key)) for key in keys}
+        if hints["content_kind"] is None:
+            hints["content_kind"] = (
+                "code"
+                if self.reader.profile.kind in {"repository", "fim"}
+                else self.reader.profile.content_kind
+            )
+        for obj in objects:
+            metadata = obj.get("metadata", {})
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except json.JSONDecodeError:
+                    metadata = {}
+            for source in (metadata, obj):
+                if isinstance(source, Mapping):
+                    for key in keys:
+                        if source.get(key) is not None:
+                            hints[key] = source[key]
+        for key, value in hints.items():
+            if value is not None and not isinstance(value, str):
+                raise SchemaError(f"Parser hint {key!r} must be a string or null")
+        # Source adapters frame any serialized conversation before append.
+        # Every appended field already owns its role and canonical token stream.
+        hints["chat_template"] = "none"
+        return hints
 
     def append(
         self,
@@ -329,6 +431,9 @@ class _EpisodeBuilder:
         action_id: str | None = None,
         result: LogicalAction | None = None,
         provenance: str | None = None,
+        parse_hints: Mapping[str, Any] | None = None,
+        source_offset: int = 0,
+        chunk_diagnostics: tuple[str, ...] = (),
     ) -> tuple[PhysicalRecord, ...]:
         from .masking import tool_free_spans
 
@@ -363,14 +468,30 @@ class _EpisodeBuilder:
             codec=self.reader.context.codec,
             max_tokens=self.reader.context.max_record_tokens,
             chunking=self.reader.context.chunking,
-            content_kind=self.reader.context.options.get(
-                "content_kind",
-                "code"
-                if self.reader.profile.kind in {"repository", "fim"}
-                else self.reader.profile.content_kind,
-            ),
-            language=self.reader.context.options.get("language", self.reader.get("language")),
+            **self.content_hints(parse_hints or {}),
         )
+        if source_offset:
+            records = tuple(
+                replace(
+                    record,
+                    source_span=replace(
+                        record.source_span,
+                        start=record.source_span.start + source_offset,
+                        end=record.source_span.end + source_offset,
+                    ),
+                )
+                for record in records
+            )
+        if chunk_diagnostics:
+            records = tuple(
+                replace(
+                    record,
+                    chunk_diagnostics=tuple(
+                        sorted(set(record.chunk_diagnostics).union(chunk_diagnostics))
+                    ),
+                )
+                for record in records
+            )
         self.records.extend(records)
         return records
 
@@ -385,6 +506,7 @@ class _EpisodeBuilder:
         score: bool,
         source_field: str,
         transform: str = "identity",
+        parse_hints: Mapping[str, Any] | None = None,
     ) -> None:
         if call_id in self.pending or call_id in self.completed:
             raise SchemaError(f"Tool call ID reused: {call_id}")
@@ -401,6 +523,7 @@ class _EpisodeBuilder:
             source_field=source_field,
             transform=transform,
             action_id=action_id,
+            parse_hints=parse_hints,
         )
         action = LogicalAction(
             action_id=action_id,
@@ -416,7 +539,13 @@ class _EpisodeBuilder:
         self.pending[call_id] = action
 
     def observation(
-        self, payload: bytes, *, turn: int, call_id: str | None, source_field: str
+        self,
+        payload: bytes,
+        *,
+        turn: int,
+        call_id: str | None,
+        source_field: str,
+        parse_hints: Mapping[str, Any] | None = None,
     ) -> None:
         if call_id is None:
             if len(self.pending) != 1:
@@ -428,7 +557,14 @@ class _EpisodeBuilder:
             raise SchemaError(f"Tool result has no preceding unexecuted call: {call_id}")
         action = self.pending.pop(call_id)
         self.completed.add(call_id)
-        self.append(payload, role="tool", turn=turn, result=action, source_field=source_field)
+        self.append(
+            payload,
+            role="tool",
+            turn=turn,
+            result=action,
+            source_field=source_field,
+            parse_hints=parse_hints,
+        )
 
 
 def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | None:
@@ -476,6 +612,10 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
             raise SchemaError("Every message must be an object")
         role = message.get("role", message.get("from"))
         role = {"human": "user", "gpt": "assistant", "function": "tool"}.get(role, role)
+        if role == "developer":
+            builder.parser_annotations.setdefault("source_roles", {})[str(turn)] = role
+            role = "system"
+        hints = builder.content_hints(message)
         if role not in {"system", "user", "assistant", "tool", "environment"}:
             raise SchemaError(f"Unknown chat role {role!r}")
         own_mask = message.get("train", message.get("loss", True))
@@ -495,6 +635,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                 turn=turn,
                 score=score,
                 source_field=base + ".reasoning_content",
+                parse_hints=hints,
             )
         if isinstance(content, list):
             # Preserve block order, including interleaved Anthropic tool blocks.
@@ -503,6 +644,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                     raise SchemaError("A content block must be an object")
                 kind = block.get("type", "text")
                 field_name = f"{base}.content[{index}]"
+                block_hints = builder.content_hints(message, block)
                 if kind in {"text", "input_text", "output_text"}:
                     builder.append(
                         _bytes(block.get("text", ""), field_name),
@@ -510,6 +652,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                         turn=turn,
                         score=score,
                         source_field=field_name + ".text",
+                        parse_hints=block_hints,
                     )
                 elif kind == "tool_use" and role == "assistant":
                     builder.action(
@@ -521,6 +664,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                         score=score,
                         source_field=field_name,
                         transform="canonical-tool-json-v1",
+                        parse_hints=block_hints,
                     )
                 elif kind == "tool_result":
                     builder.observation(
@@ -528,6 +672,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                         turn=turn,
                         call_id=block.get("tool_use_id"),
                         source_field=field_name + ".content",
+                        parse_hints=block_hints,
                     )
                 else:
                     raise SchemaError(
@@ -546,6 +691,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                     turn=turn,
                     call_id=message.get("tool_call_id"),
                     source_field=base + ".content",
+                    parse_hints=hints,
                 )
             elif (
                 role == "user"
@@ -557,6 +703,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                     turn=turn,
                     call_id=message.get("tool_call_id"),
                     source_field=base + ".content",
+                    parse_hints=hints,
                 )
             elif harness_action:
                 tool, arguments = harness_action
@@ -568,10 +715,16 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                     turn=turn,
                     score=score,
                     source_field=base + ".content",
+                    parse_hints=hints,
                 )
             elif payload or not message.get("tool_calls"):
                 builder.append(
-                    payload, role=role, turn=turn, score=score, source_field=base + ".content"
+                    payload,
+                    role=role,
+                    turn=turn,
+                    score=score,
+                    source_field=base + ".content",
+                    parse_hints=hints,
                 )
         calls = message.get("tool_calls") or []
         if message.get("function_call"):
@@ -594,6 +747,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                 score=score,
                 source_field=f"{base}.tool_calls[{index}]",
                 transform="canonical-tool-json-v1",
+                parse_hints=hints,
             )
     if builder.pending and not reader.context.options.get("allow_pending_final_action", False):
         raise SchemaError(
@@ -601,11 +755,146 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         )
 
 
+def _serialized_chat(
+    reader: _Reader,
+    builder: _EpisodeBuilder,
+    *,
+    payload: bytes | None = None,
+    result: ChatParse | None = None,
+) -> None:
+    """Import explicit text chat dumps without manufacturing tool dependencies.
+
+    Framing/header/footer fields are separate unscored logical inputs. The body
+    is the scored field for a complete assistant turn. Each field has its own
+    canonical reference encoding; physical parts never re-tokenize that field.
+    All source spans still address the original serialized text, byte for byte.
+    """
+    from .parsing.chat import has_structural_marker
+
+    source = reader.origin("text")
+    if payload is None:
+        payload = _bytes(reader.get("text", required=True), source)
+    if result is None:
+        result = _source_chat(reader, payload)
+    if not result.detected:
+        codes = ", ".join(item.code for item in result.diagnostics)
+        raise ChatFramingError(
+            f"Serialized chat has no unambiguous template ({codes}); select a known chat_template "
+            "or use the document adapter for ordinary content",
+            tuple(item.code for item in result.diagnostics),
+        )
+    framing_codes = {item.code for item in result.diagnostics}
+    if any(frame.role is None for frame in result.frames):
+        framing_codes.add("chat_unframed_tail")
+    if framing_codes & {
+        "chat_ambiguous_template",
+        "chat_unknown_template",
+        "chat_unrecognized_header",
+        "chat_unframed_tail",
+        "chat_frame_limit",
+    }:
+        # A bounded/recovered frame count is not the source's turn count. Queue
+        # the framing failure before a valid original mask can look malformed.
+        raise ChatFramingError(
+            "Serialized chat has unparsed or ambiguous framing whose roles cannot be assigned safely",
+            tuple(sorted(framing_codes)),
+        )
+    if not reader.context.options.get("allow_incomplete_serialized", False) and any(
+        not frame.complete and frame.header_end != frame.body_end for frame in result.frames
+    ):
+        raise ChatFramingError(
+            "Serialized chat contains an incomplete message; enable allow_incomplete_serialized "
+            "to retain its bytes as unscored context",
+            ("chat_incomplete_body",),
+        )
+    mask = reader.get("mask")
+    if mask is not None and (
+        not isinstance(mask, list)
+        or len(mask) != len(result.frames)
+        or any(type(value) is not bool for value in mask)
+    ):
+        raise SchemaError("Serialized training-turn mask must contain one boolean per parsed frame")
+    builder.parser_annotations["chat_framing"] = {
+        "template": result.template,
+        "frames": [asdict(frame) for frame in result.frames],
+        "diagnostics": [asdict(item) for item in result.diagnostics],
+        "reference_encoding_unit": "header/body/footer logical field",
+    }
+    # Serialized tool markup lacks the explicit call/result IDs required by
+    # LogicalAction. Guessing dependencies here would contaminate causal data.
+    unsupported_tool_markup = (
+        b"<tool_call>",
+        b"[TOOL_CALLS]",
+        b"[TOOL_RESULTS]",
+        "<｜tool▁calls▁begin｜>".encode(),
+        "<｜tool▁outputs▁begin｜>".encode(),
+    )
+    for turn, frame in enumerate(result.frames):
+        if frame.role not in {
+            "system",
+            "developer",
+            "user",
+            "assistant",
+        } or frame.recipient not in {None, "all"}:
+            raise ChatFramingError(
+                "Serialized tool, recipient, or unknown-role frames require structured messages "
+                "with original call/result IDs",
+                ("chat_missing_dependency_ids",),
+            )
+        if frame.role == "assistant" and has_structural_marker(
+            payload[frame.header_end : frame.body_end], unsupported_tool_markup
+        ):
+            raise ChatFramingError(
+                "Serialized tool markup requires structured original call/result IDs",
+                ("chat_missing_dependency_ids",),
+            )
+        role = "system" if frame.role == "developer" else frame.role
+        if role == "user" and builder.family_prompt is None:
+            builder.family_prompt = payload[frame.header_end : frame.body_end]
+        for part, (start, end) in (
+            ("header", frame.header),
+            ("body", frame.body),
+            ("footer", frame.footer),
+        ):
+            if start == end:
+                continue
+            score = (
+                part == "body"
+                and role == "assistant"
+                and frame.complete
+                and (mask is None or mask[turn])
+            )
+            builder.append(
+                payload[start:end],
+                role=role,
+                turn=turn,
+                score=score,
+                source_field=source,
+                source_offset=start,
+                parse_hints={"content_kind": "binary"} if part != "body" else None,
+            )
+
+
 def _documents(reader: _Reader, builder: _EpisodeBuilder) -> None:
     if reader.profile.kind == "document":
         payload = _bytes(reader.get("text", required=True), reader.origin("text"))
+        framing = _source_chat(reader, payload)
+        if framing.detected:
+            _serialized_chat(reader, builder, payload=payload, result=framing)
+            return
+        builder.parser_annotations["chat_framing"] = {
+            "template": framing.template,
+            "frames": [],
+            "diagnostics": [asdict(item) for item in framing.diagnostics],
+            "reference_encoding_unit": "document logical field",
+        }
         builder.append(
-            payload, role="document", turn=0, score=True, source_field=reader.origin("text")
+            payload,
+            role="document",
+            turn=0,
+            score=True,
+            source_field=reader.origin("text"),
+            chunk_diagnostics=tuple(item.code for item in framing.diagnostics),
         )
     elif reader.profile.kind == "artifact":
         builder.append(
@@ -726,9 +1015,18 @@ def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> 
     builder = _EpisodeBuilder(episode_id, reader)
     if profile.kind == "chat":
         _chat(reader, builder)
+    elif profile.kind == "serialized_chat":
+        _serialized_chat(reader, builder)
     else:
         _documents(reader, builder)
     supervision = _supervision(reader)
+    if builder.parser_annotations:
+        supervision = replace(
+            supervision,
+            annotations_json=canonical_json(
+                json.loads(supervision.annotations_json) | {"parser": builder.parser_annotations}
+            ),
+        )
     if adapter == "swe_zero":
         supervision = replace(
             supervision,
@@ -740,7 +1038,7 @@ def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> 
     episode = Episode(
         episode_id=episode_id,
         records=tuple(builder.records),
-        lineage=_lineage(reader, raw_sha),
+        lineage=_lineage(reader, raw_sha, builder.family_prompt),
         stream=context.stream,
         actions=tuple(builder.actions),
         supervision=supervision,

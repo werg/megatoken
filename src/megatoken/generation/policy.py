@@ -104,7 +104,16 @@ class FacetedGenerator(nn.Module):
             raise ValueError("representation_mode must be bootstrap or recurrent")
 
     def _training_inputs(
-        self, state, payloads, control, effort, generator, roles, plan, *, teacher_forced_action=False
+        self,
+        state,
+        payloads,
+        control,
+        effort,
+        generator,
+        roles,
+        plan,
+        *,
+        teacher_forced_action=False,
     ):
         if not self.training_heads:
             raise RuntimeError("supervised training is disabled for this served model")
@@ -335,7 +344,13 @@ class FacetedGenerator(nn.Module):
             else role_ids.to(state.device)
         )
         return self._supervised(
-            state, plan, plan.payloads, control, effort, generator, roles,
+            state,
+            plan,
+            plan.payloads,
+            control,
+            effort,
+            generator,
+            roles,
             teacher_forced_action=teacher_forced_action,
         )
 
@@ -354,7 +369,13 @@ class FacetedGenerator(nn.Module):
         roles = torch.tensor([plan.role_id], device=state.device)
         payloads = [plan.payload]
         return self._supervised(
-            state, plan, payloads, control, effort, generator, roles,
+            state,
+            plan,
+            payloads,
+            control,
+            effort,
+            generator,
+            roles,
             teacher_forced_action=teacher_forced_action,
         )
 

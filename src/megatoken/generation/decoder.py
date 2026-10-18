@@ -79,7 +79,6 @@ class _Program:
         self.add("lexical", decoder.vocabulary.loss(states, target, valid).sum(), len(ids))
         return ids
 
-
     def lexical_batch(self, decoder, states, requests):
         """Sample independent free spans by alphabet with one host readback.
 
@@ -372,9 +371,7 @@ class DeterministicDecoder(nn.Module):
                         )
                     else:
                         fits = (
-                            minimum_total()
-                            - value.minimum
-                            + max(value.minimum, len(ids))
+                            minimum_total() - value.minimum + max(value.minimum, len(ids))
                             <= field_limit
                         )
                     if fits:
@@ -502,9 +499,7 @@ class DeterministicDecoder(nn.Module):
             if teacher is None:
                 free_ids = sampled_fields[name]
             else:
-                positions = torch.tensor(
-                    value.free_positions, device=rows.device, dtype=torch.long
-                )
+                positions = torch.tensor(value.free_positions, device=rows.device, dtype=torch.long)
                 labels = teacher.field_ids[name]
                 forced = tuple(
                     token

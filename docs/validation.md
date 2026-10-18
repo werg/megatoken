@@ -1,4 +1,61 @@
-# Architecture v4 implementation validation
+# Implementation validation
+
+## Recursive parser v2 — 2026-10-18
+
+The parser replacement was validated on top of main commit
+`4c383b883ea746c14d9b924a94bb646beb493ed0`, including the merged GPU-dispatch,
+decoder-budget, and recurrent-control changes. Its
+[machine-readable receipt](chunking_validation_receipts.json) records runtime
+versions, all package and test hashes, the reference-codec pilot, and stage results.
+The older architecture receipts below remain historical evidence.
+
+| Gate | Observed result |
+| --- | --- |
+| Full installed-wheel CPU suite | **644 passed, 21 skipped**, zero failures/errors; pytest reported **74.31 seconds** |
+| Source, wheel, installed package | All **85 Python/JSON package files** match byte-for-byte |
+| Ruff lint/format and shell entrypoints | Passed |
+| Wheel and source distribution | Built; the wheel was installed before testing, without a source-path override |
+| Installed CLI and CPU runtime preflight | Passed |
+| Offline native grammar coverage | **173 bindings loaded**, zero failures |
+| Production-codec parsing pilot | All **9 cases** passed across **3 repetitions** each |
+| Attachment checks | **155 feasible heading/signature or independent fixture attachments**, zero violations |
+| All-stage workflow | Preparation; B0, P1, M1, M2, LC, S, D updates; R execution/replay; export/reload; valid generation |
+
+The 21 skips comprise 16 GPU-only cases and five actual-ICU integration cases.
+The reference host has no CUDA device or ICU Python binding. CI runs the installed
+CPU package on Python 3.11 and 3.12 and has a separate job that installs ICU and
+exercises its real locale-specific behavior. Local pytest emitted one warning
+about per-test timing properties extending the xunit2 report format; it did not
+skip or fail the nested-tree scalability test. Remote CI results belong to their
+own commit and workflow run.
+
+The real-codec pilot used the pinned Ling vocabulary over **202,538 bytes** and
+**48,618 canonical reference tokens**, producing **135 chunks**. The mean was
+**360.13 tokens**, the median **343**, and the maximum **889**. This deliberately
+mixed sample contains small latency events and structurally separate code units;
+512 is an optimization target, not a minimum. Every chunk satisfied both hard
+capacities. Source bytes, original byte ranges, per-event canonical IDs, expected
+nested parsers and chat boundaries, and repeatability all passed. No case produced
+a content-parser fault or an orphaned feasible heading/signature attachment.
+
+The summed warm per-case medians were **2.57 seconds** on this shared CPU host.
+That is a small local pilot, not general corpus throughput. The raw ChatML fixture
+tests framing only and intentionally lacks original tool-call/execution IDs; it
+is not a preparation-accepted episode. Full preparation, causal dependencies,
+quarantine, ownership races, and verified replay are exercised separately by the
+installed test suite. Reproduce the pilot with
+[`scripts/validate_chunking.py`](../scripts/validate_chunking.py), as described in
+the [parser runbook](chunking.md#run-the-real-codec-validation-pilot).
+
+The all-stage smoke used the tiny byte-codec model. It completed seven supervised
+optimizer updates and eight executed/replayed RL episodes, then exported and
+reloaded the served bundle. Equal zero rewards correctly resulted in zero RL
+optimizer updates in that smoke. This validates the software path and accounting;
+it does not establish task quality or Blackwell performance. Existing prepared
+artifacts with the previous parser identity must be rebuilt before training with
+this implementation.
+
+## Historical architecture v4 validation
 
 Validation date: **2026-10-18**, for the unmodified v4 main-branch build.
 The installed wheel passed **304 CPU tests with 15 CUDA-only skips** before the
@@ -189,8 +246,8 @@ assume that no-grad and autograd select numerically identical attention kernels.
 
 ### Data, distributed execution, assets, and serving
 
-[Semantic chunk tests](../tests/test_data_chunking.py) cover the shared 256-token
-packing target, 512 soft limit, and 1,024 hard limit. Original bytes and codec-ID
+[Semantic chunk tests](../tests/test_data_chunking.py) cover the shared 512-token
+packing target, 768 soft limit, and 1,024 hard limit. Original bytes and codec-ID
 slices survive paragraph/list/code boundaries, Unicode, CRLF, oversized units,
 and forced cuts. Native generated IDs and boundaries stay immutable.
 
