@@ -1,0 +1,212 @@
+from __future__ import annotations
+
+import copy
+import random
+
+import numpy as np
+import pytest
+import torch
+
+from megatoken.runtime import capture_rng, restore_rng, seed_everything
+from megatoken.training.checkpoint import load_checkpoint, save_checkpoint
+from megatoken.training.config import TrainConfig
+from megatoken.training.losses import LossLedger, leave_one_out_advantages
+from megatoken.training.optimizer import MasterAdamW
+from megatoken.training.schedule import PHASES
+
+
+def test_accumulated_variable_mask_loss_matches_full_batch():
+    parameter = torch.nn.Parameter(torch.tensor([0.7, -0.2]))
+    batches = [torch.tensor([[1.0, 2.0]]), torch.tensor([[2.0, 0.0], [0.0, 3.0]])]
+    ledger = LossLedger(
+        {"lexical": 3, "structure": 2},
+        {"lexical": 3, "structure": 2},
+        {"lexical": 1.0, "structure": 0.25},
+    )
+    for batch in batches:
+        ledger.backward_loss(
+            {
+                "lexical": ((batch @ parameter).square().sum(), len(batch)),
+                "structure": (parameter.square().sum(), 1),
+            }
+        ).backward()
+    actual = parameter.grad.clone()
+    parameter.grad = None
+    reference = (torch.cat(batches) @ parameter).square().mean() + 0.25 * parameter.square().sum()
+    reference.backward()
+    torch.testing.assert_close(actual, parameter.grad)
+    ledger.finish()
+
+
+def test_plan_drift_is_fatal():
+    ledger = LossLedger({"lexical": 2}, {"lexical": 2}, {"lexical": 1.0})
+    ledger.backward_loss({"lexical": (torch.tensor(1.0), 1)})
+    with pytest.raises(RuntimeError, match="plan drift"):
+        ledger.finish()
+
+
+def test_bf16_accumulates_fp32_masters_and_moments():
+    model = torch.nn.Linear(3, 2).bfloat16()
+    optimizer = MasterAdamW(model, lr=1e-3)
+    for _ in range(3):
+        model(torch.ones(2, 3, dtype=torch.bfloat16)).float().sum().backward()
+    assert all(p.grad is None for p in model.parameters())
+    assert all(p.dtype == p.grad.dtype == torch.float32 for p in optimizer.parameters)
+    optimizer.step()
+    for state in optimizer.optimizer.state.values():
+        assert state["exp_avg"].dtype == state["exp_avg_sq"].dtype == torch.float32
+    optimizer.close()
+
+
+def test_optimizer_resume_preserves_next_update(tmp_path):
+    seed_everything(23)
+    model = torch.nn.Linear(3, 2).bfloat16()
+    optimizer = MasterAdamW(model, lr=0.002)
+    model(torch.ones(1, 3, dtype=torch.bfloat16)).float().square().sum().backward()
+    optimizer.step()
+    optimizer.zero_grad()
+    checkpoint = save_checkpoint(
+        tmp_path,
+        "step-00000001",
+        {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "rng": capture_rng()},
+        {"global_step": 1, "codec": "test"},
+    )
+    payload, _ = load_checkpoint(checkpoint)
+    resumed = copy.deepcopy(model)
+    resumed_optimizer = MasterAdamW(resumed, lr=0.002)
+    resumed.load_state_dict(payload["model"])
+    resumed_optimizer.load_state_dict(payload["optimizer"])
+    for network, optim in ((model, optimizer), (resumed, resumed_optimizer)):
+        network(torch.full((2, 3), 0.3, dtype=torch.bfloat16)).float().square().sum().backward()
+        optim.step()
+    for a, b in zip(optimizer.parameters, resumed_optimizer.parameters, strict=True):
+        torch.testing.assert_close(a, b, rtol=0, atol=0)
+    optimizer.close()
+    resumed_optimizer.close()
+
+
+def test_freezing_decoder_preserves_bf16_owners_fp32_masters_and_adam_moments():
+    torch.manual_seed(31)
+    model = torch.nn.Sequential(torch.nn.Linear(3, 4), torch.nn.Linear(4, 2)).bfloat16()
+    optimizer = MasterAdamW(model, lr=0.01, weight_decay=0.2)
+    values = torch.ones(2, 3, dtype=torch.bfloat16)
+    model(values).float().square().sum().backward()
+    optimizer.step()
+    optimizer.zero_grad()
+    frozen = [name for name, _ in model.named_parameters() if name.startswith("1.")]
+    optimizer.freeze(frozen)
+    weights = {name: p.detach().clone() for name, p in model.named_parameters()}
+    masters = {name: optimizer.masters[name].detach().clone() for name in frozen}
+    moments = {
+        name: copy.deepcopy(optimizer.optimizer.state[optimizer.masters[name]]) for name in frozen
+    }
+    model(values * 2).float().square().sum().backward()
+    optimizer.step()
+    assert not torch.equal(weights["0.weight"], model[0].weight)
+    for name in frozen:
+        torch.testing.assert_close(weights[name], optimizer.model_parameters[name], rtol=0, atol=0)
+        torch.testing.assert_close(masters[name], optimizer.masters[name], rtol=0, atol=0)
+        for key, value in moments[name].items():
+            torch.testing.assert_close(
+                value, optimizer.optimizer.state[optimizer.masters[name]][key], rtol=0, atol=0
+            )
+    optimizer.close()
+
+
+def test_encoder_follower_cannot_rescale_main_model_gradient_clipping():
+    torch.manual_seed(19)
+    baseline = torch.nn.ModuleDict(
+        {"encoder": torch.nn.Linear(2, 2), "core": torch.nn.Linear(2, 2)}
+    )
+    networks = [copy.deepcopy(baseline), copy.deepcopy(baseline)]
+    optimizers = [MasterAdamW(model, lr=0.01) for model in networks]
+    for optimizer in optimizers:
+        optimizer.set_gradient_domains(
+            {
+                "encoder": [name for name in optimizer.masters if name.startswith("encoder.")],
+                "model": [name for name in optimizer.masters if name.startswith("core.")],
+            }
+        )
+    for step in range(3):
+        reports = []
+        for index, (model, optimizer) in enumerate(zip(networks, optimizers, strict=True)):
+            optimizer.zero_grad()
+            inputs = torch.tensor([[1.0 + step, -2.0]])
+            loss = model["core"](inputs).square().sum()
+            loss = loss + (1 if index == 0 else 1000) * model["encoder"](inputs).square().sum()
+            loss.backward()
+            reports.append(optimizer.step(max_norm=0.1))
+        assert reports[0]["gradient_norm_model"] == reports[1]["gradient_norm_model"]
+        assert reports[1]["gradient_norm_encoder"] > 100 * reports[0]["gradient_norm_encoder"]
+        for name in ("core.weight", "core.bias"):
+            torch.testing.assert_close(
+                optimizers[0].masters[name], optimizers[1].masters[name], rtol=0, atol=0
+            )
+            for key in ("exp_avg", "exp_avg_sq"):
+                torch.testing.assert_close(
+                    optimizers[0].optimizer.state[optimizers[0].masters[name]][key],
+                    optimizers[1].optimizer.state[optimizers[1].masters[name]][key],
+                    rtol=0,
+                    atol=0,
+                )
+    for optimizer in optimizers:
+        optimizer.close()
+
+
+def test_gradient_domains_require_disjoint_complete_ownership():
+    optimizer = MasterAdamW(torch.nn.Linear(2, 2), lr=0.01)
+    for invalid in (
+        {"a": ["weight"]},
+        {"a": ["weight", "bias"], "b": ["bias"]},
+        {"a": ["missing", "bias"]},
+    ):
+        with pytest.raises(ValueError, match="partition"):
+            optimizer.set_gradient_domains(invalid)
+    optimizer.close()
+
+
+def test_checkpoint_corruption_and_retention(tmp_path):
+    first = save_checkpoint(
+        tmp_path, "phase-B0", {"value": torch.ones(2)}, {"global_step": 0}, pinned=True, keep=1
+    )
+    old = save_checkpoint(tmp_path, "step-1", {}, {"global_step": 1}, keep=1)
+    new = save_checkpoint(tmp_path, "step-2", {}, {"global_step": 2}, keep=1)
+    assert first.exists() and new.exists() and not old.exists()
+    with (new / "state.pt").open("ab") as handle:
+        handle.write(b"corrupt")
+    with pytest.raises(ValueError, match="checksum"):
+        load_checkpoint(tmp_path)
+
+
+def test_rng_resume_is_exact():
+    seed_everything(123)
+    state = capture_rng()
+    expected = (random.random(), np.random.rand(), torch.randn(3))
+    restore_rng(state)
+    actual = (random.random(), np.random.rand(), torch.randn(3))
+    assert expected[:2] == actual[:2]
+    torch.testing.assert_close(expected[2], actual[2], rtol=0, atol=0)
+
+
+def test_phase_meters_and_schedules():
+    assert sum(PHASES[name].budget for name in ("P1", "M1", "M2", "LC")) == 520_000_000_000
+    assert PHASES["B0"].meter == "I"
+    assert PHASES["D"].meter == "P"
+    assert PHASES["R"].meter == "Z"
+    assert PHASES["B0"].learning_rate(0) == pytest.approx(2e-5)
+    assert PHASES["P1"].learning_rate(320_000_000_000) == pytest.approx(2e-4)
+    assert PHASES["P1"].learning_rate(400_000_000_000) == pytest.approx(4e-5)
+
+
+def test_leave_one_out_groups_by_task():
+    rewards = torch.tensor([[0.0, 1.0, 0.0, 1.0], [0.2, 0.2, 0.2, 0.2]])
+    advantages = leave_one_out_advantages(rewards)
+    torch.testing.assert_close(advantages[0], torch.tensor([-2 / 3, 2 / 3, -2 / 3, 2 / 3]))
+    torch.testing.assert_close(advantages[1], torch.zeros(4))
+
+
+def test_configuration_rejects_unknown_or_invalid_fields():
+    with pytest.raises(ValueError, match="Unknown"):
+        TrainConfig.from_dict({"leaning_rate": 0.01})
+    with pytest.raises(ValueError, match="Unknown.*repair_fraction"):
+        TrainConfig.from_dict({"repair_fraction": 0.4})

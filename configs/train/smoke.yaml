@@ -1,0 +1,31 @@
+# Two real CPU optimizer transactions on locally prepared demo episodes.
+# This configuration validates software wiring; it is not a quality experiment.
+phase: B0
+model: tiny
+dataset: artifacts/demo
+codec: byte
+output: runs/smoke
+device: cpu
+precision: fp32
+require_blackwell: false
+expert_backend: torch
+representation_mode: bootstrap
+gradient_checkpointing: false
+compile: false
+microbatch_episodes: 1
+max_history_tokens: 512
+max_window_records: 4
+max_record_bytes: 16384
+generated_capacity: 128
+scored_decisions: 2
+accumulate_scored: 16
+accumulate_ingested: 64
+max_accumulation_windows: 4
+max_steps: 2
+effort: 1
+use_stage_mixture: false
+use_effort_mixture: false
+allow_byte_codec: true
+allow_unverified_data: true
+checkpoint_every: 1
+eval_every: 0

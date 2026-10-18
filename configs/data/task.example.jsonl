@@ -1,0 +1,1 @@
+{"seed_id":"fixture-blue-v1","family_id":"fixture-blue","category":"terminal","prompt":"Change answer.txt to exactly blue, then call finish.","environment":{"initial_files":{"answer.txt":"red"},"expected_files":{"answer.txt":"blue"}},"revision":"repository-fixture-v1","mode":"executed"}

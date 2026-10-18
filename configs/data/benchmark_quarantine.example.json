@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "source_revision": "REPLACE_WITH_YOUR_EVALUATION_SNAPSHOT",
+  "family_keys": [
+    "task:example-benchmark-task",
+    "repository:example/held-out-repository"
+  ],
+  "content_sha256": [],
+  "notes": "Use Episode.content_sha256 for exact whole-transcript matches. Include benchmark episodes with supervision.benchmark_tags to enable near-duplicate family propagation as well."
+}
