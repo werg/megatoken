@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping
 
+from jsonschema.exceptions import ValidationError
+
 from .structure import FieldSpec, SchemaSpec
 
 
@@ -112,5 +114,5 @@ def wire_witness_tokens(schema: SchemaSpec, codec: Any) -> int | None:
             serialized = schema.serialize(values, layout)
             sizes.append(len(codec.encode(serialized)))
         return min(sizes) if sizes else None
-    except (KeyError, TypeError, ValueError, UnicodeError, RecursionError):
+    except (KeyError, TypeError, ValueError, ValidationError, UnicodeError, RecursionError):
         return None
