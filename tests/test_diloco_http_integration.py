@@ -13,6 +13,7 @@ import torch
 
 from megatoken.data import prepare_sources, write_demo_source
 from megatoken.generation.codec import ByteCodec
+from megatoken.io import content_hash
 from megatoken.loading import build_model, load_model_config
 from megatoken.runtime import seed_everything
 from megatoken.training.checkpoint import load_checkpoint
@@ -28,6 +29,7 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
     codec = ByteCodec.byte_fallback()
     source = write_demo_source(tmp_path / "source.jsonl", count=24, max_record_bytes=128)
     dataset = prepare_sources([source], tmp_path / "data", codec)
+    dataset_fingerprint = content_hash(dataset.manifest)
     dataset.close()
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -88,6 +90,7 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
         model_config=model_config.to_dict(),
         codec_fingerprint=codec.fingerprint,
         train_identity=training_identity(config),
+        dataset_fingerprint=dataset_fingerprint,
         workers=1,
         min_quorum=1,
         fragment_bytes=1 << 20,
