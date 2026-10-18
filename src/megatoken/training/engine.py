@@ -163,6 +163,8 @@ def make_training_control(
         assert teacher is not None
         teacher = teacher.detach().float()
         teacher = teacher + _RECURRENT_REFERENCE_NOISE_STD * torch.randn_like(teacher)
+    if len(selected) == len(windows):
+        return teacher, len(selected)
     if causal is None:
         control = teacher.new_zeros((len(windows), model.config.control_dim))
     else:
