@@ -88,7 +88,7 @@ def main() -> int:
             if args.data_s3:
                 staged = sandbox.exec(
                     ["python", "scripts/stage_coreweave_data.py",
-                     "--s3", args.data_s3, "--destination", "artifacts"],
+                     "--s3", args.data_s3, "--destination", "/work/artifacts"],
                     timeout_seconds=max(120, args.lifetime_seconds // 3),
                 ).result()
                 print(f"worker {worker}: {staged.stdout.strip()}", flush=True)
