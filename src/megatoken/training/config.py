@@ -28,6 +28,7 @@ class DecoupledConfig:
     max_offline_steps: int = 2048
     wire_dtype: str = "bf16"
     allow_private_http: bool = False
+    checkpoint_s3: str | None = None
 
     def __post_init__(self) -> None:
         if not self.coordinator_url or not self.run_id:
@@ -40,6 +41,8 @@ class DecoupledConfig:
             raise ValueError("Invalid decoupled timeout/offline tolerance")
         if self.wire_dtype not in {"bf16", "fp32"}:
             raise ValueError("decoupled wire_dtype must be bf16 or fp32")
+        if self.checkpoint_s3 is not None and not self.checkpoint_s3.startswith("s3://"):
+            raise ValueError("checkpoint_s3 must use an s3://bucket/prefix URI")
         if self.worker_id is not None and not 0 <= self.worker_id < self.workers:
             raise ValueError("Invalid decoupled worker_id")
 
