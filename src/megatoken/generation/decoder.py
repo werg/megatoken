@@ -80,6 +80,41 @@ class _Program:
         return ids
 
 
+    def lexical_batch(self, decoder, states, requests):
+        """Sample independent free spans by alphabet with one host readback.
+
+        Header choices, identifiers, and bindings retain their serial semantic
+        dependencies. Once all output states exist, ordinary free fields do
+        not: gather those positions by alphabet, execute one vocabulary call
+        per alphabet, then materialize the chosen IDs with one .tolist().
+        """
+        if self.teacher is not None:
+            raise RuntimeError("Batch sampling is only used for unforced realization")
+        offsets = {}
+        kinds = {}
+        count = 0
+        for name, positions, kind in requests:
+            offsets[name] = (count, len(positions))
+            if positions:
+                group = kinds.setdefault(kind, ([], []))
+                group[0].extend(positions)
+                group[1].extend(range(count, count + len(positions)))
+            count += len(positions)
+        if not count:
+            return {name: () for name in offsets}
+
+        chosen = torch.empty(count, dtype=torch.long, device=states.device)
+        for kind, (positions, destinations) in kinds.items():
+            indices = torch.tensor(positions, dtype=torch.long, device=states.device)
+            target = torch.tensor(destinations, dtype=torch.long, device=states.device)
+            sampled = decoder.vocabulary.argmax(
+                states.index_select(0, indices), decoder.alphabet(kind)
+            )
+            chosen.index_copy_(0, target, sampled)
+        ids = chosen.tolist()  # Exactly one GPU -> host readback for all free fields.
+        return {name: tuple(ids[start : start + length]) for name, (start, length) in offsets.items()}
+
+
 class DeterministicDecoder(nn.Module):
     def __init__(self, config, codec) -> None:
         super().__init__()
@@ -431,23 +466,42 @@ class DeterministicDecoder(nn.Module):
             assigned, teacher.capacity if teacher else None, self.config.max_capacity
         )
         rows = self.realizer(core, context, capacity, header)
+        # Unlike the earlier header and identifier decisions, free fields are
+        # conditionally independent once the final realizer states exist. Batch
+        # their lexical selections and transfer all chosen IDs together.
+        sampled_fields = (
+            program.lexical_batch(
+                self,
+                rows[0],
+                [
+                    (name, value.free_positions, value.spec.kind)
+                    for name, value in fields.items()
+                    if value.fixed_ids is None
+                ],
+            )
+            if teacher is None
+            else {}
+        )
         outputs = {}
         for name, value in fields.items():
             if value.fixed_ids is not None:
                 outputs[name] = value.fixed_ids
                 continue
-            positions = torch.tensor(value.free_positions, device=rows.device, dtype=torch.long)
-            forced = None
-            if teacher is not None:
+            if teacher is None:
+                free_ids = sampled_fields[name]
+            else:
+                positions = torch.tensor(
+                    value.free_positions, device=rows.device, dtype=torch.long
+                )
                 labels = teacher.field_ids[name]
                 forced = tuple(
                     token
                     for index, token in enumerate(labels)
                     if not value.placement <= index < value.placement + len(value.copy_ids)
                 )
-            free_ids = program.lexical(
-                self, rows[0].index_select(0, positions), value.spec.kind, forced=forced
-            )
+                free_ids = program.lexical(
+                    self, rows[0].index_select(0, positions), value.spec.kind, forced=forced
+                )
             outputs[name] = value.assemble(free_ids)
         payload, emitted, error = b"", (), None
         try:
