@@ -75,6 +75,10 @@ pytest -q
 
 The grouped tests compare values and gradients for sorted, uneven assignments and
 unused experts, including the primary pair/output input widths of 1,024 and 512.
+The CPU temporal-KV suite checks three stage-local C writes/reads, the final-only
+history publication, relative/late-time RoPE, slot identities, fixed P3/6/9/12
+historical readers, archive pooling, gradients, and v4 checkpoint rejection.
+Repeat checkpointed and uncheckpointed parity tests under the new architecture.
 Runtime tests compare unmasked Flash GQA with the math reference at 32 facets,
 four query heads, two KV heads, and head widths 128/64, including long projected
 histories. Separate masked-source cases include completely empty records. CPU
@@ -286,9 +290,9 @@ environment and measured B0 gate results before committing the bulk stage budget
 Selected raw facets, central feature caches, and historical KV belong to one
 model version. Every optimizer update increments that version. Reconstruct the
 ordered observations and raw sampled actions under the new weights. Both
-`observe` and `advance_raw` immediately run the shared central processor and write
-one KV entry; the resulting early/final features serve realization and the next
-prediction. `predict_facets` is read-only and reuses those features. This eager
+`observe` and `advance_raw` run four central blocks with three temporary
+read/write KV transitions and publish **only** the final RoPE-rotated KV once.
+The resulting early/final features serve realization and the next prediction. `predict_facets` is read-only and reuses those features. This eager
 chronology also handles invalid or empty selected actions. Actual environment
 responses enter through a later observation. Prefix replay costs real time and
 `I`, even under `no_grad`.
