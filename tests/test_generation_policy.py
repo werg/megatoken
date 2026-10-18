@@ -699,3 +699,28 @@ def test_public_required_json_argument_has_constructible_wire_witness(model):
     )
     witness = wire_witness_tokens(schema, model.codec)
     assert witness == len(model.codec.encode(b'{"name":"read","arguments":{"path":""}}'))
+
+
+def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model):
+    result = model.sample(
+        model.core.initial_state(1),
+        spec=ActionSpec(max_tokens=0),
+        generator=torch.Generator().manual_seed(117),
+    )
+    tape = result.tape
+    assert isinstance(tape.facets, bytes)
+    assert len(tape.facets) == 4 * tape.latent_dimensions
+    restored = ActionTape.from_json(tape.to_json())
+    assert restored.facets == tape.facets
+    assert restored == tape
+    legacy = json.loads(tape.to_json())
+    legacy["facets"] = tape.facet_array().tolist()
+    decoded = ActionTape.from_json(json.dumps(legacy))
+    assert isinstance(decoded.facets, tuple)
+    assert decoded.facet_array().tobytes() == tape.facets
+    torch.testing.assert_close(
+        model.score_tape(model.core.initial_state(1), decoded, spec=ActionSpec(max_tokens=0)).log_prob,
+        result.log_prob,
+        rtol=0,
+        atol=1e-5,
+    )
