@@ -134,7 +134,9 @@ class FacetedGenerator(nn.Module):
             pairs = plan.native_tapes if isinstance(plan, PreparedTargets) else (plan.native_tape,)
             for index, tape in enumerate(pairs):
                 if tape is not None:
-                    actual = torch.tensor(tape.facets, device=target.device, dtype=torch.float32)
+                    actual = torch.as_tensor(
+                        tape.facet_array().copy(), device=target.device, dtype=torch.float32
+                    )
                     encoder_loss = (
                         encoder_loss + (target[index].float().flatten() - actual).square().sum()
                     )
@@ -147,7 +149,7 @@ class FacetedGenerator(nn.Module):
                 # sampled action was executed.
                 reference = torch.stack(
                     [
-                        torch.as_tensor(tape.facets, device=target.device, dtype=torch.float32)
+                        torch.as_tensor(tape.facet_array().copy(), device=target.device, dtype=torch.float32)
                         .reshape_as(target[index])
                         if tape is not None
                         else target[index].detach()
@@ -413,7 +415,7 @@ class FacetedGenerator(nn.Module):
             self.codec.fingerprint,
             spec.fingerprint,
             (self.config.n_facets, self.config.facet_dim),
-            tuple(raw[0].flatten().tolist()),
+            raw[0].detach().float().contiguous().cpu().numpy().astype("<f4", copy=False).tobytes(),
             effort,
             role_id,
             decoded.payload,
@@ -457,9 +459,9 @@ class FacetedGenerator(nn.Module):
         control = encode_controls(self.core, [tape.control_payload], encoder_grad=False)
         mean = self.core.predict_facets(state, control=control, effort=tape.effort)
         distribution = self.facet_distribution(mean)
-        raw = torch.tensor(tape.facets, device=state.device, dtype=torch.float32).reshape(
-            1, *tape.facet_shape
-        )
+        raw = torch.as_tensor(
+            tape.facet_array().copy(), device=state.device, dtype=torch.float32
+        ).reshape(1, *tape.facet_shape)
         next_state = self.core.advance_raw(state, raw, role_ids=roles)
         decoded = self.decode_state(next_state, spec=spec)
         actual = (
