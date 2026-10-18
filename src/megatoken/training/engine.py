@@ -37,6 +37,7 @@ from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, s
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.distributed import DistributedContext
 from megatoken.training.diloco_client import DecoupledWorker
+from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.history import NativeHistory, replay_raw_tape
 from megatoken.training.losses import LossLedger
 from megatoken.training.metrics import (
@@ -633,6 +634,7 @@ def train(
                 masters=optimizer.masters,
                 output=output / "diloco",
                 token_budget=phase.budget,
+                train_identity=training_identity(config),
             )
             if payload is None:
                 diloco.bootstrap(model, optimizer)
