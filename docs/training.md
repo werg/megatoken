@@ -68,6 +68,39 @@ and R still learn from their own main objectives. E has an independent gradient-
 domain, so a large auxiliary reconstruction or native alignment error cannot scale the
 main-model update. FP32 Adam moments remain owned once per parameter.
 
+#### Detached noisy successful-trajectory control (recurrent training only)
+
+To retain the future-informed training signal for a **controlled** agent, recurrent
+supervision now has one additional *conditioning source*, not another decoder pass
+or latent distribution. For verified successful recorded episodes, **50% of eligible
+training windows** replace their ordinary causal control vector with an embedding
+of their own successful trajectory reference. The same existing control encoder
+receives a bounded, role-framed sketch (four chronological quarters, up to 1 KiB
+per quarter) of actual record bytes; it never receives supervision labels,
+verification outcomes, rewards, or hidden tests. The resulting 128D (or preset
+control-width) vector is **fully detached**, then receives fresh elementwise
+Gaussian noise of standard deviation **0.1**. One sampled vector is held fixed
+across all scored chunks of that window and injected at the ordinary pre-P
+control-injection site.
+
+The other half of eligible windows, every non-verified episode, and all bootstrap
+examples retain the existing **causal public control**. Its shared E frontend is
+detached during recurrent training, but its control head and P control projection
+continue to learn. Therefore the teacher does not train its own encoder through
+future-target gradients; its use trains P to respond to a useful reference vector,
+while causal-control examples continue to train the shared encoder. This is the
+same model and output objective, with no extra KV writes.
+
+**The successful-trajectory reference is knowingly noncausal:** it includes target
+and later observation bytes and is **never** a permissible serving, evaluation,
+collection, or RL control source for that same trajectory. No such reference is
+added to `Episode.control_reference`, the causal payload helper, physical history,
+or the action tape. Deployment still takes only explicitly sourced seed/reference
+bytes and tools. An earlier completed successful execution may be supplied as a
+causal reference for a **different** run. Report held-out prior generation using
+retained external references separately from causal seed-only and fallback controls;
+a teacher-conditioned training loss is not a measure of autonomous causal quality.
+
 | Objective | Bootstrap | Recurrent |
 |---|---|---|
 | Prior draw -> C -> contextual R target CE | Main-model gradients; causal prefix E may learn | Main-model gradients; observed E detached |
@@ -88,6 +121,8 @@ pilots before treating them as quality recommendations.
 
 Training, serving, collection, and replay use the same `build_control_payload` and
 `encode_controls` helpers for public seed bytes, causal references, and tool schemas.
+The supervised, detached trajectory-reference teacher above is an explicit
+training-only exception, never passed to `build_control_payload` as external evidence.
 Only tool JSON is canonicalized; seed/reference bytes remain exact. References require
 `external_evidence` or `earlier_history` provenance. Empty control rows are neutral even
 when batched with nonempty controls.

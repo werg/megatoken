@@ -92,6 +92,94 @@ def make_control(
     return encode_controls(model.core, payloads, encoder_grad=encoder_grad)
 
 
+# The trajectory-reference teacher is deliberately confined to supervised
+# training. It is never serialized as a causal control or supplied to serving/RL.
+_RECURRENT_REFERENCE_FRACTION = 0.5
+_RECURRENT_REFERENCE_NOISE_STD = 0.1
+_RECURRENT_REFERENCE_BYTES_PER_QUARTER = 1024
+
+
+def _successful_trajectory_reference(episode: Any) -> bytes:
+    """A bounded, chronological reference from a verified successful execution.
+
+    The teacher sees future recorded content by design. Never include hidden
+    supervision labels, rewards or verifier annotations. Four chronological
+    slices retain both early instructions and later actions/observations without
+    making control encoding proportional to a long full transcript.
+    """
+    records = episode.records
+    frames = [b"<" + record.role.encode("ascii") + b">\n" + record.payload for record in records]
+    sections = []
+    for quarter in range(4):
+        start = quarter * len(frames) // 4
+        end = (quarter + 1) * len(frames) // 4
+        chunk = b"\n".join(frames[start:end])
+        limit = _RECURRENT_REFERENCE_BYTES_PER_QUARTER
+        if len(chunk) > limit:
+            chunk = chunk[: limit // 2] + chunk[-(limit - limit // 2) :]
+        if chunk:
+            sections.append(chunk)
+    return b"\n".join(sections)
+
+
+def make_training_control(
+    model: Any, windows: list[EpisodeWindow], device: torch.device, *, recurrent: bool
+) -> tuple[torch.Tensor | None, int]:
+    """Mix causal controls with detached noisy successful-trajectory references.
+
+    In recurrent phases, half of eligible verified-success windows use a
+    teacher reference from the *recorded* trajectory. Its complete encoded
+    vector is detached before Gaussian perturbation: training the predictor
+    cannot push the byte/control encoder to memorize a future target.
+    Remaining windows use the ordinary trainable, serving-compatible causal
+    control. One choice and one noise draw is reused across a window's chunks.
+    """
+    if not recurrent:
+        return make_control(model, windows, device, encoder_grad=True), 0
+    eligible = [
+        index
+        for index, item in enumerate(windows)
+        if item.episode.supervision.verified_success
+        and any(record.policy_mask for record in item.episode.records)
+    ]
+    selection = torch.rand(len(eligible)).tolist()
+    selected = [
+        index
+        for index, draw in zip(eligible, selection, strict=True)
+        if draw < _RECURRENT_REFERENCE_FRACTION
+    ]
+    # Encode each window *once*: the teacher and causal rows are disjoint.
+    selected_set = set(selected)
+    causal_payloads = [
+        b"" if index in selected_set else episode_control_payload(item.episode)
+        for index, item in enumerate(windows)
+    ]
+    causal = encode_controls(model.core, causal_payloads, encoder_grad=False)
+    if not selected:
+        return causal, 0
+    # Explicitly training-only: this adds the *current* successful trajectory's
+    # reference, not an external/earlier-history reference permitted at inference.
+    teacher_payloads = [
+        episode_control_payload(windows[index].episode)
+        + b"\n<reference>\n"
+        + _successful_trajectory_reference(windows[index].episode)
+        for index in selected
+    ]
+    with torch.no_grad():
+        teacher = encode_controls(model.core, teacher_payloads, encoder_grad=False)
+        assert teacher is not None
+        teacher = teacher.detach().float()
+        teacher = teacher + _RECURRENT_REFERENCE_NOISE_STD * torch.randn_like(teacher)
+    if len(selected) == len(windows):
+        return teacher, len(selected)
+    if causal is None:
+        control = teacher.new_zeros((len(windows), model.config.control_dim))
+    else:
+        control = causal.clone()
+    indices = torch.tensor(selected, device=device, dtype=torch.long)
+    return control.index_copy(0, indices, teacher.to(control.dtype)), len(selected)
+
+
 def prepare_batches(
     model: Any, windows: list[EpisodeWindow], config: TrainConfig
 ) -> list[PreparedBatch]:
@@ -289,11 +377,13 @@ def forward_batch(
             state = ingest_records(
                 model, state, [item.window.prefix[offset] for item in batch.windows], device
             )
-    control = make_control(
-        model, batch.windows, device, encoder_grad=config.representation_training == "bootstrap"
+    control, teacher_control_examples = make_training_control(
+        model, batch.windows, device, recurrent=config.representation_training == "recurrent"
     )
     losses = []
-    metrics: dict[str, float | torch.Tensor] = {}
+    metrics: dict[str, float | torch.Tensor] = {
+        "noisy_trajectory_control_examples": teacher_control_examples,
+    }
     for offset in range(len(batch.windows[0].window.records)):
         records = [item.window.records[offset] for item in batch.windows]
         cursor = batch.windows[0].window.start + offset
