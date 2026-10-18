@@ -107,7 +107,7 @@ def initialize_coordinator(
             )
             save_tensors(
                 root / "public" / f"{fragment.index:05d}.safetensors",
-                {"theta": values.to(torch.bfloat16)},
+                {"theta": values},
                 metadata={"version": "0"},
             )
         write_json(root / "manifest.json", manifest)
@@ -158,7 +158,7 @@ class Coordinator:
                 if not public.exists() or int(_metadata(public)["version"]) != version:
                     theta = load_tensors(self._path(index))["theta"]
                     save_tensors(
-                        public, {"theta": theta.to(torch.bfloat16)},
+                        public, {"theta": theta},
                         metadata={"version": str(version)},
                     )
 
@@ -237,6 +237,7 @@ class Coordinator:
     ) -> dict:
         with self.lock:
             self._lease_valid(worker, session)
+            self._path(index)  # Reject an unknown fragment before touching queued files.
             if (
                 type(sequence) is not int or sequence < 1
                 or type(base_version) is not int or base_version < 0
@@ -451,6 +452,7 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                     )
                 elif re.fullmatch(r"/v1/updates/[0-9]+", parsed.path):
                     index = int(parsed.path.rsplit("/", 1)[-1])
+                    coordinator._path(index)
                     maximum = coordinator.fragments[index].length * 4 + 8192
                     length = int(self.headers.get("Content-Length", "0"))
                     if not 0 < length <= maximum:
@@ -458,17 +460,17 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                     tempdir = coordinator.root / "incoming"
                     tempdir.mkdir(exist_ok=True)
                     fd, filename = tempfile.mkstemp(dir=tempdir, suffix=".safetensors")
-                    with os.fdopen(fd, "wb") as handle:
-                        remaining = length
-                        while remaining:
-                            block = self.rfile.read(min(4 << 20, remaining))
-                            if not block:
-                                raise ValueError("Truncated fragment upload")
-                            handle.write(block)
-                            remaining -= len(block)
-                        handle.flush()
-                        os.fsync(handle.fileno())
                     try:
+                        with os.fdopen(fd, "wb") as handle:
+                            remaining = length
+                            while remaining:
+                                block = self.rfile.read(min(4 << 20, remaining))
+                                if not block:
+                                    raise ValueError("Truncated fragment upload")
+                                handle.write(block)
+                                remaining -= len(block)
+                            handle.flush()
+                            os.fsync(handle.fileno())
                         result = coordinator.submit(
                             index,
                             int(self.headers["X-Worker"]),
