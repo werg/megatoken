@@ -201,7 +201,7 @@ def test_offline_tool_result_uses_recorded_action_not_counterfactual_sample(monk
     windows = list(iter_windows(episode, codec, WindowConfig(max_records=8, max_decisions=4)))
     assert len(windows) == 1
     model = build_model(ModelConfig.tiny(), codec)
-    config = config_for("recurrent")
+    config = replace(config_for("recurrent"), generated_capacity=64)
     (batch,) = prepare_batches(model, [EpisodeWindow(episode, windows[0])], config)
     seen = []
     original = model.supervised_step
