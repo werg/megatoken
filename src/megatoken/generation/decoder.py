@@ -55,7 +55,10 @@ class _Program:
         support = torch.tensor(allowed, device=logits.device, dtype=torch.long)
         selected_logits = logits.float().reshape(-1).index_select(0, support)
         if self.teacher is None:
-            value = allowed[int(selected_logits.argmax())]
+            # Public singleton decisions have no uncertainty. Do not insert a
+            # GPU->host synchronization just to rediscover a forced schema,
+            # tool mode, fixed length, or required terminal.
+            value = allowed[0] if len(allowed) == 1 else allowed[int(selected_logits.argmax())]
         else:
             if forced is None or int(forced) not in allowed:
                 raise ValueError(f"teacher decision {name}={forced} is outside public constraints")
