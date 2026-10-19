@@ -10,8 +10,9 @@
 > [the v7 plan](docs/multi-track-plan.md) and
 > [implementation status](docs/multi-track-implementation.md).
 >
-> **No backward compatibility:** v7 intentionally rejects earlier checkpoint,
-> tape, served-bundle, and prepared dataset formats.
+> **Strict native formats:** v7 rejects earlier checkpoint, tape, served-bundle,
+> and prepared dataset formats. The explicit v6-to-v7 migration described in
+> the updated roadmap is not yet implemented.
 
 
 A from-scratch model and training system built around **32 recurrent facets**.
