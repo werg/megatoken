@@ -22,7 +22,7 @@ from .chunking import ChunkingConfig, ChunkingStats
 from .dedup import DedupStore
 from .schema import Codec, Episode, encode_record
 
-DATASET_VERSION = 2
+DATASET_VERSION = 3
 
 
 def export_prepared(
