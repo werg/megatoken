@@ -15,7 +15,7 @@ research and engineering design is in [multi-track-plan.md](multi-track-plan.md)
 | Joint P12 live queries and existing per-event expert topology | Implemented in code |
 | Stable session track equality bias and learned modality features | Implemented in code |
 | Atomic whole-meridian eviction after the incoming C context read | Implemented in code |
-| Joint Gaussian action, typed group tape, density and deterministic replay | Implemented in code |
+| Joint Gaussian action, per-event density and effort, canonical track-order draws, grouped replay | Implemented in code |
 | Heterogeneous text, audio, image and video observations | Trainable baseline implemented |
 | Shared E reduction and 32-facet readout across modalities | Implemented in code |
 | Direct waveform and joint image/video realizers | Trainable native baseline, **untrained** |
@@ -25,7 +25,7 @@ research and engineering design is in [multi-track-plan.md](multi-track-plan.md)
 | Speculative atomic branches and ready tool result ingestion | Implemented in code |
 | Parallel external IO tool execution | Basic executor implemented |
 | RAG evidence and worker tracks | Supported structurally as ordinary observations/tracks |
-| Data schema meridian IDs, track identities and media alignment intervals | Implemented in code |
+| Data schema meridian IDs, track identities and media alignment intervals | Implemented in code; runtime propagation incomplete |
 | Native distributed/recurrent *multi-track* training integration | **Not implemented** |
 | Paired speech/video production corpus acquisition | **Not implemented** |
 | Pretrained speech/vocoder and modern image/video flow backbones | **Not implemented** |
