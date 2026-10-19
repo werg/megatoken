@@ -26,7 +26,11 @@ LIMITS = ParseLimits(isolate_native=False)
     [
         ("css", b"#button { --color: red; background: #fff; /* note */ }", [b"/* note */"]),
         ("scss", b"$value: #fff; // note\r.next { color: #000; }", [b"// note"]),
-        ("rust", b"#[derive(Clone)]\nfn f<'a>(x: &'a str) { /* a /* nested */ b */ }", [b"/* a /* nested */ b */"]),
+        (
+            "rust",
+            b"#[derive(Clone)]\nfn f<'a>(x: &'a str) { /* a /* nested */ b */ }",
+            [b"/* a /* nested */ b */"],
+        ),
         ("c", b'#include <stdio.h>\rint x=1; // comment\r', [b"// comment"]),
         ("csharp", b"#nullable enable\nvar i = 2; // note", [b"// note"]),
         ("javascript", b'const x = "https://host/#a"; x--; // note\rnext();', [b"// note"]),
@@ -34,10 +38,18 @@ LIMITS = ParseLimits(isolate_native=False)
         ("yaml", b"key: value#literal\rnext: value # comment\r", [b"# comment"]),
         ("sql", b"SELECT 1 -- comment\rSELECT 2 /* block */;", [b"-- comment", b"/* block */"]),
         ("haskell", b"item = 1 {- outer {- inner -} end -} + 2", [b"{- outer {- inner -} end -}"]),
-        ("ocaml", b"let item = 1 (* outer (* inner *) end *) + 2", [b"(* outer (* inner *) end *)"]),
+        (
+            "ocaml",
+            b"let item = 1 (* outer (* inner *) end *) + 2",
+            [b"(* outer (* inner *) end *)"],
+        ),
         ("clojure", b'(def x 1) ; comment\r(def y 2)', [b"; comment"]),
         ("latex", b"\\% escaped\n\\section{A} % comment\n", [b"% comment"]),
-        ("unknown", b"http://host/path/#anchor\n// comment\n# comment", [b"// comment", b"# comment"]),
+        (
+            "unknown",
+            b"http://host/path/#anchor\n// comment\n# comment",
+            [b"// comment", b"# comment"],
+        ),
     ],
 )
 def test_dialect_aware_comments_preserve_operators_and_coordinates(
@@ -59,7 +71,11 @@ def test_dialect_aware_comments_preserve_operators_and_coordinates(
     [
         ("rust", b'const X: &str = r###"http://host/*hi*/\n"#"###;', b'http://host/*hi*/\n"#'),
         ("rust", b'const X: &[u8] = br#"abc " quoted"#;', b'abc " quoted'),
-        ("cpp", b'const char* s = R"sql(SELECT "value" /* not a comment */)sql";', b'SELECT "value" /* not a comment */'),
+        (
+            "cpp",
+            b'const char* s = R"sql(SELECT "value" /* not a comment */)sql";',
+            b'SELECT "value" /* not a comment */',
+        ),
         ("cpp", b'auto s = u8R"doc(<p>"hello"</p>)doc";', b'<p>"hello"</p>'),
     ],
 )
