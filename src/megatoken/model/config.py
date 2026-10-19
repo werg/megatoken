@@ -27,6 +27,12 @@ class ModelConfig:
     max_history_chunks: int = 1024
     max_tracks: int = 8
     source_dim: int = 256
+    # Zero disables a donor feature projector. Pinned extractor revisions live
+    # in model geometry so incompatible feature caches cannot silently resume.
+    audio_feature_dim: int = 0
+    vision_feature_dim: int = 0
+    audio_feature_id: str = ""
+    vision_feature_id: str = ""
     byte_dim: int = 8
     source_stride: int = 8
     ngram_dim: int = 16
@@ -115,6 +121,14 @@ class ModelConfig:
             raise ValueError("ngram_orders must contain orders in [1, 8]")
         if self.ngram_rows <= self.exact_rows:
             raise ValueError("ngram_rows must leave space for the hashed fallback")
+        for dim, identity in (
+            (self.audio_feature_dim, self.audio_feature_id),
+            (self.vision_feature_dim, self.vision_feature_id),
+        ):
+            if type(dim) is not int or dim < 0 or (
+                bool(dim) != bool(identity)
+            ) or (identity and (not isinstance(identity, str) or len(identity) < 12)):
+                raise ValueError("External feature projectors require a positive width and pinned ID")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
 
@@ -148,6 +162,10 @@ class ModelConfig:
             self.max_tracks,
             self.kv_heads,
             self.attention_head_dim,
+            self.audio_feature_dim,
+            self.vision_feature_dim,
+            self.audio_feature_id,
+            self.vision_feature_id,
         )
 
     @classmethod
