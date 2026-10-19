@@ -30,21 +30,38 @@ class MediaOutputSpec:
     frames: int = 1
     height: int = 64
     width: int = 64
+    codec_id: str = ""
+    pack_id: str = ""
+    latent_shape: tuple[int, ...] = ()
+    sample_rate: int = AUDIO_SAMPLE_RATE
+    fps_num: int = 0
+    fps_den: int = 1
+    extent_source: str = "requested"  # requested/predicted/teacher_only
 
     def __post_init__(self) -> None:
+        if self.extent_source not in {"requested", "predicted", "teacher_only"}:
+            raise ValueError("Structural extent provenance is required")
+        if bool(self.codec_id) != bool(self.pack_id):
+            raise ValueError("Codec and generator pack must be selected together")
+        if self.codec_id and (not self.latent_shape or any(n < 1 for n in self.latent_shape)):
+            raise ValueError("Native rendering requires nonempty pinned latent geometry")
         if self.modality == "audio":
-            if not 1 <= self.sample_count <= AUDIO_SAMPLE_RATE * 60:
-                raise ValueError("Audio output must contain 1 to 60 seconds at 16 kHz")
+            if self.sample_rate not in {16000, 24000} or not 1 <= self.sample_count <= self.sample_rate * 120:
+                raise ValueError("Audio output requires supported rate and bounded duration")
         elif self.modality in {"image", "video"}:
             if (
-                not 1 <= self.frames <= 32
+                not 1 <= self.frames <= (193 if self.codec_id else 32)
                 or self.modality == "image" and self.frames != 1
-                or not 8 <= self.height <= 256
-                or not 8 <= self.width <= 256
+                or not 8 <= self.height <= (1280 if self.codec_id else 256)
+                or not 8 <= self.width <= (1280 if self.codec_id else 256)
             ):
                 raise ValueError("Visual output exceeds the native baseline's bounds")
         else:
             raise ValueError("Media output must be audio, image or video")
+        if self.modality == "video" and self.codec_id and (
+            self.fps_num <= 0 or self.fps_den <= 0
+        ):
+            raise ValueError("Native video output requires its display frame clock")
 
 
 @dataclass(frozen=True)
@@ -59,6 +76,13 @@ class MediaTrainTarget:
     role_id: int = 2
     source_kind: str = "raw"
     extractor: str = ""
+    target_kind: str = "raw"
+    target_mask: Tensor | None = None
+    views: tuple[Tensor, ...] = ()
+    view_kinds: tuple[str, ...] = ()
+    view_extractors: tuple[str, ...] = ()
+    source_masks: tuple[Tensor, ...] = ()
+    source_sample_rate: int = AUDIO_SAMPLE_RATE
 
     def __post_init__(self) -> None:
         if self.mode not in {"bootstrap", "recurrent"}:
@@ -66,21 +90,31 @@ class MediaTrainTarget:
         if self.spec.modality != self.modality:
             raise ValueError("Media target modality disagrees with output specification")
         expected = (
-            (1, self.spec.sample_count)
-            if self.modality == "audio" else
-            (1, self.spec.frames, 3, self.spec.height, self.spec.width)
+            (1, *self.spec.latent_shape) if self.target_kind == "codec_latents" else
+            ((1, self.spec.sample_count) if self.modality == "audio" else
+             (1, self.spec.frames, 3, self.spec.height, self.spec.width))
         )
+        if (self.target_kind == "codec_latents") != bool(self.spec.codec_id):
+            raise ValueError("Codec target and media output spec do not agree")
+        if self.target_mask is not None and (not torch.broadcast_shapes(
+                self.target_mask.shape, self.target.shape) == self.target.shape
+                or not self.target_mask.dtype == torch.bool):
+            raise ValueError("Codec target valid mask must broadcast to its coordinates")
+        if len(self.views) != len(self.view_kinds) or len(self.views) != len(self.view_extractors):
+            raise ValueError("Every external view needs a kind and extractor identity")
+        if self.source_masks and len(self.source_masks) != len(self.views) + 1:
+            raise ValueError("Source view masks must cover source plus every extra view")
         if self.target.shape != expected or not self.target.is_floating_point():
             raise ValueError("Media target tensor differs from requested realization geometry")
         if self.source.shape[0] != 1 or not self.source.is_floating_point():
             raise ValueError("Media source tensor must have one batch row")
-        if self.source_kind not in {"raw", "features"} or (
+        if self.source_kind not in {"raw", "features", "codec_latents"} or (
             self.source_kind == "features" and not self.extractor
         ) or (self.source_kind == "raw" and self.extractor):
             raise ValueError("Media source kind and extractor identity disagree")
         if not bool(torch.isfinite(self.source).all()) or not bool(
             torch.isfinite(self.target).all()
-        ):
+        ) or any(not bool(torch.isfinite(view).all()) for view in self.views):
             raise ValueError("Media source and target tensors must be finite")
 
 
@@ -265,6 +299,9 @@ class MediaRealizers(nn.Module):
         )
         self.visual_features = nn.Linear(d, hidden)
         self.visual_positions = nn.Parameter(torch.randn(64, hidden) * 0.01)
+        # Initialized explicitly from pinned pretrained pack manifests before the
+        # optimizer owns adapters. No text, source latent or control bypass.
+        self.native = nn.ModuleDict()
         self.visual_filter = nn.Sequential(
             nn.Conv3d(hidden, hidden, kernel_size=3, padding=1),
             nn.SiLU(),
@@ -315,12 +352,35 @@ class MediaRealizers(nn.Module):
         # [batch, frames, RGB, height, width], same shape for image (one frame).
         return rendered.transpose(1, 2).contiguous()
 
+    def install_native(self, modality: str, realizer: nn.Module) -> None:
+        if modality not in {"audio", "image", "video"} or modality in self.native:
+            raise ValueError("One native pack owner is permitted per modality")
+        self.native[modality] = realizer
+
+    def loss_native(self, context: RealizationContext, target: MediaTrainTarget) -> Tensor:
+        if target.modality not in self.native:
+            raise ValueError("Native codec target requires the matching pretrained pack")
+        realizer = self.native[target.modality]
+        if realizer.codec_id != target.spec.codec_id or realizer.pack_id != target.spec.pack_id:
+            raise ValueError("Mismatched native codec and generator weights")
+        return realizer.flow_loss(context.facets, target.target, target.target_mask)
+
     def realize(
         self,
         context: RealizationContext,
         spec: MediaOutputSpec,
         control: Tensor | None = None,
+        noise: Tensor | None = None,
     ) -> Tensor:
+        if control is not None:
+            raise ValueError("Native realization reads raw selected facets, not prompt controls")
+        if spec.codec_id:
+            if spec.modality not in self.native:
+                raise ValueError("Missing pinned native generator/codec pack")
+            pack = self.native[spec.modality]
+            if pack.codec_id != spec.codec_id or pack.pack_id != spec.pack_id:
+                raise ValueError("Requested codec/generator is incompatible with loaded pack")
+            return pack.sample(context.facets, spec, noise=noise)
         if spec.modality == "audio":
-            return self.audio(context, spec, control)
-        return self.visual(context, spec, control)
+            return self.audio(context, spec)
+        return self.visual(context, spec)
