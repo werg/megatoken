@@ -26,6 +26,7 @@ import torch
 from torch import Tensor
 
 from megatoken.controls import encode_controls
+from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.structure import ActionSpec
 from megatoken.tensors import byte_tensor
 
@@ -627,6 +628,21 @@ class MultiTrackGenerator:
         self.generator = generator
         self.tracks = MultiTrackCore(generator.core)
 
+    @staticmethod
+    def _sample_policy(
+        distribution: DiagonalGaussian,
+        names: Sequence[str],
+        generator: torch.Generator | None,
+    ) -> Tensor:
+        """Assign RNG draws by canonical track identity, not physical slot order."""
+        order = sorted(range(len(names)), key=lambda index: names[index])
+        sorted_distribution = DiagonalGaussian(
+            distribution.mean[:, order], distribution.log_scale[:, order]
+        )
+        selected = sorted_distribution.sample(generator)
+        inverse = [order.index(index) for index in range(len(order))]
+        return selected[:, inverse]
+
     def _controls(self, payloads: Sequence[bytes], device: torch.device) -> Tensor | None:
         encoded = encode_controls(self.generator.core, payloads, encoder_grad=False)
         return None if encoded is None else encoded[None].to(device)
@@ -719,7 +735,7 @@ class MultiTrackGenerator:
             state, tracks=names, control=control, effort=effort, modalities=modal_names
         )
         distribution = self.generator.facet_distribution(mean)
-        sampled = distribution.sample(generator)
+        sampled = self._sample_policy(distribution, names, generator)
         roles = torch.full(
             (1, len(names)), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
         )
@@ -764,8 +780,6 @@ class MultiTrackGenerator:
                 encoded = core.encode_media(spec.modality, target)
             encodings.append(encoded)
         encoded_raw = torch.stack(encodings, dim=1)
-        from megatoken.generation.latents import DiagonalGaussian
-
         tau = self.generator.config.codec_noise_std
         posterior = DiagonalGaussian(
             encoded_raw.float(), torch.full_like(encoded_raw, math.log(tau))
@@ -820,7 +834,7 @@ class MultiTrackGenerator:
             state, tracks=names, control=encoded, effort=effort, modalities=modalities
         )
         gaussian = self.generator.facet_distribution(mean)
-        raw = gaussian.sample(generator)
+        raw = self._sample_policy(gaussian, names, generator)
         roles = (ROLE_IDS["assistant"],) * len(names)
         committed = self.tracks.advance_group(
             state, raw, tracks=names,
