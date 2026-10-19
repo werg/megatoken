@@ -78,8 +78,8 @@ def test_parallel_tool_result_is_not_committed_automatically():
         assert pool.collect_ready() == {"fetch-1": b"one", "fetch-2": b"two"}
         assert session.state.history.slots == 0
         runtime.observe(session, (
-            ObservedEvent("tool-1", "text", b"one", role_id=4),
-            ObservedEvent("tool-2", "text", b"two", role_id=4),
+            ObservedEvent("tool-1", "text", b"one", role_id=3),
+            ObservedEvent("tool-2", "text", b"two", role_id=3),
         ))
         assert session.state.meridian_sizes == (2,)
     finally:
