@@ -1,10 +1,10 @@
 # Training and operations
 
-> **Implementation boundary (v7):** The stages and `forward_batch` described below
-> currently train the legacy one-event sequence. The new grouped `MultiTrackGenerator`
-> has a separate differentiable bootstrap API, but grouped recurrent P1/M1/M2/LC/S/D/R,
-> per-modality counters, donor-feature caching, and high-fidelity media losses are not
-> integrated into the distributed stage engine. See the
+> **Implementation boundary (v7):** The stages described below still support
+> legacy one-event episodes; the new grouped `MultiTrackGenerator`
+> now also supports text-like grouped B0 and recurrent meridians in the existing
+> distributed stage engine. Grouped native-media readers, media-specific counters,
+> feature caching, and high-fidelity renderer losses remain future work. See the
 > [revised omnimodal curriculum](omnimodal-architecture-and-training.md) for the
 > proposed OM0–OM5 training strategy and concrete multi-track task families.
 > Do not treat those proposed phases or mixtures as an already implemented recipe.

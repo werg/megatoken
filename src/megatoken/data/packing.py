@@ -104,14 +104,24 @@ def iter_windows(
     dependencies = [
         (positions[dep.writer_id], positions[dep.reader_id], dep) for dep in episode.dependencies
     ]
-    # Semantic prose/observation parts are independently schedulable. A physical
-    # chunk boundary is still not permission to truncate a logical tool action.
+    # Whole meridians must not be split across causal optimizer windows.
+    # Multichunk tool records may span several meridians, so merge the
+    # corresponding window groups while retaining individual C transitions.
     groups: list[tuple[int, int]] = []
     start = 0
-    for index, record in enumerate(episode.records):
-        if not record.action_id or record.part_index + 1 == record.part_count:
-            groups.append((start, index + 1))
-            start = index + 1
+    boundaries = (
+        [positions[meridian.events[-1].record_id] + 1 for meridian in episode.meridians]
+        if episode.meridians
+        else list(range(1, len(episode.records) + 1))
+    )
+    for end in boundaries:
+        last = episode.records[end - 1]
+        if last.action_id and last.part_index + 1 != last.part_count:
+            continue
+        groups.append((start, end))
+        start = end
+    if start != len(episode.records):
+        raise ValueError("Window boundary would truncate a logical action or meridian")
     group_index, window_index = 0, 0
     while group_index < len(groups):
         start = groups[group_index][0]

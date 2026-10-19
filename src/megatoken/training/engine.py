@@ -40,6 +40,7 @@ from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.history import NativeHistory, replay_raw_tape
 from megatoken.training.losses import LossLedger
+from megatoken.training.meridians import MeridianPreparedBatch, forward_meridian_batch, prepare_meridian_batch
 from megatoken.training.metrics import (
     Counters,
     JsonlLogger,
@@ -188,7 +189,7 @@ def prepare_batches(
     model: Any, windows: list[EpisodeWindow], config: TrainConfig
 ) -> list[PreparedBatch]:
     result = []
-    raw_windows, action_windows = [], []
+    raw_windows, action_windows, meridian_windows = [], [], []
     native_histories: dict[int, NativeHistory] = {}
     for item in windows:
         if id(item.episode) not in native_histories:
@@ -219,7 +220,9 @@ def prepare_batches(
             raise ValueError(
                 "Long dependency data requires explicit causal writer/reader annotations"
             )
-        if native_histories[id(item.episode)].has_events or (
+        if item.episode.meridians:
+            meridian_windows.append(item)
+        elif native_histories[id(item.episode)].has_events or (
             item.episode.tools_json != "[]"
             and any(record.record.action_id for record in item.window.records)
         ):
@@ -321,10 +324,14 @@ def prepare_batches(
         result.append(
             PreparedBatch(batch, targets, counts, effort, native if native.has_events else None)
         )
+    for item in meridian_windows:
+        result.append(
+            prepare_meridian_batch(model, item, native_histories[id(item.episode)], config)
+        )
     return result
 
 
-def batch_counters(batches: list[PreparedBatch]) -> Counters:
+def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Counters:
     result = Counters()
     for batch in batches:
         for item in batch.windows:
@@ -345,6 +352,22 @@ def batch_counters(batches: list[PreparedBatch]) -> Counters:
                     writer_reader_windows=int(bool(window.writer_reader_pairs)),
                 )
             )
+        if isinstance(batch, MeridianPreparedBatch):
+            result.P += sum(
+                plan.scored_positions for step in batch.steps for plan in step.plans
+            )
+            result.facet_encodes += sum(len(step.plans) for step in batch.steps)
+            if batch.native_history.has_events:
+                for step in (*batch.prefix, *batch.steps):
+                    for cursor in step.offsets:
+                        result.raw_facet_replays += len(
+                            batch.native_history.events_for_record(
+                                cursor, include_record=False,
+                            )
+                        ) + int(batch.native_history.paired_tape(cursor) is not None)
+            if any(episode_control_payload(item.episode) for item in batch.windows):
+                result.control_encodes += sum(len(step.plans) for step in batch.steps)
+            continue
         result.P += sum(plan.scored_positions for plan in batch.targets.values())
         result.facet_encodes += sum(len(batch.windows) for _ in batch.targets)
         if batch.native_history is not None:
@@ -364,12 +387,14 @@ def batch_counters(batches: list[PreparedBatch]) -> Counters:
 
 def forward_batch(
     model: Any,
-    batch: PreparedBatch,
+    batch: PreparedBatch | MeridianPreparedBatch,
     ledger: LossLedger,
     config: TrainConfig,
     device: torch.device,
     model_version: int,
 ) -> dict[str, float | torch.Tensor]:
+    if isinstance(batch, MeridianPreparedBatch):
+        return forward_meridian_batch(model, batch, ledger, config, device, model_version)
     state = model.core.initial_state(len(batch.windows), device=device, model_version=model_version)
     with torch.no_grad():
         for offset in range(len(batch.windows[0].window.prefix)):

@@ -1,6 +1,8 @@
 # Megatoken
 
-> **v7 implementation in progress.** The shared multi-track core now has grouped
+> **v7 implementation in progress.** Text-like grouped meridian B0/P1 training is now connected
+> to the existing stage engine on this branch; native grouped media data training remains pending.
+> The shared multi-track core now has grouped
 > meridian processing, modality-aware prediction, full-resolution joint KV,
 > native audio/visual adapters, distinct media realizers, typed controls,
 > group tapes/replay, a grouped bootstrap objective, and a JSONL group server.
