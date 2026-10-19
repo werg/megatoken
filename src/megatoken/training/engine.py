@@ -36,6 +36,7 @@ from megatoken.tool_schema import (
 )
 from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
+from megatoken.training.concordance_recipe import load_concordance_recipe
 from megatoken.training.distributed import DistributedContext
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
@@ -658,8 +659,14 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        if config.use_stage_mixture:
-            recipe = stage_recipe(config.phase)
+        concordance_recipe = (
+            load_concordance_recipe(config.concordance_recipe)
+            if config.concordance_recipe else None
+        )
+        if concordance_recipe is not None and phase.meter != "G":
+            raise ValueError("Concordance tasks must use event-based G training budgets")
+        if config.use_stage_mixture or concordance_recipe is not None:
+            recipe = stage_recipe(config.phase) if concordance_recipe is None else concordance_recipe
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
@@ -842,6 +849,11 @@ def train(
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
             weights = dict(config.loss_weights)
+            if concordance_recipe is not None:
+                # Reconstruction/distillation are auxiliaries, not extra mixture rows.
+                for name in ("reconstruction", "audio_reconstruction",
+                             "visual_reconstruction", "encoder_alignment"):
+                    weights[name] *= concordance_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
             learning_rate = phase.learning_rate(
