@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from megatoken.generation.codec import ByteCodec
+from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.policy import FacetedGenerator
 from megatoken.generation.structure import ActionSpec
 from megatoken.model import FacetedCore, ModelConfig
@@ -252,3 +253,19 @@ def test_oversized_meridian_fails_before_central_compute(monkeypatch):
         multi.advance_group(
             initial, _selected(core, names), tracks=names, role_ids=_roles(names)
         )
+
+
+def test_group_gaussian_noise_tracks_identity_not_physical_order():
+    mean = torch.arange(3 * 4 * 8, dtype=torch.float32).reshape(1, 3, 4, 8)
+    scales = torch.zeros_like(mean) - 2
+    names = ("z", "a", "q")
+    original = MultiTrackGenerator._sample_policy(
+        DiagonalGaussian(mean, scales), names, torch.Generator().manual_seed(102)
+    )
+    order = (1, 2, 0)
+    permuted = MultiTrackGenerator._sample_policy(
+        DiagonalGaussian(mean[:, order], scales[:, order]),
+        tuple(names[i] for i in order),
+        torch.Generator().manual_seed(102),
+    )
+    torch.testing.assert_close(permuted, original[:, order], atol=0, rtol=0)
