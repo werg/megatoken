@@ -792,8 +792,9 @@ class MultiTrackGenerator:
         mode = modes.pop()
         if any(isinstance(p, PreparedTargets) and len(p.payloads) != 1 for p in plans):
             raise ValueError("Each grouped target plan must describe one event")
-        payloads = tuple(
-            p.payloads[0] if isinstance(p, PreparedTargets) else p.payload for p in plans
+        modalities = tuple(
+            plan.modality if isinstance(plan, MediaTrainTarget) else "text"
+            for plan in plans
         )
         roles = torch.tensor(
             [[p.roles[0] if isinstance(p, PreparedTargets) else p.role_id for p in plans]],
@@ -807,12 +808,12 @@ class MultiTrackGenerator:
         control = self._controls(controls, state.device)
         mean = self.tracks.predict_group(
             state, tracks=names, control=control, effort=effort,
-            modalities=("text",) * len(names),
+            modalities=modalities,
         )
         prior = self.generator.facet_distribution(mean)
         sampled = self._sample_policy(prior, names, generator)
         selected = self.tracks.advance_group(
-            state, sampled, tracks=names, role_ids=roles, modalities=("text",) * len(names),
+            state, sampled, tracks=names, role_ids=roles, modalities=modalities,
         )
         encoded = []
         for payload in payloads:
