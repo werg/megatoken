@@ -896,6 +896,11 @@ class MultiTrackGenerator:
         counts = dict.fromkeys(LOSS_NAMES, 0)
         sums["lexical"], counts["lexical"] = prior_terms["lexical"]
         sums["reconstruction"], counts["reconstruction"] = recon_terms["lexical"]
+        for family in ("audio", "visual"):
+            sums[f"{family}_prediction"], counts[f"{family}_prediction"] = prior_terms[family]
+            sums[f"{family}_reconstruction"], counts[f"{family}_reconstruction"] = (
+                recon_terms[family]
+            )
         for name in ("structure", "binding", "placement", "terminal"):
             a, a_count = prior_terms[name]
             b, b_count = recon_terms[name]
