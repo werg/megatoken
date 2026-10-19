@@ -133,7 +133,7 @@ class MultiTrackCore:
     @staticmethod
     def _names(tracks: Sequence[str], count: int) -> tuple[str, ...]:
         names = tuple(tracks)
-        if len(names) != count or len(set(names)) != count or any(not s for s in names):
+        if count < 1 or len(names) != count or len(set(names)) != count or any(not s for s in names):
             raise ValueError("One meridian needs unique nonempty event track identities")
         return names
 
@@ -279,6 +279,17 @@ class MultiTrackCore:
         facets = base[:, None].expand(-1, events, -1, -1).clone()
         if control is not None:
             facets = facets + self.core.control_injection(control.to(facets.dtype))[:, :, None]
+        # The current core has no learned per-track embedding table. Reuse its
+        # causal textual control path to distinguish output identities without
+        # introducing another parameter owner. The singleton path is unchanged.
+        if events > 1:
+            from megatoken.controls import encode_controls
+
+            track_bytes = [b"<track>\n" + name.encode("utf-8") for name in tracks]
+            track_control = encode_controls(self.core, track_bytes, encoder_grad=False)
+            assert track_control is not None
+            offsets = self.core.control_injection(track_control.to(facets.dtype))
+            facets = facets + offsets[None, :, None]
         facets = facets + self.core.effort_embedding.weight[EFFORTS.index(effort)]
         stages = tuple(range(1, self.core.config.prediction_layers + 1))
         nrows = sum(self.core._row_counts(f, effort))
