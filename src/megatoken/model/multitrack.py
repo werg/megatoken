@@ -43,7 +43,7 @@ from .state import KVHistory, RealizationContext, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v7"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v8"
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,6 @@ class MultiTrackState:
     """One shared history and the last *complete* meridian of selected events."""
 
     raw: Tensor  # [B, T, facets, width]
-    early: Tensor | None
     final: Tensor | None
     history: KVHistory
     history_tracks: Tensor  # [B, retained events]; equality, never ordinal geometry
@@ -110,7 +109,6 @@ class MultiTrackState:
         return replace(
             self,
             raw=self.raw.detach(),
-            early=None if self.early is None else self.early.detach(),
             final=None if self.final is None else self.final.detach(),
             history=self.history.detach(),
         )
@@ -131,7 +129,6 @@ class MultiTrackCore:
         state = self.core.initial_state(batch_size, device=device)
         return MultiTrackState(
             raw=state.facets[:, None],
-            early=None,
             final=None,
             history=state.history,
             history_tracks=torch.empty(batch_size, 0, dtype=torch.long, device=state.device),
@@ -157,11 +154,7 @@ class MultiTrackCore:
             raise ValueError("Frontier must contain whole canonical facet blocks")
         if state.raw.device != core.initial_facets.device:
             raise ValueError("Multitrack state is on a different device")
-        if (state.early is None) != (state.final is None):
-            raise ValueError("Early and final central caches must be paired")
-        if state.early is not None and (
-            state.early.shape != state.raw.shape or state.final.shape != state.raw.shape
-        ):
+        if state.final is not None and state.final.shape != state.raw.shape:
             raise ValueError("Frontier features must retain every selected facet")
         if state.meridians_seen.shape != (state.batch_size,):
             raise ValueError("Meridian chronology has the wrong batch shape")
@@ -268,7 +261,7 @@ class MultiTrackCore:
         modality_ids = torch.tensor(
             [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
         ).expand(state.batch_size, -1)
-        early, final = self.core.central(
+        final = self.core.central(
             raw.flatten(1, 2),
             state.history,
             role_ids,
@@ -285,7 +278,6 @@ class MultiTrackCore:
         shape = (state.batch_size, events, c.n_facets, c.facet_dim)
         return MultiTrackState(
             raw=raw,
-            early=early.reshape(shape),
             final=final.reshape(shape),
             history=next_history,
             history_tracks=next_history_tracks,
@@ -371,7 +363,7 @@ class MultiTrackCore:
         if state.final is None:
             # Match singleton startup: the sentinel is processed locally, not
             # appended to history and not exposed as an observation.
-            _, final = self.core.central(
+            final = self.core.central(
                 state.raw[:, 0],
                 state.history,
                 state.frontier_roles[:, 0],
@@ -510,9 +502,9 @@ class MultiTrackCore:
 
     def realization_context(self, state: MultiTrackState, event: int) -> RealizationContext:
         self._validate(state)
-        if state.early is None or state.final is None or not 0 <= event < state.frontier_count:
-            raise ValueError("Realization requires a selected event from a committed meridian")
-        return RealizationContext(state.raw[:, event], state.early[:, event], state.final[:, event])
+        if not 0 <= event < state.frontier_count or not state.frontier_tracks:
+            raise ValueError("Realization requires a selected event")
+        return self.core.prepare_realization(state.raw[:, event])
 
 
 @dataclass(frozen=True)
@@ -636,7 +628,11 @@ class GroupGeneration:
 
 
 class _GroupedTeacherReadout(nn.Module):
-    """Shared readout for normal and frozen-owner encoder-only group branches."""
+    """One direct R readout for predictions and E reconstruction.
+
+    Functional parameter substitution on this wrapper freezes all R/U owners
+    during recurrent encoder-only reconstruction, without running C.
+    """
 
     def __init__(
         self, core: FacetedCore, decoder: nn.Module, media_realizers: nn.Module
@@ -648,17 +644,18 @@ class _GroupedTeacherReadout(nn.Module):
 
     def losses_for_selected(
         self,
-        selected: MultiTrackState,
+        raw: Tensor,
         plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
         control: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
-        zero = selected.raw.float().sum() * 0
+        if raw.ndim != 4 or raw.shape[1] != len(plans):
+            raise ValueError("Realization needs one canonical facet block per target")
+        zero = raw.float().sum() * 0
         names = (*DECODER_LOSSES, "audio", "visual")
         sums = {name: zero for name in names}
         counts = {name: 0 for name in names}
-        adapter = MultiTrackCore(self.core)
         for index, plan in enumerate(plans):
-            context = adapter.realization_context(selected, index)
+            context = self.core.prepare_realization(raw[:, index])
             if isinstance(plan, MediaTrainTarget):
                 condition = None if control is None else control[:, index]
                 predicted = self.media_realizers.realize(context, plan.spec, condition)
@@ -681,18 +678,12 @@ class _GroupedTeacherReadout(nn.Module):
         return {name: (sums[name], counts[name]) for name in names}
 
     def forward(
-        self, state: MultiTrackState, raw: Tensor,
-        tracks: tuple[str, ...], roles: Tensor,
+        self,
+        raw: Tensor,
         plans: tuple[PreparedTargets | PreparedAction | MediaTrainTarget, ...],
         control: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
-        modalities = tuple(
-            p.modality if isinstance(p, MediaTrainTarget) else "text" for p in plans
-        )
-        selected = MultiTrackCore(self.core).advance_group(
-            state, raw, tracks=tracks, role_ids=roles, modalities=modalities,
-        )
-        return self.losses_for_selected(selected, plans, control)
+        return self.losses_for_selected(raw, plans, control)
 
 
 class MultiTrackGenerator:
@@ -742,13 +733,13 @@ class MultiTrackGenerator:
         return "media:" + hashlib.sha256(value).hexdigest()
 
     def _realize(
-        self, state: MultiTrackState, specs: Sequence[ActionSpec | MediaOutputSpec],
+        self, raw: Tensor, specs: Sequence[ActionSpec | MediaOutputSpec],
         control: Tensor | None,
     ) -> tuple[tuple[bytes, ...], tuple[tuple[int, ...], ...],
                tuple[bool, ...], tuple[Tensor | None, ...]]:
         payloads, ids, validity, media = [], [], [], []
         for index, spec in enumerate(specs):
-            context = self.tracks.realization_context(state, index)
+            context = self.generator.core.prepare_realization(raw[:, index])
             if isinstance(spec, ActionSpec):
                 decoded = self.generator.decoder(self.generator.core, context, spec)
                 payloads.append(decoded.payload)
@@ -818,8 +809,11 @@ class MultiTrackGenerator:
         )
         prior = self.generator.facet_distribution(mean)
         sampled = self._sample_policy(prior, names, generator)
-        selected = self.tracks.advance_group(
-            state, sampled, tracks=names, role_ids=roles, modalities=modalities,
+        # Only recurrent continuation needs C(sampled); R(sampled) does not.
+        selected = (
+            self.tracks.advance_group(
+                state, sampled, tracks=names, role_ids=roles, modalities=modalities,
+            ) if mode == "recurrent" else None
         )
         encoded = []
         for plan in plans:
@@ -846,18 +840,16 @@ class MultiTrackGenerator:
         readout = _GroupedTeacherReadout(
             core, self.generator.decoder, self.generator.media_realizers
         )
-        prior_terms = readout.losses_for_selected(selected, plans, control)
+        prior_terms = readout.losses_for_selected(sampled, plans, control)
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
-                recon_terms = readout(
-                    state, codec_sample, names, roles, plans, control
-                )
+                recon_terms = readout(codec_sample, plans, control)
             continuation = target_raw
             correspondence = q.detach().kl(prior).sum()
         else:
-            # The frozen wrapper never adds C/U/R parameter gradients through
-            # reconstruction, but the inputs still carry live E gradients.
+            # Direct R is frozen for this encoder-only recurrent auxiliary;
+            # only the encoder-produced canonical facets receive its gradient.
             frozen = {
                 name: parameter.detach() for name, parameter in readout.named_parameters()
             }
@@ -865,7 +857,7 @@ class MultiTrackGenerator:
                 recon_terms = functional_call(
                     readout, frozen,
                     (
-                        state.detach(), codec_sample, names, roles, plans,
+                        codec_sample, plans,
                         None if control is None else control.detach(),
                     ),
                 )
@@ -888,8 +880,8 @@ class MultiTrackGenerator:
                 continuation = torch.stack(actual, dim=1)
             else:
                 continuation = sampled
-        # Ordinary recurrence reuses the already selected sample and its
-        # completed C/KV computation; never process a selected event twice.
+        # Ordinary recurrence keeps its one committed C pass for the next P.
+        # Neither prior nor reconstruction realization processes C.
         next_state = (
             selected if mode == "recurrent" and not teacher_forced_action
             else self.tracks.advance_group(
@@ -960,8 +952,8 @@ class MultiTrackGenerator:
             "facet_examples": len(names),
             "prior_examples": len(names),
             "reconstruction_examples": len(names),
-            "reconstruction_direct_examples": len(names) if mode == "bootstrap" else 0,
-            "reconstruction_contextual_examples": len(names) if mode == "recurrent" else 0,
+            "reconstruction_direct_examples": len(names),
+            "reconstruction_contextual_examples": 0,
             "prior_lexical_positions": counts["lexical"],
             "reconstruction_lexical_positions": counts["reconstruction"],
             "prior_lexical_loss_sum": sums["lexical"].detach(),
@@ -1030,14 +1022,10 @@ class MultiTrackGenerator:
         roles = torch.full(
             (1, len(names)), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
         )
-        predicted = self.tracks.advance_group(
-            state, sampled, tracks=names, role_ids=roles, modalities=modal_names
-        )
-
-        def losses(realized: MultiTrackState) -> Tensor:
+        def losses(raw: Tensor) -> Tensor:
             values = []
             for i, (spec, target) in enumerate(zip(selected_specs, targets, strict=True)):
-                ctx = self.tracks.realization_context(realized, i)
+                ctx = core.prepare_realization(raw[:, i])
                 if isinstance(spec, ActionSpec):
                     if spec.schemas:
                         raise ValueError("Typed tool targets require structured target planning")
@@ -1059,7 +1047,7 @@ class MultiTrackGenerator:
                     values.append((out.float() - target.float()).square().mean())
             return torch.stack(values).mean()
 
-        main_loss = losses(predicted)
+        main_loss = losses(sampled)
         # The encoder owns one canonical raw representation per target regardless
         # of how many source codec frames or visual patches it consumed.
         encodings = []
@@ -1082,11 +1070,7 @@ class MultiTrackGenerator:
         noise = torch.randn(
             encoded_raw.shape, device=state.device, dtype=torch.float32, generator=generator
         )
-        reconstructed = self.tracks.advance_group(
-            state, encoded_raw + tau * noise, tracks=names, role_ids=roles,
-            modalities=modal_names
-        )
-        recon_loss = losses(reconstructed)
+        recon_loss = losses(encoded_raw + tau * noise)
         # The real live state is the clean teacher-forced encoding, not either
         # alternate sampled/reconstruction branch used to score the objective.
         next_state = self.tracks.advance_group(
@@ -1130,12 +1114,12 @@ class MultiTrackGenerator:
         gaussian = self.generator.facet_distribution(mean)
         raw = self._sample_policy(gaussian, names, generator)
         roles = (ROLE_IDS["assistant"],) * len(names)
+        output, emitted, valid, media = self._realize(raw, plans, encoded)
         committed = self.tracks.advance_group(
             state, raw, tracks=names,
             role_ids=torch.tensor([roles], device=state.device, dtype=torch.long),
             modalities=modalities,
         )
-        output, emitted, valid, media = self._realize(committed, plans, encoded)
         event_densities = gaussian.elementwise_log_prob(raw).sum(dim=(-1, -2))
         density = event_densities.sum()
         tape = GroupActionTape(
@@ -1202,12 +1186,12 @@ class MultiTrackGenerator:
             atol=atol, rtol=rtol,
         ):
             raise ValueError("Grouped policy density replay mismatch")
+        output, emitted, valid, media = self._realize(raw, plans, encoded)
         committed = self.tracks.advance_group(
             state, raw, tracks=tape.tracks,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
             modalities=tape.modalities,
         )
-        output, emitted, valid, media = self._realize(committed, plans, encoded)
         if (output != tape.payloads or emitted != tape.emitted_ids or valid != tape.valid):
             raise ValueError("Grouped realization replay mismatch")
         core.routing_aux_loss(clear=True)
