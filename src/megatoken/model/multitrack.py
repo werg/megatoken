@@ -235,6 +235,8 @@ class MultiTrackCore:
         ):
             raise ValueError("Raw group must be [batch, events, facets, width]")
         events = raw.shape[1]
+        if events > c.max_history_chunks:
+            raise ValueError("One meridian exceeds the global historical event capacity")
         names = self._names(tracks, events)
         modality_names = tuple(modalities) if modalities is not None else ("text",) * events
         if len(modality_names) != events or any(x not in MODALITY_IDS for x in modality_names):
