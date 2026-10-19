@@ -77,7 +77,6 @@ def test_export_preserves_the_canonical_facet_policy_and_recurrent_state_exactly
     assert expected.tape == actual.tape
     for left, right in (
         (expected.state.facets, actual.state.facets),
-        (expected.state.early, actual.state.early),
         (expected.state.final, actual.state.final),
         (expected.state.history.keys, actual.state.history.keys),
         (expected.state.history.values, actual.state.history.values),

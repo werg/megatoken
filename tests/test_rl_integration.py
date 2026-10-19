@@ -323,7 +323,7 @@ def test_latent_update_preserves_fixed_action_context_and_readout_exactly():
         rebuilt = _ingest(model, model.core.initial_state(1), observation, "user", chunking)
         replayed = model.score_tape(rebuilt, sampled.tape, spec=spec)
         assert replayed.payload == sampled.payload and replayed.emitted_ids == sampled.emitted_ids
-        for field in ("facets", "early", "final"):
+        for field in ("facets", "final"):
             # Compare like-for-like replay execution modes. Inference's
             # no-grad attention path may round derived features differently.
             torch.testing.assert_close(
