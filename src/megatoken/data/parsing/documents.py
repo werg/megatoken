@@ -471,6 +471,62 @@ def _latex_blocks(payload: bytes, scan: Scan, limits: ParseLimits) -> None:
             )
 
 
+# Work only on original attribute-value spans: decoding HTML entities or
+# normalizing quotes would make nested parser offsets invalid.
+_ATTRIBUTE = re.compile(
+    rb"([:@A-Za-z_][:@A-Za-z0-9_.-]*)[ \t\r\n]*=[ \t\r\n]*"
+    rb"(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))"
+)
+_EVENT_NAMES = frozenset(
+    name.encode("ascii")
+    for name in (
+        "click", "dblclick", "input", "change", "submit", "reset", "load",
+        "error", "focus", "blur", "keydown", "keyup", "keypress", "contextmenu",
+        "mousedown", "mouseup", "mouseenter", "mouseleave", "mouseover",
+        "mouseout", "mousemove", "wheel", "scroll", "resize", "select",
+        "drag", "dragstart", "dragend", "dragover", "drop", "touchstart",
+        "touchmove", "touchend", "pointerdown", "pointerup", "pointermove",
+        "copy", "cut", "paste", "animationstart", "animationend",
+        "transitionend", "beforeunload", "message",
+    )
+)
+_PROSE_ATTRIBUTES = frozenset({
+    b"title", b"alt", b"placeholder", b"aria-label", b"aria-description",
+})
+
+
+def _markup_attributes(
+    payload: bytes, start: int, end: int
+) -> list[tuple[bytes, bytes, int, int]]:
+    result = []
+    for match in _ATTRIBUTE.finditer(payload, start, end):
+        for group in (2, 3, 4):
+            if match.start(group) >= 0:
+                left, right = match.span(group)
+                if left < right:
+                    result.append((match.group(1).lower(), payload[left:right], left, right))
+                break
+    return result
+
+
+def _raw_body_hint(name: bytes, attributes: dict[bytes, bytes]) -> str:
+    from .registry import resolve_language
+
+    explicit = attributes.get(b"lang", b"").decode("ascii", "ignore").strip()
+    if explicit:
+        return canonical_language(explicit) or "unknown"
+    media = attributes.get(b"type", b"").decode("ascii", "ignore").strip().lower()
+    if not media:
+        return "javascript" if name == b"script" else "css"
+    if media in {"module", "text/javascript", "application/javascript"}:
+        return "javascript"
+    if media in {"importmap", "speculationrules"} or media.endswith("+json"):
+        return "json"
+    if media in {"text/x-template", "text/ng-template"}:
+        return "html"
+    return resolve_language(mime_type=media) or canonical_language(media) or "unknown"
+
+
 def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> Scan:
     """Recover tags, raw script/style bodies and text when a native grammar is absent.
 
@@ -495,7 +551,7 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
         if not tag_match and not payload.startswith((b"<!--", b"<![CDATA["), index):
             index += 1
             continue
-        if index > text_start:
+        if index > text_start and len(scan.injections) < limits.max_injections:
             scan.injections.append(Injection(text_start, index, "auto", None, "markup_text"))
         if payload.startswith(b"<!--", index):
             stop = payload.find(b"-->", index + 4)
@@ -536,6 +592,26 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
                 break
             cursor += 1
         _region(scan, index, cursor, "tag", language, source, limits)
+        attributes = _markup_attributes(payload, index + match.end(), cursor) if not closing else []
+        if not closing:
+            for attribute, value, left, right in attributes:
+                if len(scan.injections) >= limits.max_injections:
+                    break
+                if attribute in _PROSE_ATTRIBUTES:
+                    hint = "prose"
+                elif attribute == b"style":
+                    hint = "css"
+                elif attribute == b"srcdoc":
+                    hint = "html"
+                elif attribute[2:] in _EVENT_NAMES and attribute.startswith(b"on"):
+                    hint = "javascript"
+                elif attribute.startswith((b"@", b"v-on:")):
+                    hint = "javascript"
+                else:
+                    continue
+                scan.injections.append(
+                    Injection(left, right, "auto", hint, "html_attribute")
+                )
         if closing:
             for position in range(len(stack) - 1, -1, -1):
                 if stack[position][0] == name:
@@ -546,20 +622,9 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
             close = re.compile(rb"</" + name + rb"\s*>", re.I).search(payload, cursor)
             inner_end = close.start() if close else length
             whole_end = close.end() if close else length
-            tag = payload[index:cursor]
-            lang_attr = re.search(rb"\blang\s*=\s*[\"']?([A-Za-z0-9_+#.-]+)", tag, re.I)
-            type_attr = re.search(rb"\btype\s*=\s*[\"']([^\"']+)", tag, re.I)
-            hint = canonical_language(lang_attr.group(1).decode("ascii")) if lang_attr else None
-            if hint is None and type_attr:
-                mime = type_attr.group(1).decode("ascii", "ignore").lower()
-                hint = (
-                    "json"
-                    if mime.endswith("+json") or mime in {"importmap", "speculationrules"}
-                    else canonical_language(mime)
-                )
-                if mime == "module":
-                    hint = "javascript"
-            hint = hint or ("javascript" if name == b"script" else "css")
+            hint = _raw_body_hint(
+                name, {attribute: value for attribute, value, _, _ in attributes}
+            )
             if cursor < inner_end:
                 scan.injections.append(
                     Injection(cursor, inner_end, "code", hint, "html_raw_content")
