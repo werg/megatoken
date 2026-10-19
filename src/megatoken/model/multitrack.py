@@ -388,6 +388,8 @@ class MultiTrackCore:
         if effort not in EFFORTS:
             raise ValueError(f"Effort must be one of {EFFORTS}")
         events = len(self._names(tracks, len(tracks)))
+        if events > self.core.config.max_history_chunks:
+            raise ValueError("One meridian exceeds the global historical event capacity")
         batch, f, d = state.batch_size, self.core.config.n_facets, self.core.config.facet_dim
         if control is not None and (
             control.shape != (batch, events, self.core.config.control_dim)
