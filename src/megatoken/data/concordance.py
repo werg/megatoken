@@ -458,7 +458,111 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
             Relation("first_frame_of", labels["first_frame"], labels["video"]),
             Relation("last_frame_of", labels["last_frame"], labels["video"]),
         ))
+    if has("written_text", "voice_reference_a", "voice_reference_b",
+           "speech_variant_a", "speech_variant_b"):
+        add("speech_counterfactual", "voice-ab-variants", (
+            group(observed(labels["written_text"], "written_text",
+                           "Read the exact shared source sentence."),
+                  observed(labels["voice_reference_a"], "voice_ref_a",
+                           "Available sample for voice identity A."),
+                  observed(labels["voice_reference_b"], "voice_ref_b",
+                           "Available sample for voice identity B.")),
+            group(generated(labels["speech_variant_a"], "variant_a",
+                            "Speak the text in voice A; no text or source-voice changes.",
+                            revision=1,
+                            reference_artifact_ids=(labels["voice_reference_a"],)),
+                  generated(labels["speech_variant_b"], "variant_b",
+                            "Speak the same text in voice B; only speaker identity changes.",
+                            revision=1,
+                            reference_artifact_ids=(labels["voice_reference_b"],))),
+        ), (
+            Relation("same_spoken_content", labels["speech_variant_a"],
+                     labels["speech_variant_b"]),
+            Relation("same_spoken_content", labels["written_text"],
+                     labels["speech_variant_a"]),
+            Relation("same_spoken_content", labels["written_text"],
+                     labels["speech_variant_b"]),
+        ))
+    for family, prefix, modality in (
+        ("image_edit", "image", "image"),
+        ("speech_edit", "speech", "audio"),
+        ("av_edit", "av", "video"),
+    ):
+        base, target, instruction = (f"original_{prefix}",
+                                     f"edited_{prefix}", f"{prefix}_edit_instruction")
+        if has(base, target, instruction):
+            original = bundle.by_id(labels[base])
+            edited = bundle.by_id(labels[target])
+            if original.modality != modality or edited.modality != modality:
+                raise ValueError(f"{family} labels have invalid modality")
+            if edited.parent_id != original.artifact_id:
+                raise ValueError(f"{family} target must name its exact input version")
+            add(family, f"verified-{prefix}-edit", (
+                group(observed(labels[base], "original", "Observe the original media version."),
+                      observed(labels[instruction], "edit_instruction",
+                               "Apply only the verified requested semantic change.")),
+                group(generated(labels[target], "edited",
+                                "Render the edited version with unchanged regions preserved.",
+                                revision=1,
+                                reference_artifact_ids=(labels[base],))),
+            ), (Relation("edit_of", labels[target], labels[base]),
+                Relation("preserves", labels[target], labels[base])))
+    if has("audio_evidence", "video_evidence", "text_evidence", "grounded_answer"):
+        add("cross_track_evidence", "joint-evidence-grounding", (
+            group(observed(labels["audio_evidence"], "audio_evidence",
+                           "Listen to the available auditory evidence."),
+                  observed(labels["video_evidence"], "video_evidence",
+                           "Inspect the available visual evidence."),
+                  observed(labels["text_evidence"], "text_evidence",
+                           "Read the available written evidence.")),
+            group(generated(labels["grounded_answer"], "grounded_answer",
+                            "Answer using corroborated sources; do not hallucinate missing facts.")),
+        ), (
+            Relation("describes", labels["grounded_answer"], labels["video_evidence"]),
+            Relation("same_spoken_content", labels["grounded_answer"],
+                     labels["text_evidence"]),
+        ))
     return tuple(result)
+
+
+def edit_task_view(
+    *, family: str, view_id: str, original: str, instruction: str,
+    edited: str, version: int = 1,
+    optional_peers: tuple[tuple[str, str], ...] = (),
+    preserves_json: str = "{}",
+) -> TaskView:
+    """Construct an explicit verified video/image/speech edit with peer updating.
+
+    The actual original must be available in a prior meridian; all changed
+    outputs are selected as peers from the same previous history and event
+    request, not chained through an unavailable same-step target. Exact parent
+    ancestry is enforced by compile_task.
+    """
+    if family not in {"image_edit", "speech_edit", "av_edit"} or version < 1:
+        raise ValueError("Unknown editing task family/revision")
+    output = [generated(edited, "edited_media",
+                        "Apply the requested edit, preserving all unaffected content.",
+                        revision=version, reference_artifact_ids=(original,))]
+    relations = [
+        Relation("edit_of", edited, original),
+        Relation("preserves", edited, original, preserves_json),
+    ]
+    for identifier, modality in optional_peers:
+        if modality not in {"text", "audio", "image", "video"}:
+            raise ValueError("Unknown edited peer modality")
+        output.append(generated(
+            identifier, "edited_" + modality,
+            "Update only this related output track to agree with the requested edit.",
+            revision=version, reference_artifact_ids=(original,),
+        ))
+        relations.append(Relation("describes" if modality == "text" else
+                                  "synchronized_with", identifier, edited))
+    return TaskView(view_id, family, (
+        group(observed(original, "original",
+                       "Observe this exact media version as the edit baseline."),
+              observed(instruction, "instruction", "Read the verified edit request.")),
+        group(*output),
+    ), tuple(relations))
 
 
 def manifest_fingerprint(bundle: AlignedBundle, views: tuple[TaskView, ...]) -> str:
