@@ -543,6 +543,15 @@ class GroupActionTape:
 
 
 @dataclass(frozen=True)
+class GroupSupervisedResult:
+    """One differentiable multitrack transaction with independent loss units."""
+
+    state: MultiTrackState
+    loss: Tensor
+    components: dict[str, Tensor]
+
+
+@dataclass(frozen=True)
 class GroupGeneration:
     state: MultiTrackState
     tape: GroupActionTape
@@ -604,6 +613,121 @@ class MultiTrackGenerator:
                 validity.append(True)
                 media.append(tensor)
         return tuple(payloads), tuple(ids), tuple(validity), tuple(media)
+
+    def supervised_group(
+        self,
+        state: MultiTrackState,
+        *,
+        tracks: Sequence[str],
+        targets: Sequence[bytes | Tensor],
+        specs: Sequence[ActionSpec | MediaOutputSpec],
+        controls: Sequence[bytes] | None = None,
+        effort: int = 6,
+        generator: torch.Generator | None = None,
+    ) -> GroupSupervisedResult:
+        """Bootstrap one whole meridian, sharing P/C and modality E/R parameters.
+
+        The objective is deliberately explicit. Predict from causal history,
+        score the realized targets, reconstruct from independent noisy encoder
+        facets, and align the detached encoder distribution with the prior.
+        This is the supervised bootstrap path; recurrent teacher/action replay
+        requires the separate real-trajectory continuation rules.
+        """
+        self.tracks._validate(state)
+        names = self.tracks._names(tracks, len(tracks))
+        if len(targets) != len(names) or len(specs) != len(names):
+            raise ValueError("One target and realization spec is required per track")
+        if state.batch_size != 1:
+            raise ValueError("Grouped bootstrap currently supports one independent session")
+        control_bytes = tuple(controls) if controls is not None else (b"",) * len(names)
+        if len(control_bytes) != len(names):
+            raise ValueError("One causal control is required per track")
+        selected_specs = self._specs(specs, len(names), self.generator.config.max_capacity)
+        for spec, target in zip(selected_specs, targets, strict=True):
+            if isinstance(spec, ActionSpec) and not isinstance(target, bytes):
+                raise TypeError("Text targets must contain bytes")
+            if isinstance(spec, MediaOutputSpec) and not isinstance(target, Tensor):
+                raise TypeError("Media targets must be tensors")
+        core = self.generator.core
+        core.routing_aux_loss(clear=True)
+        control = self._controls(control_bytes, state.device)
+        mean = self.tracks.predict_group(
+            state, tracks=names, control=control, effort=effort
+        )
+        distribution = self.generator.facet_distribution(mean)
+        sampled = distribution.sample(generator)
+        roles = torch.full(
+            (1, len(names)), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
+        )
+        predicted = self.tracks.advance_group(
+            state, sampled, tracks=names, role_ids=roles
+        )
+
+        def losses(realized: MultiTrackState) -> Tensor:
+            values = []
+            for i, (spec, target) in enumerate(zip(selected_specs, targets, strict=True)):
+                ctx = self.tracks.realization_context(realized, i)
+                if isinstance(spec, ActionSpec):
+                    if spec.schemas:
+                        raise ValueError("Typed tool targets require structured target planning")
+                    assert isinstance(target, bytes)
+                    plan = self.generator.prepare_target(
+                        target_bytes=target, representation_mode="bootstrap"
+                    )
+                    items = self.generator.decoder.teacher_raw(core, ctx, plan)
+                    active = [
+                        item / max(1, count) for item, count in items.values() if count
+                    ]
+                    values.append(torch.stack(active).sum())
+                else:
+                    assert isinstance(target, Tensor)
+                    cond = None if control is None else control[:, i]
+                    out = self.generator.media_realizers.realize(ctx, spec, cond)
+                    if target.shape != out.shape or target.device != out.device:
+                        raise ValueError("Media target must match realized shape/device")
+                    values.append((out.float() - target.float()).square().mean())
+            return torch.stack(values).mean()
+
+        main_loss = losses(predicted)
+        # The encoder owns one canonical raw representation per target regardless
+        # of how many source codec frames or visual patches it consumed.
+        encodings = []
+        for spec, target in zip(selected_specs, targets, strict=True):
+            if isinstance(spec, ActionSpec):
+                ids, lengths = byte_tensor([target], state.device)
+                encoded = core.encode_chunk(ids, lengths)
+            else:
+                encoded = core.encode_media(spec.modality, target)
+            encodings.append(encoded)
+        encoded_raw = torch.stack(encodings, dim=1)
+        from megatoken.generation.latents import DiagonalGaussian
+
+        tau = self.generator.config.codec_noise_std
+        posterior = DiagonalGaussian(
+            encoded_raw.float(), torch.full_like(encoded_raw, math.log(tau))
+        )
+        kl = posterior.detach().kl(distribution).mean() / encoded_raw[0].numel()
+        noise = torch.randn(
+            encoded_raw.shape, device=state.device, dtype=torch.float32, generator=generator
+        )
+        reconstructed = self.tracks.advance_group(
+            state, encoded_raw + tau * noise, tracks=names, role_ids=roles
+        )
+        recon_loss = losses(reconstructed)
+        # The real live state is the clean teacher-forced encoding, not either
+        # alternate sampled/reconstruction branch used to score the objective.
+        next_state = self.tracks.advance_group(
+            state, encoded_raw, tracks=names, role_ids=roles
+        )
+        router_balance, router_stabilization = core.routing_aux_loss(clear=True)
+        routing = router_balance * 0.005 + router_stabilization * 1e-4
+        total = main_loss + recon_loss + 0.1 * kl + routing
+        return GroupSupervisedResult(
+            next_state,
+            total,
+            {"prediction": main_loss, "reconstruction": recon_loss,
+             "facet_kl": kl, "routing": routing},
+        )
 
     @torch.no_grad()
     def generate_group(
