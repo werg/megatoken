@@ -68,7 +68,8 @@ class AudioStem(nn.Module):
             samples.float(), n_fft=400, hop_length=160, win_length=400,
             window=window.float(), center=False, return_complex=True,
         )
-        features = self.projection(torch.log1p(spectrum.abs())).transpose(1, 2)
+        spectrum_features = torch.log1p(spectrum.abs()).to(self.projection.weight.dtype)
+        features = self.projection(spectrum_features).transpose(1, 2)
         if features.shape[1] > 256:
             features = F.adaptive_avg_pool1d(features.transpose(1, 2), 256).transpose(1, 2)
         return self.norm(features)
@@ -99,7 +100,7 @@ class VisualStem(nn.Module):
             source,
             (min(16, frames.shape[1]), min(64, frames.shape[3]), min(64, frames.shape[4])),
         )
-        features = self.projection(source)
+        features = self.projection(source.to(self.projection.weight.dtype))
         # Time-major spatial flatten preserves local causal event order.
         flat = features.permute(0, 2, 3, 4, 1).flatten(1, 3)
         return self.norm(flat)
