@@ -98,6 +98,64 @@ def test_grouped_multimodal_bootstrap_has_trainable_gradients():
     assert core.central.layers[0].ffn.gate_up.weight.grad is not None
 
 
+def test_text_and_media_realize_raw_without_extra_meridian_c_pass():
+    core, model, service = _system()
+    initial = service.tracks.observe_text_group(
+        service.tracks.initial_state(1), (b"preceding context",), tracks=("prompt",)
+    )
+    calls = []
+    hook = core.central.register_forward_hook(
+        lambda module, inputs, output: calls.append(inputs[0])
+    )
+    try:
+        result = service.supervised_group(
+            initial,
+            tracks=("reply", "picture", "sound"),
+            targets=(b"hello", torch.rand(1, 1, 3, 16, 16), torch.randn(1, 128) * 0.1),
+            specs=(
+                ActionSpec(max_tokens=8),
+                MediaOutputSpec("image", height=16, width=16),
+                MediaOutputSpec("audio", sample_count=128),
+            ),
+            effort=1,
+            generator=torch.Generator().manual_seed(17),
+        )
+    finally:
+        hook.remove()
+    assert len(calls) == 1  # Teacher-forced next state only, not R or reconstruction.
+    torch.testing.assert_close(calls[0], result.state.raw.flatten(1, 2), rtol=0, atol=0)
+    result.loss.backward()
+    assert core.media_stems.audio.projection.weight.grad is not None
+    assert core.media_stems.vision.projection.weight.grad is not None
+    assert model.media_realizers.audio_filter[0].weight.grad is not None
+    assert model.media_realizers.visual_filter[0].weight.grad is not None
+
+
+def test_media_realizers_are_direct_raw_facet_functions():
+    core, model, _ = _system()
+    selected = core.observe(torch.tensor([[65, 66]]), core.initial_state(1))
+    raw_context = core.prepare_realization(selected)
+    variants = (
+        MediaOutputSpec("audio", sample_count=128),
+        MediaOutputSpec("image", height=16, width=16),
+        MediaOutputSpec("video", frames=2, height=16, width=16),
+    )
+    def forbid(*args, **kwargs):
+        raise AssertionError("R must not execute the central core")
+    original = core.central.forward
+    core.central.forward = forbid
+    try:
+        for spec in variants:
+            output = model.media_realizers.realize(raw_context, spec)
+            assert output.isfinite().all()
+            replay = model.media_realizers.realize(
+                core.prepare_realization(selected.facets.clone()), spec
+            )
+            torch.testing.assert_close(output, replay, rtol=0, atol=0)
+    finally:
+        core.central.forward = original
+
+
 def test_single_control_source_supports_structured_media_references():
     reference = ControlReference(
         asset_id="speaker-consented-1", sha256="a" * 64, media_type="audio/wav",

@@ -273,7 +273,7 @@ class MediaRealizers(nn.Module):
 
     def _features(self, context: RealizationContext, control: Tensor | None) -> Tensor:
         raw = context.facets
-        features = self.fuse(raw)
+        features = self.fuse(raw.to(self.fuse.weight.dtype))
         if control is not None:
             if control.shape != (raw.shape[0], self.control.in_features):
                 raise ValueError("Realizer control must be one shared control vector per event")

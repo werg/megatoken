@@ -108,6 +108,25 @@ def test_direct_encoder_auxiliary_has_no_core_decoder_or_source_history_gradient
     assert result.metrics["reconstruction_direct_examples"] == 1
 
 
+def test_recurrent_e_reconstruction_never_evaluates_central():
+    model = make_model()
+    plan = model.prepare_target(target_bytes=b"direct codec", representation_mode="recurrent")
+    values, lengths = byte_tensor(plan.payloads, "cpu")
+    encoded = model.core.encode_chunk(values, lengths)
+    calls = []
+    hook = model.core.central.register_forward_hook(
+        lambda module, inputs, output: calls.append(inputs)
+    )
+    try:
+        losses = model.encoder_reconstruction_losses(encoded, plan)
+    finally:
+        hook.remove()
+    assert calls == []
+    losses["lexical"][0].backward()
+    assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.core.encoder_parameters())
+    assert all(p.grad is None for p in model.core.central_parameters())
+
+
 def test_encoder_auxiliary_does_not_contribute_to_main_router_objectives():
     model = make_model()
     state = model.core.initial_state(1)
