@@ -32,6 +32,7 @@ ROLE_IDS = ROLE_TO_ID
 RECORD_ROLES = tuple(ROLE_TO_ID)
 EFFORTS = (1, 2, 3, 6)
 P_HISTORY_READ_STAGES = (3, 6, 9, 12)
+MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "tool": 4, "evidence": 5}
 
 
 class PairStage(nn.Module):
@@ -124,10 +125,12 @@ class CentralProcessor(nn.Module):
         self.slot_gate = nn.Parameter(torch.tensor(-2.0))
         self.role_embedding = nn.Embedding(len(RECORD_ROLES), c.facet_dim)
         self.track_embedding = nn.Embedding(c.max_tracks, c.facet_dim)
+        self.modality_embedding = nn.Embedding(len(MODALITY_IDS), c.facet_dim)
         nn.init.normal_(self.layer_codes, std=0.02)
         nn.init.normal_(self.slot_embedding, std=0.02)
         nn.init.normal_(self.role_embedding.weight, std=0.02)
         nn.init.zeros_(self.track_embedding.weight)
+        nn.init.zeros_(self.modality_embedding.weight)
 
     def slot_codes(self) -> Tensor:
         """Stable learned facet addresses, independent of temporal RoPE phases."""
@@ -142,6 +145,7 @@ class CentralProcessor(nn.Module):
         *,
         checkpointing: bool | None = None,
         track_ids: Tensor | None = None,
+        modality_ids: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         # A meridian may contain several complete 32-facet megatokens.  The
         # original one-event shape remains exactly the same, so singleton
@@ -167,6 +171,13 @@ class CentralProcessor(nn.Module):
                 self.config.n_facets, dim=1
             )
             facets = facets + track_features
+        if modality_ids is not None:
+            if modality_ids.shape != (raw.shape[0], events):
+                raise ValueError("Modality IDs must identify every event in the meridian")
+            modality_features = self.modality_embedding(modality_ids).repeat_interleave(
+                self.config.n_facets, dim=1
+            )
+            facets = facets + modality_features
         projected = AttentionFeatures(history.keys, history.values, history.mask)
         early = None
         temporary = None
