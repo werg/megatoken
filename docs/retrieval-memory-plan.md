@@ -1,7 +1,7 @@
 # Retrieval and correction memory: architecture plan
 
 **Status:** Proposed extension to the v8 prototype; implementation and learned quality remain to be established.
-**Date:** 2026-10-19.
+**Date:** 2026-10-20.
 **Reviewed megatoken baseline:** [`b89b10726e395364baeecffa5ead1703b1300553`](https://github.com/werg/megatoken/commit/b89b10726e395364baeecffa5ead1703b1300553).
 **Audited donor:** [`hindsight-kb@450164784589b2576256b8b0ba3d2ccc89af992d`](https://github.com/werg/hindsight-kb/commit/450164784589b2576256b8b0ba3d2ccc89af992d).
 
@@ -44,17 +44,19 @@ A reusable facet readout can later support classification logits, scores or type
 
 Use a single ANN service with typed source and correction collections in the chosen embedding space. A query may search either or both with independent result budgets. Semantic keys locate useful records; native attention keys govern their later use.
 
+The source RAG track uses **incremental MaxSim** over incoming query embeddings. Search only the newly committed query vectors, qualify source chunks whose new similarities are high, and fetch/admit only source content not already injected or reserved in the current session. Maintain a bounded relevance queue separately from the durable record of committed source coverage; section 12.6 specifies scoring, overlap and retry semantics. This source-content rule does not suppress correction refresh or learned decay.
+
 Source hits return exact bytes plus source identity, version, span and document order. Ingest them with document/tool roles on a reusable retrieval track. A single track contributes at most one event per meridian, so ordered chunks arrive through successive meridians. A small fixed set of retrieval tracks can admit independent documents concurrently. Source IDs belong in evidence metadata, not in newly allocated track names.
 
 All evidence uses normal committed-meridian RoPE and the shared history budget. Source order is retained through ingestion order and span metadata. Track identity is an attention relation, not an isolation boundary. There is no additional source KV cache or special positional scheme.
 
-## 3. Supervise semantic addressing first
+## 3. Initialize semantic addressing, then learn both sides
 
-Keep the first source index in a **frozen external teacher's document space** and learn the native query side. Precompute keys for megatoken's actual chunks; keep source keys fixed during the first pretraining run while training correction values freely. This avoids simultaneously moving the index, reader and writer targets.
+Use a **teacher-initialized learned key space**. Precompute semantic keys for megatoken's actual chunks and keep them fixed only during a bounded addressing warm-up. Then require local joint learning of the native query side and selected stored keys in **both** source RAG and correction collections. Source bytes, stable record identities and initial source assignments stay fixed while their addresses adapt. The external teacher supplies initialization and optional alignment regularization; it does not permanently define the optimized coordinates.
 
 Warm the embedding realizer on E-encoded explicit queries with teacher query targets. Then train causal P retrieval events through the same realizer, using teacher query targets, similarity distributions and labeled useful evidence. The E route is auxiliary supervision, not a requirement to generate query text at serving. P and R must learn together on the raw blocks actually used for retrieval; the teacher vector is a target, not P's input.
 
-Native document embedding via `R_embedding(E(source), role="document")` is optional later work. An isolated E(chunk) cannot reproduce a contextual teacher target that depends on unavailable neighboring chunks. Supply the required permitted source context if training that route; retain teacher-generated document keys initially.
+After pretraining, train source-key generation into the **optimized learned space** as part of corpus reproduction. Use an ordinary document/key realizer over the permitted native source representation, such as `R_embedding(E(source), role="document")`, alongside the correction writer's key/payload outputs. This is required for new-source insertion once stored keys adapt; it is not a writer trained during pretraining. An isolated E(chunk) cannot reproduce a target depending on unavailable neighboring chunks, so preserve each target's complete source/context footprint. Teacher-only keys remain a declared initialization or evaluated fallback.
 
 Select one teacher space before bulk indexing, after a small comparison:
 
@@ -68,15 +70,15 @@ Normalize vectors consistently and pin the model, dimension, query/document form
 
 The query teacher sees only the available request/prefix. The evidence teacher may see the permitted source context. Seed correction records intended for local hindsight with keys computed from bounded source windows that a later suffix writer can see; reserve broader-context records for corpus reproduction. In continuation and hindsight tasks, every chunk that influenced a contextual embedding is part of its visibility footprint; filtering only the returned chunk is insufficient.
 
-Train for **useful evidence**, not merely resemblance to the prefix. Use multiple positives, hard distractors and no-answer examples. Do not automatically label every sibling chunk or unannotated result negative. ANN/top-k selection is discrete. Teacher and differentiable candidate-ranking losses train P and the embedding realizer. For correction retrieval, recomputing selected scores with the live query also lets continuation losses train the query, mixture, readers and selected values; there is no gradient through candidate identity selection. Fetching source bytes for RAG remains discrete.
+Train for **useful evidence** with multiple positives, hard distractors and no-answer examples; unannotated results are not automatically negatives. Select ANN/top-k IDs discretely, then fetch live selected-key leaves and recompute similarities with the live query. Similarity-weighted correction use lets continuation loss train query keys, stored keys, readers and selected values. For source RAG, the local value objective in section 12.7 trains both address sides from detached features of the retrieved source content and useful-support targets. Literal byte fetch remains discrete. Historical MaxSim maxima, candidate identities and queue decisions are detached scheduling state, not substitutes for this local gradient path.
 
 ## 4. Free correction KB during pretraining
 
-After the existing ingestion/bootstrap warm-up, introduce correction memory within the main pretraining curriculum. The base model, correction readers, adapter bank and KB values learn together. **There is no learned KB writer in this phase.**
+After the existing ingestion/bootstrap warm-up, introduce correction memory within the main pretraining curriculum. The base model, correction readers, adapter bank, query keys, selected stored keys and KB values learn together after addressing warm-up. **There is no learned KB writer in this phase.**
 
 Seed records from source chunks, compatible source groups and retained corpus relations. Every record has:
 
-- A supervised semantic key and stable identity.
+- A teacher-seeded semantic key that becomes trainable after warm-up, and a stable identity.
 - Contributing source spans, scope, version and compatible-group assignments.
 - A small, randomly initialized trainable payload: canonical KV delta slots, LoRA mixture code, strength and lifetime.
 - Sparse relation links with their support and provenance.
@@ -149,24 +151,24 @@ Add corpus-derived lookup/join tasks and actual attempt/feedback/correction traj
 Use one scheduler for both retrieval paths:
 
 1. At a completed user/tool turn or other declared boundary, snapshot the causal state, select a retrieval-purpose P event and realize its vector directly from the raw facets. Accept the event through normal grouped commitment, then dispatch the lookup.
-2. Fetch source evidence and correction candidates within explicit budgets.
-3. Admit available evidence as later observed meridians; activate selected corrections for the next main prediction. Results cannot affect the query that fetched them or any already-selected peer output.
+2. Incrementally score the new source-query embeddings, enqueue qualifying novel chunks and reserve uncovered intervals before fetching their bytes; retrieve correction candidates under their separate refresh policy. Apply independent budgets.
+3. Revalidate available source results and admit them as later observed meridians; atomically record only successfully committed source intervals as injected. Activate selected corrections for the next main prediction. Results cannot affect the query that fetched them or any already-selected peer output.
 4. Continue until the next boundary. On no match, activate nothing new and let existing corrections decay.
 
 For long uninterrupted runs, insert artificial boundaries after a configurable amount of committed main-track progress, with a small range of training intervals. A boundary itself is only a scheduling opportunity between complete meridians. Issuing a native query there commits a real event, using the normal C/KV transition and history budget; no empty event is inserted for the boundary. Evidence admission alone must not trigger a recursive retrieval loop.
 
 Use bounded waiting and the same arrival/deadline policy in training and serving. Late results wait for the next valid admission boundary; never grant them to a prediction made before their availability. If speculation is used, evidence or correction admission changes the session revision and invalidates candidates from the old state. Realization and ANN lookup themselves do not mutate causal state or advance RoPE. The selected query event is committed once, and its containing meridian advances the clock once. Speculative query candidates must be accepted against the current revision before external dispatch.
 
-Record selected query raw facets and policy density, output specs/vectors, model/index identities, source results, activation times, correction selections, gates and decay state for replay. Simulate misses and realistic delayed arrivals during training. Bound query frequency, retrieved bytes/events, graph expansion, active overlays and adapter transfers, and measure actual end-to-end latency.
+Record selected query raw facets and policy density, output specs/vectors, scoring epochs and query/key/index identities, source qualification/fetch/admission receipts, committed source coverage, bounded deferred/reserved work, activation times, correction selections, gates and decay state for replay. Simulate misses and realistic delayed arrivals during training. Bound query frequency, retrieved bytes/events, graph expansion, active overlays and adapter transfers, and measure actual end-to-end latency.
 
 ## 8. Post-pretraining writer and corpus reproduction
 
 | Phase | Work and completion evidence |
 | --- | --- |
 | Bootstrap | Establish useful native ingestion and grouped training; no correction writer |
-| Pretraining with free KB | Train the base, retrieval-purpose P events and embedding realizer, both correction readers, expert bank and free payloads, together with RAG tasks |
+| Pretraining with free KB | After teacher warm-up, jointly train the base, retrieval-purpose P/embedding realizer, selected source and correction keys, both readers, expert bank and free correction payloads, with local RAG value and native continuation losses |
 | Local hindsight writer | Freeze a coherent final model/embedding-realizer/index/readers/adapter-bank/KB snapshot; train a suffix encoder to reproduce source-supported keys and payloads in those fixed coordinates |
-| Corpus reproduction | Train source/corpus writing against the optimized KB, including compatible groups and relation payloads; regenerate keys, records and deterministic relations from retained sources |
+| Corpus reproduction | Reproduce optimized source-index keys and correction keys/payloads, including compatible groups and relations; build fresh learned indexes and records from retained sources |
 | New-source use | Insert memories from sources held out of both pretraining and writer fitting, and from completed feedback episodes, with inference weights fixed; evaluate useful transfer without free optimization on their test answers |
 
 For local hindsight, the prefix queries while the writer sees only its permitted suffix. Preserve the [hindsight-kb eligibility rule][h-retrieval]: at **original source block** `i`, same-source writer records begin at `j >= i + 2`. These are source/semantic blocks, not runtime meridians, facet indices or inserted query events. Apply the rule to all contributing source context; a scheduling event cannot manufacture the exclusion gap. This future-suffix access is a training-only exception for correction-writer supervision; source RAG and deployment retain causal visibility. As in the donor, local warm-up may still admit indirect contamination through earlier corrections; its acceptance depends on subsequent cross-source transfer, not same-source reconstruction alone. Supervise only records whose content is inferable from the writer's allowed view; relations needing broader evidence belong in corpus reproduction.
@@ -177,9 +179,9 @@ Fit keys/payloads and also measure behavior through the frozen readers. Build a 
 
 Implement in this order:
 
-1. Add the embedding realizer, typed vector output spec and retrieval-purpose/space conditioning before P selection. Extend dispatch, grouped losses, output serialization and action-tape replay; begin with teacher query warm-up and one teacher-backed document index adapter. Extend Episode/runtime contracts with selected retrieval events, evidence provenance, eligibility and artificial boundaries.
+1. Add the embedding realizer, typed vector output spec and retrieval-purpose/space conditioning before P selection. Extend dispatch, grouped losses, output serialization and action-tape replay; begin with teacher query warm-up and one teacher-backed document index adapter. Extend Episode/runtime contracts with selected retrieval events, incremental MaxSim, source coverage/reservations, evidence provenance, eligibility and artificial boundaries.
 2. Add free record storage, sparse relation expansion, P-read KV overlays and per-event LoRA mixtures; train and compare both paths.
-3. Extend the existing recurrent trainer, loss ledger and checkpoint path with sparse KB optimizer ownership, synchronous distributed updates and exact query/correction replay.
+3. Extend the existing recurrent trainer, loss ledger and checkpoint path with local query/stored-key/value learning, sparse key/index optimizer ownership, synchronous distributed updates and exact query/source-coverage/correction replay.
 4. Add the post-pretraining local writer, corpus reproduction and new-source insertion evaluation.
 
 The current dispatcher accepts text/media specifications; vector outputs and their prediction descriptors are new implementation work. Register the embedding realizer/readouts and adapters on the underlying `FacetedCore`/`FacetedGenerator` owners, not only the plain multi-track wrappers. Version KB values and optimizer state with the model, embedding realizer, index, readers and adapter banks. Rebuild derived caches after weight changes. When extending outcome RL, include the embedding realizer and its output contract in the frozen conditional action map, score the native query's Gaussian selection, and explicitly score any additional stochastic correction actions.
@@ -201,14 +203,14 @@ The donor supplies executable objectives, storage backends, source authoring, sp
 | [base.py][h-base]: Record, Relation, Contribution, Candidates, empty_candidates, chunked_topk | Adapt types; copy numerical reference | Stable IDs, bounded exact search, finite-vector validation and explicit empty results; add typed payloads and complete footprints. |
 | [tensor.py][h-tensor]: TensorKB | Copy/adapt | Exact RAM/VRAM reference and bounded experiments behind the common collection interface. |
 | [sqlite.py][h-sqlite]: SQLiteKB, transaction, read_snapshot, backup | Adapt | Durable authoring authority, portable tensors, scoped transactions and immutable snapshots; extend schema and generations. |
-| [ivf.py][h-ivf]: DiskIVF | Adapt | Disk-backed coarse retrieval after exact search is correct; integrate causal eligibility and semantic-space identity. |
+| [ivf.py][h-ivf]: DiskIVF | Adapt | Disk-backed coarse retrieval after exact search is correct; adapt update(records) for transactional changed-key postings, causal eligibility and learned-space identity. |
 | [authoring_index.py][h-authoring-index]: _AuthoringIndex, _RecordViews | Adapt when authoring scales | Bounded packed arrays, mmap spill and optional GPU key cache; SQLite remains authoritative. |
 | [online.py][h-online]: DurableConsolidator, source_batch, ingest, delete_source | Adapt | Source lifecycle, contributions, bounded authoring and explicit replacement; fixed assignments during initial free pretraining. |
 | [consolidation.py][h-consolidation]: OnlineClusterer, CooccurrenceBuilder | Copy as reference | Small correctness oracle for clustering/counts; durable runs use the transactional authoring path. |
 | [provenance.py][h-provenance]: merge_metadata, fold_batch, excluded_records, excluded_relations | Adapt | Monotonic lineage and pre-selection exclusion, extended beyond the donor's task/kind filters. |
 | [relation_build.py][h-relation-build]: rebuild_relations, _durable_rebuild | Adapt | Stable pair IDs, support/degree limits, resumable staging and atomic graph publication. |
-| [retrieval.py][h-retrieval]: Retriever, Evidence, structured_candidates, slot_assignments, relation_effects | Adapt | Correction-only soft aggregation, exact null, conflict slots and bounded relation effects; source RAG returns source references. |
-| [trainable.py][h-trainable]: SparseTrainableKB | Adapt substantially | Selected-row optimization of typed payloads with frozen keys, full eligibility, FP32 state and engine-owned update transactions. |
+| [retrieval.py][h-retrieval]: Retriever, Evidence, structured_candidates, slot_assignments, relation_effects | Adapt | Correction soft aggregation, exact null, conflict slots and bounded relation effects; reuse local weighting for the RAG training auxiliary while runtime source RAG returns exact source references. |
+| [trainable.py][h-trainable]: SparseTrainableKB | Adapt substantially | Selected-row optimization of source/correction keys and typed correction payloads after bounded teacher warm-up, with full eligibility, FP32 state and engine-owned key/posting/update transactions. |
 | [free.py][h-free]: FreeRecordView, consulted | Adapt later | Differentiable trial records and consulted lineage for writer/experience evaluation without publishing trial leaves. |
 | [record_generation.py][h-record-generation] and [density.py][h-density] | Adapt | Separate key, payload and policy generations; resumable duplicate-density maintenance. |
 | [data.py][h-data]: block_mask, lexical_recurrence, recurrence_keep, match_recurrence_mask | Copy methodology; adapt coordinates | Source-block visibility and family-coordinated anti-copy dropout, independent of facet and meridian numbering. |
@@ -233,7 +235,7 @@ Several source-code details matter more than older prose:
 - Its corpus split validator hashes the complete serialized block list, rather than independently excluding every shared block; megatoken must use chunk/family ancestry.
 - Its current native PPLX query path supports block-causal caching; older prefix-view prose is not a reason to add a second query encoder here.
 - Its experience writer steps currently disable direct RL; reward fits free records and evaluates regenerated writes.
-- Its key-generation counter changes on several non-key record updates; that contract needs splitting for a frequently updated, fixed-key bank.
+- Its key-generation counter changes on several non-key record updates; split key, posting, payload and policy state for a bank whose keys and payloads both learn.
 
 Keep native LFM/Qwen executors, their tokenizer alignment, paged token caches and shared-basis adapter kernels as references. Megatoken already owns those architectural responsibilities. Snapshot transport scripts are operational examples, not a distributed KB implementation.
 
@@ -249,9 +251,10 @@ Each retrieval training example must identify:
 | --- | --- |
 | Query context | Main request/control, completed-prefix cursor, retrieval purpose, semantic-space spec, originating event and original source-block cursor when applicable. |
 | Eligible knowledge | Source/KB snapshot, scope, availability cut, valid-time conditions, excluded tasks/source ancestors and permitted collections. |
-| Supervision | Teacher query target, positive source spans or supporting sets, annotation-completeness mask, desired assistant/media output, explicit unsupported-query label when known. |
+| Supervision | Teacher query target, positive source spans/supporting sets and fixed support weights, annotation-completeness mask, local feature-value target/cache recipe, desired assistant/media output, explicit unsupported-query label when known. |
 | Provenance | Exact source hashes and versions, source-family/duplicate lineage, chunk ordinals/ranges, chunker/tokenizer/teacher preprocessing identities. |
-| Visibility footprints | Separate complete sets for query-teacher inputs, document-key context, payload support and relation-support windows. |
+| Visibility footprints | Separate complete sets for query-teacher inputs, document-key context, key-optimization supervision, payload support and relation-support windows. |
+| Source retrieval state | Scoring epoch and query/key/index identities, qualified/reserved source intervals, committed injected coverage and ordered admission receipts; keep runtime state distinct from training labels. |
 | Schedule | Query selection, search budget/deadline, actual result arrival, admission boundary and any artificial-boundary RNG/cursor. |
 
 A footprint is a collection of versioned source ranges, not one integer or one SourceSpan. Byte offsets remain source coordinates; Unicode character offsets or tokenizer positions require declared conversion. Reuse original-source routing from [referenced_documents/distillation_batch][h-knowledge]; QA answers and teacher solutions are supervision, not substitutes for the support documents the writer must encode.
@@ -309,7 +312,7 @@ Define both outputs as zero when the slot has no match. Multiply every reader's 
 
 Reuse this algebra for correction payloads only. RAG returns scored source IDs/ranges and exact content. It does not average source text, apply latent slot reduction to bytes or treat a source embedding as a correction value.
 
-Candidate identity selection is detached; selected scores can be recomputed with a live query. In the initial run keys remain fixed, but query/readout gradients and selected payload gradients remain live. If later key training is enabled, publish new key/index identities and refresh candidates explicitly.
+Candidate identity selection is detached. After bounded teacher warm-up, recompute selected scores from the live query and live selected-key optimizer leaves; query/readout, selected-key and correction-payload gradients must remain connected. Joint key learning is required during main pretraining. Section 12.7 specifies local losses; section 13.4 specifies sparse key/index publication. The fixed final interface used for later writer distillation and policy scoring remains a separate phase contract.
 
 ### 12.3 Relation expansion and joint correction are separate operations
 
@@ -317,7 +320,7 @@ Port bounded, source-supported pair construction from [CooccurrenceBuilder][h-co
 
 Implement one-hop expansion: retrieve semantic seeds, fetch a bounded eligible neighbor set, deduplicate, rescore every candidate against the original query, add a capped statistical relation bonus, and truncate to the result budget. Expanded or boosted results cannot seed a second pass.
 
-Port the donor's distinct-support activation invariant for pair payloads. Keep a bounded ledger of unboosted matches from completed query events, carrying causal support-span identities, scope and source availability. Collapse repeated queries over the same support; eviction or scope reset removes obsolete support. Do not treat arbitrary facet IDs or duplicate query rows as independent evidence.
+Port the donor's distinct-support activation invariant for pair payloads. Keep a bounded ledger of unboosted matches from completed query events, carrying causal support-span identities, scope and source availability. Collapse repeated queries over the same support; eviction or scope reset removes obsolete support. Do not treat arbitrary facet IDs or duplicate query rows as independent evidence. Record query/key scoring revisions with every support; invalidate or recompute match coefficients after their operands change.
 
 A pair correction is inactive until both members have distinct eligible support. Thus a first one-vector boundary can use relation-assisted ranking while leaving joint payloads off. Relation training examples must contain genuine multiple support opportunities; report how often pair payloads actually activate. Learned gate alternatives or additional vector slots are later experiments with their own supervision.
 
@@ -339,22 +342,93 @@ Initial eligible parameter groups are P stage attention query/output matrices an
 
 Thread event/track ownership through flattened pair rows and grouped dispatch. Store compact record mixture codes and current sparse selections; global adapter factors belong in the model checkpoint. Keep an exact null route, a cap on total active experts, soft balanced warm-up, small nonzero initialization, and learned main-progress decay. Retain activation age and lifetime per active record/version before combining its current contribution, so refreshing one record does not reset unrelated memories. Dense coefficient blending is valid in the fixed bank coordinates; averaging independently trained factor matrices is not the same operation.
 
+### 12.6 Incremental MaxSim and source-content coverage
+
+Keep one vector per committed retrieval-purpose event initially. Successive query events provide the incoming embedding stream. Let \(\Delta Q_t\) contain the new query vectors processed at a boundary and \(K_c\) the key set for canonical source chunk \(c\), initially one key. Define:
+
+\[
+s_t(c)=\max_{q\in\Delta Q_t,\;k\in K_c}\cos(q,k),
+\qquad
+M_t(c)=\max\{M_{t-1}(c),s_t(c)\}.
+\]
+
+Here MaxSim is a maximum over arriving query vectors and chunk keys, not a sum over every past query. Within one pinned request/scoring epoch, sequential updates equal the corresponding batched maximum over the same evaluated query/key pairs. Search ANN only for \(\Delta Q_t\), exactly rescore the returned eligible candidates, and merge with a bounded deferred queue. ANN candidate coverage remains approximate; a missing candidate is unknown, not an exact low score. Store maxima for touched candidates only.
+
+**Newly high** means the incoming query batch gives an eligible, still-uninjected chunk \(s_t(c)\geq\tau_{\rm RAG}\). Enqueue that source obligation once and use its maximum, age and deterministic tie rule to rank deferred work. An old maximum alone cannot discover new work. A strict new record-high score is not required to retry or admit an already qualified candidate: budget exhaustion, fetch failure and delayed arrival must not permanently suppress it. Expire stale deferred relevance at a declared deadline or request/scope change; a fresh qualifying query may enqueue it again. Graph bonuses can rank already qualified source candidates, but cannot bypass the unboosted similarity threshold. Do not automatically fetch adjacent chunks that have not separately qualified.
+
+Maintain three distinct states in the native session:
+
+| State | Contract |
+| --- | --- |
+| Deferred/qualified | Novel source work with its qualifying query, score, source and semantic snapshot, order, expiry and remaining byte/event budget. |
+| Pending/reserved | Exact source intervals claimed by an outstanding fetch or ready result; concurrent searches cannot claim them twice. |
+| Injected | Exact source intervals whose observed evidence events have successfully committed through E/C; a search, download or queue entry is insufficient. |
+
+Key coverage by canonical immutable source/content identity and versioned half-open source ranges, using existing duplicate-lineage mappings. Key revisions, ANN row IDs and correction payload revisions are not content identity. Before source payload fetch, subtract injected and reserved coverage from each eligible candidate. Start with canonical ingestion chunks; normalize overlaps to those units or trim only at valid source/encoding boundaries. Revalidate the original key/context footprint before subtraction. For partial sequence admission, mark only committed chunks/ranges, retain the remainder's order and reservation, and never treat an admitted prefix as the entire source.
+
+Push exclusions into candidate search or use bounded overfetch/refill so already injected hits cannot consume the entire candidate budget. Return an explicit shortfall when the budget is exhausted. Reserve before fetch; release or idempotently retry failed/cancelled reservations. At admission, recheck source version, scope, deadline and remaining coverage, then commit evidence and its coverage receipt together. Simultaneous or repeated high matches inject each interval once. Keep injected coverage after its source leaves the model's KV history, and reconstruct it from committed receipts on replay; explicit rereading would be a separate future policy.
+
+Bound scoring epochs, candidate/deferred state and retained query support. A scope change can clear stale relevance while preserving previously injected content. Query/key changes require a fresh score epoch or recomputation with compatible operands (section 13.4); unchanged content stays injected. Scoring, queue management and ANN lookup do not create native events or advance RoPE. Source novelty has no authority over the separate KV/LoRA refresh and decay rules.
+
+### 12.7 Local learning of query keys and stored keys
+
+Adapt the differentiable selected-row path in [SparseTrainableKB][h-trainable] and [Retriever.forward][h-retrieval]. The local training unit is a query and its bounded eligible retrieved keys/values. Candidate IDs, eligibility decisions, graph topology and historical MaxSim state are detached. Fetch one shared FP32 optimizer leaf per selected collection/record/key field, normalize it, and recompute scores with the live normalized query. Reusing detached ANN result vectors would silently disable stored-key learning.
+
+In supervised pretraining, preserve the query gradient through embedding R into P: use the normal differentiable/reparameterized Gaussian raw sample \(Z_q=\mu_P+\sigma_P\odot\epsilon\), with the exact selected sample committed as the native event. Detach the copy used by ANN, not the sample feeding the vector loss. Later outcome-policy scoring follows its separate recorded-action and frozen-map contract.
+
+**Corrections use their actual downstream value effect.** Native continuation loss flows through applied KV/LoRA corrections, the weighted payload and null gate, then the similarity weights into both the query and selected stored keys. It also updates declared payload, reader and adapter-bank parameters. Keep incompatible value slots separate and use smooth positive weights during introduction so initially weak selected candidates can receive gradients.
+
+**Source RAG uses a small local feature-value objective.** Its deployed values remain exact source bytes and provenance. For training only, reuse detached, deterministically encoded native source features:
+\(v_j=\operatorname{stopgrad}(\operatorname{normalize}(\operatorname{flatten}(E(x_j))))\), using the fixed raw-facet layout and deterministic posterior mean where E exposes a distribution. These features are neither correction payloads nor soft source observations. Cache them only under complete source/context, E revision, representation layout and preprocessing identities.
+
+At each boundary, form the supervised local pool with the same detached eligibility and already injected/reserved coverage masks as source retrieval, before adding this query's own reservations. Let \(P_t\) contain the annotated useful support still uncovered and unreserved, including all required remaining multi-hop evidence. Use
+\(t=\operatorname{stopgrad}(\sum_{p\in P_t}\beta_pv_p)\), with fixed annotation weights renormalized over \(P_t\): \(\beta_p\geq0\), \(\sum_{p\in P_t}\beta_p=1\). Never derive the target from current learned retrieval weights. Already injected or reserved relevant content is excluded from this objective, not relabeled as irrelevant.
+
+Compare eligible known positives with known/constructed negatives; unknown relevance is not a negative label. If no useful new support remains and annotations are complete, use only the null objective. If useful remaining support exists but ANN misses it, record a coverage miss and use declared eligible-positive assistance or omit the supported local term; do not relabel a retrieval miss as unsupported. Record assisted candidates separately from measured ANN recall.
+
+Use the same positive similarity weighting and null mass as the correction numerical reference, with source strength initially one:
+
+\[
+a_j=m_j\,f_\epsilon(\cos(q,k_j)-\theta)/\rho_j,\quad
+D=\lambda+\sum_j a_j,\quad
+w_j=a_j/D,\quad w_\varnothing=\lambda/D,\quad
+z=\sum_jw_jv_j.
+\]
+
+Here \(f_\epsilon\) is the smooth positive-part square during warm-up, later the declared hard form. For supported examples use
+\(L_{\rm source}=\tfrac12\lVert z-t\rVert^2-\eta\log\sum_{j\in P_t}w_j\).
+For explicitly unsupported or completely annotated no-new-support examples use \(-\eta_0\log w_\varnothing\); an unannotated query does not acquire a fictitious zero target. Stabilize logs numerically. Detached, query-specific targets and source values, supported-mass supervision and known negatives prevent trivial target/value collapse or an all-null solution on supported examples. E still learns through its ordinary native objectives.
+
+For the feature term, \(s_i=q^\top k_i\) and local residual \(g=z-t\) give:
+
+\[
+c_i=\frac{\partial a_i}{\partial s_i}\frac{g^\top(v_i-z)}{D},
+\qquad
+\frac{\partial L_{\rm value}}{\partial q}=\sum_i c_i k_i,
+\qquad
+\frac{\partial L_{\rm value}}{\partial k_i}=c_i q,
+\]
+
+in normalized coordinates, with the normalization Jacobians applied by autograd. Thus the utility of each retrieved value changes **both addresses** through its similarity weight. This needs neither a corpus-wide differentiable search nor another encoder. The value loss is an auxiliary retrieval signal; actual source fetching stays hard and its benefit must be checked by support recall and native RAG outcomes. Detached next-target-block features are an optional task-specific auxiliary, not a replacement for useful-support targets.
+
+Use teacher/query ranking supervision for coverage and a small, explicit teacher-anchor penalty when needed to limit drift; reduce it if it prevents useful local adaptation. Preserve unit normalization, bounded norms/updates and null handling. Do not train addresses merely to increase their current mutual similarity. Test bilateral gradients with teacher/anchor losses disabled, and do not backpropagate through cached maxima or an unbounded history of past retrievals.
+
 ## 13. KB storage schema and backend contract
 
 ### 13.1 Two typed collections behind one service
 
-Use one search interface with source and correction collections in a named semantic space. The simplest persistent version can use one SQLite database per collection, with one fixed key dimension and payload layout per database. A manifest binds them into one snapshot; no universal variable-shape tensor store is required.
+Use one search interface with source and correction collections in a named learned semantic space. Start with **one authoritative SQLite database and two explicitly typed collections**, using collection-qualified IDs and fixed key/payload geometry per collection. This permits one transaction to update selected keys in both collections, correction payloads, sparse moments and index postings. Adapt donor table patterns with explicit collection ownership; no universal variable-shape tensor store is required. Separate database files are a later backend option requiring a joint publication/recovery barrier, not a cross-file atomicity claim.
 
 | Entity | Required stored contract |
 | --- | --- |
-| Semantic-space manifest | Teacher/model revision, query/document recipes, normalization, dimensions, context policy, preprocessing hashes and space ID. Equal dimensions alone do not imply compatible spaces. |
+| Semantic-space manifest | Teacher initialization/anchor recipe, learned-space family/version, compatible query-model/key snapshots, query/document recipes, normalization, dimensions, context policy and preprocessing hashes. Equal dimensions alone do not imply compatible spaces. |
 | Record header | Database/record identity, scope, collection, factual/experience origin, key version, payload version, policy generation, density/support, compatibility group and available/valid-time metadata. |
-| Source payload | Immutable original source/content hash, ordered chunk ordinal/range, source version and source-bank reference; media can reference the recipient's checksummed assets. |
+| Source payload | Immutable original source/content hash, ordered chunk ordinal/range, source version and source-bank reference; its separate stored key can learn. Media can reference the recipient's checksummed assets. Training-only native feature caches carry E/layout revisions. |
 | Correction payload | Canonical delta slots, LoRA mixture code, activation strength and learned lifetime fields under a fixed payload-layout ID. |
 | Correction compatibility | Native model family/geometry, target-module and reader layout, KV/RoPE convention, adapter-bank identity and schema version. |
 | Contribution | Source/content version, original range/chunk/output-slot mapping, assigned record ID, original key/payload, original assignment distance and complete visibility footprints. |
 | Relation | Stable ID/signature, ordered member IDs, support windows/counts, statistical weight, separately typed learned joint/member adjustments and their lineage. |
-| Optimizer row | Stable record/relation ID plus field/layout generation, FP32 moments, update count and last committed training-step identity. |
+| Optimizer row | (collection, entity_kind, entity_id, field, layout_generation), with entity_kind distinguishing record from relation; FP32 moments, update count, read revision and last committed step. Use the same identity in optimizer primary keys and checkpoints. |
 | Snapshot manifest | Model, source bank, semantic collections, graph, payloads, optimizer and writer-target identities with content hashes. |
 
 A correction payload layout can flatten canonical delta tensors and a compact adapter code into one fixed float tensor plus typed metadata. Store strength and decay in explicitly declared parameter coordinates. The reader and writer must agree on that layout; an opaque dense donor value is not a sufficient compatibility contract.
@@ -373,13 +447,14 @@ Preserve foreign_keys=ON, synchronous=FULL and a bounded busy timeout. Select WA
 
 Adapt the generation counters:
 
-- **Key/index generation:** key changes, insertions/deletions or space/membership changes that affect indexed vectors.
+- **Key generation:** key changes, insertions/deletions or space/membership changes that affect indexed vectors.
+- **Index generations:** postings must cover the committed key generation; centroid-training identity and candidate-search policy are tracked separately.
 - **Payload generation:** changed correction values, codes and lifetimes.
 - **Policy/provenance generation:** exclusions, strength/eligibility, support and lineage changes.
 - **Graph generation:** topology, statistics and relation payload versions.
 - **Published snapshot identity:** a coherent tuple of the above plus the native model/reader/bank.
 
-This avoids rebuilding the key index after every fixed-key payload update while still invalidating cached payloads and eligibility correctly. All results must come from one declared read snapshot.
+Payload-only updates do not require rebuilding the key index. Changed keys update their postings and resident mirrors as specified below, while payload and eligibility caches follow their own generations. All results must come from one declared read snapshot. Session source-coverage receipts are keyed by content identity independently of these score/index generations.
 
 ### 13.3 Backend progression
 
@@ -391,11 +466,23 @@ Keep original source bytes in the recipient's immutable source/prepared storage.
 
 The donor does not implement DiskANN, distributed KB shards or a columnar object-store database. Add another backend only when measured recall/IOPS or authoring throughput justifies it, while preserving exact-reference tests and the same typed interface.
 
+### 13.4 Sparse key updates and compatible MaxSim epochs
+
+Pin query-model parameters, source/key/index state and correction payload revisions for each bounded retrieval/training window. Collect gradients locally through live selected rows, then update at the owned optimizer boundary. Source RAG learns keys while source bytes stay immutable; correction rows learn keys and their declared payload fields. Keep the two collections' key parameters distinct unless shared ownership is explicitly configured.
+
+For an exact reference bank, patch the changed key rows by stable ID. Adapt [DiskIVF.update][h-ivf] and [SQLiteKB.upsert][h-sqlite] so changed normalized keys, reassigned cell postings, sparse moments and revisions commit in the same transaction. Keep coarse centroids fixed between scheduled or measured-drift rebuilds. Track centroid training separately from current postings: centroid quality can degrade, but stale postings must not be published as current. Patch disposable mirrors after commit and acknowledge the new bank epoch before another training window reads it. Avoid a full all-key exact/HNSW cache rebuild on every sparse step; immutable HNSW serving is an optional separately tested path.
+
+Incremental maxima are valid only for unchanged scoring operands. After query/key updates, do not compute max(old maximum, new score) across incompatible vectors: an old maximum can decrease, and an older query can become the new winner. Clear score/deferred-ranking and relation-match state, or recompute it over the explicitly retained bounded compatible query/candidate window. Record a new scoring epoch; a version transition alone is not newly high evidence. With cleared state, the next compatible incoming query can qualify novel content again.
+
+Preserve committed injected-content coverage across these transitions. Revalidate or cancel reservations/receipts from an incompatible epoch; unchanged bytes do not become unseen. A rebuild with identical vectors can preserve mathematical scores but must refresh candidate-search coverage state. A payload-only correction update does not invalidate source MaxSim when its source keys and query-scoring semantics are unchanged.
+
+Retain teacher anchors or their reproducible immutable references, plus the task/source lineage of key optimization. Immutable source bytes do not imply an untrained address. Serving uses accepted compatible snapshots; writer and outcome-policy phases keep their declared query/key interfaces fixed. Source-key generation after pretraining must reproduce learned coordinates, with actual new-source retrieval evaluated before replacing the teacher-seeded fallback.
+
 ## 14. Free-bank optimization, distributed ownership and checkpoints
 
 ### 14.1 Seed before any learned writer
 
-Create stable records from permitted source chunks and explicit source-supported groups; precompute teacher keys and bounded pair statistics. Initialize small independent correction payloads. Freeze initial IDs, keys, assignments and graph topology while base pretraining, readers, adapter factors and selected payloads learn.
+Create stable records from permitted source chunks and explicit source-supported groups; precompute teacher keys and bounded pair statistics. Initialize small independent correction payloads. Keep initial IDs, assignments and graph topology fixed; freeze keys only during bounded addressing warm-up. Main pretraining then jointly learns native queries, selected source/correction keys, readers, adapter factors and correction payloads.
 
 Do not run writer-era numeric key/value consolidation over near-zero random payloads. Early sharing may use reviewed source-only duplicate/group assignments; learned consolidation follows meaningful payload training and a measured compatibility test.
 
@@ -407,14 +494,14 @@ Adapt [SparseTrainableKB][h-trainable] into a stable-ID optimizer bridge. Keep g
 
 For each optimizer step:
 
-1. Pin source/key/graph and payload revisions; retrieve eligible candidates and deduplicate record IDs across uses and microbatches.
-2. Materialize one FP32 trainable leaf per selected record/field, reusing it for repeated hits. Gather declared relation payloads the same way.
-3. Recompute selected scores with live queries. Backpropagate continuation, addressing and regularization terms through LossLedger so neural parameters and selected record leaves receive the same globally normalized losses.
+1. Pin query-model/source/key/index/graph and payload revisions for the retrieval window; retrieve eligible candidates and deduplicate collection-qualified record IDs across uses and microbatches.
+2. Materialize one FP32 trainable leaf per selected (collection, entity_kind, entity_id, field, layout_generation), reusing it for repeated hits. Source RAG has trainable keys and detached source-feature values; correction rows have trainable keys and declared payloads. Gather declared relation payloads the same way.
+3. Recompute selected scores with live queries. Backpropagate continuation, local source-value, addressing and regularization terms through LossLedger so neural parameters and selected record leaves receive the same globally normalized losses.
 4. Sum duplicate/rank contributions without dividing by those denominators again. Unscale gradients if loss scaling is enabled, then apply finite checks and declared model/KB clipping rules before either update.
-5. Update neural parameters and selected rows under one coordinated step identity. Commit all touched KB rows, relation fields, optimizer moments, counts and revisions for that step in one SQLite transaction; publish updated row revisions only after that commit succeeds.
-6. Invalidate affected payload caches and release the bounded leaf working set. Publish a checkpoint only after the coherent step completes.
+5. Update neural parameters and selected rows under one coordinated step identity. Commit all touched source/correction keys, correction and relation fields, changed-key index postings, optimizer moments, counts and revisions for that step in one SQLite transaction; publish updated row revisions only after that commit succeeds.
+6. Patch or invalidate affected key/payload caches, start the required scoring epoch and release the bounded leaf working set. Preserve injected-content coverage. Publish a checkpoint only after the coherent step completes.
 
-The donor currently optimizes keys, values and relation fields. Add frozen-key mode, typed KV/code/strength/decay fields, full eligibility arguments and optimizer-state reset rules. Untouched rows use explicitly documented touched-row Adam semantics: their moments, counters and weight decay do not advance as if they had dense zero gradients. Record this distinction from dense Adam.
+The donor currently optimizes keys, values and relation fields. Add typed collection ownership, the bounded frozen-key warm-up schedule followed by required key learning, typed KV/code/strength/decay fields, full eligibility arguments and optimizer-state reset rules. Untouched rows use explicitly documented touched-row Adam semantics: their moments, counters and weight decay do not advance as if they had dense zero gradients. Record this distinction from dense Adam.
 
 The donor's embedding_optimizer table has no foreign-key cascade to record/relation deletion. Explicitly remove or reset its slots when a row is deleted, regenerated, reaggregated or changes field/layout generation; never attach retained moments to a new logical record. Do not reuse record/relation IDs within a database identity.
 
@@ -424,7 +511,7 @@ The model and database do not magically form a cross-system atomic transaction. 
 
 Begin with one authoritative authoring/optimizer owner and synchronous training. Every rank must read the same declared bank state for the step. Preserve row ownership and ordering on resume; never let ranks race independent Adam updates through SQLite.
 
-Each rank sends sorted (record_id, field, layout_generation, read_revision, gradient) contributions for the step. Those gradients are already globally normalized by LossLedger; the owner rejects stale or incompatible revisions and sums repeated contributions in fixed rank/ID order without dividing again, then performs one touched-row Adam update. A nonfinite result on any participating rank skips both dense and sparse updates; all ranks proceed only after the committed revisions are acknowledged.
+Each rank sends sorted (collection, entity_kind, entity_id, field, layout_generation, read_revision, gradient) contributions for the step; record and relation IDs have separate namespaces. Those gradients are already globally normalized by LossLedger; the owner rejects stale or incompatible revisions and sums repeated contributions in fixed rank/ID order without dividing again, then performs one touched-row Adam update. A nonfinite result on any participating rank skips both dense and sparse updates; all ranks proceed only after the committed revisions are acknowledged.
 
 A small tensor bank is a correctness oracle for record gradients and the specified touched-row updates, not a second production trainer. Sharded row owners are later work if the single owner becomes a measured bottleneck.
 
@@ -436,9 +523,9 @@ Use [megatoken checkpoint.py][m-checkpoint] and the existing engine. Port the do
 
 Checkpoint model/realizer/readers/bank, dense optimizer state, free rows and sparse moments, source/key/graph manifests, row/assignment mapping, per-rank data and RNG cursors, boundary schedule and schema/spec/tape identities. After writer training, also record writer parameters and the exact optimized target-bank snapshot.
 
-For runtime restart/replay, serialize actual query tapes, result IDs/revisions, source hashes or bytes, scores/support, activation times, binding identities and decay state. Record completed retrieval receipts; outstanding work is reissued idempotently or cancelled by policy, not serialized as live futures or connections.
+For runtime restart/replay, serialize actual query tapes, result IDs/revisions, source hashes or bytes, scores/support, scoring epoch and retained support window, deferred/reserved work, committed source-coverage receipts, activation times, binding identities and decay state. Restore coverage separately from version-sensitive MaxSim/score state and replay declared key/index transitions. Record completed retrieval receipts; outstanding work is reissued idempotently or cancelled by policy, not serialized as live futures or connections.
 
-Finish the owned update transaction, create a consistent SQLite backup, flush the staged snapshot and validate its inventory before atomic publication. Pin each session's model, readers, adapter bank and payload layout. A KB-only refresh may be admitted at a latency boundary only when it matches those pinned identities; admission changes the revision and invalidates stale speculation and affected payload caches. Changing model/reader/bank weights requires a new session or a complete native replay/cache rebuild supported by the new version's contracts.
+Finish the owned update transaction, create a consistent SQLite backup, flush the staged snapshot and validate its inventory before atomic publication. Pin each session's model, readers, adapter bank and payload layout. A KB-only refresh may be admitted at a latency boundary only when it matches those pinned identities; admission changes the revision and invalidates stale speculation and affected caches. A compatible key update follows section 13.4's score-epoch transition while preserving injected-content coverage. Changing model/reader/bank weights requires a new session or a complete native replay/cache rebuild supported by the new version's contracts.
 
 ## 15. Source lifecycle, consolidation and regeneration
 
@@ -454,7 +541,7 @@ Adapt [DurableConsolidator][h-online] and [AuthoredSources/RetrievalDocuments][h
 
 The donor's ingest digest does not include the separately passed positions array; add all alignment/context fields to megatoken's identity hash. Cursor progress and record publication must roll back together. Clear authoring mirrors that observed rolled-back writes.
 
-During pretraining, this lifecycle seeds and maintains source-backed free records without a learned writer. After writer training, it encodes new sources into accepted source-written payloads. Experience writing uses the same canonical records and publication contract.
+During pretraining, this lifecycle seeds teacher keys and maintains source-backed free records without a learned writer; local optimization adapts their addresses. After writer training, it encodes new sources into accepted learned source-index keys and correction keys/payloads. Experience writing uses the same canonical records and publication contract.
 
 ### 15.2 Consolidation is a measured later operation
 
@@ -470,13 +557,13 @@ Useful superposition means shared records preserve distinctions and improve tran
 
 Port source-window decrementing, original-contribution retention and whole-relation removal from the donor. Replacing/deleting a source invalidates affected payloads, relations, dependent experience records, optimizer rows and derived caches.
 
-For freely optimized typed corrections, averaging surviving original random contributions does not recover the useful optimized record. Mark affected shared records unavailable, then regenerate from surviving sources with an accepted writer, or reset/reoptimize them in a declared training run. Clear stale moments and publish only the validated replacement. If no surviving support exists, delete the complete record.
+For freely optimized keys and typed corrections, averaging surviving teacher seeds or original random payloads does not recover the useful adapted record. Mark affected shared records unavailable, then regenerate from surviving sources with an accepted writer, or reset/reoptimize them in a declared training run. Clear stale moments and publish only the validated replacement. If no surviving support exists, delete the complete record.
 
-Recompute affected relation statistics and writer-produced relation payloads from remaining support; do not silently reduce a relation's arity or keep unsupported free drift. Preserve training/tuning provenance for holdout checks. Removing KB support does not remove its past influence on neural parameters.
+Recompute affected relation statistics and writer-produced relation payloads from remaining support; do not silently reduce a relation's arity or keep unsupported free drift. Preserve training/tuning provenance for holdout checks. Removing KB support does not remove its past influence on neural parameters. Cancel invalid source reservations and score entries, but retain receipts for bytes already committed. Re-embedding unchanged source content does not create new injection eligibility; genuinely changed content follows its new version/range identity.
 
 ### 15.4 Fresh corpus reproduction
 
-Freeze a coherent optimized target bank. Re-encode original sources into a fresh database, recreate assignments/clusters and deterministic relation statistics, generate learned relation payloads, and build new indexes. The candidate must not retain hidden links to optimized leaves.
+Freeze a coherent optimized target bank. Re-encode original sources into a fresh database, reproduce adapted source-index keys and correction keys/payloads, recreate assignments/clusters and deterministic relation statistics, generate learned relation payloads, and build new learned-space indexes. The candidate must not retain hidden links to optimized leaves.
 
 Compare optimized, regenerated, current deployed and no-new-correction behavior on the same held-out tasks. Record source coverage, skipped/incompatible assignments, point/pair payload error and task outcome. Rejection keeps the prior compatible snapshot; accepted regeneration creates a new version and becomes the basis for new-source insertion.
 
@@ -487,11 +574,11 @@ Compare optimized, regenerated, current deployed and no-new-correction behavior 
 | Phase | Train | Keep fixed or absent | Completion evidence |
 | --- | --- | --- | --- |
 | Native bootstrap | Existing E/C/P/R objectives under the native schedule | Correction writer absent; no memory dependency | Useful native representations and normal training/replay behavior. |
-| Retrieval introduction | Embedding realizer/P query behavior, correction readers, global LoRA bank and free source-backed payloads; native base follows pretraining schedule | Teacher keys, initial assignments and graph structure fixed; writer absent | Addressing coverage, live gradients to both correction paths, exact null and bounded effects. |
-| Main free-KB pretraining | Same components on broad RAG/continuation/agentic tasks | No source/experience writer; no moving document index by default | Cross-source task benefit, no-memory robustness, latency/working-set and reproducibility measurements. |
+| Retrieval introduction | Embedding realizer/P query behavior, correction readers, global LoRA bank and free correction payloads; native base follows pretraining schedule | Teacher keys fixed only for a bounded warm-up; assignments/graph fixed; writer absent | Addressing coverage, smooth local gradients, exact null and bounded effects. |
+| Main free-KB pretraining | Native queries, selected source/correction keys, readers, adapter bank and correction payloads; local RAG value and actual correction continuation objectives | No source/experience writer; stable source bytes, IDs and initial topology; coherent index per training window | Bilateral address gradients with teacher losses disabled, useful novel-source retrieval and correction benefit, reproducible sparse key/index updates. |
 | Local hindsight writer after pretraining | New source writer and its key/payload readouts | Final native model including query realizer, readers, expert bank, index and optimized targets frozen | Permitted-suffix reconstruction and improvement over an untrained writer, followed by transfer checks. |
 | Cross-source writer transfer | Source writer on related/distractor groups | Same fixed interface snapshot | New examples benefit from other-source writer records; same-source dependence falls. |
-| Corpus reproduction | Full-context source writer and relation-payload writer | Optimized point/pair targets and native interfaces fixed | Source-assignment loss, coverage and fresh full-bank regeneration. |
+| Corpus reproduction | Source/document key realizer, full-context correction writer and relation-payload writer | Optimized source-index and point/pair targets, native query/interfaces fixed | Learned-key reproduction, source-assignment coverage and fresh full-index/bank behavior. |
 | Acceptance/new-source use | No answer-based optimization | Inference weights and accepted writers fixed | Newly inserted permitted sources improve held-out tasks. |
 | Later experience/joint adaptation | Explicitly configured temporary records/writer or P policy | Other interfaces pinned according to the objective | Regenerated-write benefit or correctly scored policy improvement in a new version. |
 
@@ -505,12 +592,14 @@ Use the existing native loss as the main objective and add explicit terms:
 L_{\rm pre}=L_{\rm native}
 +\lambda_eL_{\rm embedding}
 +\lambda_rL_{\rm ranking}
++\lambda_vL_{\rm source}
++\lambda_aL_{\rm anchor}
 +\lambda_nL_{\rm null}
 +\lambda_cL_{\rm correction}
 +\lambda_bL_{\rm routing}.
 \]
 
-Embedding/ranking losses align realized queries with the fixed teacher space and useful eligible evidence. Null supervision trains unsupported queries and exact no-new-correction behavior. Correction regularity bounds actual applied delta/residual magnitudes on valid destinations. Routing penalties and reader dropout support useful participation of both paths without forcing every record or expert to activate.
+Embedding/ranking losses bootstrap addressing and identify useful eligible evidence; L_source is section 12.7's local similarity-weighted source-feature objective. An explicitly weighted, optional L_anchor stabilizes query/selected-key drift from teacher initialization and can decay after warm-up. Actual correction continuation gradients already belong to L_native and must reach both address sides without adding the same loss twice. Null supervision trains unsupported/no-new-evidence queries and exact no-new-correction behavior. Correction regularity bounds applied effects on valid destinations; routing penalties and reader dropout support useful participation without forcing every record or expert to activate.
 
 Introduce these terms gradually after native bootstrap. Early supervised candidate sets may ensure coverage of eligible positives; retain the distinction between this training assistance and measured ANN recall. Never inject a positive from an unavailable source merely to provide a gradient.
 
@@ -566,7 +655,7 @@ Add behavioral continuation loss and run the fresh rebuild in section 15. If rec
 
 ### 16.6 Loss normalization and efficiency
 
-Extend [LossLedger][m-losses] with preplanned globally reduced counts for query targets, ranking examples, unsupported-query examples, writer assignments, relation targets and correction regularity. Normalize per-query candidate losses internally so changing top-k does not change the unit of supervision. Count writer assignments and valid target fields consistently; report missing coverage separately.
+Extend [LossLedger][m-losses] with preplanned globally reduced counts for query targets, local source-value examples, query-normalized key/teacher anchors, ranking examples, unsupported/no-new-evidence examples, writer assignments, relation targets and correction regularity. Normalize per-query candidate losses internally so changing top-k does not change the unit of supervision. Count writer assignments and valid target fields consistently; report missing coverage separately.
 
 Prepare counts from scheduled supervised events/assignments, not from a stochastic number of successful hits. Empty candidate sets still have well-defined teacher/null losses. Mixed modalities retain the recipient's own loss denominators; no fictitious text tokens are introduced for vector events.
 
@@ -616,14 +705,14 @@ All new paths in this table are **proposed**. Port small modules/tests with sour
 
 | Package | Recipient owner or proposed path | Deliverable and dependency |
 | --- | --- | --- |
-| A: typed data/contracts | New memory/contracts.py and data/retrieval.py; extend data/schema.py and prepared manifests | Space/layout manifests, footprints, source-block mapping, query requests/results, immutable snapshot identity and explicit data conversion. |
+| A: typed data/contracts | New memory/contracts.py and data/retrieval.py; extend data/schema.py and prepared manifests | Learned-space/layout manifests, key-optimization footprints, source-block and coverage identities, query/result/epoch contracts and explicit data conversion. |
 | B: vector realization | New generation/embedding.py; extend FacetedGenerator and model/multitrack.py | Registered embedding R, output/train target specs, causal P conditioning, dispatch, losses and canonical vector serialization. Depends on A. |
-| C: storage/reference retrieval | New memory/base.py, tensor.py, sqlite.py, index.py, retrieval.py | Adapt donor exact/SQLite/IVF paths, typed collections, null/conflict handling and eligibility. Depends on A; usable before learned retrieval. |
+| C: storage/reference retrieval | New memory/base.py, tensor.py, sqlite.py, index.py, retrieval.py | Adapt exact/SQLite/IVF paths, typed collections, incremental MaxSim, exclusion/refill, transactional key/posting updates and null/conflict handling. Depends on A; usable before learned retrieval. |
 | D: source/graph authoring | New memory/authoring.py and relations.py | Stable source-backed seeding, contributions, pair counts, bounded one-hop expansion, independent-support activation, progress and replacement. Depends on C. |
 | E: correction computation | New memory/corrections.py and model/adapters.py; extend P attention/read sites and retained-state metadata | Canonical KV binding, per-event independent LoRA mixtures, exact null, learned lifetime and eviction/refresh contracts. Depends on A/B/C. |
-| F: training integration | New training/memory.py and memory/optimizer.py; extend engine.py, meridians.py, losses.py, optimizer/distributed/checkpoint paths | Joint native/free-bank pretraining, typed vector objectives, selected-row gradients and coherent resumable updates. Depends on B–E. |
-| G: replay and runtime | Extend multitrack_runtime.py, multitrack_service.py, training/history.py and grouped tapes | Native query/evidence chronology, retrieval receipts, correction state, grouped training-history reconstruction, separate differentiable grouped scoring and stale-branch invalidation. Develop with F. |
-| H: post-pretraining writers | New training/hindsight.py, training/reproduction.py and registered source writer modules | Local suffix training, cross-source transfer, full-target point/pair distillation and fresh-bank acceptance. Depends on a completed F/G snapshot. |
+| F: training integration | New training/memory.py and memory/optimizer.py; extend engine.py, meridians.py, losses.py, optimizer/distributed/checkpoint paths | Joint native/free-bank pretraining, local source-value and correction-driven bilateral key learning, typed vector objectives and coherent sparse key/payload/index updates. Depends on B–E. |
+| G: replay and runtime | Extend multitrack_runtime.py, multitrack_service.py, training/history.py and grouped tapes | Native query/evidence chronology, MaxSim epochs and deferred/reserved/injected coverage receipts, correction state, grouped training history, separate differentiable scoring and stale-branch invalidation. Develop with F. |
+| H: post-pretraining writers | New training/hindsight.py, training/reproduction.py and registered source writer modules | Local suffix training, cross-source transfer, learned source-key and full-target point/pair reproduction, and fresh-index/bank acceptance. Depends on a completed F/G snapshot. |
 | I: later experience/policy | New training/experience.py and experience source facade in memory/authoring.py; extend environments.py/rl.py | Trial-record fitting, accepted experience writes, optional benefit boundaries and native-likelihood reward training. Depends on H and task evaluation. |
 
 The immediate integration targets already exist: [prepare_meridian_batch/forward_meridian_batch][m-meridians], [MultiTrackGenerator][m-multitrack], [LossLedger][m-losses], [MasterAdamW][m-optimizer], [checkpoint.py][m-checkpoint] and [MultiTrackRuntime][m-runtime].
@@ -640,39 +729,48 @@ These are gates for future implementation, not claims that this documentation ch
 
 | Donor reference | Preserve | Add for megatoken |
 | --- | --- | --- |
-| [test_storage.py][h-test-storage] | Finite/dimension checks, scope integrity, empty results, rollback, reopen, coherent snapshots and exact parity | Space/layout mismatch rejection, typed payloads, offset-sensitive idempotence and split generation invalidation. |
-| [test_ivf_batch_search.py][h-test-ivf] | Exact rescoring within probed cells, bounded decoding, sparse IDs | Full eligibility before truncation, excluded-best-candidate recovery and reported shortfall. |
+| [test_storage.py][h-test-storage] | Finite/dimension checks, scope integrity, empty results, rollback, reopen, coherent snapshots and exact parity | Space/layout mismatch rejection, typed collections, offset-sensitive idempotence, key/posting/moment atomicity and split generation invalidation. |
+| [test_ivf_batch_search.py][h-test-ivf] | Exact rescoring within probed cells, bounded decoding, sparse IDs | Full eligibility/coverage exclusion before truncation, bounded refill/shortfall, and moved-key posting parity against exact scores in probed cells. |
 | [test_authoring_cache.py][h-test-authoring-cache], [test_authoring_scale.py][h-test-authoring-scale], [test_authoring_source_batch.py][h-test-authoring-batch] | Sequential assignment, mmap/cache bounds and cursor/record rollback | Fixed random-bank assignments, complete context fingerprints and typed source replacement. |
 | [test_relation_build.py][h-test-relations] | Stable IDs, support/degree caps, deterministic ties, resumable atomic publication | Pair-only baseline, support-footprint exclusion, one-hop/no-recursion and optimizer reset after rebuilding. |
 | [test_retrieval.py][h-test-retrieval] | Masked current candidates contribute no direct lookup gradient, exact null, conflict slots, density compensation, distinct-span relation gates | One query cannot activate a pair; repeated same-support queries do not manufacture evidence. |
 | [test_training.py][h-test-training] | Reader/memory gradients with frozen owners, cross-source/scope masks, full-target point/relation distillation | Source i+2 invariant under query/evidence insertion, raw-facet writer mappings and typed lifetime/code targets. |
-| [test_sparse_candidates.py][h-test-sparse] | Repeated IDs share a differentiable parameter and accumulate gradients | Gradient and touched-row update reference parity, global denominator/rank equivalence, finite failure handling and row-moment resume/reset. |
-| [test_serving_replay.py][h-test-replay] | Target-free replay, boundary scheduling and no-match behavior | Native grouped query tapes, delayed receipts, revision invalidation, stable destination eviction and selected-raw identity. |
+| [test_sparse_candidates.py][h-test-sparse] | Repeated IDs share a differentiable parameter and accumulate gradients | Bilateral key/value gradients, collection-qualified touched-row parity, denominator/rank equivalence, finite failure handling and key/payload moment resume/reset. |
+| [test_serving_replay.py][h-test-replay] | Target-free replay, boundary scheduling and no-match behavior | Native grouped tapes, source coverage and deferred/reserved receipts, delayed arrivals, key/score epochs, stable destination eviction and selected-raw identity. |
 | [test_learning.py][h-test-experience], [test_provenance_regressions.py][h-test-provenance] | Trial/writer gradient boundaries, matched targets, rejected-promotion retention, persistent lineage and resume | Native Gaussian event likelihood, source-footprint/task exclusions and fixed-weight new-source uptake. |
 
 Add recipient-specific gradient and ownership checks: registered embedding/readers/bank parameters occur exactly once; vector training does not demand a vector ingester; target gradients cannot enter P through teacher inputs; correction views leave base KV immutable; LoRA event scopes survive flattened/permuted grouped dispatch.
 
 **Exact-null parity uses the same selected raw-event history, query schedule and prior correction/decay state.** Compare absent new candidates with candidates whose new activation is forced to null, while existing corrections evolve identically. A native query event itself changes C history and consumes compute even when lookup returns nothing. Separately compare task quality with the ordinary no-query baseline and a compute-matched null-query control.
 
+Add focused MaxSim and learned-key gates:
+
+1. **Incremental score parity:** one-query/one-key equals cosine; sequential maxima equal the batched reference for identical evaluated pairs and epochs. Distinguish approximate ANN discovery from exact rescoring.
+2. **Novel content only:** repeated high matches, duplicate aliases and concurrent overlapping requests commit each source interval once. Sequence admission marks only its committed prefix; key-only changes and KV eviction do not erase coverage.
+3. **Deferred work:** a qualifying source survives budget deferral and idempotent fetch retry without a new score record; stale/cancelled work releases reservations. Low new scores or graph bonuses cannot independently fetch unqualified content.
+4. **Bilateral local gradients:** with teacher/anchor losses disabled, controlled value-dependent examples give finite nonzero gradients to P/embedding R and selected stored keys in both collections. Source-feature values/targets and masked current candidates receive no direct auxiliary/lookup gradients; repeated IDs update once. Vary useful values/targets to verify that key updates follow usefulness, not similarity alone. Covered/reserved useful support is masked without repulsion; only remaining support forms the target, with null-only loss for completely annotated empty remainder. Records and relations sharing a numeric ID/field retain distinct leaves and moments.
+5. **Key/index and score epochs:** force a key across an IVF cell boundary; verify atomic key/posting/moment updates and rollback. Key changes that lower a cached maximum or change its winning old query require recomputation/reset. Identical-vector index refresh preserves content coverage; payload-only correction updates preserve source scores.
+6. **Learning and regeneration:** local learning improves held-out useful-support retrieval and actual RAG/correction behavior; regenerated/new-source keys work in the frozen learned space without per-test-answer optimization. Replay reconstructs the same admitted sources and epoch transitions.
+
 ### 19.2 Evaluation matrix
 
-Run no-query, null-query control, source-RAG only, KV only, LoRA only, KV+LoRA and all-three conditions. Ablate graph candidate expansion separately from joint pair payloads; report their actual activation rates. Compare uniform/recurrence dropout, fixed/sparse routing and independent reader dropout at matched budgets.
+Run no-query, null-query control, source-RAG only, KV only, LoRA only, KV+LoRA and all-three conditions. Ablate graph candidate expansion separately from joint pair payloads; report their actual activation rates. Compare uniform/recurrence dropout, fixed/sparse routing and independent reader dropout at matched budgets. Compare teacher-frozen, query-only and joint query/stored-key learning; ablate the local source-value objective separately from ranking/anchors. Compare ordinary repeated RAG with incremental MaxSim/coverage at matched query, byte and latency budgets.
 
 For writers, keep distinct reports for local hindsight initialization, cross-source transfer, optimized-bank behavior, regenerated-bank behavior and new-source insertion. Include source/assignment coverage and record/pair reconstruction errors. Low local reconstruction loss is not the same result as useful deployed memory.
 
 For consolidation, report quality against both record count and **total retained bytes**, including original contributions. Test singletons, near-key contradictions, duplicates, changed rules, version conflicts and deletion. Demonstrate novel combinations of separate knowledge where that is an intended capability.
 
-Measure teacher/query embedding recall, eligible ANN recall, downstream native supervised loss, actual free-generation/task success, no-memory regression, correction lifetime/reset behavior, writer throughput, cold/warm boundary latency, tail latency, peak working-set memory and end-to-end task time. The donor's ANN benchmark is a component reference; include query realization, fetch, ingestion and correction admission in the new serving measurements.
+Measure teacher/query embedding recall, eligible novel-support recall, duplicate bytes avoided, deferred/fetch failure behavior, ANN recall against current learned keys, local source-value error, downstream native loss, actual task success, no-memory regression, correction lifetime/reset behavior, writer/key-regeneration throughput, key/posting update cost, cold/warm and tail boundary latency, peak working set and end-to-end task time. The donor's ANN benchmark is a component reference; include query realization, fetch, ingestion and correction admission in the new serving measurements.
 
 Development data used to choose rebuild or trigger thresholds is tuning data. Release and new-source tests remain untouched by base pretraining, free-leaf optimization, writer fitting and policy calibration under their declared exclusion rules.
 
 ### 19.3 Configuration and capacity accounting
 
-Add a versioned retrieval/memory configuration covering semantic spaces, typed payload layouts, candidate/result budgets, relation windows/degree/support, query frequency/deadlines, KV slot/binding limits, LoRA group/rank/bank/active-expert budgets, dropout/regularization, sparse optimizer policy, writer views and rebuild acceptance.
+Add a versioned retrieval/memory configuration covering learned semantic spaces, typed layouts, MaxSim threshold/scoring epochs, candidate/deferred/reservation/coverage budgets, overlap and retry policy, relation windows/degree/support, query frequency/deadlines, key warm-up and per-field optimizer rates, local feature/anchor losses, index-posting/centroid refresh, KV slot/binding limits, LoRA budgets, dropout, writer views and rebuild acceptance. Calibrate novelty thresholds in the accepted learned coordinates. Bound training feature caches by E revision and keep lifetime source coverage durable even when hot state is compacted.
 
 Use one vector per event and pairs only initially. The donor's candidate count around 32, up to four incompatible slots and low-rank settings such as rank eight are starting reference values, not measured megatoken optima. Choose KV template count, code dimension and bank coverage against an explicit storage/compute budget.
 
-For N correction records with K key coordinates and P FP32 payload coordinates, base key/payload storage is approximately 4N(K+P) bytes. Touched-row Adam moments can eventually add 8NP bytes, before contributions, source bytes, graph payloads, indexes, snapshots and resident caches. Sparse GPU access does not eliminate disk optimizer-state cost.
+For N_s source records with K_s key coordinates and N_c correction records with K_c key plus P FP32 payload coordinates, base vectors require approximately 4[N_s K_s + N_c(K_c+P)] bytes. Once rows have been touched, FP32 Adam moments can add 8[N_s K_s + N_c(K_c+P)] bytes. Retained teacher anchors add up to 4[N_s K_s + N_c K_c] bytes unless deduplicated through an existing immutable vector store. Count source features/bytes, original contributions, relation optimizer state, indexes, coverage/queue metadata, snapshots and resident caches separately. Sparse GPU access does not eliminate disk optimizer-state cost.
 
 For independent LoRA factors, count parameters as the sum over target groups of E_g r_g(d_in,g+d_out,g), plus any intended packed-base-expert multiplicity. Include their dense optimizer state separately. Do not measure the memory system only by the size of its final consolidated record table.
 
@@ -681,8 +779,8 @@ Query count, latent facet count, destination count and KB record count are separ
 ### 19.4 Milestone decisions
 
 1. **Contracts/reference storage:** deterministic typed round trips, complete-footprint masks, exact/IVF reference comparisons and source lifecycle.
-2. **Native retrieval event:** teacher-aligned query realization, correct event/clock ownership, ordered source ingestion and exact replay.
-3. **Free correction pretraining pilot:** both readers receive useful gradients, null/bounds hold, sparse updates resume coherently, and task benefit survives the null-query control.
+2. **Native retrieval event:** teacher-initialized query realization, incremental MaxSim, correct event/clock ownership, novel-only ordered source admission and exact replay.
+3. **Free correction pretraining pilot:** local losses train native queries and selected source/correction keys; both readers receive useful gradients, null/bounds hold, sparse key/index updates resume coherently, and actual task benefit survives the null-query control.
 4. **Corpus-scale pretraining:** useful retrieval under latency/storage budgets, duplicate/conflict robustness and agreed synchronous multi-rank correctness.
 5. **Post-pretraining writing:** local-to-cross-source transfer followed by a fresh bank whose behavior approaches the optimized target.
 6. **New-source/experience expansion:** accepted source-written memories improve tasks with fixed inference weights; later experience and adaptive-boundary work passes its own task and replay gates.
