@@ -179,7 +179,7 @@ def test_unserializable_and_notebook_provider_factories_are_diagnosed(main_modul
     language = register(local_factory)
     result = workers.scan_syntax_isolated(SOURCE, language, LIMITS)
     assert "parser_provider_not_serializable" in diagnostic_codes(result)
-    assert "generic_lexical:v1" in result.result.parsers
+    assert "generic_lexical:v2" in result.result.parsers
     assert workers._worker is None
     assert_bounded(result, SOURCE)
 
@@ -216,7 +216,7 @@ def test_crash_or_timeout_has_bounded_fallback_and_next_request_succeeds(
     )
     assert time.monotonic() - started < 2.0
     assert code in diagnostic_codes(result)
-    assert "generic_lexical:v1" in result.result.parsers
+    assert "generic_lexical:v2" in result.result.parsers
     assert workers._worker is None
     assert original.process.poll() is not None
     assert not original.thread.is_alive()
@@ -230,7 +230,7 @@ def test_tree_walk_exception_falls_back_inside_child_without_poisoning_it(provid
     language = register(provider.factory)
     result = workers.scan_syntax_isolated(b"__bad_tree__", language, LIMITS)
     assert "native_parser_exception" in diagnostic_codes(result)
-    assert "generic_lexical:v1" in result.result.parsers
+    assert "generic_lexical:v2" in result.result.parsers
     original = workers._worker
     recovered = workers.scan_syntax_isolated(SOURCE, language, LIMITS)
     assert f"tree_sitter:{language}" in recovered.result.parsers
