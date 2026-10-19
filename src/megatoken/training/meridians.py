@@ -408,8 +408,12 @@ def forward_meridian_batch(
                 )
                 for entry in step.records
             )
+            resolved = tuple(
+                plan.resolve(store, device) if isinstance(plan, MediaPlan) else plan
+                for plan in step.plans
+            )
             result = multi.supervised_meridian(
-                state, tracks=step.tracks, plans=step.plans,
+                state, tracks=step.tracks, plans=resolved,
                 control_payloads=(payload,) * len(step.tracks),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
