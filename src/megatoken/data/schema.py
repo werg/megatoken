@@ -17,7 +17,7 @@ from typing import Any, Literal, Protocol
 
 from .chunking import ChunkingConfig, segment_bytes
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 Role = Literal["system", "user", "assistant", "tool", "document", "environment"]
 Provenance = Literal["natural", "teacher", "student", "executed", "simulated", "unknown"]
 Outcome = Literal["success", "failure", "unknown", "incomplete"]
@@ -423,7 +423,7 @@ class Episode:
         obj = dict(value)
         if obj.pop("schema_version", None) != SCHEMA_VERSION:
             raise ValueError(
-                "Unsupported episode schema version; legacy records require explicit fresh preparation"
+                "Unsupported episode schema version; old records are intentionally unsupported"
             )
         lineage = dict(obj["lineage"])
         lineage["ancestor_ids"] = tuple(lineage.get("ancestor_ids", ()))
