@@ -270,8 +270,12 @@ def prepare_meridian_batch(
         plans: tuple[Plan, ...] = ()
         if all(selected) and offsets[0] >= window.start:
             plans = tuple(
-                _target_plan(model, item, record, index, offsets[0], native, config)
-                for record, index in zip(records, offsets, strict=True)
+                _media_plan(model, record, modality, config)
+                if modality in {"audio", "image", "video"}
+                else _target_plan(model, item, record, index, offsets[0], native, config)
+                for record, index, modality in zip(
+                    records, offsets, modalities, strict=True
+                )
             )
             for plan in plans:
                 for name, count in plan.denominators.items():
