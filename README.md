@@ -1,5 +1,19 @@
 # Megatoken
 
+> **v7 implementation in progress.** The shared multi-track core now has grouped
+> meridian processing, modality-aware prediction, full-resolution joint KV,
+> native audio/visual adapters, distinct media realizers, typed controls,
+> group tapes/replay, a grouped bootstrap objective, and a JSONL group server.
+> Media encoders/realizers are **untrained neural baselines**. This is neither a
+> pretrained omnimodal model nor evidence of high-fidelity speech/video quality.
+> A new v7 training and evaluation run is required. See
+> [the v7 plan](docs/multi-track-plan.md) and
+> [implementation status](docs/multi-track-implementation.md).
+>
+> **No backward compatibility:** v7 intentionally rejects earlier checkpoint,
+> tape, served-bundle, and prepared dataset formats.
+
+
 A from-scratch model and training system built around **32 recurrent facets**.
 Byte ingestion and next-chunk prediction produce the same raw input format. Each
 selected input then runs through a shared central processor, which writes its KV
@@ -64,7 +78,7 @@ and [the architecture decision](docs/decisions/0004-contextual-realization.md).
 Public seed/reference bytes and tool schemas use one causal control path in training,
 serving, collection, and density replay. Version-4 action tapes retain their source
 control bytes and exact raw draws. Checkpoints, tapes, and derived state caches are
-versioned together; version-3 assets require an explicit migration.
+versioned together; earlier architectural assets are intentionally unsupported.
 
 ## Run the complete offline path
 
