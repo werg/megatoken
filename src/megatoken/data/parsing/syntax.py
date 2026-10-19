@@ -1045,6 +1045,40 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
             line_prefix = False
             continue
 
+        raw_literal = None
+        if index == 0 or payload[index - 1] not in (
+            b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+        ):
+            if dialect == "rust" and value in {98, 114}:
+                match = re.match(rb"(?:br|r)(#{0,16})\"", payload[index : index + 64])
+                if match:
+                    raw_literal = (match.end(), b'"' + match.group(1))
+            elif dialect in {"cpp", "cuda"} and value in {82, 76, 85, 117}:
+                match = re.match(
+                    rb'(?:u8|u|U|L)?R"([^()\s\\]{0,16})\(',
+                    payload[index : index + 64],
+                )
+                if match:
+                    raw_literal = (match.end(), b")" + match.group(1) + b'"')
+        if raw_literal is not None:
+            opening_length, closer = raw_literal
+            start, content_start = index, index + opening_length
+            stop = payload.find(closer, content_start, maximum)
+            content_end = stop if stop >= 0 else maximum
+            index = stop + len(closer) if stop >= 0 else maximum
+            _generic_region(scan, start, index, "string", language, limits)
+            if content_start < content_end and len(scan.injections) < limits.max_injections:
+                hint = detect_content_language(payload[content_start:content_end])
+                scan.injections.append(
+                    Injection(content_start, content_end, "auto", hint, "lexical_string")
+                )
+            if stop < 0 and len(result.diagnostics) < 32:
+                result.diagnostics.append(
+                    Diagnostic("unterminated_literal", start, index, "generic_lexical")
+                )
+            line_prefix = False
+            continue
+
         if value in {34, 39, 96}:
             if dialect == "rust" and value == 39:
                 # Lifetime labels such as 'a and '_ must not eat an entire line.
