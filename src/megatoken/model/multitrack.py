@@ -816,9 +816,21 @@ class MultiTrackGenerator:
             state, sampled, tracks=names, role_ids=roles, modalities=modalities,
         )
         encoded = []
-        for payload in payloads:
-            values, lengths = byte_tensor([payload], state.device)
-            encoded.append(core.encode_chunk(values, lengths))
+        for plan in plans:
+            if isinstance(plan, MediaTrainTarget):
+                if plan.source_kind == "features":
+                    current = core.encode_media_features(
+                        plan.modality, plan.source, extractor=plan.extractor
+                    )
+                else:
+                    current = core.encode_media(plan.modality, plan.source)
+            else:
+                payload = (
+                    plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
+                )
+                values, lengths = byte_tensor([payload], state.device)
+                current = core.encode_chunk(values, lengths)
+            encoded.append(current)
         target_raw = torch.stack(encoded, dim=1)
         q = DiagonalGaussian(
             target_raw.float(),
