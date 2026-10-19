@@ -47,6 +47,44 @@ class MediaOutputSpec:
             raise ValueError("Media output must be audio, image or video")
 
 
+
+@dataclass(frozen=True)
+class MediaTrainTarget:
+    """A resolved event, independent of the training dataset storage layout."""
+
+    modality: str
+    spec: MediaOutputSpec
+    source: Tensor
+    target: Tensor
+    mode: str
+    role_id: int = 2
+    source_kind: str = "raw"
+    extractor: str = ""
+
+    def __post_init__(self) -> None:
+        if self.mode not in {"bootstrap", "recurrent"}:
+            raise ValueError("Media training needs bootstrap or recurrent mode")
+        if self.spec.modality != self.modality:
+            raise ValueError("Media target modality disagrees with output specification")
+        expected = (
+            (1, self.spec.sample_count)
+            if self.modality == "audio" else
+            (1, self.spec.frames, 3, self.spec.height, self.spec.width)
+        )
+        if self.target.shape != expected or not self.target.is_floating_point():
+            raise ValueError("Media target tensor differs from requested realization geometry")
+        if self.source.shape[0] != 1 or not self.source.is_floating_point():
+            raise ValueError("Media source tensor must have one batch row")
+        if self.source_kind not in {"raw", "features"} or (
+            self.source_kind == "features" and not self.extractor
+        ) or (self.source_kind == "raw" and self.extractor):
+            raise ValueError("Media source kind and extractor identity disagree")
+        if not bool(torch.isfinite(self.source).all()) or not bool(
+            torch.isfinite(self.target).all()
+        ):
+            raise ValueError("Media source and target tensors must be finite")
+
+
 class AudioStem(nn.Module):
     """Causal-origin waveform -> ordered spectral features, local to a chunk."""
 
