@@ -96,7 +96,7 @@ def test_real_trainer_keeps_selected_tower_and_only_appends_live_context(mode, m
     assert [
         state.records_seen.item() for state in (first_source, first_selected, second_selected)
     ] == [1, 2, 3]
-    assert second_selected.history.slots == 3 * model.config.history_slots
+    assert second_selected.history.slots == 3 * model.config.n_facets
     assert first_selected.early is not None and first_selected.final is not None
     # The first chunk has no own lexical objective. Its gradient must come from
     # the later target through raw recurrence and/or the selected historical KV.
@@ -166,7 +166,7 @@ def test_canonical_presets_and_legacy_architecture_rejection():
     for alias in ("recurrent32", "compact32"):
         with pytest.raises(ValueError, match="command-line aliases"):
             load_model_config(alias)
-    with pytest.raises(ValueError, match="architecture_version=4"):
+    with pytest.raises(ValueError, match="architecture_version=6"):
         ModelConfig.from_dict({**ModelConfig.tiny().to_dict(), "architecture_version": 3})
 
 

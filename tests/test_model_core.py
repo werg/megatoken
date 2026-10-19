@@ -58,14 +58,14 @@ def test_versioned_geometry_and_explicit_width_presets():
     assert (large.central_early_layer, large.n_stages, large.central_hidden) == (2, 16, 1024)
     assert (large.p_experts, large.u_experts, large.source_dim) == (64, 32, 256)
     assert (large.query_heads, large.kv_heads, large.attention_head_dim) == (4, 2, 128)
-    assert (large.history_slots, large.max_history_chunks) == (32, 1024)
+    assert large.max_history_chunks == 1024
     assert large.codec_noise_std == large.prior_noise_std == 0.1
-    assert (large.recent_history_chunks, large.archived_slots_per_chunk) == (64, 2)
-    cache_slots = (
-        large.history_slots * large.recent_history_chunks
-        + large.archived_slots_per_chunk * (large.max_history_chunks - large.recent_history_chunks)
+    cache_slots = large.n_facets * large.max_history_chunks
+    assert 2 * large.kv_heads * large.attention_head_dim * cache_slots * 2 == 33_554_432
+    assert not any(
+        field.name in {"history_slots", "recent_history_chunks", "archived_slots_per_chunk"}
+        for field in fields(ModelConfig)
     )
-    assert 2 * large.kv_heads * large.attention_head_dim * cache_slots * 2 == 4_063_232
     assert ModelConfig.from_dict(large.to_dict()) == large
     legacy = large.to_dict()
     del legacy["architecture_version"]
@@ -106,7 +106,11 @@ def test_observation_processes_new_input_immediately_and_skips_initial_sentinel(
     assert state.early.shape == state.final.shape == state.facets.shape
     assert core.dispatch_metrics()["p"]["routed_rows"].sum().item() == 0
     assert initial.history.slots == 0 and initial.final is None
-    projected = core.central.memory(state.final)
+    projected = core.central.memory(
+        state.final,
+        temporal_positions=initial.records_seen,
+        slot_codes=core.central.slot_codes(),
+    )
     torch.testing.assert_close(state.history.keys, projected.keys, rtol=0, atol=0)
     torch.testing.assert_close(state.history.values, projected.values, rtol=0, atol=0)
 
@@ -471,10 +475,17 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     assert len({id(stage.always.gate_up.weight) for stage in core.stages}) == 12
     assert len({id(stage.attention.query.weight) for stage in core.stages}) == 12
     assert all(layer.kv is None for layer in core.central.layers)
-    assert core.central.history_pool is None
+    assert not hasattr(core.central, "history_pool")
     assert (
         sum(name == "central.memory.key_value.weight" for name, _ in core.named_parameters()) == 1
     )
+    assert len(core.central.temporary_memories) == 3
+    assert sum(
+        name.startswith("central.temporary_memories.") and name.endswith(".key_value.weight")
+        for name, _ in core.named_parameters()
+    ) == 3
+    assert core.central.slot_embedding.shape == (config.n_facets, config.facet_dim)
+    assert all(core.central.layers[index].temporary_gate is not None for index in (1, 2, 3))
     assert sum(name == "u_always.gate_up.weight" for name, _ in core.named_parameters()) == 1
     assert not any("gdn" in name or "carry" in name for name, _ in core.named_parameters())
 
@@ -507,49 +518,91 @@ def test_fixed_pair_reduction_matches_incident_facet_average_and_gradient(effort
             torch.testing.assert_close(actual_grad, expected_grad, rtol=0, atol=0)
 
 
-def test_completed_old_history_uses_coarse_slots_with_live_writer_gradients():
-    config = ModelConfig.tiny(
-        max_history_chunks=4, recent_history_chunks=2, archived_slots_per_chunk=1
-    )
+def test_all_facets_remain_exact_until_whole_megatoken_eviction():
+    config = ModelConfig.tiny(max_history_chunks=4)
     core = FacetedCore(config)
     state = core.initial_state(1)
     raw = torch.randn(1, config.n_facets, config.facet_dim, requires_grad=True)
-    state = core.advance_raw(state, raw)
-    assert state.history.slots == 4 and state.history.archived_chunks == 0
-    state = core.advance_raw(state, torch.randn_like(raw))
-    assert state.history.slots == 8 and state.history.archived_chunks == 0
-    state = core.advance_raw(state, torch.randn_like(raw))
-    assert state.history.slots == 9 and state.history.archived_chunks == 1
+    chunks = []
+    for index in range(4):
+        source = raw if index == 0 else torch.randn_like(raw)
+        state = core.advance_raw(state, source)
+        slot_start = index * config.n_facets
+        keys = state.history.keys[:, :, slot_start : slot_start + config.n_facets].detach().clone()
+        values = (
+            state.history.values[:, :, slot_start : slot_start + config.n_facets].detach().clone()
+        )
+        chunks.append((keys, values))
+        assert state.history.slots == (index + 1) * config.n_facets
+        for earlier, (old_keys, old_values) in enumerate(chunks):
+            start = earlier * config.n_facets
+            torch.testing.assert_close(
+                state.history.keys[:, :, start : start + config.n_facets],
+                old_keys,
+                rtol=0,
+                atol=0,
+            )
+            torch.testing.assert_close(
+                state.history.values[:, :, start : start + config.n_facets],
+                old_values,
+                rtol=0,
+                atol=0,
+            )
+
+    # The oldest retained full-resolution input remains differentiable.
     core.predict_facets(state, effort=1).square().mean().backward()
     assert raw.grad is not None and raw.grad.norm() > 0
 
-    # Exactly two older records remain coarse, plus two complete recent ones;
-    # a fifth action evicts only the oldest coarse record.
-    for expected in (10, 10):
-        state = core.advance_raw(state.detach(), torch.randn_like(raw).detach())
-        assert state.history.slots == expected
-        assert state.history.archived_chunks == 2
+    state = core.advance_raw(state.detach(), torch.randn_like(raw))
+    assert state.history.slots == config.max_history_chunks * config.n_facets
+    for index, (keys, values) in enumerate(chunks[1:]):
+        start = index * config.n_facets
+        torch.testing.assert_close(
+            state.history.keys[:, :, start : start + config.n_facets],
+            keys,
+            rtol=0,
+            atol=0,
+        )
+        torch.testing.assert_close(
+            state.history.values[:, :, start : start + config.n_facets],
+            values,
+            rtol=0,
+            atol=0,
+        )
     assert state.records_seen.item() == 5
     assert state.history.keys.isfinite().all()
+    assert "archived_chunks" not in {field.name for field in fields(type(state.history))}
 
 
-def test_coarse_history_partial_reset_masks_all_previous_episode_evidence():
-    config = ModelConfig.tiny(
-        max_history_chunks=4, recent_history_chunks=2, archived_slots_per_chunk=1
-    )
+def test_partial_reset_masks_whole_retained_slots_and_oldest_chunk_eviction():
+    config = ModelConfig.tiny(max_history_chunks=3)
     core = FacetedCore(config).eval()
     state = core.initial_state(2)
     for _ in range(3):
         state = core.advance_raw(state, torch.randn(2, config.n_facets, config.facet_dim))
-    assert state.history.archived_chunks == 1
+    previous = state.history.keys.clone()
     reset = core.reset_state(state, rows=torch.tensor([True, False]))
+    assert reset.history.slots == 3 * config.n_facets
     assert reset.history.mask is not None
     assert not reset.history.mask[0].any()
     assert reset.history.mask[1].all()
-    next_raw = torch.randn(2, config.n_facets, config.facet_dim)
-    after = core.advance_raw(reset, next_raw)
-    assert after.history.archived_chunks == 2
+
+    after = core.advance_raw(reset, torch.randn(2, config.n_facets, config.facet_dim))
+    assert after.history.slots == 3 * config.n_facets
     assert after.history.mask is not None
-    assert not after.history.mask[0, : -config.history_slots].any()
-    assert after.history.mask[0, -config.history_slots :].all()
+    assert not after.history.mask[0, :-config.n_facets].any()
+    assert after.history.mask[0, -config.n_facets :].all()
     assert after.history.mask[1].all()
+    torch.testing.assert_close(
+        after.history.keys[1, :, :-config.n_facets],
+        previous[1, :, config.n_facets :],
+        rtol=0,
+        atol=0,
+    )
+
+
+def test_old_archive_settings_cannot_silently_change_full_slot_geometry():
+    config = ModelConfig.tiny().to_dict()
+    for removed in ("history_slots", "recent_history_chunks", "archived_slots_per_chunk"):
+        with pytest.raises(ValueError, match="Unknown model configuration fields"):
+            ModelConfig.from_dict({**config, removed: 2})

@@ -23,13 +23,14 @@ from .config import ModelConfig
 from .experts import ExpertBank
 from .frontend import SeedControlEncoder
 from .ingestion import ChunkEncoder
-from .layers import RMSNorm, SwiGLU, position_features_at
+from .layers import RMSNorm, SwiGLU
 from .routing import EpochRouter, RowRoute
 from .state import CoreState, KVHistory, RealizationContext, assert_cache_version
 
 ROLE_IDS = ROLE_TO_ID
 RECORD_ROLES = tuple(ROLE_TO_ID)
 EFFORTS = (1, 2, 3, 6)
+P_HISTORY_READ_STAGES = (3, 6, 9, 12)
 
 
 class PairStage(nn.Module):
@@ -94,7 +95,7 @@ class FacetRemix(nn.Module):
 
 
 class CentralProcessor(nn.Module):
-    """Dense contextual C with one shared KV owner and separate block readers.
+    """Dense contextual C with three temporary KV writers and one cached final writer.
 
     No prospective control, random draw, sparse P expert, or decoder owner is
     involved. Its derived features may be cached and reused until model weights
@@ -104,20 +105,30 @@ class CentralProcessor(nn.Module):
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
         self.config = c = config
+        # C1-C3 write intermediate KV read only by the next central block.
+        # C4's separate projection alone owns the cross-record cached KV.
+        self.temporary_memories = nn.ModuleList(
+            KVProjection(c.facet_dim, c.kv_heads, c.attention_head_dim, c.norm_eps)
+            for _ in range(c.central_layers - 1)
+        )
         self.memory = KVProjection(c.facet_dim, c.kv_heads, c.attention_head_dim, c.norm_eps)
         self.layers = nn.ModuleList(
-            DenseFacetBlock(c, c.central_hidden, shared_kv=True) for _ in range(c.central_layers)
+            DenseFacetBlock(
+                c, c.central_hidden, shared_kv=True, temporary_read=index > 0
+            )
+            for index in range(c.central_layers)
         )
         self.layer_codes = nn.Parameter(torch.empty(c.central_layers, c.facet_dim))
-        self.position_gate = nn.Parameter(torch.tensor(-2.0))
+        self.slot_embedding = nn.Parameter(torch.empty(c.n_facets, c.facet_dim))
+        self.slot_gate = nn.Parameter(torch.tensor(-2.0))
         self.role_embedding = nn.Embedding(len(RECORD_ROLES), c.facet_dim)
         nn.init.normal_(self.layer_codes, std=0.02)
+        nn.init.normal_(self.slot_embedding, std=0.02)
         nn.init.normal_(self.role_embedding.weight, std=0.02)
-        self.history_pool = (
-            nn.Linear(c.n_facets, c.history_slots, bias=False)
-            if c.history_slots < c.n_facets
-            else None
-        )
+
+    def slot_codes(self) -> Tensor:
+        """Stable learned facet addresses, independent of temporal RoPE phases."""
+        return self.slot_gate.sigmoid() * self.slot_embedding
 
     def forward(
         self,
@@ -129,124 +140,81 @@ class CentralProcessor(nn.Module):
         checkpointing: bool | None = None,
     ) -> tuple[Tensor, Tensor]:
         facets = raw.to(self.role_embedding.weight.dtype)
-        position = position_features_at(positions, self.config.facet_dim).to(facets.dtype)
+        addresses = self.slot_codes()
         facets = facets + self.role_embedding(roles)[:, None]
-        facets = facets + self.position_gate.sigmoid() * position[:, None]
+        facets = facets + addresses.to(facets.dtype)[None]
         projected = AttentionFeatures(history.keys, history.values, history.mask)
         early = None
+        temporary = None
         for index, layer in enumerate(self.layers):
             facets = facets + self.layer_codes[index]
+            projector = (
+                self.temporary_memories[index]
+                if index < len(self.temporary_memories)
+                else self.memory
+            )
             enabled = self.config.checkpoint_stages if checkpointing is None else checkpointing
             if enabled and self.training and torch.is_grad_enabled():
+                # Pin captured intermediates per layer for exact checkpoint replay.
                 facets = checkpoint(
-                    lambda value, block=layer: block(value, projected, projector=self.memory),
+                    lambda value, block=layer, writer=projector, previous=temporary: block(
+                        value,
+                        projected,
+                        projector=writer,
+                        temporary=previous,
+                        temporal_positions=positions,
+                        slot_codes=addresses,
+                    ),
                     facets,
                     use_reentrant=False,
                     preserve_rng_state=False,
                 )
             else:
-                facets = layer(facets, projected, projector=self.memory)
+                facets = layer(
+                    facets,
+                    projected,
+                    projector=projector,
+                    temporary=temporary,
+                    temporal_positions=positions,
+                    slot_codes=addresses,
+                )
+            # Stage i publishes only a short-lived, position-rotated KV for i+1.
+            # Neither these projections nor their tensors enter KVHistory.
+            if index < len(self.temporary_memories):
+                temporary = projector(
+                    facets, temporal_positions=positions, slot_codes=addresses
+                )
             if index + 1 == self.config.central_early_layer:
                 early = facets
         assert early is not None
         return early, facets
 
-    def write(self, final: Tensor, history: KVHistory) -> KVHistory:
-        """Append one selected input, compressing only *completed* old records.
+    def write(self, final: Tensor, history: KVHistory, positions: Tensor) -> KVHistory:
+        """Append all final-stage facets; evict only complete oldest megatokens.
 
-        Recent records keep every projected slot. Earlier records retain a
-        differentiable, masked average of contiguous slot groups. Thus attention
-        remains causal, while its steady-state input scales with coarse history
-        rather than 32 full KV slots per ancient tiny tool event.
+        Every retained record has exactly n_facets K/V slots for its lifetime.
+        No pooling, age-dependent compression, or re-projection of older records
+        occurs. Temporal RoPE is applied once, at the original record position.
         """
         c = self.config
-        pooled = (
-            final
-            if self.history_pool is None
-            else self.history_pool(final.transpose(1, 2)).transpose(1, 2)
+        added = self.memory(
+            final,
+            temporal_positions=positions,
+            slot_codes=self.slot_codes().to(final.dtype),
         )
-        added = self.memory(pooled)
-        archive = history.archived_chunks
-        recent_start = archive * c.archived_slots_per_chunk
-        recent_slots = history.slots - recent_start
-        recent_limit = c.recent_history_chunks * c.history_slots
-        evict = recent_slots + c.history_slots > recent_limit
-        archived = archive
-        keys, values = history.keys, history.values
-        mask = history.mask
-        if evict:
-            group = c.history_slots // c.archived_slots_per_chunk
-            first_key = keys[:, :, recent_start : recent_start + c.history_slots]
-            first_value = values[:, :, recent_start : recent_start + c.history_slots]
-            first_mask = (
-                None if mask is None else mask[:, recent_start : recent_start + c.history_slots]
-            )
-
-            def summarize(rows: Tensor) -> Tensor:
-                shaped = rows.reshape(
-                    rows.shape[0],
-                    rows.shape[1],
-                    c.archived_slots_per_chunk,
-                    group,
-                    rows.shape[-1],
-                )
-                if first_mask is None:
-                    return shaped.mean(3)
-                weight = first_mask.reshape(first_mask.shape[0], c.archived_slots_per_chunk, group)
-                numerator = (shaped * weight[:, None, :, :, None]).sum(3)
-                denominator = weight.sum(-1).clamp_min(1)[:, None, :, None]
-                return numerator / denominator
-
-            old_key = keys[:, :, :recent_start]
-            old_value = values[:, :, :recent_start]
-            rest_key = keys[:, :, recent_start + c.history_slots :]
-            rest_value = values[:, :, recent_start + c.history_slots :]
-            keep_archive = c.max_history_chunks - c.recent_history_chunks
-            if keep_archive:
-                keys = torch.cat((old_key, summarize(first_key), rest_key), dim=2)
-                values = torch.cat((old_value, summarize(first_value), rest_value), dim=2)
-                archived += 1
-                if mask is not None:
-                    first_group = first_mask.reshape(
-                        first_mask.shape[0], c.archived_slots_per_chunk, group
-                    ).any(-1)
-                    mask = torch.cat(
-                        (
-                            mask[:, :recent_start],
-                            first_group,
-                            mask[:, recent_start + c.history_slots :],
-                        ),
-                        dim=1,
-                    )
-            else:
-                # Tiny/reference configurations can retain only recent full KV.
-                keys, values = rest_key, rest_value
-                if mask is not None:
-                    mask = mask[:, recent_start + c.history_slots :]
-        keys = torch.cat((keys, added.keys), dim=2)
-        values = torch.cat((values, added.values), dim=2)
-        if mask is not None:
+        max_slots = c.max_history_chunks * c.n_facets
+        keys = torch.cat((history.keys, added.keys), dim=2)[:, :, -max_slots:]
+        values = torch.cat((history.values, added.values), dim=2)[:, :, -max_slots:]
+        mask = None
+        if history.mask is not None:
             mask = torch.cat(
                 (
-                    mask,
-                    torch.ones(
-                        mask.shape[0],
-                        c.history_slots,
-                        dtype=torch.bool,
-                        device=mask.device,
-                    ),
+                    history.mask,
+                    torch.ones(final.shape[0], c.n_facets, dtype=torch.bool, device=final.device),
                 ),
                 dim=1,
-            )
-        max_archived = c.max_history_chunks - c.recent_history_chunks
-        if archived > max_archived:
-            # Evict one *coarse* record, preserving the recent high-resolution tail.
-            drop = c.archived_slots_per_chunk
-            keys, values = keys[:, :, drop:], values[:, :, drop:]
-            if mask is not None:
-                mask = mask[:, drop:]
-            archived -= 1
-        return KVHistory(keys, values, mask, archived)
+            )[:, -max_slots:]
+        return KVHistory(keys, values, mask)
 
 
 class FacetedCore(nn.Module):
@@ -466,15 +434,9 @@ class FacetedCore(nn.Module):
         expected = (state.batch_size, c.kv_heads, history.slots, c.attention_head_dim)
         if history.keys.shape != expected or history.values.shape != expected:
             raise ValueError("Causal KV history has incompatible geometry")
-        maximum_slots = (
-            c.recent_history_chunks * c.history_slots
-            + (c.max_history_chunks - c.recent_history_chunks) * c.archived_slots_per_chunk
-        )
-        if not 0 <= history.archived_chunks <= c.max_history_chunks - c.recent_history_chunks:
-            raise ValueError("Invalid coarse KV archive count")
-        remaining = history.slots - history.archived_chunks * c.archived_slots_per_chunk
-        if remaining < 0 or remaining % c.history_slots or history.slots > maximum_slots:
-            raise ValueError("Causal KV history exceeds or violates the compact contract")
+        maximum_slots = c.max_history_chunks * c.n_facets
+        if history.slots > maximum_slots or history.slots % c.n_facets:
+            raise ValueError("Causal KV history must contain complete, full-resolution megatokens")
         if state.final is None and history.slots:
             raise ValueError("Only the empty initial sentinel may lack central features")
         if history.mask is not None and (
@@ -546,7 +508,7 @@ class FacetedCore(nn.Module):
             facets=raw_facets,
             early=early,
             final=final,
-            history=self.central.write(final, state.history),
+            history=self.central.write(final, state.history, state.records_seen),
             records_seen=state.records_seen + 1,
             last_record_ids=record_ids,
             role_ids=roles,
@@ -620,7 +582,7 @@ class FacetedCore(nn.Module):
         self._record_routing_loss(program.balance_loss, program.stabilization_loss)
         for stage in stages:
             facets = self._execute_pair_stage(
-                facets, stage, program.at(stage), effort, state.history
+                facets, stage, program.at(stage), effort, state.history, state.records_seen
             )
         return facets
 
@@ -678,15 +640,27 @@ class FacetedCore(nn.Module):
         route: RowRoute,
         effort: int,
         history: KVHistory,
+        positions: Tensor,
     ) -> Tensor:
         wrapper = self.stages[stage - 1]
         facets = facets + self.stage_codes[stage - 1]
-        projected = join_attention(
-            self.central.memory(facets),
-            AttentionFeatures(history.keys, history.values, history.mask),
+        addresses = self.central.slot_codes()
+        # For local-only attention every live facet shares time t, so RoPE
+        # cancels out of Q·K. Avoid unnecessary rotations at eight P sites.
+        reads_history = stage in P_HISTORY_READ_STAGES
+        time = positions if reads_history else None
+        live = self.central.memory(
+            facets, temporal_positions=time, slot_codes=addresses
         )
+        # Every P stage mixes live facets. Exactly four fixed stages also query
+        # old committed records; prediction never writes a new KV representation.
+        historical = (
+            AttentionFeatures(history.keys, history.values, history.mask)
+            if reads_history else None
+        )
+        projected = join_attention(live, historical)
         facets = facets + wrapper.attention_gate.sigmoid() * wrapper.attention.read(
-            facets, projected
+            facets, projected, temporal_positions=time, slot_codes=addresses
         )
         route_start = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
@@ -719,6 +693,7 @@ class FacetedCore(nn.Module):
         route: RowRoute,
         effort: int,
         history: KVHistory,
+        positions: Tensor,
     ) -> Tensor:
         start = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
@@ -730,12 +705,12 @@ class FacetedCore(nn.Module):
             start += count
         if self.config.checkpoint_stages and self.training and torch.is_grad_enabled():
             return checkpoint(
-                lambda value: self._pair_stage(value, stage, route, effort, history),
+                lambda value: self._pair_stage(value, stage, route, effort, history, positions),
                 facets,
                 use_reentrant=False,
                 preserve_rng_state=False,
             )
-        return self._pair_stage(facets, stage, route, effort, history)
+        return self._pair_stage(facets, stage, route, effort, history, positions)
 
     def _record_routing_loss(self, balance: Tensor, stabilization: Tensor) -> None:
         # Outside checkpointed operators: loss collection never affects routing.
@@ -858,7 +833,6 @@ class FacetedCore(nn.Module):
                 state.history.keys * keep[:, None, None, None],
                 state.history.values * keep[:, None, None, None],
                 history_mask & keep[:, None],
-                state.history.archived_chunks,
             ),
             records_seen=state.records_seen * keep,
             last_record_ids=torch.where(rows, -1, state.last_record_ids),

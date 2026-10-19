@@ -1,17 +1,18 @@
-# Architecture v4: shared central processing for prediction and realization
+# Architecture v6: full-resolution contextual KV and chronological RoPE
 
 **Both realization and next-chunk prediction use the central core's computation.**
 Byte ingestion and prediction meet at one format: **32 raw facets of width 512**.
 Each selected input is processed once by the central processor, which reads its
-causal history, writes one KV entry, and caches intermediate/final features.
+causal history, runs three gated temporary KV read/write transitions, writes
+**only final-stage KV** to persistent history, and caches early/final features.
 The realizer uses those features to emit the selected chunk. The next predictor
 uses the final features to produce the following input. Preserving the raw tensor
 means preserving the exact selected input; it does not bypass central processing.
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version 4, tape protocol version 4, and saved model geometry are
-explicit. Legacy CLI names `recurrent32` and `compact32` select the corresponding
+Architecture version 6, tape **format** version 4, and saved model geometry are
+explicit. Model/checkpoint geometry is intentionally incompatible with v5 archives and caches. Legacy CLI names `recurrent32` and `compact32` select the corresponding
 new presets for fresh construction only; old checkpoints are not reinterpreted.
 
 ## Computation and recurrence
@@ -22,7 +23,7 @@ flowchart TD
     G["One Gaussian draw"] --> Z
     Z --> C["Shared central processor C"]
     H["Earlier KV history"] --> C
-    C --> K["Append current KV once"]
+    C --> K["Append only final rotated KV once"]
     C --> R["Realizer: raw + early + final features"]
     Z --> R
     C --> M["Remix final central features"]
@@ -35,8 +36,9 @@ flowchart TD
 For selected input `z(i)` and history through input `i-1`, the computation is:
 
 ```text
-early(i), final(i) = C(z(i), history(i-1), role(i), position(i))
-history(i)         = append(history(i-1), KV(final(i)))
+early(i), final(i) = C1→C2→C3→C4(z(i), history(i-1), role(i), time(i))
+temporary(i)       = [KV1(C1), KV2(C2), KV3(C3)]  # local to this C pass
+history(i)         = append(history(i-1), RoPE(time(i), KV4(final(i))))
 output(i)          = R(z(i), early(i), final(i), public_schema_and_copies)
 mean(i+1)          = P(remix(final(i)), history(i), control(i+1), effort(i+1))
 z(i+1)             = mean(i+1) + sigma(i+1) * epsilon
@@ -55,7 +57,7 @@ needed.
 | Component | Default work | Main responsibility |
 | --- | --- | --- |
 | Ingestion E | Native byte/ngram frontend, exponential reduction, 2 dense facet blocks | Encode bytes into the common raw input format |
-| Central C | 4 dense residual attention/FFN blocks | Contextualize every selected input and write KV; expose blocks 2 and 4 |
+| Central C | 4 dense blocks, three temporary gated KV reads | Integrate historical context repeatedly; persist final KV only; expose blocks 2 and 4 |
 | Predictor P | Non-residual remix followed by 12 residual sparse stages | Build the next raw input distribution from processed context |
 | Realizer R | 32-slot seeding, progressive position expansion, contextual refinement | Deterministically emit structure, length, bindings, and lexical IDs |
 
@@ -68,8 +70,43 @@ C and E use the same `DenseFacetBlock` implementation with separate parameters.
 P owns one large packed expert bank shared across its twelve stages; each stage
 owns its query/output attention projections and dense residual branch. C owns
 its own small dense blocks. This separates gradient ownership while sharing
-operator code. One central KV projector serves C and P; each block has its own
-reader so depth-specific queries can use the same history representation.
+operator code. Three stage-specific intermediate KV projectors feed the next C
+block; one final KV projector alone owns persistent history and P's live keys.
+Each C/P block retains its own query/output reader. Intermediate KV is never
+added to the cache.
+
+### Central KV refinement and positional semantics
+
+C1 reads historical and current facets, then projects **KV1** from its updated
+state. C2 reads persistent history/current facets and KV1 using a **separately
+normalized, gated** temporary attention read, then emits KV2. C3 similarly reads
+KV2 and emits KV3. C4 reads KV3, then its updated final facets produce the
+**only** persistent KV4. Temporary writers have stage-specific parameters;
+the final writer is separately owned. There are no extra historical reads, and
+all 32 temporary slots are discarded at the end of this central pass.
+
+Every facet has a learned, stable **slot-address embedding** (32 x D) injected
+into the central representation and the query/key projection inputs. This is
+an *identity*, not an ordered facet position. Stage-specific content is
+distinguished by C blocks and projections. Every selected input writes all
+32 projected slots; no history pooling module or reduced-slot configuration exists.
+
+Historical Q and K use **interleaved 128D (64D compact) temporal RoPE** with
+fixed base **1,000,000** and FP64 phase construction / FP32 rotation arithmetic.
+The RoPE position is the committed **megatoken index**: all facets and all
+temporary C writers for record t use the same t. Neither C depth nor P effort
+advances time. Only KV4 is rotated at publication and cached; later queries
+rotate by their own chronological positions. Values are never rotated.
+Previously rotated keys are never pooled, averaged, or re-projected. They
+remain identical for their entire retention lifetime, and the oldest complete
+32-slot block is dropped only when the hard history bound is exceeded.
+
+Four fixed predictive stages—**P3, P6, P9 and P12**—read persistent history.
+The other eight P stages attend only to their current live facets. On those
+same-time-only reads the RoPE rotation would cancel, so it is omitted to avoid
+unnecessary kernels. All P stages retain their existing pair/expert arithmetic.
+This halves the number of full-history C/P reads from sixteen to eight with
+no change to persistent KV count, layout, or effort-dependent state.
 
 ### The prediction boundary
 
@@ -87,7 +124,8 @@ causal seed and fixed stage/row descriptors. Effort 1/2/3/6 selects the active
 pair rows. No additional routing exploration is sampled in served execution.
 
 Prospective control and effort enter P once, immediately after the remix.
-C processes an already selected input with role/position metadata and history;
+C processes an already selected input with role embedding, facet addresses,
+chronological RoPE and history;
 it does not inject the next request's controls into that historical record.
 This also lets fixed native histories replay without recomputing old P calls.
 
@@ -252,26 +290,26 @@ See [generation.md](generation.md) for tape and decoder details.
 | P experts / hidden width | `64 / 1536` | `64 / 1536` |
 | Stage-private P dense hidden width | 1,024 | 1,024 |
 | U experts / hidden width | `32 / 1024` | `32 / 1024` |
-| Recent / archived historical slots per input | 32 / 2 | 32 / 2 |
+| Historical slots per retained input, at every age | 32 | 32 |
 | Maximum cached chunks | 1,024 | 1,024 |
-| Maximum BF16 projected KV per episode | 3.875 MiB | 1.938 MiB |
+| Maximum BF16 projected KV per episode | 32 MiB | 16 MiB |
 | One FP32 raw sampled input | 64 KiB | 32 KiB |
 | Maximum output positions | 1,024 | 1,024 |
 
 Width 512 is the primary training choice: 32 slots still carry 16,384 coordinates,
 while full-width queries and 256-wide K and V avoid an unusually narrow history
-interface. Every C/P layer can read the same 32-slot history through its own query
-and output projection. `history_slots < n_facets` is a compressed ablation, not
-the default. Additional width and KV heads are configurable experiments; their
-quality benefit is not established by parameter counts.
+interface. Every retained input has all 32 slots for every C/P historical read,
+with separate stage-owned query/output projections. There is no alternate
+fewer-slot geometry. Additional width and KV heads remain configurable
+experiments; their quality benefit is not established by parameter counts.
 
-At production width a new full-resolution record uses 32,768 bytes of projected
-KV. The latest 64 records keep all 32 slots; earlier records are compressed to two
-masked, differentiable coarse slots. At 1,024 retained records this is
-`(64*32 + 960*2) * 1,024 = 4,063,232` bytes (3.875 MiB). The compression
-changes the trained history representation; it does not promise exact retrieval
-of every old full-resolution slot. This excludes raw facets, central caches,
-masks, decoder workspaces, and optimizer state.
+At production width, every full-resolution record uses 32,768 bytes of
+**rotated-final-only** BF16 KV. All 1,024 retained records keep their full
+32-slot K/V blocks: `1,024 records × 32 slots × 2 KV heads × 128 dimensions
+× 2 (K+V) × 2 bytes = 33,554,432 bytes` (**32 MiB**). The compact model
+uses **16 MiB**. Eviction drops whole oldest records; no age-dependent
+representation changes occur. These bounds exclude raw facets, central
+activations, masks, decoder workspaces, and training graphs.
 
 Counting a multiply and add as two FLOPs, one selected P row uses
 `6 x (2D) x (1536 + 1024)` matrix FLOPs. Full effort evaluates 96 pair rows per P
@@ -280,11 +318,14 @@ width 256. This scoped count excludes C, E, attention, routing, padding, output
 realization, nonlinearities, and backward. Parameter and FLOP arithmetic is not
 an end-to-end throughput measurement.
 
-At the 3,968-slot recent-plus-archive bound, sixteen C/P reads with 32
-queries and combined query width 512 require up to approximately 4.16 GFLOPs
-of historical QK/AV products. The old record summaries remain causally
-readable but are lower resolution. Actual concatenation, compression, and
-grouped expert costs still require Blackwell profiling.
+At the 32,768-slot full-history bound, eight C/P reads with 32 queries
+and combined query width 512 require up to approximately **17.18 GFLOPs**
+of historical QK/AV products, before projections. Three additional 32-slot
+temporary C reads cost about 3.15M MACs in QK/AV products. This is
+approximately **8.26×** the historical attention arithmetic of the former
+recent-plus-archive representation at its bound; it is not a measured
+end-to-end slowdown. Full-history concatenation, activation memory, and
+grouped expert costs require Blackwell profiling.
 
 Unpadded attention passes `attn_mask=None` to preserve fused SDPA eligibility.
 Partial resets and padded/empty sources retain real masks. See the

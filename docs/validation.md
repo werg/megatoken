@@ -140,12 +140,14 @@ megatoken --json-output validation/32x256-v4-parameters.json \
 ```
 
 The production vocabulary has 157,184 allocated rows. Both presets allow 1,024
-output positions and retain 32 projected KV slots per selected input. At 1,024
-cached chunks, the new recent-plus-coarse archive uses about 3.875 MiB of projected
-KV for the primary episode and 1.938 MiB for the smaller preset, rather than
-retaining full-resolution KV for all older records. These figures exclude central/raw caches and training
-graphs. Arithmetic and memory scope are documented in
-[architecture.md](architecture.md).
+output positions and retain all 32 projected KV slots of every cached input,
+including the oldest retained megatoken. At the 1,024-chunk bound, this requires
+**32 MiB** of BF16 KV per primary episode and **16 MiB** for the smaller
+preset. These v6 geometry calculations supersede the earlier archived-history
+estimate; they do not constitute an on-device fit measurement. Central/raw caches
+and training graphs are additional. The v4 tests and receipts recorded above
+remain historical; current v6 CI evidence must be checked on its PR.
+See [architecture.md](architecture.md).
 
 The pinned tokenizer revision is `inclusionAI/Ling-3.0-tiny` at
 `9a98e35fe1c9ee255f78dd64771c7ae15a799481`. The byte-preserving production codec

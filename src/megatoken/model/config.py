@@ -6,7 +6,7 @@ import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-ARCHITECTURE_VERSION = 4
+ARCHITECTURE_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -24,10 +24,7 @@ class ModelConfig:
     central_hidden: int = 1024
     prediction_layers: int = 12
     remix_hidden: int = 1024
-    history_slots: int = 32
     max_history_chunks: int = 1024
-    recent_history_chunks: int = 64
-    archived_slots_per_chunk: int = 2
     source_dim: int = 256
     byte_dim: int = 8
     source_stride: int = 8
@@ -60,7 +57,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: shared central processing requires version 4; "
+                "Incompatible architecture version: full-resolution temporal KV requires version 6; "
                 "earlier facet checkpoints cannot be loaded as this architecture"
             )
         positive = (
@@ -87,10 +84,7 @@ class ModelConfig:
             "eligible_experts",
             "router_dim",
             "remix_hidden",
-            "history_slots",
             "max_history_chunks",
-            "recent_history_chunks",
-            "archived_slots_per_chunk",
             "query_heads",
             "kv_heads",
             "attention_head_dim",
@@ -109,18 +103,12 @@ class ModelConfig:
             value = getattr(self, name)
             if not math.isfinite(value) or not math.exp(-4.0) < value < math.exp(1.0):
                 raise ValueError(f"{name} must lie strictly within exp(-4) and exp(1)")
-        if self.history_slots > self.n_facets:
-            raise ValueError("history_slots cannot exceed n_facets")
-        if self.recent_history_chunks > self.max_history_chunks:
-            raise ValueError("recent history cannot exceed the retained record count")
-        if self.archived_slots_per_chunk > self.history_slots or (
-            self.history_slots % self.archived_slots_per_chunk
-        ):
-            raise ValueError("archive slots must evenly divide the per-record KV slots")
         if self.n_facets % 4:
             raise ValueError("n_facets must be divisible by four for pair schedules")
         if self.query_heads % self.kv_heads:
             raise ValueError("kv_heads must divide query_heads")
+        if self.attention_head_dim % 2:
+            raise ValueError("attention_head_dim must be even for temporal RoPE")
         if not self.ngram_orders or any(order < 1 or order > 8 for order in self.ngram_orders):
             raise ValueError("ngram_orders must contain orders in [1, 8]")
         if self.ngram_rows <= self.exact_rows:
@@ -154,10 +142,7 @@ class ModelConfig:
             self.central_layers,
             self.central_early_layer,
             self.prediction_layers,
-            self.history_slots,
             self.max_history_chunks,
-            self.recent_history_chunks,
-            self.archived_slots_per_chunk,
             self.kv_heads,
             self.attention_head_dim,
         )
@@ -184,19 +169,13 @@ class ModelConfig:
             u_always_hidden=24,
             router_dim=16,
             remix_hidden=48,
-            history_slots=4,
             max_history_chunks=8,
-            recent_history_chunks=8,
             attention_head_dim=8,
             vocab_size=256,
             output_rank=16,
             max_capacity=128,
         )
         values.update(overrides)
-        if "recent_history_chunks" not in overrides:
-            values["recent_history_chunks"] = min(
-                values["recent_history_chunks"], values["max_history_chunks"]
-            )
         return cls(**values)
 
     @classmethod
@@ -214,11 +193,9 @@ class ModelConfig:
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
-        if "recent_history_chunks" not in values or "archived_slots_per_chunk" not in values:
-            raise ValueError("Saved v4 config lacks the explicit hierarchical history contract")
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=4; "
+                "Saved model configuration must explicitly declare architecture_version=6; "
                 "legacy checkpoints require an explicit migration, not default replacement"
             )
         unknown = set(values) - {field.name for field in fields(cls)}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -9,6 +10,33 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from .layers import RMSNorm
+
+
+def temporal_rope(x: Tensor, positions: Tensor, *, base: float = 1_000_000.0) -> Tensor:
+    """Rotate query/key heads by committed megatoken position, never facet index.
+
+    Input x is [batch, heads, slots, head_dim], positions is [batch].
+    FP64 phase construction preserves adjacent late-record differences; rotation
+    arithmetic uses FP32 and returns the original dtype for fused attention.
+    """
+    if x.ndim != 4 or x.shape[-1] % 2:
+        raise ValueError("Temporal RoPE requires four-dimensional even-width heads")
+    if positions.shape != (x.shape[0],):
+        raise ValueError("RoPE requires one committed time per batch row")
+    dim = x.shape[-1]
+    frequency = torch.exp(
+        -math.log(base) * torch.arange(0, dim, 2, device=x.device, dtype=torch.float64) / dim
+    )
+    angles = positions.to(device=x.device, dtype=torch.float64)[:, None, None, None]
+    angles = angles * frequency[None, None, None, :]
+    cosine = angles.cos().float()
+    sine = angles.sin().float()
+    paired = x.float().reshape(*x.shape[:-1], dim // 2, 2)
+    left, right = paired.unbind(-1)
+    rotated = torch.stack(
+        (left * cosine - right * sine, left * sine + right * cosine), dim=-1
+    )
+    return rotated.reshape_as(x).to(dtype=x.dtype)
 
 
 @dataclass(frozen=True)
@@ -65,15 +93,25 @@ class AttentionRead(nn.Module):
         self.query = nn.Linear(query_dim, query_heads * head_dim, bias=False)
         self.output = nn.Linear(query_heads * head_dim, query_dim, bias=False)
 
-    def read(self, query: Tensor, features: AttentionFeatures) -> Tensor:
+    def read(
+        self,
+        query: Tensor,
+        features: AttentionFeatures,
+        *,
+        temporal_positions: Tensor | None = None,
+        slot_codes: Tensor | None = None,
+    ) -> Tensor:
         if not features.keys.shape[2]:
             return torch.zeros_like(query)
         batch, count, _ = query.shape
+        addressed = query if slot_codes is None else query + slot_codes.to(query.dtype)
         q = (
-            self.query(self.query_norm(query))
+            self.query(self.query_norm(addressed))
             .reshape(batch, count, self.query_heads, self.head_dim)
             .transpose(1, 2)
         )
+        if temporal_positions is not None:
+            q = temporal_rope(q, temporal_positions)
         result = F.scaled_dot_product_attention(
             q,
             features.keys.to(q.dtype),
@@ -92,15 +130,21 @@ def _encode(
     kv_heads: int,
     head_dim: int,
     mask: Tensor | None,
+    temporal_positions: Tensor | None = None,
+    slot_codes: Tensor | None = None,
 ) -> AttentionFeatures:
     batch, count, _ = source.shape
-    kv = projection(norm(source)).reshape(batch, count, 2, kv_heads, head_dim)
+    addressed = source if slot_codes is None else source + slot_codes.to(source.dtype)
+    kv = projection(norm(addressed)).reshape(batch, count, 2, kv_heads, head_dim)
     key, value = kv.unbind(2)
-    return AttentionFeatures(key.transpose(1, 2), value.transpose(1, 2), mask)
+    keys = key.transpose(1, 2)
+    if temporal_positions is not None:
+        keys = temporal_rope(keys, temporal_positions)
+    return AttentionFeatures(keys, value.transpose(1, 2), mask)
 
 
 class KVProjection(nn.Module):
-    """A single normalized KV owner shared by central and predictive readers."""
+    """Normalized projection; C has three private temporary and one final KV owner."""
 
     def __init__(self, source_dim: int, kv_heads: int, head_dim: int, eps: float = 1e-6):
         super().__init__()
@@ -108,8 +152,24 @@ class KVProjection(nn.Module):
         self.source_norm = RMSNorm(source_dim, eps)
         self.key_value = nn.Linear(source_dim, 2 * kv_heads * head_dim, bias=False)
 
-    def forward(self, source: Tensor, mask: Tensor | None = None) -> AttentionFeatures:
-        return _encode(source, self.source_norm, self.key_value, self.kv_heads, self.head_dim, mask)
+    def forward(
+        self,
+        source: Tensor,
+        mask: Tensor | None = None,
+        *,
+        temporal_positions: Tensor | None = None,
+        slot_codes: Tensor | None = None,
+    ) -> AttentionFeatures:
+        return _encode(
+            source,
+            self.source_norm,
+            self.key_value,
+            self.kv_heads,
+            self.head_dim,
+            mask,
+            temporal_positions,
+            slot_codes,
+        )
 
 
 class AttentionBranch(AttentionRead):
