@@ -373,6 +373,7 @@ def forward_meridian_batch(
     from megatoken.training.engine import episode_control_payload
 
     multi = MultiTrackGenerator(model)
+    store = TensorAssetStore(config.media_root or config.dataset)
     state = multi.tracks.initial_state(1, device=device)
     if state.model_version != model_version:
         # The core owner is versioned by the outer training loop.
