@@ -127,7 +127,11 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, external, mode
     assert model.media_realizers.visual_filter[0].weight.grad is not None
     assert model.core.frontend.facet_queries.grad is not None
     if external:
-        assert model.core.media_stems.external_audio.weight.grad is not None
+        # Recurrent observations are intentionally detached from main gradients.
+        if mode == "bootstrap":
+            assert model.core.media_stems.external_audio.weight.grad is not None
+        else:
+            assert model.core.media_stems.external_audio.weight.grad is None
     counters = batch_counters([batch])
     assert counters.G == len(episode.records)
     assert counters.media_events == 2
