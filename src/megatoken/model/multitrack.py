@@ -38,6 +38,7 @@ from .attention import AttentionFeatures, join_attention
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .media import MediaOutputSpec, MediaTrainTarget
 from .routing import RowRoute
+from .relations import SelectedRelation
 from .state import KVHistory, RealizationContext, assert_cache_version
 
 if TYPE_CHECKING:
@@ -776,6 +777,7 @@ class MultiTrackGenerator:
         effort: int = 6,
         teacher_forced_action: bool = False,
         generator: torch.Generator | None = None,
+        relations: Sequence[SelectedRelation] = (),
     ) -> GroupSupervisedResult:
         """One production grouped objective with bootstrap or live recurrent state.
 
@@ -923,6 +925,11 @@ class MultiTrackGenerator:
             a, a_count = prior_terms[name]
             b, b_count = recon_terms[name]
             sums[name], counts[name] = a + b, a_count + b_count
+        relations = tuple(relations)
+        related, related_count = self.generator.relations(
+            sampled, target_raw, modalities, relations,
+        )
+        sums["relation_semantic"], counts["relation_semantic"] = related, related_count
         sums["facet_prediction"] = correspondence
         counts["facet_prediction"] = target_raw.numel() if mode == "bootstrap" else 0
 
@@ -953,6 +960,7 @@ class MultiTrackGenerator:
         expected = {
             name: sum(plan.denominators[name] for plan in plans) for name in LOSS_NAMES
         }
+        expected["relation_semantic"] = len(relations)
         if expected != counts:
             raise RuntimeError(
                 f"Grouped loss plan drift: expected {expected}, observed {counts}"
@@ -979,6 +987,8 @@ class MultiTrackGenerator:
             "prior_lexical_loss_sum": sums["lexical"].detach(),
             "reconstruction_lexical_loss_sum": sums["reconstruction"].detach(),
             "facet_prediction_loss_sum": correspondence.detach(),
+            "relation_semantic_loss_sum": related.detach(),
+            "relation_semantic_pairs": related_count,
             "facet_prediction_coordinates": counts["facet_prediction"],
             "encoder_alignment_loss_sum": alignment.detach(),
             "encoder_alignment_coordinates": counts["encoder_alignment"],
