@@ -16,8 +16,10 @@ import torch
 
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
+from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import EncodedRecord
 from megatoken.generation.targets import PreparedAction, PreparedTargets
+from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.tensors import byte_tensor
 from megatoken.tool_schema import (
