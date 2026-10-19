@@ -12,7 +12,8 @@ audio/image/video output heads have high perceptual quality.
 original media / pinned frozen donor features -> E -> [32,D] raw facets
 simultaneous observed meridian -> joint C4 -> one full-resolution shared KV
 prior P12 predicts multiple target tracks -> one joint sampled meridian
-C4 jointly contextualizes samples -> modality-specific R outputs
+joint sampled facets -> modality-specific R outputs (independent of C)
+joint sampled facets -> C4 / shared KV for the next P
 ```
 
 Audio frames, visual patches, and diffusion/vocoder steps never become

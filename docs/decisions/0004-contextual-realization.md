@@ -1,6 +1,8 @@
 # ADR 0004: reuse central processing for contextual realization
 
-Status: accepted for architecture version 4.
+Status: superseded by [ADR 0007](0007-direct-realization.md) for architecture v8.
+
+Historical context follows; it is not the current execution contract.
 
 ## Decision
 

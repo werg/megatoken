@@ -44,7 +44,7 @@ Avoid copying complete donor multimodal transformer contexts or K/V caches into 
 ### Realizer path
 
 ```text
-selected raw + early/final C + unified control + OutputSpec
+selected raw facets + explicit control + OutputSpec
    -> small Megatoken conditioning adapter (possibly cross-attention slots)
    -> frozen or LoRA-tuned pretrained acoustic / visual latent generator
    -> pinned decoder/vocoder/VAE
