@@ -87,6 +87,7 @@ class MeridianStep:
     offsets: tuple[int, ...]
     records: tuple[EncodedRecord, ...]
     plans: tuple[Plan, ...] = ()
+    modalities: tuple[str, ...] = ()
 
     @property
     def generated(self) -> bool:
