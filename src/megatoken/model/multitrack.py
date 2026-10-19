@@ -36,7 +36,7 @@ from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
-from .media import MediaOutputSpec
+from .media import MediaOutputSpec, MediaTrainTarget
 from .routing import RowRoute
 from .state import KVHistory, RealizationContext, assert_cache_version
 
@@ -632,10 +632,13 @@ class GroupGeneration:
 class _GroupedTeacherReadout(nn.Module):
     """Shared readout for normal and frozen-owner encoder-only group branches."""
 
-    def __init__(self, core: FacetedCore, decoder: nn.Module) -> None:
+    def __init__(
+        self, core: FacetedCore, decoder: nn.Module, media_realizers: nn.Module
+    ) -> None:
         super().__init__()
         self.core = core
         self.decoder = decoder
+        self.media_realizers = media_realizers
 
     def losses_for_selected(
         self, selected: MultiTrackState,
