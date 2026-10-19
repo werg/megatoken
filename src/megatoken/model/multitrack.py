@@ -547,14 +547,11 @@ class GroupGeneration:
     state: MultiTrackState
     tape: GroupActionTape
     log_prob: Tensor
+    media_outputs: tuple[Tensor | None, ...] = ()
 
 
 class MultiTrackGenerator:
-    """Text-first grouped serving, sharing a FacetedGenerator's trained weights.
-
-    The existing decoder, Gaussian scale, and all core parameters are reused.
-    This wrapper does not register, clone, or introduce another model.
-    """
+    """One shared P/C/Gaussian, with modality-specific deterministic realization."""
 
     def __init__(self, generator: FacetedGenerator) -> None:
         self.generator = generator
@@ -565,98 +562,124 @@ class MultiTrackGenerator:
         return None if encoded is None else encoded[None].to(device)
 
     @staticmethod
-    def _specs(specs: Sequence[ActionSpec] | None, count: int, capacity: int) -> tuple[ActionSpec, ...]:
+    def _specs(
+        specs: Sequence[ActionSpec | MediaOutputSpec] | None, count: int, capacity: int
+    ) -> tuple[ActionSpec | MediaOutputSpec, ...]:
         if specs is None:
             return (ActionSpec(max_tokens=min(512, capacity)),) * count
         values = tuple(specs)
-        if len(values) != count:
-            raise ValueError("One public output specification is required per event")
+        if len(values) != count or any(
+            not isinstance(spec, (ActionSpec, MediaOutputSpec)) for spec in values
+        ):
+            raise ValueError("One valid output specification is needed per track")
         return values
 
+    @staticmethod
+    def _spec_id(spec: ActionSpec | MediaOutputSpec) -> str:
+        if isinstance(spec, ActionSpec):
+            return spec.fingerprint
+        value = json.dumps(asdict(spec), sort_keys=True, separators=(",", ":")).encode()
+        return "media:" + hashlib.sha256(value).hexdigest()
+
+    def _realize(
+        self, state: MultiTrackState, specs: Sequence[ActionSpec | MediaOutputSpec],
+        control: Tensor | None,
+    ) -> tuple[tuple[bytes, ...], tuple[tuple[int, ...], ...],
+               tuple[bool, ...], tuple[Tensor | None, ...]]:
+        payloads, ids, validity, media = [], [], [], []
+        for index, spec in enumerate(specs):
+            context = self.tracks.realization_context(state, index)
+            if isinstance(spec, ActionSpec):
+                decoded = self.generator.decoder(self.generator.core, context, spec)
+                payloads.append(decoded.payload)
+                ids.append(decoded.emitted_ids)
+                validity.append(decoded.valid)
+                media.append(None)
+            else:
+                vector = None if control is None else control[:, index]
+                tensor = self.generator.media_realizers.realize(context, spec, vector)
+                payloads.append(tensor[0].detach().float().contiguous().cpu().numpy()
+                                .astype("<f4", copy=False).tobytes())
+                ids.append(())
+                validity.append(True)
+                media.append(tensor)
+        return tuple(payloads), tuple(ids), tuple(validity), tuple(media)
+
     @torch.no_grad()
-    def generate_text_group(
-        self,
-        state: MultiTrackState,
-        *,
-        tracks: Sequence[str],
-        controls: Sequence[bytes] | None = None,
-        specs: Sequence[ActionSpec] | None = None,
-        effort: int = 6,
+    def generate_group(
+        self, state: MultiTrackState, *, tracks: Sequence[str],
+        specs: Sequence[ActionSpec | MediaOutputSpec] | None = None,
+        controls: Sequence[bytes] | None = None, effort: int = 6,
         generator: torch.Generator | None = None,
     ) -> GroupGeneration:
+        self.tracks._validate(state)
         if state.batch_size != 1:
-            raise ValueError("Grouped text serving requires one independent session")
+            raise ValueError("Grouped serving requires one independent session")
         names = self.tracks._names(tracks, len(tracks))
-        controls = tuple(controls) if controls is not None else (b"",) * len(names)
-        if len(controls) != len(names):
-            raise ValueError("Controls must correspond to output events")
-        specifications = self._specs(specs, len(names), self.generator.config.max_capacity)
-        self.generator.core.routing_aux_loss(clear=True)
-        mean = self.tracks.predict_group(
-            state, tracks=names, control=self._controls(controls, state.device), effort=effort
-        )
-        distribution = self.generator.facet_distribution(mean)
-        raw = distribution.sample(generator)
+        payloads = tuple(controls) if controls is not None else (b"",) * len(names)
+        if len(payloads) != len(names) or any(not isinstance(x, bytes) for x in payloads):
+            raise ValueError("Every track needs a byte-exact causal control")
+        plans = self._specs(specs, len(names), self.generator.config.max_capacity)
+        core = self.generator.core
+        core.routing_aux_loss(clear=True)
+        encoded = self._controls(payloads, state.device)
+        mean = self.tracks.predict_group(state, tracks=names, control=encoded, effort=effort)
+        gaussian = self.generator.facet_distribution(mean)
+        raw = gaussian.sample(generator)
         roles = (ROLE_IDS["assistant"],) * len(names)
         committed = self.tracks.advance_group(
             state, raw, tracks=names,
             role_ids=torch.tensor([roles], device=state.device, dtype=torch.long),
         )
-        decoded = [
-            self.generator.decoder(
-                self.generator.core, self.tracks.realization_context(committed, index), spec
-            )
-            for index, spec in enumerate(specifications)
-        ]
-        density = distribution.log_prob(raw).sum()
-        raw_bytes = raw[0].detach().float().contiguous().cpu().numpy().astype(
-            "<f4", copy=False
-        ).tobytes()
+        output, emitted, valid, media = self._realize(committed, plans, encoded)
+        density = gaussian.log_prob(raw).sum()
         tape = GroupActionTape(
             version=GROUP_TAPE_VERSION,
             meridian_id=int(state.meridians_seen[0]),
             tracks=names,
             roles=roles,
-            controls=controls,
-            spec_fingerprints=tuple(spec.fingerprint for spec in specifications),
+            controls=payloads,
+            modalities=tuple(
+                "text" if isinstance(x, ActionSpec) else x.modality for x in plans
+            ),
+            spec_fingerprints=tuple(self._spec_id(x) for x in plans),
             codec_fingerprint=self.generator.codec.fingerprint,
             facet_shape=tuple(raw.shape[1:]),
-            raw_f32=raw_bytes,
+            raw_f32=raw[0].detach().float().contiguous().cpu().numpy()
+                .astype("<f4", copy=False).tobytes(),
             behavior_log_prob=float(density),
-            payloads=tuple(v.payload for v in decoded),
-            emitted_ids=tuple(v.emitted_ids for v in decoded),
-            valid=tuple(v.valid for v in decoded),
+            payloads=output, emitted_ids=emitted, valid=valid,
         )
-        self.generator.core.routing_aux_loss(clear=True)
-        return GroupGeneration(committed, tape, density)
+        core.routing_aux_loss(clear=True)
+        return GroupGeneration(committed, tape, density, media)
 
     @torch.no_grad()
-    def replay_text_group(
-        self,
-        state: MultiTrackState,
-        tape: GroupActionTape,
-        *,
-        specs: Sequence[ActionSpec] | None = None,
-        effort: int = 6,
-        atol: float = 1e-4,
-        rtol: float = 1e-5,
+    def replay_group(
+        self, state: MultiTrackState, tape: GroupActionTape, *,
+        specs: Sequence[ActionSpec | MediaOutputSpec] | None = None,
+        effort: int = 6, atol: float = 1e-4, rtol: float = 1e-5,
     ) -> GroupGeneration:
-        if int(state.meridians_seen[0]) != tape.meridian_id:
-            raise ValueError("Grouped tape belongs to another causal meridian")
+        self.tracks._validate(state)
+        if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
+            raise ValueError("Group replay requires the original causal meridian")
         if tape.codec_fingerprint != self.generator.codec.fingerprint:
-            raise ValueError("Grouped tape codec differs")
-        specifications = self._specs(specs, len(tape.tracks), self.generator.config.max_capacity)
-        if tuple(spec.fingerprint for spec in specifications) != tape.spec_fingerprints:
+            raise ValueError("Group replay codec identity mismatch")
+        plans = self._specs(specs, len(tape.tracks), self.generator.config.max_capacity)
+        modality_names = tuple("text" if isinstance(x, ActionSpec) else x.modality for x in plans)
+        if (tuple(self._spec_id(x) for x in plans) != tape.spec_fingerprints
+                or modality_names != tape.modalities):
             raise ValueError("Grouped tape output specifications differ")
+        core = self.generator.core
+        core.routing_aux_loss(clear=True)
+        encoded = self._controls(tape.controls, state.device)
         mean = self.tracks.predict_group(
-            state, tracks=tape.tracks, control=self._controls(tape.controls, state.device),
-            effort=effort,
+            state, tracks=tape.tracks, control=encoded, effort=effort
         )
-        distribution = self.generator.facet_distribution(mean)
         raw = tape.raw(state.device)
         if tuple(raw.shape[1:]) != tuple(mean.shape[1:]):
             raise ValueError("Grouped tape raw shape differs from model geometry")
-        density = distribution.log_prob(raw).sum()
+        gaussian = self.generator.facet_distribution(mean)
+        density = gaussian.log_prob(raw).sum()
         if not torch.isclose(
             density.float(), torch.tensor(tape.behavior_log_prob, device=state.device),
             atol=atol, rtol=rtol,
@@ -666,17 +689,28 @@ class MultiTrackGenerator:
             state, raw, tracks=tape.tracks,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
         )
-        decoded = [
-            self.generator.decoder(
-                self.generator.core, self.tracks.realization_context(committed, index), spec
-            )
-            for index, spec in enumerate(specifications)
-        ]
-        if (
-            tuple(v.payload for v in decoded) != tape.payloads
-            or tuple(v.emitted_ids for v in decoded) != tape.emitted_ids
-            or tuple(v.valid for v in decoded) != tape.valid
-        ):
+        output, emitted, valid, media = self._realize(committed, plans, encoded)
+        if (output != tape.payloads or emitted != tape.emitted_ids or valid != tape.valid):
             raise ValueError("Grouped realization replay mismatch")
-        self.generator.core.routing_aux_loss(clear=True)
-        return GroupGeneration(committed, tape, density)
+        core.routing_aux_loss(clear=True)
+        return GroupGeneration(committed, tape, density, media)
+
+    def generate_text_group(
+        self, state: MultiTrackState, *, tracks: Sequence[str],
+        controls: Sequence[bytes] | None = None,
+        specs: Sequence[ActionSpec] | None = None,
+        effort: int = 6, generator: torch.Generator | None = None,
+    ) -> GroupGeneration:
+        return self.generate_group(
+            state, tracks=tracks, specs=specs, controls=controls,
+            effort=effort, generator=generator,
+        )
+
+    def replay_text_group(
+        self, state: MultiTrackState, tape: GroupActionTape, *,
+        specs: Sequence[ActionSpec] | None = None, effort: int = 6,
+        atol: float = 1e-4, rtol: float = 1e-5,
+    ) -> GroupGeneration:
+        return self.replay_group(
+            state, tape, specs=specs, effort=effort, atol=atol, rtol=rtol,
+        )
