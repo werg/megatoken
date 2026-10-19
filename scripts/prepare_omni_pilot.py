@@ -42,10 +42,12 @@ def make_episode(
     red, blue = (int(n) for n in rng.integers(4, 12, 2))
     used_red, used_blue = (int(n) for n in rng.integers(1, 4, 2))
     remain_red, remain_blue = red - used_red, blue - used_blue
+    # Hide both initial counts from text. Red is observable only in
+    # the visual bar; blue is observable only in the acoustic pitch.
     visual_modality = "video" if index % 2 else "image"
     if visual_modality == "video":
         source_image = store.put(
-            np.stack((_picture(red, blue), _picture(red - 1, blue + 1))),
+            np.stack((_picture(red, 0), _picture(red, 0))),
             modality="video", fps_num=8,
         )
         target_image = store.put(
@@ -56,12 +58,12 @@ def make_episode(
             modality="video", fps_num=8,
         )
     else:
-        source_image = store.put(_picture(red, blue), modality="image")
+        source_image = store.put(_picture(red, 0), modality="image")
         target_image = store.put(
             _picture(remain_red, remain_blue), modality="image",
         )
     source_audio = store.put(
-        _tone(red + blue), modality="audio", sample_rate=16000,
+        _tone(blue), modality="audio", sample_rate=16000,
     )
     target_audio = store.put(
         _tone(remain_red + remain_blue), modality="audio", sample_rate=16000,
@@ -74,7 +76,7 @@ def make_episode(
 
     records = (
         PhysicalRecord("inventory", "user",
-                       f"Bin contains {red} red and {blue} blue parts.".encode()),
+                       b"The camera bar shows red stock; tone pitch encodes blue stock."),
         PhysicalRecord("shipment", "user",
                        f"Remove {used_red} red and {used_blue} blue parts.".encode()),
         PhysicalRecord("camera", "user", source_visual.to_bytes(),
