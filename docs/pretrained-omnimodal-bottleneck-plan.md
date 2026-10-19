@@ -1,569 +1,720 @@
-# Pretrained omnimodal components through a shared 32-facet bottleneck
+# Pretrained omnimodal components and concordant multi-track training
 
-**Status:** Implementation plan and architectural decisions; not a claim of implemented pretrained integration or measured model quality.
+**Status:** Agreed development direction and implementation plan. Proposed schemas, mixtures, acquisition targets, and objectives below are not yet executable production configurations or measured model capabilities.
 
-**Date:** 2026-10-19.
+**Revision:** 2, 2026-10-19.
 
-**Reviewed repository baseline:** `main` at `8e71d8fbab494873bb7d89164b43c72c9b193dd0`, after the media-training integration in PR #13.
+**Reviewed repository baseline:** `main` at `011e3603132337ea6104f6a5cdaee8b68cb53ac3`, including media-training integration and PR #15's direct raw-facet realization in architecture v8.
 
-**Scope:** Choose a small number of trained components, define exactly how they connect to Megatoken, and extend the existing grouped learner. Preserve information-dense megatokens, one shared C/P/KV system, one control system, and optional loading of modality components.
+**Scope:** Keep Pocket TTS as the speech realization family; preserve the selected pretrained perception/visual components; make prompted, concordant generation and sequential editing central to training. All content crosses the existing 32-facet interface. Extend the current grouped learner rather than introducing another semantic model or training system.
 
-This document narrows the component choices in [omnimodal-architecture-and-training.md](omnimodal-architecture-and-training.md) and the implementation direction in [omni-media-pipeline.md](omni-media-pipeline.md). It supersedes earlier suggestions to give media realizers independent raw/early/final inputs, bypass speech facets with a transcript, or standardize a new video latent space before choosing a compatible pretrained generator. Existing implementation/status documents remain descriptions of their respective revisions.
+This revision supersedes this document's earlier `B = C_final` realization rule and its earlier training allocation. It also narrows the alternatives in [omnimodal-architecture-and-training.md](omnimodal-architecture-and-training.md). The authoritative contract here is **v8: R decodes selected raw Z directly; C supplies context for subsequent P predictions**. Earlier contextual-realization examples in other planning documents must not be copied into new implementation work.
 
-## 1. Decisions to implement
+## 1. Decisions and non-goals
 
-| Responsibility | Initial choice | Policy |
+| Responsibility | Selected direction | Boundary |
 | --- | --- | --- |
-| Speech understanding | **Whistle encoder embeddings** | Frozen; replace Wav2Vec2 as the preferred speech-semantic input path |
-| Speech acoustics and reference encoding | **The exact continuous Mimi variant shipped with Pocket TTS** | Frozen; fuse with speech-semantic features when acoustic information matters |
-| Speech realization | **Pocket-derived latent generator, initialized from trained weights, plus its matching Mimi decoder** | Adapt conditioning, then distill; do not learn speech acoustics from scratch |
-| Image/video understanding | **MiniCPM-V 4.7 visual tower and trained mergers** | Experiment B is the default; 16x compression normally, 4x for declared detail-sensitive inputs |
-| Visual understanding fallback | Existing SigLIP2 bridge | Switch only for a concrete extraction, memory, or quality problem |
-| Still-image realization | **Sana 0.6B and its matching DC-AE** | Preserve the trained generative prior; avoid introducing a video-sized dependency for still images |
-| Initial video realization | **SANA-Video 2B 720p and the exact LTX-2 VAE used by that checkpoint** | Keep the trained generator/codec pair together |
-| Paired audiovisual extension | **A matched LTX-2.5 audiovisual pack**, including separate audio/video codecs | Optional, later stage for genuinely coupled audiovisual output; not a dependency of speech or still images |
-| Semantic representation | **32 x 512**, with the existing compact width retained | No global facet increase |
-| Additional capacity | Additional ordinary **32-facet events** for dense regions or long event sequences | Sparse and explicitly accounted, not one core event per frame |
-| Realizer content interface | **One 32-facet block per selected event** | No independent text, source-latent, reference-media, or historical-KV input to an ordinary media realizer |
-| Controls | Existing unified control source, expanded upstream of selection | Voice/style/language instructions are represented in the selected facets, not separate downstream control systems |
+| Speech understanding | Whistle encoder embeddings | Frozen speech-semantic stem; existing Wav2Vec2 path is a fallback, not another required resident model |
+| Acoustic input and reference features | The exact continuous Mimi variant packaged with Pocket TTS | Optional acoustic view fused before the same 32-facet E readout |
+| Speech realization | **Pocket-derived generator plus its matching Mimi decoder** | Initialize from trained components, adapt to facets-only conditioning, then distill |
+| Ming TTS | **No required integration or acquisition dependency now** | Do not replace Pocket or add a second production speech codec; a future approved offline teacher would not change the native interface |
+| Image/video understanding | MiniCPM-V 4.7 visual tower and trained mergers | Experiment B is preferred; 16x normally and the supported 4x detail profile when explicitly requested |
+| Visual-ingestion fallback | Existing SigLIP2 bridge | Switch only for a concrete extraction, memory, or required-quality problem |
+| Still-image realization | Sana 0.6B with its matching DC-AE | Preserve the pretrained generative prior |
+| Initial video realization | SANA-Video 2B 720p with the exact LTX-2 VAE required by that checkpoint | Do not swap in a newer codec under unchanged generator weights |
+| General audiovisual extension | A matched LTX audiovisual component family | Optional later work for soundtrack/effects and paired AV; not a replacement for Pocket speech |
+| Semantic representation | **32 x 512 raw facets per event**; retain compact width | No global facet increase; use additional ordinary events selectively |
+| Realizer content interface | **One selected raw 32-facet block per event** | No independent transcript, prompt, source-latent, reference-media, C-feature, or historical-KV bypass |
+| Controls | One prompt-compatible system with explicit per-track/per-event requests | Resolve before P selects the output; preserve exact request revisions in replay |
+| Training unit | **One aligned source bundle, compiled into several causal task views** | Understanding, verbalization, translation, concordant generation, and edits share lineage and splits |
+| Optimization | Existing grouped bootstrap/recurrent learner and loss ledger | Reconstruction is an auxiliary; integrated causal tasks become the majority |
 
-### The most important revision
+No new per-modality reasoning transformer, learned low-level scheduler, correlated-latent subsystem, universal acoustic/visual engram table, or mandatory exact-media side channel is needed for this plan. Audio frames and video patches remain internal E/R work, not smaller central megatokens.
 
-**Reuse a trained generative prior, not only a trained VAE.** A decoder can reconstruct valid codec latents; it does not supply the model that predicts those latents from 32 facets. Consequently, adapting SANA-Video with its existing codec is the initial video path. Training a small generator from random initialization over newer LTX-2.5 latents is a later compression experiment, not the critical path.
+## 2. Current implementation and the remaining work
 
-The LTX-2.5 paired pack remains useful when synchronized general audio/video becomes the task. Its newer codec is not silently substituted under the SANA checkpoint. Separate codec versions can coexist behind the same Megatoken interface without sharing latent coordinates.
+The reviewed repository contains joint meridians, shared full-resolution KV, grouped text/media supervised training, checksummed tensor assets, E-owned external-feature projections, separate media-loss denominators, a `G` event budget, and procedural counterfactual examples. The merged v8 path decodes raw facets rather than raw/early/final contextual features. See [architecture.md](architecture.md), [media pipeline](omni-media-pipeline.md), and [grouped model](../src/megatoken/model/multitrack.py).
 
-The choices above are development defaults, not a tournament of parallel experiments. Only the stated fallback or a demonstrated bottleneck should reopen them.
+The next work is not another core redesign. It is:
 
-## 2. What the repository already provides
+- Replace the native waveform/pixel test heads with compatible pretrained latent realizers.
+- Extend raw/feature assets to codec-latent targets, multiple input views, native sample rates, and temporal grids.
+- Resolve real voice/style references and time-local per-event prompts upstream of selection.
+- Compile aligned bundles into actual grouped tasks and versioned edit trajectories.
+- Add relation losses and evaluation of sampled concordant outputs.
+- Correct the standalone bootstrap KL normalization described in Section 17.
 
-At the reviewed commit, the repository contains grouped text/media training, checksummed tensor assets, E-owned external-feature projections, a procedural audiovisual corpus, counterfactual siblings, separate media-loss denominators, and the `G` event budget. These are useful foundations; they need extending rather than replacing. See [media pipeline](omni-media-pipeline.md), [media model](../src/megatoken/model/media.py), [asset schema](../src/megatoken/data/media_assets.py), and [grouped training](../src/megatoken/training/meridians.py).
+One concrete gap is [training/meridians.py](../src/megatoken/training/meridians.py): it currently constructs one episode payload and broadcasts `(payload,) * len(step.tracks)`. Distinct track names are not a substitute for distinct task prompts. Another is that current prepared media targets and debug heads still use native PCM/pixels rather than the selected pretrained codec spaces.
 
-The current production media path still has several deliberate baseline limits:
+This document changes no runtime version, model code, live stage budget, downloaded weights, or dataset inventory.
 
-- Audio is standardized to 16 kHz, while the selected speech codec has a different native rate.
-- Cached inputs are features, but realization targets are raw waveform/pixel arrays.
-- The native media realizer fuses raw, early, and final core tensors and receives a separate control vector.
-- Voice/style references are serialized identities; that alone does not encode the referenced voice or image.
-- Small direct waveform/pixel regressors demonstrate gradients and geometry, not pretrained speech or visual synthesis.
+## 3. Precise v8 semantics: E/P select Z; R reads Z; C serves the future
 
-This plan replaces those boundaries incrementally. It does not require changing C4, P12, the shared expert topology, or the meridian causality model.
+Distinguish three representations:
 
-## 3. One bottleneck, with precise semantics
+| Symbol | Meaning |
+| --- | --- |
+| `F` | Ordered perceptual features produced by a frozen media encoder |
+| `Z` | Authoritative raw `[32,D]` facets produced by E or selected from P's Gaussian |
+| `U` | Sequence/grid of acoustic or visual latents in a specific decoder's coordinate system |
 
-### Distinguish three representations
-
-Use different names and schema identities for:
-
-1. **Perceptual features `F`:** ordered outputs of a frozen encoder, used as inputs to E.
-2. **Semantic facets `Z`:** the authoritative selected or encoded `[32, D]` block, processed by C and recorded in the action tape.
-3. **Codec latents `U`:** the sequence/grid consumed by a particular frozen media decoder.
-
-These are not interchangeable because they share a tensor shape or originate from the same media. Pocket acoustic channels, MiniCPM visual tokens, and LTX latent channels have different learned coordinate systems.
-
-### The ordinary path
+The paths are:
 
 ```text
-Available input media
-    -> frozen perceptual features F
-    -> small E adapter + shared reduction
-    -> raw Z [32,D]
-    -> joint C with other selected events and prior shared KV
-    -> one final contextual block B [32,D] per event
+Observed media -> frozen features F -> E -> raw Z
+                                           |
+                                           +-> joint C -> final KV/history -> later P
 
-Prior history + unified controls + output request
-    -> shared P predicts a group of raw Z blocks
-    -> select the joint raw Gaussian action
-    -> joint C, publishing final KV once
-    -> one B [32,D] per selected output
-    -> modality realizer predicts codec latents U
-    -> frozen matching codec decoder
-    -> physical media
+Past shared history + effective track prompts + references
+    -> joint P queries -> Gaussian selection of Z[tracks,32,D]
+                              |
+                              +-> R_modality(Z_event, structural_spec, noise)
+                              |      -> codec latents U -> matching decoder -> media
+                              |
+                              +-> joint C -> final KV/history -> later P
 ```
 
-**Initial dispatch rule: `B = C_final(event)`.** Use the already computed final central block. Do not add another cross-modal transformer or pass three independent raw/early/final memories into each realizer. Raw `Z` remains authoritative for recurrence, Gaussian density, and replay; `B` is its deterministic contextual materialization interface, not a second recurrent state.
+`C_final` is not the current realizer's input. Each selected group receives one joint C integration and one final-KV publication, while realization depends directly on its raw blocks. The two branches need not duplicate computation, but concurrent hardware execution is an optimization to measure.
 
-Observed inputs and direct injected codec-training examples enter through the same `advance_group` path. Thus reconstruction and causal generation exercise the same C-to-R interface. A standalone raw-only autoencoder may be a diagnostic, but its results do not substitute for this served path.
-
-A small width projection inside each realizer maps all 32 slots to its pretrained conditioning width. **Do not immediately pool those 32 slots into one vector or eight slots.** That would introduce another bottleneck before establishing whether the main one works.
-
-### What R can receive
-
-The ordinary media contract is:
+The ordinary media R interface is:
 
 ```python
 realize(
-    facets,       # [batch, 32, D]: the sole learned content condition
-    output_spec,  # codec/renderer identity, geometry, rates, allowed length
-    noise,        # explicit base randomness under a pinned protocol
+    raw_facets,  # [B,32,D], sole learned content condition
+    output_spec, # codec/renderer identity, geometry, rates, requested/predicted limits
+    noise,       # explicit policy-independent renderer randomness, if needed
 ) -> latent_payload
 ```
 
-R may expand positions, run its own local acoustic autoregression or denoising iterations, and use a frozen decoder. It cannot independently read an earlier transcript, arbitrary prompt embeddings, the original image/audio, source codec latents, or the global history. Output specifications must not conceal captions, speaker-reference embeddings, or other content-bearing side inputs.
+Map all 32 facets to the donor's conditioning width initially. Do not silently introduce a second eight-slot bottleneck. The original text/schema-copy contract can remain for typed/text outputs; it does not authorize a speech renderer to re-read the transcript.
 
-The existing exact text-copy and schema-formatting mechanisms need not be removed. They are explicit text/action contracts, not permission to give a speech or video realizer an undeclared content shortcut.
+P may attend across its live output queries. C may attend across already selected peers. Neither prospective P nor the raw-to-R branch may read encodings of withheld target peers. Current outputs do not become concordant merely because C will jointly process them afterward.
 
-### Same-meridian cooperation
+## 4. Concordance: shared meaning, not identical representations
 
-All selected peer blocks already communicate through joint C. For ordinary separate outputs, dispatch each resulting B to its own R. When a paired audiovisual pack is enabled, `realize_group` may consume the finite set of B blocks for its declared audio/video outputs. Two such events supply 64 facets in total, and must be accounted that way. The paired pack may exchange local denoising features internally; it still cannot access uncompressed input media or historical KV.
+Concordant outputs express the same intended content in appropriate forms: transcript and speech, translation text and speech, caption and image, video and soundtrack, or video and endpoint frames. They need not have equal lengths, codec coordinates, or semantic-facet tensors.
 
-This preserves the group semantics without claiming that a coupled two-event renderer is a single-event 32-facet capacity test.
+### Constrained concordance
 
-## 4. Speech ingestion: Whistle for meaning, Pocket-Mimi for acoustics
+For literal transcription, verbalization, grounded description, and translation, available evidence already constrains the content. Predict the requested outputs directly as one group when appropriate:
 
-### Whistle is the selected semantic stem
+```text
+source speech -> joint {source transcript, target-language text, target-language speech}
+```
 
-The official Whistle card documents a 16.9 MB quantized model, 16 kHz mono input, encoder embeddings every 80 ms, and 30-second native passes with longer-input windowing. It exposes an embedding API without requiring transcription. The file size is not an unquantized parameter count. [W1]
+The target-language text is a peer target, not an unacknowledged input to its speech peer. Keep direct joint training; an ordered text-then-speech task is an additional useful view, not a replacement for it.
 
-Use those embeddings as frozen input features. Train only their projection and the Megatoken reduction/refinement path initially. Package the native runtime and model revision explicitly; do not make differentiating through a quantized C++ runtime part of the training requirement.
+### Creative concordance
 
-Whistle is an ASR-oriented stem, not an audio autoencoder. Its documented speech-focused frontend and objective are reasons not to assume faithful timbre, music, or environmental-sound representation. [W2] This is a scope distinction, not a reason to reject it for spoken instructions, transcription, and translation.
+For underspecified creation, use an optional preceding **content-plan track**:
 
-### Add acoustic features before the same bottleneck
+```text
+request -> selected content plan
+        -> joint {caption, video, audio, first frame, last frame}
+```
 
-For speech reconstruction, voice references, and expressive delivery, supply Pocket's matching continuous acoustic features as an additional E input view:
+A normal text or structured plan chooses scene entities, actions, wording, speaker, and event timing from available instructions. All subsequent outputs condition on this one committed choice through P. This uses existing tracks and recurrence, not a new latent coordinator or a planner required for every transcription.
+
+Joint P attention coordinates predicted means, but the current diagonal Gaussian uses conditionally independent residual noise. With separate raw-only realizers, it does not guarantee correlated creative choices. A committed plan, consistent supervision, and relation objectives are the initial solution. Shared random seeds alone are not an alignment algorithm.
+
+A plan derived from training targets must be supervised as an earlier generated output, never relabeled as an externally supplied prompt. Report teacher-forced-plan adaptation separately from generation with the model's own plan. At evaluation, generate it unless the task genuinely supplies it.
+
+### Keep the interface honest
+
+The default still dispatches each selected event to its own R. Separate audio/video codecs can run in parallel. Fine synchronization must be learned and measured; independently plausible media are not necessarily aligned.
+
+A donor joint AV model may supply teacher targets. A future jointly coupled renderer must explicitly declare all raw blocks it consumes and its larger conditioning budget; it must not quietly reintroduce peer access into a supposedly single-event 32-facet test. Such a change is not a prerequisite for the initial curriculum.
+
+## 5. Speech components: one native codec family
+
+### Ingestion
+
+Use Whistle's frozen embeddings for speech meaning and optionally the exact Pocket-Mimi acoustic features for timbre/prosody or reconstruction. The previously selected Whistle profile uses 16 kHz input; the inspected Pocket configuration uses 24 kHz mono, 12.5 latent frames/second, and a 32-channel continuous acoustic representation. Verify these conventions per pinned checkpoint. [W1, P1, P2]
 
 ```text
 original audio master
-    -> deterministic 16 kHz view -> Whistle -> semantic features
-    -> deterministic 24 kHz view -> Pocket-Mimi -> acoustic features
-    -> timestamp-aware small fusion + shared E reduction
-    -> ONE [32,D] speech event
+  -> declared 16 kHz view -> Whistle semantic features
+  -> declared Pocket-rate view -> Pocket acoustic features when enabled
+  -> timestamp-aware projections, view identifiers, and shared E reduction
+  -> ONE [32,D] raw audio event
 ```
 
-Both views describe the same event; they are not separate semantic transformers or mandatory extra tracks. Each gets a small projection and view identifier. Their information must cross the same 32-facet interface.
+Equal nominal frame rates do not imply equal frame origins or receptive fields. Preserve padding, offsets, masks, window boundaries, and the deterministic overlap/trimming policy. Long inputs may require several encoder windows but still form one semantic event. During prefix-limited tasks, no window may include audio unavailable at the decision boundary.
 
-The nominal 80 ms rate is convenient but does not establish exact frame alignment. Preserve origins, receptive-field offsets, padding, and valid spans; align by timestamps, not only by array index. Long Whistle windows can have boundary effects because the encoder sees a completed local window. Use a fixed window/overlap/trimming policy and record it in the extractor fingerprint.
+Use an explicit missing-view mask and view-dropout training. Choose the profile from the task and available inputs, not from hidden future targets. A speech-recognition stem need not preserve arbitrary music or environmental sounds; general-audio tasks require an appropriate acoustic input/decoder profile rather than mislabeled speech support.
 
-**One trained audio adapter supports missing views.** Train view dropout with an explicit presence mask, so speech-only deployments can omit the acoustic encoder. Select the ingestion profile before reading supervision; never enable an acoustic view because a hidden future target happens to require it.
+### Realization and distillation
 
-Wav2Vec2 remains a working fallback and offline teacher. It is not another mandatory resident model. Environmental audio outside the selected speech codec's demonstrated scope belongs to the later general-audio pack.
+Pocket remains the selected native speech path. Its released code exposes continuous codec encoding/decoding, generator conditioning, normalization, and training/distillation machinery. The acoustic channel count of 32 is unrelated to Megatoken's 32 facet slots. [P1-P4]
 
-## 5. Speech realization: distill Pocket latents without a transcript bypass
+1. Pin the Pocket generator, codec, normalization buffers, and supported language/profile.
+2. Initialize the student latent generator/flow head from trained weights; keep the matching decoder frozen.
+3. Project raw `Z[32,D]` to the original prefix-conditioning width, preserving structural BOS/EOS conventions.
+4. Train the projection, then limited conditioning/backbone LoRA as necessary.
+5. Remove the student's original text and voice-prefix content path from native execution. Such inputs may remain on the teacher side for target generation.
+6. Distill depth or acoustic sampling steps only after full facets-only rollouts work.
 
-### Pin the correct codec contract
+Cache codec latents from real recordings and exact pre-decoder latent trajectories from Pocket-generated speech. Keep real recordings prominent. Verify teacher transcripts, names, numbers, and requested delivery; requested style is not automatically a realized style label.
 
-Pocket's inspected English configuration specifies 24 kHz mono audio, 12.5 latent frames/second, a 32-dimensional inner latent, and a six-layer 1024-wide generator backbone. Its `encode_to_latent` and `decode_from_latent` operate on continuous latents; the implementation uses a `DummyQuantizer`, not Moshi's interchangeable-looking discrete RVQ interface. [P1, P2]
+Use the native acoustic flow objective and matched teacher trajectories. Framewise regression between unrelated stochastic readings with different timings is not meaningful. Evaluate free acoustic rollouts from selected facets, not only teacher-forced next-frame losses. Only language/profile combinations verified for the chosen components enter the initial generation curriculum; English/German is the initial priority, not a claim that one English checkpoint already covers every language.
 
-Record the exact Pocket codec weights, resampling, normalization, axis order, padding, and decoder-state convention. The flow model stores latent mean/standard-deviation buffers; caching normalized generator coordinates and caching codec coordinates must have distinct, explicit conventions. [P3]
+If another teacher is approved later, re-encode its waveform through the native Pocket codec. Never compare unrelated teacher codec coordinates directly. **Ming is neither a runtime dependency nor a required first-round data-generation step.**
 
-The number 32 in Pocket's **channels per acoustic frame** is unrelated to Megatoken's **facets per semantic event**. Do not tie those axes or their embeddings.
+## 6. Visual components and optional capacity
 
-### Start from a trained generator
+Retain MiniCPM-V 4.7 visual extraction as experiment B: export its visual tower/mergers, normally use the selected 16x profile, and use its detail profile for explicit OCR/small-object tasks. Do not load the donor language model merely to extract patches. Verify an extracted tower against its parent at a pinned revision, and count its actual parameters/resident memory rather than using the whole VLM's name. [V1, V2]
 
-The upstream training recipe includes teacher training and depth distillation to a smaller student. Reuse that engineering and trained weights rather than beginning with an untrained linear latent expander. [P4]
+Preserve spatial/crop coordinates, frame order, local time, and masks until E performs reduction. Where reconstruction or editing needs appearance details that semantic features discard, a matching codec-latent input view may enter E as well. It must still cross Z; no source-latent skip connection to R.
 
-Initial implementation:
+Keep pretrained generators paired with their exact codecs: Sana/DC-AE for stills and the selected SANA-Video/LTX-2 combination for initial video. A newer VAE is not a compatible substitute merely because its tensors have similar dimensions. Adapt donor conditioning to all 32 raw facets before further speed distillation. [I1, G1]
 
-1. Freeze a selected Pocket teacher and its matching codec.
-2. Initialize our speech R from the trained compact generator and flow head.
-3. Add a learned projection from `B[32,D]` to 32 vectors at the generator's conditioning width. Feed these through its prefix-conditioning interface, preserving required structural BOS/EOS conventions.
-4. Replace the student's original text/voice-prefix content with these vectors. Start with adapter training, then enable limited conditioning/backbone LoRA if necessary.
-5. Keep acoustic output projection, flow/sampler conventions, and Mimi decoding compatible with the chosen checkpoint.
-6. Only after useful direct facet-conditioned speech works, distill depth or sampling steps further.
+The later LTX audiovisual family is optional. Its separate codec components are useful for general sound/video work, but importing VAEs alone does not import a generative prior. Keep teachers and latent generators explicitly distinct from codec decoders. [G2]
 
-The original text-conditioned Pocket system is the quality baseline and teacher, not an alternate deployed semantic path. We may temporarily use both conditioning forms for a documented adaptation warm-up, but the completion criterion is **facets-only student conditioning**. Cache or generate the teacher's text/voice conditions only on the teacher side.
+### Do not increase the default facet budget
 
-### Exact TTS remains an integrated task
+First improve features, reduction, conditioning, and supervision. If a dense document region or complex scene still requires more detail, encode a small number of additional ordinary 32-facet events. Available global/detail crops may share a meridian on fixed reusable tracks; long temporal segments follow the normal event sequence.
 
-An exact transcript can be a preceding observed text event, or a text event selected in a preceding meridian. P predicts the speech Z from that context and the voice control; C produces B; R receives B only. It must not re-read the transcript directly.
+Report total events/facets per task. Five outputs contain 160 facets in aggregate, not one 32-facet representation. At current production KV geometry, a retained event uses 32 KiB, so a five-event group adds 160 KiB before other state/workspaces. More tracks also increase live attention and rendering work; shared parameters do not make them free.
 
-This is stricter than the earlier conversational suggestion. It makes word fidelity a real test of the bottleneck. Train names, numbers, punctuation-sensitive delivery, code-like strings, and corrections deliberately. For utterances exceeding a demonstrated reliable content budget, split into coherent speech events instead of hiding extra tokens in the renderer interface.
+Prefer 32 versus two semantically justified 32-facet events on a small difficult set before any global 64-facet experiment. Bigger edge models can offload perceptual/generative complexity but cannot recover source-specific information discarded by E. Plausible reconstruction is not evidence of faithful information retention.
 
-### Distillation targets and losses
+## 7. Aligned bundles: the unit of data acquisition
 
-Use two complementary target sources:
+An aligned bundle is an immutable collection of related source assets and annotations. A task compiler selects which members are inputs, which are outputs, and which relations to supervise. Do not curate a disconnected corpus for every task direction.
 
-- **Real paired speech:** encode licensed recordings through the exact Pocket codec. These targets preserve natural prosody, noise conditions, and speaker variation beyond a single teacher's habits.
-- **Teacher-generated speech:** supply known text and authorized reference voices to Pocket; capture the exact latent sequence immediately before its decoder, with its seed and normalization state. Verify that the decoded speech actually follows the transcript before keeping the pair.
-
-A matched latent target supports reconstruction/teacher-forced acoustic training. Arbitrary samples of the same utterance need not have matching durations or phase; do not average unrelated teacher trajectories using naive framewise MSE. Use the native conditional flow objective and, where supported, teacher flow/velocity distillation evaluated at the same noisy point and acoustic prefix.
-
-Retain teacher forcing only within local acoustic training. Evaluate full student rollouts conditioned on B, not on a target acoustic prefix. A useful flow loss under teacher forcing does not establish stable long-utterance synthesis.
-
-Speech realization state is local to the selected event. Initially reset decoder state at semantic event boundaries and use the codec's valid trimming/fade conventions. If continuity later requires carrying a codec tail, make that bounded, reconstructible physical-decoder state explicit; it must not become a private semantic history.
-
-## 6. Visual ingestion: MiniCPM-V 4.7, without its language model
-
-Make experiment B the standard path: the trained visual tower, its intermediate compression, and its final merger/projection. The official feature interface exposes the visual pipeline and supports 16x or 4x downsampling. [V1, V2]
-
-**Initial mode: 16x.** Use 4x for a declared detailed-reading profile such as OCR, dense interfaces, or small-object inspection. This is one pretrained tower with a supported compression setting, not two model families to benchmark indefinitely.
-
-Extract visual modules directly, or load a donor once offline and export the exact required submodules. Verify extracted features against the parent model at a pinned revision. A convenient `get_image_features` method does not itself guarantee that a naive loader avoided allocating the entire language model.
-
-Do not advertise the retained visual tower as a 1B model or infer its size from the full VLM's name. Count the exported visual/merger parameters and measured resident memory. Frozen towers still occupy memory and perform work; their training advantage is the absence of optimizer state and usually cached inference.
-
-Preserve crop coordinates, patch grids, frame order, timestamp offsets, and sampling policy until E's reduction. Do not globally average visual features before the model has a chance to select salient information. An image and a short video use the same visual feature family; the temporal reduction operates within a megatoken.
-
-For reconstruction/editing tasks, MiniCPM features alone may discard exact appearance. Permit an additional **matching visual-codec latent view into E**, analogous to the acoustic view for speech. It too passes through the same 32 facets. Do not pass that view directly into R or falsely describe semantic-only reconstruction as a lossless autoencoder.
-
-Use SigLIP2 only if the preferred extraction cannot be isolated reliably, exceeds the agreed resident budget, or fails a specific required feature task. Preserve this as a fallback, not a second default configuration.
-
-## 7. Image/video generation: keep pretrained generators and codecs paired
-
-### Still images
-
-Use the ordinary Sana 0.6B generator with its matching DC-AE, not a randomly initialized image decoder. The official checkpoint describes the compact generator and its deep-compression latent path. [I1]
-
-Train a 32-slot conditioning adapter at the original conditioning interface, then selected LoRA parameters. The original text encoder can supply teacher conditioning offline; it is not a required deployed content path after adaptation. Avoid adopting a heavily few-step-distilled variant before the new conditioning works; speed distillation is a later step.
-
-### Initial video pack
-
-Use the **SANA-Video 2B 720p checkpoint and its specified LTX-2 video VAE**. The official implementation identifies that pairing and distinguishes it from the 480p/Wan-VAE configuration. [G1]
-
-This is preferable to selecting LTX-2.5 latents and then having to train the entire video prior ourselves. Reuse the pretrained denoiser and train its facet-conditioning projection/LoRA. Start with short, moderate-resolution, codec-valid clips; extend duration after semantics and local motion survive the bottleneck.
-
-A pretrained checkpoint is not automatically resolution- or duration-invariant. Retain its latent scaling, channel order, timestep parameterization, scheduler, padding, and geometry rules. Enlarging E's clip budget and enlarging R's generation horizon are separate operations.
-
-### Later paired audiovisual pack
-
-LTX-2.5 explicitly packages separate video and audio codecs and both trained and distilled generation components. A lighter convolutional video decoding option is documented alongside the more expensive diffusion decoder. [G2]
-
-When joint general audio/video is required, adapt a **matched trained LTX audiovisual generator**, using one B block for audio and one for video. Keep its audio/video interaction mechanism inside group realization. Decode the two latent outputs with their respective codecs, potentially in parallel when resources permit.
-
-Start with the convolutional video decoder in this pack. Do not add diffusion fidelity rendering, multiple upscalers, or a prompt-enhancement model to the initial integration. The larger trainable generator can be optional/offloaded; compression into a smaller student comes after direct conditioning works.
-
-Do not replace the initial SANA pack's VAE with this newer VAE merely because both are called LTX. Matching nominal channel counts is insufficient. Compatibility requires the actual encoder/decoder transforms, scaling, packing, and trained generator distribution.
-
-### Separate speech and soundtrack tasks
-
-Pocket-Mimi remains the speech codec. The audiovisual pack's audio codec handles its paired soundtrack. These are distinct codec identities behind one audio event type, not independent reasoning/control systems. They need not be resident simultaneously.
-
-Independent audio/video decoders are natural for separate tracks. **Independent generation is not a synchronization method.** Early separate-track outputs may be only coarsely aligned. Fine lip/event synchronization belongs to paired realization training and the coupled pack, with explicit media-clock and duration conditions.
-
-The main measured result should be that the facets determine the requested scene, events, and sounds. Frozen codecs provide physical reconstruction competence, not guaranteed semantic consistency.
-
-## 8. Large encoders/realizers versus the core's intelligence budget
-
-Larger pretrained components can reduce the amount of phonetic recognition, texture synthesis, local motion modeling, and acoustic realism that C/P must learn. They do not eliminate cross-track reasoning, causal interpretation, grounding, or the need to encode requested details in B.
-
-A stronger encoder can pack *more relevant information* into the same coordinates. A stronger generator can fill unspecified detail using its learned prior. It cannot recover arbitrary source-specific information that never crossed the bottleneck. Distinguish **faithful retention** from **plausible regeneration** in both objectives and reports.
-
-A missing name in a transcript, a changed chart value, or the wrong actor cannot be excused by realistic output. Conversely, reproducing exact pixel noise is not the goal of a semantic scene generator.
-
-Keep four parameter/memory ledgers:
-
-| Ledger | Includes | Why |
-| --- | --- | --- |
-| Always-resident core | C/P, shared experts, common state/control modules | Semantic architecture budget |
-| Trainable modality parameters | E projections, R conditioning, selected LoRAs | Optimizer/gradient cost |
-| Optional frozen components | Perceptual encoders, pretrained generators, codecs | Loaded memory and compute, even without gradients |
-| Offline teachers | Full donor VLMs/TTS/video generators used for labels or distillation | Preparation cost, not a required inference dependency |
-
-Share *interfaces and compatible blocks*, not every parameter. Keep byte/ngram embeddings for text, transcripts, names, and prompts. Acoustic/visual latent coordinates should not be tied to arbitrary byte-ngram rows. Preserve shared P experts across modalities; keep E, P, and R parameter ownership distinguishable. Do not distort a pretrained renderer merely to force its incompatible hidden width into the existing U bank.
-
-## 9. Facet capacity: hold the default, add sparse semantic events
-
-### Why 32 remains the default
-
-At width 512, an event has 16,384 coordinates. That is 32 KiB in BF16 or 64 KiB as an FP32 raw action tape, before history and workspace allocations. These are storage counts, not measured information capacity.
-
-Pocket's configured latent rate gives a useful comparison: `12.5 frames/s * 32 channels = 400 scalars/s`. A 30-second speech segment has about 12,000 latent coordinates; a 60-second segment has about 24,000. These are calculated from [P1], not quality predictions. The shared facet block is not intrinsically tiny relative to this acoustic space, but robust word/prosody retention still depends on E/R and the noise objective.
-
-Video is more demanding. With the 720p SANA contract's 128 channels, 32x spatial compression, and 8x causal temporal compression, an illustrative 81-frame, 704x1280 clip has about `11 * 22 * 40 * 128 = 1,239,040` codec coordinates. That is approximately 76 times the facet coordinate count. This arithmetic explains why reconstruction requires selective information and a strong prior; it does not establish a required facet count. [G1]
-
-### Preferred capacity escalation
-
-1. Improve pretrained features and preserve coordinates/order through reduction.
-2. Use MiniCPM's existing detail mode when needed.
-3. Split genuinely dense content into a small number of ordinary 32-facet events.
-4. Only then consider a global geometry change.
-
-For a detailed document image, a global overview and one important region may be two observed events on fixed reusable `visual_global` and `visual_detail` tracks, in the same meridian when both are available. This is supported by the one-event-per-track rule without serializing simultaneous evidence unnecessarily. Keep source/crop relations explicit; do not invent one permanent track ID per crop.
-
-Long videos use coherent temporal segments on successive meridians. Neither case introduces per-frame semantic tokens. Generated dependent segments occur sequentially; jointly requested outputs can use a selected group. More events increase total conditioning and KV, so report the **total facets per task**, not only facets per event.
-
-### Trade-offs
-
-| Option | Capacity and cost | Decision |
-| --- | --- | --- |
-| 32 x 512 | Existing representation and schedules | Default |
-| Two 32-facet events where needed | Twice the semantic slots for that content, explicit source structure | First escape hatch |
-| 64 x 512 everywhere | Twice raw/KV slots per event; more attention and changed expert/remix geometry | Deferred global change |
-| Wider 32-facet vectors | More channel capacity but larger projections/expert math | Deferred |
-| Unbounded donor-feature access by R | Avoids the intended bottleneck | Not the architecture |
-
-At fixed per-event history count, doubling facets doubles stored slot count; both query/key dimensions of live attention can double, making that pairwise work four times larger. Overall latency does not necessarily quadruple. A two-event representation also costs additional slots; its advantage is applying capacity selectively and keeping the existing block geometry.
-
-Do not launch a broad 16/32/64 sweep. First compare 32 against two semantically justified 32-facet events on a small dense-content evaluation set. A 64-facet experiment is warranted only if retained information, rather than a weak encoder/renderer or bad supervision, is the demonstrated limit.
-
-Noise robustness matters more than pretending every floating-point bit is usable capacity. Track latent norm, signal/noise ratio, held-out fidelity, and sensitivity to modest perturbations. Do not let an autoencoder defeat its bottleneck simply by increasing latent amplitude without bound.
-
-## 10. Chunking and timing
-
-The reviewed text policy targets 512 reference tokens with a 768 soft and 1,024 hard bound. Use **roughly 256 transcript-equivalent tokens as the initial full speech target**, with 512 as an allowed larger semantic unit. Natural short utterances close underfilled. These are content targets, not a fixed speaking-rate assumption.
-
-A single speech megatoken may require several Whistle windows or many local Pocket frames. Keep encoder windowing, realizer steps, and transport packets separate from semantic commits. The current 60-second raw-audio bound must not be mistaken for the final architectural duration limit.
-
-For video understanding, start around a coherent 16-second event/shot segment, shortening at natural boundaries or high event density. Extend stable content only after temporal-order checks. Begin video **generation** with the selected pretrained pack's tested short-clip geometry, not an immediate mandate to generate 16 or 32 seconds from every B.
-
-Use rational sample/frame rates and a common media-clock origin. Codec frame rounding and output trimming must be deterministic. Predicted duration is a structural output learned from available context; a supplied duration is a public task condition. Ground-truth target length can drive a labeled teacher-forced loss branch, but must not silently become input to free-generation evaluation.
-
-Media timestamps do not change causal availability. Same-interval transcripts, translations, and audio can occupy different meridians. Keep core RoPE at logical meridian time; local temporal/spatial coordinates belong in the modality adapters.
-
-## 11. Unified controls, entirely before the media bottleneck
-
-Keep one `ControlBundle` for instructions, typed settings, reference identities, and per-track overrides. Resolve reference media and encode its features through the appropriate frozen stem plus a bounded learned reference adapter. A content hash alone is not a voice embedding.
-
-Those control/reference features condition P **before** the raw output group is selected. Ordinary context prompts remain equally valid. For the initial implementation, reference features may be a small transient set read during predictor initialization, then folded into its 32-facet queries; do not create an independent persistent control KV history.
-
-The selected Z, followed by C, must contain the intended voice, style, language, and content. R consumes B plus structural output parameters and randomness. Changing a reference after selection cannot retroactively change an already selected event.
-
-Train same-content/different-voice, same-voice/different-content, same-scene/different-style, and composed language/style instructions. Use reference clips distinct from target clips and hold out reference speakers/styles and content compositions. Preserve consent and provenance in the existing control/asset records; no additional authorization architecture is needed for this plan.
-
-For exact TTS, keep the transcript in causal context and score rendered word fidelity. Do not turn it into an R side input to make the auxiliary easier. A separately labeled external text-to-TTS baseline remains useful but is not evidence that the native bottleneck works.
-
-## 12. Training: reconstruction is a bridge, not the destination
-
-### Three complementary computations
-
-**Codec round-trip baseline:** `x -> codec encoder -> U -> codec decoder -> x_hat`. Establish what the frozen codec itself retains before blaming the shared bottleneck.
-
-**Same-path bottleneck reconstruction:** `x -> features -> E -> noisy Z -> C -> B -> R -> U_hat -> codec decoder`. Start with an empty or detached causal history so unrelated context cannot conceal missing information. This trains the modalities to communicate through the same interface used in deployment.
-
-**Integrated causal prediction:** `past tracks + controls -> P -> selected Z -> joint C -> B -> R`. Output targets are not encoded until after P has constructed the causal prior. This is the main capability objective.
-
-A learned prior/encoder correspondence and injected Gaussian noise make the auxiliary VAE-like. A flow loss, detached encoder target, and the repository's separate ownership rules do not automatically constitute a conventional jointly optimized ELBO. Name and report the actual objectives.
-
-### Basic latent loss
-
-Use each pretrained renderer's native objective initially. For a continuous target `U`, a new flow head can use the explicit convention:
+A speech bundle may contain:
 
 ```text
-s ~ Uniform(0,1), epsilon ~ Normal(0,I)
+original recording + source sample spans
+written text / normalized spoken form / verbatim transcript
+word or phrase timing and language
+speaker identity and eligible separate reference segments
+checked translation text and derived target speech
+controlled rereadings and subsequent edits
+source family, artifact versions, and derivation records
+```
+
+An audiovisual bundle may contain:
+
+```text
+original synchronized video and audio + clip interval
+visual caption / audio-event description / spoken transcript
+sampled/cropped video view and its actual endpoint frames
+optional translated narration, alternate styles, and edited versions
+clock, fps/sample rate, crop/sample mapping, source identities
+```
+
+### Different annotation meanings stay different
+
+- A transcript states what was said; it is not evidence that the described object is visible.
+- A visual caption describes the scene; it need not match the narration.
+- An audio-event description is not a speech transcript.
+- A written token sequence and its normalized spoken form can differ legitimately.
+- Source and translated speech correspond semantically but need not have equal duration or word order.
+
+Retain `written_text`, `spoken_form`, `verbatim_transcript`, and `display_caption` separately. Requests such as "transcribe verbatim", "read exactly", and "normalize for display" select different contracts, avoiding contradictory labels for numbers, currency, abbreviations, and punctuation.
+
+The bundle is storage and supervision, not an automatic model prompt. No target annotation enters P unless that specific task view declares it as an available input or an earlier selected event.
+
+## 8. Task compiler and relation specification
+
+Add a small deterministic compiler beside existing source adapters. It emits ordinary `Episode`, `TrackSpec`, `Meridian`, and `TrackEvent` records plus versioned supervision metadata. It is not a general workflow engine.
+
+Each compiled task needs:
+
+| Field | Meaning |
+| --- | --- |
+| Bundle/source family | Original recording/book/speaker/video/scene and derived ancestry |
+| Task family and version | Transcription, verbalization, translation, captioning, joint generation, editing, etc. |
+| Available artifacts | Exact observations and reference versions visible before each prediction |
+| Track requests | Explicit effective prompts and revisions for all participating tracks |
+| Output plans | Modalities, codec identities, masks, and requested/predicted structural limits |
+| Alignment relations | Content correspondence, media clocks/spans, endpoint mapping, synchronization intent |
+| Edit relations | Base version, requested changes, preservation constraints, and related outputs |
+| Verification | Oracle/human/teacher provenance and quality checks, kept outside model inputs |
+| Split and fingerprints | Family split, preprocessing, chunking, teacher, codec, and compiler identities |
+
+Use a bounded relation vocabulary initially: `same_spoken_content`, `translation_of`, `describes`, `synchronized_with`, `first_frame_of`, `last_frame_of`, `edit_of`, and `preserves`. These describe loss/evaluation relationships; they do not grant attention access to future outputs.
+
+Missing modalities are absent, not zero-length fabricated evidence. Compile only views supported by the actual bundle. Do not infer hidden voices, translations, masks, or edit order from a filename and call them ground truth.
+
+## 9. Prompt every track, at the correct causal time
+
+Every input track has an explicit interpretation/task description; every generated event has an explicit instruction. Defaults can be concise and reusable. A name such as `track_2` is an identity, not adequate task semantics.
+
+Resolve one control source in this order:
+
+```text
+session defaults -> track defaults -> current event request
+```
+
+The result preserves ordinary instruction bytes, canonical typed settings where supplied, causal reference identities, and a request revision. No independent voice/video control tree is needed.
+
+Illustrative schema, not current executable configuration:
+
+```yaml
+track_id: speech_en
+modality: audio
+instruction: >
+  Translate the available German speech into English.
+  Preserve names and numbers. Use the approved narrator voice, speaking calmly.
+reference_event_ids: [narrator_reference]
+request_revision: 3
+effective_from_meridian: 12
+alignment_group: segment_12
+```
+
+For a joint audiovisual request, use distinct prompts such as:
+
+```text
+caption: Describe the selected scene and event order, without inventing dialogue.
+video: Realize the selected scene, retaining object identities and motion.
+audio: Produce sound matching the selected events; do not add speech.
+first_frame: Render the opening frame of this video view.
+last_frame: Render the final frame of this video view.
+```
+
+Compile shared constraints once and bind them into each effective request; do not copy a gold caption into all prompts and call it joint caption generation. Style prompts apply to the appropriate tracks and shared content constraints apply across the group.
+
+### Implementation rules
+
+Replace the current episode-payload broadcast with one resolved payload per event, used identically in preparation, training, collection, serving, and tape replay. Store the exact effective payload/revision, not only a template ID. Input interpretation prompts live in available context; E remains the local media encoder.
+
+A later edit instruction becomes available only at its edit turn. Do not place all future requests into the initial episode control payload. Reference media must be resolved and encoded upstream of P; a SHA256 string alone is not an acoustic/style embedding.
+
+`OutputSpec` carries structural settings, not hidden content. Duration/geometry provenance must distinguish `requested`, `predicted`, and `teacher_only`. Target-derived duration or endpoint information may guide a labeled training branch but not silently become public free-generation conditioning.
+
+Track IDs remain categorical. Renaming physical array positions must not change task meaning when descriptors, identities, and randomness mappings are preserved. Keep reusable track names across edits rather than allocating an unbounded new track for each artifact version.
+
+## 10. Required task catalogue
+
+| Family | Available inputs | Predicted outputs and core check |
+| --- | --- | --- |
+| Direct transcription | Speech + verbatim transcription prompt | Transcript; optionally separately prompted normalized transcript. Check WER/CER, names, numbers. |
+| Direct verbalization | Written text + voice/language/delivery request | Pocket speech; optionally spoken-form text as a joint peer. Check exact content and delivery. |
+| Speech translation | Source speech + target-language request | **Joint target text and target speech**, optionally source transcript. Neither target conditions the other's same-step prediction. |
+| Image description | Image + description request | Grounded description and optionally requested attributes/counts. |
+| Concordant image creation | Creation request and optional selected content plan | **Image and description together**, both scored as outputs. |
+| Video/audio understanding | Available clip/audio + task-specific prompts | Visual caption, transcript, and/or audio-event description, without conflating them. |
+| Concordant audiovisual creation | Request and optional selected content plan | **Caption, video, and separate audio track**. Caption agreement alone is not a synchronization score. |
+| Endpoint-concordant creation | Same creative inputs | **Video plus independently generated first/last images**, optionally caption/audio. |
+| Endpoint-conditioned video | Observed first/last frame or earlier clip + request | Interpolated/continued video and corresponding audio/caption. This is distinct from joint endpoint prediction. |
+| Voice/style counterfactual | Same content with a changed causal reference/request | Different voice/style while preserving semantic content. |
+| Prompted image edit | Earlier image version + change/preserve request | Edited image plus a change description; optional updated caption. |
+| Prompted speech edit | Earlier recording/text + change/preserve request | Corrected words, translated speech, or changed delivery under the same speaker/content constraints. |
+| Prompted video/AV edit | Earlier clip/audio versions + edit request | Updated media and relevant captions/endpoint frames; preserve unaffected content. |
+| Cross-track evidence/tool task | Media/evidence plus actual independent tool results | Grounded answer/action requiring multiple inputs, with correct call/result attribution. |
+
+Generate reciprocal understanding and generation views where legitimate, but keep their causal partitions explicit. An image may be an observed input in one view and a withheld target in another. One recording supports ASR, TTS, translation, and editing views without becoming four independent source recordings.
+
+## 11. Concrete meridian schedules
+
+### Literal speech and direct concordant verbalization
+
+```text
+g0 observed: text to speak + separately available voice reference/request
+g1 generated together:
+  spoken_form: render the normalized words requested
+  speech: verbalize the original text using the requested voice and delivery
+```
+
+The speech R reads only its selected Z. The spoken-form peer is supervision and another output, not a decoder side input. An ordered text-then-speech view remains useful for testing exact content transfer through the shared history.
+
+### Direct voice-in, voice-out translation
+
+```text
+g0 observed: available source-audio segment A + track requests
+g1 generated together:
+  source_transcript_A
+  translated_text_A
+  translated_speech_A
+
+source-audio B may arrive while A is rendered or played
+next observed meridian: source-audio B
+next generated meridian: translated_text_B + translated_speech_B
+```
+
+This is chunk-scale simultaneous operation, not a claim of word-level latency. Keep direct joint translation in the curriculum rather than only running external ASR -> translation -> TTS as a pipeline. Such a pipeline is a baseline or teacher, not the native model path.
+
+### Joint caption/video/audio/endpoints
+
+```text
+g0 observed: creation request + any genuinely supplied references
+g1 generated: optional content plan, selecting underspecified scene choices
+g2 generated together:
+  caption
+  video
+  audio
+  first_frame
+  last_frame
+```
+
+Five outputs contribute five ordinary megatokens. Verify configured track and event capacities; do not silently drop one target. A supplied endpoint instead belongs in the observed prefix for the separately labeled endpoint-conditioned task.
+
+### Sequential editing
+
+```text
+g0 observed: original media version v0
+g1 observed: edit request #1
+g2 generated: edited media v1 + change description + affected related outputs
+g3 observed: edit request #2, referring to v1
+g4 generated: edited media v2 + change description + affected related outputs
+```
+
+Future requests and target artifacts stay outside preceding prompts. Retain original source and intermediate versions in the dataset lineage even when only a bounded prefix is loaded into the model.
+
+## 12. Endpoint frames and audiovisual timing
+
+Create first/last-frame targets **after** the video target's final temporal sampling and spatial crop/resize. Record the exact displayed frame indices, crop mapping, and valid interval. Codec temporal padding is not the last visible frame.
+
+Image/video decoders can have different resolutions and latent spaces. Compare decoded frames after a declared common transformation, using pixel/perceptual or semantic features as appropriate. Do not compare arbitrary image/video codec coordinates directly.
+
+Keep three evaluations separate:
+
+1. Independently generated endpoint images agree with the sampled video's decoded endpoints.
+2. Given endpoints actually constrain generated video.
+3. Video itself contains correct motion and temporal order, rather than simply repeating an easy endpoint.
+
+Audio and video share a content clock where the task requires synchronization. Track natural speech duration separately from fixed clip length. Distinguish simultaneous interpretation, where translated speech can lag and differ in length, from dubbing, where fitting an explicit interval is part of the request. Never time-stretch translated speech or copy source timestamps without recording the transformation and validating its quality.
+
+Fine sound-event and lip timing are explicit relation targets. A common caption, a common seed, or one shared KV history is not enough to establish physical synchronization.
+
+## 13. Editing as a versioned trajectory
+
+Each edit records `base_artifact_version`, `change`, `preserve`, and `related_outputs`. Start with two-to-four-turn sequences. Include no-op requests, reversions, minimal content changes, voice-only/style-only edits, and cross-modal changes requiring synchronized updates.
+
+Examples:
+
+- Change a vehicle's color while preserving motion, camera, scene identity, and soundtrack.
+- Translate a spoken line while preserving visual content and the requested speaker identity.
+- Correct one number without changing the rest of the utterance.
+- Make delivery warmer while preserving the exact spoken words.
+- Change scene lighting and update its caption while leaving the described event unchanged.
+
+An independent edit pair cannot be chained after an unrelated previous edit just because both share a source ID. Sequence order must correspond to actual artifact versions. Generate and verify additional intermediate states when constructing a new chain.
+
+### Recorded versus model-generated continuation
+
+For recorded chains, later targets refer to the recorded earlier media. Continue from that actual earlier artifact's native group tape when supported, otherwise a clearly labeled detached E approximation. Do not continue from an unrelated sampled artifact while supervising an edit intended for the gold one.
+
+For student rollouts, ask the teacher/verifier to edit or evaluate the artifact the student actually produced. Keep the same principle already used for executed tool results. Validate the full group when recorded peers jointly determine later state; do not fabricate independent native tapes for an originally grouped decision.
+
+Under the strict bottleneck, preservation initially means semantic identity and perceptual fidelity, not byte-exact copying of arbitrary unedited pixels. Masks can guide losses and can be declared inputs encoded upstream; they do not grant the media renderer direct access to the source image/video. Report native bottleneck edits separately from any external source-conditioned baseline.
+
+## 14. Dataset acquisition shortlist
+
+Acquire original paired media and derive many task views, rather than maximizing unrelated caption rows. Counts below are publisher-reported inventory, not assets already acquired by this project. The first six sources are the initial shortlist, with optional research expansions kept separate.
+
+| Source | Useful inventory | Initial task views and acquisition notes |
+| --- | --- | --- |
+| **HiFiTTS-2** [D1] | Metadata for about 36.7K hours / 5K speakers; a 31.7K-hour higher-bandwidth subset | Real speech/transcript pairs, codec targets, reference segments, controlled rereadings. Audio is obtained separately from LibriVox; retain chapter offsets, bandwidth, text source, and published splits. Card: CC BY 4.0. |
+| **Multilingual LibriSpeech** [D2] | Audiobook speech in eight languages, including English and German | Multilingual ASR/verbalization and long-chunk construction from genuine adjacent material. Not a parallel translation corpus. Publisher: CC BY 4.0. |
+| **CVSS** [D3] | 21 source languages into English, with canonical-voice and voice-transferred synthetic target speech | Direct speech translation with matching normalized target text. Official source pairing requires Common Voice v4. Preserve original joins and train/dev/test splits; check all source terms. Published CVSS license: CC BY 4.0. |
+| **DOCCI** [D4] | 9,647 training image/description pairs with detailed human descriptions | Grounded description, image/description joint generation, contrasting attributes. Protect the 5,000-image test split and qualitative evaluation sets. Card: CC BY 4.0. |
+| **FineVideo** [D5] | 43,751 videos, about 3,425 hours, with time-coded transcripts and structured metadata | Original A/V clip bundles, captions, event grounding, endpoint extraction, continuation. Preserve source attribution and required removal/version updates. Original-media rights and generated-annotation quality need separate checks. |
+| **MagicBrush** [D6] | 8,807 training edit turns in 4,512 sessions | Sequential image editing, change descriptions, and preservation targets. Retain session order and COCO/source ancestry. Use training only; protect dev/test. Card: CC BY 4.0, with source-image terms retained. |
+
+HiFiTTS-2, MLS, LibriTTS-derived material, and teacher outputs can overlap. Do not add headline hours without cross-source deduplication. FineVideo's metadata is not wholly human ground truth; recheck annotations used for fine timing, spoken content, or edit supervision. [D1, D5]
+
+### Optional expansion, not a dependency of the first run
+
+| Candidate | Why relevant | Admission policy |
+| --- | --- | --- |
+| CVSS-X [D7] | English-to-28-language synthetic translation; complements CVSS direction | Current synthetic translation/speech pairs are CC BY-NC 4.0. Use only in an approved research manifest; source-version alignment and family overlaps require verification. Do not assume its planned permissive successor already exists. |
+| CoinVE-200K [D8] | Compositional video edits and corresponding key-frame edits | Review exact dataset terms and upstream videos separately from MIT code. Quarantine its benchmark and derived siblings. Useful for video/still edit concordance. |
+| JAVEdit-100k [D9] | Joint audio/visual editing triplets, including speech and scene changes | Card combines MIT labeling with academic/educational restrictions and upstream-source terms. Keep out of the release-compatible pool until clarified. Preserve automated-generation provenance. |
+
+Maintain one release-compatible approved manifest and a separate research-only expansion manifest. This is ordinary source metadata, not a new runtime policy subsystem. A published license label or model distillation does not erase source-media or teacher-weight obligations.
+
+### Fill specific gaps with controlled data
+
+Prioritize approved English/German source speech with checked bidirectional translations and Pocket-rendered target speech in a verified supported profile. Record translation-annotation rights and quality independently of the speech renderer. Keep the target codec fixed.
+
+Add procedurally rendered scenes with object IDs, event order, physical sound timing, and exact frames; controlled Pocket rereadings; and verified media-edit chains. These are high-value sources of matched counterfactuals. Do not substitute tones/bars for evidence of natural speech/video quality, or replace all natural recordings with teacher samples.
+
+## 15. Inventory targets, quality tiers, and source-family splits
+
+### First frozen manifest targets
+
+| Inventory | Initial acquisition target |
+| --- | ---: |
+| Quality-filtered real English/German speech | 2,000 unique source hours |
+| Checked speech-translation pairs, both directions where available | 50,000 source pairs |
+| Detailed image/description examples | All eligible DOCCI training pairs |
+| Sequential image-edit sessions | All eligible MagicBrush training sessions |
+| Aligned audiovisual clips from approved original recordings | 50,000 clips |
+| Controlled speech/style and audiovisual edit sequences | 20,000 verified sequences |
+
+These are pilot targets, not ceilings, budget authorizations, or claims of downloaded inventory. Expand successful source pools while preserving quality and diversity. Count original source hours/scenes, derived task views, and accepted teacher outputs separately. A clip reused ten ways supplies ten supervision views but not ten independent world observations.
+
+### Admission pipeline
+
+1. Pin source revision/terms, original asset identity, source family, and published split.
+2. Preserve original audio/video masters; record deterministic sample/crop/resampling transforms.
+3. Deduplicate by ancestry and cross-media evidence: recording/video IDs, transcript similarity, speaker/source identity, and perceptual fingerprints.
+4. Validate language, timing, speaker attribution, captions, continuity, and usable bandwidth/resolution.
+5. Freeze family-level splits before crops, translations, reference snippets, alternate styles, or counterfactual siblings are emitted.
+6. Compile only task views supported by the bundle, with explicit available-input and target partitions.
+7. Cache frozen F and U under exact identities; never cache mutable learned E facets as immutable source features.
+8. Record quality/verification tier, teacher revision, requested controls, realized checks, and rejection reasons.
+
+Use human/oracle-verified examples for high-confidence concordance, quality-checked original pairs for scale, and bounded weak/synthetic data where the objective tolerates it. Teacher confidence is not proof of correctness. Keep benchmarks and all derivatives quarantined across source pools.
+
+Family joins include original recording/book/video/scene and derived artifacts. Speaker-held-out splits are separate explicit tests of voice generalization. Where source families connect conflicting published train/test memberships, quarantine the conflict rather than silently relaxing the split. Repeated crops must not leak across partitions.
+
+Prompt templates and track names should not disclose class labels. Test held-out wording, entity combinations, speaker/reference pairs, and edit compositions as well as held-out raw assets.
+
+## 16. Curriculum and sampling recipe
+
+Use the existing stage engine, prepared cursor, optimizer, and distributed loss ledger. Add a versioned concordant recipe once its readers and objectives exist. Do not paste these tables into the live text-token `stages.json` before implementation.
+
+### Phase A: establish the shared modality interface
+
+Pin codecs and measure round trips; train feature projections and facets-only Pocket/Sana/video conditioning. Keep codecs frozen. Begin with reconstruction and aligned teacher targets, while introducing direct ASR/TTS and simple conditional tasks from the start.
+
+If the core already has useful skills, protect them with rehearsal and initially limited updates. If it is untrained, do not freeze random C/P indefinitely and expect adapters to create a reasoning model. Train the causal predictor as soon as its targets and realizers are usable.
+
+### Phase B: concordance becomes a primary objective
+
+Initial task-family selection weights after interface warm-up:
+
+| Family | Share |
+| --- | ---: |
+| General text, code, tools, and existing skill replay | 20% |
+| Direct transcription and verbalization | 20% |
+| Speech-to-speech translation with text/speech agreement | 15% |
+| Image understanding and concordant image/description generation | 15% |
+| Joint caption/audio/video/endpoint generation | 15% |
+| Sequential prompted editing across modalities | 15% |
+| **Total** | **100%** |
+
+These are probabilities for choosing task families at the sampler, not equal GPU-time or token shares. Cap media work per microbatch and use existing accumulation. Log the realized selected events, task counts, latent coordinates, seconds/frames, and compute per family; a video event is not computationally equivalent to text.
+
+Within this mixture, target over a sufficiently large sampling window:
+
+- **Every** participating track has a resolved prompt/interpretation descriptor.
+- **At least one-third** of tasks have two or more genuinely joint generated outputs.
+- **About one-quarter** require information from multiple input tracks.
+- **About one-quarter** include matched counterfactual or preservation variants.
+
+These properties overlap; they are not extra mixture rows to sum. Sampling cannot claim a quota when the corresponding modality/targets are unavailable. In early modality-limited runs, record an explicit recipe variant and its coverage rather than silently relabeling serial text as AV generation.
+
+Reconstruction and distillation remain auxiliary losses inside appropriate batches; do not maintain the earlier separate 20% reconstruction family as an additional unaccounted allocation. Reduce their relative weight after the interface is stable, while retaining enough to prevent E/R drift.
+
+### Phase C: coherent trajectories
+
+Increase edit-chain length, source-prefix variation, delayed evidence, student-generated content plans, actual tool continuations, and translation backlog. Maintain direct literal tasks as anchors for pronunciation, exact strings, and descriptions.
+
+Start edits at two-to-four turns and extend only after recorded/model-generated continuation is correctly represented. Use scene changes, voice/style swaps, and reordered independent tool arrivals as targeted perturbations, not arbitrary data noise.
+
+### Phase D: selective outcome learning
+
+Train policy-side rewards on executed/verified tasks only after grouped replay is available. Renderer preference adaptation is a distinct owner/phase, not a hidden change to the latent-policy action map. No outcome-RL phase is required to validate the first concordant supervised recipe.
+
+## 17. Loss definitions and the KL correction
+
+### Three separately reported computations
+
+```text
+codec baseline:       x -> codec encoder -> U -> decoder -> x_hat
+bottleneck auxiliary: x -> F -> E -> noisy Z -> R -> U_hat -> decoder
+causal generation:    available history/prompts -> P -> sampled Z -> R -> output
+```
+
+C processes selected events for subsequent predictions. It is not part of v8's current reconstruction or current R path. Alternate reconstruction branches do not write hypothetical history into the live trajectory.
+
+The auxiliary is VAE-like through noisy encoded facets and prior correspondence. With detached targets, native flow objectives, and separate optimization owners, it is not automatically a jointly optimized likelihood-calibrated ELBO.
+
+### Native media objectives
+
+Use the donor's actual acoustic/visual prediction parameterization. For a newly defined continuous flow target, one explicit convention is:
+
+```text
+s ~ Uniform(0,1); epsilon ~ Normal(0,I)
 U_s = (1-s) * epsilon + s * U
 v_target = U - epsilon
-L_flow = mean_valid_coordinates(||v_theta(U_s, s, B, spec) - v_target||^2)
+L_flow = mean_valid_coordinates(||v_theta(U_s, s, Z, spec) - v_target||^2)
 ```
 
-The noisy target `U_s` is legitimate local denoising supervision. It is not a source for E/P or shared KV. For discrete targets, use the corresponding masked code likelihood instead of pretending continuous MSE is equivalent.
+A donor with a different convention must retain or explicitly convert it. Noisy target latents and teacher-forced acoustic prefixes are local loss inputs, not information available to E/P or semantic KV. Evaluate complete rollouts from base noise, since target-conditioned denoising can otherwise conceal ignored facet conditioning.
 
-Keep teacher latent regression only for aligned target sequences. Add a small number of semantically meaningful checks: speech intelligibility, speaker similarity, image content, temporal order, and audiovisual agreement. Expensive differentiable decoder/perceptual losses can run on a sampled subset; most training should use cached latents.
+Keep modality-specific losses normalized over valid coordinates and separately metered. Text uses lexical/structure losses, not pixel MSE. Latent regression is appropriate for aligned targets, not for averaging unrelated valid speech/video trajectories.
 
-### Preserve recurrent ownership
+### Correct the standalone helper's units
 
-Extend the existing grouped bootstrap/recurrent paths and `LossLedger`:
+The reviewed `DiagonalGaussian.kl()` in [generation/latents.py](../src/megatoken/generation/latents.py) returns a **per-example sum over latent coordinates**, not an elementwise mean. The earlier review's claim of double normalization was wrong.
 
-- Bootstrap correspondence compares the detached noisy E distribution with the causal P distribution; normalize once over active facet coordinates.
-- In recurrent training, ordinary continuation retains selected P facets; do not re-encode generated output as replacement state.
-- E-only reconstruction retains gradients to E through frozen C/R, with its existing independent clipping/ownership.
-- Recorded tool results continue only from their recorded actions or explicit supported approximations.
-- Frozen donor weights are not updated by accident when C/P unfreezes.
+Use a numerator/denominator convention shared with the production ledger:
 
-The student cannot train on a ground-truth peer block while another peer is claimed to be prospectively predicted. All generated peers use sampled/selected blocks from the same causal prediction; observed conditions belong to an earlier committed meridian.
+```python
+kl_sum = posterior.detach().kl(prior).sum()
+kl_coordinate_count = target_raw.numel()  # active coordinates only; exclude padding
+kl_per_coordinate = kl_sum / kl_coordinate_count
+```
 
-### Latent-policy RL becomes simpler under the strict interface
+The standalone `supervised_group` helper currently omits this denominator following the earlier change; document it as a pending code correction, not a fixed issue. Update its comment and regression test. Test against an analytic Gaussian example and duplicated active events: summed KL/count should scale together, leaving per-coordinate KL unchanged. A test that repeats the implementation's reduction is not independent verification.
 
-Freeze E, C, the C-to-B dispatch rule, R, codecs, and any decoder state transition when optimizing the latent policy. The control head can remain trainable **if it affects only P before selection**. This removes the current complication in which a trainable control encoder directly changes R's materialization for a fixed selected action.
+Bootstrap uses this correspondence; ordinary recurrent supervision retains the existing no-unrelated-E-to-prior-regression policy. Normalize distributed losses using globally aggregated numerators/counts, not a mean of unequal rank-local means.
 
-If renderer noise is sampled from a fixed policy-independent distribution, it is environment/realization randomness, not another learned policy factor. Record it for replay. Continue scoring the joint semantic Gaussian, not an invented waveform/pixel likelihood. Changing renderer weights or sampler behavior requires a new materialization version.
+### Concordance relations
 
-## 13. A focused curriculum and data plan
+Add a bounded relation-loss family with explicit valid-pair counts:
 
-Use the existing stage engine. Add an explicitly versioned component-adaptation recipe rather than rewriting all broad pretraining budgets.
+| Relation | Appropriate supervision/evaluation |
+| --- | --- |
+| Speech/transcript | Spoken-content agreement under the requested normalization policy |
+| Translation/source | Meaning, names/numbers, omissions/additions, language, and coverage |
+| Image/description | Objects, attributes, counts, spatial relationships |
+| Video/caption | Events and temporal ordering |
+| Audio/video | Sound-source timing and applicable speaker/lip correspondence |
+| Endpoint/video | Decoded endpoint perceptual/semantic agreement after declared transforms |
+| Edit/base | Requested change and preservation of unaffected content/identity |
+| Voice/style/request | Requested acoustic/visual attributes while content remains stable |
 
-| Stage | Main work | Trainable owners | Deliverable |
-| --- | --- | --- | --- |
-| A: interfaces and codec baselines | Extract pinned features/latents; verify independent decode | Small adapters where needed | One checked round-trip fixture per selected pack |
-| B: speech bottleneck | Whistle/Pocket acoustic input, facets-only Pocket student, real and teacher speech | E bridge and R conditioning; selected R LoRA | Intelligible controlled speech from selected facets |
-| C: visual bottleneck | MiniCPM input, Sana still images, matched SANA video latents | Visual E/R bridges and selected LoRAs | Correct content through 32 facets, not just plausible images |
-| D: integrated meridians | Cross-modal conditional tasks and counterfactual joins | Shared C/P, controls, relevant E/R | Output changes correctly when a required track changes |
-| E: paired AV and execution | Coupled AV pack, translation, retrieval/tools, long dependencies | Appropriate shared/model and pack owners | Measured cross-track agreement and executed-task performance |
+Do not force the full Z of speech to equal its transcript Z or a video Z to equal one frame. Use suitable semantic projections, differentiable output features, or supervised counterpart tasks. Nondifferentiable ASR/human/verifier scores are evaluation/filtering or explicit later reward signals, not gradients obtained by labeling them a loss.
 
-Begin real speech with aligned, clean, licensed material and broaden to conversational delivery, accents, and German/English coverage. Pocket's released recipe and precomputed-latent preparation are useful implementation references, not guarantees that Megatoken can reproduce its results with identical compute. [P4] Add teacher speech for systematic control variation; do not replace all natural speech with teacher outputs.
+Train and measure agreement on actual sampled peers, not predicted output versus a ground-truth peer secretly injected into P. Expensive differentiable decoding/perceptual comparisons may run on a sampled subset; most media work can use cached latent targets. Normalize relation counts independently, so a five-output group does not accidentally receive ten times the intended weight through all possible pairs.
 
-Use image/video sources with original media, captions/task labels, and clip timing. Add procedural scenes for exact counting, object identities, motion order, and audiovisual edits. Teacher video should supplement rather than define the entire evaluation distribution.
+## 18. Gradient ownership and recurrence
 
-Split at the original recording/book/speaker/video/scene family before crops, translations, teacher outputs, reference snippets, or counterfactual variants are produced. Family siblings remain together. Track dataset rights, teacher/checkpoint identity, and real/synthetic origin in existing lineage records.
+Keep one owner per shared weight. Share across modalities inside E, C, P, R, and control families before tying across families with incompatible training semantics. The existing pair-expert P bank and row-expert U bank are not interchangeable dimensions. No preset allocation of modality-specific expert counts is required now.
 
-### Initial update allocation after adapter warm-up
+Bootstrap teacher-forces clean target encodings only for the subsequent live history, after the current prior was predicted without them. In ordinary recurrent continuation, keep the sampled raw group; do not re-encode its decoded output into replacement state.
 
-As a starting scheduler allocation, not a compute-equivalence claim:
+For the E-only recurrent auxiliary, freeze R and its conditioning adapters while allowing input gradients back to E. In v8, C need not be executed merely to obtain that reconstruction. Detach reference/control branches from this auxiliary when their ownership requires it. Preserve the independent clipping domain and prevent frozen donor updates.
 
-- **25%** text/code/tool rehearsal.
-- **25%** conditional cross-modal tasks, such as TTS, ASR, captions, and grounded answers.
-- **30%** tasks requiring multiple tracks or coordinated output groups.
-- **20%** same-path bottleneck reconstruction and teacher distillation.
+Recorded tool and edit continuations require the actual earlier action/artifact, as specified above. New supervised target branches cannot inherit outcomes from unexecuted alternatives.
 
-The adapter warm-up can emphasize reconstruction; once it works, integrated objectives become the majority. Meter actual media seconds, latent elements, selected events, renderer work, and text tokens separately. The current `G` meter is useful for event progress but cannot make a large video event computationally equivalent to text.
+For latent-only RL, initially keep E/C/R/codecs fixed for consistent state/replay semantics; train P, its upstream control injection, and Gaussian parameters. Controls can remain trainable when they affect only selection, not R for a fixed raw action. Renderer noise is a fixed realization distribution, not an additional unrecorded learned policy. A change in renderer weights/sampler requires a new materialization identity.
 
-## 14. Tasks that force the shared model to do useful work
+## 19. Counterfactuals and held-out evaluation
 
-Prioritize a small set of reusable task families rather than dozens of unrelated datasets.
+A multi-track task should demonstrably depend on its claimed inputs or coordinate multiple meaningful outputs. Merely splitting one prompt into tagged tracks does not establish that.
 
-| Family | Required inputs/outputs | Non-shortcut test |
+Construct matched variants that change only one source or request:
+
+- Swap the audio instruction while keeping the visual scene fixed, and vice versa.
+- Change voice/style while preserving the requested words/objects/actions.
+- Reverse a relevant action order while preserving scene appearance.
+- Change one source number while preserving all other evidence.
+- Change an edit instruction while keeping its base artifact fixed.
+- Deliver independent tool results in different orders without changing their facts.
+
+Keep counterfactual siblings in one source family. Score the changed component and preservation of the unchanged component. A model that always produces a safe generic caption should not pass a content-specific concordance test.
+
+Maintain four comparable pack evaluations: native donor, codec round trip, 32-facet E/R auxiliary, and causal P/R output. These locate codec loss, E compression loss, R adaptation failure, and P prediction failure separately.
+
+Required sampled-output measurements include WER/CER and exact entity fidelity; speaker/style adherence; translation adequacy plus actual latency; image counts/spatial/OCR tasks; video event order; AV timing; endpoint agreement; and edit preservation across successive versions. Include a modest human-scored subset and evaluators not identical to the teacher.
+
+Protect source-level tests, speaker-held-out tests, prompt/template generalization, and unseen edit compositions. Do not evaluate free-generation with gold future duration, gold content plan, complete future encoder features, target endpoints, or a teacher acoustic prefix unless that input is explicitly part of the task.
+
+## 20. Chunking, clocks, and translation availability
+
+Retain the reviewed text policy of 512 target / 768 soft / 1,024 hard reference tokens. Use roughly 256 transcript-equivalent tokens as the initial full speech target, permitting larger coherent units where reliable. Natural short utterances remain underfilled. Do not splice unrelated audiobook sentences to manufacture continuous conversation.
+
+Whistle windows, Pocket acoustic frames, codec tiles, and network packets are not semantic commits. For video understanding, start with coherent event/shot segments; generation initially follows the chosen donor's tested clip geometry. Longer allowed tensors do not imply learned long-video competence.
+
+For simultaneous translation, record the source prefix available at each decision, source-to-target semantic alignment, target speech's own timing, untranslated backlog, and any explicit wait. An ASR/vision encoder used bidirectionally inside an available chunk must never see a later source chunk for an earlier decision.
+
+Physical media time remains separate from logical meridian time. Core RoPE continues to index causal meridians; local media positions describe the content. Rate conversion and trimming must be versioned and deterministic. Waiting for a large source chunk creates real acquisition delay, even if the core and renderer are fast.
+
+## 21. Assets, packs, and loading
+
+Extend the existing media store with a distinct codec-latent target kind and, where needed, multiple declared input feature views. Preserve original raw media separately. Current 16 kHz raw assumptions must not silently reinterpret Pocket-rate audio, and image/video masks must distinguish valid data from codec padding.
+
+Each feature/codec/renderer identity includes:
+
+```text
+upstream revision and weight digest; exported submodules
+preprocessing and resampling; sample/fps clock; channels/layout
+feature layer or latent convention; scale/shift or mean/std
+coordinates, crop/temporal mapping, masks, and valid spans
+renderer parameterization, scheduler, seed/state convention
+source family, artifact version, reference provenance, and terms
+```
+
+Cache frozen features and codec targets, not learned final facets. Prepared datasets stay immutable; changed extraction/segmentation/teacher policies create new derived identities. For sources with removal obligations, retire affected prepared versions and rebuild approved manifests rather than ignoring updates in the name of reproducibility.
+
+Use a small explicit pack registry, not a general neural-plugin framework. Components can be loaded/unloaded independently when no live computation depends on them. Cached-feature training need not load perception towers; speech understanding need not load a video generator. Trainable adapters retain stable optimizer owners across residency changes.
+
+Frozen weights still consume memory and compute; optional loading does not reduce their intrinsic parameter count. Report core, trainable adapters, resident frozen packs, and optimizer/workspace memory separately. Distill a large pack only after it performs the bottleneck-conditioned task satisfactorily.
+
+## 22. Replay, speculation, and multi-turn delivery
+
+A group tape records all raw selected blocks, effective prompt revisions, event/track identities, pack/spec/codec versions, and renderer randomness. v8 rendering replays directly from raw Z. Joint C is replayed as necessary to rebuild future shared history, not to supply current R inputs.
+
+Derive noise streams from stable event identities so pack loading order cannot reassign randomness. Exact raw replay, supported-backend latent replay, and cross-backend perceptual equivalence are separate guarantees.
+
+Speculation keeps a copy-on-write candidate group until acceptance. New relevant input or a changed request invalidates undelivered work. Already played speech, displayed frames, or executed calls cannot be erased by dropping the branch. Keep delivery cursors and interruption records without turning transport packets into additional semantic megatokens.
+
+Selected group publication/acceptance remains atomic. Even when current R is per-event, future shared C history depends on the complete selected group. Do not keep a different subset while claiming identical recurrence.
+
+## 23. Implementation sequence and acceptance criteria
+
+| Change | Repository area | Deliverable |
 | --- | --- | --- |
-| Speech meaning plus scene grounding | Spoken instruction + image/video -> action/answer | Change only the named object or only the scene |
-| Audio/visual evidence join | Each track contains a different indispensable fact -> exact result | Remove or swap each track independently |
-| Exact controlled TTS | Earlier text + separate authorized voice reference -> speech | Words stay fixed under voice swap; voice stays fixed under content swap |
-| Visual content/style control | Scene request + style reference -> image/clip | Keep entities/actions under style swap |
-| Temporal order | Ordered clip + question -> before/after/event answer | Reverse only the relevant actions |
-| Translation | Source speech -> target text and then speech | Preserve names/numbers and source coverage across modalities |
-| Paired AV | Shared event request -> audio/video group | Match sound source and timing, not just caption similarity |
-| Tool/evidence coordination | Grounded media + actual parallel tool results -> synthesis/action | Change arrival order without changing the eventual facts |
+| 1. Validate v8 and fix KL units | `model/multitrack.py`, `generation/latents.py`, focused tests | Raw-only R tests; analytic KL/count parity between helper and production ledger |
+| 2. Effective per-event requests | `controls.py`, `data/schema.py`, `training/meridians.py`, serving/tapes | Different prompts on joint peers; time-local edits; training/serving/replay equivalence |
+| 3. Bundle/task compiler | Existing data adapters/preparation/storage | ASR/TTS, direct joint translation, image/description, AV/endpoints, and recorded edits with explicit input/target partitions |
+| 4. Codec-aware target assets | `data/media_assets.py`, `model/media.py`, target plans and export | F/Z/U distinction, native rates, masks, normalization, and immutable identities |
+| 5. Pocket facets-only student | Media conditioning adapters and extraction scripts | Verified Pocket/Mimi round trip, real/teacher latent targets, free speech rollout from Z alone |
+| 6. Visual adapters and realizers | MiniCPM extraction; Sana and matching SANA-Video packs | Grounded visual understanding and content-faithful generation through unchanged facets |
+| 7. Relation objectives and recipe | `contracts.py`, target denominators, existing loss ledger/stage engine | Explicit task mixture, sampled peer agreement, endpoint and edit-preservation checks |
+| 8. Interactive/long trajectories | Grouped recurrence, collectors, runtime | Prefix-limited translation, real student edit continuations, actual parallel tools, safe speculation |
 
-Use the existing counterfactual pilot machinery for implementation checks, but do not count tones and bars as evidence of natural speech/video quality.
+Do not defer all joint-task work until expensive video generation is ready. Text/speech and procedural visual pairs can establish prompt/causality/lineage semantics first; the same compiler then handles pretrained media latents.
 
-Two example schedules:
+Required regression tests:
 
-```text
-Exact speech:
-  g0 observed: requested text + voice reference
-  g1 generated: speech Z -> B -> Pocket-derived R
-  R never reads the original text/reference directly.
+- Distinct same-meridian prompts change the intended output conditioning; later prompt revisions cannot leak backward.
+- R receives raw Z only, with no original transcript/reference/source-latent path.
+- Withheld target peers do not affect the current prior or unrelated branch state.
+- Every generated group publishes complete KV once and replays its future history correctly.
+- Joint prediction remains invariant to storage permutation with identities and RNG assignments preserved.
+- Endpoint target indices match the actual prepared video's displayed interval.
+- Translation encoders see only available source prefixes; target timing is not copied blindly.
+- Recorded edit continuation uses the actual base version; no-op/revert chains retain ancestry.
+- Counterfactual siblings and all bundle views stay in the same split family.
+- KL, modality, and relation numerator/count reductions agree across batch sizes and ranks.
+- Frozen-owner gradients and pack reload/normalization parity are checked.
 
-Grounded multimodal action:
-  g0 observed: spoken request + scene video
-  g1 generated: typed action + explanatory text
-  g2 observed: actual action result
-  g3 generated: spoken confirmation + visual summary
-```
+Acceptance is task-based: intelligible facets-only Pocket speech; correct direct translation; meaningful joint descriptions and media; measured endpoint/AV agreement; and preservation through edits. No benchmark score is invented as a claim of current performance. Only reopen component choices or facet size after identifying a concrete failure of the chosen path.
 
-For a later paired AV output, audio and video may be co-generated in one meridian. Dependent exact text-to-speech can use consecutive meridians while playback and new input acquisition overlap. Neither schedule requires a second fine-grained semantic clock.
+## 24. References and evidence boundaries
 
-## 15. Optional component packs and reproducible assets
+Model-family choices are retained from the prior component review; the new dataset shortlist was checked against the primary pages below for this revision. Links are not immutable production lockfiles. Pin actual revisions, terms, and decoder contracts before acquisition or training. No model benchmarks, weight downloads, paid generation, or dataset acquisition were performed by this documentation change.
 
-### A small registry, not a new plugin framework
+### Selected components
 
-A modality pack names its perceptual modules, trainable bridges, generator, codec encoder/decoder, and supported output specifications. Load only the necessary subset: transcription need not load a speech decoder; text-only sessions load neither vision nor audio; cached-feature training need not load the original perceptual tower.
+- **[W1]** [Whistle model card](https://huggingface.co/Cactus-Compute/whistle) and [publisher description](https://www.cactuscompute.com/blog/whistle): selected speech-semantic feature source.
+- **[P1]** [Pocket configuration](https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/config/english.yaml): native sample/frame rates and latent geometry; verify each selected language/profile.
+- **[P2]** [Pocket Mimi implementation](https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/models/mimi.py): continuous `encode_to_latent` / `decode_from_latent` and padding/state conventions.
+- **[P3]** [Pocket flow model](https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/models/flow_lm.py): conditioning and latent normalization.
+- **[P4]** [Pocket training recipe](https://github.com/kyutai-labs/pocket-tts/blob/main/training/README.md) and [weight card](https://huggingface.co/kyutai/pocket-tts): training/distillation and artifact conditions.
+- **[V1]** [MiniCPM-V 4.7 feature documentation](https://huggingface.co/docs/transformers/model_doc/minicpmv4_7).
+- **[V2]** [MiniCPM-V 4.7 publisher documentation](https://github.com/OpenBMB/MiniCPM-V/blob/main/docs/minicpm_v4dot7_en.md).
+- **[I1]** [Sana 600M image checkpoint](https://huggingface.co/Efficient-Large-Model/Sana_600M_1024px_diffusers).
+- **[G1]** [SANA-Video implementation and checkpoint contracts](https://github.com/NVlabs/Sana/blob/main/docs/sana_video.md).
+- **[G2]** [LTX audiovisual component family](https://huggingface.co/Lightricks/LTX-2.5): optional paired-generation direction, not a silent codec upgrade.
 
-Implement `load`, `ensure_loaded`, and `unload` around explicit module ownership. No mid-forward or live-autograd unloading. Inference may offload a pack after work and derivative caches have been released. During training, group work by modality or use gradient accumulation to reduce load/unload thrashing; unloading a trainable pack does not make its optimizer state cease to exist.
+### Data sources
 
-Keep adapters and their canonical parameter names stable across residency changes. A loaded module's weights must match the required identity; reloading a different revision into an active session invalidates affected caches and replay.
+- **[D1]** [NVIDIA HiFiTTS-2](https://huggingface.co/datasets/nvidia/hifitts-2): metadata, original-download procedure, bandwidth, splits, and terms.
+- **[D2]** [Multilingual LibriSpeech publisher page](https://www.openslr.org/94/): languages, downloads, and license.
+- **[D3]** [CVSS official repository](https://github.com/google-research-datasets/cvss): source-version joins, target variants, normalized text, splits, and license.
+- **[D4]** [DOCCI](https://huggingface.co/datasets/google/docci): detailed descriptions, official training/evaluation splits, and license.
+- **[D5]** [FineVideo](https://huggingface.co/datasets/HuggingFaceFV/finevideo): original media, generated annotations, source attribution, and removal/update terms.
+- **[D6]** [MagicBrush](https://huggingface.co/datasets/osunlp/MagicBrush): ordered edit sessions, masks, splits, and terms.
+- **[D7]** [CVSS-X official repository](https://github.com/Ermisai/CVSS-X): reverse-direction synthetic speech, generation provenance, current terms, and planned changes clearly distinguished.
+- **[D8]** [CoinVE-200K](https://github.com/coinve200k/CoinVE-200K): compositional video edits, key-frame additions, source ancestry, and separate benchmark.
+- **[D9]** [JAVEdit-100k](https://huggingface.co/datasets/Coraxor/JAVEdit-100k): paired audiovisual edits, automated-generation provenance, and source/use restrictions.
 
-### Asset and latent contracts
+### Repository anchors
 
-Extend the existing tensor store with a distinct **codec-latent** kind, not a feature tensor mislabeled as a raw target. An input event may reference several declared feature views, while a target names the decoder-compatible U representation.
+[Architecture v8](architecture.md), [media pipeline](omni-media-pipeline.md), [core](../src/megatoken/model/core.py), [grouped model](../src/megatoken/model/multitrack.py), [Gaussian definitions](../src/megatoken/generation/latents.py), [media model](../src/megatoken/model/media.py), [controls](../src/megatoken/controls.py), [asset schema](../src/megatoken/data/media_assets.py), [meridian learner](../src/megatoken/training/meridians.py), and [broader multi-track plan](multi-track-plan.md).
 
-Each pack/cache identity must include:
+## 25. Final direction
 
-```text
-upstream repository and immutable revision / weight digest
-exact exported submodules and parameter inventory
-preprocessing version, sample/frame rates, channels and normalization
-feature or latent layer, coordinate ordering and layout
-codec scale/shift or mean/std, quantized vs continuous convention
-padding, valid spans, crop/frame coordinates, clock origin
-renderer objective/parameterization, scheduler and seed protocol
-parent media hashes, lineage, reference provenance and permitted use
-```
+**Pocket supplies the initial speech competence. Pretrained visual components supply perception and rendering priors. Megatoken supplies the shared selected representations, causal decisions, prompts, and cross-track coordination.**
 
-Pocket's 24 kHz waveform must not be silently interpreted as the current 16 kHz asset type. Generalize sample rates and rational video fps in `MediaOutputSpec`, resolved training targets, serving, and serialization together. Keep raw audio, encoded acoustic latents, and semantic features separate.
-
-Video grids need codec-valid spatial/temporal shapes and masks. Tensor limits should reflect declared resource budgets instead of the native test renderer's 32-frame ceiling. A larger allowed shape is not evidence that a pretrained generator learned that horizon.
-
-Cache frozen features and codec targets, not final learned E facets. Final facets become stale as E changes. Reuse immutable original assets; do not rewrite prepared data in place after changing segmentation or codec normalization.
-
-The document's source links identify candidate artifacts, not a completed immutable lockfile. Implementation must resolve and record exact revisions before extraction. Do not invent commit hashes or download gated weights as a side effect of normal model import.
-
-### Licenses as pack metadata
-
-Record code, weight, codec, dataset, and reference rights independently. Pocket's public model card includes weight/access conditions; LTX uses a community license rather than a blanket Apache grant. [P5, G2] Distilling a model or using only its VAE does not by itself establish different redistribution rights. Resolve this once per selected pack through the existing provenance process, rather than introducing a new runtime subsystem.
-
-## 16. Replay, speculation, and decoder-local state
-
-The selected raw Z group remains the policy record. Reconstruct its shared C context to obtain B, then render with the pinned pack/spec/noise. A group tape must include pack identities, codec/scaling identity, all selected raw blocks, output geometry, sampler protocol, and valid output spans.
-
-Decoder RNG streams should be keyed by stable event identity rather than depend on which optional pack happened to run first. A latent seed is not a guarantee of cross-device bitwise equality; distinguish exact raw-action replay, supported-backend latent replay, and perceptual cross-backend equivalence.
-
-Speculation forks the semantic state and any decoder-local state. A new observation or control revision may invalidate undelivered work. Already played audio, displayed frames, or executed tools cannot be erased by dropping a branch. Preserve delivery cursors and interruption records without turning every transport packet into a megatoken.
-
-Grouped speculative acceptance remains atomic when selected peers influenced each other. Optional unloading must not leave a branch pointing to a different version of its renderer or control interpretation.
-
-## 17. Implementation sequence in this repository
-
-### Change 1: enforce the realization boundary
-
-Update `model/state.py`, `model/multitrack.py`, `model/media.py`, and the realizer dispatch to expose one `B[32,D]` per event. Use final C features as the initial shared rule. Remove direct media-R control vectors and raw/early/final concatenation from the new path. Preserve raw tapes and joint C publication.
-
-Add tests that R receives no transcript/source/reference tensors, and that changing the public context or controls after selection cannot alter rendering for fixed B/spec/noise.
-
-### Change 2: extend assets and pack ownership
-
-Extend `data/media_assets.py`, `MediaOutputSpec`, `MediaTrainTarget`, `model/config.py`, export manifests, and `multitrack_service.py` for codec latents, rates, layouts, immutable identities, and optional pack loading. Keep one optimizer owner per trainable weight; do not copy donor modules into each track.
-
-Retain native E/R as lightweight test packs, clearly named as baselines. Build one codec round-trip fixture before integrating a large generator.
-
-### Change 3: speech first
-
-Extend `scripts/cache_omni_features.py` with Whistle and the exact Pocket acoustic view. Add pinned latent extraction and the Pocket-prefix conditioning adapter. Train a direct facets-only student, first on matched speech targets and then on causal text/voice-to-speech meridians.
-
-Finish with intelligibility, voice transfer, sample-rate/normalization parity, missing-view behavior, and full-rollout tests. This is the first useful high-quality modality milestone.
-
-### Change 4: MiniCPM and still images
-
-Export the MiniCPM visual tower/mergers without its language model; implement coordinate-preserving feature caching and detail mode. Add Sana's trained image generator and matching codec through the same B interface. Check content retention before increasing visual budgets.
-
-### Change 5: matched video, then paired AV
-
-Adapt SANA-Video 2B with its original codec, without upgrading latent conventions mid-experiment. Reuse the image-path registry, conditioning interface, loss accounting, and data layout machinery.
-
-Only when paired audio/video tasks are scheduled, add the matched LTX audiovisual pack, separate decoders, and paired realization objective. Do not make this pack necessary to serve earlier milestones.
-
-### Change 6: integrated recipe and evaluation
-
-Extend `training/meridians.py`, `generation/targets.py`, `training/engine.py`, `contracts.py`, and the existing loss ledger with codec-aware targets/objectives. Retain grouped recurrent continuation and separate encoder ownership. Replace raw-media MSE only for pretrained packs; keep the baseline losses for baseline fixtures.
-
-Add actual representation/pack identities to checkpoint and dataset fingerprints. A changed realizer interface or latent interpretation requires explicit versioning, not a shape-compatible silent migration. Update runtime version numbers in the implementation change, not in this documentation commit.
-
-## 18. Small evaluation set, decisive outcomes
-
-Avoid exhaustive alternative-model experiments. For each selected pack, maintain four comparable evaluations:
-
-1. Original pretrained donor under its native conditioning.
-2. Codec round-trip without the semantic bottleneck.
-3. Same-path E/C/R reconstruction through 32 facets.
-4. Causal P/C/R generation from held-out context and controls.
-
-These distinguish poor codec reconstruction, E compression loss, R adaptation failure, and weak P prediction. A single aggregate reconstruction loss cannot locate the problem.
-
-Required checks include speech WER/names/numbers and speaker similarity; image entities/OCR/spatial relations; video event ordering and identity; joint AV event/speaker timing; and counterfactual cross-track sensitivity. Use independent evaluation models where practical and inspect a modest human-scored sample, rather than judging a teacher exclusively by its own scorer.
-
-For architecture tests, retain no-target-leakage, same-meridian influence, track-order permutation behavior, complete group replay, frozen-owner gradients, and correct loss denominators. Add reload parity, feature-rate alignment, masked padding, and normalized-latent decode fixtures.
-
-The initial success criteria are relative and task-based, not invented benchmark scores: a clear improvement over native media baselines, content fidelity approaching the selected donor on the adaptation domain, control swaps that preserve content, and measurable degradation when indispensable input tracks are removed.
-
-Only investigate more facets when the 32-facet compression gap remains after competent encoders and pretrained realizers are working. Only distill large packs further when the current bottleneck-conditioned system already performs the required task.
-
-## 19. Final architecture
-
-```text
-Whistle / Pocket acoustic features / MiniCPM / optional codec input views
-                                |
-                    small modality E bridges
-                                |
-                     canonical raw [32,D]
-                                |
-             shared meridian C4 / P12 / experts / KV
-                                |
-                 ONE contextual [32,D] per output
-                                |
-          optional pretrained, adapted realization packs
-               /                 |                  \
-        Pocket + Mimi      Sana + DC-AE       SANA-Video + its VAE
-                                                   |
-                                  later: paired LTX audio/video pack
-```
-
-The central idea is **pretrained competence at the physical edges, a strict and measurable semantic interface, and integrated multi-track learning**. Bigger edge models are allowed and optional. More semantic events are allowed when justified. Neither implies a bigger default facet budget or another cognitive system.
-
-The first deliverable is speech through this exact interface. The next is MiniCPM-grounded image/video generation using compatible pretrained priors. Reconstruction, distillation, and integrated causal tasks are three parts of one learner, not separate architectures.
-
-## References and verification notes
-
-Primary sources below were consulted on 2026-10-19. Component behavior is sourced; interface choices, capacity policy, curricula, and integration steps are proposals. No donor weights were downloaded or models benchmarked for this document.
-
-- **[W1] Whistle model card:** [Cactus-Compute/whistle](https://huggingface.co/Cactus-Compute/whistle). Embedding API, quantized artifact size, sample rate, windowing, and license metadata.
-- **[W2] Whistle technical description:** [Cactus Compute: Whistle](https://www.cactuscompute.com/blog/whistle). Speech-oriented architecture and frontend context.
-- **[P1] Pocket codec/generator configuration:** [english.yaml](https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/config/english.yaml). Inspected file blob `3cfe0b69f765755f1f4e7eab1196a559c2e94824`; configuration includes immutable upstream weight references. Do not assume other language checkpoints share every setting.
-- **[P2] Pocket continuous codec interface:** [models/mimi.py](https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/models/mimi.py). Inspected file blob `2656cd57f5516ad54cbe56abdd93a42482ed2388`; `encode_to_latent`, `decode_from_latent`, padding, and `DummyQuantizer`.
-- **[P3] Pocket conditioning and normalization:** [models/flow_lm.py](https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/models/flow_lm.py). Prefix embeddings, latent statistics, flow/sampler and EOS conventions.
-- **[P4] Pocket training:** [training/README.md](https://github.com/kyutai-labs/pocket-tts/blob/main/training/README.md). Latent preparation, adaptation, and teacher/student recipes.
-- **[P5] Pocket weights/access:** [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts). Published family and reference-voice conditions.
-- **[V1] MiniCPM-V 4.7 feature interface:** [Transformers documentation](https://huggingface.co/docs/transformers/model_doc/minicpmv4_7). Visual feature extraction and 16x/4x merger behavior.
-- **[V2] MiniCPM-V 4.7 release description:** [OpenBMB documentation](https://github.com/OpenBMB/MiniCPM-V/blob/main/docs/minicpm_v4dot7_en.md). Visual compression and model-family context. Count exported visual parameters directly rather than using a full-model marketing size.
-- **[I1] Sana image checkpoint:** [Sana_600M_1024px_diffusers](https://huggingface.co/Efficient-Large-Model/Sana_600M_1024px_diffusers). Trained compact image generator and matching compression components.
-- **[G1] SANA-Video official implementation:** [sana_video.md](https://github.com/NVlabs/Sana/blob/main/docs/sana_video.md). The 720p checkpoint's LTX-2 VAE contract and distinction from the 480p variant.
-- **[G2] LTX-2.5 official model card:** [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5). Separate component packaging, convolutional/diffusion video decoding choices, audiovisual model and license conditions.
-
-Repository anchors: [core](../src/megatoken/model/core.py), [grouped model](../src/megatoken/model/multitrack.py), [media model](../src/megatoken/model/media.py), [controls](../src/megatoken/controls.py), [media assets](../src/megatoken/data/media_assets.py), [meridian learner](../src/megatoken/training/meridians.py), [current media pipeline](omni-media-pipeline.md), and [broader multi-track plan](multi-track-plan.md).
+The primary learning unit is a prompted aligned bundle, not a disconnected modality sample. Train direct transcription and verbalization, voice-to-voice translation, image/description pairs, caption/audio/video/endpoints, and successive media edits through the same raw 32-facet interface. Keep reconstruction and distillation as bridges into that integrated capability, not substitutes for it.
