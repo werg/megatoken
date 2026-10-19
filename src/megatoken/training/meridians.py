@@ -66,12 +66,30 @@ class MediaPlan:
         source = torch.from_numpy(store.load(self.reference.source)).to(device)[None]
         assert self.reference.target is not None
         target = torch.from_numpy(store.load(self.reference.target)).to(device)[None]
-        if self.modality == "image":
+        if self.modality == "image" and self.reference.target.kind == "raw":
             target = target[:, None]
+        views = tuple(
+            torch.from_numpy(store.load(ref)).to(device)[None]
+            for ref in self.reference.views
+        )
+        source_masks = tuple(
+            torch.from_numpy(store.load_mask(ref)).to(device)[None]
+            for ref in self.reference.source_masks
+        )
+        target_mask = (
+            torch.from_numpy(store.load_mask(self.reference.target_mask)).to(device)[None]
+            if self.reference.target_mask is not None else None
+        )
         return MediaTrainTarget(
             self.modality, self.spec, source, target, self.mode,
             source_kind=self.reference.source.kind,
             extractor=self.reference.source.extractor,
+            target_kind=self.reference.target.kind,
+            target_mask=target_mask, views=views,
+            view_kinds=tuple(x.kind for x in self.reference.views),
+            view_extractors=tuple(x.extractor for x in self.reference.views),
+            source_masks=source_masks,
+            source_sample_rate=self.reference.source.sample_rate or 16000,
         )
 
 
@@ -167,7 +185,7 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
     if reference.modality != modality or entry.record.media_type != MEDIA_RECORD_TYPE:
         raise ValueError("Media event requires a matching canonical media descriptor")
     if reference.target is None:
-        raise ValueError("Generated media events require a pinned raw target")
+        raise ValueError("Generated media events require a pinned raw or codec target")
     source = reference.source
     if source.kind == "features":
         feature_id = (
@@ -181,14 +199,26 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
         if source.extractor != feature_id or source.shape[-1] != feature_width:
             raise ValueError("Pinned media feature revision/width differs from model")
     target = reference.target
+    native = target.kind == "codec_latents"
+    geometry = target.geometry if native else target.shape
+    native_kw = dict(
+        codec_id=target.codec_id, pack_id=target.profile,
+        latent_shape=target.shape if native else (),
+        sample_rate=target.sample_rate or 16000,
+        fps_num=target.fps_num, fps_den=target.fps_den,
+        extent_source="teacher_only" if native else "requested",
+    )
+    if native and not target.profile:
+        raise ValueError("Codec targets require a paired pretrained generator pack")
     if modality == "audio":
-        spec = MediaOutputSpec("audio", sample_count=target.shape[0])
+        spec = MediaOutputSpec("audio", sample_count=geometry[0], **native_kw)
     elif modality == "image":
-        spec = MediaOutputSpec("image", height=target.shape[1], width=target.shape[2])
+        spec = MediaOutputSpec("image", height=geometry[-2], width=geometry[-1],
+                               **native_kw)
     else:
         spec = MediaOutputSpec(
-            "video", frames=target.shape[0],
-            height=target.shape[2], width=target.shape[3],
+            "video", frames=geometry[0],
+            height=geometry[-2], width=geometry[-1], **native_kw,
         )
     return MediaPlan(
         reference, spec, config.representation_training,
@@ -330,7 +360,23 @@ def _actual_raw(
                 if modality in {"audio", "image", "video"}:
                     source = MediaRecord.from_bytes(entry.payload).source
                     signal = torch.from_numpy(store.load(source)).to(device)[None]
-                    if source.kind == "features":
+                    reference = MediaRecord.from_bytes(entry.payload)
+                    if reference.views or reference.source_masks:
+                        refs = (reference.source, *reference.views)
+                        signals = tuple(torch.from_numpy(store.load(ref)).to(device)[None]
+                                        for ref in refs)
+                        masks = tuple(
+                            torch.from_numpy(store.load_mask(ref)).to(device)[None]
+                            for ref in reference.source_masks
+                        )
+                        raw = model.core.media_stems.encode_multiview(
+                            model.core, modality, signals,
+                            tuple(ref.kind for ref in refs),
+                            tuple(ref.extractor for ref in refs),
+                            masks=masks,
+                            sample_rate=source.sample_rate or 16000,
+                        )
+                    elif source.kind == "features":
                         raw = model.core.encode_media_features(
                             modality, signal, extractor=source.extractor
                         )
