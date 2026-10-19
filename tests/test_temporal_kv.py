@@ -188,6 +188,8 @@ def test_same_track_attention_bias_respects_identity_not_track_number():
     with torch.no_grad():
         attention.same_track_bias.fill_(3.0)
     features = AttentionFeatures(keys, values, None, tracks)
+    with pytest.raises(ValueError, match="both query and key"):
+        attention.read(query, features)
     result = attention.read(query, features, query_track_ids=queries)
     perm = torch.tensor([1, 3, 0, 2])
     scrambled = AttentionFeatures(keys[:, :, perm], values[:, :, perm], None, tracks[:, perm])
