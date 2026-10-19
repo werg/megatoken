@@ -95,6 +95,11 @@ class TrainConfig:
     compile_mode: str = "default"
     expert_backend: str = "auto"
     representation_mode: str = "auto"
+    # G counts physical megatoken events; use only with an explicit event budget.
+    # FP32 media assets live under the prepared dataset root by default.
+    budget_meter: str = "auto"
+    accumulate_events: int = 32
+    media_root: str | None = None
     deterministic: bool = False
     require_blackwell: bool = False
     grad_clip: float = 1.0
@@ -126,8 +131,19 @@ class TrainConfig:
             raise ValueError("expert_backend must be auto, torch, or triton")
         if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
+        if self.budget_meter not in {"auto", "G"}:
+            raise ValueError("budget_meter must be auto or G (megatoken events)")
+        if self.budget_meter == "G" and self.budget is None:
+            raise ValueError("A media/mixed event budget requires an explicit budget")
+        if self.budget_meter == "G" and self.eval_every:
+            raise ValueError(
+                "Event-budget media training needs eval_every=0 until media evaluation is installed"
+            )
+        if self.media_root is not None and not self.media_root:
+            raise ValueError("Media asset root must be a nonempty path")
         positive = (
             "microbatch_episodes",
+            "accumulate_events",
             "accumulate_scored",
             "accumulate_ingested",
             "max_accumulation_windows",

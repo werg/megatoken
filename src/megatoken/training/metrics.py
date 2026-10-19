@@ -15,6 +15,11 @@ class Counters:
     D: int = 0
     I: int = 0  # noqa: E741 - the specification's actual-ingestion meter
     P: int = 0
+    G: int = 0  # Actual selected physical megatokens, including media.
+    audio_samples: int = 0
+    video_frames: int = 0
+    image_events: int = 0
+    media_events: int = 0
     Z: int = 0  # Coordinates of the one stochastic facet action.
     T: int = 0
     source_bytes: int = 0
@@ -67,7 +72,10 @@ def rates(counters: Counters, elapsed: float) -> dict[str, float]:
     return {
         f"{key}_per_second": value / seconds
         for key, value in asdict(counters).items()
-        if key in {"D", "I", "P", "Z", "source_bytes", "record_ingestions", "reconstruction_tokens"}
+        if key in {
+            "D", "I", "P", "G", "Z", "media_events", "source_bytes",
+            "record_ingestions", "reconstruction_tokens",
+        }
     }
 
 

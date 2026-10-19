@@ -23,6 +23,7 @@ from megatoken.contracts import ROLE_TO_ID
 from megatoken.controls import build_control_payload, encode_controls
 from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
+from megatoken.data.media_assets import MediaRecord
 from megatoken.io import content_hash, write_json
 from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
@@ -40,7 +41,11 @@ from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.history import NativeHistory, replay_raw_tape
 from megatoken.training.losses import LossLedger
-from megatoken.training.meridians import MeridianPreparedBatch, forward_meridian_batch, prepare_meridian_batch
+from megatoken.training.meridians import (
+    MeridianPreparedBatch,
+    forward_meridian_batch,
+    prepare_meridian_batch,
+)
 from megatoken.training.metrics import (
     Counters,
     JsonlLogger,
@@ -342,6 +347,7 @@ def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Coun
                 Counters(
                     D=new_tokens,
                     I=new_tokens + prefix_tokens,
+                    G=len(window.records),
                     source_bytes=sum(
                         len(record.payload) for record in (*window.prefix, *window.records)
                     ),
@@ -353,6 +359,19 @@ def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Coun
                 )
             )
         if isinstance(batch, MeridianPreparedBatch):
+            for step in batch.steps:
+                for modality, record in zip(step.modalities, step.records, strict=True):
+                    if modality not in {"audio", "image", "video"}:
+                        continue
+                    reference = MediaRecord.from_bytes(record.payload)
+                    result.media_events += 1
+                    asset = reference.target or reference.source
+                    if modality == "audio" and asset.kind == "raw":
+                        result.audio_samples += asset.shape[0]
+                    elif modality == "video" and asset.kind == "raw":
+                        result.video_frames += asset.shape[0]
+                    elif modality == "image":
+                        result.image_events += 1
             result.P += sum(
                 plan.scored_positions for step in batch.steps for plan in step.plans
             )
@@ -604,7 +623,9 @@ def train(
             install_engram_asset(model, config.engram_import)
         context.broadcast_model(model)
         phase = dataclasses.replace(
-            PHASES[config.phase], budget=config.budget or PHASES[config.phase].budget
+            PHASES[config.phase],
+            budget=config.budget or PHASES[config.phase].budget,
+            meter="G" if config.budget_meter == "G" else PHASES[config.phase].meter,
         )
         optimizer = MasterAdamW(
             model, phase.learning_rate(0), config.weight_decay,
@@ -774,7 +795,7 @@ def train(
         ):
             started = time.perf_counter()
             selected = []
-            selected_counts = {"I": 0, "P": 0}
+            selected_counts = {"I": 0, "P": 0, "G": 0}
             for _ in range(config.max_accumulation_windows):
                 for _ in range(config.microbatch_episodes):
                     item = stream.next()
@@ -782,6 +803,7 @@ def train(
                         continue
                     selected.append(item)
                     selected_counts["I"] += item.window.I
+                    selected_counts["G"] += item.window.G
                     # Main prediction CE and the byte-codec auxiliary are both
                     # actually evaluated in bootstrap and recurrent modes.
                     selected_counts["P"] += item.window.P * 2
@@ -789,6 +811,7 @@ def train(
                 if (
                     global_selected["P"] >= config.accumulate_scored
                     or global_selected["I"] >= config.accumulate_ingested
+                    or (phase.meter == "G" and global_selected["G"] >= config.accumulate_events)
                 ):
                     break
             preparation_error = None

@@ -16,8 +16,10 @@ import torch
 
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
+from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import EncodedRecord
 from megatoken.generation.targets import PreparedAction, PreparedTargets
+from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.tensors import byte_tensor
 from megatoken.tool_schema import (
@@ -29,7 +31,51 @@ from megatoken.tool_schema import (
 from megatoken.training.history import NativeHistory
 from megatoken.training.stream import EpisodeWindow
 
-Plan = PreparedAction | PreparedTargets
+
+@dataclass(frozen=True)
+class MediaPlan:
+    """Scored media megatoken with independently pinned source and target."""
+
+    reference: MediaRecord
+    spec: MediaOutputSpec
+    mode: str
+    facet_count: int
+    facet_dim: int
+
+    @property
+    def modality(self) -> str:
+        return self.reference.modality
+
+    @property
+    def scored_positions(self) -> int:
+        return 0
+
+    @property
+    def denominators(self) -> dict[str, int]:
+        counts = dict.fromkeys(DEFAULT_LOSS_WEIGHTS, 0)
+        family = "audio" if self.modality == "audio" else "visual"
+        counts[f"{family}_prediction"] = 1
+        counts[f"{family}_reconstruction"] = 1
+        counts["facet_prediction"] = (
+            self.facet_count * self.facet_dim if self.mode == "bootstrap" else 0
+        )
+        counts["router_balance"] = counts["router_z"] = 1
+        return counts
+
+    def resolve(self, store: TensorAssetStore, device: torch.device) -> MediaTrainTarget:
+        source = torch.from_numpy(store.load(self.reference.source)).to(device)[None]
+        assert self.reference.target is not None
+        target = torch.from_numpy(store.load(self.reference.target)).to(device)[None]
+        if self.modality == "image":
+            target = target[:, None]
+        return MediaTrainTarget(
+            self.modality, self.spec, source, target, self.mode,
+            source_kind=self.reference.source.kind,
+            extractor=self.reference.source.extractor,
+        )
+
+
+Plan = PreparedAction | PreparedTargets | MediaPlan
 
 
 @dataclass(frozen=True)
@@ -42,6 +88,7 @@ class MeridianStep:
     offsets: tuple[int, ...]
     records: tuple[EncodedRecord, ...]
     plans: tuple[Plan, ...] = ()
+    modalities: tuple[str, ...] = ()
 
     @property
     def generated(self) -> bool:
@@ -115,6 +162,40 @@ def _target_plan(
     )
 
 
+def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) -> MediaPlan:
+    reference = MediaRecord.from_bytes(entry.payload)
+    if reference.modality != modality or entry.record.media_type != MEDIA_RECORD_TYPE:
+        raise ValueError("Media event requires a matching canonical media descriptor")
+    if reference.target is None:
+        raise ValueError("Generated media events require a pinned raw target")
+    source = reference.source
+    if source.kind == "features":
+        feature_id = (
+            model.config.audio_feature_id if modality == "audio"
+            else model.config.vision_feature_id
+        )
+        feature_width = (
+            model.config.audio_feature_dim if modality == "audio"
+            else model.config.vision_feature_dim
+        )
+        if source.extractor != feature_id or source.shape[-1] != feature_width:
+            raise ValueError("Pinned media feature revision/width differs from model")
+    target = reference.target
+    if modality == "audio":
+        spec = MediaOutputSpec("audio", sample_count=target.shape[0])
+    elif modality == "image":
+        spec = MediaOutputSpec("image", height=target.shape[1], width=target.shape[2])
+    else:
+        spec = MediaOutputSpec(
+            "video", frames=target.shape[0],
+            height=target.shape[2], width=target.shape[3],
+        )
+    return MediaPlan(
+        reference, spec, config.representation_training,
+        model.config.n_facets, model.config.facet_dim,
+    )
+
+
 def prepare_meridian_batch(
     model: Any,
     item: EpisodeWindow,
@@ -156,22 +237,39 @@ def prepare_meridian_batch(
                 "A zero-record native action inside an atomic meridian has "
                 "ambiguous causal timing; place it between meridians"
             )
-        if any(event.modality not in {"text", "tool", "evidence"} for event in meridian.events):
-            raise ValueError(
-                "Media training requires a pinned media asset/feature reader; "
-                "do not train audio, image or video payloads as text bytes"
-            )
+        modalities = tuple(
+            event.modality if event.modality in {"audio", "image", "video"} else "text"
+            for event in meridian.events
+        )
         if any(len(encoded[i].payload) > config.max_record_bytes for i in offsets):
             raise ValueError("Grouped record exceeds max_record_bytes")
         records = tuple(encoded[i] for i in offsets)
-        if any(
-            record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
-            for record in records
-        ):
-            raise ValueError(
-                "Binary media records require a pinned media asset/feature reader "
-                "even when a source labels their track as text"
-            )
+        for event, record in zip(meridian.events, records, strict=True):
+            if event.modality in {"audio", "image", "video"}:
+                if record.record.media_type != MEDIA_RECORD_TYPE:
+                    raise ValueError(
+                        "Media events require a pinned canonical media asset descriptor"
+                    )
+                ref = MediaRecord.from_bytes(record.payload)
+                if ref.modality != event.modality or (
+                    event.asset_sha256 is not None
+                    and event.asset_sha256 != ref.source.sha256
+                ):
+                    raise ValueError("Media event modality/source hash differs from its asset")
+                if ref.source.kind == "features":
+                    identity, width = (
+                        (model.config.audio_feature_id, model.config.audio_feature_dim)
+                        if event.modality == "audio" else
+                        (model.config.vision_feature_id, model.config.vision_feature_dim)
+                    )
+                    if ref.source.extractor != identity or ref.source.shape[-1] != width:
+                        raise ValueError(
+                            "Observed media feature revision/width differs from model"
+                        )
+            elif record.record.media_type == MEDIA_RECORD_TYPE or (
+                record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
+            ):
+                raise ValueError("Media payload cannot be ingested on a text track")
         selected = tuple(record.record.policy_mask for record in records)
         if any(selected) and not all(selected):
             raise ValueError(
@@ -181,8 +279,12 @@ def prepare_meridian_batch(
         plans: tuple[Plan, ...] = ()
         if all(selected) and offsets[0] >= window.start:
             plans = tuple(
-                _target_plan(model, item, record, index, offsets[0], native, config)
-                for record, index in zip(records, offsets, strict=True)
+                _media_plan(model, record, modality, config)
+                if modality in {"audio", "image", "video"}
+                else _target_plan(model, item, record, index, offsets[0], native, config)
+                for record, index, modality in zip(
+                    records, offsets, modalities, strict=True
+                )
             )
             for plan in plans:
                 for name, count in plan.denominators.items():
@@ -191,7 +293,7 @@ def prepare_meridian_batch(
             meridian.meridian_id,
             tuple(event.track_id for event in meridian.events),
             tuple(ROLE_TO_ID[event.role] for event in meridian.events),
-            offsets, records, plans,
+            offsets, records, plans, modalities,
         )
         (prefix if offsets[-1] < window.start else steps).append(step)
     if sum(len(x.records) for x in (*prefix, *steps)) != window.end:
@@ -208,22 +310,37 @@ def _actual_raw(
     model: Any,
     step: MeridianStep,
     native: NativeHistory,
+    store: TensorAssetStore,
     device: torch.device,
     *,
     encoder_grad: bool,
 ) -> torch.Tensor:
-    """Reconstruct selected *historical* events, including genuine taped raw draws."""
+    """Rebuild selected raw blocks, preserving pinned modality and native identity."""
     values = []
-    for cursor, entry in zip(step.offsets, step.records, strict=True):
+    for cursor, entry, modality in zip(
+        step.offsets, step.records, step.modalities, strict=True
+    ):
         tape = native.paired_tape(cursor)
         if tape is not None:
             raw = torch.as_tensor(
                 tape.facet_array().copy(), dtype=torch.float32, device=device,
             ).reshape(1, model.config.n_facets, model.config.facet_dim)
         else:
-            ids, lengths = byte_tensor([entry.payload], device)
             with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
-                raw = model.core.encode_chunk(ids, lengths)
+                if modality in {"audio", "image", "video"}:
+                    source = MediaRecord.from_bytes(entry.payload).source
+                    signal = torch.from_numpy(store.load(source)).to(device)[None]
+                    if source.kind == "features":
+                        raw = model.core.encode_media_features(
+                            modality, signal, extractor=source.extractor
+                        )
+                    else:
+                        raw = model.core.encode_media(
+                            modality, signal, sample_rate=source.sample_rate or 16000
+                        )
+                else:
+                    ids, lengths = byte_tensor([entry.payload], device)
+                    raw = model.core.encode_chunk(ids, lengths)
         values.append(raw)
     return torch.stack(values, dim=1)
 
@@ -265,6 +382,7 @@ def forward_meridian_batch(
     from megatoken.training.engine import episode_control_payload
 
     multi = MultiTrackGenerator(model)
+    store = TensorAssetStore(config.media_root or config.dataset)
     state = multi.tracks.initial_state(1, device=device)
     if state.model_version != model_version:
         # The core owner is versioned by the outer training loop.
@@ -282,10 +400,14 @@ def forward_meridian_batch(
             state, replayed = _preceding_native(multi, state, batch.native_history, step)
             metrics["grouped_native_replays"] += replayed
             state = multi.tracks.advance_group(
-                state, _actual_raw(model, step, batch.native_history, device, encoder_grad=False),
+                state,
+                _actual_raw(
+                    model, step, batch.native_history, store, device,
+                    encoder_grad=False,
+                ),
                 tracks=step.tracks,
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
-                modalities=("text",) * len(step.tracks),
+                modalities=step.modalities,
             )
     for step in batch.steps:
         state, replayed = _preceding_native(multi, state, batch.native_history, step)
@@ -299,8 +421,12 @@ def forward_meridian_batch(
                 )
                 for entry in step.records
             )
+            resolved = tuple(
+                plan.resolve(store, device) if isinstance(plan, MediaPlan) else plan
+                for plan in step.plans
+            )
             result = multi.supervised_meridian(
-                state, tracks=step.tracks, plans=step.plans,
+                state, tracks=step.tracks, plans=resolved,
                 control_payloads=(payload,) * len(step.tracks),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
@@ -316,12 +442,12 @@ def forward_meridian_batch(
         else:
             state = multi.tracks.advance_group(
                 state, _actual_raw(
-                    model, step, batch.native_history, device,
+                    model, step, batch.native_history, store, device,
                     encoder_grad=config.representation_training == "bootstrap",
                 ),
                 tracks=step.tracks,
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
-                modalities=("text",) * len(step.tracks),
+                modalities=step.modalities,
             )
     if losses:
         torch.stack(losses).sum().backward()

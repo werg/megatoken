@@ -29,14 +29,14 @@ from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, LOSS_NAMES
 from megatoken.controls import encode_controls
 from megatoken.generation.decoder import DECODER_LOSSES
 from megatoken.generation.latents import DiagonalGaussian
-from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.generation.structure import ActionSpec
+from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.io import strict_json_loads
 from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
-from .media import MediaOutputSpec
+from .media import MediaOutputSpec, MediaTrainTarget
 from .routing import RowRoute
 from .state import KVHistory, RealizationContext, assert_cache_version
 
@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
 GROUP_TAPE_VERSION = "fmt-multitrack-facets-v7"
-
 
 
 @dataclass(frozen=True)
@@ -56,6 +55,9 @@ class ObservedEvent:
     payload: bytes | Tensor
     role_id: int = ROLE_IDS["user"]
     sample_rate: int = 16000
+    # Optional immutable donor identity; nonempty means payload is ordered
+    # feature tokens rather than native waveform/image/video pixels.
+    extractor: str = ""
 
     def __post_init__(self) -> None:
         if self.modality not in {"text", "audio", "image", "video"}:
@@ -66,6 +68,10 @@ class ObservedEvent:
             raise TypeError("Media events must contain a tensor")
         if self.role_id not in ROLE_IDS.values():
             raise ValueError("Unknown event role")
+        if self.extractor and (
+            self.modality == "text" or not isinstance(self.payload, Tensor)
+        ):
+            raise ValueError("External features require a media tensor and pinned extractor")
 
 
 @dataclass(frozen=True)
@@ -632,21 +638,38 @@ class GroupGeneration:
 class _GroupedTeacherReadout(nn.Module):
     """Shared readout for normal and frozen-owner encoder-only group branches."""
 
-    def __init__(self, core: FacetedCore, decoder: nn.Module) -> None:
+    def __init__(
+        self, core: FacetedCore, decoder: nn.Module, media_realizers: nn.Module
+    ) -> None:
         super().__init__()
         self.core = core
         self.decoder = decoder
+        self.media_realizers = media_realizers
 
     def losses_for_selected(
-        self, selected: MultiTrackState,
-        plans: Sequence[PreparedTargets | PreparedAction],
+        self,
+        selected: MultiTrackState,
+        plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
+        control: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
         zero = selected.raw.float().sum() * 0
-        sums = {name: zero for name in DECODER_LOSSES}
-        counts = {name: 0 for name in DECODER_LOSSES}
+        names = (*DECODER_LOSSES, "audio", "visual")
+        sums = {name: zero for name in names}
+        counts = {name: 0 for name in names}
         adapter = MultiTrackCore(self.core)
         for index, plan in enumerate(plans):
             context = adapter.realization_context(selected, index)
+            if isinstance(plan, MediaTrainTarget):
+                condition = None if control is None else control[:, index]
+                predicted = self.media_realizers.realize(context, plan.spec, condition)
+                if predicted.shape != plan.target.shape:
+                    raise ValueError("Media realization differs from prepared output target")
+                family = "audio" if plan.modality == "audio" else "visual"
+                sums[family] = sums[family] + (
+                    predicted.float() - plan.target.float()
+                ).square().mean()
+                counts[family] += 1
+                continue
             if isinstance(plan, PreparedTargets):
                 parts = self.decoder.teacher_raw(self.core, context, plan)
             else:
@@ -655,18 +678,21 @@ class _GroupedTeacherReadout(nn.Module):
                 value, count = parts[name]
                 sums[name] = sums[name] + value
                 counts[name] += count
-        return {name: (sums[name], counts[name]) for name in DECODER_LOSSES}
+        return {name: (sums[name], counts[name]) for name in names}
 
     def forward(
         self, state: MultiTrackState, raw: Tensor,
         tracks: tuple[str, ...], roles: Tensor,
-        plans: tuple[PreparedTargets | PreparedAction, ...],
+        plans: tuple[PreparedTargets | PreparedAction | MediaTrainTarget, ...],
+        control: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
-        selected = MultiTrackCore(self.core).advance_group(
-            state, raw, tracks=tracks, role_ids=roles,
-            modalities=("text",) * len(tracks),
+        modalities = tuple(
+            p.modality if isinstance(p, MediaTrainTarget) else "text" for p in plans
         )
-        return self.losses_for_selected(selected, plans)
+        selected = MultiTrackCore(self.core).advance_group(
+            state, raw, tracks=tracks, role_ids=roles, modalities=modalities,
+        )
+        return self.losses_for_selected(selected, plans, control)
 
 
 class MultiTrackGenerator:
@@ -744,7 +770,7 @@ class MultiTrackGenerator:
         state: MultiTrackState,
         *,
         tracks: Sequence[str],
-        plans: Sequence[PreparedTargets | PreparedAction],
+        plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
         control_payloads: Sequence[bytes] | None = None,
         effort: int = 6,
         teacher_forced_action: bool = False,
@@ -762,17 +788,19 @@ class MultiTrackGenerator:
         names = self.tracks._names(tracks, len(tracks))
         plans = tuple(plans)
         if len(plans) != len(names) or any(
-            not isinstance(plan, (PreparedTargets, PreparedAction)) for plan in plans
+            not isinstance(plan, (PreparedTargets, PreparedAction, MediaTrainTarget))
+            for plan in plans
         ):
-            raise ValueError("Every output track requires a prepared text target")
+            raise ValueError("Every track requires one prepared text or media target")
         modes = {plan.mode for plan in plans}
         if len(modes) != 1 or not modes.issubset({"bootstrap", "recurrent"}):
             raise ValueError("Peers must share one representation-training mode")
         mode = modes.pop()
         if any(isinstance(p, PreparedTargets) and len(p.payloads) != 1 for p in plans):
             raise ValueError("Each grouped target plan must describe one event")
-        payloads = tuple(
-            p.payloads[0] if isinstance(p, PreparedTargets) else p.payload for p in plans
+        modalities = tuple(
+            plan.modality if isinstance(plan, MediaTrainTarget) else "text"
+            for plan in plans
         )
         roles = torch.tensor(
             [[p.roles[0] if isinstance(p, PreparedTargets) else p.role_id for p in plans]],
@@ -786,29 +814,45 @@ class MultiTrackGenerator:
         control = self._controls(controls, state.device)
         mean = self.tracks.predict_group(
             state, tracks=names, control=control, effort=effort,
-            modalities=("text",) * len(names),
+            modalities=modalities,
         )
         prior = self.generator.facet_distribution(mean)
         sampled = self._sample_policy(prior, names, generator)
         selected = self.tracks.advance_group(
-            state, sampled, tracks=names, role_ids=roles, modalities=("text",) * len(names),
+            state, sampled, tracks=names, role_ids=roles, modalities=modalities,
         )
         encoded = []
-        for payload in payloads:
-            values, lengths = byte_tensor([payload], state.device)
-            encoded.append(core.encode_chunk(values, lengths))
+        for plan in plans:
+            if isinstance(plan, MediaTrainTarget):
+                if plan.source_kind == "features":
+                    current = core.encode_media_features(
+                        plan.modality, plan.source, extractor=plan.extractor
+                    )
+                else:
+                    current = core.encode_media(plan.modality, plan.source)
+            else:
+                payload = (
+                    plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
+                )
+                values, lengths = byte_tensor([payload], state.device)
+                current = core.encode_chunk(values, lengths)
+            encoded.append(current)
         target_raw = torch.stack(encoded, dim=1)
         q = DiagonalGaussian(
             target_raw.float(),
             torch.full_like(target_raw.float(), math.log(core.config.codec_noise_std)),
         )
         codec_sample = q.sample(generator)
-        readout = _GroupedTeacherReadout(core, self.generator.decoder)
-        prior_terms = readout.losses_for_selected(selected, plans)
+        readout = _GroupedTeacherReadout(
+            core, self.generator.decoder, self.generator.media_realizers
+        )
+        prior_terms = readout.losses_for_selected(selected, plans, control)
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
-                recon_terms = readout(state, codec_sample, names, roles, plans)
+                recon_terms = readout(
+                    state, codec_sample, names, roles, plans, control
+                )
             continuation = target_raw
             correspondence = q.detach().kl(prior).sum()
         else:
@@ -820,7 +864,10 @@ class MultiTrackGenerator:
             with core.discard_routing_losses():
                 recon_terms = functional_call(
                     readout, frozen,
-                    (state.detach(), codec_sample, names, roles, plans),
+                    (
+                        state.detach(), codec_sample, names, roles, plans,
+                        None if control is None else control.detach(),
+                    ),
                 )
             correspondence = mean.float().sum() * 0
             if teacher_forced_action:
@@ -828,7 +875,8 @@ class MultiTrackGenerator:
                 for index, plan in enumerate(plans):
                     tape = (
                         plan.native_tapes[0] if isinstance(plan, PreparedTargets)
-                        else plan.native_tape
+                        else plan.native_tape if isinstance(plan, PreparedAction)
+                        else None
                     )
                     if tape is None:
                         actual.append(target_raw[:, index].detach())
@@ -846,7 +894,7 @@ class MultiTrackGenerator:
             selected if mode == "recurrent" and not teacher_forced_action
             else self.tracks.advance_group(
                 state, continuation, tracks=names, role_ids=roles,
-                modalities=("text",) * len(names),
+                modalities=modalities,
             )
         )
         zero = mean.float().sum() * 0
@@ -854,6 +902,11 @@ class MultiTrackGenerator:
         counts = dict.fromkeys(LOSS_NAMES, 0)
         sums["lexical"], counts["lexical"] = prior_terms["lexical"]
         sums["reconstruction"], counts["reconstruction"] = recon_terms["lexical"]
+        for family in ("audio", "visual"):
+            sums[f"{family}_prediction"], counts[f"{family}_prediction"] = prior_terms[family]
+            sums[f"{family}_reconstruction"], counts[f"{family}_reconstruction"] = (
+                recon_terms[family]
+            )
         for name in ("structure", "binding", "placement", "terminal"):
             a, a_count = prior_terms[name]
             b, b_count = recon_terms[name]
@@ -867,7 +920,8 @@ class MultiTrackGenerator:
             for index, plan in enumerate(plans):
                 tape = (
                     plan.native_tapes[0] if isinstance(plan, PreparedTargets)
-                    else plan.native_tape
+                    else plan.native_tape if isinstance(plan, PreparedAction)
+                    else None
                 )
                 if tape is not None:
                     actual = torch.as_tensor(

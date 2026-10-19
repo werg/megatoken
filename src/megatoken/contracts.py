@@ -9,6 +9,13 @@ ROLE_TO_ID = MappingProxyType(
 DEFAULT_LOSS_WEIGHTS = {
     "lexical": 1.0,
     "reconstruction": 1.0,
+    # Each media loss is a mean over valid renderer coordinates PER EVENT.
+    # Separate denominators prevent speech and video tensor sizes from
+    # silently becoming reference text tokens or dominating shared training.
+    "audio_prediction": 1.0,
+    "audio_reconstruction": 1.0,
+    "visual_prediction": 1.0,
+    "visual_reconstruction": 1.0,
     "structure": 0.25,
     "binding": 0.5,
     "placement": 0.25,
