@@ -189,7 +189,7 @@ def prepare_batches(
     model: Any, windows: list[EpisodeWindow], config: TrainConfig
 ) -> list[PreparedBatch]:
     result = []
-    raw_windows, action_windows = [], []
+    raw_windows, action_windows, meridian_windows = [], [], []
     native_histories: dict[int, NativeHistory] = {}
     for item in windows:
         if id(item.episode) not in native_histories:
@@ -220,7 +220,9 @@ def prepare_batches(
             raise ValueError(
                 "Long dependency data requires explicit causal writer/reader annotations"
             )
-        if native_histories[id(item.episode)].has_events or (
+        if item.episode.meridians:
+            meridian_windows.append(item)
+        elif native_histories[id(item.episode)].has_events or (
             item.episode.tools_json != "[]"
             and any(record.record.action_id for record in item.window.records)
         ):
