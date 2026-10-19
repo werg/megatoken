@@ -245,14 +245,22 @@ def prepare_meridian_batch(
         if any(len(encoded[i].payload) > config.max_record_bytes for i in offsets):
             raise ValueError("Grouped record exceeds max_record_bytes")
         records = tuple(encoded[i] for i in offsets)
-        if any(
-            record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
-            for record in records
-        ):
-            raise ValueError(
-                "Binary media records require a pinned media asset/feature reader "
-                "even when a source labels their track as text"
-            )
+        for event, record in zip(meridian.events, records, strict=True):
+            if event.modality in {"audio", "image", "video"}:
+                if record.record.media_type != MEDIA_RECORD_TYPE:
+                    raise ValueError(
+                        "Media events require a pinned canonical media asset descriptor"
+                    )
+                ref = MediaRecord.from_bytes(record.payload)
+                if ref.modality != event.modality or (
+                    event.asset_sha256 is not None
+                    and event.asset_sha256 != ref.source.sha256
+                ):
+                    raise ValueError("Media event modality/source hash differs from its asset")
+            elif record.record.media_type == MEDIA_RECORD_TYPE or (
+                record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
+            ):
+                raise ValueError("Media payload cannot be ingested on a text track")
         selected = tuple(record.record.policy_mask for record in records)
         if any(selected) and not all(selected):
             raise ValueError(
