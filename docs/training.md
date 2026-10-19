@@ -1,7 +1,7 @@
 # Training and operations
 
-> **Implementation boundary (v7):** The stages and `forward_batch` described below
-> currently train the legacy one-event sequence. The new grouped `MultiTrackGenerator`
+> **Implementation boundary (v7):** The stages described below still support
+> legacy one-event episodes; the new grouped `MultiTrackGenerator`
 > now also supports text-like grouped B0 and recurrent meridians in the existing
 > distributed stage engine. Grouped native-media readers, media-specific counters,
 > feature caching, and high-fidelity renderer losses remain future work. See the
