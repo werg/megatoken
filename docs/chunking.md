@@ -189,6 +189,19 @@ several formats independently of a native grammar. These paths preserve source
 bytes and hard capacities while reporting the reduced evidence. They do not claim
 to produce a full syntax tree for an unknown language.
 
+The `generic_lexical:v2` recovery path now distinguishes language-family
+comment markers instead of treating every `#`, `--`, or `//` as a comment.
+It recognizes nested Rust, Swift, Haskell, and OCaml-style block comments,
+Rust/C++ raw strings, Rust lifetime labels, and CR-only line breaks. Unknown
+dialects apply only conservative line-leading comment recognition; unsupported
+syntax must remain visible for subsequent parser improvements, not be silently
+promoted to incorrect structure. The HTML recovery path also separates
+source-exact event/style/prose attribute values and uses script/style
+`type` and `lang` metadata, including data-script and template types.
+Neither fallback decodes entities, executes source, or claims full grammar
+equivalence. See the [recovery regression matrix](../tests/test_parser_recovery_depth.py)
+and the [updated validation status](validation.md#pr-6-follow-up-integration--2026-10-19).
+
 Local grammar extensions use
 [`register_parser_provider`](../src/megatoken/data/parsing/registry.py), with a
 provider name/version, canonical language names, an offline parser factory, and
