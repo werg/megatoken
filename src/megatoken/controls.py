@@ -166,3 +166,71 @@ def encode_controls(
     values, lengths = byte_tensor(payloads, core.initial_facets.device)
     encoded = core.encode_control(values, lengths=lengths, encoder_grad=encoder_grad)
     return encoded.masked_fill(lengths.eq(0)[:, None], 0)
+
+
+# The same resolver is used by dataset compilation, grouped training and
+# serving. An input's descriptor is publicly available once its meridian is
+# observed; labels on future output peers are never consulted.
+_DEFAULT_EVENT_INSTRUCTIONS = {
+    "text": "Produce the requested text using available causal evidence.",
+    "audio": "Produce speech or sound according to the event request.",
+    "image": "Produce the requested still image.",
+    "video": "Produce the requested temporal video.",
+    "tool": "Execute the requested tool action from available evidence.",
+    "evidence": "Interpret the available evidence.",
+}
+
+
+def resolve_event_control(episode: object, event: object) -> bytes:
+    """Resolve exact event-time control bytes, never supervision metadata.
+
+    Precedence: episode seed -> track default -> current event request.
+    The reference IDs designate *already committed* events in shared KV, not
+    hash-string substitutes for extracted voice/image features.
+    """
+    tracks = {track.track_id: track for track in episode.tracks}
+    if event.track_id not in tracks:
+        raise ValueError("Missing event track descriptor")
+    track = tracks[event.track_id]
+    available = {}
+    seen = set()
+    for meridian in episode.meridians:
+        if meridian.meridian_id >= event.meridian_id:
+            break
+        for prior in meridian.events:
+            seen.add(prior.record_id)
+            if prior.role != "assistant":
+                prior_track = tracks[prior.track_id]
+                available[prior.track_id] = {
+                    "modality": prior.modality,
+                    "instruction": prior.instruction or prior_track.description
+                    or _DEFAULT_EVENT_INSTRUCTIONS.get(prior.modality, ""),
+                    "revision": prior.request_revision,
+                }
+    if any(ref not in seen for ref in event.reference_event_ids):
+        raise ValueError("Cannot condition an event on a future reference")
+    settings = strict_json_loads(track.settings_json)
+    settings.update(strict_json_loads(event.settings_json))
+    instruction = event.instruction or track.description or _DEFAULT_EVENT_INSTRUCTIONS[event.modality]
+    override = {
+        "track_id": event.track_id,
+        "modality": event.modality,
+        "instruction": instruction,
+        "revision": event.request_revision,
+        "meridian_id": event.meridian_id,
+        "settings": settings,
+        "reference_event_ids": list(event.reference_event_ids),
+        "available_input_tracks": available,
+    }
+    return build_control_payload(
+        seed=episode.control_seed,
+        reference=episode.control_reference,
+        reference_origin=episode.reference_origin,
+        tools_json=episode.tools_json,
+        track_override=override,
+    )
+
+
+def resolve_meridian_controls(episode: object, meridian: object) -> tuple[bytes, ...]:
+    """Physical-order-independent event requests for an atomic generated group."""
+    return tuple(resolve_event_control(episode, event) for event in meridian.events)

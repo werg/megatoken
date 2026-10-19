@@ -657,8 +657,7 @@ class _GroupedTeacherReadout(nn.Module):
         for index, plan in enumerate(plans):
             context = self.core.prepare_realization(raw[:, index])
             if isinstance(plan, MediaTrainTarget):
-                condition = None if control is None else control[:, index]
-                predicted = self.media_realizers.realize(context, plan.spec, condition)
+                predicted = self.media_realizers.realize(context, plan.spec)
                 if predicted.shape != plan.target.shape:
                     raise ValueError("Media realization differs from prepared output target")
                 family = "audio" if plan.modality == "audio" else "visual"
@@ -747,8 +746,8 @@ class MultiTrackGenerator:
                 validity.append(decoded.valid)
                 media.append(None)
             else:
-                vector = None if control is None else control[:, index]
-                tensor = self.generator.media_realizers.realize(context, spec, vector)
+                # v8: effective prompts influence P's selected Z, never R itself.
+                tensor = self.generator.media_realizers.realize(context, spec)
                 payloads.append(tensor[0].detach().float().contiguous().cpu().numpy()
                                 .astype("<f4", copy=False).tobytes())
                 ids.append(())
@@ -1041,8 +1040,7 @@ class MultiTrackGenerator:
                     values.append(torch.stack(active).sum())
                 else:
                     assert isinstance(target, Tensor)
-                    cond = None if control is None else control[:, i]
-                    out = self.generator.media_realizers.realize(ctx, spec, cond)
+                    out = self.generator.media_realizers.realize(ctx, spec)
                     if target.shape != out.shape or target.device != out.device:
                         raise ValueError("Media target must match realized shape/device")
                     values.append((out.float() - target.float()).square().mean())
@@ -1064,10 +1062,9 @@ class MultiTrackGenerator:
         posterior = DiagonalGaussian(
             encoded_raw.float(), torch.full_like(encoded_raw, math.log(tau))
         )
-        # KL is already averaged over batch, events, facets and coordinates.
-        # Dividing again by one group's latent size almost removes its gradient
-        # at production width (32 x 512), defeating bootstrap prior alignment.
-        kl = posterior.detach().kl(distribution).mean()
+        # DiagonalGaussian.kl() sums coordinates per example. Normalize once
+        # by all ACTIVE latent coordinates, matching the production loss ledger.
+        kl = posterior.detach().kl(distribution).sum() / encoded_raw.numel()
         noise = torch.randn(
             encoded_raw.shape, device=state.device, dtype=torch.float32, generator=generator
         )

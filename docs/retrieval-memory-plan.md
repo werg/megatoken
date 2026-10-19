@@ -1,8 +1,8 @@
 # Retrieval and correction memory: architecture plan
 
-**Status:** Proposed extension to the v8 prototype; implementation and learned quality remain to be established.
+**Status:** Proposed extension to the v7 prototype; implementation and learned quality remain to be established.
 **Date:** 2026-10-19.
-**Reviewed baseline:** [`347e64702442aa6d814927baa98e9b0f814c9b2b`](https://github.com/werg/megatoken/commit/347e64702442aa6d814927baa98e9b0f814c9b2b).
+**Reviewed baseline:** [`a441316f19ea6409ff39f4502bc56068f0d06ed2`](https://github.com/werg/megatoken/commit/a441316f19ea6409ff39f4502bc56068f0d06ed2).
 
 ## 1. Decision
 
@@ -17,27 +17,13 @@ Both paths use one boundary scheduler and a compatible semantic retrieval interf
 
 This replaces the earlier proposal to import complete source KV sequences into the live cache. Ordered retrieval now uses source chunks and normal ingestion. KV **corrections** remain part of the design.
 
-The [multi-track architecture](multi-track-plan.md) already defines shared history, categorical tracks and atomic meridians. Its [implementation status](multi-track-implementation.md) establishes the observation and grouped generation foundations. The vector realizer, retrieval service and recurrent/distributed multi-track training integration below remain work to implement and train.
+The [multi-track architecture](multi-track-plan.md) already defines shared history, categorical tracks and atomic meridians. Its [implementation status](multi-track-implementation.md) identifies the trained retrieval projection, retrieval service and recurrent/distributed multi-track training integration as remaining work.
 
-## 2. Embedding realizer, one query interface, two payload readers
+## 2. One query interface, two payload readers
 
-Use the [v8 shared representation](architecture.md): E emits raw facets, P predicts the same geometry, and R realizes it directly. Add an **embedding realizer** alongside the text and media realizers. Its latent input is the selected raw block `Z: [batch, facets, width]` (normally 32 facets), not C activations or a teacher-produced vector.
+At a latency boundary, a small retrieval head emits a normalized vector from a **causal read of the main request and committed shared history**. Attach it to a main-request-conditioned, read-only predictor block; the retrieval track owns lookup requests and returned evidence. Start with one deterministic query per boundary, without a generated textual search query or an extra recurrent model.
 
-At a latency boundary, request one retrieval-purpose event on a reusable retrieval track:
-
-```text
-Z_query ~ P(committed_history, main_request, retrieval_spec)
-q = R_embedding(Z_query, space_id, role="query")
-hits = ANN(q, eligible_collections)
-```
-
-Condition P on the main request, retrieval purpose and semantic-space specification **before** predicting. Do not assume `state.final` is the main track: it contains the latest meridian, which may contain only tool or evidence events. Use explicit causal request/control conditioning and the existing historical attention path. Merely choosing an embedding realizer after ordinary answer prediction does not establish search intent.
-
-Start with one learned output slot reading all raw facets with their identities, followed by a projection and normalization into the chosen key space. This is a small direct realizer; it does not need lexical expansion or vocabulary decoding. Use the normal selected Gaussian raw-facet event. R is deterministic given that tensor and its output spec; the complete query policy still includes P's sampling. C separately processes the same selected raw block for future predictions; R can run before C. Section 7 defines event commitment and lookup dispatch.
-
-The typed embedding output spec identifies the semantic space/version, query or document role, dimension, normalization and output count. Shared raw geometry does not align unrelated external embedding spaces; preserve each teacher's query/document asymmetry through the appropriate output head or conditioning. Emission needs neither an online teacher call nor a vector ingester.
-
-A reusable facet readout can later support classification logits, scores or typed extraction fields inside ordinary realizers. Implement the embedding output first and factor out that internal component when another task needs it. Per-event readout simply maps over megatokens. Facet identities are not source-token positions; exact token/span extraction needs explicit source alignment. Additional query slots can later express complementary searches, but start with one vector per retrieval event, without imposing one query per facet. Multiple outputs from one raw block do not create additional events.
+Do not assume `state.final` is the main track: it contains the latest meridian, which may contain only tool or evidence events. Condition the query on the main request explicitly and use the existing historical attention path.
 
 Use a single ANN service with typed source and correction collections in the chosen embedding space. A query may search either or both with independent result budgets. Semantic keys locate useful records; native attention keys govern their later use.
 
@@ -47,11 +33,7 @@ All evidence uses normal committed-meridian RoPE and the shared history budget. 
 
 ## 3. Supervise semantic addressing first
 
-Keep the first source index in a **frozen external teacher's document space** and learn the native query side. Precompute keys for megatoken's actual chunks; keep source keys fixed during the first pretraining run while training correction values freely. This avoids simultaneously moving the index, reader and writer targets.
-
-Warm the embedding realizer on E-encoded explicit queries with teacher query targets. Then train causal P retrieval events through the same realizer, using teacher query targets, similarity distributions and labeled useful evidence. The E route is auxiliary supervision, not a requirement to generate query text at serving. P and R must learn together on the raw blocks actually used for retrieval; the teacher vector is a target, not P's input.
-
-Native document embedding via `R_embedding(E(source), role="document")` is optional later work. An isolated E(chunk) cannot reproduce a contextual teacher target that depends on unavailable neighboring chunks. Supply the required permitted source context if training that route; retain teacher-generated document keys initially.
+Precompute keys for megatoken's actual chunks with a frozen embedding teacher. Warm up the retrieval query head using both teacher similarity distributions and labeled useful evidence. Keep source keys fixed during the first pretraining run; train correction values freely. This avoids simultaneously moving the index, reader and writer targets.
 
 Select one teacher space before bulk indexing, after a small comparison:
 
@@ -65,7 +47,7 @@ Normalize vectors consistently and pin the model, dimension, query/document form
 
 The query teacher sees only the available request/prefix. The evidence teacher may see the permitted source context. Seed correction records intended for local hindsight with keys computed from bounded source windows that a later suffix writer can see; reserve broader-context records for corpus reproduction. In continuation and hindsight tasks, every chunk that influenced a contextual embedding is part of its visibility footprint; filtering only the returned chunk is insufficient.
 
-Train for **useful evidence**, not merely resemblance to the prefix. Use multiple positives, hard distractors and no-answer examples. Do not automatically label every sibling chunk or unannotated result negative. ANN/top-k selection is discrete: teacher and differentiable candidate-ranking losses train P and the embedding realizer, while downstream generation losses train the selected readers and values without a gradient through the hard lookup.
+Train for **useful evidence**, not merely resemblance to the prefix. Use multiple positives, hard distractors and no-answer examples. Do not automatically label every sibling chunk or unannotated result negative. ANN/top-k selection is discrete: ranking supervision trains the query head, while downstream generation losses train the selected readers and values.
 
 ## 4. Free correction KB during pretraining
 
@@ -145,24 +127,24 @@ Add corpus-derived lookup/join tasks and actual attempt/feedback/correction traj
 
 Use one scheduler for both retrieval paths:
 
-1. At a completed user/tool turn or other declared boundary, snapshot the causal state, select a retrieval-purpose P event and realize its vector directly from the raw facets. Accept the event through normal grouped commitment, then dispatch the lookup.
+1. At a completed user/tool turn or other declared boundary, snapshot the causal state and issue the vector query.
 2. Fetch source evidence and correction candidates within explicit budgets.
-3. Admit available evidence as later observed meridians; activate selected corrections for the next main prediction. Results cannot affect the query that fetched them or any already-selected peer output.
+3. Admit available evidence as observed meridians; activate selected corrections for the next main prediction.
 4. Continue until the next boundary. On no match, activate nothing new and let existing corrections decay.
 
-For long uninterrupted runs, insert artificial boundaries after a configurable amount of committed main-track progress, with a small range of training intervals. A boundary itself is only a scheduling opportunity between complete meridians. Issuing a native query there commits a real event, using the normal C/KV transition and history budget; no empty event is inserted for the boundary. Evidence admission alone must not trigger a recursive retrieval loop.
+For long uninterrupted runs, insert artificial boundaries after a configurable amount of committed main-track progress, with a small range of training intervals. These are scheduling opportunities between complete meridians, not empty events or extra RoPE steps. Evidence admission alone must not trigger a recursive retrieval loop.
 
-Use bounded waiting and the same arrival/deadline policy in training and serving. Late results wait for the next valid admission boundary; never grant them to a prediction made before their availability. If speculation is used, evidence or correction admission changes the session revision and invalidates candidates from the old state. Realization and ANN lookup themselves do not mutate causal state or advance RoPE. The selected query event is committed once, and its containing meridian advances the clock once. Speculative query candidates must be accepted against the current revision before external dispatch.
+Use bounded waiting and the same arrival/deadline policy in training and serving. Late results wait for the next valid admission boundary; never grant them to a prediction made before their availability. If speculation is used, evidence or correction admission changes the session revision and invalidates candidates from the old state. Query execution itself is read-only and creates no history event.
 
-Record selected query raw facets and policy density, output specs/vectors, model/index identities, source results, activation times, correction selections, gates and decay state for replay. Simulate misses and realistic delayed arrivals during training. Bound query frequency, retrieved bytes/events, graph expansion, active overlays and adapter transfers, and measure actual end-to-end latency.
+Record query/model/index identities, source results, activation times, correction selections, gates and decay state for replay. Simulate misses and realistic delayed arrivals during training. Bound query frequency, retrieved bytes/events, graph expansion, active overlays and adapter transfers, and measure actual end-to-end latency.
 
 ## 8. Post-pretraining writer and corpus reproduction
 
 | Phase | Work and completion evidence |
 | --- | --- |
 | Bootstrap | Establish useful native ingestion and grouped training; no correction writer |
-| Pretraining with free KB | Train the base, retrieval-purpose P events and embedding realizer, both correction readers, expert bank and free payloads, together with RAG tasks |
-| Local hindsight writer | Freeze a coherent final model/embedding-realizer/index/readers/adapter-bank/KB snapshot; train a suffix encoder to reproduce source-supported keys and payloads in those fixed coordinates |
+| Pretraining with free KB | Train the base, query head, both correction readers, expert bank and free payloads, together with RAG tasks |
+| Local hindsight writer | Freeze a coherent final model/query/readers/adapter-bank/KB snapshot; train a suffix encoder to reproduce source-supported keys and payloads in those fixed coordinates |
 | Corpus reproduction | Train source/corpus writing against the optimized KB, including compatible groups and relation payloads; regenerate keys, records and deterministic relations from retained sources |
 | New-source use | Insert memories from sources held out of both pretraining and writer fitting, and from completed feedback episodes, with inference weights fixed; evaluate useful transfer without free optimization on their test answers |
 
@@ -174,14 +156,13 @@ Fit keys/payloads and also measure behavior through the frozen readers. Build a 
 
 Implement in this order:
 
-1. Add the embedding realizer, typed vector output spec and retrieval-purpose/space conditioning before P selection. Extend dispatch, grouped losses, output serialization and action-tape replay; begin with teacher query warm-up and one teacher-backed document index adapter. Extend Episode/runtime contracts with selected retrieval events, evidence provenance, eligibility and artificial boundaries.
+1. Extend existing Episode/grouped-training and runtime contracts with retrieval requests, evidence provenance, eligibility and artificial boundaries; add the shared semantic head and one real index adapter.
 2. Add free record storage, sparse relation expansion, P-read KV overlays and per-event LoRA mixtures; train and compare both paths.
 3. Integrate them with recurrent/distributed pretraining and exact checkpoint/cache reconstruction.
 4. Add the post-pretraining local writer, corpus reproduction and new-source insertion evaluation.
 
-The current dispatcher accepts text/media specifications; vector outputs and their prediction descriptors are new implementation work. Register the embedding realizer/readouts and adapters on the underlying `FacetedCore`/`FacetedGenerator` owners, not only the plain multi-track wrappers. Version KB values and optimizer state with the model, embedding realizer, index, readers and adapter banks. Rebuild derived caches after weight changes. When extending outcome RL, include the embedding realizer and its output contract in the frozen conditional action map, score the native query's Gaussian selection, and explicitly score any additional stochastic correction actions.
+Register trainable heads and adapters on the underlying `FacetedCore`/`FacetedGenerator` owners, not only the plain multi-track wrappers. Version KB values and optimizer state with model/readers/adapter banks. Rebuild derived caches after weight changes. When extending outcome RL, preserve the complete frozen conditional action map or explicitly score any additional stochastic correction actions.
 
 Run controlled comparisons for no retrieval, RAG only, KV only, LoRA only, KV+LoRA, and all three; ablate relation reinforcement separately. Report evidence recall, downstream task quality, no-memory regression, correction lifetime behavior, new-source uptake, regenerated-bank quality, replay fidelity and serving cost.
 
 **The decisive result is that source-written corrections improve new tasks after pretraining, while ordinary retrieved evidence remains useful on its own.** The free KB establishes what memory can learn; the regenerated KB establishes what the system can add and maintain.
-

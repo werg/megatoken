@@ -275,9 +275,7 @@ class MediaRealizers(nn.Module):
         raw = context.facets
         features = self.fuse(raw.to(self.fuse.weight.dtype))
         if control is not None:
-            if control.shape != (raw.shape[0], self.control.in_features):
-                raise ValueError("Realizer control must be one shared control vector per event")
-            features = features + self.control(control.to(features.dtype))[:, None, :]
+            raise ValueError("v8 realizer cannot read a control vector; select raw Z with P")
         return features
 
     def audio(

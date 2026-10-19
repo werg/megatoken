@@ -379,7 +379,7 @@ def forward_meridian_batch(
 
     No second optimizer, stream cursor, history, or parameter owner is created.
     """
-    from megatoken.training.engine import episode_control_payload
+    from megatoken.controls import resolve_event_control
 
     multi = MultiTrackGenerator(model)
     store = TensorAssetStore(config.media_root or config.dataset)
@@ -387,7 +387,10 @@ def forward_meridian_batch(
     if state.model_version != model_version:
         # The core owner is versioned by the outer training loop.
         raise ValueError("Meridian trainer received a stale model version")
-    payload = episode_control_payload(batch.windows[0].episode)
+    episode = batch.windows[0].episode
+    event_by_record = {
+        event.record_id: event for meridian in episode.meridians for event in meridian.events
+    }
     losses = []
     metrics: dict[str, float | torch.Tensor] = {
         "grouped_training_windows": 1,
@@ -427,7 +430,10 @@ def forward_meridian_batch(
             )
             result = multi.supervised_meridian(
                 state, tracks=step.tracks, plans=resolved,
-                control_payloads=(payload,) * len(step.tracks),
+                control_payloads=tuple(
+                    resolve_event_control(episode, event_by_record[record.record.record_id])
+                    for record in step.records
+                ),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
             )
