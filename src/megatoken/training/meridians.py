@@ -301,13 +301,16 @@ def _actual_raw(
     model: Any,
     step: MeridianStep,
     native: NativeHistory,
+    store: TensorAssetStore,
     device: torch.device,
     *,
     encoder_grad: bool,
 ) -> torch.Tensor:
-    """Reconstruct selected *historical* events, including genuine taped raw draws."""
+    """Rebuild selected raw blocks, preserving pinned modality and native identity."""
     values = []
-    for cursor, entry in zip(step.offsets, step.records, strict=True):
+    for cursor, entry, modality in zip(
+        step.offsets, step.records, step.modalities, strict=True
+    ):
         tape = native.paired_tape(cursor)
         if tape is not None:
             raw = torch.as_tensor(
