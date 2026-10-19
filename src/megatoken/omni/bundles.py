@@ -113,7 +113,7 @@ def compile_views(bundle: AlignedBundle, views: Sequence[TaskView]) -> tuple[Com
     Only input bytes become observations. All generated siblings occupy one
     atomic meridian; relations/verification are deliberately side metadata.
     """
-    from megatoken.data.schema import Episode, TrackSpec, TrackEvent, Meridian, Lineage, canonical_json
+    from megatoken.data.schema import Episode, TrackSpec, TrackEvent, Meridian, Lineage, EpisodeRelation, canonical_json
     # No direct dependency on tokenization: records contain bytes and are encoded
     # later by the repository's normal episode readers.
     by_id = {a.artifact_id: a for a in bundle.artifacts}
@@ -167,6 +167,10 @@ def compile_views(bundle: AlignedBundle, views: Sequence[TaskView]) -> tuple[Com
             }.get(view.family,view.family),
             records=tuple(records),
             tracks=tuple(tracks), meridians=tuple(meridians),
+            omni_relations=tuple(
+                EpisodeRelation(r.kind, r.left, r.right, r.weight)
+                for r in view.relations
+            ),
         )
         fingerprint = sha256(canonical_json(episode.to_dict()).encode()).hexdigest()
         results.append(CompiledView(episode, bundle.bundle_id, bundle.source_family,

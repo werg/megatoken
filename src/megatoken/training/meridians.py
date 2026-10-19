@@ -66,6 +66,18 @@ class MediaPlan:
         source = torch.from_numpy(store.load(self.reference.source)).to(device)[None]
         assert self.reference.target is not None
         target = torch.from_numpy(store.load(self.reference.target)).to(device)[None]
+        valid = None
+        if self.reference.target.kind == "codec_latents":
+            target_asset = self.reference.target
+            if self.modality == "video":
+                # Storage is time-major [T,C,H,W]; donor transformer is [B,C,T,H,W].
+                target = target.permute(0, 2, 1, 3, 4).contiguous()
+                if target_asset.valid_count:
+                    valid = (torch.arange(target.shape[2], device=device)
+                             [None, None, :, None, None] < target_asset.valid_count)
+            elif self.modality == "audio" and target_asset.valid_count:
+                valid = (torch.arange(target.shape[1], device=device)[None, :]
+                         < target_asset.valid_count)
         if self.modality == "image" and self.reference.target.kind == "raw":
             target = target[:, None]
         views = []
@@ -82,6 +94,7 @@ class MediaPlan:
             source_kind=self.reference.source.kind,
             extractor=self.reference.source.extractor,
             target_kind=self.reference.target.kind, source_views=tuple(views),
+            target_valid_mask=valid,
         )
 
 
@@ -120,6 +133,7 @@ class MeridianStep:
     plans: tuple[Plan, ...] = ()
     modalities: tuple[str, ...] = ()
     requests: tuple[tuple[str, int], ...] = ()
+    relations: tuple[tuple[str, int, int, float], ...] = ()
 
     @property
     def generated(self) -> bool:
@@ -244,7 +258,9 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
         )
         spec = MediaOutputSpec(
             "video", frames=frames, height=height, width=width,
-            renderer=renderer, latent_shape=target.shape if pretrained else (),
+            renderer=renderer,
+            latent_shape=((target.shape[1], target.shape[0], *target.shape[-2:])
+                          if pretrained else ()),
             shape_provenance="teacher_only" if pretrained else "requested",
             fps_num=target.fps_num, fps_den=target.fps_den,
         )
@@ -347,12 +363,22 @@ def prepare_meridian_batch(
             for plan in plans:
                 for name, count in plan.denominators.items():
                     counts[name] += count
+        indices = {entry.record.logical_id: i for i, entry in enumerate(records)}
+        same_step_relations = tuple(
+            (relation.kind, indices[relation.left], indices[relation.right],
+             relation.weight)
+            for relation in episode.omni_relations
+            if all(selected) and offsets[0] >= window.start
+            and relation.left in indices and relation.right in indices
+        )
+        counts["relation"] += len(same_step_relations)
         step = MeridianStep(
             meridian.meridian_id,
             tuple(event.track_id for event in meridian.events),
             tuple(ROLE_TO_ID[event.role] for event in meridian.events),
             offsets, records, plans, modalities,
             tuple((event.request, event.request_revision) for event in meridian.events),
+            same_step_relations,
         )
         (prefix if offsets[-1] < window.start else steps).append(step)
     if sum(len(x.records) for x in (*prefix, *steps)) != window.end:
@@ -513,6 +539,7 @@ def forward_meridian_batch(
                 ),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
+                relations=step.relations,
             )
             state = result.state
             losses.append(ledger.backward_loss(result.losses))

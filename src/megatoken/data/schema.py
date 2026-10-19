@@ -359,6 +359,26 @@ class Dependency:
 
 
 @dataclass(frozen=True, slots=True)
+class EpisodeRelation:
+    """Out-of-band supervision, never model-visible evidence."""
+    kind: str
+    left: str
+    right: str
+    weight: float = 1.0
+
+    def __post_init__(self):
+        kinds = {
+            "same_spoken_content", "translation_of", "describes",
+            "synchronized_with", "first_frame_of", "last_frame_of",
+            "edit_of", "preserves",
+        }
+        if (self.kind not in kinds or not self.left or not self.right
+                or self.left == self.right or not math.isfinite(self.weight)
+                or not 0 < self.weight <= 10):
+            raise ValueError("Relation requires a bounded pair of distinct artifacts")
+
+
+@dataclass(frozen=True, slots=True)
 class Episode:
     episode_id: str
     records: tuple[PhysicalRecord, ...]
@@ -375,6 +395,7 @@ class Episode:
     reference_origin: str | None = None
     tracks: tuple[TrackSpec, ...] = ()
     meridians: tuple[Meridian, ...] = ()
+    omni_relations: tuple[EpisodeRelation, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.episode_id or not self.records or not isinstance(self.records, tuple):
@@ -444,6 +465,10 @@ class Episode:
                 ):
                     raise ValueError("A logical action must execute exactly once")
                 result_logical[record.result_of] = logical
+        logical_ids = {record.logical_id for record in self.records}
+        if any(relation.left not in logical_ids or relation.right not in logical_ids
+               for relation in self.omni_relations):
+            raise ValueError("Omnimodal relation references a missing source artifact")
         if self.records[-1].part_index + 1 != self.records[-1].part_count:
             raise ValueError("Incomplete final logical record")
         for action in self.actions:
@@ -570,6 +595,9 @@ class Episode:
             for action in obj.get("actions", ())
         )
         obj["dependencies"] = tuple(Dependency(**dep) for dep in obj.get("dependencies", ()))
+        obj["omni_relations"] = tuple(
+            EpisodeRelation(**relation) for relation in obj.get("omni_relations", ())
+        )
         obj["tracks"] = tuple(TrackSpec(**spec) for spec in obj.get("tracks", ()))
         obj["meridians"] = tuple(
             Meridian(

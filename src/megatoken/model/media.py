@@ -81,6 +81,7 @@ class MediaTrainTarget:
     extractor: str = ""
     target_kind: str = "raw"
     source_views: tuple[tuple[str, Tensor, Tensor], ...] = ()
+    target_valid_mask: Tensor | None = None
 
     def __post_init__(self) -> None:
         if self.mode not in {"bootstrap", "recurrent"}:
@@ -100,6 +101,13 @@ class MediaTrainTarget:
             expected = (1, *self.spec.latent_shape)
         if self.target.shape != expected or not self.target.is_floating_point():
             raise ValueError("Media target tensor differs from requested realization geometry")
+        if self.target_valid_mask is not None:
+            try:
+                torch.broadcast_shapes(self.target_valid_mask.shape, self.target.shape)
+            except RuntimeError as exc:
+                raise ValueError("Codec validity mask must broadcast over target") from exc
+            if self.target_valid_mask.dtype != torch.bool or not bool(self.target_valid_mask.any()):
+                raise ValueError("Codec target mask must be nonempty boolean")
         if self.source.shape[0] != 1 or not self.source.is_floating_point():
             raise ValueError("Media source tensor must have one batch row")
         if self.source_kind not in {"raw", "features"} or (
