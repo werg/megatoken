@@ -37,10 +37,19 @@ def _tone(count: int, samples: int = 1024) -> np.ndarray:
 
 def make_episode(
     store: TensorAssetStore, *, seed: int, index: int,
+    variant: str = "base",
 ) -> Episode:
     rng = np.random.default_rng(seed + index * 1201)
     red, blue = (int(n) for n in rng.integers(4, 12, 2))
     used_red, used_blue = (int(n) for n in rng.integers(1, 4, 2))
+    if variant == "audio":
+        # Change only the acoustic evidence; keep instructions and image fixed.
+        blue = blue + 1 if blue < 11 else blue - 1
+    elif variant == "visual":
+        # Change only visual evidence; keep instructions and sound fixed.
+        red = red + 1 if red < 11 else red - 1
+    elif variant != "base":
+        raise ValueError("Unknown counterfactual variant")
     remain_red, remain_blue = red - used_red, blue - used_blue
     # Hide both initial counts from text. Red is observable only in
     # the visual bar; blue is observable only in the acoustic pitch.
@@ -113,7 +122,7 @@ def make_episode(
         )),
     )
     return Episode(
-        f"pilot-{seed}-{index}", records,
+        f"pilot-{seed}-{index}-{variant}", records,
         Lineage("omni-procedural-pilot", f"seed-{seed}", f"pilot-parent-{seed}-{index}"),
         stream="omni_pilot", tracks=tracks, meridians=meridians,
     )
@@ -124,6 +133,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=64)
     parser.add_argument("--seed", type=int, default=91)
+    parser.add_argument(
+        "--counterfactual-variants", action="store_true",
+        help="For each parent, add audio-only and visual-only evidence swaps in the same split family.",
+    )
     args = parser.parse_args()
     if not 8 <= args.count <= 100000:
         raise ValueError("Pilot count must be between 8 and 100000")
@@ -139,8 +152,13 @@ def main() -> None:
     try:
         with spool.transaction():
             for index in range(args.count):
-                spool.add(make_episode(assets, seed=args.seed, index=index),
-                          ByteCodec.byte_fallback())
+                for variant in (
+                    ("base", "audio", "visual") if args.counterfactual_variants else ("base",)
+                ):
+                    spool.add(
+                        make_episode(assets, seed=args.seed, index=index, variant=variant),
+                        ByteCodec.byte_fallback(),
+                    )
         spool.freeze()
         result = export_prepared(
             spool, root, codec=ByteCodec.byte_fallback(),
@@ -148,14 +166,21 @@ def main() -> None:
                 "name": "procedural_omni_pilot",
                 "generator": "prepare_omni_pilot-v1",
                 "seed": args.seed,
-                "episodes": args.count,
+                "episodes": args.count * (3 if args.counterfactual_variants else 1),
+                "parent_families": args.count,
+                "counterfactual_variants": args.counterfactual_variants,
                 "natural_media": False,
             }],
-            pipeline_fingerprint=f"omni-pilot-v1-seed-{args.seed}",
+            pipeline_fingerprint=(
+                f"omni-pilot-v2-seed-{args.seed}-cf-{int(args.counterfactual_variants)}"
+            ),
         )
     finally:
         spool.close()
-    print(f"Prepared {args.count} candidate joint tasks: {root}")
+    print(
+        f"Prepared {args.count} parent families and "
+        f"{args.count * (3 if args.counterfactual_variants else 1)} candidate joint tasks: {root}"
+    )
     print(f"Manifest schema: {result.get('schema_version', 'unknown')}")
 
 
