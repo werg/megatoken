@@ -66,13 +66,43 @@ class MediaPlan:
         source = torch.from_numpy(store.load(self.reference.source)).to(device)[None]
         assert self.reference.target is not None
         target = torch.from_numpy(store.load(self.reference.target)).to(device)[None]
-        if self.modality == "image":
+        if self.modality == "image" and self.reference.target.kind == "raw":
             target = target[:, None]
+        views = []
+        for asset in self.reference.source_views:
+            data = torch.from_numpy(store.load(asset)).to(device)[None]
+            data, mask = _view_tokens(data, asset)
+            views.append((asset.extractor, data, mask))
+        if self.reference.source.kind == "features":
+            source_asset = self.reference.source
+            source, mask = _view_tokens(source, source_asset)
+            views.insert(0, (source_asset.extractor, source, mask))
         return MediaTrainTarget(
             self.modality, self.spec, source, target, self.mode,
             source_kind=self.reference.source.kind,
             extractor=self.reference.source.extractor,
+            target_kind=self.reference.target.kind, source_views=tuple(views),
         )
+
+
+def _view_tokens(value: torch.Tensor, asset) -> tuple[torch.Tensor, torch.Tensor]:
+    """Expose channel-last codec features and mask codec padding, not native pixels."""
+    if asset.kind == "codec_latents":
+        if asset.modality == "image":
+            value = value.flatten(2).transpose(1, 2)
+            sites_per_time = value.shape[1]
+        elif asset.modality == "video":
+            value = value.permute(0, 1, 3, 4, 2).reshape(
+                value.shape[0], -1, value.shape[2]
+            )
+            sites_per_time = asset.shape[-2] * asset.shape[-1]
+        else:
+            sites_per_time = 1
+    else:
+        sites_per_time = 1
+    active = (asset.valid_count or asset.shape[0]) * sites_per_time
+    mask = torch.arange(value.shape[1], device=value.device)[None] < active
+    return value, mask
 
 
 Plan = PreparedAction | PreparedTargets | MediaPlan
@@ -168,7 +198,7 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
     if reference.modality != modality or entry.record.media_type != MEDIA_RECORD_TYPE:
         raise ValueError("Media event requires a matching canonical media descriptor")
     if reference.target is None:
-        raise ValueError("Generated media events require a pinned raw target")
+        raise ValueError("Generated media events require a pinned media target")
     source = reference.source
     if source.kind == "features":
         feature_id = (
@@ -182,14 +212,41 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
         if source.extractor != feature_id or source.shape[-1] != feature_width:
             raise ValueError("Pinned media feature revision/width differs from model")
     target = reference.target
+    pretrained = target.kind == "codec_latents"
+    renderer = ("pocket" if modality == "audio" else "sana" if modality == "image"
+                else "sana_video") if pretrained else "native"
     if modality == "audio":
-        spec = MediaOutputSpec("audio", sample_count=target.shape[0])
-    elif modality == "image":
-        spec = MediaOutputSpec("image", height=target.shape[1], width=target.shape[2])
-    else:
+        sample_rate = (24000 if pretrained else target.sample_rate)
+        if pretrained:
+            # Pocket-Mimi exact frame size is asserted by the resident pack.
+            sample_count = int((target.valid_count or target.shape[0]) * 1920)
+        else:
+            sample_count = target.shape[0]
         spec = MediaOutputSpec(
-            "video", frames=target.shape[0],
-            height=target.shape[2], width=target.shape[3],
+            "audio", sample_count=sample_count, sample_rate=sample_rate,
+            renderer=renderer, latent_shape=target.shape if pretrained else (),
+            shape_provenance="teacher_only" if pretrained else "requested",
+        )
+    elif modality == "image":
+        height, width = (target.shape[-2], target.shape[-1]) if not pretrained else (
+            target.shape[-2] * 32, target.shape[-1] * 32
+        )
+        spec = MediaOutputSpec(
+            "image", height=height, width=width, renderer=renderer,
+            latent_shape=target.shape if pretrained else (),
+            shape_provenance="teacher_only" if pretrained else "requested",
+        )
+    else:
+        frames, height, width = (
+            (target.shape[0], target.shape[-2], target.shape[-1]) if not pretrained
+            else (min(193, max(1, (target.shape[0] - 1) * 8 + 1)),
+                  target.shape[-2] * 32, target.shape[-1] * 32)
+        )
+        spec = MediaOutputSpec(
+            "video", frames=frames, height=height, width=width,
+            renderer=renderer, latent_shape=target.shape if pretrained else (),
+            shape_provenance="teacher_only" if pretrained else "requested",
+            fps_num=target.fps_num, fps_den=target.fps_den,
         )
     return MediaPlan(
         reference, spec, config.representation_training,
@@ -332,14 +389,25 @@ def _actual_raw(
                 if modality in {"audio", "image", "video"}:
                     source = MediaRecord.from_bytes(entry.payload).source
                     signal = torch.from_numpy(store.load(source)).to(device)[None]
-                    if source.kind == "features":
+                    reference = MediaRecord.from_bytes(entry.payload)
+                    if reference.source_views:
+                        views = []
+                        feature_assets = ((source,) if source.kind == "features" else ()) + reference.source_views
+                        for view in feature_assets:
+                            tensor = torch.from_numpy(store.load(view)).to(device)[None]
+                            tensor, mask = _view_tokens(tensor, view)
+                            views.append((view.extractor, tensor, mask))
+                        raw = model.core.encode_media_views(modality, tuple(views))
+                    elif source.kind == "features":
                         raw = model.core.encode_media_features(
                             modality, signal, extractor=source.extractor
                         )
-                    else:
+                    elif source.kind == "raw":
                         raw = model.core.encode_media(
                             modality, signal, sample_rate=source.sample_rate or 16000
                         )
+                    else:
+                        raise ValueError("Codec latents need a declared feature projection")
                 else:
                     ids, lengths = byte_tensor([entry.payload], device)
                     raw = model.core.encode_chunk(ids, lengths)

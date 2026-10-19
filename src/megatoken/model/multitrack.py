@@ -658,14 +658,20 @@ class _GroupedTeacherReadout(nn.Module):
             context = self.core.prepare_realization(raw[:, index])
             if isinstance(plan, MediaTrainTarget):
                 condition = None if control is None else control[:, index]
-                predicted = self.media_realizers.realize(context, plan.spec, condition)
-                if predicted.shape != plan.target.shape:
-                    raise ValueError("Media realization differs from prepared output target")
                 family = "audio" if plan.modality == "audio" else "visual"
-                sums[family] = sums[family] + (
-                    predicted.float() - plan.target.float()
-                ).square().mean()
-                counts[family] += 1
+                if plan.target_kind == "codec_latents":
+                    value, count = self.media_realizers.training_loss(
+                        context.facets, plan.spec, plan.target,
+                    )
+                    sums[family], counts[family] = sums[family] + value, counts[family] + count
+                else:
+                    predicted = self.media_realizers.realize(context, plan.spec, condition)
+                    if predicted.shape != plan.target.shape:
+                        raise ValueError("Media realization differs from prepared output target")
+                    sums[family] = sums[family] + (
+                        predicted.float() - plan.target.float()
+                    ).square().mean()
+                    counts[family] += 1
                 continue
             if isinstance(plan, PreparedTargets):
                 parts = self.decoder.teacher_raw(self.core, context, plan)
@@ -747,7 +753,7 @@ class MultiTrackGenerator:
                 validity.append(decoded.valid)
                 media.append(None)
             else:
-                vector = None if control is None else control[:, index]
+                vector = None if control is None or spec.renderer != "native" else control[:, index]
                 tensor = self.generator.media_realizers.realize(context, spec, vector)
                 payloads.append(tensor[0].detach().float().contiguous().cpu().numpy()
                                 .astype("<f4", copy=False).tobytes())
@@ -818,12 +824,16 @@ class MultiTrackGenerator:
         encoded = []
         for plan in plans:
             if isinstance(plan, MediaTrainTarget):
-                if plan.source_kind == "features":
+                if plan.source_views:
+                    current = core.encode_media_views(plan.modality, plan.source_views)
+                elif plan.source_kind == "features":
                     current = core.encode_media_features(
                         plan.modality, plan.source, extractor=plan.extractor
                     )
-                else:
+                elif plan.source_kind == "raw":
                     current = core.encode_media(plan.modality, plan.source)
+                else:
+                    raise ValueError("Codec source needs a pinned input feature view")
             else:
                 payload = (
                     plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
@@ -1041,11 +1051,17 @@ class MultiTrackGenerator:
                     values.append(torch.stack(active).sum())
                 else:
                     assert isinstance(target, Tensor)
-                    cond = None if control is None else control[:, i]
-                    out = self.generator.media_realizers.realize(ctx, spec, cond)
-                    if target.shape != out.shape or target.device != out.device:
-                        raise ValueError("Media target must match realized shape/device")
-                    values.append((out.float() - target.float()).square().mean())
+                    if spec.renderer != "native":
+                        value, count = self.generator.media_realizers.training_loss(
+                            ctx.facets, spec, target
+                        )
+                        values.append(value / max(1, count))
+                    else:
+                        cond = None if control is None else control[:, i]
+                        out = self.generator.media_realizers.realize(ctx, spec, cond)
+                        if target.shape != out.shape or target.device != out.device:
+                            raise ValueError("Media target must match realized shape/device")
+                        values.append((out.float() - target.float()).square().mean())
             return torch.stack(values).mean()
 
         main_loss = losses(sampled)

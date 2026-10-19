@@ -606,6 +606,12 @@ def train(
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
         model = build_model(model_config, codec, device=context.device, precision=config.precision)
+        if config.pretrained_packs is not None:
+            from megatoken.omni.loader import install_pretrained_packs
+            install_pretrained_packs(
+                model, config.pretrained_packs, device=context.device,
+                dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
+            )
         payload = None
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")

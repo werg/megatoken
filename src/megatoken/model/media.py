@@ -30,17 +30,37 @@ class MediaOutputSpec:
     frames: int = 1
     height: int = 64
     width: int = 64
+    # Native means legacy PCM/pixel debug path; production means matched codec.
+    renderer: str = "native"
+    sample_rate: int = AUDIO_SAMPLE_RATE
+    fps_num: int = 0
+    fps_den: int = 1
+    latent_shape: tuple[int, ...] = ()
+    shape_provenance: str = "requested"
+    steps: int = 30
 
     def __post_init__(self) -> None:
+        if self.renderer not in ("native", "pocket", "sana", "sana_video"):
+            raise ValueError("Unknown media realizer identity")
+        if self.shape_provenance not in ("requested", "predicted", "teacher_only"):
+            raise ValueError("Undeclared target-geometry provenance")
+        if self.sample_rate < 1 or self.steps < 1 or self.fps_den < 1:
+            raise ValueError("Invalid sample/renderer clock")
+        if self.renderer == "pocket" and self.modality != "audio" or (
+            self.renderer == "sana" and self.modality != "image"
+        ) or (self.renderer == "sana_video" and self.modality != "video"):
+            raise ValueError("Renderer is incompatible with media modality")
+        if self.latent_shape and any(type(n) is not int or n < 1 for n in self.latent_shape):
+            raise ValueError("Invalid native latent target dimensions")
         if self.modality == "audio":
-            if not 1 <= self.sample_count <= AUDIO_SAMPLE_RATE * 60:
+            if not 1 <= self.sample_count <= self.sample_rate * 60:
                 raise ValueError("Audio output must contain 1 to 60 seconds at 16 kHz")
         elif self.modality in {"image", "video"}:
             if (
-                not 1 <= self.frames <= 32
+                not 1 <= self.frames <= (32 if self.renderer == "native" else 193)
                 or self.modality == "image" and self.frames != 1
-                or not 8 <= self.height <= 256
-                or not 8 <= self.width <= 256
+                or not 8 <= self.height <= (256 if self.renderer == "native" else 2048)
+                or not 8 <= self.width <= (256 if self.renderer == "native" else 2048)
             ):
                 raise ValueError("Visual output exceeds the native baseline's bounds")
         else:
@@ -59,6 +79,8 @@ class MediaTrainTarget:
     role_id: int = 2
     source_kind: str = "raw"
     extractor: str = ""
+    target_kind: str = "raw"
+    source_views: tuple[tuple[str, Tensor, Tensor], ...] = ()
 
     def __post_init__(self) -> None:
         if self.mode not in {"bootstrap", "recurrent"}:
@@ -70,6 +92,12 @@ class MediaTrainTarget:
             if self.modality == "audio" else
             (1, self.spec.frames, 3, self.spec.height, self.spec.width)
         )
+        if self.target_kind not in ("raw", "codec_latents"):
+            raise ValueError("Media targets must be raw or native codec latents")
+        if self.target_kind == "codec_latents":
+            if self.spec.renderer == "native" or not self.spec.latent_shape:
+                raise ValueError("Codec targets require an explicit pretrained latent spec")
+            expected = (1, *self.spec.latent_shape)
         if self.target.shape != expected or not self.target.is_floating_point():
             raise ValueError("Media target tensor differs from requested realization geometry")
         if self.source.shape[0] != 1 or not self.source.is_floating_point():
@@ -78,6 +106,11 @@ class MediaTrainTarget:
             self.source_kind == "features" and not self.extractor
         ) or (self.source_kind == "raw" and self.extractor):
             raise ValueError("Media source kind and extractor identity disagree")
+        for identity, tokens, mask in self.source_views:
+            if (not identity or tokens.ndim != 3 or tokens.shape[0] != 1
+                    or mask.shape != tokens.shape[:2] or mask.dtype != torch.bool
+                    or not bool(mask.any()) or not bool(torch.isfinite(tokens).all())):
+                raise ValueError("Auxiliary input view must be pinned, finite and masked")
         if not bool(torch.isfinite(self.source).all()) or not bool(
             torch.isfinite(self.target).all()
         ):
@@ -158,6 +191,14 @@ class MediaStems(nn.Module):
             nn.Linear(config.vision_feature_dim, config.source_dim, bias=False)
             if config.vision_feature_dim else None
         )
+        self.view_adapters = nn.ModuleDict({
+            identity: nn.Linear(width, config.source_dim, bias=False)
+            for identity, width in config.media_feature_views.items()
+        })
+        self.view_embeddings = nn.ParameterDict({
+            identity: nn.Parameter(torch.zeros(config.source_dim))
+            for identity in config.media_feature_views
+        })
 
     def encode(self, core, modality: str, value: Tensor, *, sample_rate: int = AUDIO_SAMPLE_RATE):
         if modality == "audio":
@@ -199,6 +240,38 @@ class MediaStems(nn.Module):
             raise ValueError("External feature values must be finite")
         projected = adapter(tokens.to(adapter.weight.dtype))
         return self.encode_ordered_features(core, projected)
+
+    def encode_views(
+        self, core, modality: str,
+        views: tuple[tuple[str, Tensor, Tensor], ...],
+    ) -> Tensor:
+        """Reduce all present declared views through ONE central E readout."""
+        if not views:
+            raise ValueError("At least one visible media view is required")
+        projected, masks = [], []
+        for identity, tokens, valid in views:
+            if identity in self.view_adapters:
+                adapter = self.view_adapters[identity]
+                vector = self.view_embeddings[identity]
+            elif modality == "audio" and identity == core.config.audio_feature_id:
+                adapter, vector = self.external_audio, None
+            elif modality in ("image", "video") and identity == core.config.vision_feature_id:
+                adapter, vector = self.external_vision, None
+            else:
+                raise ValueError("Unpinned feature view or incorrect modality")
+            if adapter is None or tokens.ndim != 3 or tokens.shape[-1] != adapter.in_features:
+                raise ValueError("Feature view projection width mismatch")
+            if (valid.shape != tokens.shape[:2] or valid.dtype != torch.bool
+                    or not bool(valid.any(dim=1).all())):
+                raise ValueError("Feature view needs an explicit nonempty valid mask")
+            content = adapter(tokens.to(adapter.weight.dtype))
+            if vector is not None:
+                content = content + vector
+            projected.append(content)
+            masks.append(valid)
+        return self.encode_ordered_features(
+            core, torch.cat(projected, dim=1), torch.cat(masks, dim=1),
+        )
 
     @staticmethod
     def encode_ordered_features(
@@ -265,6 +338,7 @@ class MediaRealizers(nn.Module):
         )
         self.visual_features = nn.Linear(d, hidden)
         self.visual_positions = nn.Parameter(torch.randn(64, hidden) * 0.01)
+        self.pretrained = nn.ModuleDict()
         self.visual_filter = nn.Sequential(
             nn.Conv3d(hidden, hidden, kernel_size=3, padding=1),
             nn.SiLU(),
@@ -317,12 +391,46 @@ class MediaRealizers(nn.Module):
         # [batch, frames, RGB, height, width], same shape for image (one frame).
         return rendered.transpose(1, 2).contiguous()
 
+    def register_pretrained(self, name: str, student: nn.Module) -> None:
+        if name not in ("pocket", "sana", "sana_video") or name in self.pretrained:
+            raise ValueError("Invalid or duplicate pretrained realization owner")
+        self.pretrained[name] = student
+
+    def training_loss(self, raw: Tensor, spec: MediaOutputSpec,
+                      target: Tensor, valid_mask: Tensor | None = None
+                      ) -> tuple[Tensor, int]:
+        if spec.renderer not in self.pretrained:
+            raise ValueError("Missing trained donor/codec for selected media spec")
+        student = self.pretrained[spec.renderer]
+        numerator, coordinate_count = student.native_loss(raw, target, valid_mask=valid_mask)
+        if coordinate_count.item() == 0:
+            raise ValueError("Empty codec latent target")
+        # Production ledger counts media events; normalise native coordinates
+        # inside each event to avoid video latents overpowering audio loss.
+        return numerator / coordinate_count.clamp_min(1), 1
+
     def realize(
         self,
         context: RealizationContext,
         spec: MediaOutputSpec,
         control: Tensor | None = None,
+        generator: torch.Generator | None = None,
     ) -> Tensor:
+        if spec.renderer != "native":
+            if control is not None:
+                # Prompt controls affect P selection, not current raw-to-R.
+                raise ValueError("Pretrained renderer must not receive P controls")
+            if spec.renderer not in self.pretrained:
+                raise ValueError("Pretrained generator is not resident")
+            student = self.pretrained[spec.renderer]
+            if spec.renderer == "pocket":
+                return student.realize(context.facets, max_frames=max(1, round(
+                    spec.sample_count * student.frame_rate / spec.sample_rate
+                )), steps=spec.steps, generator=generator)
+            return student.realize(
+                context.facets, height=spec.height, width=spec.width,
+                frames=spec.frames, steps=spec.steps, generator=generator,
+            )
         if spec.modality == "audio":
             return self.audio(context, spec, control)
         return self.visual(context, spec, control)
