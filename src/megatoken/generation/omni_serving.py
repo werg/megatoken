@@ -8,8 +8,7 @@ through the existing multitrack P; R only sees a given selected raw Z.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import SimpleNamespace
-from typing import Any, Sequence
+from typing import Sequence
 
 import torch
 from torch import Tensor
@@ -146,7 +145,7 @@ class ServingSession:
             for event in events:
                 if event.modality == "text":
                     ids, lengths = byte_tensor([event.payload], device)
-                    raw = core.encode_chunk(ids, lengths)
+                    raw = core.encode_chunk(ids, lengths=lengths)
                 else:
                     if assets is None:
                         raise ValueError("Media serving requires a resolved immutable asset store")
