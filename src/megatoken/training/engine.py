@@ -342,6 +342,7 @@ def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Coun
                 Counters(
                     D=new_tokens,
                     I=new_tokens + prefix_tokens,
+                    G=len(window.records),
                     source_bytes=sum(
                         len(record.payload) for record in (*window.prefix, *window.records)
                     ),
