@@ -63,7 +63,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: direct-realization architecture requires version 8; "
+                "Incompatible architecture version: direct realization requires version 8; "
                 "earlier facet checkpoints cannot be loaded as this architecture"
             )
         positive = (

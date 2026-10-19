@@ -133,7 +133,10 @@ def serve_multitrack_jsonl(
                     raise ValueError("Session capacity reached")
                 session_id = uuid.uuid4().hex
                 sessions[session_id] = runtime.open()
-                answer = {"session": session_id, "architecture_version": engine.model.config.architecture_version}
+                answer = {
+                    "session": session_id,
+                    "architecture_version": engine.model.config.architecture_version,
+                }
             else:
                 session_id = request.get("session")
                 if session_id not in sessions:
