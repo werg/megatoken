@@ -1,10 +1,10 @@
 # Multi-track Megatoken: architecture and implementation plan
 
-**Status:** Proposed architecture and staged implementation plan; not an assertion that these capabilities are implemented.
+**Status:** v7 architecture direction, with an implementation branch in progress. Individual implementation features and training readiness are tracked separately; this document is not a model-quality claim.
 
 **Date:** 2026-10-19.
 
-**Reviewed baseline:** `main` at `a26c5bb02e68563e6d579b2be8d8fbc3b1788bd1`, architecture v6. The next architectural version is referred to provisionally as v7. This document does not change runtime versions, training configurations, or existing architecture decisions.
+**Original reviewed baseline:** architecture v6 at `a26c5bb02e68563e6d579b2be8d8fbc3b1788bd1`. **Target:** architecture v7, with no checkpoint, tape, dataset, or serving-bundle compatibility with preceding architectural iterations.
 
 ## 1. The decision in one page
 
@@ -610,7 +610,7 @@ Retain the current encoder-only recurrent auxiliary with C/R owners fixed for th
 
 The existing trainer has an explicitly noncausal, successful-trajectory reference mixture. Do not silently inherit it into the first multi-track curriculum. Use causal prompt/reference conditioning in the new baseline; keep any privileged-reference experiment separately configured and separately reported.
 
-This makes evaluation interpretable without removing the legacy training capability.
+This makes evaluation interpretable. Do not carry the previous privileged-reference mixture into new multitrack training unless separately justified by an explicit new experiment.
 
 ### Staged curriculum
 
@@ -667,7 +667,7 @@ close_track(track_id)
 close_session()
 ```
 
-Keep the current single-observe and single-generate API as wrappers around singleton groups. Track lifetime is metadata; opening an empty track does not append a phantom event.
+Implement group-native operations as the primary API. Single-event calls are ordinary one-event meridians, not an older protocol that must be preserved. Track lifetime is metadata; opening an empty track does not append a phantom event.
 
 ### Parallel tools
 
@@ -787,7 +787,7 @@ Implement this as a sequence of reviewable changes. Each step should produce a w
 | `model/core.py` | Add `advance_group` and `predict_group`; keep per-event pair topology and shared banks |
 | `generation/policy.py` | Joint Gaussian selection and grouped materialization |
 | `generation/structure.py` | Versioned meridian tape and output specifications |
-| `inference.py` | Group operations with singleton compatibility wrappers |
+| `inference.py` and new multitrack service/runtime modules | Group-native operations, session scheduling, mixed-media outputs |
 
 **Deliverable:** a two-to-four-track text model can combine evidence, generate parallel worker outputs, and replay its grouped decisions. Include a small training run, not only tensor-shape tests.
 
@@ -837,7 +837,7 @@ Do not add dynamic historical compression, a general graph database, per-track p
 
 These are ordinary unit/integration tests supporting the design, not a separate risk program:
 
-- **Singleton parity:** the grouped path with one track reproduces the original mathematical path under compatible initialization and metadata defaults.
+- **Singleton correctness:** one selected event is a valid meridian and obeys the same causal, density, and replay rules; no equality to legacy checkpoint behavior is required.
 - **Peer visibility:** changing selected peer facets can affect another member's C features and realized output.
 - **No future-target leakage:** changing withheld target payloads cannot affect that meridian's P output or prior-sample C context.
 - **Permutation behavior:** permuting a meridian's storage order with identities, metadata, and RNG mapping preserved permutes its outputs within numerical tolerance, rather than changing the task.
@@ -880,15 +880,13 @@ The small core may make semantic decisions quickly, but audio/video encoding and
 
 Use the existing benchmark/Blackwell workflow, first at widths one, two, and four and a fixed global history budget. Kernel/ring-buffer optimization follows those measurements, not a parallel architectural redesign.
 
-## 20. Versioning, compatibility, and release criteria
+## 20. Versioning and release criteria: no backward compatibility
 
-The plan adds a new execution geometry and grouped replay semantics. Introduce an explicit architecture version and grouped-tape version when implementation begins; do not reinterpret v6 checkpoints or v4 tapes silently.
+Architecture v7 is a clean architectural iteration **before any production training**. Do not add weight migration, legacy tape replay, old-format loaders, old chunk-schema conversions, or compatibility modes. Pre-v7 checkpoints, history caches, datasets, and served bundles are invalid input. Build new artifacts with the current v7 definitions.
 
-Single-track data can migrate to singleton meridians with original record IDs, byte boundaries, roles, and controls preserved. Media timing remains absent rather than fabricated. Preserve a legacy replay/import path for old native tapes.
+Version identifiers remain strict and explicit: model geometry, grouped action tape, dataset/episode schema, media codecs, renderers, control protocol, and chunk policies must agree on the run. The single-event case is a native one-event meridian, not an adapter to an earlier format.
 
-A checkpoint migration should copy compatible E/C/P/R weights, initialize new modality/task projections and track biases neutrally, and verify singleton numerical behavior. New parameters get their own optimizer state; existing parameter owners retain theirs. Do not promise that an unmodified old cache can be loaded into the new state geometry.
-
-Codec, renderer, control, chunking, model, and tape identities travel together through export and resume. The current version-rejection and exact-resume discipline should extend to them.
+Existing test fixtures are re-prepared as v7 fixtures. Benchmark parity is measured against stated semantic behaviors (exact bytes, causal visibility, replay, task quality), not numerical preservation of old model weights.
 
 The first architecture release is complete when:
 
