@@ -51,7 +51,9 @@ class RelationProjection(nn.Module):
     def project(self, value: Tensor, modality: str) -> Tensor:
         if modality not in self.projectors or value.ndim != 3:
             raise ValueError("Relation projection needs one event and known modality")
-        return F.normalize(self.projectors[modality](value.mean(1).float()), dim=-1)
+        layer = self.projectors[modality]
+        features = value.mean(1).to(next(layer.parameters()).dtype)
+        return F.normalize(layer(features).float(), dim=-1)
 
     def forward(self, selected: Tensor, teachers: Tensor, modalities: tuple[str, ...],
                 relations: tuple[SelectedRelation, ...]) -> tuple[Tensor, int]:
