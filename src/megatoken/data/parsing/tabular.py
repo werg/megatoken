@@ -72,7 +72,11 @@ def scan_delimited(payload: bytes, language: str, limits: ParseLimits) -> Scan:
             after_quote = False
         elif value in {10, 13}:
             field(index)
-            stop = index + 2 if value == 13 and index + 1 < maximum and payload[index + 1] == 10 else index + 1
+            stop = (
+                index + 2
+                if value == 13 and index + 1 < maximum and payload[index + 1] == 10
+                else index + 1
+            )
             row(stop)
             field_start = row_start = stop
             after_quote = False
