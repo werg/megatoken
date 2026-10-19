@@ -122,6 +122,10 @@ class DiffusersDenoiser(nn.Module):
             )
         if "return_dict" in self.args:
             kwargs["return_dict"] = False
+        dtype = next(self.transformer.parameters()).dtype
+        kwargs["hidden_states"] = noisy.to(dtype)
+        kwargs["encoder_hidden_states"] = conditioning.to(dtype)
+        kwargs["timestep"] = timestep.to(dtype)
         output = self.transformer(**kwargs)
         if isinstance(output, (tuple, list)):
             output = output[0]
@@ -174,10 +178,17 @@ class NativeLatentFlow(nn.Module):
         self.denoiser = denoiser
         self.decoder = decoder
         self.steps = pack.steps
+        self._train_backbone = pack.train_backbone
         for parameter in self.decoder.parameters():
             parameter.requires_grad_(False)
         for parameter in self.denoiser.parameters():
             parameter.requires_grad_(pack.train_backbone)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.decoder.eval()
+        self.denoiser.train(mode and self._train_backbone)
+        return self
 
     def predict_velocity(self, noisy: Tensor, time: Tensor, raw: Tensor) -> Tensor:
         cond = self.conditioner(raw)
@@ -195,6 +206,7 @@ class NativeLatentFlow(nn.Module):
         predicted = self.predict_velocity(mixed.to(target.dtype), time, raw)
         return masked_flow_mse(predicted, target.float() - epsilon, mask)
 
+    @torch.no_grad()
     def sample(self, raw: Tensor, spec: Any, *, noise: Tensor | None = None,
                seed: int | None = None) -> Tensor:
         if spec.codec_id != self.codec_id or spec.pack_id != self.pack_id:
@@ -237,10 +249,20 @@ class PocketFacetsOnly(nn.Module):
             facet_count, facet_width, self.flow_lm.dim
         )
         self.steps = pack.steps
+        self._train_backbone = pack.train_backbone
+        self.sample_temperature = float(getattr(donor, "temp", 1.0))
+        self.noise_clamp = getattr(donor, "noise_clamp", None)
+        self.eos_threshold = float(getattr(donor, "eos_threshold", -4.0))
         for parameter in self.mimi.parameters():
             parameter.requires_grad_(False)
         for parameter in self.flow_lm.parameters():
             parameter.requires_grad_(pack.train_backbone)
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.mimi.eval()
+        self.flow_lm.train(mode and self._train_backbone)
+        return self
 
     @staticmethod
     def _state(module: nn.Module, n: int, batch: int):
@@ -268,12 +290,15 @@ class PocketFacetsOnly(nn.Module):
         epsilon = torch.randn_like(normed)
         t = torch.rand_like(normed[..., :1])
         mixed = (1-t) * epsilon + t * normed
+        net_dtype = next(flow.flow_net.parameters()).dtype
         if flow.flow_type == "flow_matching":
-            velocity = flow.flow_net(hidden.float(), t, mixed)
+            velocity = flow.flow_net(hidden.to(net_dtype), t.to(net_dtype),
+                                     mixed.to(net_dtype))
         elif flow.flow_type in {"lsd", "drifting"}:
             # Native continuous segment parameterization, using both s and t.
             start = torch.zeros_like(t)
-            velocity = flow.flow_net(hidden.float(), start, t, mixed)
+            velocity = flow.flow_net(hidden.to(net_dtype), start.to(net_dtype),
+                                     t.to(net_dtype), mixed.to(net_dtype))
         else:
             raise ValueError("Unrecognized Pocket flow parameterization")
         return masked_flow_mse(velocity, normed - epsilon, mask)
@@ -304,8 +329,8 @@ class PocketFacetsOnly(nn.Module):
                 prompt = prefix if index == 0 else prefix[:, :0]
                 latent, eos = flow._sample_next_latent(
                     token, prompt, model_state=state,
-                    sampler_decode_steps=self.steps, temp=1.0,
-                    noise_clamp=None, eos_threshold=-4.0,
+                    sampler_decode_steps=self.steps, temp=self.sample_temperature,
+                    noise_clamp=self.noise_clamp, eos_threshold=self.eos_threshold,
                 )
                 latent = latent.reshape(1, 1, channels)
                 increment_steps(flow, state, increment=1 + prompt.shape[1])
