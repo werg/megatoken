@@ -147,6 +147,8 @@ def serve_multitrack_jsonl(
                     runtime.observe(session, events)
                     answer = {
                         "session": session_id, "revision": session.revision,
+                        "next_meridian": int(session.state.meridians_seen[0]),
+                        "events_seen": int(session.state.events_seen[0]),
                         "retained_events": sum(session.state.meridian_sizes),
                     }
                 elif op in {"generate", "speculate"}:
@@ -192,7 +194,9 @@ def serve_multitrack_jsonl(
                 elif op == "status":
                     answer = {
                         "session": session_id, "revision": session.revision,
-                        "meridians": len(session.state.meridian_sizes),
+                        "meridians": int(session.state.meridians_seen[0]),
+                        "events_seen": int(session.state.events_seen[0]),
+                        "retained_meridians": len(session.state.meridian_sizes),
                         "retained_events": sum(session.state.meridian_sizes),
                         "track_registry": list(session.state.track_registry),
                         "pending": session.pending is not None,
