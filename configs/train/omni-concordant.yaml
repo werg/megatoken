@@ -1,18 +1,28 @@
-# Task-family sampling probabilities, not equal token/GPU budgets.
-omni_recipe_version: concordant-v1
-task_weights:
-  replay: 0.20
-  transcription_and_verbalization: 0.20
-  speech_translation: 0.15
-  image_description_and_creation: 0.15
-  audiovisual_and_endpoints: 0.15
-  sequential_editing: 0.15
-min_joint_fraction: 0.3333333333
-target_multisource_fraction: 0.25
-target_counterfactual_fraction: 0.25
-media_compute_cap_per_microbatch: 1
-source_family_split: true
-raw_facets: 32
-facet_width: 512
-reconstruction_auxiliary: true
-pack_manifest_required: true
+# Native omnimodal training using existing optimizer and grouped meridians.
+# Requires immutable prepared family streams and a validated local pack manifest.
+phase: B0
+model: 32x512
+dataset: artifacts/omni-prepared
+output: runs/omni-concordant
+codec: artifacts/tokenizer
+budget_meter: G
+budget: 100000
+accumulate_events: 32
+microbatch_episodes: 1
+max_accumulation_windows: 256
+max_window_records: 16
+scored_decisions: 4
+generated_capacity: 512
+max_record_bytes: 16384
+use_stage_mixture: false
+omni_recipe: configs/omni/concordant-v1.yaml
+pretrained_packs: artifacts/omni-packs/lock.json
+media_root: artifacts/omni-prepared
+model_overrides:
+  audio_feature_dim: 512
+  audio_feature_id: replace-with-pinned-whistle-identity
+  vision_feature_dim: 2304
+  vision_feature_id: replace-with-pinned-minicpm-identity
+  media_feature_views:
+    replace-with-pinned-mimi-identity: 32
+eval_every: 0

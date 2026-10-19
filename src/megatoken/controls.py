@@ -191,3 +191,31 @@ def effective_event_payloads(
         ).encode("utf-8")
         result.append(session_payload + b"\n<event_request>\n" + suffix)
     return tuple(result)
+
+def causal_step_payloads(episode, meridian_id: int, base: bytes,
+                         tracks: Sequence[str],
+                         requests: Sequence[tuple[str, int]]) -> tuple[bytes, ...]:
+    """Only preceding published interpretation/request revisions are visible.
+
+    This is shared by the grouped trainer and the offline serving task adapter.
+    A later edit request, even on the same reusable track, is not an initial
+    global control. Peer output targets and verification metadata are excluded.
+    """
+    if not isinstance(base, bytes):
+        raise TypeError("Base session control must be bytes")
+    available = [
+        {
+            "meridian": m.meridian_id,
+            "track": e.track_id,
+            "modality": e.modality,
+            "request": e.request,
+            "revision": e.request_revision,
+        }
+        for m in episode.meridians if m.meridian_id < meridian_id
+        for e in m.events if e.request
+    ]
+    if available:
+        framed = json.dumps(available, sort_keys=True, ensure_ascii=False,
+                            separators=(",", ":")).encode("utf-8")
+        base += b"\\n<available_requests>\\n" + framed
+    return effective_event_payloads(base, tracks, requests)

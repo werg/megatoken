@@ -70,6 +70,17 @@ class PocketFacetsStudent(nn.Module):
             parameter.requires_grad_(train_flow_head)
         return self
 
+    def add_lora(self, *, rank: int = 8, alpha: int = 16):
+        """Limited backbone adaptation, retaining the original trained prior."""
+        from peft import LoraConfig, get_peft_model
+        if rank < 1:
+            raise ValueError("LoRA rank must be positive")
+        self.flow_lm.transformer = get_peft_model(
+            self.flow_lm.transformer,
+            LoraConfig(r=rank, lora_alpha=alpha, target_modules="all-linear")
+        )
+        return self
+
     def _cond(self, raw: Tensor):
         _raw(raw, self.facet_width)
         return self.prefix(raw.to(self.prefix[1].weight.dtype))
@@ -79,8 +90,8 @@ class PocketFacetsStudent(nn.Module):
         if sample_rate != self.sample_rate or waveform.ndim != 2:
             raise ValueError("Pocket Mimi requires declared native-rate mono audio")
         with torch.no_grad():
-            return self.mimi.encode_to_latent(waveform[:, None].to(self.mimi.encoder.layers[0].conv.conv.weight.dtype)
-                                              if False else waveform[:, None])
+            dtype = next(self.mimi.parameters()).dtype
+            return self.mimi.encode_to_latent(waveform[:, None].to(dtype))
 
     def _normalized(self, target: Tensor):
         if target.ndim != 3 or target.shape[-1] != self.latent_width:
@@ -95,7 +106,6 @@ class PocketFacetsStudent(nn.Module):
         to R. It does not provide P, C, or current sibling R with target bytes.
         Supported flow parameterization is checked rather than guessed.
         """
-        from pocket_tts.modules.stateful_module import init_states, increment_steps
         condition = self._cond(raw)
         clean = self._normalized(mimi_latents).to(condition.dtype)
         b, frames, channels = clean.shape
@@ -104,36 +114,45 @@ class PocketFacetsStudent(nn.Module):
         bos = torch.full((b, 1, channels), float("nan"),
                          device=clean.device, dtype=clean.dtype)
         teacher_prefix = torch.cat((bos, clean[:, :-1]), dim=1)
-        states = init_states(self.flow_lm, b, condition.shape[1] + frames + 4)
-        embedded = torch.where(torch.isnan(teacher_prefix), self.flow_lm.bos_emb,
-                               teacher_prefix)
-        embedded = self.flow_lm.input_linear(embedded)
-        hidden = self.flow_lm.backbone(
-            embedded, condition, teacher_prefix, model_state=states
-        )
+        embedded = torch.where(torch.isnan(teacher_prefix),
+                               self.flow_lm.bos_emb, teacher_prefix)
+        seq = torch.cat((condition, self.flow_lm.input_linear(embedded)), dim=1)
+        hidden = self.flow_lm.out_norm(
+            self.flow_lm.transformer(seq, model_state=None)
+        )[:, -frames:].float()
         flow_type = self.flow_lm.flow_type
+        noise = torch.randn(clean.shape, device=clean.device,
+                            dtype=clean.dtype, generator=generator).float()
+        clean = clean.float()
         if flow_type == "flow_matching":
-            times = torch.rand((b, frames, 1), device=clean.device, generator=generator)
-            noise = torch.randn(clean.shape, device=clean.device,
-                                dtype=clean.dtype, generator=generator)
-            noisy = (1 - times) * noise + times * clean
-            predicted = self.flow_lm.flow_net(hidden.float(), times.float(), noisy.float())
-            target = clean.float() - noise.float()
+            t = torch.rand((b, frames, 1), device=clean.device, generator=generator)
+            sig_min = 0.001
+            x_t = (1 - (1-sig_min)*t)*noise + t*clean
+            pred = self.flow_lm.flow_net(hidden, t, x_t)
+            target = clean - (1-sig_min)*noise
+            error = (pred.float()-target).square()
         elif flow_type == "lsd":
-            # For LSD the pair (s,t) is part of the donor's training
-            # convention; do not mislabel it as an OT flow objective.
-            times = torch.rand((b, frames, 1), device=clean.device, generator=generator)
-            noise = torch.randn(clean.shape, device=clean.device,
-                                dtype=clean.dtype, generator=generator)
-            noisy = (1 - times) * noise + times * clean
-            predicted = self.flow_lm.flow_net(
-                hidden.float(), times.float(), torch.ones_like(times),
-                noisy.float()
-            )
-            target = clean.float() - noise.float()
+            # Matched Pocket LSD diagonal and student self-distillation terms:
+            # classic stopgrad variant, deterministic full distillation subset.
+            t = torch.sigmoid(torch.randn((b,frames,1),device=clean.device)*1.0+0.4)
+            x_t = t*clean+(1-t)*noise
+            diag = (self.flow_lm.flow_net(hidden,t,t,x_t)-(clean-noise)).square()
+            logits = torch.randn((b,frames,2),device=clean.device)+0.4
+            s = torch.sigmoid(logits.min(dim=-1,keepdim=True).values)
+            end = torch.sigmoid(logits.max(dim=-1,keepdim=True).values)
+            x_s = s*clean+(1-s)*noise
+            def field(s0,t0,x0):
+                return self.flow_lm.flow_net(hidden,s0,t0,x0)
+            vt,dvdt = torch.func.jvp(field,(s,end,x_s),
+                (torch.zeros_like(s),torch.ones_like(end),torch.zeros_like(x_s)))
+            x_end=x_s+(end-s)*vt
+            with torch.no_grad():
+                target_velocity=self.flow_lm.flow_net(hidden,end,end,x_end)
+            distill=(vt+(end-s)*dvdt-target_velocity).square()
+            error=0.75*diag+0.25*distill
         else:
-            raise ValueError("Unsupported Pocket donor flow convention for native training")
-        return flow_matching_loss(predicted, target, valid_frames)
+            raise ValueError("Unsupported Pocket flow objective: use LSD or OT")
+        return flow_matching_loss(error.sqrt(), torch.zeros_like(error), valid_frames)
 
     def latent(self, raw: Tensor, *, max_frames: int, steps: int = 16,
                generator: torch.Generator | None = None):
@@ -231,6 +250,17 @@ class SanaFacetsStudent(nn.Module):
     def train_adapter(self, *, train_backbone=False):
         for p in self.transformer.parameters():
             p.requires_grad_(train_backbone)
+        return self
+
+    def add_lora(self, *, rank: int = 8, alpha: int = 16):
+        from peft import LoraConfig, get_peft_model
+        if rank < 1:
+            raise ValueError("LoRA rank must be positive")
+        self.transformer = get_peft_model(
+            self.transformer,
+            LoraConfig(r=rank, lora_alpha=alpha, target_modules="all-linear")
+        )
+        self.pipe.transformer = self.transformer
         return self
 
     def _embeddings(self, raw):

@@ -152,10 +152,105 @@ def compile_views(bundle: AlignedBundle, views: Sequence[TaskView]) -> tuple[Com
             meridians.append(Meridian(group_id, members))
         episode = Episode(
             episode_id=sha256((bundle.bundle_id + ":" + view.family + ":" + view.task_version + ":" + ",".join(names)).encode()).hexdigest()[:32],
-            lineage=Lineage(source_id=bundle.bundle_id, revision=bundle.compiler_version, family_id=bundle.source_family, frozen_split=bundle.split), records=tuple(records),
+            lineage=Lineage(source_id=bundle.bundle_id, revision=bundle.compiler_version, family_id=bundle.source_family, frozen_split=bundle.split),
+            stream={
+                "transcription": "transcription_and_verbalization",
+                "verbalization": "transcription_and_verbalization",
+                "speech_translation": "speech_translation",
+                "image_description": "image_description_and_creation",
+                "image_creation": "image_description_and_creation",
+                "av_creation": "audiovisual_and_endpoints",
+                "endpoint_creation": "audiovisual_and_endpoints",
+                "speech_edit": "sequential_editing",
+                "image_edit": "sequential_editing",
+                "video_edit": "sequential_editing",
+            }.get(view.family,view.family),
+            records=tuple(records),
             tracks=tuple(tracks), meridians=tuple(meridians),
         )
         fingerprint = sha256(canonical_json(episode.to_dict()).encode()).hexdigest()
         results.append(CompiledView(episode, bundle.bundle_id, bundle.source_family,
                                     bundle.split, view.family, fingerprint, view.relations))
     return tuple(results)
+
+def compile_edit_trajectory(
+    bundle: AlignedBundle,
+    *, base_artifact_id: str,
+    steps: Sequence[tuple[Edit, str, tuple[str, ...]]],
+    request_revision: int = 0,
+) -> CompiledView:
+    """Compile a *genuine ordered* recorded edit chain into normal meridians.
+
+    Each step = (versioned Edit, exact edited artifact ID, related-output IDs).
+    A later edit's base must be the actual prior target's version. If that
+    target lacks a grouped native tape, the recurrent learner explicitly uses
+    detached E(recorded) rather than claiming the sampled output was edited.
+    """
+    from megatoken.data.schema import (
+        Episode, Lineage, PhysicalRecord, TrackSpec, TrackEvent, Meridian,
+        canonical_json,
+    )
+    by_id={a.artifact_id:a for a in bundle.artifacts}
+    if base_artifact_id not in by_id or not steps:
+        raise ValueError("Edit trajectory needs a valid base and at least one edit")
+    base=by_id[base_artifact_id]
+    records=[]
+    meridians=[]
+    tracks={}
+    def add_group(entries, generated=False):
+        gid=len(meridians)
+        events=[]
+        for idx,(artifact, track, instruction, is_output, old_version) in enumerate(entries):
+            if track not in tracks:
+                tracks[track]=TrackSpec(track, "assistant" if is_output else "user",
+                                        default_modality=artifact.modality,
+                                        description=instruction)
+            rid=sha256((bundle.bundle_id+":"+str(gid)+":"+artifact.artifact_id+
+                         ":"+str(idx)).encode()).hexdigest()
+            record=PhysicalRecord(
+                record_id=rid, logical_id=rid,
+                payload=artifact.payload, media_type=artifact.media_type,
+                role="assistant" if is_output else "user",
+                turn_index=gid, policy_mask=is_output,
+                artifact_version=artifact.version if artifact.modality != "text" else "",
+                base_artifact_version=old_version if is_output else "",
+                edit_continuation="recorded" if old_version else "",
+            )
+            records.append(record)
+            events.append(TrackEvent(rid,track,artifact.modality,gid,record.role,
+                                      request=instruction,request_revision=request_revision+gid))
+        if len({event.track_id for event in events})!=len(events):
+            raise ValueError("Edit peers require distinct semantic tracks")
+        meridians.append(Meridian(gid,tuple(events)))
+    add_group(((base,base.modality,"Inspect the available base artifact.",False,""),))
+    previous=base.version
+    for edit,output_id,related in steps:
+        if edit not in bundle.edits or edit.base_version != previous:
+            raise ValueError("Edit chain does not follow the actual previous version")
+        if output_id not in by_id or by_id[output_id].version != edit.result_version:
+            raise ValueError("Edited target version does not match the requested edit")
+        instruction=Artifact(
+            artifact_id=sha256((output_id+":"+edit.change).encode()).hexdigest(),
+            modality="text",payload=edit.change.encode(),version="instruction",
+        )
+        add_group(((instruction,"edit_request",edit.change,False,""),))
+        targets=[(by_id[output_id],by_id[output_id].modality,
+                  "Apply the requested change; preserve: "+", ".join(edit.preserve),
+                  True,previous)]
+        for peer in related:
+            if peer not in by_id or by_id[peer].version != edit.result_version:
+                raise ValueError("Related edit targets need the same result version")
+            targets.append((by_id[peer],peer,
+                            "Update this aligned output for the recorded edit",True,previous))
+        add_group(targets,True)
+        previous=edit.result_version
+    episode=Episode(
+        episode_id=sha256((bundle.bundle_id+":edits:"+base_artifact_id).encode()).hexdigest(),
+        lineage=Lineage(source_id=bundle.bundle_id,revision=bundle.compiler_version,
+                        family_id=bundle.source_family,frozen_split=bundle.split),
+        stream="sequential_editing",records=tuple(records),
+        tracks=tuple(tracks.values()),meridians=tuple(meridians),
+    )
+    fingerprint=sha256(canonical_json(episode.to_dict()).encode()).hexdigest()
+    return CompiledView(episode,bundle.bundle_id,bundle.source_family,bundle.split,
+                        "sequential_editing",fingerprint,())

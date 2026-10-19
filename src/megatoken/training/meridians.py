@@ -458,7 +458,7 @@ def forward_meridian_batch(
         # The core owner is versioned by the outer training loop.
         raise ValueError("Meridian trainer received a stale model version")
     payload = episode_control_payload(batch.windows[0].episode)
-    from megatoken.controls import effective_event_payloads
+    from megatoken.controls import causal_step_payloads
     losses = []
     metrics: dict[str, float | torch.Tensor] = {
         "grouped_training_windows": 1,
@@ -484,7 +484,16 @@ def forward_meridian_batch(
         state, replayed = _preceding_native(multi, state, batch.native_history, step)
         metrics["grouped_native_replays"] += replayed
         if step.generated:
-            teacher_forced = any(
+            # Recorded edit chains must continue from the *recorded* base,
+            # never a sampled media output that the next gold edit did not see.
+            edited_versions = {entry.record.artifact_version for entry in step.records
+                               if entry.record.artifact_version}
+            recorded_edit_base = any(
+                later.base_artifact_version in edited_versions
+                and later.edit_continuation == "recorded"
+                for later in batch.windows[0].episode.records[step.offsets[-1] + 1:]
+            )
+            teacher_forced = recorded_edit_base or any(
                 entry.record.action_id is not None
                 and any(
                     later.result_of == entry.record.action_id
@@ -498,7 +507,8 @@ def forward_meridian_batch(
             )
             result = multi.supervised_meridian(
                 state, tracks=step.tracks, plans=resolved,
-                control_payloads=effective_event_payloads(
+                control_payloads=causal_step_payloads(
+                    batch.windows[0].episode, step.meridian_id,
                     payload, step.tracks, step.requests,
                 ),
                 effort=batch.effort,

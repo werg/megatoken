@@ -661,7 +661,16 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        if config.use_stage_mixture:
+        if config.omni_recipe is not None:
+            from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
+            stream = OmniWindowStream(
+                config.dataset, codec, windows_config,
+                load_omni_recipe(config.omni_recipe), "G",
+                seed=config.seed, rank=data_rank, world_size=data_world,
+                reduce_counts=context.sum_counts,
+                independent=config.decoupled is not None,
+            )
+        elif config.use_stage_mixture:
             recipe = stage_recipe(config.phase)
             stream = MixtureWindowStream(
                 config.dataset,

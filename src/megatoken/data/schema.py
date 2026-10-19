@@ -274,6 +274,9 @@ class PhysicalRecord:
     result_of: str | None = None
     execution_id: str | None = None
     media_type: str = "text/plain; charset=utf-8"
+    artifact_version: str = ""
+    base_artifact_version: str = ""
+    edit_continuation: str = ""
     auxiliary_observation_loss: bool = False
     chunk_boundary: str | None = None
     chunking_fingerprint: str | None = None
@@ -296,6 +299,10 @@ class PhysicalRecord:
             raise ValueError(f"Unknown provenance: {self.provenance}")
         if not self.record_id or not isinstance(self.payload, bytes):
             raise TypeError("Records need an identity and immutable payload bytes")
+        if self.edit_continuation not in ("", "recorded", "student"):
+            raise ValueError("Edit continuations must identify actual recorded/student source")
+        if self.base_artifact_version and not self.artifact_version:
+            raise ValueError("An edited record needs its new artifact version")
         if self.turn_index < 0 or not 0 <= self.part_index < self.part_count:
             raise ValueError("Invalid turn/physical part index")
         if (self.chunk_boundary is None) != (self.chunking_fingerprint is None):
