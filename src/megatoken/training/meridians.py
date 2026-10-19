@@ -238,11 +238,10 @@ def prepare_meridian_batch(
                 "A zero-record native action inside an atomic meridian has "
                 "ambiguous causal timing; place it between meridians"
             )
-        if any(event.modality not in {"text", "tool", "evidence"} for event in meridian.events):
-            raise ValueError(
-                "Media training requires a pinned media asset/feature reader; "
-                "do not train audio, image or video payloads as text bytes"
-            )
+        modalities = tuple(
+            event.modality if event.modality in {"audio", "image", "video"} else "text"
+            for event in meridian.events
+        )
         if any(len(encoded[i].payload) > config.max_record_bytes for i in offsets):
             raise ValueError("Grouped record exceeds max_record_bytes")
         records = tuple(encoded[i] for i in offsets)
