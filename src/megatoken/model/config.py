@@ -59,6 +59,12 @@ class ModelConfig:
     norm_eps: float = 1e-6
     expert_backend: str = "auto"
     checkpoint_stages: bool = False
+    semantic_dim: int = 0
+    semantic_value_dim: int = 0
+    max_kb_positions: int = 0
+    memory_lora_experts: int = 4
+    memory_lora_rank: int = 8
+    memory_lora_topk: int = 2
 
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
@@ -127,6 +133,16 @@ class ModelConfig:
                 raise ValueError(
                     "External feature projectors require a positive width and pinned ID"
                 )
+        if min(self.semantic_dim, self.semantic_value_dim, self.max_kb_positions) < 0:
+            raise ValueError("Optional semantic dimensions cannot be negative")
+        if bool(self.semantic_value_dim) != bool(self.max_kb_positions):
+            raise ValueError("Value width and KB position budget must be enabled together")
+        if self.semantic_value_dim and not self.semantic_dim:
+            raise ValueError("Semantic memory requires a learned embedding space")
+        if min(self.memory_lora_experts, self.memory_lora_rank, self.memory_lora_topk) < 1:
+            raise ValueError("LoRA geometry must be positive")
+        if self.memory_lora_topk > self.memory_lora_experts:
+            raise ValueError("LoRA top-k exceeds independent expert count")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
 
@@ -163,6 +179,12 @@ class ModelConfig:
             self.vision_feature_dim,
             self.audio_feature_id,
             self.vision_feature_id,
+            self.semantic_dim,
+            self.semantic_value_dim,
+            self.max_kb_positions,
+            self.memory_lora_experts,
+            self.memory_lora_rank,
+            self.memory_lora_topk,
         )
 
     @classmethod
