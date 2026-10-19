@@ -46,6 +46,7 @@ class AttentionFeatures:
     keys: Tensor
     values: Tensor
     mask: Tensor | None = None
+    track_ids: Tensor | None = None  # Per-slot categorical identity, -1 if unknown.
 
 
 def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -> AttentionFeatures:
@@ -71,6 +72,8 @@ def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -
         torch.cat((history.keys.to(live.keys.dtype), live.keys), dim=2),
         torch.cat((history.values.to(live.values.dtype), live.values), dim=2),
         mask,
+        None if live.track_ids is None or history.track_ids is None
+        else torch.cat((history.track_ids, live.track_ids), dim=1),
     )
 
 
@@ -84,6 +87,8 @@ class AttentionRead(nn.Module):
         kv_heads: int,
         head_dim: int,
         eps: float = 1e-6,
+        *,
+        track_relations: bool = False,
     ) -> None:
         super().__init__()
         if query_heads % kv_heads:
@@ -92,6 +97,8 @@ class AttentionRead(nn.Module):
         self.query_norm = RMSNorm(query_dim, eps)
         self.query = nn.Linear(query_dim, query_heads * head_dim, bias=False)
         self.output = nn.Linear(query_heads * head_dim, query_dim, bias=False)
+        # Runtime IDs have equality, never ordinal or geometric distance.
+        self.same_track_bias = nn.Parameter(torch.zeros(query_heads)) if track_relations else None
 
     def read(
         self,
@@ -100,6 +107,7 @@ class AttentionRead(nn.Module):
         *,
         temporal_positions: Tensor | None = None,
         slot_codes: Tensor | None = None,
+        query_track_ids: Tensor | None = None,
     ) -> Tensor:
         if not features.keys.shape[2]:
             return torch.zeros_like(query)
@@ -112,11 +120,31 @@ class AttentionRead(nn.Module):
         )
         if temporal_positions is not None:
             q = temporal_rope(q, temporal_positions)
+        attn_mask = None if features.mask is None else features.mask[:, None, None, :]
+        if self.same_track_bias is not None and (
+            (query_track_ids is None) != (features.track_ids is None)
+        ):
+            raise ValueError("Track-aware attention requires both query and key identities")
+        if (
+            self.same_track_bias is not None
+            and query_track_ids is not None
+            and features.track_ids is not None
+        ):
+            if query_track_ids.shape != (batch, count) or features.track_ids.shape != (
+                batch, features.keys.shape[2]
+            ):
+                raise ValueError("Attention track IDs must identify every query/key slot")
+            same = query_track_ids[:, :, None] == features.track_ids[:, None, :]
+            same = same & (query_track_ids[:, :, None] >= 0) & (features.track_ids[:, None, :] >= 0)
+            bias = same[:, None].to(q.dtype) * self.same_track_bias.to(q.dtype)[None, :, None, None]
+            if features.mask is not None:
+                bias = bias.masked_fill(~features.mask[:, None, None, :], float("-inf"))
+            attn_mask = bias
         result = F.scaled_dot_product_attention(
             q,
             features.keys.to(q.dtype),
             features.values.to(q.dtype),
-            attn_mask=None if features.mask is None else features.mask[:, None, None, :],
+            attn_mask=attn_mask,
             dropout_p=0.0,
             enable_gqa=self.query_heads != self.kv_heads,
         )
@@ -132,6 +160,7 @@ def _encode(
     mask: Tensor | None,
     temporal_positions: Tensor | None = None,
     slot_codes: Tensor | None = None,
+    track_ids: Tensor | None = None,
 ) -> AttentionFeatures:
     batch, count, _ = source.shape
     addressed = source if slot_codes is None else source + slot_codes.to(source.dtype)
@@ -140,7 +169,7 @@ def _encode(
     keys = key.transpose(1, 2)
     if temporal_positions is not None:
         keys = temporal_rope(keys, temporal_positions)
-    return AttentionFeatures(keys, value.transpose(1, 2), mask)
+    return AttentionFeatures(keys, value.transpose(1, 2), mask, track_ids)
 
 
 class KVProjection(nn.Module):
@@ -159,6 +188,7 @@ class KVProjection(nn.Module):
         *,
         temporal_positions: Tensor | None = None,
         slot_codes: Tensor | None = None,
+        track_ids: Tensor | None = None,
     ) -> AttentionFeatures:
         return _encode(
             source,
@@ -169,6 +199,7 @@ class KVProjection(nn.Module):
             mask,
             temporal_positions,
             slot_codes,
+            track_ids,
         )
 
 

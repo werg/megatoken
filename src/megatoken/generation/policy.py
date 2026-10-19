@@ -16,6 +16,7 @@ from megatoken.tensors import byte_tensor
 
 from .codec import ByteCodec
 from .decoder import DecodedAction, DeterministicDecoder
+from megatoken.model.media import MediaRealizers
 from .latents import DiagonalGaussian, FacetGaussian
 from .structure import TAPE_VERSION, ActionSpec, ActionTape, Observation, TapeMismatch
 from .targets import LOSS_NAMES, PreparedAction, PreparedTargets, prepare_action, prepare_targets
@@ -82,6 +83,7 @@ class FacetedGenerator(nn.Module):
         self.training_heads = training_heads
         self.facet_distribution = FacetGaussian(self.config.facet_dim, self.config.prior_noise_std)
         self.decoder = DeterministicDecoder(self.config, self.codec)
+        self.media_realizers = MediaRealizers(self.config)
 
     @property
     def latent_dimensions(self) -> int:
@@ -577,6 +579,10 @@ class FacetedGenerator(nn.Module):
         seen = set()
         for parameter in chain(
             self.decoder.parameters(),
+            self.media_realizers.parameters(),
+            # Media realizers consume the shared public-control encoder directly.
+            # Latent-only RL must freeze it along with the deterministic map.
+            self.core.control_encoder.parameters(),
             self.core.encoder_parameters(),
             self.core.central_parameters(),
             self.core.realizer_parameters(),

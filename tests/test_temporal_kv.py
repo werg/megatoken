@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from megatoken.model import FacetedCore, ModelConfig
-from megatoken.model.attention import temporal_rope
+from megatoken.model.attention import AttentionFeatures, AttentionRead, temporal_rope
 from megatoken.model.core import P_HISTORY_READ_STAGES
 
 
@@ -165,11 +165,44 @@ def test_old_rotated_keys_and_values_survive_until_full_chunk_eviction():
 
 def test_old_architecture_version_cannot_reuse_rotary_history_cache():
     config = ModelConfig.tiny()
-    with pytest.raises(ValueError, match="version 6"):
+    with pytest.raises(ValueError, match="version 7"):
         ModelConfig.tiny(architecture_version=5)
-    with pytest.raises(ValueError, match="architecture_version=6"):
+    with pytest.raises(ValueError, match="architecture_version=7"):
         ModelConfig.from_dict({**config.to_dict(), "architecture_version": 5})
     core = FacetedCore(config)
     state = core.advance_raw(core.initial_state(1), torch.randn(1, 4, 32))
     with pytest.raises(ValueError, match="geometry"):
         core.predict_facets(replace(state, geometry=(5, *state.geometry[1:])))
+
+
+def test_same_track_attention_bias_respects_identity_not_track_number():
+    torch.manual_seed(55)
+    attention = AttentionRead(
+        8, query_heads=2, kv_heads=1, head_dim=4, track_relations=True
+    ).eval()
+    query = torch.randn(1, 2, 8)
+    keys = torch.randn(1, 1, 4, 4)
+    values = torch.randn_like(keys)
+    tracks = torch.tensor([[4, 8, 4, 8]])
+    queries = torch.tensor([[4, 8]])
+    with torch.no_grad():
+        attention.same_track_bias.fill_(3.0)
+    features = AttentionFeatures(keys, values, None, tracks)
+    with pytest.raises(ValueError, match="both query and key"):
+        attention.read(query, features)
+    result = attention.read(query, features, query_track_ids=queries)
+    perm = torch.tensor([1, 3, 0, 2])
+    scrambled = AttentionFeatures(keys[:, :, perm], values[:, :, perm], None, tracks[:, perm])
+    torch.testing.assert_close(
+        result, attention.read(query, scrambled, query_track_ids=queries),
+        atol=1e-6, rtol=1e-6,
+    )
+    renamed = AttentionFeatures(keys, values, None, tracks.where(tracks == 4, 17) + 50)
+    torch.testing.assert_close(
+        result,
+        attention.read(query, renamed, query_track_ids=queries.where(queries == 4, 17) + 50),
+        atol=1e-6, rtol=1e-6,
+    )
+    with torch.no_grad():
+        attention.same_track_bias.zero_()
+    assert not torch.allclose(result, attention.read(query, features, query_track_ids=queries))

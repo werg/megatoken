@@ -1,4 +1,10 @@
-# Architecture v6: full-resolution contextual KV and chronological RoPE
+# Architecture v7: full-resolution contextual KV with multi-track meridians
+
+**The single-event path below is one special case of the v7 multi-track core.**
+Multiple tracks are integrated as one atomic meridian with a shared full-resolution
+KV history and joint central processing. For the grouped contract, see the
+[multi-track plan](multi-track-plan.md) and
+[implementation status](multi-track-implementation.md).
 
 **Both realization and next-chunk prediction use the central core's computation.**
 Byte ingestion and prediction meet at one format: **32 raw facets of width 512**.

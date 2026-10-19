@@ -24,6 +24,7 @@ from .experts import ExpertBank
 from .frontend import SeedControlEncoder
 from .ingestion import ChunkEncoder
 from .layers import RMSNorm, SwiGLU
+from .media import MediaStems
 from .routing import EpochRouter, RowRoute
 from .state import CoreState, KVHistory, RealizationContext, assert_cache_version
 
@@ -31,6 +32,7 @@ ROLE_IDS = ROLE_TO_ID
 RECORD_ROLES = tuple(ROLE_TO_ID)
 EFFORTS = (1, 2, 3, 6)
 P_HISTORY_READ_STAGES = (3, 6, 9, 12)
+MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "tool": 4, "evidence": 5}
 
 
 class PairStage(nn.Module):
@@ -44,6 +46,7 @@ class PairStage(nn.Module):
             config.kv_heads,
             config.attention_head_dim,
             config.norm_eps,
+            track_relations=True,
         )
         self.attention_gate = nn.Parameter(torch.tensor(-2.0))
         self.norm = RMSNorm(config.pair_dim, config.norm_eps)
@@ -122,9 +125,11 @@ class CentralProcessor(nn.Module):
         self.slot_embedding = nn.Parameter(torch.empty(c.n_facets, c.facet_dim))
         self.slot_gate = nn.Parameter(torch.tensor(-2.0))
         self.role_embedding = nn.Embedding(len(RECORD_ROLES), c.facet_dim)
+        self.modality_embedding = nn.Embedding(len(MODALITY_IDS), c.facet_dim)
         nn.init.normal_(self.layer_codes, std=0.02)
         nn.init.normal_(self.slot_embedding, std=0.02)
         nn.init.normal_(self.role_embedding.weight, std=0.02)
+        nn.init.zeros_(self.modality_embedding.weight)
 
     def slot_codes(self) -> Tensor:
         """Stable learned facet addresses, independent of temporal RoPE phases."""
@@ -138,12 +143,44 @@ class CentralProcessor(nn.Module):
         positions: Tensor,
         *,
         checkpointing: bool | None = None,
+        track_ids: Tensor | None = None,
+        modality_ids: Tensor | None = None,
+        history_track_ids: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
+        # A meridian may contain several complete 32-facet megatokens.  The
+        # original one-event shape remains exactly the same, so singleton
+        # inference and checkpoints retain their previous semantics.
+        if raw.ndim != 3 or raw.shape[1] % self.config.n_facets:
+            raise ValueError("Central inputs must contain complete facet blocks")
+        events = raw.shape[1] // self.config.n_facets
+        addresses = self.slot_codes().repeat(events, 1)
+        if roles.shape == (raw.shape[0],):
+            role_features = self.role_embedding(roles)[:, None]
+        elif roles.shape == (raw.shape[0], events):
+            role_features = self.role_embedding(roles).repeat_interleave(
+                self.config.n_facets, dim=1
+            )
+        else:
+            raise ValueError("Roles must identify the batch or each selected event")
         facets = raw.to(self.role_embedding.weight.dtype)
-        addresses = self.slot_codes()
-        facets = facets + self.role_embedding(roles)[:, None]
-        facets = facets + addresses.to(facets.dtype)[None]
-        projected = AttentionFeatures(history.keys, history.values, history.mask)
+        facets = facets + role_features + addresses.to(facets.dtype)[None]
+        if track_ids is not None and track_ids.shape != (raw.shape[0], events):
+            raise ValueError("Track IDs must identify every event in the meridian")
+        live_tracks = None if track_ids is None else track_ids.repeat_interleave(
+            self.config.n_facets, dim=1
+        )
+        if history_track_ids is not None and history_track_ids.shape != (
+            raw.shape[0], history.slots
+        ):
+            raise ValueError("Historical track IDs must identify every retained facet")
+        if modality_ids is not None:
+            if modality_ids.shape != (raw.shape[0], events):
+                raise ValueError("Modality IDs must identify every event in the meridian")
+            modality_features = self.modality_embedding(modality_ids).repeat_interleave(
+                self.config.n_facets, dim=1
+            )
+            facets = facets + modality_features
+        projected = AttentionFeatures(history.keys, history.values, history.mask, history_track_ids)
         early = None
         temporary = None
         for index, layer in enumerate(self.layers):
@@ -164,6 +201,7 @@ class CentralProcessor(nn.Module):
                         temporary=previous,
                         temporal_positions=positions,
                         slot_codes=addresses,
+                        query_track_ids=live_tracks,
                     ),
                     facets,
                     use_reentrant=False,
@@ -177,12 +215,14 @@ class CentralProcessor(nn.Module):
                     temporary=temporary,
                     temporal_positions=positions,
                     slot_codes=addresses,
+                    query_track_ids=live_tracks,
                 )
             # Stage i publishes only a short-lived, position-rotated KV for i+1.
             # Neither these projections nor their tensors enter KVHistory.
             if index < len(self.temporary_memories):
                 temporary = projector(
-                    facets, temporal_positions=positions, slot_codes=addresses
+                    facets, temporal_positions=positions, slot_codes=addresses,
+                    track_ids=live_tracks,
                 )
             if index + 1 == self.config.central_early_layer:
                 early = facets
@@ -197,10 +237,15 @@ class CentralProcessor(nn.Module):
         occurs. Temporal RoPE is applied once, at the original record position.
         """
         c = self.config
+        if final.ndim != 3 or final.shape[1] % c.n_facets:
+            raise ValueError("KV writes require complete facet blocks")
+        if final.shape[1] > c.max_history_chunks * c.n_facets:
+            raise ValueError("One meridian exceeds the historical event capacity")
+        events = final.shape[1] // c.n_facets
         added = self.memory(
             final,
             temporal_positions=positions,
-            slot_codes=self.slot_codes().to(final.dtype),
+            slot_codes=self.slot_codes().repeat(events, 1).to(final.dtype),
         )
         max_slots = c.max_history_chunks * c.n_facets
         keys = torch.cat((history.keys, added.keys), dim=2)[:, :, -max_slots:]
@@ -210,7 +255,7 @@ class CentralProcessor(nn.Module):
             mask = torch.cat(
                 (
                     history.mask,
-                    torch.ones(final.shape[0], c.n_facets, dtype=torch.bool, device=final.device),
+                    torch.ones(final.shape[0], final.shape[1], dtype=torch.bool, device=final.device),
                 ),
                 dim=1,
             )[:, -max_slots:]
@@ -231,6 +276,7 @@ class FacetedCore(nn.Module):
         c = self.config
         self.model_version = 0
         self.frontend = ChunkEncoder(c)
+        self.media_stems = MediaStems(c)
         self.control_encoder = SeedControlEncoder(c)
         self.initial_facets = nn.Parameter(torch.empty(c.n_facets, c.facet_dim))
         self.stage_codes = nn.Parameter(torch.empty(c.prediction_layers, c.facet_dim))
@@ -262,6 +308,7 @@ class FacetedCore(nn.Module):
     def encoder_parameters(self) -> Iterator[nn.Parameter]:
         """Only E owners; contextual C and P are independently owned."""
         yield from self.frontend.parameters()
+        yield from self.media_stems.parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
         """C and its memory owners, frozen with E/R for a fixed latent-RL action map."""
@@ -452,6 +499,14 @@ class FacetedCore(nn.Module):
     def encode_chunk(self, byte_ids: Tensor, lengths: Tensor | None = None) -> Tensor:
         """History-, role-, and control-independent hierarchical E(bytes)."""
         return self.frontend(byte_ids, lengths)
+
+    def encode_media(
+        self, modality: str, payload: Tensor, *, sample_rate: int = 16000
+    ) -> Tensor:
+        """Audio/images/video use the existing E reduction and readout owners."""
+        return self.media_stems.encode(
+            self, modality, payload, sample_rate=sample_rate
+        )
 
     def encode_control(
         self,

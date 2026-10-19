@@ -276,7 +276,7 @@ def _json_safe(value: Any) -> Any:
 def write_rollout(handle: Any, rollout: Rollout, model_version: int) -> None:
     value = asdict(rollout)
     value.update(
-        format_version=4,
+        format_version=7,
         model_version=model_version,
         likelihood="canonical_facet_gaussian_density",
         replay="full_differentiable",

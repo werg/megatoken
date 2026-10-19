@@ -6,7 +6,7 @@ import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-ARCHITECTURE_VERSION = 6
+ARCHITECTURE_VERSION = 7
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class ModelConfig:
     prediction_layers: int = 12
     remix_hidden: int = 1024
     max_history_chunks: int = 1024
+    max_tracks: int = 8
     source_dim: int = 256
     byte_dim: int = 8
     source_stride: int = 8
@@ -57,7 +58,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: full-resolution temporal KV requires version 6; "
+                "Incompatible architecture version: multitrack architecture requires version 7; "
                 "earlier facet checkpoints cannot be loaded as this architecture"
             )
         positive = (
@@ -85,6 +86,7 @@ class ModelConfig:
             "router_dim",
             "remix_hidden",
             "max_history_chunks",
+            "max_tracks",
             "query_heads",
             "kv_heads",
             "attention_head_dim",
@@ -143,6 +145,7 @@ class ModelConfig:
             self.central_early_layer,
             self.prediction_layers,
             self.max_history_chunks,
+            self.max_tracks,
             self.kv_heads,
             self.attention_head_dim,
         )
@@ -195,8 +198,8 @@ class ModelConfig:
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=6; "
-                "legacy checkpoints require an explicit migration, not default replacement"
+                "Saved model configuration must explicitly declare architecture_version=7; "
+                "earlier checkpoints are intentionally unsupported"
             )
         unknown = set(values) - {field.name for field in fields(cls)}
         if unknown:
