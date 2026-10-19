@@ -107,6 +107,7 @@ class MeridianStep:
     records: tuple[EncodedRecord, ...]
     plans: tuple[Plan, ...] = ()
     modalities: tuple[str, ...] = ()
+    relations: tuple[tuple[str, int, int], ...] = ()
 
     @property
     def generated(self) -> bool:
@@ -319,11 +320,23 @@ def prepare_meridian_batch(
             for plan in plans:
                 for name, count in plan.denominators.items():
                     counts[name] += count
+        group_relations = ()
+        if plans:
+            import json
+            annotations = json.loads(episode.supervision.annotations_json)
+            relation_rows = annotations.get("relations", ())
+            current = {record.record.record_id: index for index, record in enumerate(records)}
+            group_relations = tuple(
+                (relation["kind"], current[relation["left"]], current[relation["right"]])
+                for relation in relation_rows
+                if relation["left"] in current and relation["right"] in current
+            )
+            counts["relation_semantic"] += len(group_relations)
         step = MeridianStep(
             meridian.meridian_id,
             tuple(event.track_id for event in meridian.events),
             tuple(ROLE_TO_ID[event.role] for event in meridian.events),
-            offsets, records, plans, modalities,
+            offsets, records, plans, modalities, group_relations,
         )
         (prefix if offsets[-1] < window.start else steps).append(step)
     if sum(len(x.records) for x in (*prefix, *steps)) != window.end:
@@ -426,6 +439,7 @@ def forward_meridian_batch(
     No second optimizer, stream cursor, history, or parameter owner is created.
     """
     from megatoken.controls import resolve_event_control
+    from megatoken.model.relations import SelectedRelation
 
     multi = MultiTrackGenerator(model)
     store = TensorAssetStore(config.media_root or config.dataset)
@@ -482,6 +496,7 @@ def forward_meridian_batch(
                 ),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
+                relations=tuple(SelectedRelation(*rel) for rel in step.relations),
             )
             state = result.state
             losses.append(ledger.backward_loss(result.losses))
