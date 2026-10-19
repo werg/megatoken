@@ -153,3 +153,46 @@ def test_group_history_backpropagates_across_meridians():
     assert raw.grad is not None
     assert bool(torch.isfinite(raw.grad).all())
     assert float(raw.grad.abs().sum()) > 0
+
+
+def test_meridian_eviction_is_after_context_read(monkeypatch):
+    core, multi = _tiny(history=3)
+    state = multi.initial_state(1)
+    for tracks in (("a", "b"), ("c",)):
+        state = multi.advance_group(
+            state, _selected(core, tracks), tracks=tracks, role_ids=_roles(tracks)
+        )
+    seen = []
+    original = core.central.forward
+
+    def spy(raw, history, *args, **kwargs):
+        seen.append(history.slots)
+        return original(raw, history, *args, **kwargs)
+
+    monkeypatch.setattr(core.central, "forward", spy)
+    final = multi.advance_group(
+        state, _selected(core, ("a", "b")), tracks=("a", "b"), role_ids=_roles((1, 2))
+    )
+    assert seen == [3 * core.config.n_facets]
+    assert final.meridian_sizes == (1, 2)
+    assert final.history_tracks.tolist() == [[2, 0, 1]]
+    assert int(final.meridians_seen[0]) == 3
+    assert int(final.events_seen[0]) == 5
+
+
+def test_track_registration_order_does_not_change_joint_causal_geometry():
+    core, multi = _tiny()
+    initial = multi.initial_state(1)
+    raw = _selected(core, ("left", "right"))
+    roles = _roles((1, 2))
+    ab = multi.advance_group(initial, raw, tracks=("left", "right"), role_ids=roles)
+    ba = multi.advance_group(
+        initial, raw[:, [1, 0]], tracks=("right", "left"), role_ids=roles[:, [1, 0]]
+    )
+    torch.testing.assert_close(ab.final[:, 0], ba.final[:, 1], atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(ab.final[:, 1], ba.final[:, 0], atol=1e-5, rtol=1e-5)
+    next_raw = _selected(core, ("left",))
+    next_roles = _roles((1,))
+    ab2 = multi.advance_group(ab, next_raw, tracks=("left",), role_ids=next_roles)
+    ba2 = multi.advance_group(ba, next_raw, tracks=("left",), role_ids=next_roles)
+    torch.testing.assert_close(ab2.final, ba2.final, atol=1e-5, rtol=1e-5)
