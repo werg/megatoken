@@ -173,17 +173,16 @@ def segment_with_report(
     ):
         if value is not None and not isinstance(value, str):
             raise TypeError(f"{name} must be a string or null")
-    if content_kind not in {
-        "auto",
-        "text",
-        "prose",
-        "markdown",
-        "code",
-        "json",
-        "html",
-        "xml",
-        "binary",
-    }:
+    from .parsing.documents import DOCUMENT_LANGUAGES, MARKUP_LANGUAGES
+    from .parsing.tabular import DELIMITERS
+
+    supported_kinds = (
+        DOCUMENT_LANGUAGES
+        | MARKUP_LANGUAGES
+        | set(DELIMITERS)
+        | {"auto", "text", "prose", "code", "json", "yaml", "toml", "binary"}
+    )
+    if content_kind not in supported_kinds:
         raise ValueError(f"Unsupported semantic content kind: {content_kind}")
     selected_template = chat_template if chat_template is not None else config.chat_template
     if content_kind == "binary":
