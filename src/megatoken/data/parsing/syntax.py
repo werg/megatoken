@@ -1082,7 +1082,7 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
         if value in {34, 39, 96}:
             if dialect == "rust" and value == 39:
                 # Lifetime labels such as 'a and '_ must not eat an entire line.
-                lifetime = re.match(rb"'[A-Za-z_][A-Za-z_0-9]*", payload[index:maximum])
+                lifetime = re.match(rb"'[A-Za-z_][A-Za-z_0-9]*", payload[index : index + 256])
                 if lifetime and (
                     index + len(lifetime.group()) >= maximum
                     or payload[index + len(lifetime.group())] != 39
