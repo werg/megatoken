@@ -23,6 +23,7 @@ from megatoken.contracts import ROLE_TO_ID
 from megatoken.controls import build_control_payload, encode_controls
 from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
+from megatoken.data.media_assets import MediaRecord
 from megatoken.io import content_hash, write_json
 from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
@@ -354,6 +355,19 @@ def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Coun
                 )
             )
         if isinstance(batch, MeridianPreparedBatch):
+            for step in batch.steps:
+                for modality, record in zip(step.modalities, step.records, strict=True):
+                    if modality not in {"audio", "image", "video"}:
+                        continue
+                    reference = MediaRecord.from_bytes(record.payload)
+                    result.media_events += 1
+                    asset = reference.target or reference.source
+                    if modality == "audio" and asset.kind == "raw":
+                        result.audio_samples += asset.shape[0]
+                    elif modality == "video" and asset.kind == "raw":
+                        result.video_frames += asset.shape[0]
+                    elif modality == "image":
+                        result.image_events += 1
             result.P += sum(
                 plan.scored_positions for step in batch.steps for plan in step.plans
             )
