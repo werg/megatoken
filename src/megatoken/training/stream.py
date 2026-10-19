@@ -299,8 +299,8 @@ class MixtureWindowStream:
             raise ValueError("Stage stream shares must be finite and positive")
         if abs(math.fsum(mixture.values()) - 1.0) > 1e-6:
             raise ValueError("Stage stream shares must sum to one")
-        if meter not in {"D", "I", "P"}:
-            raise ValueError("Window mixture meter must be D, I, or P")
+        if meter not in {"D", "I", "P", "G"}:
+            raise ValueError("Window mixture meter must be D, I, P, or G")
         self.mixture, self.meter = dict(sorted(mixture.items())), meter
         self.reduce_counts = reduce_counts or (lambda counts: counts)
         self.streams: dict[str, WindowStream] = {}
