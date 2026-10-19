@@ -652,6 +652,8 @@ class FacetedCore(nn.Module):
         """Expose the shared raw facets without running C or reading history."""
         if isinstance(selected, CoreState):
             self._check_state(selected)
+            if selected.final is None:
+                raise ValueError("The initial sentinel is not a selected realization input")
             selected = selected.facets
         if isinstance(selected, RealizationContext):
             self._check_facets(selected.facets)
