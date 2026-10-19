@@ -121,8 +121,15 @@ class AttentionRead(nn.Module):
         if temporal_positions is not None:
             q = temporal_rope(q, temporal_positions)
         attn_mask = None if features.mask is None else features.mask[:, None, None, :]
-        if (self.same_track_bias is not None and query_track_ids is not None
-                and features.track_ids is not None):
+        if self.same_track_bias is not None and (
+            (query_track_ids is None) != (features.track_ids is None)
+        ):
+            raise ValueError("Track-aware attention requires both query and key identities")
+        if (
+            self.same_track_bias is not None
+            and query_track_ids is not None
+            and features.track_ids is not None
+        ):
             if query_track_ids.shape != (batch, count) or features.track_ids.shape != (
                 batch, features.keys.shape[2]
             ):
