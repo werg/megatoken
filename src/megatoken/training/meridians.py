@@ -257,6 +257,16 @@ def prepare_meridian_batch(
                     and event.asset_sha256 != ref.source.sha256
                 ):
                     raise ValueError("Media event modality/source hash differs from its asset")
+                if ref.source.kind == "features":
+                    identity, width = (
+                        (model.config.audio_feature_id, model.config.audio_feature_dim)
+                        if event.modality == "audio" else
+                        (model.config.vision_feature_id, model.config.vision_feature_dim)
+                    )
+                    if ref.source.extractor != identity or ref.source.shape[-1] != width:
+                        raise ValueError(
+                            "Observed media feature revision/width differs from model"
+                        )
             elif record.record.media_type == MEDIA_RECORD_TYPE or (
                 record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
             ):
