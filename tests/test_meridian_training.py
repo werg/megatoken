@@ -65,3 +65,57 @@ def test_meridians_are_indivisible_window_groups():
     ))
     assert [(w.start, w.end) for w in windows] == [(0, 2), (2, 4), (4, 5)]
 
+
+@pytest.mark.parametrize("mode", ("bootstrap", "recurrent"))
+def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch):
+    torch.set_num_threads(1)
+    torch.manual_seed(27)
+    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    batch = grouped_batch(model, mode)
+    assert len(batch.steps) == 3 and not batch.steps[0].generated
+    assert len(batch.steps[1].plans) == 2 and len(batch.steps[2].plans) == 1
+    assert batch.counts["lexical"] == len(b"onetwothree")
+    assert batch.counts["reconstruction"] == batch.counts["lexical"]
+    assert batch.counts["facet_prediction"] == (
+        3 * model.config.n_facets * model.config.facet_dim
+        if mode == "bootstrap" else 0
+    )
+    seen = []
+    original = MultiTrackGenerator.supervised_meridian
+
+    def watch(self, state, **kwargs):
+        result = original(self, state, **kwargs)
+        result.state.raw.retain_grad()
+        seen.append((state, result.state))
+        return result
+
+    monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", watch)
+    config = train_config(mode)
+    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
+    metrics = forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    ledger.finish()
+    assert metrics["grouped_supervised_meridians"] == 2
+    assert metrics["grouped_selected_events"] == 3
+    assert seen[1][0] is seen[0][1]
+    assert seen[0][1].history.slots == 4 * model.config.n_facets
+    assert seen[0][1].raw.grad is not None
+    assert model.core.frontend.facet_queries.grad is not None
+    assert batch_counters([batch]).P == 2 * len(b"onetwothree")
+
+
+def test_media_payload_is_not_silently_trained_as_text():
+    from dataclasses import replace
+
+    ep = fixture_episode()
+    changed = replace(ep, meridians=(
+        Meridian(0, (
+            TrackEvent("a", "a", "audio", 0, "user"),
+            TrackEvent("b", "b", "text", 0, "user"),
+        )), *ep.meridians[1:],
+    ))
+    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    window = next(iter_windows(changed, ByteCodec.byte_fallback()))
+    with pytest.raises(ValueError, match="pinned media asset"):
+        prepare_batches(
+            model, [EpisodeWindow(changed, window)], train_config("bootstrap"),
+        )
