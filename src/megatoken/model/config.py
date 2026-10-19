@@ -6,7 +6,7 @@ import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-ARCHITECTURE_VERSION = 7
+ARCHITECTURE_VERSION = 8
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,6 @@ class ModelConfig:
     encoder_layers: int = 2
     encoder_hidden: int = 1024
     central_layers: int = 4
-    central_early_layer: int = 2
     central_hidden: int = 1024
     prediction_layers: int = 12
     remix_hidden: int = 1024
@@ -64,7 +63,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: multitrack architecture requires version 7; "
+                "Incompatible architecture version: direct realization requires version 8; "
                 "earlier facet checkpoints cannot be loaded as this architecture"
             )
         positive = (
@@ -73,7 +72,6 @@ class ModelConfig:
             "encoder_layers",
             "encoder_hidden",
             "central_layers",
-            "central_early_layer",
             "central_hidden",
             "prediction_layers",
             "source_dim",
@@ -105,8 +103,6 @@ class ModelConfig:
                 raise ValueError(f"{name} must be positive")
         if self.name in {"v12", "v13", "recurrent32", "compact32"}:
             raise ValueError("Old architecture names are not aliases for the version-4 presets")
-        if self.central_early_layer >= self.central_layers:
-            raise ValueError("central_early_layer must precede the final central layer")
         for name in ("codec_noise_std", "prior_noise_std"):
             value = getattr(self, name)
             if not math.isfinite(value) or not math.exp(-4.0) < value < math.exp(1.0):
@@ -158,7 +154,6 @@ class ModelConfig:
             self.n_facets,
             self.facet_dim,
             self.central_layers,
-            self.central_early_layer,
             self.prediction_layers,
             self.max_history_chunks,
             self.max_tracks,
@@ -218,7 +213,7 @@ class ModelConfig:
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=7; "
+                "Saved model configuration must explicitly declare architecture_version=8; "
                 "earlier checkpoints are intentionally unsupported"
             )
         unknown = set(values) - {field.name for field in fields(cls)}

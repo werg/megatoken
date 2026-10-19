@@ -1,4 +1,4 @@
-"""Selected raw facets and their reusable, eagerly computed central features."""
+"""Selected raw facets and cached causal context for future predictions."""
 
 from __future__ import annotations
 
@@ -31,17 +31,13 @@ class KVHistory:
 
 @dataclass(frozen=True)
 class CoreState:
-    """One exact raw tensor and derived features from its single central pass.
+    """Exact selected raw tensor, plus C's final state for future predictions.
 
-    ``facets`` is the selected raw input, never overwritten by contextual work.
-    ``early`` and ``final`` are cached all-slot C features, reused by realization
-    and prediction. History already includes this selected input. Only an empty
-    initial sentinel has no features; it may seed a prediction without becoming
-    a KV record. Records are counted when selected/observed, not one call later.
+    Realization reads ``facets`` directly. Only the startup sentinel lacks
+    processed features. History contains every committed selected input.
     """
 
     facets: Tensor
-    early: Tensor | None
     final: Tensor | None
     history: KVHistory
     records_seen: Tensor
@@ -65,7 +61,6 @@ class CoreState:
         return replace(
             self,
             facets=self.facets.detach(),
-            early=None if self.early is None else self.early.detach(),
             final=None if self.final is None else self.final.detach(),
             history=self.history.detach(),
         )
@@ -73,15 +68,9 @@ class CoreState:
 
 @dataclass(frozen=True)
 class RealizationContext:
-    """Explicit raw/early/final decoder inputs; no hidden factual-state access.
-
-    Normal realization reuses the selected input's central features. Both
-    optional features are absent for the explicit raw-only codec auxiliary.
-    """
+    """The canonical raw-facet block consumed directly by every realizer."""
 
     facets: Tensor
-    early: Tensor | None = None
-    final: Tensor | None = None
 
     @property
     def route_context(self) -> Tensor:

@@ -40,7 +40,6 @@ def test_singleton_matches_original_core_and_predictor():
         initial, raw[:, None], tracks=("user",), role_ids=torch.tensor([[3]])
     )
     torch.testing.assert_close(new.raw[:, 0], old.facets)
-    torch.testing.assert_close(new.early[:, 0], old.early, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(new.final[:, 0], old.final, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(new.history.keys, old.history.keys, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(new.history.values, old.history.values, atol=1e-5, rtol=1e-5)
@@ -275,7 +274,7 @@ def test_group_tape_rejects_ambiguous_json_keys_and_nonstandard_constants():
     # Group native tapes are an authority for replay, not permissive JSON.
     with pytest.raises(ValueError, match="duplicate JSON object key"):
         GroupActionTape.from_json(
-            '{"version":"fmt-multitrack-facets-v7","version":"fmt-multitrack-facets-v7"}'
+            '{"version":"fmt-multitrack-facets-v8","version":"fmt-multitrack-facets-v8"}'
         )
     with pytest.raises(ValueError, match="nonstandard JSON constant"):
-        GroupActionTape.from_json('{"version":"fmt-multitrack-facets-v7","nonce":NaN}')
+        GroupActionTape.from_json('{"version":"fmt-multitrack-facets-v8","nonce":NaN}')

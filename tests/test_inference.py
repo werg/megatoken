@@ -77,7 +77,6 @@ def test_export_preserves_the_canonical_facet_policy_and_recurrent_state_exactly
     assert expected.tape == actual.tape
     for left, right in (
         (expected.state.facets, actual.state.facets),
-        (expected.state.early, actual.state.early),
         (expected.state.final, actual.state.final),
         (expected.state.history.keys, actual.state.history.keys),
         (expected.state.history.values, actual.state.history.values),
@@ -172,7 +171,7 @@ def test_legacy_bundle_format_is_rejected_before_weight_loading(bundle):
     manifest = json.loads((directory / "manifest.json").read_text())
     manifest["format_version"] = 2
     (directory / "manifest.json").write_text(json.dumps(manifest))
-    with pytest.raises(ValueError, match="v7 multitrack realization"):
+    with pytest.raises(ValueError, match="v8 direct realization"):
         InferenceEngine(directory, device="cpu")
 
 

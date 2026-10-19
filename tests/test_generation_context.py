@@ -1,6 +1,6 @@
 """Shared C/R computation, exact state ownership, and isolated encoder learning."""
 
-from dataclasses import replace
+from dataclasses import fields, replace
 
 import pytest
 import torch
@@ -18,7 +18,7 @@ def make_model(**overrides):
     return FacetedGenerator(FacetedCore(ModelConfig.tiny(**overrides)))
 
 
-def test_selected_c_features_are_computed_once_and_reused_by_decoder_and_next_prediction():
+def test_direct_realization_and_next_prediction_have_separate_core_dependencies():
     model = make_model()
     values, lengths = byte_tensor([b"existing context"], "cpu")
     source = model.core.observe(values, model.core.initial_state(1), lengths=lengths)
@@ -31,13 +31,13 @@ def test_selected_c_features_are_computed_once_and_reused_by_decoder_and_next_pr
     )
     spec = ActionSpec(text_kind="ascii", min_tokens=3, max_tokens=3)
     selected = model.sample(source, spec=spec, generator=torch.Generator().manual_seed(3))
-    assert len(central_calls) == 1
+    assert len(central_calls) == 1  # Only next-step KV, not realization.
     assert central_calls[0] is selected.state.facets
     assert contexts[0].facets is selected.state.facets
-    assert contexts[0].early is selected.state.early
-    assert contexts[0].final is selected.state.final
+    assert [field.name for field in fields(RealizationContext)] == ["facets"]
+    with pytest.raises(ValueError, match="initial sentinel"):
+        model.core.prepare_realization(model.core.initial_state(1))
     assert selected.state.records_seen.item() == source.records_seen.item() + 1
-    assert source.records_seen.item() == 1
     assert model.decode_state(selected.state, spec=spec).payload == selected.payload
     model.core.predict_facets(selected.state)
     assert len(central_calls) == 1
@@ -45,65 +45,46 @@ def test_selected_c_features_are_computed_once_and_reused_by_decoder_and_next_pr
     decoder_hook.remove()
 
 
-def test_all_32_slot_identities_and_early_final_features_reach_short_output():
+def test_all_32_raw_slot_identities_reach_short_output_and_receive_gradients():
     model = make_model(n_facets=32, max_capacity=4)
-    tensors = [torch.randn(1, 32, model.config.facet_dim, requires_grad=True) for _ in range(3)]
-    context = RealizationContext(*tensors)
-    rows = model.decoder.realizer(model.core, context, 1, torch.zeros(1, model.config.facet_dim))
+    facets = torch.randn(1, 32, model.config.facet_dim, requires_grad=True)
+    rows = model.decoder.realizer(
+        model.core, RealizationContext(facets), 1,
+        torch.zeros(1, model.config.facet_dim),
+    )
     assert model.decoder.realizer.seed_count == 32
     assert rows.shape == (1, 1, model.config.facet_dim)
     rows.square().mean().backward()
-    for value in tensors:
-        assert value.grad is not None
-        assert bool((value.grad.norm(dim=-1) > 0).all())
+    assert facets.grad is not None
+    assert bool((facets.grad.norm(dim=-1) > 0).all())
 
 
-def test_cached_final_features_affect_materialization_and_conditional_tape_validation():
+def test_direct_decoder_is_history_independent_and_tape_rejects_forged_bytes():
     model = make_model()
     state = model.core.initial_state(1)
     spec = ActionSpec(text_kind="ascii", min_tokens=1, max_tokens=1)
     sampled = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(7))
-    changed = replace(sampled.state, final=sampled.state.final.flip(-1) * 3)
+    changed = replace(
+        sampled.state,
+        final=sampled.state.final.flip(-1) * 3,
+        history=replace(sampled.state.history, values=sampled.state.history.values + 2),
+    )
     captured = []
     hook = model.decoder.realizer.register_forward_hook(
-        lambda module, args, output: captured.append(output[0, 0].detach())
+        lambda module, args, output: captured.append(output.detach())
     )
-    model.decode_state(sampled.state, spec=spec)
-    model.decode_state(changed, spec=spec)
-    hook.remove()
-    first, second = (value / value.norm() for value in captured)
-    assert not torch.allclose(first, second)
-    # Select a separating lexical readout, so this tests actual decoded bytes
-    # rather than relying on a random vocabulary's argmax happening to change.
-    with torch.no_grad():
-        model.decoder.vocabulary.projection.weight.zero_()
-        model.decoder.vocabulary.projection.weight[0] = first - second
-        model.decoder.vocabulary.embedding.weight.zero_()
-        model.decoder.vocabulary.embedding.weight[ord("a"), 0] = 1
-        model.decoder.vocabulary.embedding.weight[ord("b"), 0] = -1
     original = model.decode_state(sampled.state, spec=spec)
-    altered = model.decode_state(changed, spec=spec)
-    assert original.payload == b"a" and altered.payload == b"b"
-    tape = replace(
-        sampled.tape,
-        payload=original.payload,
-        emitted_ids=original.emitted_ids,
-        valid=original.valid,
-        terminal=original.terminal,
-        trace=original.trace,
-        error=original.error,
-    )
-    assert model.score_tape(state, tape, spec=spec).payload == b"a"
-    with pytest.raises(TapeMismatch, match="conditional action map"):
-        model.score_tape(
-            state,
-            replace(tape, payload=altered.payload, emitted_ids=altered.emitted_ids),
-            spec=spec,
-        )
+    alternate = model.decode_state(changed, spec=spec)
+    hook.remove()
+    torch.testing.assert_close(captured[0], captured[1], rtol=0, atol=0)
+    assert alternate.payload == original.payload
+    assert model.score_tape(state, sampled.tape, spec=spec).payload == sampled.payload
+    with pytest.raises(TapeMismatch, match="direct raw-facet realization"):
+        model.score_tape(state, replace(sampled.tape, payload=b"forged"), spec=spec)
 
 
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_contextual_encoder_auxiliary_has_no_core_decoder_or_source_history_gradients(dtype):
+def test_direct_encoder_auxiliary_has_no_core_decoder_or_source_history_gradients(dtype):
     model = make_model(checkpoint_stages=True).to(dtype=dtype)
     first_plan = model.prepare_target(target_bytes=b"live", representation_mode="recurrent")
     first = model.supervised_step(model.core.initial_state(1), plan=first_plan)
@@ -125,8 +106,44 @@ def test_contextual_encoder_auxiliary_has_no_core_decoder_or_source_history_grad
     )
     assert first.state.facets.grad is first.state.history.values.grad is None
     assert flags == {name: parameter.requires_grad for name, parameter in model.named_parameters()}
-    assert result.metrics["reconstruction_contextual_examples"] == 1
-    assert result.metrics["reconstruction_direct_examples"] == 0
+    assert result.metrics["reconstruction_contextual_examples"] == 0
+    assert result.metrics["reconstruction_direct_examples"] == 1
+
+
+def test_bootstrap_reconstruction_directly_trains_encoder_and_realizer():
+    model = make_model()
+    plan = model.prepare_target(target_bytes=b"no C needed", representation_mode="bootstrap")
+    result = model.supervised_step(model.core.initial_state(1), plan=plan)
+    result.losses["reconstruction"][0].backward()
+    assert any(
+        p.grad is not None and p.grad.abs().sum() > 0
+        for p in model.core.encoder_parameters()
+    )
+    assert model.decoder.realizer.seed.weight.grad is not None
+    assert all(p.grad is None for p in model.core.central_parameters())
+    assert all(p.grad is None for p in model.core.predictor_parameters())
+
+
+def test_recurrent_e_reconstruction_never_evaluates_central():
+    model = make_model()
+    plan = model.prepare_target(target_bytes=b"direct codec", representation_mode="recurrent")
+    values, lengths = byte_tensor(plan.payloads, "cpu")
+    encoded = model.core.encode_chunk(values, lengths)
+    calls = []
+    hook = model.core.central.register_forward_hook(
+        lambda module, inputs, output: calls.append(inputs)
+    )
+    try:
+        losses = model.encoder_reconstruction_losses(encoded, plan)
+    finally:
+        hook.remove()
+    assert calls == []
+    losses["lexical"][0].backward()
+    assert any(
+        p.grad is not None and p.grad.abs().sum() > 0
+        for p in model.core.encoder_parameters()
+    )
+    assert all(p.grad is None for p in model.core.central_parameters())
 
 
 def test_encoder_auxiliary_does_not_contribute_to_main_router_objectives():
@@ -137,7 +154,7 @@ def test_encoder_auxiliary_does_not_contribute_to_main_router_objectives():
     plan = model.prepare_target(target_bytes=b"codec", representation_mode="recurrent")
     values, lengths = byte_tensor(plan.payloads, "cpu")
     encoded = model.core.encode_chunk(values, lengths)
-    losses = model.encoder_reconstruction_losses(state, encoded, plan, torch.tensor([2]))
+    losses = model.encoder_reconstruction_losses(encoded, plan)
     after = model.core.routing_aux_loss(clear=False)
     for original, candidate in zip(before, after, strict=True):
         torch.testing.assert_close(original, candidate, rtol=0, atol=0)

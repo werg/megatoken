@@ -1,4 +1,4 @@
-"""Stateful JSONL serving for v7 multitrack semantic meridians.
+"""Stateful JSONL serving for v8 multitrack semantic meridians.
 
 Transport media as explicitly shaped little-endian FP32 buffers. The trained
 encoder/realizer weights are loaded from one served Megatoken bundle. No tool
@@ -133,7 +133,10 @@ def serve_multitrack_jsonl(
                     raise ValueError("Session capacity reached")
                 session_id = uuid.uuid4().hex
                 sessions[session_id] = runtime.open()
-                answer = {"session": session_id, "architecture_version": 7}
+                answer = {
+                    "session": session_id,
+                    "architecture_version": engine.model.config.architecture_version,
+                }
             else:
                 session_id = request.get("session")
                 if session_id not in sessions:

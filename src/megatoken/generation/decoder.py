@@ -125,8 +125,6 @@ class DeterministicDecoder(nn.Module):
         self.config, self.codec = config, codec
         width = config.facet_dim
         self.header_start = nn.Linear(width, width, bias=False)
-        self.header_early = nn.Linear(width, width, bias=False)
-        self.header_final = nn.Linear(width, width, bias=False)
         self.header_cell = nn.GRUCell(width, width)
         self.mode_codes = nn.Embedding(2, width)
         self.schema_codes = nn.Embedding(128, width)
@@ -183,14 +181,8 @@ class DeterministicDecoder(nn.Module):
 
     def header(self, context) -> Tensor:
         raw = context if isinstance(context, Tensor) else context.facets
-        early = None if isinstance(context, Tensor) else context.early
-        final = None if isinstance(context, Tensor) else context.final
         dtype = self.header_start.weight.dtype
-        return (
-            self.header_start(raw.to(dtype).mean(1))
-            + self.header_early((raw if early is None else early).to(dtype).mean(1))
-            + self.header_final((raw if final is None else final).to(dtype).mean(1))
-        )
+        return self.header_start(raw.to(dtype).mean(1))
 
     def teacher_raw(self, core, context, plan: PreparedTargets):
         """Vectorized independent examples; only the sparse CE positions are gathered."""

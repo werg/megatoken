@@ -255,7 +255,7 @@ class MediaRealizers(nn.Module):
         super().__init__()
         d = config.facet_dim
         hidden = min(64, d)
-        self.fuse = nn.Linear(3 * d, d)
+        self.fuse = nn.Linear(d, d)
         self.control = nn.Linear(config.control_dim, d, bias=False)
         self.audio_expand = nn.Linear(d, 64)
         self.audio_filter = nn.Sequential(
@@ -273,9 +273,7 @@ class MediaRealizers(nn.Module):
 
     def _features(self, context: RealizationContext, control: Tensor | None) -> Tensor:
         raw = context.facets
-        early = raw if context.early is None else context.early
-        final = raw if context.final is None else context.final
-        features = self.fuse(torch.cat((raw, early, final), dim=-1))
+        features = self.fuse(raw.to(self.fuse.weight.dtype))
         if control is not None:
             if control.shape != (raw.shape[0], self.control.in_features):
                 raise ValueError("Realizer control must be one shared control vector per event")

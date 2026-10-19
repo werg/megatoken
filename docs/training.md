@@ -1,6 +1,6 @@
 # Training and operations
 
-> **Implementation boundary (v7):** The stages described below still support
+> **Implementation boundary (v8):** The stages described below still support
 > legacy one-event episodes; the new grouped `MultiTrackGenerator`
 > now also supports grouped text, audio, image and video B0/recurrent
 > meridians using checksummed media references and separate audio/visual
@@ -21,8 +21,8 @@ repeated halving, and two dense facet refinement blocks. Four independently owne
 central stages process every selected input, use three temporary KV read/write
 transitions, then publish only the final rotated KV entry. A
 non-residual remix and twelve sparse prediction stages produce the next Gaussian mean.
-The realizer reads raw facets and cached early/final central features without rerunning
-C. See [architecture.md](architecture.md) for the tensor graph.
+The realizer reads canonical raw facets directly; only future P uses
+C's final features and historical KV. See [architecture.md](architecture.md) for the tensor graph.
 
 `TrainConfig.representation_mode` selects `bootstrap` or `recurrent`. The value `auto`
 resolves to bootstrap for B0 and recurrent for every other supervised phase. Production
@@ -38,10 +38,10 @@ The causal prior has its own learned scale initialized by `prior_noise_std` (def
 
 Bootstrap combines three objectives:
 
-- Draw `z` from the causal prior, process it through C from the original pre-action
-  context, and score the target with the normal contextual realizer `R(z, C_early, C_final)`.
-- Reconstruct the target from `e + tau * epsilon` through the explicit raw-only realizer
-  entry. This cheaper auxiliary trains both E and R.
+- Draw `z` from the causal prior and score the target with direct
+  `R(z)`, without a C pass for output decoding.
+- Reconstruct from noisy `E(target) → R`; bootstrap trains both E and R.
+
 - Minimize `KL(stop_gradient(q) || p)` over all facet coordinates. The analytic Gaussian
   KL includes q's `tau**2` variance. It trains the causal prior without moving E to fit
   an unrelated forecast, and does not collapse to point-target Gaussian NLL.
@@ -59,18 +59,18 @@ ordinary continuation, preserving full-facet gradients across adjacent chunks.
 **Offline executed tool traces are different:** when a recorded action has a
 dependent tool observation, the successor state uses that recorded action's
 exact native facet tape when available, otherwise a detached E(recorded bytes)
-approximation. Prior samples still receive contextual lexical loss, but are
+approximation. Prior samples still receive direct lexical loss, but are
 not allowed to inherit an observation from a different unexecuted tool call.
 Live sampled actions may continue only through their own executed observations.
 
-Every ordinary target also receives an encoder-only codec auxiliary. Noisy `E(x)` is
-processed through C against a detached copy of the original pre-action history, then
-reconstructed by R. C, its memory projections, and R/U parameters are held fixed in this
-branch while gradients through their inputs reach E. The auxiliary state is discarded.
-There is no E-to-causal-forecast MSE and no recurrent KL pulling the prior toward E.
+Every ordinary target also receives an E-only codec auxiliary. Noisy
+`E(x)` goes directly to R with functionally detached R/U owners.
+No C is run, history is not accessed, and gradients reach only E.
+There is no recurrent KL or forecast MSE pulling E toward unrelated
+future raw samples.
 
 For a genuine saved native pair, an additional encoder alignment term can fit E to the
-recorded raw tensor that produced those exact bytes. Eligibility requires a valid v4
+recorded raw tensor that produced those exact bytes. Eligibility requires a valid v8
 tape, matching codec and facet geometry, exact original emitted IDs and payload, and
 ownership of that one whole physical record. Teacher corrections, unrelated observed
 bytes, invalid draws, and empty draws cannot borrow an alignment target. A native label
@@ -117,8 +117,8 @@ a teacher-conditioned training loss is not a measure of autonomous causal qualit
 
 | Objective | Bootstrap | Recurrent |
 |---|---|---|
-| Prior draw -> C -> contextual R target CE | Main-model gradients; causal prefix E may learn | Main-model gradients; observed E detached |
-| Noisy E target reconstruction | Raw-only R; trains E and R | Contextual C/R with frozen owners and detached history; trains E only |
+| Prior draw -> direct R target CE | Main-model gradients; causal prefix E may learn | Main-model gradients; observed E detached |
+| Noisy E target reconstruction | Direct R; trains E and R | Direct R with R/U frozen; trains E only |
 | Analytic q-to-prior Gaussian KL | Prior gradients; q detached | Inactive |
 | Exact native raw/byte pair alignment | Inactive | E only, when a genuine pair exists |
 | Live next input | Clean E target, processed once | Selected prior draw except teacher-consistent offline tool continuations |
@@ -144,11 +144,11 @@ when batched with nonempty controls.
 The JSONL generation request accepts `control_seed`, `control_reference`, and
 `reference_origin`; its `tools` also condition the core. The numeric `seed` remains the
 random generator seed. Python callers use the matching `InferenceEngine.generate`
-arguments. Version-4 action tapes store the source control bytes for every draw. Replay
+arguments. Version-8 action tapes store the source control bytes for every draw. Replay
 re-encodes those bytes under the current weights instead of trusting stale encoded
 features, and rejects an explicitly different control. Control changes occur upstream
-of the one facet draw. For a fixed raw tensor and causal history, contextual realization
-is independent of prospective controls.
+of the one facet draw. For fixed raw facets and explicit output controls, realization is
+independent of history, KV and cached final C features.
 
 The trainer selects independent episode windows and plans the eligible loss denominators.
 Compatible raw-record event schedules batch together without inspecting target content
@@ -170,11 +170,11 @@ boundary. Encoder teacher anchoring at an offline window boundary is a training 
 not a second network state or a serving reconciliation step.
 
 The KV cache already contains the selected current input. `state.facets` retains its
-exact raw values, while `state.early` and `state.final` cache its one C pass. `observe`
+exact raw values, while `state.final` caches its one C pass for future P. `observe`
 encodes and processes the new observation immediately; `advance_raw` processes a saved
 or sampled raw tensor immediately. Both append one KV record. `predict_facets` reads the
-cached features without changing history, and `prepare_realization(state)` exposes
-those same cached features to R. Replaying a historical native draw therefore needs no
+cached features without changing history, and `prepare_realization(state)`
+exposes raw facets directly to R. Replaying a historical native draw therefore needs no
 E, decoder, random draw, or discarded prediction. Its prospective controls are relevant
 when scoring its density, but not when reconstructing fixed-action C/KV history.
 
@@ -295,10 +295,10 @@ verified task success.
 and `metadata.json`. The metadata hashes the payload and the pointer hashes the metadata.
 Loading uses PyTorch's restricted weights-only format. Checkpoints include model/config,
 codec and semantic chunk identities, FP32 optimizer state, global step, phase counters,
-and per-rank RNG and cursor. Checkpoint, served bundle, and model architecture are
-version 6. The action-tape serialization format remains v4, but v5
-weights/caches are incompatible with the new full-resolution KV geometry
-and cannot be silently loaded.
+and per-rank RNG and cursor. Checkpoint, served bundle, and model architecture use version 8.
+Single-event and grouped tapes use their respective v8 identities.
+Earlier R parameters, C caches, checkpoint weights and tapes are incompatible
+with direct realization and cannot be silently loaded.
 
 Periodic retention is bounded by `keep_checkpoints`. Phase boundaries, run-end snapshots,
 pre-RL state, and explicit baked checkpoints are retained. SIGINT/SIGTERM finishes the

@@ -592,7 +592,7 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--max-sessions", type=int, default=32)
     item.set_defaults(func=_serve)
     item = commands.add_parser(
-        "serve-multitrack", help="Serve v7 joint semantic meridians via local JSONL"
+        "serve-multitrack", help="Serve v8 joint semantic meridians via local JSONL"
     )
     item.add_argument("--model", required=True)
     item.add_argument("--device", default="auto")

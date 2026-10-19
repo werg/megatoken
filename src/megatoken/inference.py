@@ -74,7 +74,7 @@ def export_served(
             with artifact.open("rb") as handle:
                 os.fsync(handle.fileno())
         manifest = {
-            "format_version": 7,
+            "format_version": 8,
             "model_sha256": sha256_file(temporary / "model.safetensors"),
             "config_sha256": sha256_file(temporary / "model_config.json"),
             "codec_file": bundled_codec,
@@ -116,10 +116,10 @@ class InferenceEngine:
     def __init__(self, bundle: str | Path, *, device: str = "auto", compile: bool = False) -> None:
         directory = Path(bundle)
         manifest = json.loads((directory / "manifest.json").read_text())
-        if manifest.get("format_version") != 7 or manifest.get("training_heads") is not False:
+        if manifest.get("format_version") != 8 or manifest.get("training_heads") is not False:
             raise ValueError(
-                "Unsupported or training-only bundle: v7 multitrack realization requires "
-                "v7 weights and state; earlier bundles cannot be loaded"
+                "Unsupported or training-only bundle: v8 direct realization requires "
+                "v8 weights and state; earlier bundles cannot be loaded"
             )
         if manifest.get("policy_likelihood") != "canonical_facet_gaussian_density":
             raise ValueError("Unsupported served action likelihood")

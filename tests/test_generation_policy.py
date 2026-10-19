@@ -113,8 +113,8 @@ def test_batched_two_pass_supervision_counts_free_positions_and_commits_once(mod
     assert result.losses["structure"][1] == result.losses["terminal"][1] == 4
     assert result.losses["facet_prediction"][1] == 2 * model.latent_dimensions
     assert all(result.losses[name][1] == count for name, count in plan.denominators.items())
-    assert result.state.early is not None and result.state.final is not None
-    assert state.early is state.final is None
+    assert result.state.final is not None
+    assert state.final is None
     assert result.state.records_seen.tolist() == [1, 1]
     assert result.state.role_ids.tolist() == [2, 4]
     assert state.records_seen.tolist() == [0, 0]
@@ -564,7 +564,7 @@ def test_small_predictor_and_shared_reconstruction_can_learn_a_byte_task():
     assert model.decode_facets(encoded, spec=spec).payload == b"AAAA"
 
 
-def test_recurrent_mode_has_encoder_only_contextual_reconstruction_and_two_passes(
+def test_recurrent_mode_reconstructs_directly_with_frozen_readout_and_two_passes(
     model, monkeypatch
 ):
     plan = model.prepare_target(target_bytes=b"follow", representation_mode="recurrent")
@@ -579,8 +579,8 @@ def test_recurrent_mode_has_encoder_only_contextual_reconstruction_and_two_passe
     result = model.supervised_step(model.core.initial_state(1), plan=plan)
     assert len(calls) == 2
     assert result.state.facets is calls[0].facets
-    assert calls[0].early is result.state.early and calls[0].final is result.state.final
-    assert calls[1].early is not None and calls[1].final is not None
+    assert calls[1].facets.shape == calls[0].facets.shape
+    assert calls[1].facets is not result.state.facets
     assert plan.scored_positions == 12
     assert result.losses["reconstruction"][1] == 6
     assert result.losses["facet_prediction"][1] == result.losses["encoder_alignment"][1] == 0

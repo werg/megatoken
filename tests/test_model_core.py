@@ -30,7 +30,6 @@ def assert_same_state(first, second):
     assert first.routing_version == second.routing_version
     for name in (
         "facets",
-        "early",
         "final",
         "records_seen",
         "last_record_ids",
@@ -55,7 +54,7 @@ def test_versioned_geometry_and_explicit_width_presets():
     )
     assert (compact.name, compact.n_facets, compact.facet_dim) == ("32x256", 32, 256)
     assert (large.encoder_layers, large.central_layers, large.prediction_layers) == (2, 4, 12)
-    assert (large.central_early_layer, large.n_stages, large.central_hidden) == (2, 16, 1024)
+    assert (large.n_stages, large.central_hidden) == (16, 1024)
     assert (large.p_experts, large.u_experts, large.source_dim) == (64, 32, 256)
     assert (large.query_heads, large.kv_heads, large.attention_head_dim) == (4, 2, 128)
     assert large.max_history_chunks == 1024
@@ -103,7 +102,7 @@ def test_observation_processes_new_input_immediately_and_skips_initial_sentinel(
     assert state.records_seen.tolist() == [1, 1]
     assert state.last_record_ids.tolist() == [0, 0]
     assert state.history.slots == core.config.n_facets
-    assert state.early.shape == state.final.shape == state.facets.shape
+    assert state.final.shape == state.facets.shape
     assert core.dispatch_metrics()["p"]["routed_rows"].sum().item() == 0
     assert initial.history.slots == 0 and initial.final is None
     projected = core.central.memory(
@@ -115,7 +114,7 @@ def test_observation_processes_new_input_immediately_and_skips_initial_sentinel(
     torch.testing.assert_close(state.history.values, projected.values, rtol=0, atol=0)
 
 
-def test_realizer_and_predictor_reuse_the_same_central_features_without_work():
+def test_realizer_reads_raw_while_predictor_reuses_cached_final_without_work():
     core = FacetedCore(ModelConfig.tiny()).eval()
     state = core.observe(torch.randint(256, (1, 55)), core.initial_state(1))
     calls = []
@@ -125,16 +124,12 @@ def test_realizer_and_predictor_reuse_the_same_central_features_without_work():
     other = core.predict_from_processed(state)
     hook.remove()
     assert calls == []
-    assert (
-        context.facets is state.facets
-        and context.early is state.early
-        and context.final is state.final
-    )
+    assert context.facets is state.facets
     torch.testing.assert_close(mean, other, rtol=0, atol=0)
     assert state.records_seen.item() == 1 and state.history.slots == core.config.n_facets
-    assert [field.name for field in fields(RealizationContext)] == ["facets", "early", "final"]
+    assert [field.name for field in fields(RealizationContext)] == ["facets"]
     auxiliary = core.prepare_realization(state.facets)
-    assert auxiliary.facets is state.facets and auxiliary.early is auxiliary.final is None
+    assert auxiliary.facets is state.facets
 
 
 def test_predictor_depends_on_processed_final_and_history_without_raw_skip():
@@ -182,7 +177,7 @@ def test_raw_selection_preserves_exact_fp32_tensor_and_caches_one_c_pass(dtype):
     hook.remove()
     assert len(calls) == 1 and calls[0] is raw
     assert selected.facets is raw and selected.facets.dtype == torch.float32
-    assert selected.early.dtype == selected.final.dtype == dtype
+    assert selected.final.dtype == dtype
     assert selected.records_seen.item() == 2 and selected.history.slots == 2 * core.config.n_facets
     core.predict_facets(selected).float().square().mean().backward()
     assert raw.grad is not None and raw.grad.norm() > 0
@@ -221,13 +216,12 @@ def test_action_then_observation_never_reencodes_or_reprocesses_action(monkeypat
 def test_control_changes_prediction_without_changing_selected_processing():
     core = FacetedCore(ModelConfig.tiny()).eval()
     state = core.observe(torch.randint(256, (2, 31)), core.initial_state(2))
-    raw, early, final, history = state.facets, state.early, state.final, state.history
+    raw, final, history = state.facets, state.final, state.history
     first = core.predict_facets(state)
     second = core.predict_facets(state, torch.randn(2, core.config.control_dim))
     assert not torch.equal(first, second)
     assert (
         state.facets is raw
-        and state.early is early
         and state.final is final
         and state.history is history
     )
@@ -268,7 +262,6 @@ def test_detach_cuts_raw_and_all_cached_features_and_history():
     detached = state.detach()
     for value in (
         detached.facets,
-        detached.early,
         detached.final,
         detached.history.keys,
         detached.history.values,

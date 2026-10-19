@@ -1,4 +1,4 @@
-# Multi-track v7 implementation status
+# Multi-track implementation status (v8 R; v7 foundation)
 
 **Date:** 2026-10-19. **Branch:** `feat/multitrack-foundation-20261019`.
 **PR:** [#10](https://github.com/werg/megatoken/pull/10).
@@ -156,13 +156,13 @@ reference assets or supply trained speech/video weights automatically.
 
 ## Strict formats and no migrations
 
-- Architecture version: **7**.
-- Legacy scalar latent tape protocol changed to v7; multi-event tape is
-  `fmt-multitrack-facets-v7`.
-- Checkpoint and served-bundle version: **7**.
+- Architecture version: **8**.
+- Single-event tape: `fmt-canonical-facets-v8`; grouped tape:
+  `fmt-multitrack-facets-v8`.
+- Checkpoint and served-bundle architecture version: **8**.
 - Episode and prepared dataset schema: **3**.
 - Prior checkpoints, episode archives, latent action tapes and served bundles
-  are not importable. Retrain and regenerate v7 artifacts; no migration path
+  are not importable. Retrain and regenerate v8 artifacts; no migration path
   or numerical preservation requirement exists.
 - A singleton meridian is a normal one-event case of the new architecture.
 
