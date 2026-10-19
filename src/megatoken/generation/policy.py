@@ -212,7 +212,11 @@ class FacetedGenerator(nn.Module):
         )
         readout = _TeacherReadout(self.core, self.decoder)
         prior_losses = readout(selected, plan)
-        reconstruction_losses = self.encoder_reconstruction_losses(encoded_sample, plan)
+        reconstruction_losses = (
+            readout(encoded_sample, plan)
+            if plan.mode == "bootstrap"
+            else self.encoder_reconstruction_losses(encoded_sample, plan)
+        )
         return self._finish_supervision(
             next_state,
             target,
