@@ -47,7 +47,6 @@ class MediaOutputSpec:
             raise ValueError("Media output must be audio, image or video")
 
 
-
 @dataclass(frozen=True)
 class MediaTrainTarget:
     """A resolved event, independent of the training dataset storage layout."""
