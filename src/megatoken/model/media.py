@@ -151,6 +151,7 @@ class MediaRealizers(nn.Module):
             nn.Conv1d(16, 1, kernel_size=9, padding=4),
         )
         self.visual_features = nn.Linear(d, hidden)
+        self.visual_positions = nn.Parameter(torch.randn(64, hidden) * 0.01)
         self.visual_filter = nn.Sequential(
             nn.Conv3d(hidden, hidden, kernel_size=3, padding=1),
             nn.SiLU(),
@@ -195,7 +196,8 @@ class MediaRealizers(nn.Module):
             self.visual_features(source).transpose(1, 2), size=spec.frames, mode="linear",
             align_corners=False,
         )
-        coarse = timeline[..., None, None].expand(-1, -1, -1, 8, 8)
+        positions = self.visual_positions.transpose(0, 1).reshape(1, -1, 1, 8, 8)
+        coarse = timeline[..., None, None] + positions
         rendered = self.visual_filter(coarse).sigmoid()
         rendered = F.interpolate(
             rendered, size=(spec.frames, spec.height, spec.width), mode="trilinear",
