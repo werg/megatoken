@@ -387,12 +387,14 @@ def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Coun
 
 def forward_batch(
     model: Any,
-    batch: PreparedBatch,
+    batch: PreparedBatch | MeridianPreparedBatch,
     ledger: LossLedger,
     config: TrainConfig,
     device: torch.device,
     model_version: int,
 ) -> dict[str, float | torch.Tensor]:
+    if isinstance(batch, MeridianPreparedBatch):
+        return forward_meridian_batch(model, batch, ledger, config, device, model_version)
     state = model.core.initial_state(len(batch.windows), device=device, model_version=model_version)
     with torch.no_grad():
         for offset in range(len(batch.windows[0].window.prefix)):
