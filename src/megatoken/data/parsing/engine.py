@@ -23,6 +23,7 @@ from .documents import (
     scan_markup_fallback,
 )
 from .prose import analyze_prose
+from .tabular import DELIMITERS, scan_delimited
 from .registry import bundled_languages, canonical_language, parser_provider_specs, resolve_language
 from .syntax import Injection, Scan, scan_generic, scan_syntax
 from .types import Diagnostic, ParseLimits, ParseResult, Region
@@ -354,6 +355,8 @@ class _Engine:
                 parser.startswith("tree_sitter:") for parser in native.result.parsers
             ):
                 consume(scan_markup_fallback(view.data, canonical, self.remaining_limits()))
+        elif canonical in DELIMITERS:
+            consume(scan_delimited(view.data, canonical, self.remaining_limits()))
         else:
             consume(self.native(view, canonical))
         # Parent attachments are established before nested evidence is collected.
@@ -445,6 +448,7 @@ def parse_content(
         "toml",
         "csv",
         "tsv",
+        "psv",
         "prose",
         "text",
         "plain",
