@@ -173,6 +173,64 @@ class LogicalAction:
 
 
 @dataclass(frozen=True, slots=True)
+class MediaSpan:
+    """Content-time alignment, independent of causal commit order."""
+
+    clock_id: str
+    start_ms: int
+    end_ms: int
+
+    def __post_init__(self) -> None:
+        if not self.clock_id or not 0 <= self.start_ms <= self.end_ms:
+            raise ValueError("Media span needs an ordered interval on a named clock")
+
+
+@dataclass(frozen=True, slots=True)
+class TrackEvent:
+    """One physical event assigned to a semantic meridian."""
+
+    record_id: str
+    track_id: str
+    modality: str
+    meridian_id: int
+    role: Role
+    alignment_id: str | None = None
+    media_span: MediaSpan | None = None
+    asset_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.record_id or not self.track_id or self.meridian_id < 0:
+            raise ValueError("Track event needs ID, track and nonnegative meridian")
+        if self.modality not in {"text", "audio", "image", "video", "tool", "evidence"}:
+            raise ValueError("Unknown event modality")
+        if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
+            raise ValueError("Unknown track event role")
+        if self.asset_sha256 is not None and (
+            len(self.asset_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in self.asset_sha256)
+        ):
+            raise ValueError("Media asset digest must be a lowercase SHA256")
+
+
+@dataclass(frozen=True, slots=True)
+class Meridian:
+    """Exactly one causal group; all selected events can attend to each other."""
+
+    meridian_id: int
+    events: tuple[TrackEvent, ...]
+
+    def __post_init__(self) -> None:
+        if self.meridian_id < 0 or not self.events:
+            raise ValueError("Meridian must contain at least one event")
+        if any(event.meridian_id != self.meridian_id for event in self.events):
+            raise ValueError("Meridian members must share one causal commit index")
+        if len({event.track_id for event in self.events}) != len(self.events):
+            raise ValueError("A meridian has at most one event per track")
+        if len({event.record_id for event in self.events}) != len(self.events):
+            raise ValueError("Meridian members must be distinct")
+
+
+@dataclass(frozen=True, slots=True)
 class PhysicalRecord:
     record_id: str
     role: Role
