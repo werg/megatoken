@@ -443,6 +443,7 @@ class MediaRealizers(nn.Module):
         spec: MediaOutputSpec,
         control: Tensor | None = None,
         noise: Tensor | None = None,
+        seed: int | None = None,
     ) -> Tensor:
         if control is not None:
             raise ValueError("Native realization reads raw selected facets, not prompt controls")
@@ -452,7 +453,7 @@ class MediaRealizers(nn.Module):
             pack = self.native[spec.modality]
             if pack.codec_id != spec.codec_id or pack.pack_id != spec.pack_id:
                 raise ValueError("Requested codec/generator is incompatible with loaded pack")
-            return pack.sample(context.facets, spec, noise=noise)
+            return pack.sample(context.facets, spec, noise=noise, seed=seed)
         if spec.modality == "audio":
             return self.audio(context, spec)
         return self.visual(context, spec)
