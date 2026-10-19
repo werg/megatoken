@@ -121,7 +121,42 @@ class MediaStems(nn.Module):
             features = self.vision(value)
         else:
             raise ValueError("Media input must be audio, image or video")
-        mask = torch.ones(features.shape[:2], dtype=torch.bool, device=features.device)
+        return self.encode_ordered_features(core, features)
+
+    @staticmethod
+    def encode_ordered_features(
+        core,
+        features: Tensor,
+        mask: Tensor | None = None,
+    ) -> Tensor:
+        """Bridge frozen/precomputed media features to the canonical E hierarchy.
+
+        A pinned external feature extractor and its trainable projection may run
+        outside this module, but must output ordered source_dim features.  This
+        shared path owns no additional encoder/decoder or historical KV weights.
+        Feature extractor identity and preprocessing must be pinned by the
+        calling data/serving pipeline, never inferred from tensor contents.
+        """
+        if (
+            features.ndim != 3
+            or features.shape[1] < 1
+            or features.shape[2] != core.config.source_dim
+        ):
+            raise ValueError("Media source features must be [batch, tokens, source_dim]")
+        if features.device != core.initial_facets.device or not features.is_floating_point():
+            raise ValueError("Media features must be floating point on the model device")
+        if not bool(torch.isfinite(features).all()):
+            raise ValueError("Media features must be finite")
+        if mask is None:
+            mask = torch.ones(features.shape[:2], dtype=torch.bool, device=features.device)
+        elif (
+            mask.shape != features.shape[:2]
+            or mask.dtype != torch.bool
+            or mask.device != features.device
+            or not bool(mask.any(dim=1).all())
+        ):
+            raise ValueError("Media source mask must mark at least one token per batch row")
+        features = features.masked_fill(~mask[..., None], 0)
         level = 0
         # Reuse the same E reduction and facet readout weights as text.
         while features.shape[1] > core.config.n_facets:

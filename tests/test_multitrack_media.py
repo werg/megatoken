@@ -1,7 +1,11 @@
 """Native media E/R adapters, causal controls and heterogeneous meridian replay."""
 
+import math
+
 import pytest
 import torch
+
+from megatoken.generation.latents import DiagonalGaussian
 
 from megatoken.controls import ControlBundle, ControlReference, build_control_payload
 from megatoken.data.schema import MediaSpan, Meridian, TrackEvent
@@ -127,3 +131,41 @@ def test_meridians_separate_causal_and_media_time():
     assert Meridian(2, (transcript,)).events[0].media_span == span
     with pytest.raises(ValueError, match="at most one"):
         Meridian(1, (recorded, TrackEvent("c", "mic", "audio", 1, "user")))
+
+
+def test_grouped_bootstrap_kl_is_normalized_once_per_latent_coordinate():
+    core, model, service = _system()
+    state = service.tracks.initial_state(1)
+    target = torch.rand(1, 1, 3, 16, 16)
+    spec = MediaOutputSpec("image", height=16, width=16)
+    result = service.supervised_group(
+        state, tracks=("picture",), targets=(target,), specs=(spec,),
+        effort=1, generator=torch.Generator().manual_seed(101),
+    )
+    with torch.no_grad():
+        mean = service.tracks.predict_group(
+            state, tracks=("picture",), modalities=("image",), effort=1,
+        )
+        encoded = core.encode_media("image", target)[:, None]
+        posterior = DiagonalGaussian(
+            encoded.float(),
+            torch.full_like(encoded.float(), math.log(core.config.codec_noise_std)),
+        )
+        expected = posterior.kl(model.facet_distribution(mean)).mean()
+    torch.testing.assert_close(result.components["facet_kl"], expected, rtol=1e-5, atol=1e-5)
+    assert float(expected) > 0
+
+
+def test_precomputed_media_features_reuse_exact_encoder_reduction():
+    core, _, _ = _system()
+    signal = torch.randn(1, 2400) * 0.1
+    features = core.media_stems.audio(signal)
+    direct = core.media_stems.encode_ordered_features(core, features)
+    through_stem = core.encode_media("audio", signal)
+    torch.testing.assert_close(direct, through_stem, atol=0, rtol=0)
+    with pytest.raises(ValueError, match="source_dim"):
+        core.media_stems.encode_ordered_features(core, features[..., :-1])
+    with pytest.raises(ValueError, match="mask"):
+        core.media_stems.encode_ordered_features(
+            core, features, torch.zeros(features.shape[:2], dtype=torch.bool)
+        )

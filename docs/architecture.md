@@ -4,7 +4,14 @@
 Multiple tracks are integrated as one atomic meridian with a shared full-resolution
 KV history and joint central processing. For the grouped contract, see the
 [multi-track plan](multi-track-plan.md) and
-[implementation status](multi-track-implementation.md).
+[implementation status](multi-track-implementation.md) and the
+[omnimodal architecture and training proposal](omnimodal-architecture-and-training.md).
+
+The following sections document the single-event mechanics and retained v6 design
+choices inside the **v7 implementation**. Where an example speaks about one
+megatoken or one selected input, grouped v7 meridians operate on several such
+complete blocks in the same central pass. The legacy single-event path remains
+supported; multimedia quality and grouped recurrent training are not yet established.
 
 **Both realization and next-chunk prediction use the central core's computation.**
 Byte ingestion and prediction meet at one format: **32 raw facets of width 512**.
@@ -17,9 +24,11 @@ means preserving the exact selected input; it does not bypass central processing
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version 6, tape **format** version 4, and saved model geometry are
-explicit. Model/checkpoint geometry is intentionally incompatible with v5 archives and caches. Legacy CLI names `recurrent32` and `compact32` select the corresponding
-new presets for fresh construction only; old checkpoints are not reinterpreted.
+Architecture version **7** defines the currently supported core and grouped state.
+The single-action and grouped-action tape formats are separately versioned; v7
+checkpoints, prepared datasets, tapes, and served bundles reject old versions.
+The legacy CLI names `recurrent32` and `compact32` still select the corresponding
+fresh-construction geometry, not old checkpoint semantics.
 
 ## Computation and recurrence
 

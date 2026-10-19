@@ -22,11 +22,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
-from torch import Tensor
+from torch import Tensor, nn
+from torch.func import functional_call
 
+from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, LOSS_NAMES
 from megatoken.controls import encode_controls
+from megatoken.generation.decoder import DECODER_LOSSES
 from megatoken.generation.latents import DiagonalGaussian
+from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.generation.structure import ActionSpec
+from megatoken.io import strict_json_loads
 from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
@@ -581,7 +586,7 @@ class GroupActionTape:
 
     @classmethod
     def from_json(cls, serialized: str) -> GroupActionTape:
-        value = json.loads(serialized)
+        value = strict_json_loads(serialized)
         if value.get("version") != GROUP_TAPE_VERSION:
             raise ValueError("Unknown grouped tape version")
         decode = lambda b: base64.b64decode(b, validate=True)
@@ -612,6 +617,8 @@ class GroupSupervisedResult:
     state: MultiTrackState
     loss: Tensor
     components: dict[str, Tensor]
+    losses: dict[str, tuple[Tensor, int]] | None = None
+    metrics: dict[str, Tensor | int | float] | None = None
 
 
 @dataclass(frozen=True)
@@ -620,6 +627,46 @@ class GroupGeneration:
     tape: GroupActionTape
     log_prob: Tensor
     media_outputs: tuple[Tensor | None, ...] = ()
+
+
+class _GroupedTeacherReadout(nn.Module):
+    """Shared readout for normal and frozen-owner encoder-only group branches."""
+
+    def __init__(self, core: FacetedCore, decoder: nn.Module) -> None:
+        super().__init__()
+        self.core = core
+        self.decoder = decoder
+
+    def losses_for_selected(
+        self, selected: MultiTrackState,
+        plans: Sequence[PreparedTargets | PreparedAction],
+    ) -> dict[str, tuple[Tensor, int]]:
+        zero = selected.raw.float().sum() * 0
+        sums = {name: zero for name in DECODER_LOSSES}
+        counts = {name: 0 for name in DECODER_LOSSES}
+        adapter = MultiTrackCore(self.core)
+        for index, plan in enumerate(plans):
+            context = adapter.realization_context(selected, index)
+            if isinstance(plan, PreparedTargets):
+                parts = self.decoder.teacher_raw(self.core, context, plan)
+            else:
+                parts = self.decoder(self.core, context, plan.spec, teacher=plan).losses
+            for name in DECODER_LOSSES:
+                value, count = parts[name]
+                sums[name] = sums[name] + value
+                counts[name] += count
+        return {name: (sums[name], counts[name]) for name in DECODER_LOSSES}
+
+    def forward(
+        self, state: MultiTrackState, raw: Tensor,
+        tracks: tuple[str, ...], roles: Tensor,
+        plans: tuple[PreparedTargets | PreparedAction, ...],
+    ) -> dict[str, tuple[Tensor, int]]:
+        selected = MultiTrackCore(self.core).advance_group(
+            state, raw, tracks=tracks, role_ids=roles,
+            modalities=("text",) * len(tracks),
+        )
+        return self.losses_for_selected(selected, plans)
 
 
 class MultiTrackGenerator:
@@ -691,6 +738,195 @@ class MultiTrackGenerator:
                 validity.append(True)
                 media.append(tensor)
         return tuple(payloads), tuple(ids), tuple(validity), tuple(media)
+
+    def supervised_meridian(
+        self,
+        state: MultiTrackState,
+        *,
+        tracks: Sequence[str],
+        plans: Sequence[PreparedTargets | PreparedAction],
+        control_payloads: Sequence[bytes] | None = None,
+        effort: int = 6,
+        teacher_forced_action: bool = False,
+        generator: torch.Generator | None = None,
+    ) -> GroupSupervisedResult:
+        """One production grouped objective with bootstrap or live recurrent state.
+
+        Every target's raw facets are encoded *after* P selects its prior.
+        Executed-action continuations use genuine saved native draws where
+        present and detached E(recorded bytes) only as an explicit fallback.
+        """
+        self.tracks._validate(state)
+        if state.batch_size != 1:
+            raise ValueError("Grouped supervised meridians require one independent episode")
+        names = self.tracks._names(tracks, len(tracks))
+        plans = tuple(plans)
+        if len(plans) != len(names) or any(
+            not isinstance(plan, (PreparedTargets, PreparedAction)) for plan in plans
+        ):
+            raise ValueError("Every output track requires a prepared text target")
+        modes = {plan.mode for plan in plans}
+        if len(modes) != 1 or not modes.issubset({"bootstrap", "recurrent"}):
+            raise ValueError("Peers must share one representation-training mode")
+        mode = modes.pop()
+        if any(isinstance(p, PreparedTargets) and len(p.payloads) != 1 for p in plans):
+            raise ValueError("Each grouped target plan must describe one event")
+        payloads = tuple(
+            p.payloads[0] if isinstance(p, PreparedTargets) else p.payload for p in plans
+        )
+        roles = torch.tensor(
+            [[p.roles[0] if isinstance(p, PreparedTargets) else p.role_id for p in plans]],
+            dtype=torch.long, device=state.device,
+        )
+        controls = tuple(control_payloads) if control_payloads is not None else (b"",) * len(names)
+        if len(controls) != len(names) or any(not isinstance(x, bytes) for x in controls):
+            raise ValueError("Every grouped event needs one causal control payload")
+        core = self.generator.core
+        core.routing_aux_loss(clear=True)
+        control = self._controls(controls, state.device)
+        mean = self.tracks.predict_group(
+            state, tracks=names, control=control, effort=effort,
+            modalities=("text",) * len(names),
+        )
+        prior = self.generator.facet_distribution(mean)
+        sampled = self._sample_policy(prior, names, generator)
+        selected = self.tracks.advance_group(
+            state, sampled, tracks=names, role_ids=roles, modalities=("text",) * len(names),
+        )
+        encoded = []
+        for payload in payloads:
+            values, lengths = byte_tensor([payload], state.device)
+            encoded.append(core.encode_chunk(values, lengths))
+        target_raw = torch.stack(encoded, dim=1)
+        q = DiagonalGaussian(
+            target_raw.float(),
+            torch.full_like(target_raw.float(), math.log(core.config.codec_noise_std)),
+        )
+        codec_sample = q.sample(generator)
+        readout = _GroupedTeacherReadout(core, self.generator.decoder)
+        prior_terms = readout.losses_for_selected(selected, plans)
+
+        if mode == "bootstrap":
+            with core.discard_routing_losses():
+                recon_terms = readout(state, codec_sample, names, roles, plans)
+            continuation = target_raw
+            correspondence = q.detach().kl(prior).sum()
+        else:
+            # The frozen wrapper never adds C/U/R parameter gradients through
+            # reconstruction, but the inputs still carry live E gradients.
+            frozen = {
+                name: parameter.detach() for name, parameter in readout.named_parameters()
+            }
+            with core.discard_routing_losses():
+                recon_terms = functional_call(
+                    readout, frozen,
+                    (state.detach(), codec_sample, names, roles, plans),
+                )
+            correspondence = mean.float().sum() * 0
+            if teacher_forced_action:
+                actual = []
+                for index, plan in enumerate(plans):
+                    tape = (
+                        plan.native_tapes[0] if isinstance(plan, PreparedTargets)
+                        else plan.native_tape
+                    )
+                    if tape is None:
+                        actual.append(target_raw[:, index].detach())
+                    else:
+                        actual.append(torch.as_tensor(
+                            tape.facet_array().copy(), dtype=torch.float32,
+                            device=state.device,
+                        ).reshape_as(target_raw[:, index]))
+                continuation = torch.stack(actual, dim=1)
+            else:
+                continuation = sampled
+        # Ordinary recurrence reuses the already selected sample and its
+        # completed C/KV computation; never process a selected event twice.
+        next_state = (
+            selected if mode == "recurrent" and not teacher_forced_action
+            else self.tracks.advance_group(
+                state, continuation, tracks=names, role_ids=roles,
+                modalities=("text",) * len(names),
+            )
+        )
+        zero = mean.float().sum() * 0
+        sums = dict.fromkeys(LOSS_NAMES, zero)
+        counts = dict.fromkeys(LOSS_NAMES, 0)
+        sums["lexical"], counts["lexical"] = prior_terms["lexical"]
+        sums["reconstruction"], counts["reconstruction"] = recon_terms["lexical"]
+        for name in ("structure", "binding", "placement", "terminal"):
+            a, a_count = prior_terms[name]
+            b, b_count = recon_terms[name]
+            sums[name], counts[name] = a + b, a_count + b_count
+        sums["facet_prediction"] = correspondence
+        counts["facet_prediction"] = target_raw.numel() if mode == "bootstrap" else 0
+
+        alignment = zero
+        native_count = 0
+        if mode == "recurrent":
+            for index, plan in enumerate(plans):
+                tape = (
+                    plan.native_tapes[0] if isinstance(plan, PreparedTargets)
+                    else plan.native_tape
+                )
+                if tape is not None:
+                    actual = torch.as_tensor(
+                        tape.facet_array().copy(), dtype=torch.float32,
+                        device=state.device,
+                    ).reshape_as(target_raw[:, index])
+                    alignment = alignment + (
+                        target_raw[:, index].float() - actual
+                    ).square().sum()
+                    native_count += 1
+        sums["encoder_alignment"] = alignment
+        counts["encoder_alignment"] = native_count * core.config.n_facets * core.config.facet_dim
+        balance, z_loss = core.routing_aux_loss(clear=True)
+        sums["router_balance"] = balance * len(names)
+        sums["router_z"] = z_loss * len(names)
+        counts["router_balance"] = counts["router_z"] = len(names)
+        expected = {
+            name: sum(plan.denominators[name] for plan in plans) for name in LOSS_NAMES
+        }
+        if expected != counts:
+            raise RuntimeError(
+                f"Grouped loss plan drift: expected {expected}, observed {counts}"
+            )
+        losses = {name: (sums[name], counts[name]) for name in LOSS_NAMES}
+        weighted = sum(
+            sums[name] * (DEFAULT_LOSS_WEIGHTS[name] / counts[name])
+            for name in LOSS_NAMES if counts[name]
+        )
+        components = {
+            "prediction": prior_terms["lexical"][0] / max(1, prior_terms["lexical"][1]),
+            "reconstruction": recon_terms["lexical"][0] / max(1, recon_terms["lexical"][1]),
+            "facet_kl": correspondence / max(1, counts["facet_prediction"]),
+            "routing": balance * 0.005 + z_loss * 1e-4,
+        }
+        metrics: dict[str, Tensor | int | float] = {
+            "facet_examples": len(names),
+            "prior_examples": len(names),
+            "reconstruction_examples": len(names),
+            "reconstruction_direct_examples": len(names) if mode == "bootstrap" else 0,
+            "reconstruction_contextual_examples": len(names) if mode == "recurrent" else 0,
+            "prior_lexical_positions": counts["lexical"],
+            "reconstruction_lexical_positions": counts["reconstruction"],
+            "prior_lexical_loss_sum": sums["lexical"].detach(),
+            "reconstruction_lexical_loss_sum": sums["reconstruction"].detach(),
+            "facet_prediction_loss_sum": correspondence.detach(),
+            "facet_prediction_coordinates": counts["facet_prediction"],
+            "encoder_alignment_loss_sum": alignment.detach(),
+            "encoder_alignment_coordinates": counts["encoder_alignment"],
+            "prediction_facet_norm_sum": mean.detach().float().flatten(2).norm(dim=-1).sum(),
+            "encoded_facet_norm_sum": target_raw.detach().float().flatten(2).norm(dim=-1).sum(),
+            "facet_alignment_squared_error_sum": (
+                target_raw.detach().float() - mean.detach().float()
+            ).square().sum(),
+            "facet_alignment_coordinates": target_raw.numel(),
+            "teacher_forced_action_continuations": int(
+                mode == "recurrent" and teacher_forced_action
+            ),
+        }
+        return GroupSupervisedResult(next_state, weighted, components, losses, metrics)
 
     def supervised_group(
         self,
@@ -785,7 +1021,10 @@ class MultiTrackGenerator:
         posterior = DiagonalGaussian(
             encoded_raw.float(), torch.full_like(encoded_raw, math.log(tau))
         )
-        kl = posterior.detach().kl(distribution).mean() / encoded_raw[0].numel()
+        # KL is already averaged over batch, events, facets and coordinates.
+        # Dividing again by one group's latent size almost removes its gradient
+        # at production width (32 x 512), defeating bootstrap prior alignment.
+        kl = posterior.detach().kl(distribution).mean()
         noise = torch.randn(
             encoded_raw.shape, device=state.device, dtype=torch.float32, generator=generator
         )

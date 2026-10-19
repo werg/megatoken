@@ -1,6 +1,8 @@
 # Megatoken
 
-> **v7 implementation in progress.** The shared multi-track core now has grouped
+> **v7 implementation in progress.** Text-like grouped meridian B0/P1 training is now connected
+> to the existing stage engine on this branch; native grouped media data training remains pending.
+> The shared multi-track core now has grouped
 > meridian processing, modality-aware prediction, full-resolution joint KV,
 > native audio/visual adapters, distinct media realizers, typed controls,
 > group tapes/replay, a grouped bootstrap objective, and a JSONL group server.
@@ -8,7 +10,8 @@
 > pretrained omnimodal model nor evidence of high-fidelity speech/video quality.
 > A new v7 training and evaluation run is required. See
 > [the v7 plan](docs/multi-track-plan.md) and
-> [implementation status](docs/multi-track-implementation.md).
+> [implementation status](docs/multi-track-implementation.md), and the
+> [proposed omnimodal architecture, donor components and multi-track training curriculum](docs/omnimodal-architecture-and-training.md).
 >
 > **Strict native formats:** v7 rejects earlier checkpoint, tape, served-bundle,
 > and prepared dataset formats. The explicit v6-to-v7 migration described in

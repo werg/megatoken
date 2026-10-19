@@ -269,3 +269,13 @@ def test_group_gaussian_noise_tracks_identity_not_physical_order():
         torch.Generator().manual_seed(102),
     )
     torch.testing.assert_close(permuted, original[:, order], atol=0, rtol=0)
+
+
+def test_group_tape_rejects_ambiguous_json_keys_and_nonstandard_constants():
+    # Group native tapes are an authority for replay, not permissive JSON.
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        GroupActionTape.from_json(
+            '{"version":"fmt-multitrack-facets-v7","version":"fmt-multitrack-facets-v7"}'
+        )
+    with pytest.raises(ValueError, match="nonstandard JSON constant"):
+        GroupActionTape.from_json('{"version":"fmt-multitrack-facets-v7","nonce":NaN}')

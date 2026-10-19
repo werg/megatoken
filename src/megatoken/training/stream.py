@@ -81,7 +81,14 @@ class WindowStream:
         self._windows: Iterator[TrainingWindow] | None = None
         self._opened = False
         self.fingerprint = content_hash(
-            {"dataset": dataset.manifest, "scope": dataset.scope, "window": asdict(config)}
+            {
+                "dataset": dataset.manifest,
+                "scope": dataset.scope,
+                "window": asdict(config),
+                # Version the semantics of optimizer window boundaries. Old
+                # cursors must not resume after introducing atomic meridians.
+                "packing_contract": "meridian-atomic-v1",
+            }
         )
 
     def _episode_index(self) -> int:
