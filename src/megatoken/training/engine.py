@@ -605,7 +605,10 @@ def train(
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
-        model = build_model(model_config, codec, device=context.device, precision=config.precision)
+        model = build_model(
+            model_config, codec, device=context.device, precision=config.precision,
+            native_pack_manifest=config.native_pack_manifest,
+        )
         payload = None
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
