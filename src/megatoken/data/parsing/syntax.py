@@ -923,36 +923,135 @@ def scan_syntax(
 # The lexical recovery path must not treat every punctuation sequence as a
 # comment in every programming language. These families are conservative:
 # ambiguous or unsupported dialects retain text instead of inventing structure.
-_HASH_COMMENTS = frozenset({
-    "python", "ruby", "perl", "bash", "fish", "powershell", "r",
-    "elixir", "nix", "make", "dockerfile", "cmake", "yaml", "toml",
-    "ini", "starlark", "terraform", "hcl", "julia", "nim", "beancount",
-})
-_HASH_AFTER_SPACE = frozenset({
-    "yaml", "toml", "bash", "fish", "powershell", "make",
-    "dockerfile", "ini", "hcl", "terraform",
-})
-_SLASH_COMMENTS = frozenset({
-    "c", "cpp", "csharp", "objc", "java", "javascript", "typescript",
-    "tsx", "rust", "go", "kotlin", "swift", "scala", "groovy", "dart",
-    "php", "hack", "solidity", "zig", "scss", "less", "jsonc", "json5",
-    "proto", "graphql", "glsl", "hlsl", "wgsl", "cuda", "verilog",
-    "svelte", "vue", "astro", "luau", "d", "odin", "hcl", "terraform",
-})
-_DASH_COMMENTS = frozenset({
-    "sql", "lua", "haskell", "ada", "elm", "purescript", "vhdl",
-})
-_SEMICOLON_COMMENTS = frozenset({
-    "clojure", "commonlisp", "elisp", "scheme", "racket",
-    "fennel", "janet", "asm",
-})
-_PERCENT_COMMENTS = frozenset({
-    "latex", "tex", "matlab", "octave", "erlang", "prolog", "bibtex",
-})
-_MARKUP_COMMENTS = frozenset({
-    "html", "xml", "markdown", "markdown_inline", "vue", "svelte",
-    "astro", "twig", "heex", "embeddedtemplate",
-})
+_HASH_COMMENTS = frozenset(
+    {
+        "python",
+        "ruby",
+        "perl",
+        "bash",
+        "fish",
+        "powershell",
+        "r",
+        "elixir",
+        "nix",
+        "make",
+        "dockerfile",
+        "cmake",
+        "yaml",
+        "toml",
+        "ini",
+        "starlark",
+        "terraform",
+        "hcl",
+        "julia",
+        "nim",
+        "beancount",
+    }
+)
+_HASH_AFTER_SPACE = frozenset(
+    {
+        "yaml",
+        "toml",
+        "bash",
+        "fish",
+        "powershell",
+        "make",
+        "dockerfile",
+        "ini",
+        "hcl",
+        "terraform",
+    }
+)
+_SLASH_COMMENTS = frozenset(
+    {
+        "c",
+        "cpp",
+        "csharp",
+        "objc",
+        "java",
+        "javascript",
+        "typescript",
+        "tsx",
+        "rust",
+        "go",
+        "kotlin",
+        "swift",
+        "scala",
+        "groovy",
+        "dart",
+        "php",
+        "hack",
+        "solidity",
+        "zig",
+        "scss",
+        "less",
+        "jsonc",
+        "json5",
+        "proto",
+        "graphql",
+        "glsl",
+        "hlsl",
+        "wgsl",
+        "cuda",
+        "verilog",
+        "svelte",
+        "vue",
+        "astro",
+        "luau",
+        "d",
+        "odin",
+        "hcl",
+        "terraform",
+    }
+)
+_DASH_COMMENTS = frozenset(
+    {
+        "sql",
+        "lua",
+        "haskell",
+        "ada",
+        "elm",
+        "purescript",
+        "vhdl",
+    }
+)
+_SEMICOLON_COMMENTS = frozenset(
+    {
+        "clojure",
+        "commonlisp",
+        "elisp",
+        "scheme",
+        "racket",
+        "fennel",
+        "janet",
+        "asm",
+    }
+)
+_PERCENT_COMMENTS = frozenset(
+    {
+        "latex",
+        "tex",
+        "matlab",
+        "octave",
+        "erlang",
+        "prolog",
+        "bibtex",
+    }
+)
+_MARKUP_COMMENTS = frozenset(
+    {
+        "html",
+        "xml",
+        "markdown",
+        "markdown_inline",
+        "vue",
+        "svelte",
+        "astro",
+        "twig",
+        "heex",
+        "embeddedtemplate",
+    }
+)
 
 
 def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> Scan:
@@ -1030,7 +1129,11 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
         ):
             marker = b"%"
         elif dialect in _HASH_COMMENTS and value == 35:
-            if dialect not in _HASH_AFTER_SPACE or index == 0 or payload[index - 1] in b" \t\r\n":
+            if (
+                dialect not in _HASH_AFTER_SPACE
+                or index == 0
+                or payload[index - 1] in b" \t\r\n"
+            ):
                 marker = b"#"
         elif dialect in {"", "unknown", "code"} and line_prefix:
             if payload.startswith(b"//", index):
