@@ -31,7 +31,50 @@ from megatoken.tool_schema import (
 from megatoken.training.history import NativeHistory
 from megatoken.training.stream import EpisodeWindow
 
-Plan = PreparedAction | PreparedTargets
+@dataclass(frozen=True)
+class MediaPlan:
+    """Scored media megatoken with independently pinned source and target."""
+
+    reference: MediaRecord
+    spec: MediaOutputSpec
+    mode: str
+    facet_count: int
+    facet_dim: int
+
+    @property
+    def modality(self) -> str:
+        return self.reference.modality
+
+    @property
+    def scored_positions(self) -> int:
+        return 0
+
+    @property
+    def denominators(self) -> dict[str, int]:
+        counts = dict.fromkeys(DEFAULT_LOSS_WEIGHTS, 0)
+        family = "audio" if self.modality == "audio" else "visual"
+        counts[f"{family}_prediction"] = 1
+        counts[f"{family}_reconstruction"] = 1
+        counts["facet_prediction"] = (
+            self.facet_count * self.facet_dim if self.mode == "bootstrap" else 0
+        )
+        counts["router_balance"] = counts["router_z"] = 1
+        return counts
+
+    def resolve(self, store: TensorAssetStore, device: torch.device) -> MediaTrainTarget:
+        source = torch.from_numpy(store.load(self.reference.source)).to(device)[None]
+        assert self.reference.target is not None
+        target = torch.from_numpy(store.load(self.reference.target)).to(device)[None]
+        if self.modality == "image":
+            target = target[:, None]
+        return MediaTrainTarget(
+            self.modality, self.spec, source, target, self.mode,
+            source_kind=self.reference.source.kind,
+            extractor=self.reference.source.extractor,
+        )
+
+
+Plan = PreparedAction | PreparedTargets | MediaPlan
 
 
 @dataclass(frozen=True)
