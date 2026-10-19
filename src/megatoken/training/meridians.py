@@ -284,7 +284,7 @@ def prepare_meridian_batch(
             meridian.meridian_id,
             tuple(event.track_id for event in meridian.events),
             tuple(ROLE_TO_ID[event.role] for event in meridian.events),
-            offsets, records, plans,
+            offsets, records, plans, modalities,
         )
         (prefix if offsets[-1] < window.start else steps).append(step)
     if sum(len(x.records) for x in (*prefix, *steps)) != window.end:
