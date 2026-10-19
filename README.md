@@ -1,7 +1,10 @@
 # Megatoken
 
-> **v7 implementation in progress.** Text-like grouped meridian B0/P1 training is now connected
-> to the existing stage engine on this branch; native grouped media data training remains pending.
+> **v7 implementation in progress.** Grouped text, audio, image, and video training
+> now share the existing stage engine through checksummed media references and
+> modality-specific loss denominators. An opt-in event budget counts megatokens,
+> not codec frames or fictitious media text tokens. See
+> [the media pilot and frozen-feature recipe](docs/omni-media-pipeline.md).
 > The shared multi-track core now has grouped
 > meridian processing, modality-aware prediction, full-resolution joint KV,
 > native audio/visual adapters, distinct media realizers, typed controls,
