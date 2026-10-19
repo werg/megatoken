@@ -128,7 +128,9 @@ class ModelConfig:
             if type(dim) is not int or dim < 0 or (
                 bool(dim) != bool(identity)
             ) or (identity and (not isinstance(identity, str) or len(identity) < 12)):
-                raise ValueError("External feature projectors require a positive width and pinned ID")
+                raise ValueError(
+                    "External feature projectors require a positive width and pinned ID"
+                )
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
 
