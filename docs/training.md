@@ -1,5 +1,14 @@
 # Training and operations
 
+> **Implementation boundary (v7):** The stages and `forward_batch` described below
+> currently train the legacy one-event sequence. The new grouped `MultiTrackGenerator`
+> has a separate differentiable bootstrap API, but grouped recurrent P1/M1/M2/LC/S/D/R,
+> per-modality counters, donor-feature caching, and high-fidelity media losses are not
+> integrated into the distributed stage engine. See the
+> [revised omnimodal curriculum](omnimodal-architecture-and-training.md) for the
+> proposed OM0–OM5 training strategy and concrete multi-track task families.
+> Do not treat those proposed phases or mixtures as an already implemented recipe.
+
 ## Two representation-training modes
 
 The recurrent input is a `[batch, 32, 512]` raw facet tensor, or `[batch, 32, 256]`
