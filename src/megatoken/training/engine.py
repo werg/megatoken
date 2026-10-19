@@ -324,10 +324,14 @@ def prepare_batches(
         result.append(
             PreparedBatch(batch, targets, counts, effort, native if native.has_events else None)
         )
+    for item in meridian_windows:
+        result.append(
+            prepare_meridian_batch(model, item, native_histories[id(item.episode)], config)
+        )
     return result
 
 
-def batch_counters(batches: list[PreparedBatch]) -> Counters:
+def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Counters:
     result = Counters()
     for batch in batches:
         for item in batch.windows:
