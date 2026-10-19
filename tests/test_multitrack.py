@@ -134,12 +134,23 @@ def test_grouped_generation_tape_and_exact_replay():
     )
     tape = GroupActionTape.from_json(sample.tape.to_json())
     assert tape.facet_shape == (2, core.config.n_facets, core.config.facet_dim)
+    assert tape.effort == 1
+    assert len(tape.event_log_probs) == 2
+    assert sum(tape.event_log_probs) == pytest.approx(tape.behavior_log_prob, rel=1e-5)
     assert sample.state.meridian_sizes == (1, 2)
     replay = serving.replay_text_group(state, tape, specs=specs, effort=1)
     torch.testing.assert_close(replay.state.final, sample.state.final, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(replay.log_prob, sample.log_prob, atol=1e-4, rtol=1e-5)
     with pytest.raises(ValueError, match="specifications"):
         serving.replay_text_group(state, tape, specs=(ActionSpec(max_tokens=9),) * 2, effort=1)
+    with pytest.raises(ValueError, match="effort"):
+        serving.replay_text_group(state, tape, specs=specs, effort=3)
+    tampered = GroupActionTape.to_json(tape)
+    import json
+    corrupted = json.loads(tampered)
+    corrupted["event_log_probs"][0] += 4
+    with pytest.raises(ValueError, match="does not sum"):
+        GroupActionTape.from_json(json.dumps(corrupted))
 
 
 def test_group_history_backpropagates_across_meridians():
