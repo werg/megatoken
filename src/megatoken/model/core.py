@@ -23,6 +23,7 @@ from .config import ModelConfig
 from .experts import ExpertBank
 from .frontend import SeedControlEncoder
 from .ingestion import ChunkEncoder
+from .media import MediaStems
 from .layers import RMSNorm, SwiGLU
 from .routing import EpochRouter, RowRoute
 from .state import CoreState, KVHistory, RealizationContext, assert_cache_version
@@ -259,6 +260,7 @@ class FacetedCore(nn.Module):
         c = self.config
         self.model_version = 0
         self.frontend = ChunkEncoder(c)
+        self.media_stems = MediaStems(c)
         self.control_encoder = SeedControlEncoder(c)
         self.initial_facets = nn.Parameter(torch.empty(c.n_facets, c.facet_dim))
         self.stage_codes = nn.Parameter(torch.empty(c.prediction_layers, c.facet_dim))
@@ -290,6 +292,7 @@ class FacetedCore(nn.Module):
     def encoder_parameters(self) -> Iterator[nn.Parameter]:
         """Only E owners; contextual C and P are independently owned."""
         yield from self.frontend.parameters()
+        yield from self.media_stems.parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
         """C and its memory owners, frozen with E/R for a fixed latent-RL action map."""
@@ -480,6 +483,14 @@ class FacetedCore(nn.Module):
     def encode_chunk(self, byte_ids: Tensor, lengths: Tensor | None = None) -> Tensor:
         """History-, role-, and control-independent hierarchical E(bytes)."""
         return self.frontend(byte_ids, lengths)
+
+    def encode_media(
+        self, modality: str, payload: Tensor, *, sample_rate: int = 16000
+    ) -> Tensor:
+        """Audio/images/video use the existing E reduction and readout owners."""
+        return self.media_stems.encode(
+            self, modality, payload, sample_rate=sample_rate
+        )
 
     def encode_control(
         self,
