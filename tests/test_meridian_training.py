@@ -155,3 +155,60 @@ def test_grouped_episode_runs_in_existing_training_checkpoint_loop(tmp_path):
     assert outcome["global_step"] == 1
     assert outcome["counters"]["P"] > 0
     assert payload["global_step"] == 1
+
+def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeypatch):
+    from dataclasses import replace
+
+    from megatoken.data.schema import LogicalAction, digest_bytes
+    from megatoken.tensors import byte_tensor
+
+    original = fixture_episode()
+    records = (
+        *original.records[:2],
+        replace(original.records[2], action_id="call-1"),
+        original.records[3],
+        replace(
+            original.records[4], role="tool", policy_mask=False,
+            result_of="call-1", execution_id="execution-1",
+        ),
+    )
+    tracks = (*original.tracks[:4], TrackSpec("answer", "tool"))
+    meridians = (
+        *original.meridians[:2],
+        Meridian(2, (TrackEvent("answer", "answer", "text", 2, "tool"),)),
+    )
+    action = LogicalAction(
+        "call-1", "id-1", "noop", "{}", ("worker_a",),
+        digest_bytes(b"one"), execution_id="execution-1",
+    )
+    episode = replace(
+        original, records=records, tracks=tracks, meridians=meridians,
+        actions=(action,),
+    )
+    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    window = next(iter_windows(
+        episode, ByteCodec.byte_fallback(),
+        WindowConfig(max_records=8, max_decisions=4),
+    ))
+    batch, = prepare_batches(
+        model, [EpisodeWindow(episode, window)], train_config("recurrent"),
+    )
+    selected = []
+    original_step = MultiTrackGenerator.supervised_meridian
+
+    def capture(self, state, **kwargs):
+        selected.append((kwargs["teacher_forced_action"], original_step(self, state, **kwargs)))
+        return selected[-1][1]
+
+    monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", capture)
+    config = train_config("recurrent")
+    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    ledger.finish()
+    assert len(selected) == 1 and selected[0][0]
+    encoded = []
+    for data in (b"one", b"two"):
+        ids, lengths = byte_tensor([data], torch.device("cpu"))
+        encoded.append(model.core.encode_chunk(ids, lengths).detach())
+    actual = torch.stack(encoded, dim=1)
+    torch.testing.assert_close(selected[0][1].state.raw, actual, atol=1e-6, rtol=1e-6)
