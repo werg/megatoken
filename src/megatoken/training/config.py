@@ -136,7 +136,9 @@ class TrainConfig:
         if self.budget_meter == "G" and self.budget is None:
             raise ValueError("A media/mixed event budget requires an explicit budget")
         if self.budget_meter == "G" and self.eval_every:
-            raise ValueError("Event-budget media training needs eval_every=0 until media evaluation is installed")
+            raise ValueError(
+                "Event-budget media training needs eval_every=0 until media evaluation is installed"
+            )
         if self.media_root is not None and not self.media_root:
             raise ValueError("Media asset root must be a nonempty path")
         positive = (
