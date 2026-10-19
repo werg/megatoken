@@ -27,6 +27,7 @@ from torch import Tensor
 from megatoken.controls import encode_controls
 from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.structure import ActionSpec
+from megatoken.io import strict_json_loads
 from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
@@ -581,7 +582,7 @@ class GroupActionTape:
 
     @classmethod
     def from_json(cls, serialized: str) -> GroupActionTape:
-        value = json.loads(serialized)
+        value = strict_json_loads(serialized)
         if value.get("version") != GROUP_TAPE_VERSION:
             raise ValueError("Unknown grouped tape version")
         decode = lambda b: base64.b64decode(b, validate=True)
