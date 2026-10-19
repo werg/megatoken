@@ -159,3 +159,19 @@ def test_chunker_integrates_row_evidence_with_exact_token_preservation():
         for chunk in report.chunks
     )
     assert not any(d.code == "grammar_unavailable" for d in report.parse.diagnostics)
+
+
+def test_large_single_record_uses_field_budget_not_byte_budget():
+    payload = b"col," + b"x" * 150_000 + b"\n"
+    limits = replace(
+        LIMITS, max_parse_bytes=200_000, max_nodes=12, max_regions=24
+    )
+    scan = scan_delimited(payload, "csv", limits)
+    scan.result.validate(len(payload))
+    assert scan.nodes <= 4
+    assert not scan.result.diagnostics
+    assert [
+        payload[row.start : row.end]
+        for row in scan.result.regions
+        if row.kind == "row"
+    ] == [payload]
