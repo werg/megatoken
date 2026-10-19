@@ -520,6 +520,8 @@ class GroupActionTape:
     emitted_ids: tuple[tuple[int, ...], ...]
     valid: tuple[bool, ...]
     modalities: tuple[str, ...] = ()
+    effort: int = 6
+    event_log_probs: tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
         if self.version != GROUP_TAPE_VERSION:
@@ -536,6 +538,16 @@ class GroupActionTape:
             raise ValueError("Grouped tape fields must agree on exact event identities")
         if not math.isfinite(self.behavior_log_prob):
             raise ValueError("Behavior log probability must be finite")
+        if self.effort not in EFFORTS:
+            raise ValueError("Grouped action tape contains an unsupported effort")
+        if len(self.event_log_probs) != n or any(
+            not math.isfinite(value) for value in self.event_log_probs
+        ):
+            raise ValueError("Every selected event needs a finite policy density")
+        if not math.isclose(
+            sum(self.event_log_probs), self.behavior_log_prob, rel_tol=1e-5, abs_tol=1e-3
+        ):
+            raise ValueError("Per-event policy density does not sum to the grouped action")
         if not np.isfinite(np.frombuffer(self.raw_f32, dtype="<f4")).all():
             raise ValueError("Raw facet tape contains nonfinite coordinates")
 
@@ -557,6 +569,8 @@ class GroupActionTape:
             facet_shape=self.facet_shape,
             raw_f32=base64.b64encode(self.raw_f32).decode("ascii"),
             behavior_log_prob=self.behavior_log_prob,
+            effort=self.effort,
+            event_log_probs=self.event_log_probs,
             payloads=[base64.b64encode(b).decode("ascii") for b in self.payloads],
             emitted_ids=self.emitted_ids,
             valid=self.valid,
@@ -581,6 +595,8 @@ class GroupActionTape:
             facet_shape=tuple(value["facet_shape"]),
             raw_f32=decode(value["raw_f32"]),
             behavior_log_prob=float(value["behavior_log_prob"]),
+            effort=int(value["effort"]),
+            event_log_probs=tuple(map(float, value["event_log_probs"])),
             payloads=tuple(map(decode, value["payloads"])),
             emitted_ids=tuple(tuple(s) for s in value["emitted_ids"]),
             valid=tuple(value["valid"]),
@@ -812,7 +828,8 @@ class MultiTrackGenerator:
             modalities=modalities,
         )
         output, emitted, valid, media = self._realize(committed, plans, encoded)
-        density = gaussian.log_prob(raw).sum()
+        event_densities = gaussian.elementwise_log_prob(raw).sum(dim=(-1, -2))
+        density = event_densities.sum()
         tape = GroupActionTape(
             version=GROUP_TAPE_VERSION,
             meridian_id=int(state.meridians_seen[0]),
@@ -828,6 +845,8 @@ class MultiTrackGenerator:
             raw_f32=raw[0].detach().float().contiguous().cpu().numpy()
                 .astype("<f4", copy=False).tobytes(),
             behavior_log_prob=float(density),
+            effort=effort,
+            event_log_probs=tuple(float(x) for x in event_densities[0]),
             payloads=output, emitted_ids=emitted, valid=valid,
         )
         core.routing_aux_loss(clear=True)
@@ -842,6 +861,8 @@ class MultiTrackGenerator:
         self.tracks._validate(state)
         if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
             raise ValueError("Group replay requires the original causal meridian")
+        if effort != tape.effort:
+            raise ValueError("Grouped replay effort must equal the recorded selection effort")
         if tape.codec_fingerprint != self.generator.codec.fingerprint:
             raise ValueError("Group replay codec identity mismatch")
         plans = self._specs(specs, len(tape.tracks), self.generator.config.max_capacity)
@@ -860,7 +881,14 @@ class MultiTrackGenerator:
         if tuple(raw.shape[1:]) != tuple(mean.shape[1:]):
             raise ValueError("Grouped tape raw shape differs from model geometry")
         gaussian = self.generator.facet_distribution(mean)
-        density = gaussian.log_prob(raw).sum()
+        event_densities = gaussian.elementwise_log_prob(raw).sum(dim=(-1, -2))
+        density = event_densities.sum()
+        if not torch.allclose(
+            event_densities[0].float(),
+            torch.tensor(tape.event_log_probs, device=state.device),
+            atol=atol, rtol=rtol,
+        ):
+            raise ValueError("Grouped per-event policy density replay mismatch")
         if not torch.isclose(
             density.float(), torch.tensor(tape.behavior_log_prob, device=state.device),
             atol=atol, rtol=rtol,
