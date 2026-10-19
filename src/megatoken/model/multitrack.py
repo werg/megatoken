@@ -406,7 +406,10 @@ class MultiTrackCore:
             encoder_grad=encoder_grad,
         )
 
-    def _predict_seed(self, state: MultiTrackState) -> Tensor:
+    def _predict_seed(
+        self, state: MultiTrackState,
+        memory_snapshot: MemoryMaterialization | None = None,
+    ) -> Tensor:
         if state.final is None:
             # Match singleton startup: the sentinel is processed locally, not
             # appended to history and not exposed as an observation.
@@ -415,6 +418,9 @@ class MultiTrackCore:
                 state.history,
                 state.frontier_roles[:, 0],
                 state.meridians_seen,
+                external_kb=None if memory_snapshot is None else memory_snapshot.features,
+                memory_snapshot=memory_snapshot,
+                memory_adapters=self.core.memory_adapters,
             )
             return self.core.remix(final)
         return self.core.remix(state.final.mean(dim=1))
@@ -448,7 +454,7 @@ class MultiTrackCore:
             raise ValueError("Expected one control vector per requested event")
         if memory_snapshot is None:
             memory_snapshot = self.materialize_memory(state)
-        base = self._predict_seed(state)
+        base = self._predict_seed(state, memory_snapshot)
         track_ids, _ = self._track_indices(state, tracks)
         modality_names = tuple(modalities) if modalities is not None else ("text",) * events
         if len(modality_names) != events or any(x not in MODALITY_IDS for x in modality_names):

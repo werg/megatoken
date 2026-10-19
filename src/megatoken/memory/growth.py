@@ -7,7 +7,7 @@ import math
 
 import numpy as np
 
-from .contracts import Footprint, Visibility
+from .contracts import Collection, Footprint, Visibility
 from .sqlite import SQLiteKB
 
 
@@ -88,9 +88,7 @@ class GrowthAllocator:
             self.store.growth_state("readiness", {}).get("embeddings", False)
         ):
             raise RuntimeError("Free memory cannot grow before coherence AND embedding gates")
-        existing = self.store.scan(__import__(
-            "megatoken.memory.contracts", fromlist=["Collection"]
-        ).Collection.MEMORY, visibility.scope)
+        existing = self.store.scan(Collection.MEMORY, visibility.scope)
         assigned = {x.source_assignment for x in existing}
         available = [x for x in catalog if x.scope == visibility.scope
                      and x.content_id not in assigned and visibility.permits(x.footprint)]

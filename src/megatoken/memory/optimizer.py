@@ -43,10 +43,7 @@ class SparseRowAdam:
                           "strength": [record.strength],
                           "lifetime_logit": [record.lifetime_logit]}
             elif identity.kind == "relation":
-                record = next((x for x in self.bank.relations_by_id([identity.id])),
-                              None)
-                if record is None:
-                    raise KeyError(identity)
+                record = self.bank.get_relation(identity.id)
                 fields = {"value": record.value,
                           "dependence_logits": record.dependence_logits,
                           "strength": [record.strength],

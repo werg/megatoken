@@ -113,7 +113,7 @@ class KBContext:
 
     def admit(self, group: AdmittedGroup) -> KBContext:
         previous = next((g for g in self.groups if g.group_id == group.group_id), None)
-        if previous == group:
+        if previous is group:
             return self
         if previous is not None and group.anchor < previous.anchor:
             raise ValueError("A KB refresh cannot move its original anchor backwards")

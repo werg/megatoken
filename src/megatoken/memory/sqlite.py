@@ -354,6 +354,20 @@ class SQLiteKB:
             row["payload_revision"],
         ) for row in rows)
 
+    def get_relation(self, relation_id: int) -> Relation:
+        with self._lock:
+            row = self.db.execute("SELECT * FROM relations WHERE id=?", (relation_id,)
+                                  ).fetchone()
+        if row is None:
+            raise KeyError(relation_id)
+        return Relation(
+            row["id"], row["left_id"], row["right_id"], row["scope"], row["prior"],
+            _unpack(row["value"], self.value_dim),
+            tuple(float(x) for x in _unpack(row["dependence"], 2)),
+            Footprint.from_json(row["footprint"]), row["strength"], row["lifetime_logit"],
+            row["payload_revision"],
+        )
+
     def update_relation(self, relation_id: int, *, value=None, dependence_logits=None,
                         strength=None, lifetime_logit=None) -> None:
         with self.transaction():
