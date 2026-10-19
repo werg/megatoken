@@ -2,7 +2,10 @@
 
 **Status:** Proposed extension to the v8 prototype; implementation and learned quality remain to be established.
 **Date:** 2026-10-19.
-**Reviewed baseline:** [`347e64702442aa6d814927baa98e9b0f814c9b2b`](https://github.com/werg/megatoken/commit/347e64702442aa6d814927baa98e9b0f814c9b2b).
+**Reviewed megatoken baseline:** [`b89b10726e395364baeecffa5ead1703b1300553`](https://github.com/werg/megatoken/commit/b89b10726e395364baeecffa5ead1703b1300553).
+**Audited donor:** [`hindsight-kb@450164784589b2576256b8b0ba3d2ccc89af992d`](https://github.com/werg/hindsight-kb/commit/450164784589b2576256b8b0ba3d2ccc89af992d).
+
+Sections 1–9 specify the native architecture and curriculum. Sections 10–19 are the implementation specification: donor components, causal/data contracts, storage, optimization, source lifecycle, writer methodology, recipient modules and acceptance gates. Donor code and test references are pinned to the audited revision; proposed megatoken paths are explicitly identified.
 
 ## 1. Decision
 
@@ -17,7 +20,7 @@ Both paths use one boundary scheduler and a compatible semantic retrieval interf
 
 This replaces the earlier proposal to import complete source KV sequences into the live cache. Ordered retrieval now uses source chunks and normal ingestion. KV **corrections** remain part of the design.
 
-The [multi-track architecture](multi-track-plan.md) already defines shared history, categorical tracks and atomic meridians. Its [implementation status](multi-track-implementation.md) establishes the observation and grouped generation foundations. The vector realizer, retrieval service and recurrent/distributed multi-track training integration below remain work to implement and train.
+The [multi-track architecture](multi-track-plan.md) already defines shared history, categorical tracks and atomic meridians. Grouped recurrent training also exists in [training/meridians.py][m-meridians] and uses the existing training engine. The vector realizer, retrieval service and **retrieval-aware** recurrent/distributed integration below remain work to implement and train; older status prose should not be read as saying all grouped training is absent.
 
 ## 2. Embedding realizer, one query interface, two payload readers
 
@@ -65,7 +68,7 @@ Normalize vectors consistently and pin the model, dimension, query/document form
 
 The query teacher sees only the available request/prefix. The evidence teacher may see the permitted source context. Seed correction records intended for local hindsight with keys computed from bounded source windows that a later suffix writer can see; reserve broader-context records for corpus reproduction. In continuation and hindsight tasks, every chunk that influenced a contextual embedding is part of its visibility footprint; filtering only the returned chunk is insufficient.
 
-Train for **useful evidence**, not merely resemblance to the prefix. Use multiple positives, hard distractors and no-answer examples. Do not automatically label every sibling chunk or unannotated result negative. ANN/top-k selection is discrete: teacher and differentiable candidate-ranking losses train P and the embedding realizer, while downstream generation losses train the selected readers and values without a gradient through the hard lookup.
+Train for **useful evidence**, not merely resemblance to the prefix. Use multiple positives, hard distractors and no-answer examples. Do not automatically label every sibling chunk or unannotated result negative. ANN/top-k selection is discrete. Teacher and differentiable candidate-ranking losses train P and the embedding realizer. For correction retrieval, recomputing selected scores with the live query also lets continuation losses train the query, mixture, readers and selected values; there is no gradient through candidate identity selection. Fetching source bytes for RAG remains discrete.
 
 ## 4. Free correction KB during pretraining
 
@@ -78,7 +81,7 @@ Seed records from source chunks, compatible source groups and retained corpus re
 - A small, randomly initialized trainable payload: canonical KV delta slots, LoRA mixture code, strength and lifetime.
 - Sparse relation links with their support and provenance.
 
-“Free” means the payload is an independent optimized variable rather than a writer output. Source IDs are bookkeeping, not a shortcut feature for the query model.
+“Free” means the payload is an independent optimized variable rather than a writer output. Source IDs are bookkeeping, not a shortcut feature for the query model. Keep initial source-to-record assignments fixed. Do not cluster small random payloads by value distance: proximity near zero is not evidence of compatible meaning.
 
 Reuse records across related examples and train with source-excluded retrieval, irrelevant records, conflicts and missing memory. Keep payload capacity, intervention magnitude and the active working set bounded; retain ordinary no-memory examples and occasionally disable one correction path. These measures encourage reusable corrections without introducing writer training early.
 
@@ -95,7 +98,7 @@ K_read(p) = K_base_rotated(p) + a * RoPE(p, delta_K)
 V_read(p) = V_base(p)         + a * delta_V
 ```
 
-Begin with temporary overlays on the main track's P history reads. Use a query-scoped view or equivalent grouped attention so peer-track queries continue reading base K/V. The shared base KV remains immutable; C still publishes its normal final KV exactly once. Values are never rotated. Bind by stable event/facet identity rather than a shifting cache-array offset, and expire an overlay when its destination is evicted.
+Begin with temporary overlays on the main track's P history reads. Use a query-scoped view or equivalent grouped attention so peer-track queries continue reading base K/V. The shared base KV remains immutable; C still publishes its normal final KV exactly once. This scopes direct correction application; normal joint P attention can still propagate effects between tracks. Values are never rotated. Bind by stable event/facet identity rather than a shifting cache-array offset, and expire an overlay when its destination is evicted.
 
 Refresh replaces or explicitly blends an existing overlay. Repeated retrieval never silently accumulates the same delta in place. Activation cannot change earlier outputs or cached historical computation.
 
@@ -107,7 +110,7 @@ Train a large shared bank of independently initialized low-rank experts. Each ex
 W_effective(t) = W + sum_e c_e(t) * B_e * A_e
 ```
 
-Start with P-owned query/output and pair/feed-forward/expert projections. Exclude the C-owned shared `central.memory` KV projector. Apply mixtures as per-event residual computations, so a main-track correction does not mutate weights shared by every track. Allow lightweight stage/facet gates inside the interval. Extend coverage to C/R only if measured gains justify their additional cache and materialization contracts.
+Start with P-owned stage attention query/output and always-on pair/feed-forward projections. Add packed P expert projections only after specifying their coverage and budget. Exclude the C-owned shared `central.memory` KV projector. Apply mixtures as per-event residual computations, so a main-track correction does not mutate weights shared by every track. Allow lightweight stage/facet gates inside the interval. Extend coverage to C/R only if measured gains justify their additional cache and materialization contracts.
 
 Use small nonzero initial adapter outputs, soft balanced routing for warm-up, then sparse selection. Bound the total active experts across records. Keep expert identity, signed mixture coefficient, intervention strength and lifetime distinct, including an exact null intervention.
 
@@ -119,7 +122,7 @@ For the initial design, **second order means pairwise corpus relations/correlati
 
 Retrieve semantic seeds, expand their eligible neighbors once, and add a bounded relation bonus from the **original** seed scores. Then select a capped set of records. Apply source/scope/time masks to complete key, relation-support and payload-source footprints before expansion and scoring; boosted results do not recursively reinforce themselves. This avoids a dense all-pairs KB and an iterative graph reasoner.
 
-Each retained relation may have its own small free correction payload, backed by its contributing sources. One seed can propose a neighbor, but a pair-specific correction requires joint applicability or a learned compatibility gate; one matching endpoint does not automatically activate it. Keep graph topology and statistical weights deterministic in the first version so corpus reproduction can recompute them. Two-hop propagation or learned edge strengths are later comparisons, not prerequisites.
+Each retained relation may have its own small free correction payload, backed by its contributing sources. One seed can propose a neighbor, but pair payloads require independent causal query/span support for both members. Retain a bounded window of original support from completed query events; repeated queries over the same support do not create independent evidence. With only one support unit, use the relation for candidate promotion and leave its joint payload inactive. This adapts hindsight-kb's distinct-span gate; its existing retriever does not itself implement graph-neighbor expansion. Keep graph topology and statistical weights deterministic in the first version so corpus reproduction can recompute them. Two-hop propagation or learned edge strengths are later comparisons, not prerequisites.
 
 Keep incompatible values and singleton records. Consolidation requires compatible meaning, scope and version, not just nearby embeddings. Removing or replacing a source rebuilds its contributions and affected relations.
 
@@ -166,7 +169,7 @@ Record selected query raw facets and policy density, output specs/vectors, model
 | Corpus reproduction | Train source/corpus writing against the optimized KB, including compatible groups and relation payloads; regenerate keys, records and deterministic relations from retained sources |
 | New-source use | Insert memories from sources held out of both pretraining and writer fitting, and from completed feedback episodes, with inference weights fixed; evaluate useful transfer without free optimization on their test answers |
 
-For local hindsight, the prefix queries while the writer sees only its permitted suffix. Preserve the [hindsight-kb eligibility rule](https://github.com/werg/hindsight-kb/blob/6dfc779a51759549f96743318a4f9e72a8975210/docs/research_plan.md): at block `i`, same-source writer records begin at `j >= i + 2`. Apply it to all contributing source context. This future-suffix access is a training-only exception for correction-writer supervision; source RAG and deployment retain causal visibility. Supervise only records whose content is inferable from the writer's allowed view; relations needing broader evidence belong in corpus reproduction.
+For local hindsight, the prefix queries while the writer sees only its permitted suffix. Preserve the [hindsight-kb eligibility rule][h-retrieval]: at **original source block** `i`, same-source writer records begin at `j >= i + 2`. These are source/semantic blocks, not runtime meridians, facet indices or inserted query events. Apply the rule to all contributing source context; a scheduling event cannot manufacture the exclusion gap. This future-suffix access is a training-only exception for correction-writer supervision; source RAG and deployment retain causal visibility. As in the donor, local warm-up may still admit indirect contamination through earlier corrections; its acceptance depends on subsequent cross-source transfer, not same-source reconstruction alone. Supervise only records whose content is inferable from the writer's allowed view; relations needing broader evidence belong in corpus reproduction.
 
 Fit keys/payloads and also measure behavior through the frozen readers. Build a fresh KB from writer outputs and compare it with the optimized bank. Latent reconstruction loss alone is insufficient. If reconstruction fails, inspect source context, consolidation and free-value capacity before increasing writer complexity. Any later joint adaptation starts from an accepted regenerated bank and creates a new versioned snapshot.
 
@@ -176,12 +179,575 @@ Implement in this order:
 
 1. Add the embedding realizer, typed vector output spec and retrieval-purpose/space conditioning before P selection. Extend dispatch, grouped losses, output serialization and action-tape replay; begin with teacher query warm-up and one teacher-backed document index adapter. Extend Episode/runtime contracts with selected retrieval events, evidence provenance, eligibility and artificial boundaries.
 2. Add free record storage, sparse relation expansion, P-read KV overlays and per-event LoRA mixtures; train and compare both paths.
-3. Integrate them with recurrent/distributed pretraining and exact checkpoint/cache reconstruction.
+3. Extend the existing recurrent trainer, loss ledger and checkpoint path with sparse KB optimizer ownership, synchronous distributed updates and exact query/correction replay.
 4. Add the post-pretraining local writer, corpus reproduction and new-source insertion evaluation.
 
 The current dispatcher accepts text/media specifications; vector outputs and their prediction descriptors are new implementation work. Register the embedding realizer/readouts and adapters on the underlying `FacetedCore`/`FacetedGenerator` owners, not only the plain multi-track wrappers. Version KB values and optimizer state with the model, embedding realizer, index, readers and adapter banks. Rebuild derived caches after weight changes. When extending outcome RL, include the embedding realizer and its output contract in the frozen conditional action map, score the native query's Gaussian selection, and explicitly score any additional stochastic correction actions.
 
 Run controlled comparisons for no retrieval, RAG only, KV only, LoRA only, KV+LoRA, and all three; ablate relation reinforcement separately. Report evidence recall, downstream task quality, no-memory regression, correction lifetime behavior, new-source uptake, regenerated-bank quality, replay fidelity and serving cost.
 
+The detailed donor-to-recipient migration and acceptance specification follows.
+
+## 10. What transfers from hindsight-kb
+
+### 10.1 Scope and evidence
+
+The donor supplies executable objectives, storage backends, source authoring, sparse row optimization, replay and experience-writing machinery. Its [implementation boundaries][h-status] explicitly leave useful completed-pretraining KB behavior and large-scale performance unestablished. This plan is based on inspection of code, documentation and tests; ported components must pass megatoken's own acceptance checks.
+
+**Copy** means transplant a small mechanism and its relevant tests, retaining donor provenance and adapting imports. **Adapt** means preserve its invariant but revise data shapes, ownership or lifecycle. **Implement** identifies machinery that neither the donor nor the current recipient already supplies. Keep one megatoken data pipeline, model, trainer, runtime and checkpoint format.
+
+| Donor component and exact entry points | Transfer | Megatoken specification |
+| --- | --- | --- |
+| [base.py][h-base]: Record, Relation, Contribution, Candidates, empty_candidates, chunked_topk | Adapt types; copy numerical reference | Stable IDs, bounded exact search, finite-vector validation and explicit empty results; add typed payloads and complete footprints. |
+| [tensor.py][h-tensor]: TensorKB | Copy/adapt | Exact RAM/VRAM reference and bounded experiments behind the common collection interface. |
+| [sqlite.py][h-sqlite]: SQLiteKB, transaction, read_snapshot, backup | Adapt | Durable authoring authority, portable tensors, scoped transactions and immutable snapshots; extend schema and generations. |
+| [ivf.py][h-ivf]: DiskIVF | Adapt | Disk-backed coarse retrieval after exact search is correct; integrate causal eligibility and semantic-space identity. |
+| [authoring_index.py][h-authoring-index]: _AuthoringIndex, _RecordViews | Adapt when authoring scales | Bounded packed arrays, mmap spill and optional GPU key cache; SQLite remains authoritative. |
+| [online.py][h-online]: DurableConsolidator, source_batch, ingest, delete_source | Adapt | Source lifecycle, contributions, bounded authoring and explicit replacement; fixed assignments during initial free pretraining. |
+| [consolidation.py][h-consolidation]: OnlineClusterer, CooccurrenceBuilder | Copy as reference | Small correctness oracle for clustering/counts; durable runs use the transactional authoring path. |
+| [provenance.py][h-provenance]: merge_metadata, fold_batch, excluded_records, excluded_relations | Adapt | Monotonic lineage and pre-selection exclusion, extended beyond the donor's task/kind filters. |
+| [relation_build.py][h-relation-build]: rebuild_relations, _durable_rebuild | Adapt | Stable pair IDs, support/degree limits, resumable staging and atomic graph publication. |
+| [retrieval.py][h-retrieval]: Retriever, Evidence, structured_candidates, slot_assignments, relation_effects | Adapt | Correction-only soft aggregation, exact null, conflict slots and bounded relation effects; source RAG returns source references. |
+| [trainable.py][h-trainable]: SparseTrainableKB | Adapt substantially | Selected-row optimization of typed payloads with frozen keys, full eligibility, FP32 state and engine-owned update transactions. |
+| [free.py][h-free]: FreeRecordView, consulted | Adapt later | Differentiable trial records and consulted lineage for writer/experience evaluation without publishing trial leaves. |
+| [record_generation.py][h-record-generation] and [density.py][h-density] | Adapt | Separate key, payload and policy generations; resumable duplicate-density maintenance. |
+| [data.py][h-data]: block_mask, lexical_recurrence, recurrence_keep, match_recurrence_mask | Copy methodology; adapt coordinates | Source-block visibility and family-coordinated anti-copy dropout, independent of facet and meridian numbering. |
+| [training.py][h-training]: FreeLatents, FreeKB, encoded_loss, kb_loss, distillation_loss, RelationWriter | Adapt objectives, not stage runner | Free-KB pretraining first; writer training afterward; source-only full-target reconstruction and behavioral verification. |
+| [models/encoders.py][h-encoders]: BlockEncoder; [integrations/pplx.py][h-pplx]: PPLXBlockEncoder | Reference for visibility | Native P plus embedding realizer for queries; an offline suffix/full-context writer for sources. |
+| [models/readers.py][h-readers] and [models/control.py][h-control] | Adapt contracts | Query/destination-conditioned KV use, explicit gates, compact interval controls, valid-position penalties and lifetime state. |
+| [models/adapters.py][h-adapters]: AdapterLinear | Reference, new parameterization | Replace shared B-C-A factors with independently parameterized LoRA experts and per-event mixtures. |
+| [recipe/knowledge.py][h-knowledge] and [recipe/source_bank.py][h-source-bank] | Adapt | Resolve original linked support documents, stream sources, preserve assignment targets and source coverage. |
+| [recipe/state.py][h-state] and [artifacts.py][h-artifacts] | Adapt reliability mechanisms | Add KB snapshots, sparse optimizer state and writer targets to megatoken's existing checkpoint/publication path. |
+| [serving/replay.py][h-replay] and [serving/evaluation.py][h-serving-eval] | Adapt state-machine tests | One serving/training schedule using native raw-event tapes, actual retrieval receipts and historical corrections. |
+| [experience/trainer.py][h-experience-trainer], [experience/objectives.py][h-experience-objectives], [kb/experience.py][h-experience-journal] | Adapt after source writers | Temporary record fitting, writer distillation, task exclusions, accepted regeneration and ordinary KB insertion. |
+| [policy.py][h-policy]: collect, calibrate, fit | Later adaptation | Benefit-trained extra latency boundaries and optional direct steering using megatoken's action/state contracts. |
+
+### 10.2 Boundaries that change the port
+
+The donor's six-stage runner learns writers before corpus free-KB optimization; megatoken deliberately uses the opposite order around pretraining. The donor's default record has one dense value vector, its adapters use shared outer factors, and adapter decay is configured rather than learned. These are reference mechanisms, not the desired target interfaces.
+
+Several source-code details matter more than older prose:
+
+- The donor's retriever loads relations whose members already occur in selected candidates; one-hop candidate expansion is new.
+- Its distinct-span relation gate cannot activate a pair from one query/support unit.
+- Its corpus split validator hashes the complete serialized block list, rather than independently excluding every shared block; megatoken must use chunk/family ancestry.
+- Its current native PPLX query path supports block-causal caching; older prefix-view prose is not a reason to add a second query encoder here.
+- Its experience writer steps currently disable direct RL; reward fits free records and evaluates regenerated writes.
+- Its key-generation counter changes on several non-key record updates; that contract needs splitting for a frequently updated, fixed-key bank.
+
+Keep native LFM/Qwen executors, their tokenizer alignment, paged token caches and shared-basis adapter kernels as references. Megatoken already owns those architectural responsibilities. Snapshot transport scripts are operational examples, not a distributed KB implementation.
+
+## 11. Data identity, source coordinates and causal eligibility
+
+### 11.1 Reuse the recipient data model
+
+Extend [SourceSpan, Lineage, Episode, PhysicalRecord, TrackEvent, Meridian and Supervision][m-schema], the existing [deduplication/quarantine machinery][m-dedup] and [checksummed prepared storage][m-data-storage]. Add a retrieval sidecar keyed by stable episode/event IDs. Do not replace these with the donor's smaller Trajectory format.
+
+Each retrieval training example must identify:
+
+| Field group | Required content |
+| --- | --- |
+| Query context | Main request/control, completed-prefix cursor, retrieval purpose, semantic-space spec, originating event and original source-block cursor when applicable. |
+| Eligible knowledge | Source/KB snapshot, scope, availability cut, valid-time conditions, excluded tasks/source ancestors and permitted collections. |
+| Supervision | Teacher query target, positive source spans or supporting sets, annotation-completeness mask, desired assistant/media output, explicit unsupported-query label when known. |
+| Provenance | Exact source hashes and versions, source-family/duplicate lineage, chunk ordinals/ranges, chunker/tokenizer/teacher preprocessing identities. |
+| Visibility footprints | Separate complete sets for query-teacher inputs, document-key context, payload support and relation-support windows. |
+| Schedule | Query selection, search budget/deadline, actual result arrival, admission boundary and any artificial-boundary RNG/cursor. |
+
+A footprint is a collection of versioned source ranges, not one integer or one SourceSpan. Byte offsets remain source coordinates; Unicode character offsets or tokenizer positions require declared conversion. Reuse original-source routing from [referenced_documents/distillation_batch][h-knowledge]; QA answers and teacher solutions are supervision, not substitutes for the support documents the writer must encode.
+
+### 11.2 Enforce visibility before selection
+
+For ordinary pretraining and serving, compute eligibility from the whole record footprint and the actual causal snapshot. Exclude unavailable suffixes, prohibited source ancestry, task conflicts, invalid versions and unsupported payload layouts before candidate truncation and mixing. A relation is eligible only when its support footprint is eligible as well as its members.
+
+Exact and IVF adapters should filter during scoped scans before local top-k. For an ANN backend that cannot enforce a filter internally, use bounded overfetch followed by eligibility filtering and exact rescoring; report candidate shortfall and fall back to no evidence when necessary. Do not call a globally truncated, mostly forbidden candidate set a successful eligible top-k.
+
+Hindsight writer training has the separately declared exception: query block i sees completed source blocks through i; writer block j sees its own suffix; j must be at least i+2. Preserve original semantic block IDs through rechunking. If one megatoken or writer output spans several blocks, validate its entire footprint. Require meaningful source blocks; inserted query events and empty scheduling gaps do not satisfy the exclusion.
+
+Scope, source-content availability and optimization lineage are distinct. Preserve direct training/tuning and consulted-memory ancestry for cross-task tests and release exclusion, even after sources are deleted. The local hindsight exception does not authorize an evaluation record optimized against the evaluation answer.
+
+### 11.3 Splits and supervision
+
+Use source/project/task-family and, where useful, time holdouts; keep train, development/rebuild-tuning and untouched release partitions separate. Add per-chunk content hashes and descendant checks to the donor's whole-trajectory identity tests. Near-duplicate and family leakage still need the recipient's origin metadata.
+
+Agentic behavior losses score intended assistant actions and outputs. Tool results are observed evidence; reconstruct them only under an explicitly separate auxiliary objective. Failed actions remain useful inputs when paired with corrections, without becoming desired behavior. Reject or explicitly reprepare examples whose length limits would remove outcomes, evidence or source alignment.
+
+Local writer examples require at least three meaningful source blocks and eligible supervised continuation. Corpus writer examples require original source assignments; missing assignments become a reported coverage gap, never invented targets.
+
+## 12. Retrieval, query training and correction application
+
+### 12.1 A native vector target is not a new vector codec
+
+Implement an EmbeddingTrainTarget alongside the embedding output spec. It holds the permitted teacher query vector or ranking targets, eligible candidate keys/IDs, positive evidence sets, unknown-label mask and planned loss counts. A native grouped tape reference is optional only when such a tape actually exists.
+
+The current [supervised_meridian/_GroupedTeacherReadout][m-multitrack] path encodes every text/media target through E to form a codec posterior. Add a target-specific branch:
+
+1. Use E(explicit query text) for supervised realizer warm-up.
+2. For a retrieval event, let causal P select its normal Gaussian raw block; apply embedding/ranking losses to the realized vector.
+3. Commit that selected raw event for recurrent continuation.
+4. Use the actual eligible retrieval and arrival schedule for the later evidence/correction path.
+
+A teacher vector is neither an E input nor a fake text payload. Do not manufacture a vector posterior simply to satisfy the old target loop. Extend generated-output descriptors, serialization and counters without implying that arbitrary observed vectors are now a supported ingestion modality.
+
+### 12.2 Reuse the donor's correction evidence algebra
+
+Copy the selected-candidate numerical reference from [Retriever.forward and Evidence][h-retrieval]. With cosine score s, eligibility/dropout mask m, stored strength u, clipped redundancy rho and threshold theta:
+
+\[
+a_j=m_j\,u_j\,\frac{[s(q,k_j)-\theta]_+^2}{\rho_j}.
+\]
+
+Use the donor's smooth softplus substitute during warm-up, then its hard threshold. For each compatible payload slot, retain a conditional payload mean and a separate null-aware gate:
+
+\[
+\bar v_s=\frac{\sum_{j\in s}a_jv'_j}{\sum_{j\in s}a_j},
+\qquad
+g_s=\frac{\sum_{j\in s}a_j}{\lambda+\sum_{j\in s}a_j}.
+\]
+
+Define both outputs as zero when the slot has no match. Multiply every reader's final output by its evidence gate; a biased reader must not produce a new correction from an empty slot. Distinct nearby but incompatible payloads occupy separate slots. A gate is activation strength, not a calibrated probability of factual truth.
+
+Reuse this algebra for correction payloads only. RAG returns scored source IDs/ranges and exact content. It does not average source text, apply latent slot reduction to bytes or treat a source embedding as a correction value.
+
+Candidate identity selection is detached; selected scores can be recomputed with a live query. In the initial run keys remain fixed, but query/readout gradients and selected payload gradients remain live. If later key training is enabled, publish new key/index identities and refresh candidates explicitly.
+
+### 12.3 Relation expansion and joint correction are separate operations
+
+Port bounded, source-supported pair construction from [CooccurrenceBuilder][h-consolidation] and [rebuild_relations][h-relation-build], using maximum arity two initially. Retain deduplication within windows, support counts, hub normalization, degree caps, stable signatures and atomic graph publication.
+
+Implement one-hop expansion: retrieve semantic seeds, fetch a bounded eligible neighbor set, deduplicate, rescore every candidate against the original query, add a capped statistical relation bonus, and truncate to the result budget. Expanded or boosted results cannot seed a second pass.
+
+Port the donor's distinct-support activation invariant for pair payloads. Keep a bounded ledger of unboosted matches from completed query events, carrying causal support-span identities, scope and source availability. Collapse repeated queries over the same support; eviction or scope reset removes obsolete support. Do not treat arbitrary facet IDs or duplicate query rows as independent evidence.
+
+A pair correction is inactive until both members have distinct eligible support. Thus a first one-vector boundary can use relation-assisted ranking while leaving joint payloads off. Relation training examples must contain genuine multiple support opportunities; report how often pair payloads actually activate. Learned gate alternatives or additional vector slots are later experiments with their own supervision.
+
+### 12.4 Bind canonical deltas to stable native history
+
+Adapt [KVReader][h-readers] and [BlockControls][h-control] to the single shared history geometry. KV templates are stored unrotated, with an explicit slot/layout identity; the reader binds them to retained event/facet destinations using the current query and available destination state.
+
+Extend MultiTrackState's retained metadata with stable event IDs and original meridian positions aligned with whole-meridian eviction. Its current track IDs and meridian counts are insufficient to identify a destination after insertions and eviction. Bindings contain record/payload revision, destination event/facet, RoPE position, target track, activation boundary and lifetime.
+
+Apply temporary views at the P history-read sites in [MultiTrackCore._stage][m-multitrack] and [AttentionRead][m-attention]. Preserve base tensors and use the existing destination RoPE convention for delta keys; values remain unrotated. Refresh by identity, expire on eviction and reject stale model/layout bindings.
+
+Per-track scoping limits direct application. Joint P attention still allows ordinary indirect cross-track influence. Tests should check read views and parameter ownership, not incorrectly demand identical peer outputs after an intervened track participates in joint computation.
+
+### 12.5 Implement independent adapter experts
+
+Retain the donor's compact block controls, evidence gating, valid-position penalties and historical-state discipline. Implement the chosen sum of independent B_e A_e residuals, with the bank registered on the native model.
+
+Initial eligible parameter groups are P stage attention query/output matrices and always-on feed-forward projections. Add packed P expert projections only after specifying their coverage and budget. The existing base-MoE expert axis in [ExpertBank][m-experts] is distinct from the new memory-adapter expert axis; do not accidentally allocate every memory expert against every base expert and stage.
+
+Thread event/track ownership through flattened pair rows and grouped dispatch. Store compact record mixture codes and current sparse selections; global adapter factors belong in the model checkpoint. Keep an exact null route, a cap on total active experts, soft balanced warm-up, small nonzero initialization, and learned main-progress decay. Retain activation age and lifetime per active record/version before combining its current contribution, so refreshing one record does not reset unrelated memories. Dense coefficient blending is valid in the fixed bank coordinates; averaging independently trained factor matrices is not the same operation.
+
+## 13. KB storage schema and backend contract
+
+### 13.1 Two typed collections behind one service
+
+Use one search interface with source and correction collections in a named semantic space. The simplest persistent version can use one SQLite database per collection, with one fixed key dimension and payload layout per database. A manifest binds them into one snapshot; no universal variable-shape tensor store is required.
+
+| Entity | Required stored contract |
+| --- | --- |
+| Semantic-space manifest | Teacher/model revision, query/document recipes, normalization, dimensions, context policy, preprocessing hashes and space ID. Equal dimensions alone do not imply compatible spaces. |
+| Record header | Database/record identity, scope, collection, factual/experience origin, key version, payload version, policy generation, density/support, compatibility group and available/valid-time metadata. |
+| Source payload | Immutable original source/content hash, ordered chunk ordinal/range, source version and source-bank reference; media can reference the recipient's checksummed assets. |
+| Correction payload | Canonical delta slots, LoRA mixture code, activation strength and learned lifetime fields under a fixed payload-layout ID. |
+| Correction compatibility | Native model family/geometry, target-module and reader layout, KV/RoPE convention, adapter-bank identity and schema version. |
+| Contribution | Source/content version, original range/chunk/output-slot mapping, assigned record ID, original key/payload, original assignment distance and complete visibility footprints. |
+| Relation | Stable ID/signature, ordered member IDs, support windows/counts, statistical weight, separately typed learned joint/member adjustments and their lineage. |
+| Optimizer row | Stable record/relation ID plus field/layout generation, FP32 moments, update count and last committed training-step identity. |
+| Snapshot manifest | Model, source bank, semantic collections, graph, payloads, optimizer and writer-target identities with content hashes. |
+
+A correction payload layout can flatten canonical delta tensors and a compact adapter code into one fixed float tensor plus typed metadata. Store strength and decay in explicitly declared parameter coordinates. The reader and writer must agree on that layout; an opaque dense donor value is not a sufficient compatibility contract.
+
+Original contributions are mandatory for reconstruction. Extend the donor's single position integer and one-assignment primary key to explicit source/output-slot assignments; support multiple distinct assignments where needed without overwriting them. Preserve incompatible targets as distinct assignments/slots. Their stable IDs join supervision offline and are not writer input features.
+
+### 13.2 Copy the reliable SQLite core
+
+Port portable little-endian FP32 vector encoding/length validation, finite checks, normalized keys, foreign keys, scope immutability, bounded batch fetches, nested savepoint rollback and read snapshots from [SQLiteKB][h-sqlite]. Retain durable journal/synchronous settings and its supported-runtime checks; begin with the tested single-writer transaction model.
+
+Use SQLite's backup API for coherent snapshots, including committed journal contents. Finish owned write transactions first and publish a self-contained backup without unlisted journal sidecars, following the donor's backup path. An immutable reader must open a truly immutable snapshot. One connection has one owner; writes inside a read snapshot are rejected.
+
+Port the existing meta/records, relations/members, sources/contributions/source_windows/occurrence/relation_registry/sequences and record_policy/record_tasks/relation_tasks tables. Keep bounded relation-build staging (relation_build_state/proposals/degree/selected) and density_progress state checkpoint-portable. Extend them with indexed source-range and support-footprint references; serialized metadata alone must not be the only exclusion path.
+
+Preserve foreign_keys=ON, synchronous=FULL and a bounded busy timeout. Select WAL only when the actually loaded SQLite runtime passes the donor's supported-version/backport check; otherwise use DELETE journaling. Reject unsupported schema versions, dimensions, payload layouts and corrupt vector lengths before exposing records.
+
+Adapt the generation counters:
+
+- **Key/index generation:** key changes, insertions/deletions or space/membership changes that affect indexed vectors.
+- **Payload generation:** changed correction values, codes and lifetimes.
+- **Policy/provenance generation:** exclusions, strength/eligibility, support and lineage changes.
+- **Graph generation:** topology, statistics and relation payload versions.
+- **Published snapshot identity:** a coherent tuple of the above plus the native model/reader/bank.
+
+This avoids rebuilding the key index after every fixed-key payload update while still invalidating cached payloads and eligibility correctly. All results must come from one declared read snapshot.
+
+### 13.3 Backend progression
+
+Use [TensorKB][h-tensor] and chunked exact search as the small reference. SQLite exact/HNSW search caches all scope keys in RAM; it is not a disk-scalable default for arbitrary corpus size. [DiskIVF][h-ivf] retains coarse centroids and reads selected cell contents from SQLite; benchmark cell imbalance, filtered recall and bytes read before choosing nlist/nprobe.
+
+For large authoring passes, port the packed working arrays, mmap spill, bounded metadata cache and optional GPU key mirror from [authoring_index.py][h-authoring-index]. Those are disposable accelerators over canonical records. Bound candidate fetches, relation neighborhoods, hot payload cache and tensor transfers; batch and deduplicate IDs per boundary.
+
+Keep original source bytes in the recipient's immutable source/prepared storage. The donor's source-bank iterators and progress cursors are reusable, but an all-source JSON/Python materialization is not required.
+
+The donor does not implement DiskANN, distributed KB shards or a columnar object-store database. Add another backend only when measured recall/IOPS or authoring throughput justifies it, while preserving exact-reference tests and the same typed interface.
+
+## 14. Free-bank optimization, distributed ownership and checkpoints
+
+### 14.1 Seed before any learned writer
+
+Create stable records from permitted source chunks and explicit source-supported groups; precompute teacher keys and bounded pair statistics. Initialize small independent correction payloads. Freeze initial IDs, keys, assignments and graph topology while base pretraining, readers, adapter factors and selected payloads learn.
+
+Do not run writer-era numeric key/value consolidation over near-zero random payloads. Early sharing may use reviewed source-only duplicate/group assignments; learned consolidation follows meaningful payload training and a measured compatibility test.
+
+Distinguish three donor mechanisms: FreeLatents is a per-source oracle/capacity diagnostic; SparseTrainableKB is the persistent freely optimized bank; FreeRecordView is temporary trial memory for later writer/experience work. The first is optional and does not replace source-backed sparse pretraining.
+
+### 14.2 Integrate sparse rows with the existing training transaction
+
+Adapt [SparseTrainableKB][h-trainable] into a stable-ID optimizer bridge. Keep global neural parameters, including independent LoRA factors, under megatoken's registered [MasterAdamW owners][m-optimizer]. The ANN service locates IDs; it is not the owner of trainable tensors.
+
+For each optimizer step:
+
+1. Pin source/key/graph and payload revisions; retrieve eligible candidates and deduplicate record IDs across uses and microbatches.
+2. Materialize one FP32 trainable leaf per selected record/field, reusing it for repeated hits. Gather declared relation payloads the same way.
+3. Recompute selected scores with live queries. Backpropagate continuation, addressing and regularization terms through LossLedger so neural parameters and selected record leaves receive the same globally normalized losses.
+4. Sum duplicate/rank contributions without dividing by those denominators again. Unscale gradients if loss scaling is enabled, then apply finite checks and declared model/KB clipping rules before either update.
+5. Update neural parameters and selected rows under one coordinated step identity. Commit all touched KB rows, relation fields, optimizer moments, counts and revisions for that step in one SQLite transaction; publish updated row revisions only after that commit succeeds.
+6. Invalidate affected payload caches and release the bounded leaf working set. Publish a checkpoint only after the coherent step completes.
+
+The donor currently optimizes keys, values and relation fields. Add frozen-key mode, typed KV/code/strength/decay fields, full eligibility arguments and optimizer-state reset rules. Untouched rows use explicitly documented touched-row Adam semantics: their moments, counters and weight decay do not advance as if they had dense zero gradients. Record this distinction from dense Adam.
+
+The donor's embedding_optimizer table has no foreign-key cascade to record/relation deletion. Explicitly remove or reset its slots when a row is deleted, regenerated, reaggregated or changes field/layout generation; never attach retained moments to a new logical record. Do not reuse record/relation IDs within a database identity.
+
+The model and database do not magically form a cross-system atomic transaction. If an update fails after one component changes, restore the last complete joint checkpoint; never resume a model checkpoint against whatever newer mutable KB happens to remain.
+
+### 14.3 Start with synchronous ownership
+
+Begin with one authoritative authoring/optimizer owner and synchronous training. Every rank must read the same declared bank state for the step. Preserve row ownership and ordering on resume; never let ranks race independent Adam updates through SQLite.
+
+Each rank sends sorted (record_id, field, layout_generation, read_revision, gradient) contributions for the step. Those gradients are already globally normalized by LossLedger; the owner rejects stale or incompatible revisions and sums repeated contributions in fixed rank/ID order without dividing again, then performs one touched-row Adam update. A nonfinite result on any participating rank skips both dense and sparse updates; all ranks proceed only after the committed revisions are acknowledged.
+
+A small tensor bank is a correctness oracle for record gradients and the specified touched-row updates, not a second production trainer. Sharded row owners are later work if the single owner becomes a measured bottleneck.
+
+The existing [DiLoCo client][m-diloco] synchronizes versioned named model parameters, not an arbitrary dynamic record database. Enable decoupled free-KB training only after defining stable row ownership, staleness, duplicate update handling and compatible model/reader/value publication.
+
+### 14.4 Extend the existing checkpoint format
+
+Use [megatoken checkpoint.py][m-checkpoint] and the existing engine. Port the donor's coherent SQLite backup, content inventory, run ownership and immutable publication patterns from [recipe/state.py][h-state] and [artifacts.py][h-artifacts], rather than introducing its legacy checkpoint helper or a second serializer.
+
+Checkpoint model/realizer/readers/bank, dense optimizer state, free rows and sparse moments, source/key/graph manifests, row/assignment mapping, per-rank data and RNG cursors, boundary schedule and schema/spec/tape identities. After writer training, also record writer parameters and the exact optimized target-bank snapshot.
+
+For runtime restart/replay, serialize actual query tapes, result IDs/revisions, source hashes or bytes, scores/support, activation times, binding identities and decay state. Record completed retrieval receipts; outstanding work is reissued idempotently or cancelled by policy, not serialized as live futures or connections.
+
+Finish the owned update transaction, create a consistent SQLite backup, flush the staged snapshot and validate its inventory before atomic publication. Pin each session's model, readers, adapter bank and payload layout. A KB-only refresh may be admitted at a latency boundary only when it matches those pinned identities; admission changes the revision and invalidates stale speculation and affected payload caches. Changing model/reader/bank weights requires a new session or a complete native replay/cache rebuild supported by the new version's contracts.
+
+## 15. Source lifecycle, consolidation and regeneration
+
+### 15.1 Authoring and insertion
+
+Adapt [DurableConsolidator][h-online] and [AuthoredSources/RetrievalDocuments][h-source-bank] into this lifecycle:
+
+1. Resolve immutable original content and its permitted context. Fingerprint source version, bytes/assets, ranges, chunking, semantic-space recipe and writer version.
+2. Detect exact repeated ingestion without modifying state. Changed content/alignment requires an explicit replacement operation against the expected source version.
+3. In one bounded transaction, register source support, create/update compatible records, retain original contributions and assignments, update source-window counts and advance the authoring cursor.
+4. Finalize derived density, graph and index state with resumable fingerprints/cursors.
+5. Validate the candidate and publish a compatible snapshot for admission.
+
+The donor's ingest digest does not include the separately passed positions array; add all alignment/context fields to megatoken's identity hash. Cursor progress and record publication must roll back together. Clear authoring mirrors that observed rolled-back writes.
+
+During pretraining, this lifecycle seeds and maintains source-backed free records without a learned writer. After writer training, it encodes new sources into accepted source-written payloads. Experience writing uses the same canonical records and publication contract.
+
+### 15.2 Consolidation is a measured later operation
+
+Reuse the donor's create-new-cluster option, singleton retention, original contribution storage and separate key/value compatibility checks. Its normalized numeric value-distance test is a useful candidate filter, not a semantic contradiction detector.
+
+Require matching scope, time/version policy, origin kind, semantic space and payload/adapter layout before considering a merge. Compare typed payload fields on appropriate scales and check their behavior on representative uses. Keep incompatible near-neighbors separate. Preserve record assignments and measure record count, total storage, reconstruction error and transfer before accepting consolidation.
+
+Do not average LoRA factor matrices; they are global model parameters. Codes in a fixed bank can be combined, but activation/lifetime fields and query-conditioned KV effects still need behavioral validation. For larger or split records, rebuild source-to-output assignments explicitly rather than silently reusing a now-ambiguous slot.
+
+Useful superposition means shared records preserve distinctions and improve transfer or storage efficiency. Fewer rows alone does not establish it. Compare unclustered, clustered and clustered-plus-relations banks at stated payload and compute budgets.
+
+### 15.3 Replacement and deletion
+
+Port source-window decrementing, original-contribution retention and whole-relation removal from the donor. Replacing/deleting a source invalidates affected payloads, relations, dependent experience records, optimizer rows and derived caches.
+
+For freely optimized typed corrections, averaging surviving original random contributions does not recover the useful optimized record. Mark affected shared records unavailable, then regenerate from surviving sources with an accepted writer, or reset/reoptimize them in a declared training run. Clear stale moments and publish only the validated replacement. If no surviving support exists, delete the complete record.
+
+Recompute affected relation statistics and writer-produced relation payloads from remaining support; do not silently reduce a relation's arity or keep unsupported free drift. Preserve training/tuning provenance for holdout checks. Removing KB support does not remove its past influence on neural parameters.
+
+### 15.4 Fresh corpus reproduction
+
+Freeze a coherent optimized target bank. Re-encode original sources into a fresh database, recreate assignments/clusters and deterministic relation statistics, generate learned relation payloads, and build new indexes. The candidate must not retain hidden links to optimized leaves.
+
+Compare optimized, regenerated, current deployed and no-new-correction behavior on the same held-out tasks. Record source coverage, skipped/incompatible assignments, point/pair payload error and task outcome. Rejection keeps the prior compatible snapshot; accepted regeneration creates a new version and becomes the basis for new-source insertion.
+
+## 16. Detailed training methodology
+
+### 16.1 Trainability and phase handoffs
+
+| Phase | Train | Keep fixed or absent | Completion evidence |
+| --- | --- | --- | --- |
+| Native bootstrap | Existing E/C/P/R objectives under the native schedule | Correction writer absent; no memory dependency | Useful native representations and normal training/replay behavior. |
+| Retrieval introduction | Embedding realizer/P query behavior, correction readers, global LoRA bank and free source-backed payloads; native base follows pretraining schedule | Teacher keys, initial assignments and graph structure fixed; writer absent | Addressing coverage, live gradients to both correction paths, exact null and bounded effects. |
+| Main free-KB pretraining | Same components on broad RAG/continuation/agentic tasks | No source/experience writer; no moving document index by default | Cross-source task benefit, no-memory robustness, latency/working-set and reproducibility measurements. |
+| Local hindsight writer after pretraining | New source writer and its key/payload readouts | Final native model including query realizer, readers, expert bank, index and optimized targets frozen | Permitted-suffix reconstruction and improvement over an untrained writer, followed by transfer checks. |
+| Cross-source writer transfer | Source writer on related/distractor groups | Same fixed interface snapshot | New examples benefit from other-source writer records; same-source dependence falls. |
+| Corpus reproduction | Full-context source writer and relation-payload writer | Optimized point/pair targets and native interfaces fixed | Source-assignment loss, coverage and fresh full-bank regeneration. |
+| Acceptance/new-source use | No answer-based optimization | Inference weights and accepted writers fixed | Newly inserted permitted sources improve held-out tasks. |
+| Later experience/joint adaptation | Explicitly configured temporary records/writer or P policy | Other interfaces pinned according to the objective | Regenerated-write benefit or correctly scored policy improvement in a new version. |
+
+This maps the donor's free-latent, local-hindsight, group-transfer and stage-5 reconstruction objectives into the user's chosen order. Do not silently run the donor's writer-first stages during pretraining.
+
+### 16.2 Free-KB pretraining losses and data mix
+
+Use the existing native loss as the main objective and add explicit terms:
+
+\[
+L_{\rm pre}=L_{\rm native}
++\lambda_eL_{\rm embedding}
++\lambda_rL_{\rm ranking}
++\lambda_nL_{\rm null}
++\lambda_cL_{\rm correction}
++\lambda_bL_{\rm routing}.
+\]
+
+Embedding/ranking losses align realized queries with the fixed teacher space and useful eligible evidence. Null supervision trains unsupported queries and exact no-new-correction behavior. Correction regularity bounds actual applied delta/residual magnitudes on valid destinations. Routing penalties and reader dropout support useful participation of both paths without forcing every record or expert to activate.
+
+Introduce these terms gradually after native bootstrap. Early supervised candidate sets may ensure coverage of eligible positives; retain the distinction between this training assistance and measured ANN recall. Never inject a positive from an unavailable source merely to provide a gradient.
+
+Mix ordinary continuation, supported RAG, other-source transfer, original-document reconstruction where allowed, and verified assistant behavior. Include duplicates, changing candidate counts, hard distractors, conflicts, stale versions, unsupported queries and occasional singleton evidence. Retain ordinary no-memory examples and independently disable KV or LoRA use on a fraction of batches.
+
+Port valid-position penalties from [steering_regularity][h-control]; padding must not dilute them. The donor's variational FreeLatents/KL budget can diagnose reader capacity or excessive private coding. It is optional: a deterministic free payload has no KL term unless an explicit stochastic distribution is introduced. Norm/noise penalties are not a measured bitstream storage bound.
+
+### 16.3 Anti-copy curriculum
+
+Adapt [lexical_recurrence, recurrence_keep and match_recurrence_mask][h-data] to original source spans. Begin with cross-block n-gram families such as the donor's 3/5/8 lengths, group overlapping detections, suppress boilerplate and coordinate dropout across a repeated family.
+
+Increase match dropout only when independent recurrence evidence supports it; high query/key similarity alone is also what useful retrieval requires. Use detached lexical/frozen-feature signals and cap dropout below one. Do not rescale survivors by inverse keep probability: missing evidence is part of the task.
+
+Apply the same dropped evidence to KV and adapter inputs. Compare recurrence-weighted dropout with uniform dropout at the same average rate. Reduce the same-source penalty as cross-source training dominates while retaining general memory dropout. A frozen semantic recurrence detector is an optional extension; the donor's implemented lexical machinery is not already a complete paraphrase detector.
+
+The future-aware recurrence calculation is training-only. It is not an inference dependency or a proof of leakage prevention.
+
+### 16.4 Local source writer
+
+Implement an offline writer contract that accepts ordered source blocks, a permitted footprint and a suffix/full-context mode, and emits source-associated normalized keys plus typed correction payloads. Initialize compatible ingestion/features from the trained native system; writer parameters are separately registered so training them does not change the frozen deployed query/model path.
+
+Use a bounded source-context encoder/readout over actual E source representations. Its output slots have explicit source-chunk or source-window assignments. The 32 latent facets do not supply those assignments automatically. The writer must actually receive every source span needed by its target; an isolated chunk cannot stand in for an unseen contextual suffix.
+
+Borrow directional-view and source-block mask tests from [BlockEncoder][h-encoders] and [PPLXBlockEncoder][h-pplx]. Every mixing/cache path obeys the permitted view. Separate physical suffix views are an acceptable initial offline implementation; changing one attention mask while carrying forbidden recurrent state is not.
+
+First fit source-supported key/payload targets in the frozen coordinates, then include continuation loss through the frozen readers/model. **Freeze parameters while retaining autograd through their computation**; wrapping the steered forward in no_grad would prevent learning the writer. Use the declared local j>=i+2 mask, shared evidence restrictions and later-only correction visibility.
+
+Train all eligible continuation blocks of a trajectory under the same historical control schedule; do not construct a separate clean prediction stream for each target. Isolated-prefix examples are a leakage diagnostic, not a replacement for the local objective.
+
+Local warm-up intentionally tolerates the donor's indirect contamination. Keep it labeled and bounded, then move to related/distractor groups with same-source matching suppressed. Keep singleton, conflict and missing-memory cases. Only targets inferable from the local source view belong here.
+
+### 16.5 Full-target corpus distillation
+
+Port [HindsightSystem.distillation_loss and RelationWriter][h-training]. For original assignment c with stored distance d_c and frozen target key/payload:
+
+\[
+w_c=\exp(-d_c/T),\qquad
+L_{\rm point}=\operatorname{mean}_c w_c\left[
+1-\cos(\hat k_c,k_c^*)+
+\sum_f\alpha_f\,\ell_f(\hat v_{c,f},v_{c,f}^*)
+\right].
+\]
+
+Fields f include KV slots, LoRA code, strength and lifetime under the pinned layout. Normalize field losses by their declared dimensions/scales; measure realized lifetime curves and intervention behavior as well as raw parameter error. Targets are detached. Use the original assignment distance; the donor implements distance weighting, not a separately calibrated confidence probability.
+
+Each contributing source output learns the **complete useful record**, not a fraction of a mixture or an averaged target that erases conflicts. Retain incompatible assignments explicitly. Fix slot correspondence before pointwise loss. Use the donor's [matched_loss][h-experience-memory] only where regenerated slots have established correspondence. When layouts differ, adapt evidence_loss to compare retrieved evidence at identical permitted queries and verify downstream behavior; an explicit set-assignment solver would be additional implementation work.
+
+Resolve linked support documents through [referenced_documents][h-knowledge]. Full-context writer training is an actual objective, not an untrained switch from suffix mode at deployment.
+
+For pair payloads, construct relation-writer inputs from current source-writer member outputs and permitted source-window summaries/statistics. Do not feed optimized target vectors back as source inputs. Reproduce every learned pair/member adjustment and lifetime field; deterministic co-occurrence weights can be recomputed. A point-only rebuild that loses useful relation corrections is incomplete.
+
+Add behavioral continuation loss and run the fresh rebuild in section 15. If reconstruction fails, inspect source sufficiency, incompatible consolidation, target coverage and free-payload capacity before adding writer complexity or allowing hidden free-leaf retention.
+
+### 16.6 Loss normalization and efficiency
+
+Extend [LossLedger][m-losses] with preplanned globally reduced counts for query targets, ranking examples, unsupported-query examples, writer assignments, relation targets and correction regularity. Normalize per-query candidate losses internally so changing top-k does not change the unit of supervision. Count writer assignments and valid target fields consistently; report missing coverage separately.
+
+Prepare counts from scheduled supervised events/assignments, not from a stochastic number of successful hits. Empty candidate sets still have well-defined teacher/null losses. Mixed modalities retain the recipient's own loss denominators; no fictitious text tokens are introduced for vector events.
+
+Batch teacher encoding of identical permitted views; cache only under complete content/context/model fingerprints. Reuse differentiable tensors within a loss graph where correct, then discard the graph. Stop interval batching at retrieval, admission, tool/action or control boundaries. Preserve actual historical states and selected controls; do not replay an old prefix under new adapters to make batching convenient.
+
+## 17. Experience learning and difficult-position retrieval
+
+### 17.1 Later experience writer on the same KB
+
+After source writing and the two readers are useful, adapt [ExperienceWriter][h-experience-model], [FreeRecordView][h-free], [MemoryGradients][h-experience-objectives] and [ExperienceJournal][h-experience-journal]. This is a later objective in the same trainer/runtime/storage system.
+
+The cycle is:
+
+1. Collect a real student attempt and its available outcome/feedback. Hidden verifier state, privileged hints and teacher solutions remain teaching signals, not student-writer inputs.
+2. Optimize a bounded temporary record set through frozen native readers/model using verified teacher behavior, teacher-memory/evidence targets and optional future rollout reward.
+3. Distill the optimized records into the experience writer with matched-record/evidence and verified behavior objectives.
+4. Regenerate records and compare no-write, optimized-write and regenerated-write retries plus later task transfer.
+5. Publish only accepted regenerated records; retain lineage of direct optimization targets and consulted memory. Rebuild into a shadow candidate at phase boundaries.
+
+The donor currently applies direct RL in free-record fitting and passes with_rl=False in writer updates. Preserve that simple arrangement first; direct writer RL is additional work. Different teacher/student lengths are compared through permitted evidence and actions, not forced token-position alignment.
+
+Progress from deliberate same-task retries to related tasks excluding the current task, then persistent family streams with bounded retention. Include successful attempts and near-null writes to teach restraint. New-source/online uptake evaluations keep inference weights fixed and do not fit free records to test answers.
+
+### 17.2 Use megatoken's actual policy likelihood
+
+Port the experience methodology onto native raw-event tapes and [outcome_policy_loss][m-losses], not the donor's text-token policy probabilities. Reward credit uses the sum of Gaussian log probabilities for selected generated/query events, with independent same-task leave-one-out baselines. Observed tool/evidence events are not sampled policy actions.
+
+Implement a differentiable grouped scoring path over detached recorded raw events and pinned retrieval receipts. The current [replay_group][m-multitrack] is a no-gradient exact-replay verifier that checks stored behavior densities; retain it for verification and add a scorer for optimization. Reconstruct causal history, compute each selected event's Gaussian density and preserve gradients through P and explicitly trainable correction leaves. Verify behavior-density agreement against the same model/KB snapshot before an on-policy update.
+
+For reward-based temporary-record fitting, collect independent same-task rollouts against one fixed trial-record snapshot. Freeze model/readout parameters while retaining autograd from scored Gaussian log probabilities through the KV/LoRA effects on P into temporary record tensors. Recorded raw actions and rewards are detached; trial evidence payloads remain differentiable. Update records only after scoring the rollout group, then collect fresh rollouts. Do not wrap scoring in no_grad, detach trial payloads at retrieval or silently reuse on-policy rollouts after changing trial memory.
+
+Freeze the conditional materialization map, including embedding R, as required by [training/rl.py][m-rl]. Pin retrieval snapshots and record actual deterministic lookup outcomes. A deterministic lookup is not an additional sampled action; an added stochastic selector or writer requires explicit likelihood accounting.
+
+A first outcome-RL experiment can freeze memory/readers/bank and train P/query policy. Training a P-only correction module as part of that policy needs explicit ownership and correct replay; modules that alter frozen C/R behavior cannot silently change under the existing likelihood accounting. Constant reward provides no reward gradient; retain verified teacher supervision rather than normalize it into apparent improvement.
+
+### 17.3 Optional extra boundaries and direct steering
+
+Adapt [policy.py][h-policy] only after fixed/artificial boundary retrieval is established. Generate counterfactual examples from the same causal state with/without an extra retrieval and train predicted benefit minus a measured or declared retrieval cost. A high-loss position alone does not prove retrieval would help.
+
+The decision precedes the next selected event. Invalidate an uncommitted candidate and regenerate after evidence admission; already emitted output cannot be silently repaired. Use held-out calibration, a per-rollout budget and an explicit never-retrieve option.
+
+The donor's direct residual reader is a later control extension. First test whether the shared correction records, KV deltas and LoRA bank already solve the problem. Add a P activation reader in the same key space only if a specific measured gap remains; a separate learned semantic space is not a prerequisite.
+
+## 18. Concrete recipient work packages
+
+All new paths in this table are **proposed**. Port small modules/tests with source commit attribution; avoid a runtime dependency on the donor's native decoder stack.
+
+| Package | Recipient owner or proposed path | Deliverable and dependency |
+| --- | --- | --- |
+| A: typed data/contracts | New memory/contracts.py and data/retrieval.py; extend data/schema.py and prepared manifests | Space/layout manifests, footprints, source-block mapping, query requests/results, immutable snapshot identity and explicit data conversion. |
+| B: vector realization | New generation/embedding.py; extend FacetedGenerator and model/multitrack.py | Registered embedding R, output/train target specs, causal P conditioning, dispatch, losses and canonical vector serialization. Depends on A. |
+| C: storage/reference retrieval | New memory/base.py, tensor.py, sqlite.py, index.py, retrieval.py | Adapt donor exact/SQLite/IVF paths, typed collections, null/conflict handling and eligibility. Depends on A; usable before learned retrieval. |
+| D: source/graph authoring | New memory/authoring.py and relations.py | Stable source-backed seeding, contributions, pair counts, bounded one-hop expansion, independent-support activation, progress and replacement. Depends on C. |
+| E: correction computation | New memory/corrections.py and model/adapters.py; extend P attention/read sites and retained-state metadata | Canonical KV binding, per-event independent LoRA mixtures, exact null, learned lifetime and eviction/refresh contracts. Depends on A/B/C. |
+| F: training integration | New training/memory.py and memory/optimizer.py; extend engine.py, meridians.py, losses.py, optimizer/distributed/checkpoint paths | Joint native/free-bank pretraining, typed vector objectives, selected-row gradients and coherent resumable updates. Depends on B–E. |
+| G: replay and runtime | Extend multitrack_runtime.py, multitrack_service.py, training/history.py and grouped tapes | Native query/evidence chronology, retrieval receipts, correction state, grouped training-history reconstruction, separate differentiable grouped scoring and stale-branch invalidation. Develop with F. |
+| H: post-pretraining writers | New training/hindsight.py, training/reproduction.py and registered source writer modules | Local suffix training, cross-source transfer, full-target point/pair distillation and fresh-bank acceptance. Depends on a completed F/G snapshot. |
+| I: later experience/policy | New training/experience.py and experience source facade in memory/authoring.py; extend environments.py/rl.py | Trial-record fitting, accepted experience writes, optional benefit boundaries and native-likelihood reward training. Depends on H and task evaluation. |
+
+The immediate integration targets already exist: [prepare_meridian_batch/forward_meridian_batch][m-meridians], [MultiTrackGenerator][m-multitrack], [LossLedger][m-losses], [MasterAdamW][m-optimizer], [checkpoint.py][m-checkpoint] and [MultiTrackRuntime][m-runtime].
+
+Serving supports GroupActionTape, but [NativeHistory][m-history] currently consumes singleton tapes and grouped preparation rejects singleton tapes used to certify a multi-event meridian. Package G must close that gap; do not reinterpret an E encoding as the selected raw event or assume a serving serializer alone supplies training replay.
+
+Reference PyTorch operations come first. Reuse donor numerical oracles for matching, gates and overlays; adapt kernels only after the native row layouts and gradients are stable. HKB's shared-basis adapter kernel does not implement the independent LoRA-bank calculation.
+
+## 19. Acceptance tests, experiments and resource budgets
+
+### 19.1 Tests to port and extend
+
+These are gates for future implementation, not claims that this documentation change ran or passed the donor suites.
+
+| Donor reference | Preserve | Add for megatoken |
+| --- | --- | --- |
+| [test_storage.py][h-test-storage] | Finite/dimension checks, scope integrity, empty results, rollback, reopen, coherent snapshots and exact parity | Space/layout mismatch rejection, typed payloads, offset-sensitive idempotence and split generation invalidation. |
+| [test_ivf_batch_search.py][h-test-ivf] | Exact rescoring within probed cells, bounded decoding, sparse IDs | Full eligibility before truncation, excluded-best-candidate recovery and reported shortfall. |
+| [test_authoring_cache.py][h-test-authoring-cache], [test_authoring_scale.py][h-test-authoring-scale], [test_authoring_source_batch.py][h-test-authoring-batch] | Sequential assignment, mmap/cache bounds and cursor/record rollback | Fixed random-bank assignments, complete context fingerprints and typed source replacement. |
+| [test_relation_build.py][h-test-relations] | Stable IDs, support/degree caps, deterministic ties, resumable atomic publication | Pair-only baseline, support-footprint exclusion, one-hop/no-recursion and optimizer reset after rebuilding. |
+| [test_retrieval.py][h-test-retrieval] | Masked current candidates contribute no direct lookup gradient, exact null, conflict slots, density compensation, distinct-span relation gates | One query cannot activate a pair; repeated same-support queries do not manufacture evidence. |
+| [test_training.py][h-test-training] | Reader/memory gradients with frozen owners, cross-source/scope masks, full-target point/relation distillation | Source i+2 invariant under query/evidence insertion, raw-facet writer mappings and typed lifetime/code targets. |
+| [test_sparse_candidates.py][h-test-sparse] | Repeated IDs share a differentiable parameter and accumulate gradients | Gradient and touched-row update reference parity, global denominator/rank equivalence, finite failure handling and row-moment resume/reset. |
+| [test_serving_replay.py][h-test-replay] | Target-free replay, boundary scheduling and no-match behavior | Native grouped query tapes, delayed receipts, revision invalidation, stable destination eviction and selected-raw identity. |
+| [test_learning.py][h-test-experience], [test_provenance_regressions.py][h-test-provenance] | Trial/writer gradient boundaries, matched targets, rejected-promotion retention, persistent lineage and resume | Native Gaussian event likelihood, source-footprint/task exclusions and fixed-weight new-source uptake. |
+
+Add recipient-specific gradient and ownership checks: registered embedding/readers/bank parameters occur exactly once; vector training does not demand a vector ingester; target gradients cannot enter P through teacher inputs; correction views leave base KV immutable; LoRA event scopes survive flattened/permuted grouped dispatch.
+
+**Exact-null parity uses the same selected raw-event history, query schedule and prior correction/decay state.** Compare absent new candidates with candidates whose new activation is forced to null, while existing corrections evolve identically. A native query event itself changes C history and consumes compute even when lookup returns nothing. Separately compare task quality with the ordinary no-query baseline and a compute-matched null-query control.
+
+### 19.2 Evaluation matrix
+
+Run no-query, null-query control, source-RAG only, KV only, LoRA only, KV+LoRA and all-three conditions. Ablate graph candidate expansion separately from joint pair payloads; report their actual activation rates. Compare uniform/recurrence dropout, fixed/sparse routing and independent reader dropout at matched budgets.
+
+For writers, keep distinct reports for local hindsight initialization, cross-source transfer, optimized-bank behavior, regenerated-bank behavior and new-source insertion. Include source/assignment coverage and record/pair reconstruction errors. Low local reconstruction loss is not the same result as useful deployed memory.
+
+For consolidation, report quality against both record count and **total retained bytes**, including original contributions. Test singletons, near-key contradictions, duplicates, changed rules, version conflicts and deletion. Demonstrate novel combinations of separate knowledge where that is an intended capability.
+
+Measure teacher/query embedding recall, eligible ANN recall, downstream native supervised loss, actual free-generation/task success, no-memory regression, correction lifetime/reset behavior, writer throughput, cold/warm boundary latency, tail latency, peak working-set memory and end-to-end task time. The donor's ANN benchmark is a component reference; include query realization, fetch, ingestion and correction admission in the new serving measurements.
+
+Development data used to choose rebuild or trigger thresholds is tuning data. Release and new-source tests remain untouched by base pretraining, free-leaf optimization, writer fitting and policy calibration under their declared exclusion rules.
+
+### 19.3 Configuration and capacity accounting
+
+Add a versioned retrieval/memory configuration covering semantic spaces, typed payload layouts, candidate/result budgets, relation windows/degree/support, query frequency/deadlines, KV slot/binding limits, LoRA group/rank/bank/active-expert budgets, dropout/regularization, sparse optimizer policy, writer views and rebuild acceptance.
+
+Use one vector per event and pairs only initially. The donor's candidate count around 32, up to four incompatible slots and low-rank settings such as rank eight are starting reference values, not measured megatoken optima. Choose KV template count, code dimension and bank coverage against an explicit storage/compute budget.
+
+For N correction records with K key coordinates and P FP32 payload coordinates, base key/payload storage is approximately 4N(K+P) bytes. Touched-row Adam moments can eventually add 8NP bytes, before contributions, source bytes, graph payloads, indexes, snapshots and resident caches. Sparse GPU access does not eliminate disk optimizer-state cost.
+
+For independent LoRA factors, count parameters as the sum over target groups of E_g r_g(d_in,g+d_out,g), plus any intended packed-base-expert multiplicity. Include their dense optimizer state separately. Do not measure the memory system only by the size of its final consolidated record table.
+
+Query count, latent facet count, destination count and KB record count are separate budgets. Fewer megatokens reduce the number of query/destination opportunities; they do not require shrinking the external corpus or assigning only one fact to each native facet.
+
+### 19.4 Milestone decisions
+
+1. **Contracts/reference storage:** deterministic typed round trips, complete-footprint masks, exact/IVF reference comparisons and source lifecycle.
+2. **Native retrieval event:** teacher-aligned query realization, correct event/clock ownership, ordered source ingestion and exact replay.
+3. **Free correction pretraining pilot:** both readers receive useful gradients, null/bounds hold, sparse updates resume coherently, and task benefit survives the null-query control.
+4. **Corpus-scale pretraining:** useful retrieval under latency/storage budgets, duplicate/conflict robustness and agreed synchronous multi-rank correctness.
+5. **Post-pretraining writing:** local-to-cross-source transfer followed by a fresh bank whose behavior approaches the optimized target.
+6. **New-source/experience expansion:** accepted source-written memories improve tasks with fixed inference weights; later experience and adaptive-boundary work passes its own task and replay gates.
+
+Choose numerical promotion tolerances in the experiment recipe before evaluating the corresponding holdout. A failed writer rebuild calls for source/assignment/capacity diagnosis, not an automatic increase in machinery or silent retention of optimized leaves.
+
 **The decisive result is that source-written corrections improve new tasks after pretraining, while ordinary retrieved evidence remains useful on its own.** The free KB establishes what memory can learn; the regenerated KB establishes what the system can add and maintain.
 
+[h-status]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/docs/implementation_status.md
+[h-base]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/base.py
+[h-tensor]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/tensor.py
+[h-sqlite]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/sqlite.py
+[h-ivf]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/ivf.py
+[h-authoring-index]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/authoring_index.py
+[h-online]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/online.py
+[h-consolidation]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/consolidation.py
+[h-provenance]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/provenance.py
+[h-relation-build]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/relation_build.py
+[h-retrieval]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/retrieval.py
+[h-trainable]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/trainable.py
+[h-free]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/free.py
+[h-record-generation]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/record_generation.py
+[h-density]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/density.py
+[h-data]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/data.py
+[h-training]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/training.py
+[h-encoders]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/models/encoders.py
+[h-pplx]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/integrations/pplx.py
+[h-readers]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/models/readers.py
+[h-control]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/models/control.py
+[h-adapters]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/models/adapters.py
+[h-knowledge]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/recipe/knowledge.py
+[h-source-bank]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/recipe/source_bank.py
+[h-state]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/recipe/state.py
+[h-artifacts]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/artifacts.py
+[h-replay]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/serving/replay.py
+[h-serving-eval]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/serving/evaluation.py
+[h-experience-trainer]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/experience/trainer.py
+[h-experience-objectives]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/experience/objectives.py
+[h-experience-journal]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/kb/experience.py
+[h-experience-model]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/models/experience.py
+[h-policy]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/policy.py
+[h-test-storage]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/test_storage.py
+[h-test-ivf]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/test_ivf_batch_search.py
+[h-test-authoring-cache]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/test_authoring_cache.py
+[h-test-authoring-scale]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/test_authoring_scale.py
+[h-test-authoring-batch]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/test_authoring_source_batch.py
+[h-test-relations]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/test_relation_build.py
+[h-test-retrieval]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/test_retrieval.py
+[h-test-training]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/test_training.py
+[h-test-sparse]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/production/test_sparse_candidates.py
+[h-test-replay]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/production/test_serving_replay.py
+[h-test-experience]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/experience/test_learning.py
+[h-test-provenance]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/experience/test_provenance_regressions.py
+[m-schema]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/data/schema.py
+[m-dedup]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/data/dedup.py
+[m-data-storage]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/data/storage.py
+[m-meridians]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/training/meridians.py
+[m-multitrack]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/model/multitrack.py
+[m-attention]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/model/attention.py
+[m-experts]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/model/experts.py
+[m-optimizer]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/training/optimizer.py
+[m-diloco]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/training/diloco_client.py
+[m-checkpoint]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/training/checkpoint.py
+[m-losses]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/training/losses.py
+[m-rl]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/training/rl.py
+[m-runtime]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/multitrack_runtime.py
+[m-history]: https://github.com/werg/megatoken/blob/b89b10726e395364baeecffa5ead1703b1300553/src/megatoken/training/history.py
+[h-experience-memory]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/experience/memory.py
