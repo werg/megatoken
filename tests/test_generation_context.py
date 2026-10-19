@@ -123,7 +123,10 @@ def test_recurrent_e_reconstruction_never_evaluates_central():
         hook.remove()
     assert calls == []
     losses["lexical"][0].backward()
-    assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in model.core.encoder_parameters())
+    assert any(
+        p.grad is not None and p.grad.abs().sum() > 0
+        for p in model.core.encoder_parameters()
+    )
     assert all(p.grad is None for p in model.core.central_parameters())
 
 

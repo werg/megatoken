@@ -1,6 +1,6 @@
 # Training and operations
 
-> **Implementation boundary (v7):** The stages described below still support
+> **Implementation boundary (v8):** The stages described below still support
 > legacy one-event episodes; the new grouped `MultiTrackGenerator`
 > now also supports grouped text, audio, image and video B0/recurrent
 > meridians using checksummed media references and separate audio/visual
@@ -295,10 +295,10 @@ verified task success.
 and `metadata.json`. The metadata hashes the payload and the pointer hashes the metadata.
 Loading uses PyTorch's restricted weights-only format. Checkpoints include model/config,
 codec and semantic chunk identities, FP32 optimizer state, global step, phase counters,
-and per-rank RNG and cursor. Checkpoint, served bundle, and model architecture are
-version 6. The action-tape serialization format remains v4, but v5
-weights/caches are incompatible with the new full-resolution KV geometry
-and cannot be silently loaded.
+and per-rank RNG and cursor. Checkpoint, served bundle, and model architecture use version 8.
+Single-event and grouped tapes use their respective v8 identities.
+Earlier R parameters, C caches, checkpoint weights and tapes are incompatible
+with direct realization and cannot be silently loaded.
 
 Periodic retention is bounded by `keep_checkpoints`. Phase boundaries, run-end snapshots,
 pre-RL state, and explicit baked checkpoints are retained. SIGINT/SIGTERM finishes the

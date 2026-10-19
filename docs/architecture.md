@@ -264,7 +264,7 @@ window. It is never converted into a public control, history event, serving/RL
 input, or tape source; remaining supervised windows retain ordinary causal
 conditioning. See [training.md](training.md) for the explicit teacher mixture.
 
-Every `fmt-canonical-facets-v4` tape owns its control source and complete FP32 raw
+Every `fmt-canonical-facets-v8` tape owns its control source and complete FP32 raw
 draw. Density scoring re-encodes those controls and requires a matching conditional
 materialization. Fixed raw-history replay skips P and runs only E for observations
 and C for each selected input. Both use the same versioned history chronology.

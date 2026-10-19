@@ -1022,6 +1022,7 @@ class MultiTrackGenerator:
         roles = torch.full(
             (1, len(names)), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
         )
+
         def losses(raw: Tensor) -> Tensor:
             values = []
             for i, (spec, target) in enumerate(zip(selected_specs, targets, strict=True)):
