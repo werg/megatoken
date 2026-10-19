@@ -2,7 +2,7 @@
 
 **Status:** Proposed extension to the v8 prototype; implementation and learned quality remain to be established.
 **Date:** 2026-10-20.
-**Reviewed megatoken baseline:** [`f560c32620522fcbed44f9fa7d3552207d998274`](https://github.com/werg/megatoken/commit/f560c32620522fcbed44f9fa7d3552207d998274).
+**Reviewed megatoken baseline:** [`82be7ef563e6cf55a2e2b0cb3d11bf55793071e1`](https://github.com/werg/megatoken/commit/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1).
 **Audited donor:** [`hindsight-kb@450164784589b2576256b8b0ba3d2ccc89af992d`](https://github.com/werg/hindsight-kb/commit/450164784589b2576256b8b0ba3d2ccc89af992d).
 
 Sections 1–9 specify the native architecture and curriculum. Sections 10–19 are the implementation specification: donor components, causal/data contracts, storage, optimization, source lifecycle, writer methodology, recipient modules and acceptance gates. Donor code and test references are pinned to the audited revision; proposed megatoken paths are explicitly identified.
@@ -14,11 +14,11 @@ Use **source RAG for literal evidence**, and a **progressively grown semantic me
 | Path | Canonical stored value | How it enters megatoken |
 | --- | --- | --- |
 | Source RAG | Original source chunks, ordered spans and provenance | Ordinary observations through E/C on the source RAG track; incremental MaxSim admits only newly relevant, previously uninjected content. |
-| Semantic memory | Source-supported, freely optimized semantic values, strength and lifetime | A learned projector produces complete K/V blocks in a dedicated KB context track; the same semantic values drive sparse mixtures of independent LoRA experts across tracks. |
+| Semantic memory | Source-supported, freely optimized semantic values, strength and lifetime | Similarity-weighted point/pair semantic mixtures produce full native-facet K/V positions on a dedicated KB track and drive sparse LoRA control across tracks. |
 
 The semantic KB **replaces the KV-delta/overlay proposal**. Its entries do not modify or attach to existing native cache entries. Their complete K/V participates directly in the shared attention context. Literal source sequences still use RAG and ordinary ingestion; learned KB slots need not pretend to be source tokens.
 
-First establish generator coherence and distill useful per-megatoken/per-chunk semantic embeddings. Then continually add free memory records, beginning in the query-densest parts of keyspace, including supported pair correlations as their endpoints become available. Train queries, selected stored keys, semantic values, the full-KV projector, controllers and model together. Train source/experience **memory-value writers only after this pretraining**.
+First establish generator coherence and distill useful per-megatoken/per-chunk semantic embeddings. Then continually add free memory records, beginning in the query-densest parts of keyspace, including supported pair correlations as their endpoints become available. Train queries, selected stored keys, semantic values, directional correlation weights, the full-KV projector, controllers and model together. Train source/experience **memory-value writers only after this pretraining**.
 
 The [multi-track architecture](multi-track-plan.md) already defines shared history, categorical tracks and atomic meridians. Grouped recurrent training exists in [training/meridians.py][m-meridians]. Direct KV admission requires a small new context-state path: C and P read the combined native history and KB segment, while the native raw/final frontier retains its existing meaning. This is one attention context with two evidence paths, not an additional transformer.
 
@@ -91,23 +91,27 @@ Keep existing learned rows and optimizer moments intact. Give eligible newly all
 
 “Free” means the semantic value is an independently optimized variable, not a writer output. Source IDs are bookkeeping, not query-model features. Do not cluster near-zero random values by numerical proximity. Reuse records across related tasks; train missing memory, irrelevant records, conflicts and source-excluded retrieval alongside useful memory. Preserve ordinary no-memory examples and independent KV/LoRA dropout.
 
-### Complete KV entries from shared semantic values
+### Complete facet KV from a shared semantic mixture
 
-Use a small registered projector and a fixed, small slot count per record:
+Each admitted KB position mirrors a complete native facet block: \(F=\mathrm{config.n\_facets}\), currently 32, with the native facet identities and KV head geometry. Combine compatible point and independently supported pair values in semantic space, then use the same aggregate for KV and LoRA:
 
 \[
-(K_r^0,V_r)=G_{\rm KV}(m_r;\text{type, slot descriptors}),
+\bar m_s=\frac{\sum_{r\in s}w_r m_r}{\sum_{r\in s}w_r},
 \qquad
-u_r=G_{\rm LoRA}(m_r).
+(K_s^0,V_s)=G_{\rm KV}(\bar m_s;\text{native facet identities, KB type}),
+\qquad
+u_s=G_{\rm LoRA}(\bar m_s).
 \]
 
-The projector produces **complete unrotated attention keys and values** in the native shared-KV geometry. Start without receiving-query or destination conditioning. The same learned value supplies LoRA control; separate independently optimized delta tensors and adapter codes are unnecessary.
+Both \(K_s^0,V_s\) have shape \(H_{\rm KV}\times F\times d_h\). The weights depend on live query/key similarity, eligible contextual support, learned directional correlation dependence and record lifetime. Section 12.2 supplies the normalized mixture and separate null-aware strength gate; section 12.3 defines the correlation adjustment.
 
-Admit selected full blocks to a dedicated bounded KB context segment with its own categorical track ID, distinct from RAG. C and P can read that segment alongside native history. Do not overwrite native K/V or manufacture a raw event from projected K/V. Retain individual/conflicting blocks rather than averaging incompatible memories into one cache entry.
+Supported pair values participate directly in this mixture with an explicit bounded pair gain. They are more than a neighbor-ranking bonus. Preserve conflicting or incompatible evidence in separate bounded groups; the mixture happens **before** projection, not by assuming that averaged projected K/V is equivalent. Source/record identities remain traceable through each group's constituent list.
 
-Canonical semantic values are the trainable storage authority. Projected K/V is a derived, versioned materialization, optionally cached for serving. Training recomputes it with a live gradient path. Anchor keys at the admission boundary's next native position, add learned type/slot descriptors, rotate keys once and never rotate values. No negative indices or fictitious meridian advancement are needed.
+Admit these full facet blocks to the separate KB context segment that C and P can read. Matching native geometry does not make a projected block a raw-facet policy event. Keep the native raw/final frontier and event clock intact. Source RAG retains ordinary ingestion and literal source order.
 
-Use an attention log-strength prior and an exact mask for zero activation. **Zero values alone are not null memory:** their keys would still alter softmax normalization. Section 12.4 specifies admission, masks, refresh and eviction.
+Canonical per-record semantic values remain the trainable storage authority. Each aggregate and its full KV are derived from the current contributor weights. Keep per-record lifetime: compute the decayed aggregate and readouts once per native transaction, then hold that snapshot fixed through its P/C/R work. This bounded local calculation uses no new retrieval and retains the original admission anchor. Unequal constituent decay can change the semantic mixture, so scaling an old nonlinear projection alone is insufficient.
+
+Anchor all F keys at the group's admission position and rotate each materialization once; never rotate values. Gate the block's attention participation with its current mixture strength, using an exact mask for zero evidence. Zero values alone are not null, because their keys would still alter attention normalization.
 
 ### Shared LoRA control with specialized choices
 
@@ -124,22 +128,29 @@ Cover future P and C attention/feed-forward work across generated and observed t
 Use small nonzero independent factors, bounded soft warm-up followed by sparse choice, and an exact null intervention. Distinguish expert-selection probabilities from signed residual coefficients, total strength and lifetime. Bound active experts across retrieved records, and avoid a Cartesian memory-expert × base-expert × track expansion.
 
 For both uses, retain activation and learned decay per admitted record/version:
-\(a_r(t)=g_r\exp[-\operatorname{softplus}(\lambda_r)\operatorname{age}_r(t)]\).
+\(\omega_r(t)=b_r\exp[-\operatorname{softplus}(\lambda_r)\operatorname{age}_r(t)]\), where \(b_r\) is that point/pair's unnormalized admission coefficient. Form the current aggregate and its null-aware group strength from these decayed weights; do not apply an additional independent group-decay multiplier.
 Use committed **native meridians across the session** as the initial all-track clock. Predictor effort and KB-only admission/refresh do not advance it. Refresh one record without resetting unrelated records. Decay and eviction end future direct use; effects already incorporated into native history remain part of the trajectory.
 
 The main uncertainty remains source reproducibility: useful free memory can encode information a later writer cannot infer. Grounding, limited capacity and reuse reduce that risk; the regenerated-bank and new-source tests remain decisive.
 
 ## 5. Sparse relation-reinforced retrieval
 
-Initially **second order means pairwise corpus relations/correlations**. Compute bounded source-window co-occurrences and explicit associations over stable source/catalog identities, independently of which memory rows are already allocated. Deduplicate windows, retain support footprints, cap degree and normalize common hubs. A statistical association is not a factual or causal assertion.
+Initially **second order means pairwise corpus relations/correlations**. Compute bounded source-window co-occurrences and explicit associations over stable source/catalog identities, independently of active memory allocation. Deduplicate windows, retain complete support footprints, cap degree and normalize common hubs. A statistical association is not itself a necessary condition or a factual assertion.
 
-When a growth batch admits new point records, inspect bounded adjacency touching those sources and materialize supported pair records whose two endpoints now exist. Their small independent semantic values use the same KV projector and LoRA controller as point values. Preserve existing learned pairs and moments; do not rebuild or recount the whole corpus graph on each batch. The admitted subset and deterministic growth log become part of later reproduction targets.
+When both endpoints have allocated memory records, admit their supported pair value and **two learnable directional dependence weights**, one for each endpoint. Preserve corpus statistics as a separate fixed prior. These learned weights express how much the usefulness of one point depends on context supporting the other endpoint; the directions can differ.
 
-Retrieve semantic seeds, expand eligible neighbors once, and add a bounded relation bonus from the **original** seed scores. Apply source/scope/time masks to complete key, relation-support and value-source footprints before expansion and truncation. Boosted results cannot recursively reinforce themselves.
+Retrieve semantic seeds and expand eligible neighbors once. Rescore against the original query, use capped ranking bonuses, and never recursively reinforce boosted results. Check complete source/scope/time eligibility before truncation and before using a relation to increase or decrease another record's weight.
 
-One seed can propose a neighbor, but a pair value requires independent causal query/span support for both members. Keep a bounded ledger of original support from completed query events; repeated queries over the same support do not manufacture evidence. With one support unit, use relation-assisted ranking and leave the joint value inactive. This adapts hindsight-kb's distinct-span gate; its current retriever does not implement neighbor expansion.
+Use two effects in the semantic-memory output:
 
-Keep topology and statistical weights fixed within each retrieval/training window; evolve them only at logged growth/maintenance barriers. Deterministic source statistics can later be recomputed, while the retained assignment/admission manifest identifies which learned pair targets exist. Two-hop propagation and learned edge weights are later comparisons. Preserve incompatible values and singletons; source replacement rebuilds or invalidates affected support and learned records.
+- A query-relevant endpoint plus independent causal support for its partner activates the learned pair value, with explicit prominence in the point/pair semantic mixture.
+- A prominent learned dependence whose partner was checked but lacks contextual support attenuates the lower-order point value. The attenuation is bounded; unknown, unsearched or excluded support produces no penalty.
+
+Section 12.3 defines the single-pass formula. Both effects use original unboosted similarities and an explicit causal support ledger. Repeated queries, duplicate spans and synthetic KB content cannot manufacture the other leg. A first retrieval can use earlier independent native context as support; one isolated query/support unit still cannot activate a pair.
+
+Counts and topology change only at logged growth/maintenance barriers. Endpoint weights, keys and semantic values learn locally during free-KB pretraining, with topology fixed within each window. The final pair targets include both directional weights for later corpus reproduction. Keep incompatible values and singletons. Source replacement invalidates affected support and dependent weights/materializations.
+
+Source RAG retains its own MaxSim/content-novelty policy. The new attenuation adjusts learned semantic-memory output; it does not silently discard literal RAG evidence whose direct source similarity has qualified it.
 
 ## 6. Retrieval tasks and data format
 
@@ -166,16 +177,16 @@ Use one scheduler with separate source and memory result budgets:
 1. At a completed turn or declared artificial boundary, snapshot causal state, select a retrieval-purpose P event and realize its vector. Commit that raw event through the ordinary grouped transition before dispatching the lookup.
 2. Score new source-query embeddings, qualify novel content and reserve uncovered source intervals before fetching. Retrieve semantic memory records under their separate refresh policy. During pretraining, also record raw query demand for later allocation.
 3. At a valid later boundary, revalidate source results and admit them through E/C as observed native meridians. Commit only successfully ingested intervals to source coverage.
-4. Independently validate/project available semantic values, then atomically install full-KV blocks and the corresponding LoRA control snapshot. This changes the session revision but preserves the native raw/final frontier and meridian counter.
-5. Subsequent P/C/R work uses the admitted snapshot. Results cannot affect the query that fetched them or already selected peer outputs. On a miss, admit nothing new and let active memory evolve by its declared lifetime.
+4. Independently validate available point/pair values and contextual support, form the correlation-adjusted semantic groups, project full-facet KV, then atomically install those blocks and the corresponding LoRA snapshot. This changes the session revision but preserves the native raw/final frontier and meridian counter.
+5. Subsequent P/C/R work uses the admitted snapshot. Results cannot affect the query that fetched them or already selected peer outputs. On a miss, admit nothing new and let admitted constituents decay; deterministically rematerialize their mixtures before each native transaction without a new lookup.
 
-A direct KB admission is a deterministic context transaction, not a Gaussian raw action. It does not call `advance_group` or C.write, create a fake megatoken, or consume 32 native facet slots. A real query or source observation still commits a native event and advances its containing meridian once.
+A direct KB admission is a deterministic context transaction, not a Gaussian raw action. It allocates F facet slots per aggregate position in the independent KB segment without calling `advance_group` or C.write or creating a native event. A real query or source observation still commits a native event and advances its containing meridian once.
 
 For long runs, insert artificial opportunities after configurable committed main-track progress, with a small range of training intervals. Scheduling opportunities create no empty events. Memory age uses the separately specified all-session native clock. Evidence admission alone must not recursively trigger retrieval.
 
 Use bounded waiting and the same arrival/deadline policy in training and serving. Late results wait for a valid later boundary. Any admitted evidence or changed KB/control snapshot increments session revision and invalidates speculation based on the old state. Resolve simultaneous source and memory admissions in a deterministic logged order; do not change control midway through a grouped meridian or between its R/C operations.
 
-Record selected query raw facets/densities, vector specs, scoring/query/key/index epochs, source fetch/reservation/coverage receipts, complete KV admission identities and anchors, selected semantic records, adapter snapshots, activation/expiry and actual arrival order. Replay uses historical values and controls. Bound queries, source bytes/events, full-KV slots, graph expansion and adapter staging, and measure the whole boundary latency.
+Record selected query raw facets/densities, vector specs, scoring/query/key/index epochs, bounded causal support vectors with encoding/role/span provenance, source fetch/reservation/coverage receipts, complete KV admission identities and anchors, constituent records/weights and directional-edge revisions, checked-support masks, adapter snapshots, activation/expiry and actual arrival order. Replay uses historical values and controls. Bound queries, source bytes/events, full-KV slots, graph expansion and adapter staging, and measure the whole boundary latency.
 
 Training-time KB growth is an owned optimizer/publication operation. Newly allocated records become visible to the next pinned retrieval window; growth does not mutate a serving session or an in-flight gradient graph.
 
@@ -194,7 +205,7 @@ Initial embedding distillation is ordinary representation/readout training. It i
 
 For local hindsight, the prefix queries while the writer sees only its permitted suffix. Preserve [hindsight-kb's rule][h-retrieval]: at **original source block** \(i\), same-source writer records begin at \(j\geq i+2\). These are meaningful source blocks, not runtime meridians, facets or inserted query events. Validate every source range influencing a key or value. This future-suffix access is a training-only memory-writer exception; source RAG and deployment keep causal visibility.
 
-Local warm-up can retain the donor's indirect contamination through earlier admitted memory. Label and bound that phase; require subsequent cross-source transfer. A record needing broader context belongs in corpus reproduction, not an underinformed local target.
+Local warm-up can retain the donor's indirect contamination through earlier admitted memory. Label and bound that phase; require subsequent cross-source transfer. A record or directional pair weight needing broader context belongs in corpus reproduction, not an underinformed local target.
 
 Fit keys, shared semantic values and controls, then evaluate behavior through the frozen full-KV and LoRA materializers. Rebuild a **fresh** KB from writer outputs and compare it with the optimized bank. Reproduce the admitted target subset and source assignments; the writer is not asked to infer the historical query-density allocator from source text. Reconstruction error alone is insufficient. Diagnose source sufficiency, assignment coverage and free-value capacity before adding writer complexity.
 
@@ -204,7 +215,7 @@ Implement in this order:
 
 1. Add typed embedding output/training targets, registered raw-facet realization, causal retrieval-purpose conditioning, grouped losses and query tapes. Train generator coherence and per-megatoken/per-chunk embeddings. Add source RAG incremental MaxSim, eligibility, reservations and coverage.
 2. Add source/catalog demand accounting, progressive point/pair allocation and sparse storage. Implement the common semantic value, full-KV projector and separate KB context admission/read path.
-3. Add independent LoRA banks with all-track snapshots, explicit parameter owners and sparse specialization. Replace local expert equalization with optimizer-step-global router-only balancing.
+3. Add independent LoRA banks with all-track snapshots, explicit parameter owners and sparse specialization from the same point/pair semantic aggregates. Replace local expert equalization with optimizer-step-global router-only balancing.
 4. Integrate bilateral query/stored-key learning, shared-value gradients, sparse key/index updates, density/growth cursors, compatible checkpoints and exact historical admission/control replay.
 5. After completed free-KB pretraining, add local hindsight, cross-source transfer, full corpus reproduction and new-source evaluation.
 
@@ -235,8 +246,8 @@ The donor supplies executable objectives, storage backends, source authoring, sp
 | [consolidation.py][h-consolidation]: OnlineClusterer, CooccurrenceBuilder | Copy as reference | Small correctness oracle for clustering/counts; durable runs use the transactional authoring path. |
 | [provenance.py][h-provenance]: merge_metadata, fold_batch, excluded_records, excluded_relations | Adapt | Monotonic lineage and pre-selection exclusion, extended beyond the donor's task/kind filters. |
 | [relation_build.py][h-relation-build]: rebuild_relations, _durable_rebuild | Adapt | Stable pair IDs, support/degree limits and resumable publication; keep catalog correlation statistics independent of allocation and add bounded affected-pair growth. |
-| [retrieval.py][h-retrieval]: Retriever, Evidence, structured_candidates, slot_assignments, relation_effects | Adapt | Selected-key weighting, null mass, conflict separation and pair support; adapt weights to full-KV attention priors and LoRA controls. Keep RAG's local feature auxiliary and exact source payloads. |
-| [trainable.py][h-trainable]: SparseTrainableKB | Adapt substantially | Selected source/memory keys, shared semantic values and strength/lifetime fields; dynamic new rows with lazy fresh moments, full eligibility, FP32 state and owned key/posting/update transactions. |
+| [retrieval.py][h-retrieval]: Retriever, Evidence, structured_candidates, slot_assignments, relation_effects | Adapt | Selected-key weighting, null mass, conflict groups and distinct pair support; add learned directional dependence and missing-partner attenuation before a shared point/pair aggregate feeds full-facet KV and LoRA. Keep RAG's feature auxiliary and literal payloads. |
+| [trainable.py][h-trainable]: SparseTrainableKB | Adapt substantially | Selected source/memory keys, semantic values, strength/lifetime and two directional fields per pair; dynamic rows with fresh moments, full eligibility and owned key/posting/update transactions. |
 | [free.py][h-free]: FreeRecordView, consulted | Adapt later | Differentiable trial records and consulted lineage for writer/experience evaluation without publishing trial leaves. |
 | [record_generation.py][h-record-generation] and [density.py][h-density] | Adapt | Separate key, payload and policy generations; retain duplicate-density maintenance and add distinct versioned query-demand counters for allocation. |
 | [data.py][h-data]: block_mask, lexical_recurrence, recurrence_keep, match_recurrence_mask | Copy methodology; adapt coordinates | Source-block visibility and family-coordinated anti-copy dropout, independent of facet and meridian numbering. |
@@ -285,7 +296,7 @@ Each retrieval training example must identify:
 | Source retrieval state | Scoring epoch and query/key/index identities, qualified/reserved source intervals, committed injected coverage and ordered admission receipts; keep runtime state distinct from training labels. |
 | Schedule | Query selection, search budget/deadline, actual result arrival, native source admission, direct KB admission and any artificial-boundary RNG/cursor. |
 | Growth | Catalog/partition epoch, deduplicated query-demand window, source-to-memory assignment, birth/growth step, initialization seed and point/pair admission manifest. |
-| Memory context/control | Record/value and model/projector/layout identities, complete KV block slots/anchor, strength/lifetime, session revision and immutable adapter snapshot used by each grouped transaction. |
+| Memory context/control | Constituent record/key/value/edge revisions, semantic grouping/weights, native facet layout and projector identities, full-block anchor, support-window/check masks, per-record lifetime and immutable grouped adapter snapshot. |
 
 A footprint is a collection of versioned source ranges, not one integer or one SourceSpan. Byte offsets remain source coordinates; Unicode character offsets or tokenizer positions require declared conversion. Reuse original-source routing from [referenced_documents/distillation_batch][h-knowledge]; QA answers and teacher solutions are supervision, not substitutes for the support documents the writer must encode.
 
@@ -324,90 +335,131 @@ A teacher vector is neither an E input nor a fake text payload. Do not manufactu
 
 ### 12.2 Reuse local evidence weights for full KV and LoRA
 
-Copy the selected-candidate numerical reference from [Retriever.forward and Evidence][h-retrieval]. With cosine similarity \(s\), eligibility/dropout mask \(\mu\), nonnegative stored strength \(u\), clipped duplicate-density \(\rho\) and threshold \(\theta\):
+Copy the selected-candidate numerical reference from [Retriever.forward and Evidence][h-retrieval]. With live cosine similarity, eligibility/dropout mask \(\mu_i\), nonnegative strength \(u_i\), clipped duplicate density \(\rho_i\) and threshold \(\theta\), the original point evidence is:
 
 \[
-a_j=\mu_j u_j\frac{[s(q,k_j)-\theta]_+^2}{\rho_j},
-\qquad
-w_j=\frac{a_j}{\lambda+\sum_\ell a_\ell}.
+a_i=\mu_i u_i f_\epsilon(\cos(q,k_i)-\theta)/\rho_i.
 \]
 
-Use the donor's smooth positive-part substitute during warm-up and the declared hard threshold afterward. These local weights depend on live selected query/key tensors; hard candidate IDs and eligibility remain detached.
+Use the donor's smooth positive-part substitute during warm-up and the declared hard threshold afterward. Candidate IDs and eligibility are discrete; recompute similarities with the live query and selected stored-key leaves. Graph ranking bonuses never enter these original evidence scores.
 
-For complete K/V, retain each admitted record's block and apply its retrieved strength \(w_j\) plus lifetime through the attention prior in section 12.4. Preserve conflicting records as separate blocks, and normalize record strength independently of slot count. Do not collapse full-KV blocks into a weighted key/value average: attention to separate keys is a different operation.
-
-For compatible LoRA control inputs or the RAG training auxiliary, the donor's conditional semantic mean and separate null gate remain useful:
+**Combine compatible semantic values before projection.** Section 12.3 produces attenuated point weights \(\tilde a_i\) and independently supported pair weights \(b_{ij}\). Apply each constituent's own learned decay to its weight, then combine point and pair values inside a bounded compatible group \(s\):
 
 \[
-\bar m_s=\frac{\sum_{j\in s}a_jm_j}{\sum_{j\in s}a_j},
+A_s=\sum_{i\in s}\tilde a_i+\sum_{(i,j)\in s}b_{ij},\qquad
+\bar m_s=
+\frac{\sum_{i\in s}\tilde a_i m_i+\sum_{(i,j)\in s}b_{ij}m_{ij}}{A_s},
 \qquad
-g_s=\frac{\sum_{j\in s}a_j}{\lambda+\sum_{j\in s}a_j}.
+g_s=\frac{A_s}{\lambda+A_s}.
 \]
 
-Define both as zero without support. Preserve record-specific lifetime before combining active contributions, and keep incompatible groups separate. Multiply final LoRA residuals by the appropriate evidence/strength gate even if the controller has biases. For KV, exact null is an attention mask, not multiplication of projected values by zero. Gates express activation, not calibrated factual confidence.
+Here the displayed weights are their current decayed weights. Define \(\bar m_s=g_s=0\) at \(A_s=0\). Use a bounded deterministic grouping policy with explicit compatibility/scope/version metadata; key proximity alone does not certify compatibility. Group membership is fixed within a retrieval window; singleton groups remain valid, and incompatible versions or conflicts stay separate.
 
-RAG still returns exact source IDs/ranges and bytes. Its training-only feature objective can reuse these weights without averaging text or treating source embeddings as deployed memory values.
+The same \(\bar m_s,g_s\) condition the shared KV and LoRA materializers. One compatible mixture produces one complete native-facet KV position:
 
-After bounded key warm-up, continuation/local losses must train both the query and selected stored keys as well as declared values/projectors/controllers. Recomputing selected scores from detached ANN vectors would defeat that requirement. Sections 12.7 and 13.4 specify the local gradient and publication contracts.
+\[
+(K_s^0,V_s)=G_{\rm KV}(\bar m_s),\qquad
+K_s^0,V_s\in\mathbb R^{H_{\rm KV}\times F\times d_h},
+\quad F=\texttt{config.n\_facets}=32\ \text{initially}.
+\]
+
+This deliberately replaces separate per-record KV blocks with preprojection semantic mixing. It is not equivalent to averaging independently projected keys or to attention over separate record keys. Train this mixture/projector computation from memory introduction. The group attention gate is \(g_s\), with an exact slot mask at zero; multiply final LoRA residuals by the same evidence gate even when their controller has biases.
+
+At an admission boundary, pin contributors, group membership, original query/support receipts and operand revisions. Between retrieval boundaries, retain those selections and each constituent's activation age/lifetime. Recompute decayed weights, the aggregate and its full KV projection once per native transaction as bounded local work, under the same admission anchor; all grouped peers use that transaction's immutable snapshot. This requires no new ANN lookup or native event. Do not freeze an obsolete mixture while claiming its constituents decay independently, and do not reset unrelated constituent ages when refreshing one contributor. Section 12.4 defines admission, anchors and invalidation.
+
+**Literal source RAG is unchanged.** It still returns exact source IDs/ranges and ordered bytes. Its training-only local feature objective may reuse original similarity weights, but correlation-conditioned singleton suppression and semantic mixing do not suppress or average literal source evidence.
+
+After bounded key warm-up, native losses train both query and stored keys through mixture weights, and both materializers train the shared values. Detached ANN vectors, support summaries or serving materializations must not replace the live local computation described in sections 12.7 and 13.4.
 
 ### 12.3 Relation expansion, pair admission and joint activation
 
-Port bounded source-window counts from [CooccurrenceBuilder][h-consolidation] and stable support/degree/signature rules from [rebuild_relations][h-relation-build], with arity two initially. Count each source window once over catalog identities. Active memory allocation does not recount it.
+Port bounded source-window counts from [CooccurrenceBuilder][h-consolidation] and stable support/degree/signature rules from [rebuild_relations][h-relation-build], with arity two initially. Count each source window once over catalog identities. At growth barriers, inspect adjacency touching newly allocated endpoints and admit supported pairs when both exist. Preserve learned pair values, weights and moments. Topology and bounded hub-normalized statistical prior \(c_{ij}\in[0,1]\) stay fixed within a gradient window; they are separate from learned directional prominence.
 
-At a growth barrier, inspect bounded adjacency touching newly allocated endpoints. Admit supported point-to-point pairs with independent small semantic values when both endpoints exist. Preserve old learned pair state. Implement this incremental admission instead of invoking the donor's whole-scope rebuild after every ingestion batch. Keep topology fixed throughout each pinned gradient window; scheduled maintenance has explicit generation and recovery semantics.
+Store two ordered logits per admitted pair:
 
-At retrieval, search semantic seeds, fetch one bounded eligible neighbor set, deduplicate, rescore against the original query and add capped statistical bonuses. Expanded/boosted records do not start another pass.
+\[
+\gamma_{ij\to i}=\sigma(\eta_{ij\to i}),\qquad
+\gamma_{ij\to j}=\sigma(\eta_{ij\to j}).
+\]
 
-Port the distinct-support activation invariant. Keep a bounded ledger of unboosted matches from completed query events, with causal support-span identities, scope and availability. Collapse repeated queries over identical support; invalidate or recompute match weights after their query/key operands change. Arbitrary facets and duplicate query rows are not independent evidence.
+They express how strongly the other endpoint qualifies each singleton's applicability. Initialize conservatively from the statistical prior and learn them through native utility; co-occurrence is not a logical prerequisite or a factual assertion.
 
-A pair semantic value is inactive until both members have distinct eligible support. Thus a one-vector first boundary may improve candidate ranking without activating joint memory. Once eligible, pair values feed the same full-KV projector and LoRA controller under the same null/lifetime/budget rules. Train genuine multiple-support examples and report pair activation, useful gradient exposure and benefit. No separate pair ANN query space is required.
+**Check independent causal context support.** Maintain a bounded ledger of original support units with source/span identities, complete lineage, scope and availability. It can include canonical embedding readouts of already committed raw context: this is a readout of existing events, not an extra event, position advance or ANN query. Align the context-to-key role through embedding/paired-support supervision and local training; arbitrary embedding cosine is not automatically calibrated support.
+
+For each checked partner, let \(h_{j\mid i}\in[0,1]\) be the strongest unboosted match from an eligible context unit independent of the unit supporting \(i\). Repeated queries over the same span, duplicate ancestry, graph-derived bonuses and memory-generated restatements cannot manufacture independent support. Retrieved memory cannot certify its own other leg.
+
+Use a detached check flag \(o_{j\mid i}=1\) only after checking the complete declared bounded eligible context window. An unavailable/excluded endpoint, exhausted check budget or unsearched partner has \(o=0\); an ANN omission is not evidence of absence. Incomplete checks may retain observed positive support but supply no absence penalty. An empty maximum is zero. Only eligible, non-dropped relations enter \(N(i)\); excluded relation support cannot suppress an eligible singleton. Existing-event support readouts do not create additional query-demand events.
+
+**Attenuate a singleton without turning absence into contradiction.**
+
+\[
+d_i=\max_{j\in N(i)}
+\gamma_{ij\to i}o_{j\mid i}(1-h_{j\mid i}),
+\qquad
+\tilde a_i=a_i(1-\beta d_i),\quad 0<\beta<1.
+\]
+
+A prominent checked-but-unsupported partner lowers the singleton weight. Unknown partners leave it unchanged. The floor \((1-\beta)a_i\) and maximum prevent hard rejection and multiplicative degree punishment. Max is differentiable almost everywhere; other examples and supported pair use train the remaining edge weights.
+
+**Make verified pair information prominent.**
+
+\[
+b_{ij}=\lambda_2\,\mu_{ij}u_{ij}c_{ij}
+\max\!\left(
+\gamma_{ij\to i}a_i h_{j\mid i},
+\gamma_{ij\to j}a_j h_{i\mid j}
+\right).
+\]
+
+Set unsupported/distinct-unit-invalid terms to zero exactly. Use original unboosted \(a\) and context support, not attenuated points or graph-amplified values. Start with one bounded global pair-channel gain, for example \(\lambda_2=2\), and ablate it; this favors useful independently supported correlations without forcing pair activation or equal utilization. Retain degree/support normalization and total candidate/pair budgets.
+
+Search semantic seeds, fetch one bounded eligible neighbor set, deduplicate and rescore; a capped graph bonus can propose/rank candidates but cannot produce support or another reinforcement pass. Complete source/scope/time masks precede expansion and truncation.
+
+Learn selected endpoint keys and both prominence logits locally. Recompute endpoint similarities against detached historical vectors; keep the current query live. Cached \(h\) values have no gradient and require invalidation/recomputation after operand changes. The two logits are sparse relation fields with stable endpoint ordering, revisions, touched-row moments and deletion/reset semantics. After pretraining, freeze them as reproduction targets alongside pair values; the pair writer learns both directions from permitted source/member context and statistics. No new key space or writer backbone is required.
 
 ### 12.4 Full learned KV on the KB context track
 
-Replace destination-bound deltas with complete learned memory entries. A record's authoritative payload is a semantic memory state \(m_r\); the same state feeds a KV projector and the LoRA controller in section 12.5. Keep its normalized search address separate from the native attention keys. Persist semantic states and their source assignments; projected tensors are versioned, reproducible materializations.
+Each admitted KB position contains one **complete native facet block** generated from a compatible semantic evidence group. Use \(F=\texttt{config.n\_facets}\), currently 32, rather than an independent small slot count. Authoritative KB records retain their semantic values \(m_j\), keys, strength, lifetime and provenance; a query-dependent group and its projected tensors are derived state. Keep contradictory or incompatible memories in separate bounded groups.
 
-Use one registered MemoryKVProjector with a fixed small number \(S\) of slots per record:
-
-\[
-(K_r^0,V_r)=G_{\rm KV}(m_r),\qquad
-K_r^0,V_r\in\mathbb R^{H_{\rm KV}\times S\times d_h}.
-\]
-
-A small projection with learned KB-type and slot descriptors supplies complete native-head keys and values. Slot descriptors identify learned memory slots, not source-token positions. The first projector is independent of the receiving query and historical destination, so materialization can be cached by record, semantic-state, projector and layout versions. Keep its keys unrotated until admission. Both C and P already read the same historical KV geometry; a separate payload for every transformer layer is unnecessary initially.
-
-**Admit an independent KB context segment.** Extend MultiTrackState with a bounded KBContext containing these blocks, metadata and masks. Give its slots one fixed categorical KB track identity, distinct from the source RAG track. At C's historical reads and P's existing history-read stages, combine native history and the admitted KB segment in the normal attention view. Every track can attend to this combined context. Native C publication writes only newly processed native events; it does not copy the external segment into native history.
-
-This requires an explicit context-admission operation. Current [advance_group][m-multitrack] and native history bookkeeping assume complete raw-facet events with 32 cached slots each. A KB block is already projected KV; do not feed it through those raw-event APIs or force it to have 32 slots.
-
-At a valid boundary:
-
-1. Validate source/scope/time eligibility, semantic-state revision and native projector/layout compatibility.
-2. Project the selected states, or load compatible canonical materializations.
-3. Anchor every slot of an admitted block at the current next-native-meridian position \(p_r\), applying \(K_r={\rm RoPE}(p_r,K_r^0)\) exactly once. Values are never rotated.
-4. Commit the KB context and its matching adapter-control snapshot atomically, record the receipt, increment the session revision and invalidate stale speculation.
-
-Admission preserves the native raw/final frontier and native meridian/event counters. It is a typed KV-only context change, not a sampled raw event or an empty meridian; account for its work separately. The next P starts from the previous final C frontier and sees the new memory at its historical reads. Subsequent C processing also sees it. Caches and outputs from earlier computation remain historical facts. Multiple KB blocks can be admitted by one context update without inventing multiple native events on the KB track.
-
-The boundary anchor may share the next native event's RoPE phase. Availability and revision enforce causality; a unique phase for every admission is not required. Record the anchor and retain it for the block's lifetime. Do not add a raw shadow event merely to change the next P seed.
-
-**Strength gates attention participation.** Let \(a_r(t)\geq0\) be an admitted record's current activation, incorporating its retrieval evidence and learned lifetime. Add a per-record log-strength prior to its attention logits:
+**Combine semantic evidence before projection.** Let \(b_j\geq0\) denote an admitted constituent's unnormalized lookup coefficient: section 12.3's attenuated point coefficient or supported pair coefficient. Pin coefficients, constituent versions and group membership until a recorded boundary refresh. Retain each constituent's lifetime and admission origin. At native transaction \(t\), calculate:
 
 \[
-\ell_{q,r,s}
-=\frac{Q_q^\top K_{r,s}}{\sqrt{d_h}}+\log a_r(t).
+a_j(t)=b_j\exp[-\operatorname{softplus}(\ell_j)\,\operatorname{age}_j(t)],
+\quad A_s(t)=\sum_{j\in s}a_j(t),
+\]
+\[
+\bar m_s(t)=\frac{\sum_{j\in s}a_j(t)m_j}{A_s(t)},
+\qquad g_s(t)=\frac{A_s(t)}{\lambda+A_s(t)},\quad\lambda>0.
 \]
 
-When \(a_r(t)=0\), mask its slots out exactly. Adapt [AttentionRead][m-attention] to combine this prior with existing validity masks and track relations. Extra zero-valued KV slots are not null: they still change softmax normalization. Scaling values alone is therefore insufficient for null behavior or expiry. A fixed slot count avoids an accidental length-dependent strength convention; any later variable-slot layout must define its attention-mass normalization.
+Apply recorded validity/expiry masks to the constituent weights. Define both outputs as zero without support. Eligible singleton and independently activated pair values use this same aggregation. Age counts globally committed native meridians since each constituent's admission: one tick per committed group, regardless of its track count. Predictor effort, rejected speculation and KB-only updates do not tick it. There is no second independent group-decay multiplier.
 
-Retain activation and lifetime per record/version before combining controller contributions. A suitable initial decay is \(a_r(t)=g_r\exp[-{\rm softplus}(\lambda_r)\,{\rm age}_r(t)]\), where age counts globally committed native meridians since admission. It advances once for a committed native group, irrespective of its number of tracks; predictor effort, rejected speculation and KB-only updates do not tick it. This replaces main-track-only age.
+One registered MemoryKVProjector expands the aggregate into all native facet positions:
 
-Give KB context an explicit total slot/byte budget. Evict complete blocks. An explicit refresh replaces the prior active block under a new recorded admission identity, with a declared anchor and lifetime reset; idempotent retries of the same admission do neither. Expiring or refreshing one record does not reset other records. Source deletion/version replacement invalidates its active block under the lifecycle policy. Removal stops future direct attention and controller effects, but cannot undo influence already propagated into native history.
+\[
+(K_s^0(t),V_s(t))=G_{\rm KV}(\bar m_s(t),\{c_f\}_{f=0}^{F-1},c_{\rm KB}),
+\qquad K_s^0,V_s\in\mathbb R^{H_{\rm KV}\times F\times d_h}.
+\]
 
-Receipts identify records, semantic states, projector/layout versions, anchors, gates, lifetimes and adapter snapshots. Reconstruct them in causal order for training and replay. Null tests hold native history, prior memory and the query/admission schedule fixed; they must verify both masked attention participation and a zero memory-adapter contribution.
+Reuse the native facet-address scheme and ordered identities from [central.slot_codes][m-core]; add a categorical KB descriptor. Facets identify learned addresses, not source-token sequence positions. A small facet-expansion readout and native-shaped KV projection suffice. Tying its weights to central.memory is optional; matching geometry does not require sharing weights. C and P read one shared historical-KV geometry, so no per-layer payload stack is needed. The same aggregate and evidence strength drive the LoRA controller in section 12.5.
+
+**Rematerialize once per native transaction.** Independent constituent decay changes the semantic mixture. A nonlinear projector of that mixture cannot be replaced by scaling its old K/V. Prepare the bounded active groups from retained constituents once at the transaction's committed age, then share that immutable memory/control snapshot across P, R and C. Cache within the transaction; no ANN call, new event, admission or anchor reset occurs. A rejected speculative candidate consumes no lifetime tick. Group membership and lookup coefficients remain fixed; only declared lifetime/validity and their resulting aggregate change. Training must retain the permitted value, coefficient and projector gradient paths.
+
+**Admit a distinct KB context segment.** Extend MultiTrackState with a bounded KBContext, separate from native history and the source RAG track. Its slots have a fixed categorical KB track identity. C's historical reads and P's existing history-read stages combine native history with these full-facet blocks. All tracks can attend; native C publication writes only native events and does not copy the external segment.
+
+At a valid admission boundary, validate source/scope/time eligibility and versions; record constituent identities, coefficients, groups and lifetimes; anchor each new position at the current next-native-meridian position \(p_s\); and atomically install context plus matching adapter state. Increment session revision and invalidate stale speculation. Preserve the native raw/final frontier and meridian/event counters. Matching \(F\) does not make this a raw event: do not call advance_group or C.write, or add a shadow event to alter P's seed.
+
+All facets share their position's retained anchor. Apply \(K_s(t)=\operatorname{RoPE}(p_s,K_s^0(t))\) once to each fresh unrotated materialization; never rotate values. The anchor may share the next native event's phase. Availability and revision enforce causality.
+
+**Gate attention participation.** Add \(\log g_s(t)\) to each facet's attention logit, alongside existing validity masks and track relations. At zero strength, mask the entire position exactly. Extra zero-valued KV changes softmax normalization and is not null. Use the same strength to gate the final LoRA residual. Keep the full \(F\)-facet layout fixed and budget active positions times \(F\).
+
+Evict complete positions. Explicit boundary refresh replaces a recorded admission; idempotent retries reset nothing. Preserve unaffected constituent lifetime origins. Source invalidation removes affected contributions under the lifecycle policy. Removal stops future direct effects, not influence already propagated into native history.
+
+Materialization/replay identities include constituents and revisions, query/key/edge versions, coefficients, grouping, model/projector/facet-layout versions, anchor and transaction age. A per-record KV cache alone cannot represent a projected mixture. Reconstruct historical snapshots in causal order; null checks hold native history, query schedule and prior memory state fixed.
 
 ### 12.5 Context-wide independent LoRA experts
 
-Use the same admitted semantic states \(m_r\) as the KV projector to drive a shared LoRA controller. It reads the bounded semantic memory set with each record's current strength, plus declared causal context and module descriptors. Its output is a sparse mixture over independently parameterized adapter experts:
+Use the same correlation-adjusted aggregate states \(\bar m_s(t)\) and null-aware group strengths as the KV projector to drive the shared LoRA controller. Preserve source/point/pair provenance, and condition on declared causal context and module descriptors. Its output is a sparse mixture over independently parameterized adapter experts:
 
 \[
 y_g=W_gx+\sum_{e\in A_g}c_{g,e}\,B_{g,e}A_{g,e}x.
@@ -474,7 +526,7 @@ Adapt the differentiable selected-row path in [SparseTrainableKB][h-trainable] a
 
 In supervised pretraining, preserve the query gradient through embedding R into P: use the normal differentiable/reparameterized Gaussian raw sample \(Z_q=\mu_P+\sigma_P\odot\epsilon\), with the exact selected sample committed as the native event. Detach the copy used by ANN, not the sample feeding the vector loss. Later outcome-policy scoring follows its separate recorded-action and frozen-map contract.
 
-**Semantic memory uses its actual downstream effect.** Native continuation loss flows through complete-KV attention and LoRA residuals, the shared semantic values and similarity-derived activation weights, into both the query and selected stored keys. It also trains the declared projector, controller and adapter-bank parameters. KV blocks remain separate; the attention log-strength has a live query/key gradient for active blocks. Use smooth positive weights during introduction so weak selected candidates can learn. The exact zero mask remains the no-evidence path; detached serving materializations must not replace the live training projection.
+**Semantic memory uses its actual downstream effect.** Native continuation loss flows through full-facet KV attention and LoRA residuals, the point/pair semantic mixtures and their similarity/correlation weights, into both the query and selected stored keys and directional relation logits. It also trains the declared projector, controller and adapter-bank parameters. Compatible values combine before projection; conflicting groups remain separate. Both the aggregate and attention log-strength have live query/key gradients for active groups. Use smooth positive weights during introduction so weak selected candidates can learn. The exact zero mask remains the no-evidence path; detached serving materializations must not replace the live training projection.
 
 **Source RAG uses a small local feature-value objective.** Its deployed values remain exact source bytes and provenance. For training only, reuse detached, deterministically encoded native source features:
 \(v_j=\operatorname{stopgrad}(\operatorname{normalize}(\operatorname{flatten}(E(x_j))))\), using canonical no-adapter E, the fixed raw-facet layout and deterministic posterior mean where E exposes a distribution. These features are neither semantic memory values nor soft source observations. Cache them only under complete source/context, E revision, representation layout and preprocessing identities.
@@ -554,23 +606,23 @@ Forward selection remains a function of causal event context and recorded explor
 
 ### 13.1 Two typed collections behind one service
 
-Use one search interface over canonical **source** and **memory** collections in a named learned semantic space. Start with **one authoritative SQLite database**, collection-qualified IDs and fixed geometry for each typed collection. One transaction can therefore update selected source/memory keys, semantic values, sparse moments and changed-key postings. Adapt donor table patterns with explicit collection ownership; separate files require a later joint publication/recovery protocol.
+Use one search interface over canonical **source** and **memory** collections in a named learned semantic space. Start with **one authoritative SQLite database**, collection-qualified IDs and fixed geometry for each typed collection. One transaction can therefore update selected source/memory keys, semantic values, pair endpoint-dependence fields, sparse moments and changed-key postings. Adapt donor table patterns with explicit collection ownership; separate files require a later joint publication/recovery protocol.
 
 | Entity | Required stored contract |
 | --- | --- |
 | Semantic-space manifest | Teacher/anchor recipe, learned-space family/version, query/document roles, dimensions, normalization, permitted source context, preprocessing hashes and compatible query-model/key snapshots. Equal dimensions do not establish compatibility. |
 | Record header | Database identity, collection-qualified stable ID, scope, origin, key/value revisions, layout and policy generations, support/density, source assignment, availability and valid-time policy. IDs are never reused within a database identity. |
 | Source record | Trainable semantic key plus immutable content/version/hash, ordered chunk/range and source-bank or checksummed asset reference. Source bytes are fixed. Detached native feature caches identify their E/layout revision. |
-| Memory record | Trainable semantic key and fixed-width semantic value `m`, with declared gate/lifetime coordinates, birth step and reproducible initialization identity. The same `m` feeds `G_KV` and `G_LoRA`. |
-| Materialization contract | `G_KV` produces full canonical unrotated K/V slots for the dedicated KB context track; `G_LoRA` produces mixture controls for the shared expert bank. Model/projector, native KV geometry, slot/RoPE convention and adapter-bank/layout identities determine compatibility. |
+| Memory record | Trainable semantic key and fixed-width semantic value `m`, with declared gate/lifetime coordinates, birth step and reproducible initialization identity. Compatible point/pair values mix before the shared `G_KV` and `G_LoRA` readouts; per-record `m` remains canonical. |
+| Materialization contract | `G_KV` produces full F-facet unrotated K/V from each compatible semantic aggregate; `G_LoRA` reads that same aggregate to control the shared expert bank. Model/projector, native KV geometry, slot/RoPE convention and adapter-bank/layout identities determine compatibility. |
 | Contribution | Immutable source/context footprint, source/output-slot assignment, assigned record, original key and initial value or immutable reproducible initialization reference, assignment distance and optimization lineage. Multiple distinct assignments must not overwrite each other. |
-| Relation | Source-catalog pair signature and support windows/counts; for an admitted memory pair, stable relation ID, collection-qualified member IDs, statistical weight, learned semantic `m`, strength/lifetime in the declared layout and complete joint-support lineage. |
+| Relation | Source-catalog pair signature and support windows/counts; for an admitted memory pair, stable relation ID, collection-qualified member IDs, fixed statistical prior, learned semantic `m`, strength/lifetime and an ordered two-element `endpoint_dependence_logits` field, with complete joint-support lineage. |
 | Optimizer row | `(collection, entity_kind, entity_id, field, layout_generation)`; distinguish record from relation. Store FP32 moments, touched-row update count, read revision and committed step under this same identity in storage and checkpoints. |
 | Growth/snapshot state | Growth policy/cursor, demand window and partition identity, allocation/init seed, admitted point/pair identities, and coherent model/catalog/key/index/graph/value/optimizer manifests with content hashes. |
 
-Full K/V and LoRA coefficients are **derived materializations**, not independently optimized delta tensors or stored mixture codes. Cache them only under the contributing value revisions, projector/controller/bank and layout identities, plus any declared query or track/stage conditioning. Cache canonical unrotated K/V before position binding; a positioned session cache additionally identifies its admission anchor and receipt. During training, compute them from live semantic-value leaves so both uses train `m`; a detached materialization cannot silently replace that gradient path.
+Full K/V and LoRA coefficients are **derived materializations**, not independently optimized delta tensors or stored mixture codes. Cache them only under the complete constituent IDs/key/value/edge revisions, grouping, query/support identities, current decayed mixture weights, projector/controller/bank/facet layout and any track/stage conditioning. Cache canonical unrotated K/V before position binding; a positioned session cache additionally identifies its admission anchor and receipt. During training, compute them from live values, query/selected keys and relation fields so both uses train the full weighted aggregate; a detached materialization cannot replace that path. An aggregate is derived session state, not another free record or optimizer row.
 
-Retain canonical source bytes outside the vector tables in immutable recipient storage. Preserve complete source assignments and original contributions for later writer targets and replacement/deletion; stable assignment IDs join supervision offline and are not writer input features. Source keys and corresponding memory keys are separate learned leaves, even when one initializes the other.
+Retain canonical source bytes outside the vector tables in immutable recipient storage. Preserve complete source assignments and original contributions for later writer targets and replacement/deletion; stable assignment IDs join supervision offline and are not writer input features. Source keys and corresponding memory keys are separate learned leaves, even when one initializes the other. Store the two relation logits under `(memory, relation, relation_id, endpoint_dependence_logits, layout_generation)` with fixed canonical endpoint order. Each field maps explicitly to the member whose applicability it modulates. Version the relation layout; migrate older snapshots explicitly or reject them. This adds two scalars and their ordinary touched-row moments per pair, without another optimizer or dense edge matrix.
 
 ### 13.2 Copy the reliable SQLite core
 
@@ -588,7 +640,7 @@ Adapt the generation counters:
 - **Index generations:** postings must cover the committed key generation; centroid-training identity and candidate-search policy are tracked separately.
 - **Payload generation:** changed semantic values, strength and lifetime; invalidate dependent K/V and controller materializations.
 - **Policy/provenance generation:** exclusions, strength/eligibility, support and lineage changes.
-- **Graph generation:** topology, statistics and relation payload versions.
+- **Graph generation:** topology, statistics and relation-field revisions. Endpoint-weight changes invalidate relation-dependent scores, attenuation and aggregate materializations, but do not alter semantic keys or their postings.
 - **Published snapshot identity:** a coherent tuple of the above plus the native model/projector/controller/bank and growth manifest.
 
 Payload-only updates do not require rebuilding the key index. Changed keys update their postings and resident mirrors as specified below, while payload and eligibility caches follow their own generations. All results must come from one declared read snapshot. Session source-coverage receipts are keyed by content identity independently of these score/index generations.
@@ -605,13 +657,13 @@ The donor does not implement DiskANN, distributed KB shards or a columnar object
 
 ### 13.4 Sparse key updates and compatible MaxSim epochs
 
-Pin query-model parameters, source/key/index state and semantic-value revisions for each bounded retrieval/training window. Collect gradients locally through live selected rows, then update at the owned optimizer boundary. Source RAG learns keys while source bytes stay immutable; memory rows learn keys and their declared semantic/strength/lifetime fields. Keep the two collections' key parameters distinct unless shared ownership is explicitly configured.
+Pin query-model parameters, source/key/index state and semantic-value revisions for each bounded retrieval/training window. Collect gradients locally through live selected rows, then update at the owned optimizer boundary. Source RAG learns keys while source bytes stay immutable; memory rows learn keys and their declared semantic/strength/lifetime fields; selected pair rows also learn directional dependence logits. Keep the two collections' key parameters distinct unless shared ownership is explicitly configured.
 
 For an exact reference bank, patch the changed key rows by stable ID. Adapt [DiskIVF.update][h-ivf] and [SQLiteKB.upsert][h-sqlite] so changed normalized keys, reassigned cell postings, sparse moments and revisions commit in the same transaction. Keep coarse centroids fixed between scheduled or measured-drift rebuilds. Track centroid training separately from current postings: centroid quality can degrade, but stale postings must not be published as current. Patch disposable mirrors after commit and acknowledge the new bank epoch before another training window reads it. Avoid a full all-key exact/HNSW cache rebuild on every sparse step; immutable HNSW serving is an optional separately tested path.
 
 Incremental maxima are valid only for unchanged scoring operands. After query/key updates, do not compute max(old maximum, new score) across incompatible vectors: an old maximum can decrease, and an older query can become the new winner. Clear score/deferred-ranking and relation-match state, or recompute it over the explicitly retained bounded compatible query/candidate window. Record a new scoring epoch; a version transition alone is not newly high evidence. With cleared state, the next compatible incoming query can qualify novel content again.
 
-Preserve committed injected-content coverage across these transitions. Revalidate or cancel reservations/receipts from an incompatible epoch; unchanged bytes do not become unseen. A rebuild with identical vectors can preserve mathematical scores but must refresh candidate-search coverage state. A memory-only value or allocation update does not invalidate source MaxSim when its source keys and query-scoring semantics are unchanged.
+Preserve committed injected-content coverage across these transitions. Revalidate or cancel reservations/receipts from an incompatible epoch; unchanged bytes do not become unseen. A rebuild with identical vectors can preserve mathematical scores but must refresh candidate-search coverage state. A memory-only value, endpoint-weight or allocation update does not invalidate raw source MaxSim when its source keys and query-scoring semantics are unchanged. Invalidate derived relation-dependent rankings, support/attenuation snapshots and aggregate materializations independently.
 
 Retain teacher anchors or their reproducible immutable references, plus the task/source lineage of key optimization. Immutable source bytes do not imply an untrained address. Serving uses accepted compatible snapshots; writer and outcome-policy phases keep their declared query/key interfaces fixed. Source-key generation after pretraining must reproduce learned coordinates, with actual new-source retrieval evaluated before replacing the teacher-seeded fallback.
 
@@ -629,7 +681,7 @@ A simple priority is `D_c / (1 + A_c)`: recent query demand in region `c` divide
 
 New rows need opportunities to train. Reserve a small training candidate quota for eligible nearby newborn or underused records, using birth step and existing touched-row counts. Fetch live keys and recompute ordinary scores; use the existing smooth warm-up weights where needed rather than forcing a large intervention. This quota cannot bypass causal/source exclusions, pair-support gates or the independent source-RAG novelty rules. Keep it bounded so growth does not displace the established retrieval distribution.
 
-**Grow correlations with the points.** Precompute bounded source-window pair counts keyed by stable catalog source identities, independently of memory allocation. Count each source window once; repeated queries and allocating another memory never increment corpus support. Each growth batch examines only bounded stored adjacency touching its newly assigned sources. When both endpoints have available distinct memory assignments, admit supported pairs subject to support, strength and degree caps, initialize their semantic values, and preserve original support footprints. Missing endpoints wait for later growth.
+**Grow correlations with the points.** Precompute bounded source-window pair counts keyed by stable catalog source identities, independently of memory allocation. Count each source window once; repeated queries and allocating another memory never increment corpus support. Each growth batch examines only bounded stored adjacency touching its newly assigned sources. When both endpoints have available distinct memory assignments, admit supported pairs subject to support, strength and degree caps, initialize their semantic values and two conservative directional dependence logits with fresh moments, and preserve original support footprints. Missing endpoints wait for later growth.
 
 Use one-hop relations to promote candidates under the existing limits. A learned joint pair value still requires independently eligible causal query/span support for its members; one query cannot manufacture that evidence. Preserve already trained pair IDs, values and moments. Begin with deterministic admission into available degree capacity and a bounded pending list, rather than replacing learned neighbors after every small batch. The resulting graph follows its recorded incremental admission policy; it need not equal a whole-corpus greedy rebuild.
 
@@ -656,7 +708,7 @@ For each optimizer step:
 5. Update neural parameters and selected rows under one coordinated step identity. Commit all touched source/memory keys, memory and relation fields, changed-key index postings, optimizer moments, counts and revisions for that step in one SQLite transaction; publish updated row revisions only after that commit succeeds.
 6. Patch or invalidate affected key/materialization caches, start required score epochs and release bounded leaves/router inputs. If a growth batch is due, admit it at this owned barrier under section 14.1's transaction before opening the next pinned window. Preserve injected source coverage. Publish a checkpoint only after the coherent step and any scheduled growth complete.
 
-The donor currently optimizes keys, values and relation fields. Add typed collection ownership, the bounded frozen-key warm-up schedule followed by required key learning, typed semantic-value/strength/decay fields, full eligibility arguments and optimizer-state reset rules. Untouched rows use explicitly documented touched-row Adam semantics: their moments, counters and weight decay do not advance as if they had dense zero gradients. Record this distinction from dense Adam.
+The donor currently optimizes keys, values and relation fields. Add typed collection ownership, the bounded frozen-key warm-up schedule followed by required key learning, typed semantic-value/strength/decay and relation endpoint-dependence fields, full eligibility arguments and optimizer-state reset rules. Untouched rows use explicitly documented touched-row Adam semantics: their moments, counters and weight decay do not advance as if they had dense zero gradients. Record this distinction from dense Adam.
 
 The donor's embedding_optimizer table has no foreign-key cascade to record/relation deletion. Explicitly remove or reset its slots when a row is deleted, regenerated, reaggregated or changes field/layout generation; never attach retained moments to a new logical record. Do not reuse record/relation IDs within a database identity.
 
@@ -685,9 +737,9 @@ Include these state groups:
 
 For session restart or training-trajectory replay, retain actual selected query raw facets, output specs/vectors and policy densities; query/key/index identities and scoring epochs; bounded MaxSim support/deferred state; fetch reservations/results; and committed source-content coverage receipts. Record pending work as idempotent requests with declared retry/cancel policy, never live futures or connections. Restore durable source coverage independently of incompatible score caches.
 
-Persist every KB context admission's record/value revision, selected slots, projection identity, track, position binding, activation boundary, gate and decay state. Replay admissions at the same causal frontier and native meridian positions. Preserve committed native clocks and each affected track's progress; catalog growth, ANN search and projected-KV materialization do not fabricate events or backdate evidence. Results cannot change already selected peer outputs. Save adapter selections, coefficients and activation-age state for **all participating tracks**, including their null/default snapshots, so grouped replay cannot apply a refreshed mixture to an earlier peer prediction.
+Persist every KB context admission's constituent record/key/value/edge revisions, original coefficients and grouping, support-window/check identities, full F-facet layout, projector identity, track, anchor and per-constituent lifetime origins. Recompute the decayed aggregate and KV/LoRA readouts at each recorded native transaction age; cached tensors must identify that exact mixture snapshot. Replay admissions at the same causal frontier and native meridian positions. Preserve committed native clocks and each affected track's progress; catalog growth, ANN search and projected-KV materialization do not fabricate events or backdate evidence. Results cannot change already selected peer outputs. Save adapter selections, coefficients and activation-age state for **all participating tracks**, including their null/default snapshots, so grouped replay cannot apply a refreshed mixture to an earlier peer prediction.
 
-Derived full K/V can be recomputed from retained semantic values and the pinned projectors, or restored from a validated materialization cache. Its identity must include all conditioning and position inputs. Never restore a compatible-looking tensor solely by shape, and never restore an old materialization as an independent trainable payload.
+Derived full K/V can be recomputed from retained constituents, exact mixture weights and pinned projectors, or restored from a validated aggregate-materialization cache. Its identity must include all conditioning, contributor/edge revisions, decay age, grouping and position inputs. Never restore a compatible-looking tensor solely by shape, and never restore an old materialization as an independent trainable payload.
 
 Finish writes, take a self-contained SQLite backup, stage model/state files, verify all hashes and matching identities, then flush and atomically publish the completed snapshot and pointer. This publication makes a coherent artifact visible; it does not make the preceding model/database update cross-system atomic. Exclude half-committed meridians and invalidate stale speculation.
 
@@ -723,13 +775,13 @@ Useful superposition means shared records preserve distinctions and improve tran
 
 Port source-window decrementing, original-contribution retention and whole-relation removal from the donor. Replacing/deleting a source invalidates affected payloads, relations, dependent experience records, optimizer rows and derived caches.
 
-For freely optimized keys and semantic values, averaging surviving teacher seeds or original random payloads does not recover the useful adapted record. Mark affected shared records unavailable, then regenerate from surviving sources with an accepted writer, or reset/reoptimize them in a declared training run. Clear stale moments and publish only the validated replacement. If no surviving support exists, delete the complete record.
+For freely optimized keys, directional dependence and semantic values, averaging surviving teacher seeds or original random payloads does not recover the useful adapted record. Mark affected shared records unavailable, then regenerate from surviving sources with an accepted writer, or reset/reoptimize them in a declared training run. Clear stale moments and publish only the validated replacement. If no surviving support exists, delete the complete record.
 
 Recompute affected relation statistics and writer-produced relation payloads from remaining support; do not silently reduce a relation's arity or keep unsupported free drift. Preserve training/tuning provenance for holdout checks. Removing KB support does not remove its past influence on neural parameters. Cancel invalid source reservations and score entries, but retain receipts for bytes already committed. Re-embedding unchanged source content does not create new injection eligibility; genuinely changed content follows its new version/range identity.
 
 ### 15.4 Fresh corpus reproduction
 
-Freeze a coherent optimized target bank **and its final admitted point/pair subset, source assignments and growth manifest**. Re-encode original sources into a fresh database; reproduce adapted source-index keys and memory keys/semantic values/strength/lifetime. Recompute source statistics, restore declared target correspondences, generate learned pair values and build fresh learned-space indexes.
+Freeze a coherent optimized target bank **and its final admitted point/pair subset, source assignments and growth manifest**. Re-encode original sources into a fresh database; reproduce adapted source-index keys and memory keys/semantic values/strength/lifetime and ordered pair-dependence targets. Recompute source statistics, restore declared target correspondences, generate learned pair values and build fresh learned-space indexes.
 
 Generate full-KV blocks and LoRA controls through the frozen materializers. Do not retain optimized target leaves, detached learned K/V copies or old per-record controller outputs behind a nominally regenerated bank. The writer need not predict the historical query-density allocation policy.
 
@@ -743,7 +795,7 @@ Compare optimized, regenerated, deployed and no-new-memory behavior on the same 
 | --- | --- | --- | --- |
 | Coherence and embedding bootstrap | Native E/C/P/R objectives; per-megatoken/per-chunk document and causal-query embedding distillation | No memory-value writer or required populated memory | Useful generation, aligned held-out query/chunk embeddings and native replay. |
 | Progressive memory warm-up | Allocate dense-demand point/pair entries; train full-KV projector, shared-value LoRA controller/bank and native use, with small positive activation | Existing seed keys fixed only for bounded warm-up; source assignments stable; writer absent | Empty-bank bootstrap, query-density/tail coverage, exact null and useful reader/value gradients. |
-| Main free-KB pretraining | Continue bounded growth; train native queries, selected source/memory keys, semantic values, strength/lifetime, projector, all-track adapters and model; step-global router balance | Source bytes and existing IDs/assignments stable; graph/index fixed within each window; no source/experience memory writer | Bilateral keys and both materializers improve utility; growth preserves learned rows; sparse publication/replay/global gradients agree. |
+| Main free-KB pretraining | Continue bounded growth; train native queries, selected source/memory keys, semantic values, strength/lifetime, directional pair weights, projector, all-track adapters and model; step-global router balance | Source bytes and existing IDs/assignments stable; graph/index fixed within each window; no source/experience memory writer | Bilateral keys and both materializers improve utility; growth preserves learned rows; sparse publication/replay/global gradients agree. |
 | Local hindsight writer after pretraining | New source writer and key/value readouts | Final model/query readouts, projector/controllers/bank, learned keys/values and allocation/assignment targets frozen | Permitted-suffix reconstruction and behavioral improvement, followed by transfer. |
 | Cross-source writer transfer | Source writer on related/distractor groups | Same accepted interface snapshot | New examples benefit from other-source writes and depend less on same-source access. |
 | Corpus reproduction | Document-key readout adaptation, full-context semantic writer and pair-value writer | Optimized source keys and admitted point/pair targets; native query/materializers fixed | Assignment coverage, optimized-coordinate reproduction and fresh-index/bank behavior. |
@@ -771,13 +823,13 @@ L_{\rm pre}=L_{\rm native}
 
 Embedding/ranking losses establish useful address coverage; section 12.7's local source-value objective learns both sides of RAG retrieval. A small optional teacher anchor can limit drift and decay when it constrains useful learning. Native continuation gradients already include the full-KV attention and LoRA effects and must not be counted twice.
 
-Train shared semantic values through **both** materializers, similarity-derived activation through query and stored keys, and explicitly owned projector/controller/bank parameters through actual native behavior. Keep live projected K/V in the bounded training graph. Canonical source features and targets for the RAG auxiliary remain detached; ANN identities, growth choices and historical scheduling state are discrete.
+Train shared point/pair semantic aggregates through **both** materializers, similarity/support-derived activation through query and stored keys and directional pair logits, and explicitly owned projector/controller/bank parameters through actual native behavior. Keep live projected K/V in the bounded training graph. Canonical source features and targets for the RAG auxiliary remain detached; ANN identities, growth choices and historical scheduling state are discrete.
 
 Memory regularity bounds semantic/projected norms, attention strength, adapter residuals and lifetimes over valid uses. Null supervision handles truly unsupported/no-new-evidence examples. Routing balance uses section 12.8's current-update global statistics with detached upstream inputs; its gradients train existing router parameters only. Native utility still trains upstream representations and memory. Keep logit stabilization separate and replace the old local balancing term.
 
 Start new rows at small positive active strength on eligible supervised uses so value/projector gradients can exist; retain the exact zero branch for null cases. Give new or undertrained nearby rows a small candidate-inclusion quota, then rescore them normally. This is exposure rather than forced strong activation. Do not assign experts or memory to unsupported examples merely to satisfy utilization statistics.
 
-Mix ordinary continuation, supported RAG, other-source transfer, permitted reconstruction and verified assistant behavior. Include duplicates, changing candidate counts, hard distractors, conflicts, stale versions, unsupported queries and singletons. Retain no-memory examples and independently disable full KV or LoRA on some batches. Any positive assistance obeys the same source eligibility and is reported separately from ANN recall.
+Mix ordinary continuation, supported RAG, other-source transfer, permitted reconstruction and verified assistant behavior. Include duplicates, changing candidate counts, hard distractors, conflicts, stale versions, unsupported queries and singletons. Add matched-query examples with the correlated partner present, absent from a fully checked context, and unknown because checking was incomplete. Include both directions and cases where the point remains useful alone, so co-occurrence is not automatically learned as a prerequisite. Retain no-memory examples and independently disable full KV or LoRA on some batches. Any positive assistance obeys the same source eligibility and is reported separately from ANN recall.
 
 Adapt valid-position regularity from [steering_regularity][h-control]; native padding and masked KB slots do not dilute it. The donor's variational FreeLatents/KL budget remains an optional capacity diagnostic. A deterministic semantic value has no KL term without a declared stochastic distribution; norm/noise penalties are not measured storage-bit bounds.
 
@@ -793,7 +845,7 @@ The future-aware recurrence calculation is training-only. It is not an inference
 
 ### 16.4 Local source writer
 
-Implement an offline writer contract that accepts ordered source blocks, a permitted footprint and a suffix/full-context mode, and emits source-associated normalized keys plus shared semantic values and strength/lifetime. Initialize compatible ingestion/features from the trained native system; writer parameters are separately registered so training them does not change the frozen deployed query/model path.
+Implement an offline writer contract that accepts ordered source blocks, a permitted footprint and a suffix/full-context mode, and emits source-associated normalized keys plus shared semantic values and strength/lifetime. The pair writer additionally emits both ordered directional dependence logits. Initialize compatible ingestion/features from the trained native system; writer parameters are separately registered so training them does not change the frozen deployed query/model path.
 
 Use a bounded source-context encoder/readout over actual E source representations. Its output slots have explicit source-chunk or source-window assignments. The 32 latent facets do not supply those assignments automatically. The writer must actually receive every source span needed by its target; an isolated chunk cannot stand in for an unseen contextual suffix.
 
@@ -817,13 +869,13 @@ L_{\rm point}=\operatorname{mean}_c w_c\left[
 \right].
 \]
 
-Fields f include the shared semantic value, strength and lifetime under the pinned layout. Derive complete K/V and LoRA controls through the frozen materializers; they are behavioral/readout targets, not separately owned free parameter copies. Normalize field losses by their declared dimensions/scales; measure realized lifetime curves and intervention behavior as well as raw parameter error. Targets are detached. Use the original assignment distance; the donor implements distance weighting, not a separately calibrated confidence probability.
+Fields f include the shared semantic value, strength and lifetime, plus both directional dependence fields for pair targets under the pinned layout. Derive complete K/V and LoRA controls through the frozen materializers; they are behavioral/readout targets, not separately owned free parameter copies. Normalize field losses by their declared dimensions/scales; measure realized lifetime curves and intervention behavior as well as raw parameter error. Targets are detached. Use the original assignment distance; the donor implements distance weighting, not a separately calibrated confidence probability.
 
 Each contributing source output learns the **complete useful record**, not a fraction of a mixture or an averaged target that erases conflicts. Retain incompatible assignments explicitly. Fix slot correspondence before pointwise loss. Use the donor's [matched_loss][h-experience-memory] only where regenerated slots have established correspondence. When layouts differ, adapt evidence_loss to compare retrieved evidence at identical permitted queries and verify downstream behavior; an explicit set-assignment solver would be additional implementation work.
 
 Resolve linked support documents through [referenced_documents][h-knowledge]. Full-context writer training is an actual objective, not an untrained switch from suffix mode at deployment.
 
-For pair payloads, construct relation-writer inputs from current source-writer member outputs and permitted source-window summaries/statistics. Do not feed optimized target vectors back as source inputs. Reproduce every admitted pair's shared semantic value, strength and lifetime. Recompute source correlation statistics, then use the final assignment/admission manifest to identify the learned pair subset. Do not require the writer to infer historical density allocation. A point-only rebuild that loses useful pair memories is incomplete.
+For pair payloads, construct relation-writer inputs from current source-writer member outputs and permitted source-window summaries/statistics. Do not feed optimized target vectors back as source inputs. Reproduce every admitted pair's shared semantic value, strength, lifetime and both directional dependence fields under fixed endpoint ordering. Measure the resulting missing-partner attenuation and supported pair contribution, not just scalar reconstruction error. Recompute source correlation statistics, then use the final assignment/admission manifest to identify the learned pair subset. Do not require the writer to infer historical density allocation. A point-only rebuild that loses useful pair memories is incomplete.
 
 Add behavioral continuation loss and run the fresh rebuild in section 15. If reconstruction fails, inspect source sufficiency, incompatible consolidation, target coverage and free-payload capacity before adding writer complexity or allowing hidden free-leaf retention.
 
@@ -890,12 +942,12 @@ All new paths below are **proposed**, relative to `src/megatoken/`. Port small d
 | A: data/contracts | New memory/contracts.py and data/retrieval.py; extend data/schema.py and prepared manifests | Learned-space/layout and source-footprint identities; query/result/epoch, growth, complete-KV admission and adapter-snapshot contracts. |
 | B: vector realization | New generation/embedding.py; extend FacetedGenerator/model/multitrack.py | Registered embedding R, output/train targets, causal P conditioning, bootstrap chunk/query distillation, dispatch, loss and serialization. Depends on A. |
 | C: storage/source retrieval | New memory/base.py, tensor.py, sqlite.py, index.py, retrieval.py | Exact/SQLite/IVF references, typed source/memory collections, incremental MaxSim, eligibility/refill, coverage and transactional learned-key postings. Depends on A. |
-| D: growth and correlations | New memory/authoring.py, growth.py and relations.py | Versioned source-catalog demand; bounded dense-first/exploration allocation, stable assignments, fresh sparse state, source-level counts, affected-pair admission and one-hop/independent-support retrieval. Depends on C. |
-| E: full-KV context | New memory/semantic.py and memory/context.py; extend native C/P read sites, AttentionFeatures and MultiTrackState | Shared value layout, registered MemoryKVProjector, bounded separate KB segment, anchor/log-strength/mask convention, exact null, direct admission without raw-event/frontier/clock mutation. Depends on A/B/C. |
+| D: growth and correlations | New memory/authoring.py, growth.py and relations.py | Versioned source-catalog demand; bounded dense-first/exploration allocation, stable assignments, fresh sparse state, source-level counts, affected-pair admission, learned directional dependence, checked causal support and one-pass lower-order attenuation. Depends on C. |
+| E: full-KV context | New memory/semantic.py and memory/context.py; extend native C/P read sites, AttentionFeatures and MultiTrackState | Shared value layout, registered MemoryKVProjector, bounded separate F-facet KB positions from compatible aggregates, anchor/log-strength/mask convention, exact null, direct admission without raw-event/frontier/clock mutation. Depends on A/B/C. |
 | F: all-track adapters | New model/adapters.py; extend C/P owners and explicit R dispatch context | Independent factor banks, shared-value controller, sparse stage/track specialization, canonical coordinate paths, immutable transaction snapshots and historical control. Depends on A/E. |
 | G: training/optimization | New training/memory.py, training/router_balance.py and memory/optimizer.py; extend engine/meridians/losses/optimizer/distributed/checkpoint | Progressive free-bank pretraining, local bilateral keys, shared-value gradients, exact step-global router-only balance, coherent sparse updates/growth and joint checkpoints. Depends on B–F. |
 | H: runtime/replay | Extend multitrack_runtime.py, multitrack_service.py, training/history.py and grouped tapes | Query/source chronology, MaxSim/coverage, direct KB admission, all-track controls, revision invalidation and compatible training replay; separate differentiable policy scorer. Develop with E–G. |
-| I: post-pretraining writers | New training/hindsight.py, training/reproduction.py and registered source writers | Local suffix/cross-source training, optimized source-key and admitted point/pair target reproduction, fresh indexes/materializations and acceptance. Depends on completed G/H snapshot. |
+| I: post-pretraining writers | New training/hindsight.py, training/reproduction.py and registered source writers | Local suffix/cross-source training, optimized source-key and admitted point/pair value/dependence target reproduction, fresh indexes/materializations and acceptance. Depends on completed G/H snapshot. |
 | J: later experience | New training/experience.py and source facade in memory/authoring.py; extend environments.py/rl.py | Supervised trial fitting, accepted regenerated writes, optional benefit boundaries and explicitly scoped native-likelihood reward fitting. Depends on I. |
 
 Immediate owners include [prepare_meridian_batch/forward_meridian_batch][m-meridians], [MultiTrackGenerator][m-multitrack], [FacetedCore][m-core], [EpochRouter][m-routing], [LossLedger][m-losses], [MasterAdamW][m-optimizer], [DistributedContext][m-distributed], [checkpoint.py][m-checkpoint] and [MultiTrackRuntime][m-runtime].
@@ -916,7 +968,7 @@ These are gates for future implementation, not claims that this documentation ch
 | [test_ivf_batch_search.py][h-test-ivf] | Exact rescoring within probed cells, bounded decoding, sparse IDs | Full eligibility/coverage exclusion before truncation, bounded refill/shortfall, and moved-key posting parity against exact scores in probed cells. |
 | [test_authoring_cache.py][h-test-authoring-cache], [test_authoring_scale.py][h-test-authoring-scale], [test_authoring_source_batch.py][h-test-authoring-batch] | Sequential assignment, mmap/cache bounds and cursor/record rollback | Stable admitted assignments during progressive growth, complete context fingerprints and typed source replacement. |
 | [test_relation_build.py][h-test-relations] | Stable IDs, support/degree caps, deterministic ties, resumable atomic publication | Pair-only baseline, support-footprint exclusion, allocation-independent counts, affected-pair admission, preserved old pair moments and source-change invalidation. |
-| [test_retrieval.py][h-test-retrieval] | Masked current candidates contribute no direct lookup gradient, exact null, conflict slots, density compensation, distinct-span relation gates | One query cannot activate a pair; repeated same-support queries do not manufacture evidence. |
+| [test_retrieval.py][h-test-retrieval] | Masked current candidates contribute no direct lookup gradient, exact null, conflict slots, density compensation, distinct-span relation gates | One isolated query/support unit cannot activate a pair; earlier independent checked context may supply the other leg. Repeated same-support queries do not manufacture evidence. |
 | [test_training.py][h-test-training] | Reader/memory gradients with frozen owners, cross-source/scope masks, full-target point/relation distillation | Source i+2 invariant under query/evidence insertion, raw-facet writer mappings and shared semantic-value/strength/lifetime targets and materialized full-KV/LoRA behavior. |
 | [test_sparse_candidates.py][h-test-sparse] | Repeated IDs share a differentiable parameter and accumulate gradients | Bilateral key/value gradients, collection-qualified touched-row parity, denominator/rank equivalence, finite failure handling and key/payload moment resume/reset. |
 | [test_serving_replay.py][h-test-replay] | Target-free replay, boundary scheduling and no-match behavior | Native grouped tapes, source coverage and deferred/reserved receipts, delayed arrivals, key/score epochs, direct KB admission with unchanged native frontier/clock, full-block expiry and selected-raw identity. |
@@ -939,11 +991,14 @@ Add full-KV, growth and all-track routing gates:
 
 1. **Readiness and demand:** no free-value allocation before both coherence/embedding gates; an empty memory bank can bootstrap from source-supported query demand. Dense regions win first, while the declared miss/exploration quota reaches uncovered support. Replayed queries, graph bonuses and repeated source families cannot multiply counts. Catalog misses never fabricate support.
 2. **Incremental allocation/pairs:** each source window contributes once regardless of allocation order. New pairs appear when both endpoints become available, with original distinct-support gates intact. Growth preserves existing point/pair values and moments. Failure injection across row/posting/pair/cursor writes rolls back and deterministic retry reproduces IDs and initialization.
-3. **Full-KV admission:** projected blocks have correct native head/slot geometry; C and every P track can read them. Admission increments session revision and invalidates old speculation while preserving raw/final frontier, native counters and existing native K/V. Anchors rotate K once, never V; KB-only updates do not advance lifetime age. Whole-block eviction/refresh is idempotent.
-4. **Null and materialization:** masked memory leaves attention output unchanged under the same prior context. Demonstrate that zero values alone fail this test. Invalid value/projector/layout caches are rejected; live training gradients reach shared semantic values through full KV and LoRA independently and together. Derived materializations have no separate optimizer rows.
+3. **Full-KV admission:** each compatible aggregate projects to exactly F native facet slots in order, with the native head geometry; C and every P track can read them. Admission increments session revision and invalidates old speculation while preserving raw/final frontier, native counters and existing native K/V. Anchors rotate K once, never V; KB-only updates do not advance lifetime age. Whole-block eviction/refresh is idempotent.
+4. **Null and materialization:** masked memory leaves attention output unchanged under the same prior context. Verify mixture-aware cache identities and that unequal constituent decay rematerializes the nonlinear projection under the unchanged anchor and immutable transaction snapshot; equal relative weights may reuse compatible projection results. Demonstrate that zero values alone fail this test. Invalid value/projector/layout caches are rejected; live training gradients reach shared semantic values through full KV and LoRA independently and together. Derived materializations have no separate optimizer rows.
 5. **All-track ownership and history:** P/C/R use one immutable admitted snapshot per grouped transaction, with recorded per-module choices. Native raw-facet R remains independent of C activations; canonical E/index/query/projector paths remain distinguishable. Old events replay with historical controls, not refreshed values. A changed semantic summary reaches any explicitly memory-conditioned base-MoE compile before its first history read.
 6. **Global routing equivalence:** partition captured decisions unevenly across ranks/microbatches and compare router-only gradients with the concatenated reference. Include no-route ranks, shortened compiled prefixes, fixed eligibility, null/path dropout and actual pre-capacity-drop choices. Check no world-size error, old-local-term duplication or replay/counter duplication. Fairness gradients stop at captured inputs; native utility gradients still train upstream memory and representations.
 7. **Specialization and serving independence:** at fixed parameters, causal context and RNG, regrouping unrelated sessions does not change their expert assignments. Measure per-track/domain expertise and useful task-gradient exposure under globally balanced utilization. Do not mistake uniform counts, padding or dropped assignments for useful specialization.
+
+
+Add correlation-specific gates: checked unsupported partners attenuate only the intended endpoint; supported partners avoid that penalty; unavailable, excluded or unchecked partners create no absence penalty. Verify the `(1-beta)` floor, degree-independent maximum, distinct-support pair gating and absence of graph self-reinforcement. Confirm finite local gradients into both endpoint logits, current query and selected point/partner keys, with detached historical features. At matched budgets compare pair gain, attenuation disabled, learned directions and fixed statistical relations; reproduce both directional fields and their behavior through the pair writer. A changed edge field must reset only its dependent relation/materialization state and leave semantic postings and durable RAG coverage intact.
 
 ### 19.2 Evaluation matrix
 
@@ -961,9 +1016,9 @@ Development data used to choose rebuild or trigger thresholds is tuning data. Re
 
 ### 19.3 Configuration and capacity accounting
 
-Version the configuration for semantic spaces/layouts; MaxSim thresholds/epochs and source overlap/retry/coverage budgets; query and artificial-boundary scheduling; growth readiness, regional demand windows, dense/miss/exploration quotas, allocation and pair limits; local key/value losses and touched-row rates; index refresh; full-KV slots, anchor/strength/expiry; all-track parameter coverage, expert pools/top-k/ranks and router-replay budgets; writer views and rebuild acceptance.
+Version the configuration for semantic spaces/native-facet layouts, support-vector roles/windows/check budgets, directional-logit transforms and initialization, attenuation cap beta, pair gain lambda_2, compatible grouping and aggregate rematerialization; MaxSim thresholds/epochs and source overlap/retry/coverage budgets; query and artificial-boundary scheduling; growth readiness, regional demand windows, dense/miss/exploration quotas, allocation and pair limits; local key/value losses and touched-row rates; index refresh; full-KV slots, anchor/strength/expiry; all-track parameter coverage, expert pools/top-k/ranks and router-replay budgets; writer views and rebuild acceptance.
 
-Use one query vector per event, pair relations and a small fixed full-KV slot count per record initially. The donor's candidate count near 32, up to four incompatible aggregation slots and rank-eight adapters are reference values, not measured native optima. Full-KV record blocks and conditional semantic aggregation slots are separate budgets.
+Use one query vector per retrieval event, pair relations and one complete native F-facet block per compatible semantic aggregation group; F is currently 32. The donor's candidate count near 32, up to four incompatible aggregation slots and rank-eight adapters are reference values, not measured native optima. Canonical record count and admitted aggregate-position count are separate budgets.
 
 For \(N_s\) source keys of dimension \(d_k\) and \(N_m\) point memories with the same address dimension, semantic width \(d_m\) and \(d_a\) strength/lifetime coordinates, canonical FP32 storage is approximately:
 
@@ -971,15 +1026,15 @@ For \(N_s\) source keys of dimension \(d_k\) and \(N_m\) point memories with the
 4\,[N_s d_k+N_m(d_k+d_m+d_a)]\ \text{bytes}.
 \]
 
-Two FP32 Adam moments add twice that storage for rows/fields that have actually been touched. Add admitted pair semantic values/controls and their moments separately; graph-addressed pairs need no independent ANN key by default. Teacher anchors add storage unless deduplicated through immutable existing vectors. Original contributions, source bytes/features, catalogs, adjacency, query-demand state, indexes, coverage receipts and snapshots remain separate costs.
+Two FP32 Adam moments add twice that storage for rows/fields that have actually been touched. Add admitted pair semantic values/controls, two directional logits per pair and their touched-row moments separately; graph-addressed pairs need no independent ANN key by default. Teacher anchors add storage unless deduplicated through immutable existing vectors. Original contributions, source bytes/features, catalogs, adjacency, query-demand state, indexes, coverage receipts and snapshots remain separate costs.
 
-For \(B\) active memory blocks with \(S\) slots, \(H_{\rm KV}\) heads, head dimension \(d_h\), and \(b\) bytes per cache scalar, projected full-KV working storage is:
+For \(B\) active aggregation positions with \(F=\mathrm{config.n\_facets}\) facet slots each, \(H_{\rm KV}\) heads, head dimension \(d_h\), and \(b\) bytes per cache scalar, projected full-KV working storage is:
 
 \[
-2\,B\,S\,H_{\rm KV}\,d_h\,b.
+2\,B\,F\,H_{\rm KV}\,d_h\,b.
 \]
 
-This is one shared context-KV geometry initially, not a per-layer copy. Count temporary projection/attention buffers and any unrotated materialization cache separately. Derived K/V and controller codes have **no independent optimizer moments**. A serving cache cannot become a detached shortcut around training the canonical semantic values.
+This is one shared context-KV geometry initially, not a per-layer copy. Count temporary aggregation/projection/attention buffers, bounded causal support vectors, per-transaction rematerialization and compatible unrotated caches separately. Derived K/V and controller codes have **no independent optimizer moments**. A serving cache cannot become a detached shortcut around training the canonical semantic values.
 
 Independent LoRA factors require \(\sum_g E_g r_g(d_{{\rm in},g}+d_{{\rm out},g})\) parameters, plus only explicitly chosen packed-base-expert multiplicity. Their normal model optimizer state is real. Growing a KB row does not create another bank or optimizer. Keep a modest resident/shared or explicitly sharded bank initially; if selected factors need external staging, complete it at the admission boundary. No disk/KB fetch should appear unexpectedly inside an event's MoE execution.
 
@@ -1045,23 +1100,23 @@ Choose numerical promotion tolerances in the experiment recipe before inspecting
 [h-test-replay]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/production/test_serving_replay.py
 [h-test-experience]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/experience/test_learning.py
 [h-test-provenance]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/tests/experience/test_provenance_regressions.py
-[m-schema]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/data/schema.py
-[m-dedup]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/data/dedup.py
-[m-data-storage]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/data/storage.py
-[m-meridians]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/training/meridians.py
-[m-multitrack]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/model/multitrack.py
-[m-attention]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/model/attention.py
-[m-experts]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/model/experts.py
-[m-optimizer]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/training/optimizer.py
-[m-diloco]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/training/diloco_client.py
-[m-checkpoint]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/training/checkpoint.py
-[m-losses]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/training/losses.py
-[m-rl]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/training/rl.py
-[m-runtime]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/multitrack_runtime.py
-[m-history]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/training/history.py
+[m-schema]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/data/schema.py
+[m-dedup]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/data/dedup.py
+[m-data-storage]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/data/storage.py
+[m-meridians]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/training/meridians.py
+[m-multitrack]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/model/multitrack.py
+[m-attention]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/model/attention.py
+[m-experts]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/model/experts.py
+[m-optimizer]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/training/optimizer.py
+[m-diloco]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/training/diloco_client.py
+[m-checkpoint]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/training/checkpoint.py
+[m-losses]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/training/losses.py
+[m-rl]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/training/rl.py
+[m-runtime]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/multitrack_runtime.py
+[m-history]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/training/history.py
 [h-experience-memory]: https://github.com/werg/hindsight-kb/blob/450164784589b2576256b8b0ba3d2ccc89af992d/src/hindsight_kb/experience/memory.py
-[m-core]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/model/core.py
-[m-routing]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/model/routing.py
-[m-distributed]: https://github.com/werg/megatoken/blob/f560c32620522fcbed44f9fa7d3552207d998274/src/megatoken/training/distributed.py
+[m-core]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/model/core.py
+[m-routing]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/model/routing.py
+[m-distributed]: https://github.com/werg/megatoken/blob/82be7ef563e6cf55a2e2b0cb3d11bf55793071e1/src/megatoken/training/distributed.py
 [switch-transformers]: https://www.jmlr.org/papers/volume23/21-0998/21-0998.pdf
 [deepseek-v3]: https://arxiv.org/html/2412.19437v2
