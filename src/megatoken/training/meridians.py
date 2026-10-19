@@ -164,6 +164,14 @@ def prepare_meridian_batch(
         if any(len(encoded[i].payload) > config.max_record_bytes for i in offsets):
             raise ValueError("Grouped record exceeds max_record_bytes")
         records = tuple(encoded[i] for i in offsets)
+        if any(
+            record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
+            for record in records
+        ):
+            raise ValueError(
+                "Binary media records require a pinned media asset/feature reader "
+                "even when a source labels their track as text"
+            )
         selected = tuple(record.record.policy_mask for record in records)
         if any(selected) and not all(selected):
             raise ValueError(
