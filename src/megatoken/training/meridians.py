@@ -144,6 +144,18 @@ def prepare_meridian_batch(
             break
         if offsets[0] < window.start <= offsets[-1]:
             raise ValueError("Training window split a meridian")
+        if len(offsets) > 1 and any(native.paired_tape(cursor) is not None for cursor in offsets):
+            raise ValueError(
+                "Individual native action tapes cannot certify a jointly selected "
+                "meridian; record a grouped native tape or use causal text targets"
+            )
+        if len(offsets) > 1 and any(
+            native.events_for_record(cursor, include_record=False) for cursor in offsets[1:]
+        ):
+            raise ValueError(
+                "A zero-record native action inside an atomic meridian has "
+                "ambiguous causal timing; place it between meridians"
+            )
         if any(event.modality not in {"text", "tool", "evidence"} for event in meridian.events):
             raise ValueError(
                 "Media training requires a pinned media asset/feature reader; "
