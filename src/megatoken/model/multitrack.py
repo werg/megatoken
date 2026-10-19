@@ -764,7 +764,7 @@ class MultiTrackGenerator:
         state: MultiTrackState,
         *,
         tracks: Sequence[str],
-        plans: Sequence[PreparedTargets | PreparedAction],
+        plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
         control_payloads: Sequence[bytes] | None = None,
         effort: int = 6,
         teacher_forced_action: bool = False,
@@ -782,9 +782,10 @@ class MultiTrackGenerator:
         names = self.tracks._names(tracks, len(tracks))
         plans = tuple(plans)
         if len(plans) != len(names) or any(
-            not isinstance(plan, (PreparedTargets, PreparedAction)) for plan in plans
+            not isinstance(plan, (PreparedTargets, PreparedAction, MediaTrainTarget))
+            for plan in plans
         ):
-            raise ValueError("Every output track requires a prepared text target")
+            raise ValueError("Every track requires one prepared text or media target")
         modes = {plan.mode for plan in plans}
         if len(modes) != 1 or not modes.issubset({"bootstrap", "recurrent"}):
             raise ValueError("Peers must share one representation-training mode")
