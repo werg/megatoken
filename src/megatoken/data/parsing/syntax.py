@@ -986,7 +986,9 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
         block = None
         if dialect in _MARKUP_COMMENTS and payload.startswith(b"<!--", index):
             block = (b"<!--", b"-->", False)
-        elif dialect in {"ocaml", "ocaml_interface", "sml", "mathematica"} and payload.startswith(b"(*", index):
+        elif dialect in {"ocaml", "ocaml_interface", "sml", "mathematica"} and payload.startswith(
+            b"(*", index
+        ):
             block = (b"(*", b"*)", True)
         elif dialect in {"haskell", "purescript", "agda"} and payload.startswith(b"{-", index):
             block = (b"{-", b"-}", True)
