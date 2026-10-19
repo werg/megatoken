@@ -47,9 +47,7 @@ def grouped_linear_reference(x: Tensor, weights: Tensor, expert_ids: Tensor) -> 
     return torch.empty_like(ordered).index_copy(0, permutation, ordered)
 
 
-def grouped_linear(
-    x: Tensor, weights: Tensor, expert_ids: Tensor, backend: str = "auto"
-) -> Tensor:
+def grouped_linear(x: Tensor, weights: Tensor, expert_ids: Tensor, backend: str = "auto") -> Tensor:
     if backend == "auto":
         backend = "triton" if x.is_cuda else "torch"
     if backend == "torch":

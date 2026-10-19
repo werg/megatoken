@@ -1,0 +1,25 @@
+{
+  "version": "recursive-parser-v2",
+  "target_tokens": 512,
+  "soft_max_tokens": 768,
+  "hard_max_tokens": 1024,
+  "max_bytes": 16384,
+  "parser_backend": "tree_sitter",
+  "chat_template": "auto",
+  "use_icu": false,
+  "planner_max_edges": 64,
+  "tree_distance_budget": 4.0,
+  "tree_distance_weight": 0.15,
+  "code_tree_scale": 1.5,
+  "limits": {
+    "max_depth": 12,
+    "max_nodes": 100000,
+    "max_parse_bytes": 1048576,
+    "max_regions": 20000,
+    "max_injections": 2048,
+    "max_tree_depth": 128,
+    "max_parse_milliseconds": 0,
+    "isolate_native": true,
+    "worker_timeout_ms": 5000
+  }
+}

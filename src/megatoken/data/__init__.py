@@ -6,7 +6,15 @@ The data package has no PyTorch dependency. Codec implementations remain in
 
 from .accounting import Budget, TokenMeters
 from .adapters import PROFILES, AdapterContext, SchemaError, adapt_row
-from .chunking import CHUNKING_VERSION, ChunkingConfig, ChunkingStats, SemanticChunk, segment_bytes
+from .chunking import (
+    CHUNKING_VERSION,
+    ChunkingConfig,
+    ChunkingReport,
+    ChunkingStats,
+    SemanticChunk,
+    segment_bytes,
+    segment_with_report,
+)
 from .collection import (
     CollectionConfig,
     CollectionLedger,
@@ -22,8 +30,10 @@ from .collection import (
 from .dedup import DedupConfig, DedupStore
 from .demo import make_demo_episodes, write_demo_source
 from .packing import TrainingWindow, WindowAudit, WindowConfig, iter_windows
+from .parsing.types import ParseLimits
 from .prepare import prepare_sources
 from .recipes import StageRecipe, load_recipes, stage_recipe
+from .review import ParserReviewPolicy, ParserReviewQueue
 from .schema import (
     ByteSpan,
     Codec,
@@ -59,8 +69,10 @@ __all__ = [
     "Codec",
     "CHUNKING_VERSION",
     "ChunkingConfig",
+    "ChunkingReport",
     "ChunkingStats",
     "SemanticChunk",
+    "segment_with_report",
     "DedupConfig",
     "DedupStore",
     "Dependency",
@@ -69,6 +81,9 @@ __all__ = [
     "Lineage",
     "LogicalAction",
     "ModelTeacher",
+    "ParseLimits",
+    "ParserReviewPolicy",
+    "ParserReviewQueue",
     "PhysicalRecord",
     "PreparedDataset",
     "PROFILES",

@@ -19,11 +19,11 @@ from megatoken.tensors import byte_tensor
 from megatoken.training.checkpoint import save_checkpoint
 
 
-def checkpoint_model(root: Path, codec=None):
+def checkpoint_model(root: Path, codec=None, *, max_capacity=8):
     torch.set_num_threads(2)
     torch.manual_seed(901)
     codec = codec or ByteCodec.byte_fallback()
-    config = ModelConfig.tiny(max_capacity=8, vocab_size=codec.vocab_size)
+    config = ModelConfig.tiny(max_capacity=max_capacity, vocab_size=codec.vocab_size)
     model = build_model(config, codec)
     checkpoint = save_checkpoint(
         root,
@@ -44,8 +44,10 @@ def checkpoint_model(root: Path, codec=None):
 
 
 @pytest.fixture
-def bundle(tmp_path):
-    model, checkpoint = checkpoint_model(tmp_path / "checkpoint")
+def bundle(tmp_path, request):
+    model, checkpoint = checkpoint_model(
+        tmp_path / "checkpoint", max_capacity=getattr(request, "param", 8)
+    )
     path = tmp_path / "served"
     metadata = export_served(checkpoint, path)
     return model, path, metadata
@@ -86,6 +88,22 @@ def test_export_preserves_the_canonical_facet_policy_and_recurrent_state_exactly
     assert metadata["chunking"] == engine.chunking.identity(engine.codec)
     assert metadata["policy_likelihood"] == "canonical_facet_gaussian_density"
     assert metadata["tape_version"] == TAPE_VERSION
+
+
+def test_observed_chat_examples_are_one_authoritative_event_before_chunking(bundle):
+    _, directory, _ = bundle
+    engine = InferenceEngine(directory, device="cpu")
+    session = engine.new_session()
+    payload = b"<|im_start|>user\nHi<|im_end|><|im_start|>assistant\nHello<|im_end|>"
+    expected = segment_bytes(
+        payload, engine.codec, engine.chunking, content_kind="text", chat_template="none"
+    )
+    engine.observe(
+        session, payload, role="tool", content_kind="text", filename="example.txt", locale="en"
+    )
+    assert [event.payload for event in session.events] == [part.payload for part in expected]
+    assert all(role == "tool" for role, _ in session.records)
+    assert b"".join(event.payload for event in session.events) == payload
 
 
 def test_serving_uses_the_training_control_bytes_and_retains_them_for_replay(bundle):
@@ -340,6 +358,7 @@ def test_jsonl_session_limit_and_malformed_lines_are_bounded(bundle):
     assert responses[2]["ok"] is False
 
 
+@pytest.mark.parametrize("bundle", [64], indirect=True)
 @pytest.mark.parametrize("field", ["tools", "tools_json"])
 def test_jsonl_prior_and_decoder_receive_the_same_public_tools_and_controls(
     bundle, monkeypatch, field
@@ -447,6 +466,7 @@ def test_served_chunk_policy_is_checked_before_observations(bundle):
         InferenceEngine(directory, device="cpu")
 
 
+@pytest.mark.parametrize("bundle", [64], indirect=True)
 def test_cli_generation_shares_tool_and_raw_control_inputs_with_python(
     bundle, tmp_path, capsys, monkeypatch
 ):
@@ -491,7 +511,7 @@ def test_cli_generation_shares_tool_and_raw_control_inputs_with_python(
                 "--reference-origin",
                 "earlier_history",
                 "--max-tokens",
-                "8",
+                "64",
                 "--seed",
                 "317",
             ]
@@ -515,7 +535,7 @@ def test_cli_generation_shares_tool_and_raw_control_inputs_with_python(
     engine.observe(session, b"choose")
     expected = engine.generate(
         session,
-        spec=compile_tool_spec(tools_text, 8),
+        spec=compile_tool_spec(tools_text, 64),
         seed=317,
         control_seed=seed_bytes,
         control_reference=reference_bytes,

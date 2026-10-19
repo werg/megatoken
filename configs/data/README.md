@@ -8,13 +8,20 @@ copy of those recipe values.
 
 See [`docs/data.md`](../../docs/data.md) for the complete offline preparation,
 source acquisition, family split, masking, census, and collection workflow.
-Semantic chunking is shared with inference: target 256, soft maximum 512 and
+Semantic chunking is shared with inference: target 512, soft maximum 768 and
 hard maximum 1,024 reference BPE tokens in every production stage, including B0.
 Explicitly smaller hard limits clamp the target and soft maximum.
 Preparation stores the versioned chunker,
 codec and parser-runtime identity plus an accepted-record size histogram.
-Use `--chunk-target-tokens`, `--chunk-soft-max-tokens` and
-`--max-record-tokens` to make an explicit new preparation policy. Prepared/native
+Use [`chunking.production.json`](chunking.production.json) with
+`--chunking-config`, or `--chunk-target-tokens`, `--chunk-soft-max-tokens` and
+`--max-record-tokens` to make an explicit new preparation policy. The policy
+includes recursive parser budgets, isolation, and tree movement costs.
+[`parser-review.json`](parser-review.json) configures the default durable
+review queue; pass it through `--parser-review-config`. Parser faults and
+resource exhaustion are excluded from shards until an amended parser passes
+verified replay, followed by a fresh build from the pinned sources.
+See the [parser and review runbook](../../docs/chunking.md). Prepared/native
 schema version 2 rejects legacy records and tapes; existing generated actions
 are never silently resegmented.
 

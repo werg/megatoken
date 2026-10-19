@@ -196,9 +196,22 @@ class InferenceEngine:
         role: str = "user",
         content_kind: str = "auto",
         language: str | None = None,
+        filename: str | None = None,
+        mime_type: str | None = None,
+        locale: str | None = None,
     ) -> None:
+        # This API already receives one authoritative event and its role.
+        # Chat delimiters inside a tool result or user example are content.
         chunks = segment_bytes(
-            payload, self.codec, self.chunking, content_kind=content_kind, language=language
+            payload,
+            self.codec,
+            self.chunking,
+            content_kind=content_kind,
+            language=language,
+            filename=filename,
+            mime_type=mime_type,
+            locale=locale,
+            chat_template="none",
         )
         self._append_observations(session, [chunk.payload for chunk in chunks], role)
 
@@ -401,6 +414,9 @@ def serve_jsonl(
                         role=request.get("role", "user"),
                         content_kind=request.get("content_kind", "auto"),
                         language=request.get("language"),
+                        filename=request.get("filename"),
+                        mime_type=request.get("mime_type"),
+                        locale=request.get("locale"),
                     )
                     response = {"session": session_id, "records": len(session.records)}
                 elif operation == "generate":

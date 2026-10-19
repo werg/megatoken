@@ -260,7 +260,7 @@ production phase. For example, after collecting reviewed local source records:
 
 ```bash
 megatoken prepare --demo artifacts/bootstrap.jsonl --codec artifacts/codec \
-  --chunk-target-tokens 256 --chunk-soft-max-tokens 512 --max-record-tokens 1024 \
+  --chunk-target-tokens 512 --chunk-soft-max-tokens 768 --max-record-tokens 1024 \
   --output artifacts/prepared
 NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml --max-steps 100
 ```
@@ -275,7 +275,7 @@ stream proportions, and effort probabilities. Their history limits are explicit
 static window bounds; the JSON history curriculum is not automatically applied by
 the launcher. All checked-in production profiles, including B0, allow 1,024 output
 positions. Actual decoder workspaces follow each target's capacity. Preparation
-uses a 256-token target, 512-token soft limit, and 1,024-token hard limit, shared
+uses a 512-token target, 768-token soft limit, and 1,024-token hard limit, shared
 across the phases. A smaller B0 output cap is an explicit experiment requiring
 compatible preparation. Native executed record boundaries cannot be silently
 shortened to make a profile fit. Adjust preprocessing and configuration together.

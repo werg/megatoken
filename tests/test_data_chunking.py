@@ -27,8 +27,8 @@ def test_chunking_defaults_explicit_stage_caps_and_identity():
     codec = ByteCodec.byte_fallback()
     config = ChunkingConfig()
     assert (config.target_tokens, config.soft_max_tokens, config.hard_max_tokens) == (
-        256,
         512,
+        768,
         1024,
     )
     assert config.with_hard_limit(256) == ChunkingConfig(256, 256, 256)
@@ -53,11 +53,11 @@ def test_coherent_paragraphs_up_to_soft_cap_and_small_paragraph_packing():
     assert [chunk.payload for chunk in chunks] == [first, second]
     assert all(256 < len(chunk.token_ids) <= 512 for chunk in chunks)
     small = b"Small paragraph.\n\n"
-    chunks = segment_bytes(small * 30, codec)
+    chunks = segment_bytes(small * 60, codec)
     assert len(chunks) > 1
     assert all(chunk.payload == small * (len(chunk.payload) // len(small)) for chunk in chunks)
-    assert abs(len(chunks[0].token_ids) - 256) <= len(small)
-    assert b"".join(chunk.payload for chunk in chunks) == small * 30
+    assert abs(len(chunks[0].token_ids) - 512) <= 2 * len(small)
+    assert b"".join(chunk.payload for chunk in chunks) == small * 60
 
 
 def test_fenced_code_python_functions_and_list_items_are_not_cut_internally():
@@ -76,7 +76,8 @@ def test_fenced_code_python_functions_and_list_items_are_not_cut_internally():
     item = b"- First item " + b"with meaningful content " * 13 + b"\n  continuation.\n"
     second = item.replace(b"First", b"Other")
     chunks = segment_bytes(item + second, codec)
-    assert [chunk.payload for chunk in chunks] == [item, second]
+    assert b"".join(chunk.payload for chunk in chunks) == item + second
+    assert all(chunk.byte_end in {len(item), len(item + second)} for chunk in chunks)
 
 
 def test_brace_code_ignores_braces_and_semicolons_inside_strings_and_comments():
@@ -96,7 +97,7 @@ def test_oversized_text_uses_sentences_then_reports_unavoidable_token_splits():
     codec = ByteCodec.byte_fallback()
     payload = b"A sentence with several distinct words. " * 100
     chunks = segment_bytes(payload, codec)
-    assert all(len(chunk.token_ids) <= 512 for chunk in chunks)
+    assert all(len(chunk.token_ids) <= 768 for chunk in chunks)
     assert all(chunk.boundary == "sentence" for chunk in chunks[:-1])
     assert all(not chunk.forced for chunk in chunks)
     atom = b"x" * 2500

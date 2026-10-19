@@ -286,7 +286,9 @@ class ActionTape:
 
         if isinstance(self.facets, bytes):
             if len(self.facets) != 4 * math.prod(self.facet_shape):
-                raise ValueError("tape does not contain its complete raw facet tensor (packed FP32 length)")
+                raise ValueError(
+                    "tape does not contain its complete raw facet tensor (packed FP32 length)"
+                )
             values = np.frombuffer(self.facets, dtype="<f4")
             if not bool(np.isfinite(values).all()):
                 raise ValueError("raw facet actions must be finite")

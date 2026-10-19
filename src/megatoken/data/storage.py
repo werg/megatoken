@@ -107,6 +107,8 @@ def export_prepared(
                     boundary=record.chunk_boundary,
                     forced=record.forced_chunk_split,
                     soft_max=chunking.soft_max_tokens,
+                    languages=record.chunk_languages,
+                    diagnostics=record.chunk_diagnostics,
                 )
             if any(
                 record.provenance == "executed" and record.role in {"tool", "environment"}
@@ -198,12 +200,15 @@ def export_prepared(
         census.update(transcript_counts)
         census["duplicate_prefix_bytes"] = shared_prefix_bytes
         census["duplicate_prefix_tokens"] = shared_prefix_tokens
+        parser_review = json.loads(store.get_meta("parser_review_summary") or "{}")
+        census["parser_review_rows"] = parser_review.get("total", 0)
         manifest = {
             "schema_version": DATASET_VERSION,
             "codec_fingerprint": codec.fingerprint,
             "pipeline_fingerprint": pipeline_fingerprint,
             "chunking": chunking.identity(codec),
             "chunking_stats": chunking_stats.to_dict(),
+            "parser_review": parser_review,
             "sources": source_receipts,
             "dedup": json.loads(store.get_meta("dedup_config") or "{}"),
             "census": census,

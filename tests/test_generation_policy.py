@@ -13,6 +13,7 @@ from megatoken.generation import (
     FieldSpec,
     SchemaSpec,
 )
+from megatoken.generation.feasibility import wire_witness_tokens
 from megatoken.generation.structure import ActionTape, Observation, TapeMismatch
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.tensors import byte_tensor
@@ -68,6 +69,32 @@ def has_gradient(parameters):
         parameter.grad is not None and bool(parameter.grad.abs().sum() > 0)
         for parameter in parameters
     )
+
+
+def invalid_materialization_spec(model):
+    """A feasible public schema whose actual lexical choice needs JSON escaping.
+
+    Opposite tab/newline vocabulary rows beat every zero row for either sign of
+    the projected state; a tie selects tab. Both escaped wires exceed the valid
+    printable-character witness. The projection stays live for history-gradient
+    tests, and no decoder or feasibility gate is mocked.
+    """
+    schema = SchemaSpec(
+        "escaped_string",
+        (FieldSpec("value", kind="ascii", min_tokens=1, max_tokens=1, allow_copy=False),),
+    )
+    witness_tokens = len(model.codec.encode(schema.serialize({"value": b"a"})))
+    assert wire_witness_tokens(schema, model.codec) == witness_tokens
+    assert model.codec.allowed_ids("ascii")[0] == ord("\t")
+    assert all(
+        len(model.codec.encode(schema.serialize({"value": value}))) > witness_tokens
+        for value in (b"\t", b"\n")
+    )
+    with torch.no_grad():
+        model.decoder.vocabulary.embedding.weight.zero_()
+        model.decoder.vocabulary.embedding.weight[ord("\t"), 0] = 1
+        model.decoder.vocabulary.embedding.weight[ord("\n"), 0] = -1
+    return ActionSpec(allow_text=False, schemas=(schema,), max_tokens=witness_tokens)
 
 
 def test_batched_two_pass_supervision_counts_free_positions_and_commits_once(model):
@@ -240,6 +267,22 @@ def test_invalid_materialization_still_advances_and_replays_raw_computation(mode
     )
     result = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(5))
     assert not result.tape.valid and "UnicodeDecodeError" in result.tape.error
+    assert result.state.final is not None and state.final is None
+    assert result.state.records_seen.item() == 1
+    assert not torch.equal(state.facets, result.state.facets)
+    replay = model.score_tape(state, result.tape, spec=spec)
+    assert torch.equal(result.log_prob, replay.log_prob)
+    assert_state_equal(result.state, replay.state)
+
+
+def test_invalid_json_escaping_advances_and_replays_raw_computation(model):
+    spec = invalid_materialization_spec(model)
+    state = model.core.initial_state(1)
+    result = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(5))
+    assert not result.tape.valid and "including fixed syntax" in result.tape.error
+    assert result.payload in {
+        spec.schemas[0].serialize({"value": value}) for value in (b"\t", b"\n")
+    }
     assert result.state.final is not None and state.final is None
     assert result.state.records_seen.item() == 1
     assert not torch.equal(state.facets, result.state.facets)
@@ -687,7 +730,9 @@ def test_schema_with_fixed_wire_envelope_larger_than_limit_is_not_selected(model
         "long-tool",
         (
             FieldSpec(
-                "name", kind="json", fixed_json='"ridiculously_long_tool_name"',
+                "name",
+                kind="json",
+                fixed_json='"ridiculously_long_tool_name"',
                 max_tokens=128,
             ),
             FieldSpec("arguments", kind="json", fixed_json="{}", max_tokens=128),
@@ -708,10 +753,10 @@ def test_public_required_json_argument_has_constructible_wire_witness(model):
         (
             FieldSpec("name", kind="json", fixed_json='"read"', max_tokens=128),
             FieldSpec(
-                "arguments", kind="json",
+                "arguments",
+                kind="json",
                 json_schema=(
-                    '{"type":"object","required":["path"],'
-                    '"properties":{"path":{"type":"string"}}}'
+                    '{"type":"object","required":["path"],"properties":{"path":{"type":"string"}}}'
                 ),
                 max_tokens=128,
             ),

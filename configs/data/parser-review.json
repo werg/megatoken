@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "review_incomplete_syntax": false,
+  "review_recovered_syntax": false,
+  "review_unknown_languages": false
+}

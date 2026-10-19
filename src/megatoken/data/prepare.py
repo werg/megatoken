@@ -10,12 +10,20 @@ from typing import Any
 
 from megatoken.io import content_hash, write_json
 
-from .adapters import AdapterContext, SchemaError, adapt_row
+from .adapters import (
+    AdapterContext,
+    ChatFramingError,
+    SchemaError,
+    adapt_row,
+    source_row_lineage,
+    source_row_supervision,
+)
 from .chunking import ChunkingConfig
 from .dedup import DedupConfig, DedupStore
 from .lineage import LineageJoin
-from .quality import QualityPolicy, validate_quality, validate_row_filters
-from .schema import SCHEMA_VERSION, Codec, encode_record
+from .quality import validate_row_filters
+from .review import ParserReviewPolicy, ParserReviewQueue, source_quality, validate_prepared_episode
+from .schema import SCHEMA_VERSION, Codec, canonical_json
 from .sources import SourceSpec, iter_source_rows, load_source_manifest
 from .storage import PreparedDataset, export_prepared
 
@@ -29,6 +37,7 @@ def prepare_sources(
     max_record_bytes: int = 16384,
     max_record_tokens: int = 1024,
     chunking: ChunkingConfig | None = None,
+    review: ParserReviewPolicy | None = None,
     shard_bytes: int = 128 << 20,
     benchmark_quarantine: dict[str, Any] | None = None,
     reject_invalid: bool = False,
@@ -37,12 +46,15 @@ def prepare_sources(
 ) -> PreparedDataset:
     """Prepare source rows, checking source identity before resuming any cursor.
 
-    Malformed rows fail the default run. ``reject_invalid=True`` writes their
+    Parser faults/ambiguities are captured in the review queue and excluded from
+    accepted shards. Ordinary schema/quality failures fail the default run.
+    ``reject_invalid=True`` writes their
     explicit source/row/error receipts and continues; an operator can inspect
     the rejection distribution before authorizing scale. `_interrupt_after` is
     a deterministic crash-injection hook for the resume invariant test.
     """
     dedup = dedup or DedupConfig()
+    review = review or ParserReviewPolicy()
     if min(max_record_bytes, max_record_tokens, shard_bytes) < 1:
         raise ValueError("Physical record and shard limits must be positive")
     chunking = (chunking or ChunkingConfig()).with_hard_limit(
@@ -71,9 +83,10 @@ def prepare_sources(
             "max_record_bytes": max_record_bytes,
             "max_record_tokens": max_record_tokens,
             "chunking": chunking_identity,
+            "parser_review": asdict(review),
             "benchmark_quarantine": quarantine,
             "reject_invalid": reject_invalid,
-            "adapter_version": 3,
+            "adapter_version": 4,
             "schema_version": SCHEMA_VERSION,
         }
     )
@@ -86,6 +99,7 @@ def prepare_sources(
             )
         return ready
     with DedupStore(root / "preparation.sqlite", dedup) as store, ExitStack() as resources:
+        review_queue = ParserReviewQueue(store.connection)
         previous = store.get_meta("pipeline_fingerprint")
         if previous is not None and previous != identity:
             raise ValueError(
@@ -114,6 +128,7 @@ def prepare_sources(
                     resources.callback(lineage_join.close)
                 last = start - 1
                 for row_index, row in iter_source_rows(source, start_row=start):
+                    raw_row = row
                     context = AdapterContext(
                         source_id=source.source_id,
                         revision=source.revision,
@@ -132,24 +147,62 @@ def prepare_sources(
                             validate_row_filters(row, source.options.get("row_filters", []))
                             if lineage_join is not None:
                                 row = lineage_join.apply(row, join_config.get("row_key", "uuid"))
-                            episode = adapt_row(row, source.adapter, context)
+                            try:
+                                episode = adapt_row(row, source.adapter, context)
+                            except ChatFramingError as error:
+                                if not review.enabled:
+                                    raise
+                                # Even an unparseable frame must register its
+                                # source ancestry before family splits freeze.
+                                lineage = source_row_lineage(row, source.adapter, context)
+                                family = store.register_family(lineage.family_keys)
+                                supervision = source_row_supervision(row, source.adapter, context)
+                                if supervision.benchmark_tags:
+                                    store.connection.execute(
+                                        "INSERT OR IGNORE INTO benchmarks VALUES(?, 'family')",
+                                        (family,),
+                                    )
+                                detail = review_queue.capture(
+                                    source=source,
+                                    row_index=row_index,
+                                    raw_row=raw_row,
+                                    adapted_row=row,
+                                    episode=None,
+                                    parser_identity=chunking_identity,
+                                    chunking=chunking,
+                                    policy=review,
+                                    reasons=error.diagnostics,
+                                    error=str(error),
+                                )
+                                status, episode = "parser_review", None
                             # A rejected low-quality variant still contributes its
                             # known ancestor links before any train/eval split.
-                            store.register_episode_lineage(episode)
-                            quality = dict(source.options.get("quality", {}))
-                            if "allowed_outcomes" in quality:
-                                quality["allowed_outcomes"] = tuple(quality["allowed_outcomes"])
-                            validate_quality(episode, codec, QualityPolicy(**quality))
-                            if any(
-                                encode_record(record, codec).positions > max_record_tokens
-                                or len(record.payload) > max_record_bytes
-                                for record in episode.records
-                            ):
-                                raise ValueError(
-                                    "A native generated physical record exceeds max_record_tokens or max_record_bytes; old generated records/tapes cannot be silently rechunked for a smaller model"
+                            if episode is not None:
+                                store.register_episode_lineage(episode)
+                                validate_prepared_episode(
+                                    episode,
+                                    codec,
+                                    source_quality(source),
+                                    max_record_tokens=max_record_tokens,
+                                    max_record_bytes=max_record_bytes,
                                 )
-                            status = store.add(episode, codec)
-                            detail = episode.episode_id
+                                reasons = review.reasons(episode, adapter=source.adapter)
+                                if reasons:
+                                    detail = review_queue.capture(
+                                        source=source,
+                                        row_index=row_index,
+                                        raw_row=raw_row,
+                                        adapted_row=row,
+                                        episode=episode,
+                                        parser_identity=chunking_identity,
+                                        chunking=chunking,
+                                        policy=review,
+                                        reasons=reasons,
+                                    )
+                                    status = "parser_review"
+                                else:
+                                    status = store.add(episode, codec)
+                                    detail = episode.episode_id
                         except (SchemaError, ValueError, TypeError, KeyError) as error:
                             if not reject_invalid:
                                 raise ValueError(
@@ -178,6 +231,8 @@ def prepare_sources(
                         (source.fingerprint, last + 1),
                     )
             store.freeze()
+        store.set_meta("parser_review_summary", canonical_json(review_queue.summary()))
+        store.connection.commit()
         receipts = [asdict(source) | {"fingerprint": source.fingerprint} for source in source_list]
         export_prepared(
             store,
@@ -201,4 +256,5 @@ def prepare_sources(
             "total_rejected": store.census()["rejected_rows"],
         }
         write_json(root / "rejections.json", report)
+        write_json(root / "parser-review.json", review_queue.summary() | {"policy": asdict(review)})
     return PreparedDataset(root, split=None)

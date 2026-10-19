@@ -31,7 +31,7 @@ corpus. Model quality and GPU throughput require measurement on the training har
 | Policy randomness | One Gaussian draw in the completed 32-facet space |
 | Realizer input | Raw facets plus cached early and final central features |
 | Decoder | Deterministic structure, length, copying, and full-vocabulary argmax |
-| Semantic packing target / soft / hard limit | 256 / 512 / 1,024 reference codec tokens |
+| Semantic packing target / soft / hard limit | 512 / 768 / 1,024 reference codec tokens |
 | Maximum realizer output positions | 1,024, including fixed syntax |
 | Attention | 4 query heads and 2 KV heads, each 128 coordinates wide |
 | Historical KV | Exactly 32 full-resolution slots per retained megatoken, at every age |
@@ -139,8 +139,8 @@ megatoken demo --output artifacts/bootstrap.jsonl --count 10000
 megatoken prepare \
   --demo artifacts/bootstrap.jsonl \
   --codec artifacts/codec \
-  --chunk-target-tokens 256 \
-  --chunk-soft-max-tokens 512 \
+  --chunk-target-tokens 512 \
+  --chunk-soft-max-tokens 768 \
   --max-record-tokens 1024 \
   --output artifacts/prepared
 NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml --max-steps 100
@@ -176,11 +176,28 @@ execution, family lineage, acceptance, frozen splits, and source acquisition. Pr
 uses streaming readers with external SQLite indexing and deduplication. It preserves
 original bytes and reference token boundaries, including binary payloads and Unicode.
 
-Chunks favor paragraph, list, and code boundaries near the 256-token target. The
-512-token soft limit leaves room for a coherent semantic unit; the 1,024-token hard
-limit and 16 KiB byte limit are enforced. A source that cannot fit a natural boundary is
-split without dropping bytes, with the forced boundary recorded. Native generated IDs
-and facet tapes are immutable and never silently resegmented.
+Chunks target **512 reference tokens**, with a **768-token soft limit**, a
+1,024-token hard limit, and a 16 KiB byte limit. Chat framing establishes the
+latency boundaries first: user messages and tool results always remain separate
+events, even when very short. Recursive parsing then follows content through
+Markdown fences, source code, strings, comments, HTML, templates, and prose.
+The offline parser pack supplies 173 grammar bindings; unknown languages use an
+explicit generic fallback. Multilingual prose starts at paragraphs and refines
+oversized spans using Unicode sentence/word rules and optional locale analysis.
+
+A bounded planner considers the remaining source and penalizes excessive movement
+through the parse tree. Headings, decorators, and signatures stay attached to their
+own content; spare capacity alone is not a reason to borrow the next introduction.
+All cuts retain original byte ranges and canonical reference IDs. Native generated
+IDs and facet tapes remain immutable. The
+[parser runbook](docs/chunking.md) explains configuration, coverage, diagnostics,
+and the extension API.
+
+Preparation sets parser faults, exhausted budgets, severe syntax failure, and
+ambiguous chat framing aside in a durable review queue. Agents claim and export
+exact samples, amend the shared parser, add regression coverage, and run verified
+replay under the new parser identity. Successful repair requires rebuilding a new
+prepared artifact from the same pinned sources; existing shards stay frozen.
 
 `configs/data/sources.v13.json` is a pinned publisher acquisition template for 19 strata.
 Its historical filename does not select an old model architecture. Supply an approved
@@ -190,10 +207,21 @@ source manifest with the required parent joins and field mappings:
 megatoken prepare \
   --sources configs/data/sources.approved.json \
   --codec artifacts/codec \
-  --chunk-target-tokens 256 \
-  --chunk-soft-max-tokens 512 \
+  --chunk-target-tokens 512 \
+  --chunk-soft-max-tokens 768 \
   --max-record-tokens 1024 \
   --output artifacts/production
+```
+
+Inspect the installed parsers and the preparation review queue:
+
+```bash
+megatoken chunks coverage --output artifacts/parser-coverage.json
+megatoken chunks inspect --input README.md --codec artifacts/codec \
+  --output artifacts/readme-chunks.json
+megatoken chunks review list --queue artifacts/production/preparation.sqlite
+megatoken chunks review export --queue artifacts/production/preparation.sqlite \
+  --output work/parser-review
 ```
 
 Prepared outputs are immutable. Set each phase's `dataset` to the intended directory.

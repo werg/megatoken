@@ -1,5 +1,5 @@
 # Bootstrap the full architecture on the prepared bootstrap stream.
-# Use the shared 256 target / 512 soft / 1024 hard chunk policy. Source streams live under
+# Use the shared 512 target / 768 soft / 1024 hard chunk policy. Source streams live under
 # artifacts/prepared; immutable data/codec identities are checked at launch.
 # Canonical B0 budget, learning rate, losses, and effort mix come from shared code.
 phase: B0

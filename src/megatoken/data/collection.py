@@ -741,6 +741,7 @@ class Collector:
                 codec=self.codec if emitted_ids is None else None,
                 max_tokens=self.config.max_record_tokens if emitted_ids is None else None,
                 chunking=self.config.chunking_policy if emitted_ids is None else None,
+                chat_template="none",
             )
             if emitted_ids is not None:
                 if self.codec.decode(emitted_ids) != payload:

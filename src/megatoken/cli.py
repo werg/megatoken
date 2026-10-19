@@ -615,6 +615,23 @@ def main(argv: list[str] | None = None) -> int:
             if args.json_output:
                 write_json(args.json_output, result)
             print(json.dumps(result, sort_keys=True, indent=2, allow_nan=False))
+        # Keep the verified-replay receipt available to automation while making
+        # a failed repair a failing shell gate. Other commands retain their
+        # existing return contract.
+        if (
+            getattr(args, "chunks_command", None) == "review"
+            and getattr(args, "review_command", None) == "replay"
+            and result is not None
+            and not result["success"]
+        ):
+            return 1
+        if (
+            getattr(args, "chunks_command", None) == "coverage"
+            and result is not None
+            and result["validated"]
+            and result["failures"]
+        ):
+            return 1
         return 0
     except (ValueError, OSError, RuntimeError, ImportError) as error:
         if args.debug:

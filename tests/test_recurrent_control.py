@@ -83,8 +83,7 @@ def test_verified_reference_is_detached_and_noisy_but_public_control_is_trainabl
     # The causal branch still trains the public control head, whereas the
     # trajectory-derived reference has been fully detached before injection.
     assert any(
-        p.grad is not None and p.grad.norm() > 0
-        for p in model.core.control_encoder.parameters()
+        p.grad is not None and p.grad.norm() > 0 for p in model.core.control_encoder.parameters()
     )
     assert all(p.grad is None for p in model.core.encoder_parameters())
 
