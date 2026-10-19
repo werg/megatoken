@@ -312,6 +312,10 @@ def _comment_ranges(payload: bytes, start: int, end: int) -> tuple[tuple[int, in
         start += 2
         if raw.endswith(b"-}"):
             end -= 2
+    elif raw.startswith(b"(*"):
+        start += 2
+        if raw.endswith(b"*)"):
+            end -= 2
     else:
         match = re.match(rb"(?:/{2,}|\#{1,}|--+|;+|%+)[ \t]?", raw)
         if match:
@@ -916,50 +920,149 @@ def scan_syntax(
     return scan
 
 
-def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> Scan:
-    """Linear fallback for unknown languages and malformed/unavailable grammars.
+# The lexical recovery path must not treat every punctuation sequence as a
+# comment in every programming language. These families are conservative:
+# ambiguous or unsupported dialects retain text instead of inventing structure.
+_HASH_COMMENTS = frozenset({
+    "python", "ruby", "perl", "bash", "fish", "powershell", "r",
+    "elixir", "nix", "make", "dockerfile", "cmake", "yaml", "toml",
+    "ini", "starlark", "terraform", "hcl", "julia", "nim", "beancount",
+})
+_HASH_AFTER_SPACE = frozenset({
+    "yaml", "toml", "bash", "fish", "powershell", "make",
+    "dockerfile", "ini", "hcl", "terraform",
+})
+_SLASH_COMMENTS = frozenset({
+    "c", "cpp", "csharp", "objc", "java", "javascript", "typescript",
+    "tsx", "rust", "go", "kotlin", "swift", "scala", "groovy", "dart",
+    "php", "hack", "solidity", "zig", "scss", "less", "jsonc", "json5",
+    "proto", "graphql", "glsl", "hlsl", "wgsl", "cuda", "verilog",
+    "svelte", "vue", "astro", "luau", "d", "odin", "hcl", "terraform",
+})
+_DASH_COMMENTS = frozenset({
+    "sql", "lua", "haskell", "ada", "elm", "purescript", "vhdl",
+})
+_SEMICOLON_COMMENTS = frozenset({
+    "clojure", "commonlisp", "elisp", "scheme", "racket",
+    "fennel", "janet", "asm",
+})
+_PERCENT_COMMENTS = frozenset({
+    "latex", "tex", "matlab", "octave", "erlang", "prolog", "bibtex",
+})
+_MARKUP_COMMENTS = frozenset({
+    "html", "xml", "markdown", "markdown_inline", "vue", "svelte",
+    "astro", "twig", "heex", "embeddedtemplate",
+})
 
-    It recognises strings, comments, delimiter groups and statement/line edges.
-    These are explicitly weaker lexical evidence, not a claim of an AST for an
-    unknown programming language. Unterminated constructs recover at EOF.
+
+def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> Scan:
+    """Bounded, dialect-aware lexical recovery, never a substitute native AST.
+
+    Line endings, invalid UTF-8, nested comments, and unclosed constructs retain
+    their exact byte positions. An unknown dialect only recognises line-leading
+    comment markers, not punctuation embedded in identifiers or operators.
     """
     scan = Scan()
     result = scan.result
-    result.parsers.add("generic_lexical:v1")
+    result.parsers.add("generic_lexical:v2")
     if language:
         result.languages.add(language)
-    length, index = len(payload), 0
+    dialect = canonical_language(language) or ""
+    maximum = min(len(payload), limits.max_parse_bytes)
+    index, line_prefix = 0, True
     stack: list[tuple[int, int]] = []
-    maximum = min(length, limits.max_parse_bytes)
+
+    def comment(start: int, stop: int) -> None:
+        _generic_region(scan, start, stop, "comment", language, limits)
+        ranges = _comment_ranges(payload, start, stop)
+        if ranges and len(scan.injections) < limits.max_injections:
+            scan.injections.append(
+                Injection(start, stop, "auto", None, "lexical_comment", ranges)
+            )
+
     while index < maximum and scan.nodes < limits.max_nodes:
         scan.nodes += 1
         value = payload[index]
-        if payload.startswith((b"//", b"/*", b"<!--", b"--"), index) or value == 35:
-            start = index
-            if payload.startswith(b"/*", index):
-                stop = payload.find(b"*/", index + 2, maximum)
-                index = stop + 2 if stop >= 0 else maximum
-            elif payload.startswith(b"<!--", index):
-                stop = payload.find(b"-->", index + 4, maximum)
-                index = stop + 3 if stop >= 0 else maximum
-            else:
-                stop = payload.find(b"\n", index + 1, maximum)
-                index = stop if stop >= 0 else maximum
-            _generic_region(scan, start, index, "comment", language, limits)
-            ranges = _comment_ranges(payload, start, index)
-            if ranges and len(scan.injections) < limits.max_injections:
-                scan.injections.append(
-                    Injection(start, index, "auto", None, "lexical_comment", ranges)
+        block = None
+        if dialect in _MARKUP_COMMENTS and payload.startswith(b"<!--", index):
+            block = (b"<!--", b"-->", False)
+        elif dialect in {"ocaml", "ocaml_interface", "sml", "mathematica"} and payload.startswith(b"(*", index):
+            block = (b"(*", b"*)", True)
+        elif dialect in {"haskell", "purescript", "agda"} and payload.startswith(b"{-", index):
+            block = (b"{-", b"-}", True)
+        elif dialect in _SLASH_COMMENTS | {"css", "sql"} and payload.startswith(b"/*", index):
+            block = (b"/*", b"*/", dialect in {"rust", "swift"})
+
+        if block is not None:
+            opener, closer, nested = block
+            start, depth = index, 1
+            index += len(opener)
+            while index < maximum and depth:
+                closing = payload.find(closer, index, maximum)
+                opening = payload.find(opener, index, maximum) if nested else -1
+                if opening >= 0 and (closing < 0 or opening < closing):
+                    depth += 1
+                    index = opening + len(opener)
+                elif closing >= 0:
+                    depth -= 1
+                    index = closing + len(closer)
+                else:
+                    index = maximum
+            comment(start, index)
+            line_prefix = False
+            if depth and len(result.diagnostics) < 32:
+                result.diagnostics.append(
+                    Diagnostic("unterminated_comment", start, index, "generic_lexical")
                 )
             continue
-        if value in {34, 39, 96}:
+
+        marker = None
+        if dialect in _SLASH_COMMENTS and payload.startswith(b"//", index):
+            marker = b"//"
+        elif dialect in _DASH_COMMENTS and payload.startswith(b"--", index):
+            marker = b"--"
+        elif dialect in _SEMICOLON_COMMENTS and value == 59:
+            marker = b";"
+        elif dialect in _PERCENT_COMMENTS and value == 37 and (
+            index == 0 or payload[index - 1] != 92
+        ):
+            marker = b"%"
+        elif dialect in _HASH_COMMENTS and value == 35:
+            if dialect not in _HASH_AFTER_SPACE or index == 0 or payload[index - 1] in b" \t\r\n":
+                marker = b"#"
+        elif dialect in {"", "unknown", "code"} and line_prefix:
+            if payload.startswith(b"//", index):
+                marker = b"//"
+            elif value == 35:
+                marker = b"#"
+
+        if marker is not None:
             start = index
-            quote = bytes([value])
+            lf = payload.find(b"\n", index, maximum)
+            cr = payload.find(b"\r", index, maximum)
+            index = min(x for x in (lf, cr, maximum) if x >= 0)
+            comment(start, index)
+            line_prefix = False
+            continue
+
+        if value in {34, 39, 96}:
+            if dialect == "rust" and value == 39:
+                # Lifetime labels such as 'a and '_ must not eat an entire line.
+                lifetime = re.match(rb"'[A-Za-z_][A-Za-z_0-9]*", payload[index:maximum])
+                if lifetime and (
+                    index + len(lifetime.group()) >= maximum
+                    or payload[index + len(lifetime.group())] != 39
+                ):
+                    index += len(lifetime.group())
+                    line_prefix = False
+                    continue
+            start = index
+            quote = bytes((value,))
             delimiter = quote * 3 if payload.startswith(quote * 3, index) else quote
             index += len(delimiter)
             content_start, closed = index, False
             while index < maximum:
-                if payload[index] == 92:
+                if payload[index] == 92 and value != 96:
                     index = min(maximum, index + 2)
                 elif payload.startswith(delimiter, index):
                     closed = True
@@ -977,11 +1080,13 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
                 scan.injections.append(
                     Injection(content_start, content_end, "auto", hint, "lexical_string")
                 )
-            if not closed:
+            if not closed and len(result.diagnostics) < 32:
                 result.diagnostics.append(
                     Diagnostic("unterminated_literal", start, index, "generic_lexical")
                 )
+            line_prefix = False
             continue
+
         if value in {40, 91, 123}:
             if len(stack) < limits.max_nodes:
                 stack.append((value, index))
@@ -993,11 +1098,10 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
                 result.boundaries.append(
                     Boundary(index + 1, "statement", len(stack), "generic_lexical")
                 )
-            else:
-                if len(result.diagnostics) < 32:
-                    result.diagnostics.append(
-                        Diagnostic("unmatched_delimiter", index, index + 1, "generic_lexical")
-                    )
+            elif len(result.diagnostics) < 32:
+                result.diagnostics.append(
+                    Diagnostic("unmatched_delimiter", index, index + 1, "generic_lexical")
+                )
         elif value == 59:
             result.boundaries.append(
                 Boundary(index + 1, "statement", len(stack), "generic_lexical")
@@ -1005,17 +1109,22 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
         elif value in {10, 13}:
             if value == 13 and index + 1 < maximum and payload[index + 1] == 10:
                 index += 1
-            result.boundaries.append(Boundary(index + 1, "line", len(stack), "generic_lexical"))
+            result.boundaries.append(
+                Boundary(index + 1, "line", len(stack), "generic_lexical")
+            )
+            line_prefix = True
+        if value not in {9, 10, 13, 32}:
+            line_prefix = False
         index += 1
         if len(result.boundaries) >= limits.max_regions * 2:
             break
-    if index < length:
+    if index < len(payload):
         result.diagnostics.append(
-            Diagnostic("lexical_budget_exhausted", index, length, "generic_lexical")
+            Diagnostic("lexical_budget_exhausted", index, len(payload), "generic_lexical")
         )
     if stack:
         result.diagnostics.append(
-            Diagnostic("unclosed_delimiter", stack[0][1], length, "generic_lexical")
+            Diagnostic("unclosed_delimiter", stack[0][1], len(payload), "generic_lexical")
         )
     return scan
 
