@@ -146,3 +146,80 @@ def test_feature_revision_does_not_fall_back_to_unpinned_source(tmp_path):
     window = next(iter_windows(episode, ByteCodec.byte_fallback()))
     with pytest.raises(ValueError, match="revision/width|fingerprint"):
         prepare_batches(model, [EpisodeWindow(episode, window)], config)
+
+
+def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
+    from dataclasses import replace
+
+    torch.set_num_threads(1)
+    assets, ep, model, config = _case(tmp_path)
+    raw = assets.put(
+        np.sin(np.arange(512, dtype=np.float32) / 21),
+        modality="audio", sample_rate=16000,
+    )
+    audio = MediaRecord("audio", raw, raw)
+    voice_record = PhysicalRecord(
+        "voice", "assistant", audio.to_bytes(), turn_index=1,
+        media_type=MEDIA_RECORD_TYPE, policy_mask=True,
+    )
+    second = Meridian(1, (
+        *ep.meridians[1].events,
+        TrackEvent("voice", "voice", "audio", 1, "assistant",
+                   asset_sha256=raw.sha256),
+    ))
+    ep = replace(ep, records=(*ep.records, voice_record),
+                 tracks=(*ep.tracks, TrackSpec("voice", "assistant")),
+                 meridians=(ep.meridians[0], second))
+    window = next(iter_windows(ep, ByteCodec.byte_fallback()))
+    batch, = prepare_batches(
+        model, [EpisodeWindow(ep, window)], config,
+    )
+    assert batch.counts["audio_prediction"] == 1
+    assert batch.counts["audio_reconstruction"] == 1
+    assert batch.counts["visual_prediction"] == 1
+    assert batch.counts["lexical"] == len(b"bright")
+    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    ledger.finish()
+    assert model.media_realizers.audio_filter[0].weight.grad is not None
+    assert model.media_realizers.visual_filter[0].weight.grad is not None
+    assert batch_counters([batch]).audio_samples == 1024
+
+
+def test_real_event_budget_checkpoint_and_media_data(tmp_path):
+    from megatoken.data import DedupConfig, DedupStore
+    from megatoken.data.storage import export_prepared
+    from megatoken.training.checkpoint import load_checkpoint
+    from megatoken.training.engine import train
+
+    torch.set_num_threads(1)
+    _, ep, _, config = _case(tmp_path)
+    source = DedupStore(
+        tmp_path / "index.sqlite", DedupConfig(
+            train_fraction=1.0, validation_fraction=0.0,
+        ),
+    )
+    try:
+        with source.transaction():
+            source.add(ep, ByteCodec.byte_fallback())
+        source.freeze()
+        export_prepared(
+            source, tmp_path, codec=ByteCodec.byte_fallback(),
+            source_receipts=[], pipeline_fingerprint="omni-event-pilot-v1",
+        )
+    finally:
+        source.close()
+    # B0's text-token budget would not account for image/audio events. G is an
+    # explicit event budget with its own advance/accumulation and checkpoint.
+    config = replace(
+        config, max_steps=1, accumulate_events=4, accumulate_scored=100_000,
+        accumulate_ingested=100_000, max_accumulation_windows=1,
+        microbatch_episodes=1, checkpoint_every=0, use_stage_mixture=False,
+    )
+    result = train(config)
+    payload, _ = load_checkpoint(result["checkpoint"])
+    assert result["global_step"] == 1
+    assert result["phase_consumed"] == result["counters"]["G"]
+    assert result["counters"]["G"] == 4
+    assert result["counters"]["media_events"] == 2
+    assert payload["phase_consumed"] == 4
