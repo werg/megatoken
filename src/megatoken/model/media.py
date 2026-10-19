@@ -113,6 +113,14 @@ class MediaStems(nn.Module):
         super().__init__()
         self.audio = AudioStem(config)
         self.vision = VisualStem(config)
+        self.external_audio = (
+            nn.Linear(config.audio_feature_dim, config.source_dim, bias=False)
+            if config.audio_feature_dim else None
+        )
+        self.external_vision = (
+            nn.Linear(config.vision_feature_dim, config.source_dim, bias=False)
+            if config.vision_feature_dim else None
+        )
 
     def encode(self, core, modality: str, value: Tensor, *, sample_rate: int = AUDIO_SAMPLE_RATE):
         if modality == "audio":
@@ -122,6 +130,38 @@ class MediaStems(nn.Module):
         else:
             raise ValueError("Media input must be audio, image or video")
         return self.encode_ordered_features(core, features)
+
+    def encode_external(
+        self,
+        core,
+        modality: str,
+        tokens: Tensor,
+        *,
+        extractor: str,
+    ) -> Tensor:
+        """Learn only a small projection of pinned frozen donor features.
+
+        Donor inference and caching happen before training. No donor backbone
+        or private donor KV is registered in the recurrent Megatoken model.
+        """
+        if modality == "audio":
+            adapter, identity = self.external_audio, core.config.audio_feature_id
+        elif modality in {"image", "video"}:
+            adapter, identity = self.external_vision, core.config.vision_feature_id
+        else:
+            raise ValueError("External feature input requires audio, image or video")
+        if adapter is None or identity != extractor:
+            raise ValueError("External encoder fingerprint/feature width differs from model")
+        if (
+            tokens.ndim != 3 or tokens.shape[-1] != adapter.in_features
+            or tokens.shape[1] < 1 or tokens.device != core.initial_facets.device
+            or not tokens.is_floating_point()
+        ):
+            raise ValueError("External media tokens need device-local [batch, tokens, feature_dim]")
+        if not bool(torch.isfinite(tokens).all()):
+            raise ValueError("External feature values must be finite")
+        projected = adapter(tokens.to(adapter.weight.dtype))
+        return self.encode_ordered_features(core, projected)
 
     @staticmethod
     def encode_ordered_features(
