@@ -317,9 +317,21 @@ def _actual_raw(
                 tape.facet_array().copy(), dtype=torch.float32, device=device,
             ).reshape(1, model.config.n_facets, model.config.facet_dim)
         else:
-            ids, lengths = byte_tensor([entry.payload], device)
             with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
-                raw = model.core.encode_chunk(ids, lengths)
+                if modality in {"audio", "image", "video"}:
+                    source = MediaRecord.from_bytes(entry.payload).source
+                    signal = torch.from_numpy(store.load(source)).to(device)[None]
+                    if source.kind == "features":
+                        raw = model.core.encode_media_features(
+                            modality, signal, extractor=source.extractor
+                        )
+                    else:
+                        raw = model.core.encode_media(
+                            modality, signal, sample_rate=source.sample_rate or 16000
+                        )
+                else:
+                    ids, lengths = byte_tensor([entry.payload], device)
+                    raw = model.core.encode_chunk(ids, lengths)
         values.append(raw)
     return torch.stack(values, dim=1)
 
