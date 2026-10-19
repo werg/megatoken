@@ -25,6 +25,8 @@ from .ingestion import ChunkEncoder
 from .layers import RMSNorm, SwiGLU
 from .media import MediaStems
 from .routing import EpochRouter, RowRoute
+from .adapters import MemoryAdapters
+from megatoken.memory.semantic import MemoryKVProjector
 from .state import CoreState, KVHistory, RealizationContext, assert_cache_version
 
 ROLE_IDS = ROLE_TO_ID
@@ -145,6 +147,9 @@ class CentralProcessor(nn.Module):
         track_ids: Tensor | None = None,
         modality_ids: Tensor | None = None,
         history_track_ids: Tensor | None = None,
+        external_kb: AttentionFeatures | None = None,
+        memory_snapshot=None,
+        memory_adapters: MemoryAdapters | None = None,
     ) -> Tensor:
         # A meridian may contain several complete 32-facet megatokens.  The
         # original one-event shape remains exactly the same, so singleton
@@ -180,6 +185,8 @@ class CentralProcessor(nn.Module):
             )
             facets = facets + modality_features
         projected = AttentionFeatures(history.keys, history.values, history.mask, history_track_ids)
+        if external_kb is not None:
+            projected = join_attention(external_kb, projected)
         temporary = None
         for index, layer in enumerate(self.layers):
             facets = facets + self.layer_codes[index]
@@ -214,6 +221,11 @@ class CentralProcessor(nn.Module):
                     temporal_positions=positions,
                     slot_codes=addresses,
                     query_track_ids=live_tracks,
+                )
+            if memory_adapters is not None and memory_snapshot is not None:
+                facets = memory_adapters.apply(
+                    facets, module="c", stage=index + 1,
+                    track_ids=live_tracks, snapshot=memory_snapshot,
                 )
             # Stage i publishes only a short-lived, position-rotated KV for i+1.
             # Neither these projections nor their tensors enter KVHistory.
@@ -296,6 +308,24 @@ class FacetedCore(nn.Module):
         self.lexical_gate = nn.Parameter(torch.tensor(-2.0))
         for name, tensor in self._pair_topology().items():
             self.register_buffer(name, tensor, persistent=False)
+        self.memory_projector = (
+            MemoryKVProjector(
+                c.semantic_value_dim, c.facet_dim, c.kv_heads,
+                c.attention_head_dim, c.n_facets,
+            ) if c.semantic_value_dim else None
+        )
+        self.memory_adapters = (
+            MemoryAdapters(
+                width=c.facet_dim, value_dim=c.semantic_value_dim,
+                experts=c.memory_lora_experts, rank=c.memory_lora_rank,
+                topk=c.memory_lora_topk, max_tracks=c.max_tracks,
+                max_stage=max(c.central_layers, c.prediction_layers) + 1,
+            ) if c.semantic_value_dim else None
+        )
+        self.memory_seed = (
+            nn.Linear(c.semantic_value_dim, c.facet_dim, bias=False)
+            if c.semantic_value_dim else None
+        )
         self._routing_losses: list[tuple[Tensor, Tensor]] = []
 
     def encoder_parameters(self) -> Iterator[nn.Parameter]:
@@ -307,6 +337,12 @@ class FacetedCore(nn.Module):
         """C and its memory owners, frozen with E/R for a fixed latent-RL action map."""
         yield self.initial_facets
         yield from self.central.parameters()
+        if self.memory_projector is not None:
+            yield from self.memory_projector.parameters()
+        if self.memory_adapters is not None:
+            yield from self.memory_adapters.parameters()
+        if self.memory_seed is not None:
+            yield from self.memory_seed.parameters()
 
     def predictor_parameters(self) -> Iterator[nn.Parameter]:
         """All P owners, including control encoding; excludes E, C/memory, and U."""

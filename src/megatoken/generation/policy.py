@@ -73,6 +73,12 @@ class FacetedGenerator(nn.Module):
         self.facet_distribution = FacetGaussian(self.config.facet_dim, self.config.prior_noise_std)
         self.decoder = DeterministicDecoder(self.config, self.codec)
         self.media_realizers = MediaRealizers(self.config)
+        from .embedding import EmbeddingRealizer
+        self.embedding_realizer = (
+            EmbeddingRealizer(
+                self.config.n_facets, self.config.facet_dim, self.config.semantic_dim
+            ) if self.config.semantic_dim else None
+        )
 
     @property
     def latent_dimensions(self) -> int:
