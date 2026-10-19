@@ -127,3 +127,35 @@ def test_table_scanner_fuzz_never_leaks_invalid_coordinates():
                 0 <= r.start <= r.end <= len(payload) for r in parsed.regions
             )
             assert len(parsed.regions) <= limits.max_regions
+
+
+def test_chunker_integrates_row_evidence_with_exact_token_preservation():
+    from megatoken.data.chunking import ChunkingConfig, segment_with_report
+    from megatoken.generation.codec import ByteCodec
+
+    source = (
+        b'name,note\r\n'
+        b'Alice,"Hello, world."\r\n'
+        b'Bob,"Embedded\nnewline"\r\n'
+        b'Charlie,"Escaped ""quote"""\r\n'
+    )
+    codec = ByteCodec.byte_fallback()
+    config = ChunkingConfig(24, 48, 64, max_bytes=64, parser_backend="fallback")
+    report = segment_with_report(
+        source,
+        codec,
+        config,
+        content_kind="csv",
+        chat_template="none",
+    )
+    assert "delimited-records-v1:csv" in report.parse.parsers
+    assert b"".join(chunk.payload for chunk in report.chunks) == source
+    assert tuple(token for chunk in report.chunks for token in chunk.token_ids) == tuple(
+        codec.encode(source)
+    )
+    assert all(
+        len(chunk.token_ids) <= config.hard_max_tokens
+        and len(chunk.payload) <= config.max_bytes
+        for chunk in report.chunks
+    )
+    assert not any(d.code == "grammar_unavailable" for d in report.parse.diagnostics)
