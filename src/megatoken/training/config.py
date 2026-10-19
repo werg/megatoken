@@ -102,6 +102,7 @@ class TrainConfig:
     media_root: str | None = None
     native_pack_manifest: str | None = None
     concordance_recipe: str | None = None
+    max_media_events_per_window: int = 5
     deterministic: bool = False
     require_blackwell: bool = False
     grad_clip: float = 1.0
@@ -149,6 +150,7 @@ class TrainConfig:
             raise ValueError("Concordance task mixture path must be nonempty")
         positive = (
             "microbatch_episodes",
+            "max_media_events_per_window",
             "accumulate_events",
             "accumulate_scored",
             "accumulate_ingested",
