@@ -619,7 +619,9 @@ def train(
             install_engram_asset(model, config.engram_import)
         context.broadcast_model(model)
         phase = dataclasses.replace(
-            PHASES[config.phase], budget=config.budget or PHASES[config.phase].budget
+            PHASES[config.phase],
+            budget=config.budget or PHASES[config.phase].budget,
+            meter="G" if config.budget_meter == "G" else PHASES[config.phase].meter,
         )
         optimizer = MasterAdamW(
             model, phase.learning_rate(0), config.weight_decay,
