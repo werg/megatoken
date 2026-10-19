@@ -673,8 +673,11 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         control = self._controls(control_bytes, state.device)
+        modal_names = tuple(
+            "text" if isinstance(x, ActionSpec) else x.modality for x in selected_specs
+        )
         mean = self.tracks.predict_group(
-            state, tracks=names, control=control, effort=effort
+            state, tracks=names, control=control, effort=effort, modalities=modal_names
         )
         distribution = self.generator.facet_distribution(mean)
         sampled = distribution.sample(generator)
@@ -682,7 +685,7 @@ class MultiTrackGenerator:
             (1, len(names)), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
         )
         predicted = self.tracks.advance_group(
-            state, sampled, tracks=names, role_ids=roles
+            state, sampled, tracks=names, role_ids=roles, modalities=modal_names
         )
 
         def losses(realized: MultiTrackState) -> Tensor:
@@ -733,13 +736,15 @@ class MultiTrackGenerator:
             encoded_raw.shape, device=state.device, dtype=torch.float32, generator=generator
         )
         reconstructed = self.tracks.advance_group(
-            state, encoded_raw + tau * noise, tracks=names, role_ids=roles
+            state, encoded_raw + tau * noise, tracks=names, role_ids=roles,
+            modalities=modal_names
         )
         recon_loss = losses(reconstructed)
         # The real live state is the clean teacher-forced encoding, not either
         # alternate sampled/reconstruction branch used to score the objective.
         next_state = self.tracks.advance_group(
-            state, encoded_raw, tracks=names, role_ids=roles
+            state, encoded_raw, tracks=names, role_ids=roles,
+            modalities=modal_names
         )
         router_balance, router_stabilization = core.routing_aux_loss(clear=True)
         routing = router_balance * 0.005 + router_stabilization * 1e-4
@@ -769,13 +774,19 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         encoded = self._controls(payloads, state.device)
-        mean = self.tracks.predict_group(state, tracks=names, control=encoded, effort=effort)
+        modalities = tuple(
+            "text" if isinstance(x, ActionSpec) else x.modality for x in plans
+        )
+        mean = self.tracks.predict_group(
+            state, tracks=names, control=encoded, effort=effort, modalities=modalities
+        )
         gaussian = self.generator.facet_distribution(mean)
         raw = gaussian.sample(generator)
         roles = (ROLE_IDS["assistant"],) * len(names)
         committed = self.tracks.advance_group(
             state, raw, tracks=names,
             role_ids=torch.tensor([roles], device=state.device, dtype=torch.long),
+            modalities=modalities,
         )
         output, emitted, valid, media = self._realize(committed, plans, encoded)
         density = gaussian.log_prob(raw).sum()
@@ -819,7 +830,8 @@ class MultiTrackGenerator:
         core.routing_aux_loss(clear=True)
         encoded = self._controls(tape.controls, state.device)
         mean = self.tracks.predict_group(
-            state, tracks=tape.tracks, control=encoded, effort=effort
+            state, tracks=tape.tracks, control=encoded, effort=effort,
+            modalities=tape.modalities
         )
         raw = tape.raw(state.device)
         if tuple(raw.shape[1:]) != tuple(mean.shape[1:]):
@@ -834,6 +846,7 @@ class MultiTrackGenerator:
         committed = self.tracks.advance_group(
             state, raw, tracks=tape.tracks,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
+            modalities=tape.modalities,
         )
         output, emitted, valid, media = self._realize(committed, plans, encoded)
         if (output != tape.payloads or emitted != tape.emitted_ids or valid != tape.valid):
