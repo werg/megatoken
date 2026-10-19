@@ -38,6 +38,28 @@ if TYPE_CHECKING:
 GROUP_TAPE_VERSION = "fmt-multitrack-facets-v1"
 
 
+
+@dataclass(frozen=True)
+class ObservedEvent:
+    """One available text or media input to commit in a shared meridian."""
+
+    track: str
+    modality: str
+    payload: bytes | Tensor
+    role_id: int = ROLE_IDS["user"]
+    sample_rate: int = 16000
+
+    def __post_init__(self) -> None:
+        if self.modality not in {"text", "audio", "image", "video"}:
+            raise ValueError("Unsupported input modality")
+        if self.modality == "text" and not isinstance(self.payload, bytes):
+            raise TypeError("Text events must contain bytes")
+        if self.modality != "text" and not isinstance(self.payload, Tensor):
+            raise TypeError("Media events must contain a tensor")
+        if self.role_id not in ROLE_IDS.values():
+            raise ValueError("Unknown event role")
+
+
 @dataclass(frozen=True)
 class MultiTrackState:
     """One shared history and the last *complete* meridian of selected events."""
@@ -234,6 +256,46 @@ class MultiTrackCore:
             geometry=state.geometry,
         )
 
+    def observe_group(
+        self,
+        state: MultiTrackState,
+        events: Sequence[ObservedEvent],
+        *,
+        encoder_grad: bool = True,
+    ) -> MultiTrackState:
+        """Encode heterogeneous available events and integrate their facets once."""
+        self._validate(state)
+        if state.batch_size != 1:
+            raise ValueError("Heterogeneous event serving requires one independent session")
+        if not events:
+            raise ValueError("At least one event is required")
+        tracks = tuple(event.track for event in events)
+        self._names(tracks, len(tracks))
+        raws = []
+        with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
+            for event in events:
+                if event.modality == "text":
+                    values, lengths = byte_tensor([event.payload], state.device)
+                    encoded = self.core.encode_chunk(values, lengths=lengths)
+                else:
+                    payload = event.payload
+                    assert isinstance(payload, Tensor)
+                    # A single media event has a single batch dimension.
+                    if payload.device != state.device or payload.shape[0] != 1:
+                        raise ValueError("Media event must be one batch row on the model device")
+                    encoded = self.core.encode_media(
+                        event.modality, payload, sample_rate=event.sample_rate
+                    )
+                raws.append(encoded)
+        return self.advance_group(
+            state,
+            torch.stack(raws, dim=1),
+            tracks=tracks,
+            role_ids=torch.tensor(
+                [[event.role_id for event in events]], dtype=torch.long, device=state.device
+            ),
+        )
+
     def observe_text_group(
         self,
         state: MultiTrackState,
@@ -244,24 +306,19 @@ class MultiTrackCore:
         encoder_grad: bool = True,
     ) -> MultiTrackState:
         """Observe simultaneous text events; they share one C/KV transition."""
-        self._validate(state)
-        if state.batch_size != 1:
-            raise ValueError("Text observation API currently serves one session")
-        payloads = tuple(payloads)
-        self._names(tracks, len(payloads))
-        if any(not isinstance(value, bytes) for value in payloads):
-            raise TypeError("Text observations must be raw bytes")
+        payloads, tracks = tuple(payloads), tuple(tracks)
+        if len(payloads) != len(tracks):
+            raise ValueError("Payloads and tracks must correspond")
         roles = tuple(roles) if roles is not None else (ROLE_IDS["user"],) * len(payloads)
-        if len(roles) != len(payloads) or any(role not in ROLE_IDS.values() for role in roles):
-            raise ValueError("Unknown observation role")
-        values, lengths = byte_tensor(payloads, state.device)
-        with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
-            raw = self.core.encode_chunk(values, lengths=lengths)
-        return self.advance_group(
+        if len(roles) != len(payloads):
+            raise ValueError("One role is required per observed event")
+        return self.observe_group(
             state,
-            raw.reshape(1, len(payloads), self.core.config.n_facets, -1),
-            tracks=tracks,
-            role_ids=torch.tensor([roles], device=state.device, dtype=torch.long),
+            tuple(
+                ObservedEvent(track, "text", payload, role_id=role)
+                for track, payload, role in zip(tracks, payloads, roles, strict=True)
+            ),
+            encoder_grad=encoder_grad,
         )
 
     def _predict_seed(self, state: MultiTrackState) -> Tensor:
