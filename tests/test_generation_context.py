@@ -1,6 +1,6 @@
 """Shared C/R computation, exact state ownership, and isolated encoder learning."""
 
-from dataclasses import replace
+from dataclasses import fields, replace
 
 import pytest
 import torch
@@ -34,7 +34,7 @@ def test_direct_realization_and_next_prediction_have_separate_core_dependencies(
     assert len(central_calls) == 1  # Only next-step KV, not realization.
     assert central_calls[0] is selected.state.facets
     assert contexts[0].facets is selected.state.facets
-    assert [field.name for field in __import__("dataclasses").fields(RealizationContext)] == ["facets"]
+    assert [field.name for field in fields(RealizationContext)] == ["facets"]
     assert selected.state.records_seen.item() == source.records_seen.item() + 1
     assert model.decode_state(selected.state, spec=spec).payload == selected.payload
     model.core.predict_facets(selected.state)

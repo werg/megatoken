@@ -13,7 +13,7 @@ import torch
 
 from megatoken.io import fsync_directory, sha256_file, write_json
 
-FORMAT_VERSION = 7
+FORMAT_VERSION = 8
 
 
 def save_checkpoint(
@@ -85,8 +85,8 @@ def load_checkpoint(
     metadata = json.loads((directory / "metadata.json").read_text())
     if metadata.get("format_version") != FORMAT_VERSION:
         raise ValueError(
-            "Unsupported checkpoint format: v7 requires the joint multitrack core "
-            "and progressive realizer; earlier weights are unsupported"
+            "Unsupported checkpoint format: v8 requires direct raw-facet realization "
+            "and the joint multitrack core; earlier weights are unsupported"
         )
     state_path = directory / "state.pt"
     if sha256_file(state_path) != metadata["state_sha256"]:

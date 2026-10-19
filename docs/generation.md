@@ -199,9 +199,9 @@ counts, both representation objectives, predicted and encoded facet norm sums,
 and alignment squared-error sums. Divide norm sums by `facet_examples` and squared
 error by `facet_alignment_coordinates`. Numerical diagnostics remain detached
 scalar tensors until transaction logging; static counts are ordinary integers.
-`reconstruction_direct_examples` and `reconstruction_contextual_examples` identify
-the evaluated auxiliary, and `native_alignment_examples` counts actual paired
-labels. The mean-versus-encoder squared error remains a diagnostic in recurrent
+`reconstruction_direct_examples` counts all direct encoder-to-realizer
+auxiliaries; `reconstruction_contextual_examples` is zero in v8, and
+`native_alignment_examples` counts actual paired labels. The mean-versus-encoder squared error remains a diagnostic in recurrent
 mode, not an objective. These measurements expose decoder dependence on
 reconstruction and representation drift without adding another training objective.
 
@@ -392,7 +392,6 @@ mean_output = model.decode_mean(initial, spec=spec, control_payload=control_payl
 encoded, lengths = byte_tensor([b"example"], initial.device)
 encoded_output = model.decode_facets(
     model.core.encode_chunk(encoded, lengths=lengths),
-    state=initial,
     spec=spec,
 )
 ```
@@ -417,9 +416,9 @@ These units cannot be compared as if they were interchangeable.
 For latent-only RL, call `freeze_decoder_for_rl()` after constructing or loading
 the optimizer. It freezes E, all C and KV/memory owners, and R/U, and clears their
 gradients. P, its control path, and the Gaussian scale remain trainable. Freezing
-the entire conditional action map preserves both historical context and the
-materialized action for fixed raw tapes while P's density changes. Freezing only
-R would be insufficient because C supplies R's context. Frozen owners remain
+E, C/KV and R preserves exact historical reconstruction and materialization
+for fixed raw tapes while P's density changes. R itself does not read C;
+C must still be frozen to preserve the predictor's causal input and replay. Frozen owners remain
 present in the optimizer checkpoint and have no gradients or weight-decay updates.
 
 `replay(initial_state, records, specs=...)` accepts exact observations

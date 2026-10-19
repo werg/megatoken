@@ -172,7 +172,7 @@ def test_legacy_bundle_format_is_rejected_before_weight_loading(bundle):
     manifest = json.loads((directory / "manifest.json").read_text())
     manifest["format_version"] = 2
     (directory / "manifest.json").write_text(json.dumps(manifest))
-    with pytest.raises(ValueError, match="v7 multitrack realization"):
+    with pytest.raises(ValueError, match="v8 direct realization"):
         InferenceEngine(directory, device="cpu")
 
 
