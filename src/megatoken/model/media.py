@@ -192,6 +192,14 @@ class MediaStems(nn.Module):
             nn.Linear(config.vision_feature_dim, config.source_dim, bias=False)
             if config.vision_feature_dim else None
         )
+        # Optional pinned complementary E views, projected BEFORE the same readout.
+        self.acoustic = (nn.Linear(config.audio_acoustic_feature_dim, config.source_dim,
+                                   bias=False) if config.audio_acoustic_feature_dim else None)
+        self.detail = (nn.Linear(config.vision_detail_feature_dim, config.source_dim,
+                                 bias=False) if config.vision_detail_feature_dim else None)
+        self.visual_codec = (nn.Linear(config.vision_codec_feature_dim, config.source_dim,
+                                       bias=False) if config.vision_codec_feature_dim else None)
+        self.missing_view = nn.Parameter(torch.zeros(2, config.source_dim))
 
     def encode(self, core, modality: str, value: Tensor, *, sample_rate: int = AUDIO_SAMPLE_RATE):
         if modality == "audio":
@@ -233,6 +241,70 @@ class MediaStems(nn.Module):
             raise ValueError("External feature values must be finite")
         projected = adapter(tokens.to(adapter.weight.dtype))
         return self.encode_ordered_features(core, projected)
+
+    def encode_multiview(
+        self, core, modality: str, tensors: tuple[Tensor, ...],
+        kinds: tuple[str, ...], extractors: tuple[str, ...],
+        masks: tuple[Tensor | None, ...] = (),
+        sample_rate: int = AUDIO_SAMPLE_RATE,
+        view_dropout: float = 0.0,
+    ) -> Tensor:
+        """Fuse declared frozen views in E, never via current R or central KV.
+
+        All source tokens retain their ordering until shared E reduction.
+        Temporal windows and crop maps are pinned in the source asset metadata.
+        """
+        if not tensors or len(tensors) != len(kinds) or len(tensors) != len(extractors):
+            raise ValueError("Every E view needs tensor/kind/extractor provenance")
+        if masks and len(masks) != len(tensors):
+            raise ValueError("Each E view must have its own valid-coordinate mask")
+        projected, valid = [], []
+        identities = [
+            (core.config.audio_feature_id, self.external_audio),
+            (core.config.audio_acoustic_feature_id, self.acoustic),
+        ] if modality == "audio" else [
+            (core.config.vision_feature_id, self.external_vision),
+            (core.config.vision_detail_feature_id, self.detail),
+            (core.config.vision_codec_feature_id, self.visual_codec),
+        ]
+        for i, (value, kind, extractor) in enumerate(zip(
+                tensors, kinds, extractors, strict=True)):
+            if kind == "raw":
+                if extractor:
+                    raise ValueError("Raw view cannot claim a frozen encoder")
+                if modality == "audio":
+                    features = self.audio(value, sample_rate=sample_rate)
+                else:
+                    features = self.vision(value)
+            elif kind == "features":
+                adapter = next((layer for ident, layer in identities
+                                if ident and ident == extractor and layer is not None), None)
+                if adapter is None or value.ndim != 3 or value.shape[-1] != adapter.in_features:
+                    raise ValueError("External E view fingerprint or width mismatch")
+                features = adapter(value.to(adapter.weight.dtype))
+            else:
+                raise ValueError("Native codec coordinates cannot bypass the E feature projector")
+            mask = (torch.ones(features.shape[:2], dtype=torch.bool, device=features.device)
+                    if not masks or masks[i] is None
+                    else masks[i].to(device=features.device, dtype=torch.bool))
+            if mask.shape != features.shape[:2]:
+                raise ValueError("E view mask must match projected token coordinates")
+            if i and self.training and view_dropout > 0:
+                keep = torch.rand(features.shape[0], device=features.device) >= view_dropout
+                mask = mask & keep[:, None]
+            features = features.masked_fill(~mask[..., None], 0)
+            projected.append(features)
+            valid.append(mask)
+        if not bool(valid[0].any(dim=1).all()):
+            raise ValueError("Primary observed view must contain real evidence")
+        # Missing supplementary streams produce a learned missing-view token;
+        # they are not misrepresented as zero-valued observations.
+        row = 0 if modality == "audio" else 1
+        missing = self.missing_view[row].to(projected[0].dtype)
+        projected.append(missing[None, None].expand(projected[0].shape[0], 1, -1))
+        valid.append(torch.ones_like(valid[0][:, :1]))
+        return self.encode_ordered_features(core, torch.cat(projected, dim=1),
+                                            torch.cat(valid, dim=1))
 
     @staticmethod
     def encode_ordered_features(
