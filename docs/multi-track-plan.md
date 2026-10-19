@@ -1,3 +1,7 @@
+> **Historical v7 plan:** The contextual C→R edge here is superseded by
+> [ADR 0007](decisions/0007-direct-realization.md). The media research
+> directions remain proposals; v8 R reads raw facets independently of C.
+
 # Multi-track Megatoken: architecture and implementation plan
 
 **Status:** Full-scope implementation contract. All work packages are required in one end-to-end implementation effort. This document specifies required work; it does not assert that the capabilities are already implemented.
