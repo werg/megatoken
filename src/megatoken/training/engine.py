@@ -24,7 +24,7 @@ from megatoken.controls import build_control_payload, encode_controls
 from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
-from megatoken.io import content_hash, write_json
+from megatoken.io import content_hash, write_json, sha256_file
 from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
@@ -606,6 +606,9 @@ def train(
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+        native_pack_fingerprint = (
+            sha256_file(config.native_pack_manifest) if config.native_pack_manifest else None
+        )
         model = build_model(
             model_config, codec, device=context.device, precision=config.precision,
             native_pack_manifest=config.native_pack_manifest,
@@ -616,6 +619,8 @@ def train(
             _resume_compatible(payload["train_config"], config, phase_transition)
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
+            if payload.get("native_pack_fingerprint") != native_pack_fingerprint:
+                raise ValueError("Pretrained native pack registry changed since checkpoint")
             if payload["model_config"] != model_config.to_dict():
                 raise ValueError("Checkpoint model configuration differs")
             # Dynamic temporary imports must be restored before optimizer owner
@@ -770,6 +775,7 @@ def train(
                         "model_config": model_config.to_dict(),
                         "train_config": asdict(config),
                         "codec_fingerprint": codec.fingerprint,
+                        "native_pack_fingerprint": native_pack_fingerprint,
                         "chunking": chunking_identity,
                         "rank_state": rank_state,
                         "global_step": global_step,
@@ -782,6 +788,7 @@ def train(
                         "phase_consumed": consumed,
                         "dataset_fingerprint": stream.fingerprint,
                         "codec_fingerprint": codec.fingerprint,
+                        "native_pack_fingerprint": native_pack_fingerprint,
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
