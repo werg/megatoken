@@ -202,6 +202,17 @@ Neither fallback decodes entities, executes source, or claims full grammar
 equivalence. See the [recovery regression matrix](../tests/test_parser_recovery_depth.py)
 and the [updated validation status](validation.md#pr-6-follow-up-integration--2026-10-19).
 
+CSV, TSV, and pipe-separated records now have an explicit
+[`delimited-records-v1` scanner](../src/megatoken/data/parsing/tabular.py)
+instead of relying on generic punctuation heuristics. It handles quoted fields,
+escaped quotes, embedded LF/CR/CRLF, empty fields, and malformed records with
+bounded, source-exact row/field evidence. Row protection is soft: records larger
+than a physical chunk cap can still be subdivided, and canonical token IDs
+remain unchanged. This is a structural lexer, not a full CSV schema validator
+or dialect auto-detection engine; callers should supply `language`, a `.csv`,
+`.tsv` or `.psv` filename, or a corresponding `content_kind`. Regression
+tests are in [test_tabular_parser.py](../tests/test_tabular_parser.py).
+
 Local grammar extensions use
 [`register_parser_provider`](../src/megatoken/data/parsing/registry.py), with a
 provider name/version, canonical language names, an offline parser factory, and
