@@ -42,19 +42,33 @@ def make_episode(
     red, blue = (int(n) for n in rng.integers(4, 12, 2))
     used_red, used_blue = (int(n) for n in rng.integers(1, 4, 2))
     remain_red, remain_blue = red - used_red, blue - used_blue
-    source_image = store.put(_picture(red, blue), modality="image")
-    target_image = store.put(
-        _picture(remain_red, remain_blue), modality="image",
-    )
+    visual_modality = "video" if index % 2 else "image"
+    if visual_modality == "video":
+        source_image = store.put(
+            np.stack((_picture(red, blue), _picture(red - 1, blue + 1))),
+            modality="video", fps_num=8,
+        )
+        target_image = store.put(
+            np.stack((
+                _picture(remain_red, remain_blue),
+                _picture(remain_red - 1, remain_blue + 1),
+            )),
+            modality="video", fps_num=8,
+        )
+    else:
+        source_image = store.put(_picture(red, blue), modality="image")
+        target_image = store.put(
+            _picture(remain_red, remain_blue), modality="image",
+        )
     source_audio = store.put(
         _tone(red + blue), modality="audio", sample_rate=16000,
     )
     target_audio = store.put(
         _tone(remain_red + remain_blue), modality="audio", sample_rate=16000,
     )
-    source_visual = MediaRecord("image", source_image)
+    source_visual = MediaRecord(visual_modality, source_image)
     source_acoustic = MediaRecord("audio", source_audio)
-    target_visual = MediaRecord("image", target_image, target_image)
+    target_visual = MediaRecord(visual_modality, target_image, target_image)
     target_acoustic = MediaRecord("audio", target_audio, target_audio)
     answer = f"red={remain_red};blue={remain_blue};total={remain_red + remain_blue}".encode()
 
@@ -83,14 +97,14 @@ def make_episode(
         Meridian(0, (
             TrackEvent("inventory", "inventory", "text", 0, "user"),
             TrackEvent("shipment", "shipment", "text", 0, "user"),
-            TrackEvent("camera", "camera", "image", 0, "user",
+            TrackEvent("camera", "camera", visual_modality, 0, "user",
                        asset_sha256=source_image.sha256),
             TrackEvent("mic", "mic", "audio", 0, "user",
                        asset_sha256=source_audio.sha256),
         )),
         Meridian(1, (
             TrackEvent("answer", "answer", "text", 1, "assistant"),
-            TrackEvent("picture", "picture", "image", 1, "assistant",
+            TrackEvent("picture", "picture", visual_modality, 1, "assistant",
                        asset_sha256=target_image.sha256),
             TrackEvent("voice", "voice", "audio", 1, "assistant",
                        asset_sha256=target_audio.sha256),
