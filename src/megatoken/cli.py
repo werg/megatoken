@@ -357,6 +357,18 @@ def _serve(args):
     )
 
 
+def _serve_multitrack(args):
+    from megatoken.inference import InferenceEngine
+    from megatoken.multitrack_service import serve_multitrack_jsonl
+
+    serve_multitrack_jsonl(
+        InferenceEngine(args.model, device=args.device, compile=args.compile),
+        sys.stdin,
+        sys.stdout,
+        max_sessions=args.max_sessions,
+    )
+
+
 def _smoke(args):
     from megatoken.smoke import run_smoke
 
@@ -579,6 +591,14 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--compile", action="store_true")
     item.add_argument("--max-sessions", type=int, default=32)
     item.set_defaults(func=_serve)
+    item = commands.add_parser(
+        "serve-multitrack", help="Serve v7 joint semantic meridians via local JSONL"
+    )
+    item.add_argument("--model", required=True)
+    item.add_argument("--device", default="auto")
+    item.add_argument("--compile", action="store_true")
+    item.add_argument("--max-sessions", type=int, default=32)
+    item.set_defaults(func=_serve_multitrack)
     item = commands.add_parser(
         "smoke", help="Run offline preparation, all stages, executed RL, export, and generation"
     )
