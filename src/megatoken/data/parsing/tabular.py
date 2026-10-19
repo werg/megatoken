@@ -36,6 +36,9 @@ def scan_delimited(payload: bytes, language: str, limits: ParseLimits) -> Scan:
             diagnostics += 1
 
     def field(end: int) -> None:
+        if scan.nodes >= limits.max_nodes:
+            return
+        scan.nodes += 1
         if field_start < end and len(scan.result.regions) < limits.max_regions:
             scan.result.regions.append(
                 Region(field_start, end, "table_cell", language, 1, False, source)
@@ -44,6 +47,9 @@ def scan_delimited(payload: bytes, language: str, limits: ParseLimits) -> Scan:
             scan.result.boundaries.append(Boundary(end, "statement", 1, source))
 
     def row(end: int) -> None:
+        if scan.nodes >= limits.max_nodes:
+            return
+        scan.nodes += 1
         if row_start < end and len(scan.result.regions) < limits.max_regions:
             scan.result.regions.append(
                 Region(row_start, end, "row", language, 0, True, source)
@@ -51,8 +57,9 @@ def scan_delimited(payload: bytes, language: str, limits: ParseLimits) -> Scan:
         if len(scan.result.boundaries) < limits.max_regions * 4:
             scan.result.boundaries.append(Boundary(end, "row", 0, source))
 
+    # AST-style budget counts semantic fields/rows, not individual bytes.
+    # The separate parse-byte cap still bounds work on arbitrarily long fields.
     while index < maximum and scan.nodes < limits.max_nodes:
-        scan.nodes += 1
         value = payload[index]
         if inside_quote:
             if value == 34:
