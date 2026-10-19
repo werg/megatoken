@@ -15,6 +15,10 @@
 > the updated roadmap is not yet implemented.
 
 
+The proposed [retrieval and correction memory architecture](docs/retrieval-memory-plan.md)
+adds source RAG on a retrieval track, free correction-KB pretraining, and subsequent
+hindsight/corpus writer training.
+
 A from-scratch model and training system built around **32 recurrent facets**.
 Byte ingestion and next-chunk prediction produce the same raw input format. Each
 selected input then runs through a shared central processor, which writes its KV
