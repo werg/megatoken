@@ -49,6 +49,7 @@ class MultiTrackState:
     meridian_sizes: tuple[int, ...]
     meridians_seen: Tensor  # [B]; logically committed meridian index
     frontier_tracks: tuple[str, ...]
+    track_registry: tuple[str, ...]
     frontier_roles: Tensor  # [B, T]
     model_version: int
     routing_version: int
@@ -97,6 +98,7 @@ class MultiTrackCore:
             meridian_sizes=(),
             meridians_seen=state.records_seen,
             frontier_tracks=(),
+            track_registry=(),
             frontier_roles=state.role_ids[:, None],
             model_version=state.model_version,
             routing_version=state.routing_version,
@@ -121,6 +123,10 @@ class MultiTrackCore:
             raise ValueError("Frontier features must retain every selected facet")
         if state.meridians_seen.shape != (state.batch_size,):
             raise ValueError("Meridian chronology has the wrong batch shape")
+        if (len(state.track_registry) > core.config.max_tracks
+                or len(set(state.track_registry)) != len(state.track_registry)
+                or any(name not in state.track_registry for name in state.frontier_tracks)):
+            raise ValueError("Track registry is inconsistent with the shared context")
         if state.frontier_roles.shape != state.raw.shape[:2]:
             raise ValueError("Frontier role metadata has the wrong shape")
         if sum(state.meridian_sizes) * f != state.history.slots:
@@ -136,6 +142,22 @@ class MultiTrackCore:
         if count < 1 or len(names) != count or len(set(names)) != count or any(not s for s in names):
             raise ValueError("One meridian needs unique nonempty event track identities")
         return names
+
+    def _track_indices(
+        self, state: MultiTrackState, names: Sequence[str]
+    ) -> tuple[Tensor, tuple[str, ...]]:
+        registry = list(state.track_registry)
+        indices = []
+        for name in names:
+            if name not in registry:
+                if len(registry) >= self.core.config.max_tracks:
+                    raise ValueError("Too many tracks for configured session capacity")
+                registry.append(name)
+            indices.append(registry.index(name))
+        values = torch.tensor([indices], device=state.device, dtype=torch.long).expand(
+            state.batch_size, -1
+        )
+        return values, tuple(registry)
 
     def _history_for(self, state: MultiTrackState, new_events: int) -> tuple[KVHistory, tuple[int, ...]]:
         """Evict complete oldest meridians, never a fraction of a selected event."""
@@ -187,11 +209,13 @@ class MultiTrackCore:
         if not bool(torch.isfinite(raw).all()):
             raise ValueError("Raw selected facets must be finite")
         history, retained = self._history_for(state, events)
+        track_ids, registry = self._track_indices(state, names)
         early, final = self.core.central(
             raw.flatten(1, 2),
             history,
             role_ids,
             state.meridians_seen,
+            track_ids=track_ids,
         )
         next_history = self.core.central.write(final, history, state.meridians_seen)
         shape = (state.batch_size, events, c.n_facets, c.facet_dim)
@@ -203,6 +227,7 @@ class MultiTrackCore:
             meridian_sizes=(*retained, events),
             meridians_seen=state.meridians_seen + 1,
             frontier_tracks=names,
+            track_registry=registry,
             frontier_roles=role_ids,
             model_version=state.model_version,
             routing_version=state.routing_version,
@@ -276,7 +301,9 @@ class MultiTrackCore:
         ):
             raise ValueError("Expected one control vector per requested event")
         base = self._predict_seed(state)
+        track_ids, _ = self._track_indices(state, tracks)
         facets = base[:, None].expand(-1, events, -1, -1).clone()
+        facets = facets + self.core.central.track_embedding(track_ids)[:, :, None]
         if control is not None:
             facets = facets + self.core.control_injection(control.to(facets.dtype))[:, :, None]
         # The current core has no learned per-track embedding table. Reuse its
