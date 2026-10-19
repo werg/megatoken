@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,57 @@ from typing import Any
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS
 from megatoken.io import content_hash, read_mapping
 from megatoken.training.schedule import PHASES
+
+
+@dataclass(frozen=True)
+class DecoupledConfig:
+    """Independent learner settings; worker_id may be supplied by sandbox environment."""
+
+    coordinator_url: str
+    run_id: str
+    workers: int = 8
+    worker_id: int | None = None
+    local_steps: int = 256
+    poll_steps: int = 4
+    heartbeat_steps: int = 8
+    io_workers: int = 4
+    timeout_seconds: float = 120.0
+    max_offline_steps: int = 2048
+    wire_dtype: str = "bf16"
+    allow_private_http: bool = False
+    checkpoint_s3: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.coordinator_url or not self.run_id:
+            raise ValueError("Decoupled training needs coordinator_url and run_id")
+        if not 1 <= self.workers <= 256:
+            raise ValueError("decoupled workers must be in [1, 256]")
+        if min(self.local_steps, self.poll_steps, self.heartbeat_steps, self.io_workers) < 1:
+            raise ValueError("decoupled steps and I/O worker count must be positive")
+        if self.timeout_seconds <= 0 or self.max_offline_steps < 0:
+            raise ValueError("Invalid decoupled timeout/offline tolerance")
+        if self.wire_dtype not in {"bf16", "fp32"}:
+            raise ValueError("decoupled wire_dtype must be bf16 or fp32")
+        if self.checkpoint_s3 is not None and not self.checkpoint_s3.startswith("s3://"):
+            raise ValueError("checkpoint_s3 must use an s3://bucket/prefix URI")
+        if self.worker_id is not None and not 0 <= self.worker_id < self.workers:
+            raise ValueError("Invalid decoupled worker_id")
+
+    @property
+    def resolved_worker_id(self) -> int:
+        raw = self.worker_id
+        if raw is None:
+            raw = int(os.environ.get("MEGATOKEN_WORKER_ID", "-1"))
+        if not 0 <= raw < self.workers:
+            raise ValueError("Set MEGATOKEN_WORKER_ID in [0, workers) on each sandbox")
+        return raw
+
+    @classmethod
+    def from_dict(cls, mapping: dict[str, Any]) -> DecoupledConfig:
+        unknown = set(mapping) - {f.name for f in fields(cls)}
+        if unknown:
+            raise ValueError(f"Unknown decoupled settings: {sorted(unknown)}")
+        return cls(**mapping)
 
 
 @dataclass(frozen=True)
@@ -47,6 +99,8 @@ class TrainConfig:
     require_blackwell: bool = False
     grad_clip: float = 1.0
     weight_decay: float = 0.1
+    inner_optimizer: str = "adamw"
+    decoupled: DecoupledConfig | None = None
     loss_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LOSS_WEIGHTS))
     model_overrides: dict[str, Any] = field(default_factory=dict)
     allow_byte_codec: bool = False
@@ -56,6 +110,12 @@ class TrainConfig:
     engram_import: str | None = None
 
     def __post_init__(self) -> None:
+        if isinstance(self.decoupled, dict):
+            object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
+        if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
+            raise ValueError("decoupled must be a settings object or mapping")
+        if self.inner_optimizer not in {"adamw", "muon"}:
+            raise ValueError("inner_optimizer must be adamw or muon")
         if self.phase not in PHASES:
             raise ValueError(f"phase must be one of {tuple(PHASES)}")
         if self.precision not in {"bf16", "fp32"}:
