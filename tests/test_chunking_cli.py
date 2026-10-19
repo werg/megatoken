@@ -165,3 +165,30 @@ def test_review_commands_preserve_a_failed_repair_receipt_and_return_failure(
     )
     listed = invoke(["chunks", "review", "list", "--queue", path, "--status", "pending"])
     assert listed["summary"]["pending"] == 1
+
+
+def test_tabular_inspection_exposes_row_parser_through_public_cli(tmp_path):
+    payload = b'name,note\r\nAlice,"Hello,\r\nworld"\r\nBob,"Other"\r\n'
+    source = tmp_path / "records.csv"
+    source.write_bytes(payload)
+    output = tmp_path / "records.json"
+    invoke(
+        [
+            "chunks",
+            "inspect",
+            "--input",
+            source,
+            "--content-kind",
+            "csv",
+            "--parser-backend",
+            "fallback",
+            "--chat-template",
+            "none",
+            "--include-payload",
+            "--output",
+            output,
+        ]
+    )
+    report = json.loads(output.read_text())
+    assert "delimited-records-v1:csv" in report["parsers"]
+    assert b"".join(bytes.fromhex(chunk["payload_hex"]) for chunk in report["chunks"]) == payload
