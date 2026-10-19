@@ -89,6 +89,7 @@ class MeridianStep:
     records: tuple[EncodedRecord, ...]
     plans: tuple[Plan, ...] = ()
     modalities: tuple[str, ...] = ()
+    requests: tuple[tuple[str, int], ...] = ()
 
     @property
     def generated(self) -> bool:
@@ -294,6 +295,7 @@ def prepare_meridian_batch(
             tuple(event.track_id for event in meridian.events),
             tuple(ROLE_TO_ID[event.role] for event in meridian.events),
             offsets, records, plans, modalities,
+            tuple((event.request, event.request_revision) for event in meridian.events),
         )
         (prefix if offsets[-1] < window.start else steps).append(step)
     if sum(len(x.records) for x in (*prefix, *steps)) != window.end:
@@ -388,6 +390,7 @@ def forward_meridian_batch(
         # The core owner is versioned by the outer training loop.
         raise ValueError("Meridian trainer received a stale model version")
     payload = episode_control_payload(batch.windows[0].episode)
+    from megatoken.controls import effective_event_payloads
     losses = []
     metrics: dict[str, float | torch.Tensor] = {
         "grouped_training_windows": 1,
@@ -427,7 +430,9 @@ def forward_meridian_batch(
             )
             result = multi.supervised_meridian(
                 state, tracks=step.tracks, plans=resolved,
-                control_payloads=(payload,) * len(step.tracks),
+                control_payloads=effective_event_payloads(
+                    payload, step.tracks, step.requests,
+                ),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
             )

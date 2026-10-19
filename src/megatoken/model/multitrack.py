@@ -1064,10 +1064,8 @@ class MultiTrackGenerator:
         posterior = DiagonalGaussian(
             encoded_raw.float(), torch.full_like(encoded_raw, math.log(tau))
         )
-        # KL is already averaged over batch, events, facets and coordinates.
-        # Dividing again by one group's latent size almost removes its gradient
-        # at production width (32 x 512), defeating bootstrap prior alignment.
-        kl = posterior.detach().kl(distribution).mean()
+        # Per-example KL sums all raw coordinates; normalize by active coordinates.
+        kl = posterior.detach().kl(distribution).sum() / encoded_raw.numel()
         noise = torch.randn(
             encoded_raw.shape, device=state.device, dtype=torch.float32, generator=generator
         )

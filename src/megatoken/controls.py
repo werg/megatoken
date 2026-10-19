@@ -166,3 +166,28 @@ def encode_controls(
     values, lengths = byte_tensor(payloads, core.initial_facets.device)
     encoded = core.encode_control(values, lengths=lengths, encoder_grad=encoder_grad)
     return encoded.masked_fill(lengths.eq(0)[:, None], 0)
+
+def effective_event_payloads(
+    session_payload: bytes,
+    tracks: Sequence[str],
+    requests: Sequence[tuple[str, int]],
+) -> tuple[bytes, ...]:
+    """Bind an event-local revision without revealing later requests.
+
+    A request only affects its own event. This framing is byte-exact and shared
+    by the trainer and a caller preparing controls for select_group/replay.
+    """
+    if len(tracks) != len(requests) or len(set(tracks)) != len(tracks):
+        raise ValueError("Each unique track requires one effective request")
+    if not isinstance(session_payload, bytes):
+        raise TypeError("Session control must be bytes")
+    result = []
+    for track, (instruction, revision) in zip(tracks, requests, strict=True):
+        if not track or not isinstance(instruction, str) or type(revision) is not int or revision < 0:
+            raise ValueError("Invalid effective event request")
+        suffix = json.dumps(
+            {"track_id": track, "request": instruction, "revision": revision},
+            sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+        ).encode("utf-8")
+        result.append(session_payload + b"\n<event_request>\n" + suffix)
+    return tuple(result)

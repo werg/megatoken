@@ -213,6 +213,8 @@ class TrackEvent:
     alignment_id: str | None = None
     media_span: MediaSpan | None = None
     asset_sha256: str | None = None
+    request: str = ""
+    request_revision: int = 0
 
     def __post_init__(self) -> None:
         if not self.record_id or not self.track_id or self.meridian_id < 0:
@@ -221,6 +223,8 @@ class TrackEvent:
             raise ValueError("Unknown event modality")
         if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
             raise ValueError("Unknown track event role")
+        if not isinstance(self.request, str) or not isinstance(self.request_revision, int) or self.request_revision < 0:
+            raise ValueError("Event request and revision must be well-formed")
         if self.asset_sha256 is not None and (
             len(self.asset_sha256) != 64
             or any(c not in "0123456789abcdef" for c in self.asset_sha256)
