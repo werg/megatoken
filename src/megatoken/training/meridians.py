@@ -391,10 +391,10 @@ def forward_meridian_batch(
             state, replayed = _preceding_native(multi, state, batch.native_history, step)
             metrics["grouped_native_replays"] += replayed
             state = multi.tracks.advance_group(
-                state, _actual_raw(model, step, batch.native_history, device, encoder_grad=False),
+                state, _actual_raw(model, step, batch.native_history, store, device, encoder_grad=False),
                 tracks=step.tracks,
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
-                modalities=("text",) * len(step.tracks),
+                modalities=step.modalities,
             )
     for step in batch.steps:
         state, replayed = _preceding_native(multi, state, batch.native_history, step)
@@ -425,12 +425,12 @@ def forward_meridian_batch(
         else:
             state = multi.tracks.advance_group(
                 state, _actual_raw(
-                    model, step, batch.native_history, device,
+                    model, step, batch.native_history, store, device,
                     encoder_grad=config.representation_training == "bootstrap",
                 ),
                 tracks=step.tracks,
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
-                modalities=("text",) * len(step.tracks),
+                modalities=step.modalities,
             )
     if losses:
         torch.stack(losses).sum().backward()
