@@ -79,6 +79,29 @@ remaining parts and tones encode a count. It tests real E/C/P/R mixing,
 shared KV, and coordinated outputs **without pretending tones are speech**.
 Generated tasks carry source-family IDs to prevent derived train/test leakage.
 
+To train **paired cross-track counterfactuals**, use a distinct immutable output:
+
+```bash
+python scripts/prepare_omni_pilot.py \\
+  --output artifacts/omni-counterfactual-pilot \\
+  --count 64 --seed 91 --counterfactual-variants
+```
+
+Each parent produces three examples: a baseline, an **audio-only evidence swap**
+(changes the hidden blue count), and a **visual-only evidence swap** (changes the
+hidden red count). Instructions and shipment quantities are identical across
+the three examples. The visual source is identical between baseline/audio-swap;
+the audio source is identical between baseline/visual-swap; answer and paired
+media targets change accordingly. **All three siblings retain one lineage
+family ID**, so the family-based split must keep them entirely within the same
+split. The generator records the option in the prepared source receipt and
+pipeline fingerprint. This is a causal multitask *data unit test*, not a
+measurement that an untrained model actually uses both tracks. Evaluate a
+trained checkpoint by holding one track constant and swapping only the other;
+the corresponding answer component should change while the other remains
+unchanged. Run `pytest -q tests/test_omni_counterfactual.py` for source-pair
+invariants.
+
 The new `budget_meter: G` counts **physical scored-window megatokens**
 across modalities; it requires an explicit `budget` and an event
 accumulation limit. `G` is not `D`, `P`, media frames, or Gaussian
