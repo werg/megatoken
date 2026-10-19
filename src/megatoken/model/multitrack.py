@@ -869,7 +869,8 @@ class MultiTrackGenerator:
                 for index, plan in enumerate(plans):
                     tape = (
                         plan.native_tapes[0] if isinstance(plan, PreparedTargets)
-                        else plan.native_tape
+                        else plan.native_tape if isinstance(plan, PreparedAction)
+                        else None
                     )
                     if tape is None:
                         actual.append(target_raw[:, index].detach())
@@ -887,7 +888,7 @@ class MultiTrackGenerator:
             selected if mode == "recurrent" and not teacher_forced_action
             else self.tracks.advance_group(
                 state, continuation, tracks=names, role_ids=roles,
-                modalities=("text",) * len(names),
+                modalities=modalities,
             )
         )
         zero = mean.float().sum() * 0
@@ -908,7 +909,8 @@ class MultiTrackGenerator:
             for index, plan in enumerate(plans):
                 tape = (
                     plan.native_tapes[0] if isinstance(plan, PreparedTargets)
-                    else plan.native_tape
+                    else plan.native_tape if isinstance(plan, PreparedAction)
+                    else None
                 )
                 if tape is not None:
                     actual = torch.as_tensor(
