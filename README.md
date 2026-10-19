@@ -8,7 +8,8 @@
 > pretrained omnimodal model nor evidence of high-fidelity speech/video quality.
 > A new v7 training and evaluation run is required. See
 > [the v7 plan](docs/multi-track-plan.md) and
-> [implementation status](docs/multi-track-implementation.md).
+> [implementation status](docs/multi-track-implementation.md), and the
+> [proposed omnimodal architecture, donor components and multi-track training curriculum](docs/omnimodal-architecture-and-training.md).
 >
 > **Strict native formats:** v7 rejects earlier checkpoint, tape, served-bundle,
 > and prepared dataset formats. The explicit v6-to-v7 migration described in
