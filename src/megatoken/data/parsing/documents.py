@@ -557,7 +557,7 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
             stop = payload.find(b"-->", index + 4)
             end = stop + 3 if stop >= 0 else length
             _region(scan, index, end, "comment", language, source, limits)
-            if index + 4 < (stop if stop >= 0 else end):
+            if index + 4 < (stop if stop >= 0 else end) and len(scan.injections) < limits.max_injections:
                 scan.injections.append(
                     Injection(index + 4, stop if stop >= 0 else end, "auto", None, "markup_comment")
                 )
@@ -567,7 +567,7 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
             stop = payload.find(b"]]>", index + 9)
             end = stop + 3 if stop >= 0 else length
             _region(scan, index, end, "string", language, source, limits)
-            if index + 9 < (stop if stop >= 0 else end):
+            if index + 9 < (stop if stop >= 0 else end) and len(scan.injections) < limits.max_injections:
                 scan.injections.append(
                     Injection(index + 9, stop if stop >= 0 else end, "auto", None, "cdata_content")
                 )
@@ -625,7 +625,7 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
             hint = _raw_body_hint(
                 name, {attribute: value for attribute, value, _, _ in attributes}
             )
-            if cursor < inner_end:
+            if cursor < inner_end and len(scan.injections) < limits.max_injections:
                 scan.injections.append(
                     Injection(cursor, inner_end, "code", hint, "html_raw_content")
                 )
