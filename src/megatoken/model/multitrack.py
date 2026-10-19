@@ -55,6 +55,9 @@ class ObservedEvent:
     payload: bytes | Tensor
     role_id: int = ROLE_IDS["user"]
     sample_rate: int = 16000
+    # Optional immutable donor identity; nonempty means payload is ordered
+    # feature tokens rather than native waveform/image/video pixels.
+    extractor: str = ""
 
     def __post_init__(self) -> None:
         if self.modality not in {"text", "audio", "image", "video"}:
@@ -65,6 +68,10 @@ class ObservedEvent:
             raise TypeError("Media events must contain a tensor")
         if self.role_id not in ROLE_IDS.values():
             raise ValueError("Unknown event role")
+        if self.extractor and (
+            self.modality == "text" or not isinstance(self.payload, Tensor)
+        ):
+            raise ValueError("External features require a media tensor and pinned extractor")
 
 
 @dataclass(frozen=True)
