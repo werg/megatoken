@@ -30,7 +30,7 @@ from megatoken.generation.structure import ActionSpec
 from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
-from .core import EFFORTS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
+from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .media import MediaOutputSpec
 from .routing import RowRoute
 from .state import KVHistory, RealizationContext, assert_cache_version
@@ -74,6 +74,7 @@ class MultiTrackState:
     meridian_sizes: tuple[int, ...]
     meridians_seen: Tensor  # [B]; logically committed meridian index
     frontier_tracks: tuple[str, ...]
+    frontier_modalities: tuple[str, ...]
     track_registry: tuple[str, ...]
     frontier_roles: Tensor  # [B, T]
     model_version: int
@@ -123,6 +124,7 @@ class MultiTrackCore:
             meridian_sizes=(),
             meridians_seen=state.records_seen,
             frontier_tracks=(),
+            frontier_modalities=(),
             track_registry=(),
             frontier_roles=state.role_ids[:, None],
             model_version=state.model_version,
@@ -148,6 +150,8 @@ class MultiTrackCore:
             raise ValueError("Frontier features must retain every selected facet")
         if state.meridians_seen.shape != (state.batch_size,):
             raise ValueError("Meridian chronology has the wrong batch shape")
+        if state.frontier_modalities and len(state.frontier_modalities) != state.frontier_count:
+            raise ValueError("Frontier modality metadata must match selected events")
         if (len(state.track_registry) > core.config.max_tracks
                 or len(set(state.track_registry)) != len(state.track_registry)
                 or any(name not in state.track_registry for name in state.frontier_tracks)):
@@ -212,6 +216,7 @@ class MultiTrackCore:
         *,
         tracks: Sequence[str],
         role_ids: Tensor,
+        modalities: Sequence[str] | None = None,
     ) -> MultiTrackState:
         """Jointly integrate selected blocks and commit one complete meridian."""
         self._validate(state)
@@ -223,6 +228,9 @@ class MultiTrackCore:
             raise ValueError("Raw group must be [batch, events, facets, width]")
         events = raw.shape[1]
         names = self._names(tracks, events)
+        modality_names = tuple(modalities) if modalities is not None else ("text",) * events
+        if len(modality_names) != events or any(x not in MODALITY_IDS for x in modality_names):
+            raise ValueError("One supported modality is required per selected event")
         if (
             role_ids.shape != (state.batch_size, events)
             or role_ids.dtype != torch.long
@@ -235,12 +243,16 @@ class MultiTrackCore:
             raise ValueError("Raw selected facets must be finite")
         history, retained = self._history_for(state, events)
         track_ids, registry = self._track_indices(state, names)
+        modality_ids = torch.tensor(
+            [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
+        ).expand(state.batch_size, -1)
         early, final = self.core.central(
             raw.flatten(1, 2),
             history,
             role_ids,
             state.meridians_seen,
             track_ids=track_ids,
+            modality_ids=modality_ids,
         )
         next_history = self.core.central.write(final, history, state.meridians_seen)
         shape = (state.batch_size, events, c.n_facets, c.facet_dim)
@@ -252,6 +264,7 @@ class MultiTrackCore:
             meridian_sizes=(*retained, events),
             meridians_seen=state.meridians_seen + 1,
             frontier_tracks=names,
+            frontier_modalities=modality_names,
             track_registry=registry,
             frontier_roles=role_ids,
             model_version=state.model_version,
@@ -294,6 +307,7 @@ class MultiTrackCore:
             state,
             torch.stack(raws, dim=1),
             tracks=tracks,
+            modalities=tuple(event.modality for event in events),
             role_ids=torch.tensor(
                 [[event.role_id for event in events]], dtype=torch.long, device=state.device
             ),
@@ -344,6 +358,7 @@ class MultiTrackCore:
         tracks: Sequence[str],
         control: Tensor | None = None,
         effort: int = 6,
+        modalities: Sequence[str] | None = None,
     ) -> Tensor:
         """Read-only *joint* prediction from all previously committed tracks.
 
@@ -362,8 +377,15 @@ class MultiTrackCore:
             raise ValueError("Expected one control vector per requested event")
         base = self._predict_seed(state)
         track_ids, _ = self._track_indices(state, tracks)
+        modality_names = tuple(modalities) if modalities is not None else ("text",) * events
+        if len(modality_names) != events or any(x not in MODALITY_IDS for x in modality_names):
+            raise ValueError("Unsupported prediction modality descriptor")
+        modality_ids = torch.tensor(
+            [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
+        ).expand(batch, -1)
         facets = base[:, None].expand(-1, events, -1, -1).clone()
         facets = facets + self.core.central.track_embedding(track_ids)[:, :, None]
+        facets = facets + self.core.central.modality_embedding(modality_ids)[:, :, None]
         if control is not None:
             facets = facets + self.core.control_injection(control.to(facets.dtype))[:, :, None]
         # The current core has no learned per-track embedding table. Reuse its
