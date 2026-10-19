@@ -4,7 +4,14 @@
 Multiple tracks are integrated as one atomic meridian with a shared full-resolution
 KV history and joint central processing. For the grouped contract, see the
 [multi-track plan](multi-track-plan.md) and
-[implementation status](multi-track-implementation.md).
+[implementation status](multi-track-implementation.md) and the
+[omnimodal architecture and training proposal](omnimodal-architecture-and-training.md).
+
+The following sections document the single-event mechanics and retained v6 design
+choices inside the **v7 implementation**. Where an example speaks about one
+megatoken or one selected input, grouped v7 meridians operate on several such
+complete blocks in the same central pass. The legacy single-event path remains
+supported; multimedia quality and grouped recurrent training are not yet established.
 
 **Both realization and next-chunk prediction use the central core's computation.**
 Byte ingestion and prediction meet at one format: **32 raw facets of width 512**.
