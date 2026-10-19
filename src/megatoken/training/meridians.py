@@ -160,6 +160,42 @@ def _target_plan(
     )
 
 
+
+def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) -> MediaPlan:
+    reference = MediaRecord.from_bytes(entry.payload)
+    if reference.modality != modality or entry.record.media_type != MEDIA_RECORD_TYPE:
+        raise ValueError("Media event requires a matching canonical media descriptor")
+    if reference.target is None:
+        raise ValueError("Generated media events require a pinned raw target")
+    source = reference.source
+    if source.kind == "features":
+        feature_id = (
+            model.config.audio_feature_id if modality == "audio"
+            else model.config.vision_feature_id
+        )
+        feature_width = (
+            model.config.audio_feature_dim if modality == "audio"
+            else model.config.vision_feature_dim
+        )
+        if source.extractor != feature_id or source.shape[-1] != feature_width:
+            raise ValueError("Pinned media feature revision/width differs from model")
+    target = reference.target
+    if modality == "audio":
+        spec = MediaOutputSpec("audio", sample_count=target.shape[0])
+    elif modality == "image":
+        spec = MediaOutputSpec("image", height=target.shape[1], width=target.shape[2])
+    else:
+        spec = MediaOutputSpec(
+            "video", frames=target.shape[0],
+            height=target.shape[2], width=target.shape[3],
+        )
+    return MediaPlan(
+        reference, spec, config.representation_training,
+        model.config.n_facets, model.config.facet_dim,
+    )
+
+
+
 def prepare_meridian_batch(
     model: Any,
     item: EpisodeWindow,
