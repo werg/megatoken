@@ -12,7 +12,7 @@ The goal is not the highest acoustic frame rate. It is a coherent cross-modal mo
 
 **Not yet implemented:** production grouped recurrent training in `training/engine.py`, media feature/reconstruction caching with pinned external encoders, conditioning a pretrained high-fidelity speech or image/video realizer on facets, actual reference-media embeddings for voice/style control, joint audiovisual generation, or evidence of perceptual quality. **Do not describe native waveform/pixel MSE as state-of-the-art media generation.** Existing B0/P1/M1/M2/LC/S/D/R budgets and `data/stages.json` operate through the legacy single-track learner; no new proposed mixture should be silently passed to that loader.
 
-**Immediate code corrections from this review:** the independent grouped-bootstrap facet KL was normalized twice; normalize it **once per active latent coordinate**. The media stem now exposes an explicit `encode_ordered_features(core, features, mask)` boundary for ordered, already projected `source_dim` features. This does not itself download or validate a pretrained donor.
+**Immediate code corrections from this review:** the independent grouped-bootstrap facet KL was normalized twice; normalize it **once per active latent coordinate**. The media stem now exposes an explicit `encode_ordered_features(core, features, mask)` boundary for ordered, already projected `source_dim` features. Group action-tape JSON now uses the same strict duplicate-key and nonstandard-constant rejection as the existing serialized contracts. None of these changes downloads or validates a pretrained donor.
 
 ## 2. Minimal architectural changes to make pretrained components easy
 
