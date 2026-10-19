@@ -677,13 +677,16 @@ class _GroupedTeacherReadout(nn.Module):
     def forward(
         self, state: MultiTrackState, raw: Tensor,
         tracks: tuple[str, ...], roles: Tensor,
-        plans: tuple[PreparedTargets | PreparedAction, ...],
+        plans: tuple[PreparedTargets | PreparedAction | MediaTrainTarget, ...],
+        control: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
-        selected = MultiTrackCore(self.core).advance_group(
-            state, raw, tracks=tracks, role_ids=roles,
-            modalities=("text",) * len(tracks),
+        modalities = tuple(
+            p.modality if isinstance(p, MediaTrainTarget) else "text" for p in plans
         )
-        return self.losses_for_selected(selected, plans)
+        selected = MultiTrackCore(self.core).advance_group(
+            state, raw, tracks=tracks, role_ids=roles, modalities=modalities,
+        )
+        return self.losses_for_selected(selected, plans, control)
 
 
 class MultiTrackGenerator:
