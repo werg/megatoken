@@ -119,4 +119,9 @@ def test_jsonl_multitrack_roundtrip():
     assert len(rows) == 4 and all(row["ok"] for row in rows)
     assert rows[2]["outputs"][1]["shape"] == [64]
     assert rows[2]["tape"]["modalities"] == ["text", "audio"]
+    assert rows[1]["next_meridian"] == 1
+    assert rows[1]["events_seen"] == 1
+    assert rows[3]["meridians"] == 2
+    assert rows[3]["retained_meridians"] == 2
+    assert rows[3]["events_seen"] == 3
     assert rows[3]["retained_events"] == 3
