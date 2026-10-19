@@ -63,6 +63,11 @@ class TrainingWindow:
         return sum(record.P for record in self.records)
 
     @property
+    def G(self) -> int:
+        """Actual physical megatokens, independently of lexical token count."""
+        return len(self.records)
+
+    @property
     def prefix_count(self) -> int:
         return len(self.prefix)
 
@@ -131,7 +136,13 @@ def iter_windows(
         while group_index < len(groups):
             left, right = groups[group_index]
             group_tokens = sum(record.tokens for record in encoded[left:right])
-            group_decisions = int(any(record.P for record in encoded[left:right]))
+            group_decisions = int(any(
+                record.P or (
+                    record.record.policy_mask
+                    and record.record.media_type == "application/vnd.megatoken.media-reference+json"
+                )
+                for record in encoded[left:right]
+            ))
             if (
                 end > start
                 and end > must_reach
