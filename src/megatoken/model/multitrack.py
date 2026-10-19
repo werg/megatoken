@@ -22,10 +22,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
-from torch import Tensor
+from torch import Tensor, nn
+from torch.func import functional_call
 
+from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, LOSS_NAMES
 from megatoken.controls import encode_controls
+from megatoken.generation.decoder import DECODER_LOSSES
 from megatoken.generation.latents import DiagonalGaussian
+from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.generation.structure import ActionSpec
 from megatoken.io import strict_json_loads
 from megatoken.tensors import byte_tensor
@@ -613,6 +617,8 @@ class GroupSupervisedResult:
     state: MultiTrackState
     loss: Tensor
     components: dict[str, Tensor]
+    losses: dict[str, tuple[Tensor, int]] | None = None
+    metrics: dict[str, Tensor | int | float] | None = None
 
 
 @dataclass(frozen=True)
@@ -621,6 +627,46 @@ class GroupGeneration:
     tape: GroupActionTape
     log_prob: Tensor
     media_outputs: tuple[Tensor | None, ...] = ()
+
+
+class _GroupedTeacherReadout(nn.Module):
+    """Shared readout for normal and frozen-owner encoder-only group branches."""
+
+    def __init__(self, core: FacetedCore, decoder: nn.Module) -> None:
+        super().__init__()
+        self.core = core
+        self.decoder = decoder
+
+    def losses_for_selected(
+        self, selected: MultiTrackState,
+        plans: Sequence[PreparedTargets | PreparedAction],
+    ) -> dict[str, tuple[Tensor, int]]:
+        zero = selected.raw.float().sum() * 0
+        sums = {name: zero for name in DECODER_LOSSES}
+        counts = {name: 0 for name in DECODER_LOSSES}
+        adapter = MultiTrackCore(self.core)
+        for index, plan in enumerate(plans):
+            context = adapter.realization_context(selected, index)
+            if isinstance(plan, PreparedTargets):
+                parts = self.decoder.teacher_raw(self.core, context, plan)
+            else:
+                parts = self.decoder(self.core, context, plan.spec, teacher=plan).losses
+            for name in DECODER_LOSSES:
+                value, count = parts[name]
+                sums[name] = sums[name] + value
+                counts[name] += count
+        return {name: (sums[name], counts[name]) for name in DECODER_LOSSES}
+
+    def forward(
+        self, state: MultiTrackState, raw: Tensor,
+        tracks: tuple[str, ...], roles: Tensor,
+        plans: tuple[PreparedTargets | PreparedAction, ...],
+    ) -> dict[str, tuple[Tensor, int]]:
+        selected = MultiTrackCore(self.core).advance_group(
+            state, raw, tracks=tracks, role_ids=roles,
+            modalities=("text",) * len(tracks),
+        )
+        return self.losses_for_selected(selected, plans)
 
 
 class MultiTrackGenerator:
