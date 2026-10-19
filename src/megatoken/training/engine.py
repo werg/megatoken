@@ -791,7 +791,7 @@ def train(
         ):
             started = time.perf_counter()
             selected = []
-            selected_counts = {"I": 0, "P": 0}
+            selected_counts = {"I": 0, "P": 0, "G": 0}
             for _ in range(config.max_accumulation_windows):
                 for _ in range(config.microbatch_episodes):
                     item = stream.next()
@@ -799,6 +799,7 @@ def train(
                         continue
                     selected.append(item)
                     selected_counts["I"] += item.window.I
+                    selected_counts["G"] += item.window.G
                     # Main prediction CE and the byte-codec auxiliary are both
                     # actually evaluated in bootstrap and recurrent modes.
                     selected_counts["P"] += item.window.P * 2
@@ -806,6 +807,7 @@ def train(
                 if (
                     global_selected["P"] >= config.accumulate_scored
                     or global_selected["I"] >= config.accumulate_ingested
+                    or (phase.meter == "G" and global_selected["G"] >= config.accumulate_events)
                 ):
                     break
             preparation_error = None
