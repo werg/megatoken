@@ -186,6 +186,22 @@ class MediaSpan:
 
 
 @dataclass(frozen=True, slots=True)
+class TrackSpec:
+    """One session-visible stream; track numbers are not spatial coordinates."""
+
+    track_id: str
+    role: Role
+    default_modality: str = "text"
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.track_id or self.role not in {
+            "system", "user", "assistant", "tool", "document", "environment"
+        }:
+            raise ValueError("Track spec needs an identity and a supported role")
+
+
+@dataclass(frozen=True, slots=True)
 class TrackEvent:
     """One physical event assigned to a semantic meridian."""
 
@@ -346,6 +362,8 @@ class Episode:
     # Reference controls are external, available evidence, never the future target.
     control_reference: bytes = b""
     reference_origin: str | None = None
+    tracks: tuple[TrackSpec, ...] = ()
+    meridians: tuple[Meridian, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.episode_id or not self.records or not isinstance(self.records, tuple):
@@ -440,6 +458,32 @@ class Episode:
             if not self.records[ids[dependency.reader_id]].policy_mask:
                 raise ValueError("A declared dependent prediction must carry policy loss")
 
+        if self.tracks or self.meridians:
+            names = {track.track_id for track in self.tracks}
+            if len(names) != len(self.tracks):
+                raise ValueError("Track specifications must have distinct identities")
+            event_ids: set[str] = set()
+            preceding = -1
+            previous_record = -1
+            for meridian in self.meridians:
+                if meridian.meridian_id <= preceding:
+                    raise ValueError("Causal meridian numbers must increase strictly")
+                preceding = meridian.meridian_id
+                for event in meridian.events:
+                    if event.track_id not in names:
+                        raise ValueError("Meridian refers to a track absent from the session")
+                    if event.record_id not in ids or event.record_id in event_ids:
+                        raise ValueError("Meridian records must exist and occur exactly once")
+                    event_ids.add(event.record_id)
+                    record_index = ids[event.record_id]
+                    if record_index <= previous_record:
+                        raise ValueError("Meridian order must follow physical record order")
+                    previous_record = record_index
+                    if self.records[record_index].role != event.role:
+                        raise ValueError("Event role differs from its physical record")
+            if self.meridians and event_ids != set(ids):
+                raise ValueError("Every physical record requires a meridian event")
+
     @property
     def identity(self) -> str:
         return self.reset_id or self.episode_id
@@ -447,7 +491,7 @@ class Episode:
     @property
     def content_sha256(self) -> str:
         return stable_id(
-            "episode-content-v2",
+            "episode-content-v3",
             *(
                 value
                 for group in self.iter_logical_records()
@@ -515,6 +559,25 @@ class Episode:
             for action in obj.get("actions", ())
         )
         obj["dependencies"] = tuple(Dependency(**dep) for dep in obj.get("dependencies", ()))
+        obj["tracks"] = tuple(TrackSpec(**spec) for spec in obj.get("tracks", ()))
+        obj["meridians"] = tuple(
+            Meridian(
+                meridian["meridian_id"],
+                tuple(
+                    TrackEvent(
+                        **{
+                            **event,
+                            "media_span": (
+                                MediaSpan(**event["media_span"])
+                                if event.get("media_span") is not None else None
+                            ),
+                        }
+                    )
+                    for event in meridian["events"]
+                ),
+            )
+            for meridian in obj.get("meridians", ())
+        )
         for key in ("control_seed", "control_reference"):
             obj[key] = base64.b64decode(obj.get(key, ""), validate=True)
         return cls(**obj)
