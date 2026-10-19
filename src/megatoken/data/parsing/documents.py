@@ -480,20 +480,62 @@ _ATTRIBUTE = re.compile(
 _EVENT_NAMES = frozenset(
     name.encode("ascii")
     for name in (
-        "click", "dblclick", "input", "change", "submit", "reset", "load",
-        "error", "focus", "blur", "keydown", "keyup", "keypress", "contextmenu",
-        "mousedown", "mouseup", "mouseenter", "mouseleave", "mouseover",
-        "mouseout", "mousemove", "wheel", "scroll", "resize", "select",
-        "drag", "dragstart", "dragend", "dragover", "drop", "touchstart",
-        "touchmove", "touchend", "pointerdown", "pointerup", "pointermove",
-        "copy", "cut", "paste", "animationstart", "animationend",
-        "transitionend", "beforeunload", "message",
+        "ascii",
+        "click",
+        "dblclick",
+        "input",
+        "change",
+        "submit",
+        "reset",
+        "load",
+        "error",
+        "focus",
+        "blur",
+        "keydown",
+        "keyup",
+        "keypress",
+        "contextmenu",
+        "mousedown",
+        "mouseup",
+        "mouseenter",
+        "mouseleave",
+        "mouseover",
+        "mouseout",
+        "mousemove",
+        "wheel",
+        "scroll",
+        "resize",
+        "select",
+        "drag",
+        "dragstart",
+        "dragend",
+        "dragover",
+        "drop",
+        "touchstart",
+        "touchmove",
+        "touchend",
+        "pointerdown",
+        "pointerup",
+        "pointermove",
+        "copy",
+        "cut",
+        "paste",
+        "animationstart",
+        "animationend",
+        "transitionend",
+        "beforeunload",
+        "message",
     )
 )
-_PROSE_ATTRIBUTES = frozenset({
-    b"title", b"alt", b"placeholder", b"aria-label", b"aria-description",
-})
-
+_PROSE_ATTRIBUTES = frozenset(
+    {
+        b"title",
+        b"alt",
+        b"placeholder",
+        b"aria-label",
+        b"aria-description",
+    }
+)
 
 def _markup_attributes(
     payload: bytes, start: int, end: int
@@ -557,9 +599,18 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
             stop = payload.find(b"-->", index + 4)
             end = stop + 3 if stop >= 0 else length
             _region(scan, index, end, "comment", language, source, limits)
-            if index + 4 < (stop if stop >= 0 else end) and len(scan.injections) < limits.max_injections:
+            if (
+                index + 4 < (stop if stop >= 0 else end)
+                and len(scan.injections) < limits.max_injections
+            ):
                 scan.injections.append(
-                    Injection(index + 4, stop if stop >= 0 else end, "auto", None, "markup_comment")
+                    Injection(
+                        index + 4,
+                        stop if stop >= 0 else end,
+                        "auto",
+                        None,
+                        "markup_comment",
+                    )
                 )
             index = text_start = end
             continue
@@ -567,7 +618,10 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
             stop = payload.find(b"]]>", index + 9)
             end = stop + 3 if stop >= 0 else length
             _region(scan, index, end, "string", language, source, limits)
-            if index + 9 < (stop if stop >= 0 else end) and len(scan.injections) < limits.max_injections:
+            if (
+                index + 9 < (stop if stop >= 0 else end)
+                and len(scan.injections) < limits.max_injections
+            ):
                 scan.injections.append(
                     Injection(index + 9, stop if stop >= 0 else end, "auto", None, "cdata_content")
                 )
@@ -592,7 +646,11 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
                 break
             cursor += 1
         _region(scan, index, cursor, "tag", language, source, limits)
-        attributes = _markup_attributes(payload, index + match.end(), cursor) if not closing else []
+        attributes = (
+            _markup_attributes(payload, index + match.end(), cursor)
+            if not closing
+            else []
+        )
         if not closing:
             for attribute, value, left, right in attributes:
                 if len(scan.injections) >= limits.max_injections:
