@@ -100,6 +100,8 @@ class TrainConfig:
     budget_meter: str = "auto"
     accumulate_events: int = 32
     media_root: str | None = None
+    native_pack_manifest: str | None = None
+    concordance_recipe: str | None = None
     deterministic: bool = False
     require_blackwell: bool = False
     grad_clip: float = 1.0
@@ -141,6 +143,10 @@ class TrainConfig:
             )
         if self.media_root is not None and not self.media_root:
             raise ValueError("Media asset root must be a nonempty path")
+        if self.native_pack_manifest is not None and not self.native_pack_manifest:
+            raise ValueError("Pretrained pack registry path must be nonempty")
+        if self.concordance_recipe is not None and not self.concordance_recipe:
+            raise ValueError("Concordance task mixture path must be nonempty")
         positive = (
             "microbatch_episodes",
             "accumulate_events",
