@@ -3,6 +3,7 @@
 from .config import ARCHITECTURE_VERSION, ModelConfig
 from .core import EFFORTS, RECORD_ROLES, ROLE_IDS, FacetedCore
 from .state import CoreState, KVHistory, RealizationContext
+from .multitrack import GroupActionTape, GroupGeneration, MultiTrackCore, MultiTrackGenerator, MultiTrackState
 
 __all__ = [
     "ARCHITECTURE_VERSION",
@@ -14,4 +15,9 @@ __all__ = [
     "EFFORTS",
     "RECORD_ROLES",
     "ROLE_IDS",
+    "MultiTrackCore",
+    "MultiTrackGenerator",
+    "MultiTrackState",
+    "GroupActionTape",
+    "GroupGeneration",
 ]
