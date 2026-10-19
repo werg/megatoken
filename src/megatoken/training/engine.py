@@ -40,6 +40,7 @@ from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.history import NativeHistory, replay_raw_tape
 from megatoken.training.losses import LossLedger
+from megatoken.training.meridians import MeridianPreparedBatch, forward_meridian_batch, prepare_meridian_batch
 from megatoken.training.metrics import (
     Counters,
     JsonlLogger,
