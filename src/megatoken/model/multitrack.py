@@ -13,8 +13,10 @@ the public serving/tape interface below handles one independent session.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
+from dataclasses import asdict
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
@@ -29,13 +31,14 @@ from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
 from .core import EFFORTS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
+from .media import MediaOutputSpec
 from .routing import RowRoute
 from .state import KVHistory, RealizationContext, assert_cache_version
 
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v1"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v7"
 
 
 
@@ -471,14 +474,17 @@ class GroupActionTape:
     payloads: tuple[bytes, ...]
     emitted_ids: tuple[tuple[int, ...], ...]
     valid: tuple[bool, ...]
+    modalities: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.version != GROUP_TAPE_VERSION:
             raise ValueError("Incompatible grouped tape version")
         n, f, d = self.facet_shape
+        if not self.modalities:
+            object.__setattr__(self, "modalities", ("text",) * n)
         if n < 1 or f < 1 or d < 1 or len(self.raw_f32) != n * f * d * 4:
             raise ValueError("Tape must contain every complete raw FP32 event")
-        lengths = (len(self.tracks), len(self.roles), len(self.controls),
+        lengths = (len(self.tracks), len(self.modalities), len(self.roles), len(self.controls),
                    len(self.spec_fingerprints), len(self.payloads),
                    len(self.emitted_ids), len(self.valid))
         if any(k != n for k in lengths) or len(set(self.tracks)) != n:
@@ -498,6 +504,7 @@ class GroupActionTape:
             version=self.version,
             meridian_id=self.meridian_id,
             tracks=self.tracks,
+            modalities=self.modalities,
             roles=self.roles,
             controls=[base64.b64encode(b).decode("ascii") for b in self.controls],
             spec_fingerprints=self.spec_fingerprints,
@@ -522,6 +529,7 @@ class GroupActionTape:
             meridian_id=int(value["meridian_id"]),
             tracks=tuple(value["tracks"]),
             roles=tuple(value["roles"]),
+            modalities=tuple(value["modalities"]),
             controls=tuple(map(decode, value["controls"])),
             spec_fingerprints=tuple(value["spec_fingerprints"]),
             codec_fingerprint=value["codec_fingerprint"],
