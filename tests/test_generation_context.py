@@ -35,6 +35,8 @@ def test_direct_realization_and_next_prediction_have_separate_core_dependencies(
     assert central_calls[0] is selected.state.facets
     assert contexts[0].facets is selected.state.facets
     assert [field.name for field in fields(RealizationContext)] == ["facets"]
+    with pytest.raises(ValueError, match="initial sentinel"):
+        model.core.prepare_realization(model.core.initial_state(1))
     assert selected.state.records_seen.item() == source.records_seen.item() + 1
     assert model.decode_state(selected.state, spec=spec).payload == selected.payload
     model.core.predict_facets(selected.state)
@@ -106,6 +108,20 @@ def test_direct_encoder_auxiliary_has_no_core_decoder_or_source_history_gradient
     assert flags == {name: parameter.requires_grad for name, parameter in model.named_parameters()}
     assert result.metrics["reconstruction_contextual_examples"] == 0
     assert result.metrics["reconstruction_direct_examples"] == 1
+
+
+def test_bootstrap_reconstruction_directly_trains_encoder_and_realizer():
+    model = make_model()
+    plan = model.prepare_target(target_bytes=b"no C needed", representation_mode="bootstrap")
+    result = model.supervised_step(model.core.initial_state(1), plan=plan)
+    result.losses["reconstruction"][0].backward()
+    assert any(
+        p.grad is not None and p.grad.abs().sum() > 0
+        for p in model.core.encoder_parameters()
+    )
+    assert model.decoder.realizer.seed.weight.grad is not None
+    assert all(p.grad is None for p in model.core.central_parameters())
+    assert all(p.grad is None for p in model.core.predictor_parameters())
 
 
 def test_recurrent_e_reconstruction_never_evaluates_central():
