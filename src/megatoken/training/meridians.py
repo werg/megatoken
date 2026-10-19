@@ -9,7 +9,6 @@ before they may participate in production model training.
 from __future__ import annotations
 
 import dataclasses
-import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,7 +17,6 @@ import torch
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
 from megatoken.data.schema import EncodedRecord
-from megatoken.generation.structure import ActionTape
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.tensors import byte_tensor
