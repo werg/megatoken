@@ -13,8 +13,8 @@ research and engineering design is in [multi-track-plan.md](multi-track-plan.md)
 | Breaking architecture v7 + strict format identities | Implemented in code |
 | Same-meridian full attention using one C and shared final KV | Implemented in code |
 | Joint P12 live queries and existing per-event expert topology | Implemented in code |
-| Stable session track indices and learned track/modality features | Implemented in code |
-| Atomic whole-meridian eviction | Implemented in code |
+| Stable session track equality bias and learned modality features | Implemented in code |
+| Atomic whole-meridian eviction after the incoming C context read | Implemented in code |
 | Joint Gaussian action, typed group tape, density and deterministic replay | Implemented in code |
 | Heterogeneous text, audio, image and video observations | Trainable baseline implemented |
 | Shared E reduction and 32-facet readout across modalities | Implemented in code |
@@ -200,3 +200,20 @@ generation quality, synchronized audio/video, and perceptual control transfer.
 
 The core multi-track dataflow is designed so these efforts extend E/R and
 the existing learner rather than creating separate agent transformers.
+
+## Cross-track RoPE and media alignment
+
+Core RoPE uses **one logical meridian index per committed group**. Every
+selected facet in that group has the same time coordinate, irrespective of
+track ordering or modality. The same-track relation is a zero-initialized
+learned per-query-head attention bias for matching categorical track identities;
+it applies to current, temporary, and retained-history attention, without an
+ordinal track axis or separate track KV. There is no additional cross-track
+history window: all retained earlier meridians remain visible.
+
+`MediaSpan` and `alignment_id` describe content-time relationships, not
+causal permission or rotary positions. They are currently validated in the
+dataset schema, **not yet wired to a synchronized media realizer or clock-aware
+serving scheduler**. An observed audio clip and a later transcript can share
+media time while remaining causally sequential. Predictors must not receive
+future target-derived span or duration metadata.
