@@ -840,9 +840,14 @@ class MultiTrackGenerator:
                 continuation = torch.stack(actual, dim=1)
             else:
                 continuation = sampled
-        next_state = self.tracks.advance_group(
-            state, continuation, tracks=names, role_ids=roles,
-            modalities=("text",) * len(names),
+        # Ordinary recurrence reuses the already selected sample and its
+        # completed C/KV computation; never process a selected event twice.
+        next_state = (
+            selected if mode == "recurrent" and not teacher_forced_action
+            else self.tracks.advance_group(
+                state, continuation, tracks=names, role_ids=roles,
+                modalities=("text",) * len(names),
+            )
         )
         zero = mean.float().sum() * 0
         sums = dict.fromkeys(LOSS_NAMES, zero)
