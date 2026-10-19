@@ -580,6 +580,9 @@ class FacetedGenerator(nn.Module):
         for parameter in chain(
             self.decoder.parameters(),
             self.media_realizers.parameters(),
+            # Media realizers consume the shared public-control encoder directly.
+            # Latent-only RL must freeze it along with the deterministic map.
+            self.core.control_encoder.parameters(),
             self.core.encoder_parameters(),
             self.core.central_parameters(),
             self.core.realizer_parameters(),
