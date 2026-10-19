@@ -172,7 +172,7 @@ def test_executed_facet_rl_updates_predictor_and_preserves_fixed_decoder(
     assert frozen and any("frontend" in name for name in frozen)
     assert any(name.startswith("core.central.") for name in frozen)
     assert not any(name.startswith("core.p_bank.") for name in frozen)
-    assert not any(name.startswith("core.control_encoder.") for name in frozen)
+    assert any(name.startswith("core.control_encoder.") for name in frozen)
     assert any(
         not torch.equal(value, after["model"][name])
         for name, value in before["model"].items()
