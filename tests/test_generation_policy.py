@@ -666,7 +666,8 @@ def test_nonempty_control_bytes_roundtrip_and_train_only_the_served_control_path
     torch.testing.assert_close(replay.log_prob, explicit.log_prob, rtol=0, atol=0)
     assert_state_equal(result.state, replay.state)
     (-replay.log_prob / model.latent_dimensions).backward()
-    assert has_gradient(model.core.control_encoder.parameters())
+    assert not has_gradient(model.core.control_encoder.parameters())
+    assert has_gradient(model.core.control_injection.parameters())
     assert not has_gradient(model.core.encoder_parameters())
     assert not has_gradient(model.decoder.parameters())
     with pytest.raises(TapeMismatch, match="original causal bytes"):
