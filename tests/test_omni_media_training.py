@@ -225,3 +225,64 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path):
     assert result["counters"]["G"] == 4
     assert result["counters"]["media_events"] == 2
     assert payload["phase_consumed"] == 4
+
+
+def test_video_training_is_one_32_facet_megatoken(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(922)
+    assets, ep, model, config = _case(tmp_path)
+    clip = np.stack((np.zeros((3, 8, 8), dtype=np.float32),
+                     np.ones((3, 8, 8), dtype=np.float32)))
+    video = assets.put(clip, modality="video", fps_num=8)
+    replacement = MediaRecord("video", video, video)
+    from megatoken.data.schema import Meridian, TrackEvent
+
+    records = (*ep.records[:-1], replace(
+        ep.records[-1], payload=replacement.to_bytes(),
+    ))
+    changed = replace(ep, records=records, meridians=(
+        ep.meridians[0],
+        Meridian(1, (ep.meridians[1].events[0],
+                     TrackEvent("picture", "picture", "video", 1, "assistant",
+                                asset_sha256=video.sha256))),
+    ))
+    window = next(iter_windows(changed, ByteCodec.byte_fallback()))
+    batch, = prepare_batches(model, [EpisodeWindow(changed, window)], config)
+    assert batch.counts["visual_prediction"] == 1
+    assert batch_counters([batch]).video_frames == 2
+    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    ledger.finish()
+    assert model.media_realizers.visual_filter[0].weight.grad is not None
+
+
+def test_generated_pretrained_vision_features_train_e_in_recurrent_mode(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(937)
+    assets, ep, _, config = _case(tmp_path)
+    reference = MediaRecord.from_bytes(ep.records[-1].payload)
+    identifier = "vision-features-pinned-test-v1"
+    cached = assets.put(
+        np.arange(12 * 16, dtype=np.float32).reshape(12, 16) / 192,
+        modality="image", kind="features", extractor=identifier,
+    )
+    target = MediaRecord("image", cached, reference.target)
+    records = (*ep.records[:-1], replace(ep.records[-1],
+                                        payload=target.to_bytes()))
+    meridian = Meridian(1, (
+        ep.meridians[1].events[0],
+        TrackEvent("picture", "picture", "image", 1, "assistant",
+                   asset_sha256=cached.sha256),
+    ))
+    ep = replace(ep, records=records, meridians=(ep.meridians[0], meridian))
+    model = build_model(ModelConfig.tiny(
+        vision_feature_dim=16, vision_feature_id=identifier,
+    ), ByteCodec.byte_fallback())
+    config = replace(config, phase="P1", representation_mode="recurrent")
+    window = next(iter_windows(ep, ByteCodec.byte_fallback()))
+    batch, = prepare_batches(model, [EpisodeWindow(ep, window)], config)
+    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    ledger.finish()
+    assert model.core.media_stems.external_vision.weight.grad is not None
+    assert model.media_realizers.visual_filter[0].weight.grad is not None
