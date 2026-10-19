@@ -72,7 +72,10 @@ def rates(counters: Counters, elapsed: float) -> dict[str, float]:
     return {
         f"{key}_per_second": value / seconds
         for key, value in asdict(counters).items()
-        if key in {"D", "I", "P", "G", "Z", "media_events", "source_bytes", "record_ingestions", "reconstruction_tokens"}
+        if key in {
+            "D", "I", "P", "G", "Z", "media_events", "source_bytes",
+            "record_ingestions", "reconstruction_tokens",
+        }
     }
 
 
