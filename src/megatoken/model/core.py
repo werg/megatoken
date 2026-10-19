@@ -23,8 +23,8 @@ from .config import ModelConfig
 from .experts import ExpertBank
 from .frontend import SeedControlEncoder
 from .ingestion import ChunkEncoder
-from .media import MediaStems
 from .layers import RMSNorm, SwiGLU
+from .media import MediaStems
 from .routing import EpochRouter, RowRoute
 from .state import CoreState, KVHistory, RealizationContext, assert_cache_version
 
