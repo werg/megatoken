@@ -24,9 +24,11 @@ means preserving the exact selected input; it does not bypass central processing
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version 6, tape **format** version 4, and saved model geometry are
-explicit. Model/checkpoint geometry is intentionally incompatible with v5 archives and caches. Legacy CLI names `recurrent32` and `compact32` select the corresponding
-new presets for fresh construction only; old checkpoints are not reinterpreted.
+Architecture version **7** defines the currently supported core and grouped state.
+The single-action and grouped-action tape formats are separately versioned; v7
+checkpoints, prepared datasets, tapes, and served bundles reject old versions.
+The legacy CLI names `recurrent32` and `compact32` still select the corresponding
+fresh-construction geometry, not old checkpoint semantics.
 
 ## Computation and recurrence
 
