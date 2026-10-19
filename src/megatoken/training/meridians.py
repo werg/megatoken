@@ -31,6 +31,7 @@ from megatoken.tool_schema import (
 from megatoken.training.history import NativeHistory
 from megatoken.training.stream import EpisodeWindow
 
+
 @dataclass(frozen=True)
 class MediaPlan:
     """Scored media megatoken with independently pinned source and target."""
@@ -161,7 +162,6 @@ def _target_plan(
     )
 
 
-
 def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) -> MediaPlan:
     reference = MediaRecord.from_bytes(entry.payload)
     if reference.modality != modality or entry.record.media_type != MEDIA_RECORD_TYPE:
@@ -194,7 +194,6 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
         reference, spec, config.representation_training,
         model.config.n_facets, model.config.facet_dim,
     )
-
 
 
 def prepare_meridian_batch(
@@ -401,7 +400,11 @@ def forward_meridian_batch(
             state, replayed = _preceding_native(multi, state, batch.native_history, step)
             metrics["grouped_native_replays"] += replayed
             state = multi.tracks.advance_group(
-                state, _actual_raw(model, step, batch.native_history, store, device, encoder_grad=False),
+                state,
+                _actual_raw(
+                    model, step, batch.native_history, store, device,
+                    encoder_grad=False,
+                ),
                 tracks=step.tracks,
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
                 modalities=step.modalities,
