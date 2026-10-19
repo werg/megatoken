@@ -760,8 +760,20 @@ class MultiTrackGenerator:
                 # v8: effective prompts influence P's selected Z, never R itself.
                 seed = None if renderer_seeds is None else renderer_seeds[index]
                 tensor = self.generator.media_realizers.realize(context, spec, seed=seed)
-                payloads.append(tensor[0].detach().float().contiguous().cpu().numpy()
-                                .astype("<f4", copy=False).tobytes())
+                native_bytes = tensor[0].detach().float().contiguous().cpu().numpy()\
+                    .astype("<f4", copy=False).tobytes()
+                if spec.codec_id:
+                    # Native 720p video can be hundreds of MB. A tape proves exact
+                    # seeded replay with a digest, never by embedding all frames.
+                    payloads.append(json.dumps({
+                        "kind": "native-media-sha256-v1",
+                        "modality": spec.modality, "pack_id": spec.pack_id,
+                        "codec_id": spec.codec_id,
+                        "sha256": hashlib.sha256(native_bytes).hexdigest(),
+                        "shape": list(tensor[0].shape), "dtype": "f32le",
+                    }, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+                else:
+                    payloads.append(native_bytes)
                 ids.append(())
                 validity.append(True)
                 media.append(tensor)
