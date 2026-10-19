@@ -508,6 +508,14 @@ class FacetedCore(nn.Module):
             self, modality, payload, sample_rate=sample_rate
         )
 
+    def encode_media_features(
+        self, modality: str, features: Tensor, *, extractor: str
+    ) -> Tensor:
+        """Project pinned external feature tokens through the shared E hierarchy."""
+        return self.media_stems.encode_external(
+            self, modality, features, extractor=extractor
+        )
+
     def encode_control(
         self,
         byte_ids: Tensor,
