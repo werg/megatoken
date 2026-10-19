@@ -352,6 +352,22 @@ def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Coun
                     writer_reader_windows=int(bool(window.writer_reader_pairs)),
                 )
             )
+        if isinstance(batch, MeridianPreparedBatch):
+            result.P += sum(
+                plan.scored_positions for step in batch.steps for plan in step.plans
+            )
+            result.facet_encodes += sum(len(step.plans) for step in batch.steps)
+            if batch.native_history.has_events:
+                for step in (*batch.prefix, *batch.steps):
+                    for cursor in step.offsets:
+                        result.raw_facet_replays += len(
+                            batch.native_history.events_for_record(
+                                cursor, include_record=False,
+                            )
+                        ) + int(batch.native_history.paired_tape(cursor) is not None)
+            if any(episode_control_payload(item.episode) for item in batch.windows):
+                result.control_encodes += sum(len(step.plans) for step in batch.steps)
+            continue
         result.P += sum(plan.scored_positions for plan in batch.targets.values())
         result.facet_encodes += sum(len(batch.windows) for _ in batch.targets)
         if batch.native_history is not None:
