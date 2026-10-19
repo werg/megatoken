@@ -623,6 +623,11 @@ def encode_record(record: PhysicalRecord, codec: Codec) -> EncodedRecord:
         ):
             raise ValueError("Media references cannot carry lexical token labels")
         return EncodedRecord(record, (), (), (), codec.fingerprint, 0)
+    if record.media_type.split("/", 1)[0] in {"audio", "image", "video"}:
+        raise ValueError(
+            "Raw media payloads must be converted to canonical media asset references "
+            "before text-token preparation"
+        )
     if record.emitted_ids is not None or record.cached_ids is not None:
         if record.codec_fingerprint != codec.fingerprint:
             raise ValueError("Recorded emission uses a different codec fingerprint")
