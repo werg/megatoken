@@ -122,9 +122,11 @@ class CentralProcessor(nn.Module):
         self.slot_embedding = nn.Parameter(torch.empty(c.n_facets, c.facet_dim))
         self.slot_gate = nn.Parameter(torch.tensor(-2.0))
         self.role_embedding = nn.Embedding(len(RECORD_ROLES), c.facet_dim)
+        self.track_embedding = nn.Embedding(c.max_tracks, c.facet_dim)
         nn.init.normal_(self.layer_codes, std=0.02)
         nn.init.normal_(self.slot_embedding, std=0.02)
         nn.init.normal_(self.role_embedding.weight, std=0.02)
+        nn.init.zeros_(self.track_embedding.weight)
 
     def slot_codes(self) -> Tensor:
         """Stable learned facet addresses, independent of temporal RoPE phases."""
@@ -138,6 +140,7 @@ class CentralProcessor(nn.Module):
         positions: Tensor,
         *,
         checkpointing: bool | None = None,
+        track_ids: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         # A meridian may contain several complete 32-facet megatokens.  The
         # original one-event shape remains exactly the same, so singleton
@@ -156,6 +159,13 @@ class CentralProcessor(nn.Module):
             raise ValueError("Roles must identify the batch or each selected event")
         facets = raw.to(self.role_embedding.weight.dtype)
         facets = facets + role_features + addresses.to(facets.dtype)[None]
+        if track_ids is not None:
+            if track_ids.shape != (raw.shape[0], events):
+                raise ValueError("Track IDs must identify every event in the meridian")
+            track_features = self.track_embedding(track_ids).repeat_interleave(
+                self.config.n_facets, dim=1
+            )
+            facets = facets + track_features
         projected = AttentionFeatures(history.keys, history.values, history.mask)
         early = None
         temporary = None
@@ -228,7 +238,7 @@ class CentralProcessor(nn.Module):
             mask = torch.cat(
                 (
                     history.mask,
-                    torch.ones(final.shape[0], c.n_facets, dtype=torch.bool, device=final.device),
+                    torch.ones(final.shape[0], final.shape[1], dtype=torch.bool, device=final.device),
                 ),
                 dim=1,
             )[:, -max_slots:]
