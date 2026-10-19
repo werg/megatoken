@@ -1,5 +1,28 @@
 # Implementation validation
 
+## PR #6 follow-up integration — 2026-10-19
+
+The follow-up merge commit `f388be7` incorporates the 19 newer `main`
+commits, including full-resolution KV-cache changes. Subsequent commits update
+the dialect-aware lexical fallback, Rust/C++ raw strings, HTML recovery,
+resource limits, and cross-language regression coverage.
+
+**Validation status:** The 644-pass receipt below is historical evidence for
+the original `6dc477c` implementation on base `4c383b8`; it **does not
+validate the merged and amended PR branch**. The first post-merge
+[CI attempt](https://github.com/werg/megatoken/actions/runs/39207976042)
+failed before executing any steps in either CPU job or the ICU job, so it
+establishes neither success nor a code-level test failure. The post-fix
+implementation still requires a complete installed-wheel CPU suite, Ruff,
+ICU, parser coverage, reproducibility pilot, and appropriate hardware checks.
+Do not reuse the earlier machine-readable hashes as evidence for these commits.
+
+Cross-language regressions for the amended fallback live in
+[`tests/test_parser_recovery_depth.py`](../tests/test_parser_recovery_depth.py).
+Prepared-data parser fingerprints change with implementation bytes, so any
+corpus produced before these fixes must be prepared again under the amended
+identity, not replayed into an older frozen shard.
+
 ## Recursive parser v2 — 2026-10-18
 
 The parser replacement was validated on top of main commit
