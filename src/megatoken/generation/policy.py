@@ -41,25 +41,14 @@ class PolicyResult:
 
 
 class _TeacherReadout(nn.Module):
-    """One functional entry point for ordinary and encoder-only decoder passes.
-
-    The wrapper shares the existing modules; it never owns copied weights or is
-    attached as another child of the generator. Functional parameter substitution
-    keeps frozen-owner gradients absent without mutating requires_grad flags.
-    """
+    """Shared direct realization, with frozen readout owners for E-only loss."""
 
     def __init__(self, core, decoder):
         super().__init__()
         self.core, self.decoder = core, decoder
 
-    def forward(self, value, plan, source_state=None, roles=None):
-        if source_state is not None:
-            selected = self.core.advance_raw(
-                source_state, value, role_ids=roles, checkpointing=False
-            )
-            context = self.core.prepare_realization(selected)
-        else:
-            context = self.core.prepare_realization(value) if isinstance(value, Tensor) else value
+    def forward(self, value, plan):
+        context = self.core.prepare_realization(value)
         if isinstance(plan, PreparedTargets):
             return self.decoder.teacher_raw(self.core, context, plan)
         return self.decoder(self.core, context, plan.spec, teacher=plan).losses
@@ -68,8 +57,8 @@ class _TeacherReadout(nn.Module):
 class FacetedGenerator(nn.Module):
     """The same raw chunk space joins observations, predictions and realization.
 
-    E is a local initializer. Shared C processes each selected raw input once,
-    writes its KV and provides early/final features to both R and the next P.
+    E ingests into raw facets, P predicts those same facets, and R decodes
+    them directly. C writes causal KV for the next P, not for realization.
     No E(D(z)) reconciliation occurs. One Gaussian supplies each served action.
     """
 
@@ -126,7 +115,10 @@ class FacetedGenerator(nn.Module):
         mean = self.core.predict_facets(state, control=control, effort=effort)
         prior = self.facet_distribution(mean)
         sampled = prior.sample(generator)
-        selected = self.core.advance_raw(state, sampled, role_ids=roles)
+        selected = (
+            self.core.advance_raw(state, sampled, role_ids=roles)
+            if plan.mode == "recurrent" else sampled
+        )
         values, lengths = byte_tensor(payloads, state.device)
         target = self.core.encode_chunk(values, lengths=lengths)
         encoded = DiagonalGaussian(
@@ -183,21 +175,18 @@ class FacetedGenerator(nn.Module):
             encoder_loss,
         )
 
-    def encoder_reconstruction_losses(self, source_state, encoded_sample, plan, roles):
-        """Train only E through the SAME contextual C→R readout as observations.
+    def encoder_reconstruction_losses(self, encoded_sample, plan):
+        """Backpropagate to E through frozen R/U without an extra C pass.
 
-        Detach source history and every core/readout parameter, retaining the
-        externally computed encoded sample's graph. The alternate C evaluation
-        cannot append anything to the caller's immutable live state.
+        Functional substitution preserves gradients to encoder-produced facets,
+        while preventing reconstruction from training shared U/decoder owners.
         """
         from torch.func import functional_call
 
         readout = _TeacherReadout(self.core, self.decoder)
         frozen = {name: parameter.detach() for name, parameter in readout.named_parameters()}
         with self.core.discard_routing_losses():
-            return functional_call(
-                readout, frozen, (encoded_sample, plan, source_state.detach(), roles)
-            )
+            return functional_call(readout, frozen, (encoded_sample, plan))
 
     def _supervised(
         self,
@@ -222,12 +211,8 @@ class FacetedGenerator(nn.Module):
             teacher_forced_action=teacher_forced_action,
         )
         readout = _TeacherReadout(self.core, self.decoder)
-        prior_losses = readout(self.core.prepare_realization(selected), plan)
-        reconstruction_losses = (
-            readout(encoded_sample, plan)
-            if plan.mode == "bootstrap"
-            else self.encoder_reconstruction_losses(state, encoded_sample, plan, roles)
-        )
+        prior_losses = readout(selected, plan)
+        reconstruction_losses = self.encoder_reconstruction_losses(encoded_sample, plan)
         return self._finish_supervision(
             next_state,
             target,
@@ -286,8 +271,8 @@ class FacetedGenerator(nn.Module):
             "capacity": plan.capacity,
             "prior_examples": batch,
             "reconstruction_examples": batch,
-            "reconstruction_direct_examples": batch if bootstrap else 0,
-            "reconstruction_contextual_examples": 0 if bootstrap else batch,
+            "reconstruction_direct_examples": batch,
+            "reconstruction_contextual_examples": 0,
             "native_alignment_examples": 0 if bootstrap else native_count,
             "prior_lexical_positions": counts["lexical"],
             "reconstruction_lexical_positions": counts["reconstruction"],
@@ -383,29 +368,16 @@ class FacetedGenerator(nn.Module):
 
     @torch.no_grad()
     def decode_state(self, state, *, spec: ActionSpec | None = None) -> DecodedAction:
-        """Reuse the selected input's cached C features without processing it again."""
+        """Decode selected raw facets, independent of central processing."""
         return self.decoder(self.core, self.core.prepare_realization(state), self._spec(spec))
 
     @torch.no_grad()
-    def decode_facets(
-        self, raw_facets: Tensor, *, state=None, spec: ActionSpec | None = None, raw_only=False
-    ) -> DecodedAction:
-        """Inspect raw facets with shared C by default, or the explicit codec fallback.
-
-        The caller's immutable state is not changed. Supplying state chooses its
-        causal history; otherwise this inspection starts with empty history.
-        """
+    def decode_facets(self, raw_facets: Tensor, *, spec: ActionSpec | None = None) -> DecodedAction:
+        """Decode a canonical facet block without processing or committing it."""
         expected = (1, self.config.n_facets, self.config.facet_dim)
         if tuple(raw_facets.shape) != expected or not bool(torch.isfinite(raw_facets).all()):
             raise ValueError(f"decode_facets requires one finite raw tensor with shape {expected}")
-        if raw_only:
-            if state is not None:
-                raise ValueError("raw-only codec realization cannot receive contextual state")
-            context = self.core.prepare_realization(raw_facets)
-        else:
-            source = self.core.initial_state(1) if state is None else state
-            context = self.core.prepare_realization(self.core.advance_raw(source, raw_facets))
-        return self.decoder(self.core, context, self._spec(spec))
+        return self.decoder(self.core, self.core.prepare_realization(raw_facets), self._spec(spec))
 
     @torch.no_grad()
     def decode_mean(
@@ -414,8 +386,7 @@ class FacetedGenerator(nn.Module):
         """Inspect the predictor mean without sampling or committing anything."""
         control = encode_controls(self.core, [control_payload], encoder_grad=False)
         mean = self.core.predict_facets(state, control=control, effort=effort)
-        selected = self.core.advance_raw(state, mean)
-        return self.decode_state(selected, spec=spec)
+        return self.decode_facets(mean, spec=spec)
 
     @torch.no_grad()
     def sample(
@@ -449,8 +420,8 @@ class FacetedGenerator(nn.Module):
         mean = self.core.predict_facets(state, control=control, effort=effort)
         distribution = self.facet_distribution(mean)
         raw = distribution.sample(generator)
+        decoded = self.decode_facets(raw, spec=spec)
         next_state = self.core.advance_raw(state, raw, role_ids=roles)
-        decoded = self.decode_state(next_state, spec=spec)
         log_prob = distribution.log_prob(raw).sum()
         # Tape replay requires exact FP32 raw coordinates and the scalar
         # behavior density. Copy them to the host together, not with two
@@ -514,8 +485,8 @@ class FacetedGenerator(nn.Module):
         raw = torch.as_tensor(
             tape.facet_array().copy(), device=state.device, dtype=torch.float32
         ).reshape(1, *tape.facet_shape)
+        decoded = self.decode_facets(raw, spec=spec)
         next_state = self.core.advance_raw(state, raw, role_ids=roles)
-        decoded = self.decode_state(next_state, spec=spec)
         actual = (
             decoded.payload,
             decoded.emitted_ids,
@@ -534,7 +505,7 @@ class FacetedGenerator(nn.Module):
         )
         if actual != recorded:
             raise TapeMismatch(
-                "conditional action map or causal history changed, or tape materialization was tampered with"
+                "direct raw-facet realization changed or tape materialization was tampered with"
             )
         log_prob = distribution.log_prob(raw).sum()
         self.core.routing_aux_loss(clear=True)
@@ -575,7 +546,7 @@ class FacetedGenerator(nn.Module):
         return state, tuple(log_probs)
 
     def deterministic_decoder_parameters(self):
-        """Owners of E, C/KV and conditional R, including shared U, exactly once."""
+        """Owners of E, causal C/KV and direct R/U, including shared weights once."""
         seen = set()
         for parameter in chain(
             self.decoder.parameters(),

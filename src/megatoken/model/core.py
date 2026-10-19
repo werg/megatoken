@@ -1,7 +1,8 @@
-"""Shared raw facets feed direct realization and causal prediction separately.
+"""Shared central processing for realization and raw-facet prediction.
 
-E ingests to raw facets, P predicts raw facets, and R realizes them without C.
-C processes committed facets for *future* predictions and writes causal KV.
+E encodes observations, C processes every selected input exactly once, and P
+predicts the next raw input from C's cached final features and updated history.
+The realizer reuses C's early/final features without running another core pass.
 """
 
 from __future__ import annotations
@@ -97,7 +98,7 @@ class FacetRemix(nn.Module):
 
 
 class CentralProcessor(nn.Module):
-    """Dense causal C with three temporary KV writers and one final writer.
+    """Dense contextual C with three temporary KV writers and one cached final writer.
 
     No prospective control, random draw, sparse P expert, or decoder owner is
     involved. Its derived features may be cached and reused until model weights
@@ -145,7 +146,7 @@ class CentralProcessor(nn.Module):
         track_ids: Tensor | None = None,
         modality_ids: Tensor | None = None,
         history_track_ids: Tensor | None = None,
-    ) -> Tensor:
+    ) -> tuple[Tensor, Tensor]:
         # A meridian may contain several complete 32-facet megatokens.  The
         # original one-event shape remains exactly the same, so singleton
         # inference and checkpoints retain their previous semantics.
@@ -180,6 +181,7 @@ class CentralProcessor(nn.Module):
             )
             facets = facets + modality_features
         projected = AttentionFeatures(history.keys, history.values, history.mask, history_track_ids)
+        early = None
         temporary = None
         for index, layer in enumerate(self.layers):
             facets = facets + self.layer_codes[index]
@@ -222,7 +224,10 @@ class CentralProcessor(nn.Module):
                     facets, temporal_positions=positions, slot_codes=addresses,
                     track_ids=live_tracks,
                 )
-        return facets
+            if index + 1 == self.config.central_early_layer:
+                early = facets
+        assert early is not None
+        return early, facets
 
     def write(self, final: Tensor, history: KVHistory, positions: Tensor) -> KVHistory:
         """Append all final-stage facets; evict only complete oldest megatokens.
@@ -258,9 +263,11 @@ class CentralProcessor(nn.Module):
 
 
 class FacetedCore(nn.Module):
-    """E and P share canonical raw facets; R reads them independently of C.
+    """E2 / C4 / nonresidual remix / P12 with one exact selected raw tensor.
 
-    C still processes selected facets once and writes history for the next P.
+    Selecting an input eagerly runs C and writes its history. Both realization
+    and the next prediction reuse that central computation. Prediction is a
+    read-only operation and never overwrites the selected raw input or cache.
     """
 
     def __init__(self, config: ModelConfig | None = None) -> None:
@@ -433,6 +440,7 @@ class FacetedCore(nn.Module):
         )
         return CoreState(
             facets=self.initial_facets[None].expand(batch_size, -1, -1),
+            early=None,
             final=None,
             history=KVHistory(empty, empty),
             records_seen=ids,
@@ -462,10 +470,13 @@ class FacetedCore(nn.Module):
         if state.geometry != self.config.state_geometry:
             raise ValueError("State belongs to an incompatible model geometry")
         self._check_facets(state.facets)
-        if state.final is not None:
-            self._check_facets(state.final)
-            if state.final.shape != state.facets.shape:
-                raise ValueError("Central features must preserve every raw facet slot")
+        if (state.early is None) != (state.final is None):
+            raise ValueError("Central early/final caches must be present together")
+        for features in (state.early, state.final):
+            if features is not None:
+                self._check_facets(features)
+                if features.shape != state.facets.shape:
+                    raise ValueError("Central features must preserve every raw facet slot")
         c, history = self.config, state.history
         expected = (state.batch_size, c.kv_heads, history.slots, c.attention_head_dim)
         if history.keys.shape != expected or history.values.shape != expected:
@@ -552,12 +563,13 @@ class FacetedCore(nn.Module):
                 (record_ids <= state.last_record_ids).any()
             ):
                 raise ValueError("Record IDs must increase; duplicate selection is forbidden")
-        final = self.central(
+        early, final = self.central(
             raw_facets, state.history, roles, state.records_seen, checkpointing=checkpointing
         )
         return replace(
             state,
             facets=raw_facets,
+            early=early,
             final=final,
             history=self.central.write(final, state.history, state.records_seen),
             records_seen=state.records_seen + 1,
@@ -610,7 +622,7 @@ class FacetedCore(nn.Module):
             raise ValueError(f"Predictive effort must be one of {EFFORTS}")
         final = state.final
         if final is None:
-            final = self.central(state.facets, state.history, state.role_ids, state.records_seen)
+            _, final = self.central(state.facets, state.history, state.role_ids, state.records_seen)
         if control is None:
             control = final.new_zeros(state.batch_size, self.config.control_dim)
         if (
@@ -647,19 +659,33 @@ class FacetedCore(nn.Module):
         return self.predict_facets(state, control, effort)
 
     def prepare_realization(
-        self, selected: CoreState | Tensor | RealizationContext
+        self,
+        selected: CoreState | Tensor | RealizationContext,
     ) -> RealizationContext:
-        """Expose the shared raw facets without running C or reading history."""
+        """Expose exact raw/early/final features without executing any neural work.
+
+        Passing a raw tensor explicitly selects the raw-only codec auxiliary.
+        Normal generation passes its already processed selected CoreState.
+        """
         if isinstance(selected, CoreState):
             self._check_state(selected)
-            selected = selected.facets
-        if isinstance(selected, RealizationContext):
-            self._check_facets(selected.facets)
-            return selected
+            if selected.early is None or selected.final is None:
+                raise ValueError("The initial sentinel is not a selected realization input")
+            return RealizationContext(selected.facets, selected.early, selected.final)
         if isinstance(selected, Tensor):
             self._check_facets(selected)
             return RealizationContext(selected)
-        raise TypeError("Realization requires a state or a raw facet tensor")
+        if isinstance(selected, RealizationContext):
+            self._check_facets(selected.facets)
+            if (selected.early is None) != (selected.final is None):
+                raise ValueError("Realization early/final features must be present together")
+            for value in (selected.early, selected.final):
+                if value is not None:
+                    self._check_facets(value)
+                    if value.shape != selected.facets.shape:
+                        raise ValueError("Realization features must retain every raw facet slot")
+            return selected
+        raise TypeError("Realization requires a processed state or explicit raw tensor/context")
 
     @staticmethod
     def _row_counts(facets: int, effort: int) -> tuple[int, int]:
@@ -757,7 +783,7 @@ class FacetedCore(nn.Module):
     def apply_u(
         self, rows: Tensor, context: RealizationContext, level: int, refinement: bool = False
     ) -> Tensor:
-        """Shared output transform routed directly from raw facets."""
+        """Shared output transform with routing determined only by the raw final prediction."""
         if (
             rows.ndim != 3
             or rows.shape[0] != context.batch_size
@@ -851,18 +877,20 @@ class FacetedCore(nn.Module):
                 device=state.device,
                 dtype=torch.bool,
             )
-        final = state.final
+        early, final = state.early, state.final
         if final is not None:
             # Compute one empty-context sentinel, not another pass over any
             # selected input. Mixed batches then have valid reusable caches.
             initial = self.initial_state(1)
-            start_final = self.central(
+            start_early, start_final = self.central(
                 initial.facets, initial.history, initial.role_ids, initial.records_seen
             )
+            early = torch.where(rows[:, None, None], start_early, early)
             final = torch.where(rows[:, None, None], start_final, final)
         return replace(
             state,
             facets=torch.where(rows[:, None, None], self.initial_facets[None], state.facets),
+            early=early,
             final=final,
             history=KVHistory(
                 state.history.keys * keep[:, None, None, None],
