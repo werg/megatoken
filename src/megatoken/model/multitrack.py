@@ -16,9 +16,8 @@ import base64
 import hashlib
 import json
 import math
-from dataclasses import asdict
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
