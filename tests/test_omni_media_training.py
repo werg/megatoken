@@ -136,7 +136,9 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, external, mode
     assert counters.G == len(episode.records)
     assert counters.media_events == 2
     assert counters.image_events == 1
-    assert counters.audio_samples == 512
+    # Offline feature caches do not assert an original sample count without
+    # a verified linked raw source; only the media-event count is universal.
+    assert counters.audio_samples == (0 if external else 512)
     assert counters.P == 2 * len(b"bright")
 
 
