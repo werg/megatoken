@@ -26,8 +26,6 @@ class ModelConfig:
     remix_hidden: int = 1024
     max_history_chunks: int = 1024
     max_tracks: int = 8
-    cross_track_window: int = 8
-    cross_track_training_windows: tuple[int, ...] = (0, 2, 4, 8, 16)
     source_dim: int = 256
     byte_dim: int = 8
     source_stride: int = 8
@@ -99,13 +97,6 @@ class ModelConfig:
         for name in positive:
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
-        if self.cross_track_window < 0 or any(
-            not isinstance(value, int) or value < 0
-            for value in self.cross_track_training_windows
-        ) or not self.cross_track_training_windows:
-            raise ValueError("Cross-track attention windows must be nonnegative integers")
-        if self.attention_head_dim % 4:
-            raise ValueError("Multi-axis RoPE requires a head dimension divisible by four")
         if self.name in {"v12", "v13", "recurrent32", "compact32"}:
             raise ValueError("Old architecture names are not aliases for the version-4 presets")
         if self.central_early_layer >= self.central_layers:
@@ -155,7 +146,6 @@ class ModelConfig:
             self.prediction_layers,
             self.max_history_chunks,
             self.max_tracks,
-            self.cross_track_window,
             self.kv_heads,
             self.attention_head_dim,
         )
@@ -217,8 +207,6 @@ class ModelConfig:
         values = dict(values)
         if "ngram_orders" in values:
             values["ngram_orders"] = tuple(values["ngram_orders"])
-        if "cross_track_training_windows" in values:
-            values["cross_track_training_windows"] = tuple(values["cross_track_training_windows"])
         return cls(**values)
 
     def to_dict(self) -> dict[str, Any]:
