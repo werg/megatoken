@@ -29,8 +29,8 @@ from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, LOSS_NAMES
 from megatoken.controls import encode_controls
 from megatoken.generation.decoder import DECODER_LOSSES
 from megatoken.generation.latents import DiagonalGaussian
-from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.generation.structure import ActionSpec
+from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.io import strict_json_loads
 from megatoken.tensors import byte_tensor
 
@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
 GROUP_TAPE_VERSION = "fmt-multitrack-facets-v7"
-
 
 
 @dataclass(frozen=True)
