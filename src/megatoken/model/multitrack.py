@@ -71,8 +71,10 @@ class MultiTrackState:
     early: Tensor | None
     final: Tensor | None
     history: KVHistory
+    history_tracks: Tensor  # [B, retained events]; equality, never ordinal geometry
     meridian_sizes: tuple[int, ...]
-    meridians_seen: Tensor  # [B]; logically committed meridian index
+    meridians_seen: Tensor  # [B]; next causal meridian index, also the RoPE clock
+    events_seen: Tensor  # [B]; selected events, independent of meridian count
     frontier_tracks: tuple[str, ...]
     frontier_modalities: tuple[str, ...]
     track_registry: tuple[str, ...]
@@ -121,8 +123,10 @@ class MultiTrackCore:
             early=None,
             final=None,
             history=state.history,
+            history_tracks=torch.empty(batch_size, 0, dtype=torch.long, device=state.device),
             meridian_sizes=(),
             meridians_seen=state.records_seen,
+            events_seen=state.records_seen,
             frontier_tracks=(),
             frontier_modalities=(),
             track_registry=(),
@@ -150,6 +154,8 @@ class MultiTrackCore:
             raise ValueError("Frontier features must retain every selected facet")
         if state.meridians_seen.shape != (state.batch_size,):
             raise ValueError("Meridian chronology has the wrong batch shape")
+        if state.events_seen.shape != (state.batch_size,):
+            raise ValueError("Selected-event chronology has the wrong batch shape")
         if state.frontier_modalities and len(state.frontier_modalities) != state.frontier_count:
             raise ValueError("Frontier modality metadata must match selected events")
         if (len(state.track_registry) > core.config.max_tracks
@@ -160,6 +166,8 @@ class MultiTrackCore:
             raise ValueError("Frontier role metadata has the wrong shape")
         if sum(state.meridian_sizes) * f != state.history.slots:
             raise ValueError("History and retained meridian sizes disagree")
+        if state.history_tracks.shape != (state.batch_size, sum(state.meridian_sizes)):
+            raise ValueError("Retained track metadata must match whole KV event blocks")
         if state.history.slots > core.config.max_history_chunks * f:
             raise ValueError("History exceeds its full-block capacity")
         if state.final is None and state.meridian_sizes:
@@ -241,28 +249,36 @@ class MultiTrackCore:
             raise ValueError("Raw group has the wrong device or dtype")
         if not bool(torch.isfinite(raw).all()):
             raise ValueError("Raw selected facets must be finite")
-        history, retained = self._history_for(state, events)
+        # C reads the full causal pre-state. Whole-meridian eviction is done
+        # at publication, after this incoming group has read older context.
         track_ids, registry = self._track_indices(state, names)
         modality_ids = torch.tensor(
             [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
         ).expand(state.batch_size, -1)
         early, final = self.core.central(
             raw.flatten(1, 2),
-            history,
+            state.history,
             role_ids,
             state.meridians_seen,
             track_ids=track_ids,
             modality_ids=modality_ids,
+            history_track_ids=state.history_tracks.repeat_interleave(c.n_facets, dim=1),
         )
+        history, retained = self._history_for(state, events)
         next_history = self.core.central.write(final, history, state.meridians_seen)
+        kept = sum(retained)
+        old_tracks = state.history_tracks[:, -kept:] if kept else state.history_tracks[:, :0]
+        next_history_tracks = torch.cat((old_tracks, track_ids), dim=1)
         shape = (state.batch_size, events, c.n_facets, c.facet_dim)
         return MultiTrackState(
             raw=raw,
             early=early.reshape(shape),
             final=final.reshape(shape),
             history=next_history,
+            history_tracks=next_history_tracks,
             meridian_sizes=(*retained, events),
             meridians_seen=state.meridians_seen + 1,
+            events_seen=state.events_seen + events,
             frontier_tracks=names,
             frontier_modalities=modality_names,
             track_registry=registry,
@@ -384,13 +400,11 @@ class MultiTrackCore:
             [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
         ).expand(batch, -1)
         facets = base[:, None].expand(-1, events, -1, -1).clone()
-        facets = facets + self.core.central.track_embedding(track_ids)[:, :, None]
         facets = facets + self.core.central.modality_embedding(modality_ids)[:, :, None]
         if control is not None:
             facets = facets + self.core.control_injection(control.to(facets.dtype))[:, :, None]
-        # The current core has no learned per-track embedding table. Reuse its
-        # causal textual control path to distinguish output identities without
-        # introducing another parameter owner. The singleton path is unchanged.
+        # Track names are request descriptors, not ordinal positions.
+        # Attention separately learns equality of stable session track IDs.
         if events > 1:
             from megatoken.controls import encode_controls
 
@@ -411,7 +425,7 @@ class MultiTrackCore:
         )
         self.core._record_routing_loss(routes.balance_loss, routes.stabilization_loss)
         for stage in stages:
-            facets = self._stage(facets, stage, routes.at(stage), effort, state)
+            facets = self._stage(facets, stage, routes.at(stage), effort, state, track_ids)
         return facets
 
     def _stage(
@@ -421,6 +435,7 @@ class MultiTrackCore:
         route: RowRoute,
         effort: int,
         state: MultiTrackState,
+        track_ids: Tensor,
     ) -> Tensor:
         core = self.core
         batch, events, f, d = facets.shape
@@ -428,18 +443,24 @@ class MultiTrackCore:
         facets = facets + core.stage_codes[stage - 1]
         joined = facets.reshape(batch, events * f, d)
         addresses = core.central.slot_codes().repeat(events, 1)
+        slot_tracks = track_ids.repeat_interleave(f, dim=1)
         time = state.meridians_seen if stage in P_HISTORY_READ_STAGES else None
         current_kv = core.central.memory(
-            joined, temporal_positions=time, slot_codes=addresses
+            joined, temporal_positions=time, slot_codes=addresses,
+            track_ids=slot_tracks,
         )
         history = (
-            AttentionFeatures(state.history.keys, state.history.values, state.history.mask)
+            AttentionFeatures(
+                state.history.keys, state.history.values, state.history.mask,
+                state.history_tracks.repeat_interleave(f, dim=1),
+            )
             if time is not None
             else None
         )
         keys = join_attention(current_kv, history)
         mixed = wrapper.attention.read(
-            joined, keys, temporal_positions=time, slot_codes=addresses
+            joined, keys, temporal_positions=time, slot_codes=addresses,
+            query_track_ids=slot_tracks,
         )
         joined = joined + wrapper.attention_gate.sigmoid() * mixed
         individual = joined.reshape(batch * events, f, d)
