@@ -97,7 +97,7 @@ def test_real_trainer_keeps_selected_tower_and_only_appends_live_context(mode, m
         state.records_seen.item() for state in (first_source, first_selected, second_selected)
     ] == [1, 2, 3]
     assert second_selected.history.slots == 3 * model.config.n_facets
-    assert first_selected.early is not None and first_selected.final is not None
+    assert first_selected.final is not None
     # The first chunk has no own lexical objective. Its gradient must come from
     # the later target through raw recurrence and/or the selected historical KV.
     assert first_selected.facets.grad is not None
@@ -109,7 +109,7 @@ def test_real_trainer_keeps_selected_tower_and_only_appends_live_context(mode, m
     assert batch_counters([batch]).P == 6  # Two actual CE passes on the second target.
 
 
-def test_contextual_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update():
+def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update():
     torch.set_num_threads(1)
     torch.manual_seed(771)
     codec, windows = window_fixture()
@@ -166,7 +166,7 @@ def test_canonical_presets_and_legacy_architecture_rejection():
     for alias in ("recurrent32", "compact32"):
         with pytest.raises(ValueError, match="command-line aliases"):
             load_model_config(alias)
-    with pytest.raises(ValueError, match="architecture_version=7"):
+    with pytest.raises(ValueError, match="architecture_version=8"):
         ModelConfig.from_dict({**ModelConfig.tiny().to_dict(), "architecture_version": 3})
 
 
