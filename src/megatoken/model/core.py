@@ -46,6 +46,7 @@ class PairStage(nn.Module):
             config.kv_heads,
             config.attention_head_dim,
             config.norm_eps,
+            track_relations=True,
         )
         self.attention_gate = nn.Parameter(torch.tensor(-2.0))
         self.norm = RMSNorm(config.pair_dim, config.norm_eps)
@@ -124,12 +125,10 @@ class CentralProcessor(nn.Module):
         self.slot_embedding = nn.Parameter(torch.empty(c.n_facets, c.facet_dim))
         self.slot_gate = nn.Parameter(torch.tensor(-2.0))
         self.role_embedding = nn.Embedding(len(RECORD_ROLES), c.facet_dim)
-        self.track_embedding = nn.Embedding(c.max_tracks, c.facet_dim)
         self.modality_embedding = nn.Embedding(len(MODALITY_IDS), c.facet_dim)
         nn.init.normal_(self.layer_codes, std=0.02)
         nn.init.normal_(self.slot_embedding, std=0.02)
         nn.init.normal_(self.role_embedding.weight, std=0.02)
-        nn.init.zeros_(self.track_embedding.weight)
         nn.init.zeros_(self.modality_embedding.weight)
 
     def slot_codes(self) -> Tensor:
@@ -146,6 +145,7 @@ class CentralProcessor(nn.Module):
         checkpointing: bool | None = None,
         track_ids: Tensor | None = None,
         modality_ids: Tensor | None = None,
+        history_track_ids: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         # A meridian may contain several complete 32-facet megatokens.  The
         # original one-event shape remains exactly the same, so singleton
@@ -164,13 +164,15 @@ class CentralProcessor(nn.Module):
             raise ValueError("Roles must identify the batch or each selected event")
         facets = raw.to(self.role_embedding.weight.dtype)
         facets = facets + role_features + addresses.to(facets.dtype)[None]
-        if track_ids is not None:
-            if track_ids.shape != (raw.shape[0], events):
-                raise ValueError("Track IDs must identify every event in the meridian")
-            track_features = self.track_embedding(track_ids).repeat_interleave(
-                self.config.n_facets, dim=1
-            )
-            facets = facets + track_features
+        if track_ids is not None and track_ids.shape != (raw.shape[0], events):
+            raise ValueError("Track IDs must identify every event in the meridian")
+        live_tracks = None if track_ids is None else track_ids.repeat_interleave(
+            self.config.n_facets, dim=1
+        )
+        if history_track_ids is not None and history_track_ids.shape != (
+            raw.shape[0], history.slots
+        ):
+            raise ValueError("Historical track IDs must identify every retained facet")
         if modality_ids is not None:
             if modality_ids.shape != (raw.shape[0], events):
                 raise ValueError("Modality IDs must identify every event in the meridian")
@@ -178,7 +180,7 @@ class CentralProcessor(nn.Module):
                 self.config.n_facets, dim=1
             )
             facets = facets + modality_features
-        projected = AttentionFeatures(history.keys, history.values, history.mask)
+        projected = AttentionFeatures(history.keys, history.values, history.mask, history_track_ids)
         early = None
         temporary = None
         for index, layer in enumerate(self.layers):
@@ -199,6 +201,7 @@ class CentralProcessor(nn.Module):
                         temporary=previous,
                         temporal_positions=positions,
                         slot_codes=addresses,
+                        query_track_ids=live_tracks,
                     ),
                     facets,
                     use_reentrant=False,
@@ -212,12 +215,14 @@ class CentralProcessor(nn.Module):
                     temporary=temporary,
                     temporal_positions=positions,
                     slot_codes=addresses,
+                    query_track_ids=live_tracks,
                 )
             # Stage i publishes only a short-lived, position-rotated KV for i+1.
             # Neither these projections nor their tensors enter KVHistory.
             if index < len(self.temporary_memories):
                 temporary = projector(
-                    facets, temporal_positions=positions, slot_codes=addresses
+                    facets, temporal_positions=positions, slot_codes=addresses,
+                    track_ids=live_tracks,
                 )
             if index + 1 == self.config.central_early_layer:
                 early = facets
