@@ -837,12 +837,16 @@ class MultiTrackGenerator:
             torch.full_like(target_raw.float(), math.log(core.config.codec_noise_std)),
         )
         codec_sample = q.sample(generator)
-        readout = _GroupedTeacherReadout(core, self.generator.decoder)
-        prior_terms = readout.losses_for_selected(selected, plans)
+        readout = _GroupedTeacherReadout(
+            core, self.generator.decoder, self.generator.media_realizers
+        )
+        prior_terms = readout.losses_for_selected(selected, plans, control)
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
-                recon_terms = readout(state, codec_sample, names, roles, plans)
+                recon_terms = readout(
+                    state, codec_sample, names, roles, plans, control
+                )
             continuation = target_raw
             correspondence = q.detach().kl(prior).sum()
         else:
@@ -854,7 +858,10 @@ class MultiTrackGenerator:
             with core.discard_routing_losses():
                 recon_terms = functional_call(
                     readout, frozen,
-                    (state.detach(), codec_sample, names, roles, plans),
+                    (
+                        state.detach(), codec_sample, names, roles, plans,
+                        None if control is None else control.detach(),
+                    ),
                 )
             correspondence = mean.float().sum() * 0
             if teacher_forced_action:
