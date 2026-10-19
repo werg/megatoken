@@ -14,6 +14,8 @@ from typing import Callable, Sequence
 import torch
 
 from megatoken.generation.structure import ActionSpec
+from megatoken.memory.context import admit_kb, evict_kb
+from megatoken.memory.semantic import AdmittedGroup
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import (
     GroupGeneration,
@@ -71,6 +73,23 @@ class MultiTrackRuntime:
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, tuple(x.track for x in ready)))
+        return session.state
+
+    def admit_memory(self, session: TrackSession, group: AdmittedGroup) -> MultiTrackState:
+        """Direct KB admission invalidates speculation, not the native event clock."""
+        updated = admit_kb(session.state, group)
+        if updated is not session.state:
+            session.state = updated
+            session.revision += 1
+            session.pending = None
+        return session.state
+
+    def evict_memory(self, session: TrackSession, group_id: str) -> MultiTrackState:
+        updated = evict_kb(session.state, group_id)
+        if updated is not session.state:
+            session.state = updated
+            session.revision += 1
+            session.pending = None
         return session.state
 
     def speculate(
