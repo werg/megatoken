@@ -196,3 +196,48 @@ def test_track_registration_order_does_not_change_joint_causal_geometry():
     ab2 = multi.advance_group(ab, next_raw, tracks=("left",), role_ids=next_roles)
     ba2 = multi.advance_group(ba, next_raw, tracks=("left",), role_ids=next_roles)
     torch.testing.assert_close(ab2.final, ba2.final, atol=1e-5, rtol=1e-5)
+
+
+def test_every_member_of_a_meridian_has_the_same_rope_time():
+    core, multi = _tiny()
+    first = multi.advance_group(
+        multi.initial_state(1), _selected(core, ("mic", "camera")),
+        tracks=("mic", "camera"), role_ids=_roles((1, 2)),
+    )
+    expected = core.central.memory(
+        first.final.flatten(1, 2),
+        temporal_positions=torch.tensor([0], dtype=torch.long),
+        slot_codes=core.central.slot_codes().repeat(2, 1),
+    )
+    torch.testing.assert_close(first.history.keys, expected.keys, atol=0, rtol=0)
+    second = multi.advance_group(
+        first, _selected(core, ("mic",)), tracks=("mic",), role_ids=_roles((1,))
+    )
+    expected_next = core.central.memory(
+        second.final.flatten(1, 2),
+        temporal_positions=torch.tensor([1], dtype=torch.long),
+        slot_codes=core.central.slot_codes(),
+    )
+    torch.testing.assert_close(
+        second.history.keys[:, :, -core.config.n_facets:],
+        expected_next.keys, atol=0, rtol=0,
+    )
+    torch.testing.assert_close(
+        second.history.keys[:, :, :2 * core.config.n_facets],
+        first.history.keys, atol=0, rtol=0,
+    )
+
+
+def test_oversized_meridian_fails_before_central_compute(monkeypatch):
+    core, multi = _tiny(history=2)
+    initial = multi.initial_state(1)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Central work must not run for an invalid group")
+
+    monkeypatch.setattr(core.central, "forward", forbidden)
+    names = ("a", "b", "c")
+    with pytest.raises(ValueError, match="historical event capacity"):
+        multi.advance_group(
+            initial, _selected(core, names), tracks=names, role_ids=_roles(names)
+        )
