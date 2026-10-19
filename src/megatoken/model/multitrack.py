@@ -641,15 +641,29 @@ class _GroupedTeacherReadout(nn.Module):
         self.media_realizers = media_realizers
 
     def losses_for_selected(
-        self, selected: MultiTrackState,
-        plans: Sequence[PreparedTargets | PreparedAction],
+        self,
+        selected: MultiTrackState,
+        plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
+        control: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
         zero = selected.raw.float().sum() * 0
-        sums = {name: zero for name in DECODER_LOSSES}
-        counts = {name: 0 for name in DECODER_LOSSES}
+        names = (*DECODER_LOSSES, "audio", "visual")
+        sums = {name: zero for name in names}
+        counts = {name: 0 for name in names}
         adapter = MultiTrackCore(self.core)
         for index, plan in enumerate(plans):
             context = adapter.realization_context(selected, index)
+            if isinstance(plan, MediaTrainTarget):
+                condition = None if control is None else control[:, index]
+                predicted = self.media_realizers.realize(context, plan.spec, condition)
+                if predicted.shape != plan.target.shape:
+                    raise ValueError("Media realization differs from prepared output target")
+                family = "audio" if plan.modality == "audio" else "visual"
+                sums[family] = sums[family] + (
+                    predicted.float() - plan.target.float()
+                ).square().mean()
+                counts[family] += 1
+                continue
             if isinstance(plan, PreparedTargets):
                 parts = self.decoder.teacher_raw(self.core, context, plan)
             else:
@@ -658,7 +672,7 @@ class _GroupedTeacherReadout(nn.Module):
                 value, count = parts[name]
                 sums[name] = sums[name] + value
                 counts[name] += count
-        return {name: (sums[name], counts[name]) for name in DECODER_LOSSES}
+        return {name: (sums[name], counts[name]) for name in names}
 
     def forward(
         self, state: MultiTrackState, raw: Tensor,
