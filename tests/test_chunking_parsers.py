@@ -241,7 +241,7 @@ def test_recovered_syntax_remains_useful_and_unknown_grammar_is_honest():
     assert any(item.code == "recovered_syntax" for item in result.diagnostics)
     assert any(region.kind == "string" for region in result.regions)
     unknown = parse(b'function thing { a = "Hello. World!"; }\n', language="futurelang")
-    assert "generic_lexical:v1" in unknown.parsers
+    assert "generic_lexical:v2" in unknown.parsers
     assert any(item.code == "grammar_unavailable" for item in unknown.diagnostics)
     assert any(region.kind == "paragraph" for region in unknown.regions)
 
@@ -455,7 +455,7 @@ def test_native_worker_failure_keeps_observable_generic_fallback(monkeypatch):
 
     monkeypatch.setattr(workers, "scan_syntax_isolated", failed)
     result = parse_content(b'def f():\n    return "Hello."\n', language="python")
-    assert "generic_lexical:v1" in result.parsers
+    assert "generic_lexical:v2" in result.parsers
     assert any(item.code == "native_parser_crash" for item in result.diagnostics)
     assert any(region.kind == "string" for region in result.regions)
 
