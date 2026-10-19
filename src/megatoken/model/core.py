@@ -139,10 +139,23 @@ class CentralProcessor(nn.Module):
         *,
         checkpointing: bool | None = None,
     ) -> tuple[Tensor, Tensor]:
+        # A meridian may contain several complete 32-facet megatokens.  The
+        # original one-event shape remains exactly the same, so singleton
+        # inference and checkpoints retain their previous semantics.
+        if raw.ndim != 3 or raw.shape[1] % self.config.n_facets:
+            raise ValueError("Central inputs must contain complete facet blocks")
+        events = raw.shape[1] // self.config.n_facets
+        addresses = self.slot_codes().repeat(events, 1)
+        if roles.shape == (raw.shape[0],):
+            role_features = self.role_embedding(roles)[:, None]
+        elif roles.shape == (raw.shape[0], events):
+            role_features = self.role_embedding(roles).repeat_interleave(
+                self.config.n_facets, dim=1
+            )
+        else:
+            raise ValueError("Roles must identify the batch or each selected event")
         facets = raw.to(self.role_embedding.weight.dtype)
-        addresses = self.slot_codes()
-        facets = facets + self.role_embedding(roles)[:, None]
-        facets = facets + addresses.to(facets.dtype)[None]
+        facets = facets + role_features + addresses.to(facets.dtype)[None]
         projected = AttentionFeatures(history.keys, history.values, history.mask)
         early = None
         temporary = None
@@ -197,10 +210,15 @@ class CentralProcessor(nn.Module):
         occurs. Temporal RoPE is applied once, at the original record position.
         """
         c = self.config
+        if final.ndim != 3 or final.shape[1] % c.n_facets:
+            raise ValueError("KV writes require complete facet blocks")
+        if final.shape[1] > c.max_history_chunks * c.n_facets:
+            raise ValueError("One meridian exceeds the historical event capacity")
+        events = final.shape[1] // c.n_facets
         added = self.memory(
             final,
             temporal_positions=positions,
-            slot_codes=self.slot_codes().to(final.dtype),
+            slot_codes=self.slot_codes().repeat(events, 1).to(final.dtype),
         )
         max_slots = c.max_history_chunks * c.n_facets
         keys = torch.cat((history.keys, added.keys), dim=2)[:, :, -max_slots:]
