@@ -7,7 +7,7 @@ import json
 import math
 from pathlib import Path
 
-from megatoken.memory.contracts import Footprint, QueryBoundary
+from megatoken.memory.contracts import Footprint, QueryBoundary, Visibility
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,23 @@ class RetrievalExample:
             raise ValueError("Stable event IDs must match query receipts")
         if not self.source_snapshot or not self.split_family:
             raise ValueError("Retrieval supervision requires a pinned source snapshot/split")
+        # Future labels may enter optimization supervision, but neither the
+        # teacher's causal query nor a fetched source's complete contextual
+        # key/support footprint may depend on unavailable evidence.
+        scope = self.query_teacher_inputs.ranges[0].scope
+        all_footprints = (
+            self.query_teacher_inputs, self.document_key_context,
+            self.payload_support, self.optimization_supervision,
+        )
+        if any(r.scope != scope for fp in all_footprints for r in fp.ranges):
+            raise ValueError("Query, evidence and label footprints must share one scope")
+        if not Visibility(scope, self.query.meridian).permits(self.query_teacher_inputs):
+            raise ValueError("Query teacher sees future or invalid prefix evidence")
+        eligibility = Visibility(scope, self.query.deadline)
+        if not eligibility.permits(self.document_key_context) or not (
+            eligibility.permits(self.payload_support)
+        ):
+            raise ValueError("Retrieved source context/support is not causally eligible")
         if len(self.positive_content_ids) != len(self.support_weights):
             raise ValueError("Annotation IDs and weights must correspond")
         if len(set(self.positive_content_ids)) != len(self.positive_content_ids):
