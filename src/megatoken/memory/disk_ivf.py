@@ -96,6 +96,10 @@ class SQLiteDiskIVF:
     def patch_key(self, collection: Collection, record_id: int, *,
                   changed_key, expected_revision: int) -> None:
         """Storage applies key/posting and revisions in ONE owned write txn."""
+        with self.store.transaction():
+            self._patch_key(collection, record_id, changed_key, expected_revision)
+
+    def _patch_key(self, collection, record_id, changed_key, expected_revision) -> None:
         row = self.store.get(collection, record_id)
         self.store.update_record(
             collection, record_id, key=changed_key,
@@ -147,7 +151,7 @@ class SQLiteDiskIVF:
             raise ValueError("Negative source/memory retrieval budget")
         q = unit_finite(query, dimension=self.store.space.dimension)
         cells = np.argsort(-(self.centroids @ q), kind="stable")[:self.nprobe]
-        with self.store._lock:
+        with self.store.read_snapshot():
             self._check_complete(collection, scope)
             revisions = self.store.revisions()
             hits = []

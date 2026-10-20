@@ -77,15 +77,21 @@ def _fixture(tmp_path, *, early=True):
         "event-0", 0, "source", "main", sha256(b"Request").hexdigest(),
         space.fingerprint, "snapshot", 3,
     )
+    # The annotation is causal by construction; only the live bank's copy may
+    # be too new for the query's meridian.
+    declared = Footprint((SourceRange(
+        "source-a", "v1", 0, 20, "sha-source", "team",
+        available_at=0, family="family-a",
+    ),))
     query_context = Footprint((SourceRange(
         "request", "v1", 0, 7, "sha-request", "team", available_at=0,
     ),))
     annotation = RetrievalExample(
         episode_id="ep-0", event_id="event-0", query=boundary,
         query_teacher_inputs=query_context,
-        document_key_context=footprint,
-        optimization_supervision=footprint,
-        payload_support=footprint,
+        document_key_context=declared,
+        optimization_supervision=declared,
+        payload_support=declared,
         positive_content_ids=("source-a/0",), support_weights=(1.,),
         annotations_complete=True, source_snapshot="snapshot",
         split_family="family-a", teacher_target=tuple([1.] + [0.] * 7),

@@ -164,7 +164,9 @@ class GrowthAllocator:
         )
         assignment = {x.source_assignment: x for x in memories}
         previous = self.store.relations(scope)
-        existing = {(x.left, x.right) for x in previous}
+        # UNIQUE(left,right) spans retired rows too: never re-propose them.
+        existing = {(x.left, x.right)
+                    for x in self.store.relations(scope, include_inactive=True)}
         degrees: dict[int, int] = {}
         for old in previous:
             degrees[old.left] = degrees.get(old.left, 0) + 1
@@ -176,6 +178,7 @@ class GrowthAllocator:
                 for b in distinct[i+1:]:
                     counts.setdefault((a, b), set()).add(window_id)
         proposals = []
+        budget = max(0, self.policy.max_pairs - len(previous))
         for a, b in sorted(counts, key=lambda key: (-len(counts[key]), key)):
             if len(counts[a,b]) < self.policy.min_pair_windows:
                 continue
@@ -193,13 +196,14 @@ class GrowthAllocator:
             )))
             if not visibility.permits(joint) or self.store.footprint_revoked(joint):
                 continue
+            if len(proposals) >= budget:
+                break
             proposals.append((left, right, joint, len(counts[a,b])))
             degrees[left.id] = degrees.get(left.id, 0) + 1
             degrees[right.id] = degrees.get(right.id, 0) + 1
-        budget = max(0, self.policy.max_pairs - len(existing))
         with self.store.transaction():
             ids = []
-            for left, right, support, n in proposals[:budget]:
+            for left, right, support, n in proposals:
                 prior = min(1.0, n / (n + 2.0))
                 ids.append(self.store.insert_relation(
                     scope=scope, left=left.id, right=right.id, prior=prior,

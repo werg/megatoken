@@ -56,6 +56,8 @@ class CoarseIVF:
 
     def search(self, query, *, collection: Collection, scope: str, visibility: Visibility,
                limit: int, excluded: set[int] | None = None) -> SearchBatch:
+        if limit < 0:
+            raise ValueError("Negative source/memory retrieval budget")
         q = unit_finite(query, dimension=self.store.space.dimension)
         probes = np.argsort(-(self.centroids @ q), kind="stable")[:self.probes]
         cells = set(probes.tolist())

@@ -28,9 +28,9 @@ def _example():
     return RetrievalExample(
         episode_id="episode-1", event_id="event-1", query=boundary,
         query_teacher_inputs=_support("request", available_at=3),
-        document_key_context=_support("document", available_at=4),
+        document_key_context=_support("document", available_at=3),
         optimization_supervision=_support("future-label", available_at=100),
-        payload_support=_support("document", available_at=4),
+        payload_support=_support("document", available_at=3),
         positive_content_ids=("document/chunk",), support_weights=(1.,),
         annotations_complete=True, source_snapshot="pinned-corpus",
         split_family="family-a", teacher_target=(1., 0.),
@@ -44,7 +44,7 @@ def test_query_teacher_cannot_use_future_context():
 
 def test_candidate_key_cannot_use_unavailable_contextual_neighbors():
     with pytest.raises(ValueError, match="not causally eligible"):
-        replace(_example(), document_key_context=_support("future", available_at=5))
+        replace(_example(), document_key_context=_support("future", available_at=4))
 
 
 def test_optimizer_labels_may_use_future_outcomes_but_not_as_query_inputs():
