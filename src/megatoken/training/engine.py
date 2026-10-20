@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import hashlib
+import math
 import os
 import shutil
 import signal
@@ -31,6 +33,7 @@ from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
 from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
+from megatoken.training.concordance_recipe import load_concordance_recipe
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.distributed import DistributedContext
@@ -482,7 +485,23 @@ def train(
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
-        model = build_model(model_config, codec, device=context.device, precision=config.precision)
+        native_pack_fingerprint = (
+            sha256_file(config.native_pack_manifest) if config.native_pack_manifest else None
+        )
+        model = build_model(
+            model_config, codec, device=context.device, precision=config.precision,
+            native_pack_manifest=config.native_pack_manifest,
+        )
+        pretrained_pack_fingerprint = ""
+        if config.pretrained_packs is not None:
+            from megatoken.omni.loader import install_pretrained_packs
+            install_pretrained_packs(
+                model, config.pretrained_packs, device=context.device,
+                dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
+            )
+            pretrained_pack_fingerprint = hashlib.sha256(
+                Path(config.pretrained_packs).read_bytes()
+            ).hexdigest()
         payload = None
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
@@ -495,6 +514,10 @@ def train(
                 )
             ):
                 raise ValueError("Exact resume changed retrieval supervision or recipe identity")
+            if payload.get("pretrained_pack_fingerprint", "") != pretrained_pack_fingerprint:
+                raise ValueError("Checkpoint pretrained pack lock differs from current run")
+            if payload.get("native_pack_fingerprint") != native_pack_fingerprint:
+                raise ValueError("Checkpoint pinned native pack registry changed since checkpoint")
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
             if payload["model_config"] != model_config.to_dict():
@@ -629,8 +652,25 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        if config.use_stage_mixture:
-            recipe = stage_recipe(config.phase)
+        if config.omni_recipe is not None and config.concordance_recipe is not None:
+            raise ValueError("Select one of omni_recipe and concordance_recipe per run")
+        concordance_recipe = (
+            load_concordance_recipe(config.concordance_recipe)
+            if config.concordance_recipe is not None else None
+        )
+        if concordance_recipe is not None and phase.meter != "G":
+            raise ValueError("Concordance tasks must use event-based G training budgets")
+        if config.omni_recipe is not None:
+            from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
+            stream = OmniWindowStream(
+                config.dataset, codec, windows_config,
+                load_omni_recipe(config.omni_recipe), "G",
+                seed=config.seed, rank=data_rank, world_size=data_world,
+                reduce_counts=context.sum_counts,
+                independent=config.decoupled is not None,
+            )
+        elif config.use_stage_mixture or concordance_recipe is not None:
+            recipe = concordance_recipe if concordance_recipe is not None else stage_recipe(config.phase)
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
@@ -767,6 +807,8 @@ def train(
                         "retrieval_sidecar_sha256": retrieval_sidecar_sha,
                         "retrieval_document_sha256": document_sidecar_sha,
                         "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
+                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
+                        "native_pack_fingerprint": native_pack_fingerprint,
                         "chunking": chunking_identity,
                         "rank_state": rank_state,
                         "global_step": global_step,
@@ -779,6 +821,8 @@ def train(
                         "phase_consumed": consumed,
                         "dataset_fingerprint": stream.fingerprint,
                         "codec_fingerprint": codec.fingerprint,
+                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
+                        "native_pack_fingerprint": native_pack_fingerprint,
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
@@ -867,6 +911,11 @@ def train(
             weights = dict(config.loss_weights)
             # The old per-operation router loss has been replaced.
             weights["router_balance"] = 0.0
+            if concordance_recipe is not None:
+                # Reconstruction and distillation are auxiliaries, not extra mixture rows.
+                for name in ("reconstruction", "audio_reconstruction",
+                             "visual_reconstruction", "encoder_alignment"):
+                    weights[name] *= concordance_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
             from megatoken.training.router_balance import RouterBalanceWindow

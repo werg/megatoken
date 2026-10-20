@@ -60,6 +60,7 @@ def build_model(
     device: torch.device | str = "cpu",
     precision: str = "fp32",
     training_heads: bool = True,
+    native_pack_manifest: str | Path | None = None,
 ):
     import torch
 
@@ -71,6 +72,10 @@ def build_model(
             f"Model vocabulary {config.vocab_size} != codec vocabulary {codec.vocab_size}"
         )
     model = FacetedGenerator(FacetedCore(config), codec, training_heads=training_heads)
+    if native_pack_manifest is not None:
+        from megatoken.model.native_latents import load_native_packs
+
+        load_native_packs(model, native_pack_manifest)
     return model.to(device=device, dtype=torch.bfloat16 if precision == "bf16" else torch.float32)
 
 

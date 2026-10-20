@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 ARCHITECTURE_VERSION = 9
@@ -32,6 +32,15 @@ class ModelConfig:
     vision_feature_dim: int = 0
     audio_feature_id: str = ""
     vision_feature_id: str = ""
+    # Exact identities and widths for optional acoustic/codec/detail views.
+    media_feature_views: dict[str, int] = field(default_factory=dict)
+    media_view_dropout: float = 0.0
+    audio_acoustic_feature_dim: int = 0
+    audio_acoustic_feature_id: str = ""
+    vision_detail_feature_dim: int = 0
+    vision_detail_feature_id: str = ""
+    vision_codec_feature_dim: int = 0
+    vision_codec_feature_id: str = ""
     byte_dim: int = 8
     source_stride: int = 8
     ngram_dim: int = 16
@@ -128,6 +137,9 @@ class ModelConfig:
         for dim, identity in (
             (self.audio_feature_dim, self.audio_feature_id),
             (self.vision_feature_dim, self.vision_feature_id),
+            (self.audio_acoustic_feature_dim, self.audio_acoustic_feature_id),
+            (self.vision_detail_feature_dim, self.vision_detail_feature_id),
+            (self.vision_codec_feature_dim, self.vision_codec_feature_id),
         ):
             if type(dim) is not int or dim < 0 or (
                 bool(dim) != bool(identity)
@@ -142,6 +154,16 @@ class ModelConfig:
             raise ValueError("LoRA geometry must be positive")
         if self.memory_lora_topk > self.memory_lora_experts:
             raise ValueError("LoRA top-k exceeds independent expert count")
+        if (not isinstance(self.media_feature_views, dict)
+                or any(not isinstance(k, str) or len(k) < 12
+                       or type(v) is not int or v <= 0
+                       for k, v in self.media_feature_views.items())):
+            raise ValueError("Auxiliary view names require pinned identities and widths")
+        if (not isinstance(self.media_view_dropout, (float, int))
+                or isinstance(self.media_view_dropout, bool)
+                or not math.isfinite(self.media_view_dropout)
+                or not 0 <= self.media_view_dropout < 1):
+            raise ValueError("Media view dropout must lie in [0, 1)")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
 
@@ -184,6 +206,13 @@ class ModelConfig:
             self.memory_lora_experts,
             self.memory_lora_rank,
             self.memory_lora_topk,
+            tuple(sorted(self.media_feature_views.items())),
+            self.audio_acoustic_feature_dim,
+            self.audio_acoustic_feature_id,
+            self.vision_detail_feature_dim,
+            self.vision_detail_feature_id,
+            self.vision_codec_feature_dim,
+            self.vision_codec_feature_id,
         )
 
     @classmethod

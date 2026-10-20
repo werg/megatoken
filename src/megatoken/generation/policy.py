@@ -17,6 +17,7 @@ from megatoken.tensors import byte_tensor
 from .codec import ByteCodec
 from .decoder import DecodedAction, DeterministicDecoder
 from megatoken.model.media import MediaRealizers
+from megatoken.model.relations import RelationProjection
 from .latents import DiagonalGaussian, FacetGaussian
 from .structure import TAPE_VERSION, ActionSpec, ActionTape, Observation, TapeMismatch
 from .targets import LOSS_NAMES, PreparedAction, PreparedTargets, prepare_action, prepare_targets
@@ -77,6 +78,7 @@ class FacetedGenerator(nn.Module):
         self.embedding_realizer = EmbeddingRealizer(
             self.config.n_facets, self.config.facet_dim, self.config.semantic_dim
         )
+        self.relations = RelationProjection(self.config.facet_dim)
 
     @property
     def latent_dimensions(self) -> int:
