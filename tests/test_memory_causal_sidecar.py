@@ -1,5 +1,7 @@
 """Causal source-footprint and teacher-target sidecar release gates."""
 from dataclasses import replace
+import base64
+from hashlib import sha256
 
 import pytest
 
@@ -62,3 +64,20 @@ def test_retrieval_sidecar_round_trip_preserves_source_support_and_digest(tmp_pa
     example = _example()
     write_sidecar(path, [example])
     assert read_sidecar(path) == [example]
+
+
+def test_explicit_query_request_bytes_are_hashed_and_replayable():
+    message = b"Find the original fact"
+    old = _example()
+    annotated = replace(
+        old,
+        query=replace(old.query, request_hash=sha256(message).hexdigest()),
+        main_request_b64=base64.b64encode(message).decode("ascii"),
+    )
+    assert annotated.request_content() == message
+    with pytest.raises(ValueError, match="causal request hash"):
+        replace(annotated, main_request_b64=base64.b64encode(b"hidden answer").decode("ascii"))
+    with pytest.raises(ValueError, match="base64"):
+        replace(annotated, main_request_b64="not*base64")
+    with pytest.raises(ValueError, match="requires pinned main-request bytes"):
+        old.request_content()
