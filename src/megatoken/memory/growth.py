@@ -157,7 +157,12 @@ class GrowthAllocator:
         from .contracts import Collection
         memories = self.store.scan(Collection.MEMORY, scope)
         assignment = {x.source_assignment: x for x in memories}
-        existing = {(x.left, x.right) for x in self.store.relations(scope)}
+        previous = self.store.relations(scope)
+        existing = {(x.left, x.right) for x in previous}
+        degrees: dict[int, int] = {}
+        for old in previous:
+            degrees[old.left] = degrees.get(old.left, 0) + 1
+            degrees[old.right] = degrees.get(old.right, 0) + 1
         counts: dict[tuple[str, str], set[str]] = {}
         for window_id, content_ids in windows.items():
             distinct = sorted(set(content_ids))
@@ -165,7 +170,6 @@ class GrowthAllocator:
                 for b in distinct[i+1:]:
                     counts.setdefault((a, b), set()).add(window_id)
         proposals = []
-        degrees: dict[int, int] = {}
         for a, b in sorted(counts, key=lambda key: (-len(counts[key]), key)):
             if len(counts[a,b]) < self.policy.min_pair_windows:
                 continue
