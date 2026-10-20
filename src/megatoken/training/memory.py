@@ -60,11 +60,14 @@ def annotated_ranking_loss(scores, positive: Tensor, complete: Tensor,
     positives = positive.bool().detach() & scores.valid
     mass = scores.weights.masked_fill(~positives, 0).sum(-1)
     selected = positives.any(-1)
+    # A positive masked by ANN/eligibility is a retrieval miss, not negative
+    # supervision. Reserve the null loss for annotated empty support only.
+    explicit_null = complete.detach().bool() & ~positive.detach().bool().any(-1)
     losses = torch.where(
         selected, -eta * mass.clamp_min(1e-8).log(),
         -eta * scores.null_weight.clamp_min(1e-8).log(),
     )
-    valid = selected | complete.bool()
+    valid = selected | explicit_null
     return losses[valid].sum(), int(valid.sum())
 
 
