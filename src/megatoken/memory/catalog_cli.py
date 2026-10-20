@@ -119,6 +119,11 @@ def build_source_catalog(
                     "space": recipe.space.fingerprint,
                     "recipe": recipe.fingerprint,
                 })
+                bank.put_growth_state("source_catalog", {
+                    "snapshot": sha256_file(catalog),
+                    "space": recipe.space.fingerprint,
+                    "partition_id": recipe.growth.partition_id,
+                })
             db_id = bank.database_id
             revisions = asdict(bank.revisions())
             bank.backup(Path(tmp) / "catalog.sqlite")
