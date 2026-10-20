@@ -392,6 +392,12 @@ def forward_meridian_batch(
     payload = episode_control_payload(batch.windows[0].episode)
     losses = []
     retrieval_losses = []
+    if retrieval_aux is not None and retrieval_aux[3] is not None:
+        from megatoken.memory.retrieval import RetrievalSession
+
+        source_coverage = RetrievalSession()
+    else:
+        source_coverage = None
     metrics: dict[str, float | torch.Tensor] = {
         "grouped_training_windows": 1,
         "grouped_supervised_meridians": 0,
@@ -436,8 +442,14 @@ def forward_meridian_batch(
                     ))
                     if annotation is None:
                         continue
-                    if annotation.query.meridian != step.meridian_id:
-                        raise ValueError("Query sidecar meridian identity differs")
+                    if bank_owner is None:
+                        if annotation.query.meridian != step.meridian_id:
+                            raise ValueError("Bootstrap query sidecar meridian identity differs")
+                    elif annotation.query.meridian != int(state.meridians_seen[0]):
+                        raise ValueError(
+                            "Free-bank query sidecar must include every prior committed "
+                            "query/RAG native meridian in its causal clock"
+                        )
                     if global_count <= 0:
                         raise RuntimeError("Retrieval query supervision requires global events")
                     teacher = torch.tensor(
@@ -456,19 +468,29 @@ def forward_meridian_batch(
                         for item in batch.windows[0].episode.records[:step.offsets[0]]
                     ):
                         raise ValueError("Retrieval main request is absent from causal episode prefix")
-                    predicted, unchanged, selected = multi.retrieve_embedding(
+                    before_query = state
+                    predicted, queried, selected = multi.retrieve_embedding(
                         state,
                         main_request=main_request,
                         purpose=annotation.query.purpose,
                         space_fingerprint=recipe.space.fingerprint,
                         effort=batch.effort,
-                        commit=False,
+                        commit=bank_owner is not None,
                     )
-                    if unchanged is not state or selected.shape[1] != 1:
-                        raise RuntimeError("Bootstrap query unexpectedly mutated native history")
-                    if bank_owner is not None:
+                    if selected.shape[1] != 1:
+                        raise RuntimeError("Retrieval R must use one selected raw P event")
+                    if bank_owner is None:
+                        if queried is not before_query:
+                            raise RuntimeError("Bootstrap query unexpectedly mutated native history")
+                    else:
+                        if int(queried.meridians_seen[0]) != (
+                            int(before_query.meridians_seen[0]) + 1
+                        ):
+                            raise RuntimeError("Real retrieval query must commit one native meridian")
                         selected_bank = bank_owner.read(
-                            state, predicted, annotation, global_count=global_count,
+                            queried, predicted, annotation,
+                            global_count=global_count,
+                            multi=multi, coverage=source_coverage,
                         )
                         state = selected_bank.state
                         retrieval_losses.append(selected_bank.loss)
@@ -477,6 +499,8 @@ def forward_meridian_batch(
                             ("kb_memory_candidates", selected_bank.memory_hits),
                             ("kb_admitted_groups", selected_bank.memory_groups),
                             ("kb_source_value_examples", selected_bank.source_value_examples),
+                            ("kb_source_committed", selected_bank.source_committed),
+                            ("kb_source_bytes_committed", selected_bank.source_bytes),
                         ):
                             metrics[metric] = metrics.get(metric, 0) + count
                     # The teacher is a coordinate target, never P input.
