@@ -19,7 +19,7 @@ The same selected raw-facet representation powers ordinary E/C/P/R generation an
 
 ## Prepare once, train only through the new recipe
 
-Python 3.11/3.12 and the tested native PyTorch runtime are expected. Model defaults include a 256-dimensional initial learned semantic address/value geometry and four bounded complete-KV groups; the actual chosen teacher, output dimension, native model checkpoint geometry and reproducible preprocessing must agree in the phase recipe. A deliberate zero-evidence *ablation* is allowed inside this architecture, but does not reinstate a legacy trainer.
+Python 3.11/3.12 and the tested native PyTorch runtime are expected. Model defaults use a 1,024-dimensional learned address geometry (the teacher's trained truncation), a separate 256-dimensional semantic value space, and four bounded complete-KV groups; the actual chosen teacher, output dimension, native model checkpoint geometry and reproducible preprocessing must agree in the phase recipe. A deliberate zero-evidence *ablation* is allowed inside this architecture, but does not reinstate a legacy trainer.
 
 ```bash
 python -m pip install -e '.[train,data,dev]'

@@ -41,7 +41,7 @@ def test_required_training_assets_cannot_be_switched_off():
         config(retrieval_sidecar="PIN_PREPARED_QUERY")
     with pytest.raises(ValueError, match="local router"):
         config(router_balance_mode="local")
-    with pytest.raises(ValueError, match="native grouped"):
+    with pytest.raises(ValueError, match="grouped megatoken"):
         config(budget_meter="auto")
     with pytest.raises(ValueError, match="Asynchronous DiLoCo"):
         config(decoupled={"coordinator_url": "http://example.invalid", "run_id": "old"})
