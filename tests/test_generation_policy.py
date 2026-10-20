@@ -794,3 +794,32 @@ def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model)
         rtol=0,
         atol=1e-5,
     )
+
+
+def test_owner_groups_partition_every_parameter_exactly_once(model):
+    owners = model.parameter_owners()
+    assert set(owners) == {"E", "C", "P", "R"}
+    seen = {}
+    for owner, parameters in owners.items():
+        for parameter in parameters:
+            assert id(parameter) not in seen, (owner, seen[id(parameter)])
+            seen[id(parameter)] = owner
+    assert seen.keys() == {id(p) for p in model.parameters()}
+    adapters = model.core.memory_adapters
+    owner_of = lambda p: seen[id(p)]  # noqa: E731
+    assert owner_of(model.core.memory_seed.weight) == "P"
+    assert owner_of(adapters.families["p"].a) == "P"
+    assert owner_of(adapters.families["r"].a) == "R"
+    assert owner_of(adapters.families["c"].a) == "C"
+    assert owner_of(model.embedding_realizer.query.weight
+                    if hasattr(model.embedding_realizer.query, "weight")
+                    else next(model.embedding_realizer.query.parameters())) == "R"
+
+
+def test_rl_freeze_leaves_p_side_memory_trainable(model):
+    model.freeze_decoder_for_rl()
+    assert model.core.memory_seed.weight.requires_grad
+    assert model.core.memory_adapters.families["p"].a.requires_grad
+    assert not model.core.memory_adapters.families["c"].a.requires_grad
+    assert not model.core.memory_adapters.families["r"].a.requires_grad
+    assert not model.core.memory_adapters.controller.weight.requires_grad

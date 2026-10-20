@@ -128,7 +128,6 @@ class TrainConfig:
     retrieval_growth_every: int = 100
     retrieval_growth_budget: int = 32
     router_balance_mode: str = "global"
-    router_replay_assignments: int = 262144
     decoupled: DecoupledConfig | None = None
     loss_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LOSS_WEIGHTS))
     model_overrides: dict[str, Any] = field(default_factory=dict)
@@ -176,8 +175,6 @@ class TrainConfig:
                              "all training uses optimizer-step global router replay")
         if self.budget_meter != "G":
             raise ValueError("Training only supports causal grouped megatoken meridians")
-        if self.router_replay_assignments < 1:
-            raise ValueError("Router replay must have positive bounded capacity")
         if self.inner_optimizer not in {"adamw", "muon"}:
             raise ValueError("inner_optimizer must be adamw or muon")
         if self.phase not in PHASES:

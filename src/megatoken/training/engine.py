@@ -337,7 +337,6 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "retrieval_kv_dropout",
             "retrieval_lora_dropout",
             "router_balance_mode",
-            "router_replay_assignments",
         )
     for key in critical:
         if old.get(key) != current.get(key):
@@ -920,9 +919,7 @@ def train(
             optimizer.zero_grad()
             from megatoken.training.router_balance import RouterBalanceWindow
 
-            router_replay = RouterBalanceWindow(
-                max_assignments=config.router_replay_assignments
-            )
+            router_replay = RouterBalanceWindow()
             model.core.p_router.balance_recorder = router_replay
             model.core.u_router.balance_recorder = router_replay
             learning_rate = phase.learning_rate(

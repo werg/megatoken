@@ -327,36 +327,43 @@ class FacetedCore(nn.Module):
         yield from self.media_stems.parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
-        """C and its memory owners, frozen with E/R for a fixed latent-RL action map."""
+        """C, the KV projector, the C adapter family and the shared memory controller.
+
+        The controller is shared by C, P and R selections; it is pinned with C
+        so a latent-only RL update cannot move the fixed C/R materialization map.
+        """
         yield self.initial_facets
         yield from self.central.parameters()
-        if self.memory_projector is not None:
-            yield from self.memory_projector.parameters()
-        if self.memory_adapters is not None:
-            yield from self.memory_adapters.parameters()
-        if self.memory_seed is not None:
-            yield from self.memory_seed.parameters()
+        yield from self.memory_projector.parameters()
+        yield from self.memory_adapters.module_parameters("c")
+        yield from self.memory_adapters.shared_control_parameters()
 
     def predictor_parameters(self) -> Iterator[nn.Parameter]:
-        """All P owners, including control encoding; excludes E, C/memory, and U."""
+        """All P owners incl. its memory seed and adapter family; excludes E, C, R/U."""
         yield self.stage_codes
         for module in (
-            self.control_encoder,
             self.control_injection,
             self.effort_embedding,
             self.remix,
             self.p_bank,
             self.stages,
             self.p_router,
+            self.memory_seed,
         ):
             yield from module.parameters()
+        yield from self.memory_adapters.module_parameters("p")
+
+    def control_parameters(self) -> Iterator[nn.Parameter]:
+        """Public-control encoder read by P and by every media realizer (R side)."""
+        yield from self.control_encoder.parameters()
 
     def realizer_parameters(self) -> Iterator[nn.Parameter]:
-        """Core-owned U decoder parameters; C has a separate explicit freeze group."""
+        """Core-owned U decoder parameters and the R adapter family."""
         yield self.u_gate
         yield self.lexical_gate
         for module in (self.u_bank, self.u_always, self.u_router, self.u_norm, self.lexical_norm):
             yield from module.parameters()
+        yield from self.memory_adapters.module_parameters("r")
 
     def compile_kernels(self, mode: str = "default") -> None:
         """Compile tensor operators without hiding state transitions or cache writes."""

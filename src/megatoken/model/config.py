@@ -7,6 +7,9 @@ from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 ARCHITECTURE_VERSION = 9
+# Reserved system track for retrieval queries. It occupies track index
+# ``max_tracks`` and never counts against the user-visible track registry.
+RETRIEVAL_QUERY_TRACK = "__retrieval_query__"
 
 
 @dataclass(frozen=True)
@@ -183,6 +186,10 @@ class ModelConfig:
     def n_stages(self) -> int:
         """Central plus predictive depth; encoder/realizer work is additional."""
         return self.central_layers + self.prediction_layers
+
+    @property
+    def reserved_query_track_index(self) -> int:
+        return self.max_tracks
 
     @property
     def state_geometry(self) -> tuple[int, ...]:

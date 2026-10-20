@@ -278,3 +278,21 @@ def test_group_tape_rejects_ambiguous_json_keys_and_nonstandard_constants():
         )
     with pytest.raises(ValueError, match="nonstandard JSON constant"):
         GroupActionTape.from_json('{"version":"fmt-multitrack-facets-v8","nonce":NaN}')
+
+
+def test_retrieval_query_track_is_reserved_outside_user_capacity():
+    from megatoken.model.config import RETRIEVAL_QUERY_TRACK
+
+    core, multi = _tiny()
+    cap = core.config.max_tracks
+    users = tuple(f"t{i}" for i in range(cap))
+    state = multi.initial_state(1)
+    ids, registry = multi._track_indices(state, users)
+    assert registry == users and ids[0].tolist() == list(range(cap))
+    state = state.__class__(**{**state.__dict__, "track_registry": registry})
+    q_ids, q_registry = multi._track_indices(state, (RETRIEVAL_QUERY_TRACK,))
+    assert q_registry == users  # query does not consume a user slot
+    assert q_ids[0, 0].item() == core.config.reserved_query_track_index == cap
+    assert cap < core.memory_adapters.track_preference.num_embeddings
+    with pytest.raises(ValueError, match="Too many tracks"):
+        multi._track_indices(state, ("one_too_many",))
