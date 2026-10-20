@@ -28,6 +28,7 @@ class Artifact:
     clock_start: float = 0.0
     clock_end: float = 0.0
     reference_origin: str = ""
+    track_id: str = ""
     observed_role: str = "user"
     annotation_type: str = ""
     def __post_init__(self):
@@ -262,7 +263,8 @@ def compile_edit_trajectory(
         if len({event.track_id for event in events})!=len(events):
             raise ValueError("Edit peers require distinct semantic tracks")
         meridians.append(Meridian(gid,tuple(events)))
-    add_group(((base,base.modality,"Inspect the available base artifact.",False,""),))
+    add_group(((base,base.track_id or base.modality,
+                "Inspect the available base artifact.",False,""),))
     previous=base.version
     for edit,output_id,related in steps:
         if edit not in bundle.edits or edit.base_version != previous:
@@ -274,13 +276,18 @@ def compile_edit_trajectory(
             modality="text",payload=edit.change.encode(),version="instruction",
         )
         add_group(((instruction,"edit_request",edit.change,False,""),))
-        targets=[(by_id[output_id],by_id[output_id].modality,
+        result = by_id[output_id]
+        targets=[(result,result.track_id or result.modality,
                   "Apply the requested change; preserve: "+", ".join(edit.preserve),
                   True,previous)]
-        for peer in related:
+        for slot, peer in enumerate(related):
             if peer not in by_id or by_id[peer].version != edit.result_version:
                 raise ValueError("Related edit targets need the same result version")
-            targets.append((by_id[peer],peer,
+            item = by_id[peer]
+            # Derived artifact IDs usually include a new version suffix, but
+            # physical track identity must remain bounded across the edit chain.
+            stable_track = item.track_id or f"related_{slot}_{item.modality}"
+            targets.append((item,stable_track,
                             "Update this aligned output for the recorded edit",True,previous))
         add_group(targets,True)
         previous=edit.result_version
