@@ -409,7 +409,13 @@ def train(
 
         retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
         retrieval_examples = {}
-        if retrieval_recipe.model.to_dict() != model_config.to_dict():
+        # Activation checkpointing and the expert kernel are runtime choices,
+        # not pinned geometry.
+        runtime_only = ("checkpoint_stages", "expert_backend")
+        if {k: v for k, v in retrieval_recipe.model.to_dict().items()
+                if k not in runtime_only} != {
+            k: v for k, v in model_config.to_dict().items() if k not in runtime_only
+        }:
             raise ValueError("Training model differs from pinned recipe geometry")
         phase_stages = {
             "coherence_embedding": {"B0", "P1"},
