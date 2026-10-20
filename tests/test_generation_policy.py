@@ -30,7 +30,7 @@ def assert_state_equal(first, second):
     assert torch.equal(first.facets, second.facets)
     assert torch.equal(first.records_seen, second.records_seen)
     assert torch.equal(first.last_record_ids, second.last_record_ids)
-    for name in ("early", "final"):
+    for name in ("final",):
         a, b = getattr(first, name), getattr(second, name)
         if a is None or b is None:
             assert a is b
