@@ -702,9 +702,22 @@ def train(
                                 "Live KB revisions differ from exact-resume snapshot; "
                                 "restore the matching SQLite snapshot explicitly"
                             )
+                source_features = None
+                if retrieval_recipe.loss_weights.get("source_value", 0):
+                    if not config.retrieval_source_assets_root:
+                        raise ValueError(
+                            "Local RAG value loss needs pinned original source assets"
+                        )
+                    from megatoken.training.source_features import NativeSourceFeatures
+
+                    source_features = NativeSourceFeatures(
+                        model, config.retrieval_source_assets_root,
+                        max_chunk_bytes=retrieval_recipe.max_source_bytes,
+                    )
                 bank_owner = BankTrainingOwner(
                     bank, retrieval_recipe, device=context.device,
                     sparse_lr=config.retrieval_sparse_lr,
+                    source_features=source_features,
                 )
             except BaseException:
                 bank.close()
@@ -996,7 +1009,7 @@ def train(
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)
-            optimizer_seconds = time.perf_counter() - optimizer_started
+            if bank_owner is not None and bank_owner.source_features is not None:\n                bank_owner.source_features.invalidate_after_step()\n            optimizer_seconds = time.perf_counter() - optimizer_started
             global_step += 1
             if bank_owner is not None:
                 from megatoken.training.bank import (\n                    synchronize_query_demand, synchronize_sparse_rows,\n                )
