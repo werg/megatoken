@@ -6,7 +6,7 @@ through the existing E/C runtime; semantic K/V is never an artificial event.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from hashlib import sha256
 from typing import Callable
 
@@ -228,6 +228,14 @@ class NativeRetrieval:
             if not row.active or not visibility.permits(row.footprint):
                 ledger.release(interval, request_id)
                 return False
+            span = row.evidence_span
+            if (
+                row.content_id != interval.content_id or span is None
+                or span.version != interval.version
+                or interval.start < span.start or interval.end > span.end
+            ):
+                ledger.release(interval, request_id)
+                raise ValueError("Source obligation no longer matches immutable versioned bytes")
             data = fetch(row, interval)
             if not isinstance(data, bytes) or len(data) != interval.end - interval.start:
                 raise ValueError("A source asset must return the exact versioned byte slice")
@@ -251,6 +259,15 @@ class NativeRetrieval:
             session.revision += 1
             session.pending = None
             session.events.append((session.revision, ("retrieved_source",)))
+            session.retrieval_receipts.append({
+                "kind": "source", "request_id": request_id,
+                "source_interval": asdict(interval), "record_id": row.id,
+                "source_asset_ref": row.asset_ref,
+                "source_bytes_sha256": sha256(data).hexdigest(),
+                "native_meridian_after": int(session.state.meridians_seen.min()),
+                "commit_receipt": receipt,
+                "coverage": ledger.to_dict(),
+            })
             return True
         except Exception:
             if ledger.reserved.get(interval) == request_id:
