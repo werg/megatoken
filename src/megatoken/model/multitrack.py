@@ -724,6 +724,8 @@ class _GroupedTeacherReadout(nn.Module):
         raw: Tensor,
         plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
         control: Tensor | None = None,
+        memory_snapshot: MemoryMaterialization | None = None,
+        track_ids: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
         if raw.ndim != 4 or raw.shape[1] != len(plans):
             raise ValueError("Realization needs one canonical facet block per target")
@@ -732,7 +734,16 @@ class _GroupedTeacherReadout(nn.Module):
         sums = {name: zero for name in names}
         counts = {name: 0 for name in names}
         for index, plan in enumerate(plans):
-            context = self.core.prepare_realization(raw[:, index])
+            selected = raw[:, index]
+            if memory_snapshot is not None and self.core.memory_adapters is not None:
+                slots = None if track_ids is None else track_ids[
+                    :, index:index+1
+                ].expand(-1, selected.shape[1])
+                selected = self.core.memory_adapters.apply(
+                    selected, module="r", stage=0, track_ids=slots,
+                    snapshot=memory_snapshot,
+                )
+            context = self.core.prepare_realization(selected)
             if isinstance(plan, MediaTrainTarget):
                 condition = None if control is None else control[:, index]
                 predicted = self.media_realizers.realize(context, plan.spec, condition)
@@ -759,8 +770,12 @@ class _GroupedTeacherReadout(nn.Module):
         raw: Tensor,
         plans: tuple[PreparedTargets | PreparedAction | MediaTrainTarget, ...],
         control: Tensor | None = None,
+        memory_snapshot: MemoryMaterialization | None = None,
+        track_ids: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
-        return self.losses_for_selected(raw, plans, control)
+        return self.losses_for_selected(
+            raw, plans, control, memory_snapshot, track_ids
+        )
 
 
 class MultiTrackGenerator:
@@ -894,9 +909,10 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         control = self._controls(controls, state.device)
+        memory_snapshot = self.tracks.materialize_memory(state)
         mean = self.tracks.predict_group(
             state, tracks=names, control=control, effort=effort,
-            modalities=modalities,
+            modalities=modalities, memory_snapshot=memory_snapshot,
         )
         prior = self.generator.facet_distribution(mean)
         sampled = self._sample_policy(prior, names, generator)
@@ -904,6 +920,7 @@ class MultiTrackGenerator:
         selected = (
             self.tracks.advance_group(
                 state, sampled, tracks=names, role_ids=roles, modalities=modalities,
+                memory_snapshot=memory_snapshot,
             ) if mode == "recurrent" else None
         )
         encoded = []
@@ -931,11 +948,16 @@ class MultiTrackGenerator:
         readout = _GroupedTeacherReadout(
             core, self.generator.decoder, self.generator.media_realizers
         )
-        prior_terms = readout.losses_for_selected(sampled, plans, control)
+        track_ids = self.tracks._track_indices(state, names)[0]
+        prior_terms = readout.losses_for_selected(
+            sampled, plans, control, memory_snapshot, track_ids
+        )
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
-                recon_terms = readout(codec_sample, plans, control)
+                recon_terms = readout(
+                    codec_sample, plans, control, memory_snapshot, track_ids
+                )
             continuation = target_raw
             correspondence = q.detach().kl(prior).sum()
         else:
@@ -950,6 +972,7 @@ class MultiTrackGenerator:
                     (
                         codec_sample, plans,
                         None if control is None else control.detach(),
+                        memory_snapshot, track_ids,
                     ),
                 )
             correspondence = mean.float().sum() * 0
@@ -977,7 +1000,7 @@ class MultiTrackGenerator:
             selected if mode == "recurrent" and not teacher_forced_action
             else self.tracks.advance_group(
                 state, continuation, tracks=names, role_ids=roles,
-                modalities=modalities,
+                modalities=modalities, memory_snapshot=memory_snapshot,
             )
         )
         zero = mean.float().sum() * 0
@@ -1105,8 +1128,10 @@ class MultiTrackGenerator:
         modal_names = tuple(
             "text" if isinstance(x, ActionSpec) else x.modality for x in selected_specs
         )
+        memory_snapshot = self.tracks.materialize_memory(state)
         mean = self.tracks.predict_group(
-            state, tracks=names, control=control, effort=effort, modalities=modal_names
+            state, tracks=names, control=control, effort=effort,
+            modalities=modal_names, memory_snapshot=memory_snapshot,
         )
         distribution = self.generator.facet_distribution(mean)
         sampled = self._sample_policy(distribution, names, generator)
@@ -1117,7 +1142,15 @@ class MultiTrackGenerator:
         def losses(raw: Tensor) -> Tensor:
             values = []
             for i, (spec, target) in enumerate(zip(selected_specs, targets, strict=True)):
-                ctx = core.prepare_realization(raw[:, i])
+                selected = raw[:, i]
+                if memory_snapshot is not None and core.memory_adapters is not None:
+                    tracks_ids = self.tracks._track_indices(state, names)[0]
+                    selected = core.memory_adapters.apply(
+                        selected, module="r", stage=0,
+                        track_ids=tracks_ids[:, i:i+1].expand(-1, selected.shape[1]),
+                        snapshot=memory_snapshot,
+                    )
+                ctx = core.prepare_realization(selected)
                 if isinstance(spec, ActionSpec):
                     if spec.schemas:
                         raise ValueError("Typed tool targets require structured target planning")
@@ -1167,7 +1200,7 @@ class MultiTrackGenerator:
         # alternate sampled/reconstruction branch used to score the objective.
         next_state = self.tracks.advance_group(
             state, encoded_raw, tracks=names, role_ids=roles,
-            modalities=modal_names
+            modalities=modal_names, memory_snapshot=memory_snapshot,
         )
         router_balance, router_stabilization = core.routing_aux_loss(clear=True)
         routing = router_balance * 0.005 + router_stabilization * 1e-4
