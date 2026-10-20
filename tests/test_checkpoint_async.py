@@ -1,0 +1,140 @@
+"""Background checkpoint writes and durable object-store round trips."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import threading
+import types
+from pathlib import Path
+
+import pytest
+import torch
+
+from megatoken.io import sha256_file
+from megatoken.training.checkpoint import (
+    CheckpointWriter,
+    commit_checkpoint,
+    load_checkpoint,
+    resolve_checkpoint,
+    snapshot_to_cpu,
+    stage_checkpoint,
+)
+from megatoken.training.diloco_storage import CheckpointStore
+
+
+def test_snapshot_is_private_and_keeps_shared_storage_shared():
+    weight = torch.arange(6, dtype=torch.float32)
+    state = {"model": {"w": weight}, "optimizer": {"master": weight, "moments": [weight * 2]}}
+    snapshot = snapshot_to_cpu(state)
+    weight.add_(100)
+    assert snapshot["model"]["w"].tolist() == list(range(6))
+    assert snapshot["model"]["w"] is snapshot["optimizer"]["master"]
+    assert snapshot["optimizer"]["moments"][0].tolist() == [2.0 * i for i in range(6)]
+
+
+def test_writer_overlaps_the_caller_and_publishes_atomically(tmp_path):
+    root = tmp_path / "checkpoints"
+    release = threading.Event()
+    writer = CheckpointWriter()
+    try:
+        staged = stage_checkpoint(root, "P1-000000001-periodic")
+        (staged / "kb.sqlite").write_bytes(b"kb")
+
+        def write():
+            release.wait(timeout=30)
+            commit_checkpoint(
+                root,
+                "P1-000000001-periodic",
+                staged,
+                {"model": {"w": torch.ones(3)}},
+                {"global_step": 1},
+            )
+
+        writer.submit(write)
+        # Training continues; nothing is visible until the write commits.
+        assert not (root / "latest.json").exists()
+        release.set()
+        writer.wait()
+        payload, metadata = load_checkpoint(root)
+        assert payload["model"]["w"].tolist() == [1.0, 1.0, 1.0]
+        assert metadata["global_step"] == 1
+        assert (resolve_checkpoint(root) / "kb.sqlite").read_bytes() == b"kb"
+        assert not list(root.glob(".checkpoint-*"))
+    finally:
+        writer.close()
+
+
+def test_writer_surfaces_a_failed_write_at_the_next_wait():
+    writer = CheckpointWriter()
+
+    def fail():
+        raise OSError("disk full")
+
+    writer.submit(fail)
+    with pytest.raises(OSError, match="disk full"):
+        writer.wait()
+    writer.close()
+
+
+class _FakeS3:
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def upload_file(self, filename, bucket, key):
+        self.objects[f"{bucket}/{key}"] = Path(filename).read_bytes()
+
+    def put_object(self, Bucket, Key, Body, ContentType):
+        self.objects[f"{Bucket}/{Key}"] = Body
+
+    def get_object(self, Bucket, Key):
+        return {"Body": types.SimpleNamespace(read=lambda: self.objects[f"{Bucket}/{Key}"])}
+
+    def download_file(self, bucket, key, filename):
+        Path(filename).write_bytes(self.objects[f"{bucket}/{key}"])
+
+
+def test_object_store_round_trips_the_kb_snapshot_with_the_weights(tmp_path, monkeypatch):
+    monkeypatch.setitem(
+        sys.modules,
+        "botocore.exceptions",
+        types.SimpleNamespace(ClientError=type("ClientError", (Exception,), {})),
+    )
+    root = tmp_path / "checkpoints"
+    name = "M2-000000004-periodic"
+    staged = stage_checkpoint(root, name)
+    kb = staged / "kb.sqlite"
+    kb.write_bytes(b"canonical rows")
+    (staged / "kb.sqlite.manifest.json").write_text("{}")
+    source = commit_checkpoint(
+        root,
+        name,
+        staged,
+        {"model": {"w": torch.zeros(2)}},
+        {"global_step": 4},
+        extra={"memory_checkpoint": {"kb_file": "kb.sqlite", "kb_sha256": sha256_file(kb)}},
+    )
+    store = CheckpointStore.__new__(CheckpointStore)
+    store.bucket, store.prefix, store.s3 = "bucket", "run/worker-00", _FakeS3()
+    pointer = store.upload(source)
+    assert set(pointer["files"]) == {
+        "state.pt",
+        "metadata.json",
+        "kb.sqlite",
+        "kb.sqlite.manifest.json",
+    }
+    # A fresh sandbox has lost its scratch volume entirely.
+    shutil.rmtree(root)
+    restored = store.restore(root)
+    assert restored == root / name
+    assert (restored / "kb.sqlite").read_bytes() == b"canonical rows"
+    payload, metadata = load_checkpoint(root)
+    assert metadata["memory_checkpoint"]["kb_file"] == "kb.sqlite"
+    assert json.loads((root / "latest.json").read_text())["checkpoint"] == name
+    # Tampered remote objects are rejected before publication.
+    shutil.rmtree(root)
+    store.s3.objects[f"bucket/run/worker-00/{name}/kb.sqlite"] = b"tampered"
+    with pytest.raises(ValueError, match="kb.sqlite checksum mismatch"):
+        store.restore(root)
+    assert not (root / name).exists()

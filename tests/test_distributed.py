@@ -33,7 +33,9 @@ def _start_group(rank: int, rendezvous: str) -> DistributedContext:
         rank=rank,
         world_size=2,
         init_method=f"file://{rendezvous}",
-        timeout=timedelta(seconds=45),
+        # Rank 1 waits in collectives while rank 0 alone writes checkpoints; leave
+        # headroom for a loaded CI host instead of failing on a slow disk.
+        timeout=timedelta(seconds=300),
     )
     return DistributedContext.initialize("cpu")
 

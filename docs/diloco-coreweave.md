@@ -22,7 +22,8 @@ their own protocol (`megatoken.training.diloco_kb`) next to fragments:
 - **Learners:** each downloads the published snapshot to
   `<output>/worker-NN/diloco/kb.sqlite`, trains it with local sparse Adam, and
   every `local_steps` uploads `baseline - current` for each touched row field
-  (baseline = value at the last installed canonical version) plus its demand.
+  (baseline = the row's anchor: its last installed canonical value, or the
+  value it was last uploaded at) plus its demand.
 - **Merge:** per row field, contributions from the learners that touched it
   are weighted like fragments and applied with per-row outer Nesterov momentum.
   Rows retired on the canonical bank are skipped. Demand is recorded, growth
@@ -30,9 +31,15 @@ their own protocol (`megatoken.training.diloco_kb`) next to fragments:
   per-worker sequence ledger commit in one SQLite transaction.
 - **Staleness/duplicates:** bases older than `max_staleness` get HTTP 409 and
   the learner reinstalls; replayed sequences are idempotent.
+- **Overlapped rounds:** learners never pause for a round. Installing a newer
+  canonical version (rows or fragments) carries over the progress trained
+  since the anchor: `new = global + (current - anchor)`. The steps run while a
+  round was in flight are kept and become exactly the next upload, so nothing
+  is double-counted or discarded. For rows, only rows the change set actually
+  replaced get the residual re-applied.
 - **Incremental pulls:** triggers on the canonical bank log every changed
-  primary key under the version being produced. Once its own update is
-  accepted, a learner POSTs its base version and the row IDs it trained; the
+  primary key under the version being produced. Whenever the coordinator
+  reports a newer version, a learner POSTs its base version and the row IDs it trained; the
   coordinator returns only rows changed since that base plus those trained rows
   (with postings and `meta`). The learner upserts them in one transaction, which
   leaves its synchronized tables identical to the canonical bank while keeping
@@ -212,7 +219,13 @@ before a *different* worker session may reuse the slot.
 - Worker checkpoints preserve the model, hybrid optimizer, exact data cursor,
   RNG, local counters, fragment baseline tensors, versions, pending
   submissions, and the actual pending delta payloads. S3 latest pointers are
-  published only after data/metadata objects are uploaded.
+  published only after every checkpoint file (weights, metadata and, for
+  free-KB phases, the learner's `kb.sqlite` and its manifest) is uploaded.
+  Restores verify each file's checksum before publishing locally.
+- Periodic checkpoints are snapshotted to host memory at the step boundary and
+  written and uploaded on a background lane while training continues (one in
+  flight at a time). Phase/run-end and interrupt checkpoints are durable
+  before the trainer returns.
 - On a replacement sandbox, the trainer restores its last committed S3
   checkpoint automatically when `checkpoint_s3` is configured and
   `--resume` is omitted. Explicit `--resume` selects a local checkpoint.

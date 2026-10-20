@@ -244,21 +244,32 @@ def test_learner_deltas_install_and_keep_local_moments(tmp_path):
             rows[row_key(identity)],
             0.5 - read_field(bank, identity),
         )
-        bank.close()
         update = tmp_path / "learner-update.safetensors"
         save_kb_update(update, rows, [], wire_dtype="bf16")
         assert set(load_kb_update(update).rows) == {row_key(identity)}
+        sync.uploaded(bank)
+        # The learner keeps training while the round is in flight.
+        uploaded_point = read_field(bank, identity)
+        sparse.select(identity).sum().backward()
+        sync.capture(sparse.leaves)
+        sparse.step(step=2)
+        residual = read_field(bank, identity) - uploaded_point
+        assert np.any(residual)
+        residuals = sync.residuals(bank)
+        np.testing.assert_allclose(residuals[row_key(identity)], residual)
+        bank.close()
         coordinator.submit(0, 1, 0, 1, 5, update, Conflict)
         version, published = coordinator.published()
         downloaded = tmp_path / "downloaded.sqlite"
         downloaded.write_bytes(published.read_bytes())
         install_snapshot(downloaded, local)
-        sync.installed(version)
         with open_bank_for_recipe(recipe, local) as installed:
-            np.testing.assert_allclose(
-                read_field(installed, identity),
-                read_field(coordinator.bank, identity),
-            )
+            sync.installed(version, installed, residuals, None)
+            canonical = read_field(coordinator.bank, identity)
+            # In-flight progress is carried onto the canonical row, not discarded,
+            # and is exactly what the next upload will contain.
+            np.testing.assert_allclose(read_field(installed, identity), canonical + residual)
+            np.testing.assert_allclose(sync.deltas(installed)[row_key(identity)], -residual)
             # Learner-local sparse Adam moments survive the canonical install.
             assert (
                 installed.moments(
@@ -268,9 +279,9 @@ def test_learner_deltas_install_and_keep_local_moments(tmp_path):
                     field="value",
                     layout_generation="v1",
                 )[2]
-                == 1
+                == 2
             )
-        assert sync.version == 1 and not sync.baselines
+        assert sync.version == 1 and set(sync.baselines) == {row_key(identity)}
     finally:
         coordinator.close()
 
@@ -329,7 +340,7 @@ def test_incremental_changes_match_full_snapshot_and_revert_local_training(tmp_p
             == 2
         )
         assert coordinator.export_changes(2, tmp_path / "none.sqlite") is None
-        assert apply_changes(bank, export) == 2
+        assert apply_changes(bank, export)[0] == 2
         bank.close()
         _, snapshot = coordinator.published()
         assert _synced_rows(local) == _synced_rows(snapshot)
@@ -368,5 +379,42 @@ def test_snapshot_has_no_coordinator_triggers(tmp_path):
         with open_bank_for_recipe(recipe, local) as bank:
             # Learner writes must not reference coordinator-only tables.
             bank.update_record(Collection.MEMORY, a, strength=0.3)
+    finally:
+        coordinator.close()
+
+
+def test_change_install_does_not_double_count_rows_the_export_left_alone(tmp_path):
+    from megatoken.training.diloco_kb import apply_changes
+
+    recipe, coordinator, (a, b) = _setup(tmp_path, quorum=1, workers=1)
+    try:
+        version0, public = coordinator.published()
+        local = tmp_path / "learner.sqlite"
+        local.write_bytes(public.read_bytes())
+        bank = open_bank_for_recipe(recipe, local)
+        sync = KBSync(version=version0, wire_dtype="fp32", local_steps=1)
+        changed = row_key(RowID(Collection.MEMORY, "record", a, "value", "v1"))
+        _submit(coordinator, tmp_path, 0, {changed: np.full(4, 0.1, dtype=np.float32)})
+        # The change-set request went out before the learner first touched b.
+        export = tmp_path / "changes.sqlite"
+        assert coordinator.export_changes(version0, export, records=(), relations=()) == 1
+        sparse = SparseRowAdam(bank, lr=0.5)
+        local_only = RowID(Collection.MEMORY, "record", b, "value", "v1")
+        sparse.select(local_only).sum().backward()
+        sync.capture(sparse.leaves)
+        sparse.step(step=1)
+        trained = read_field(bank, local_only)
+        expected_delta = sync.deltas(bank)[row_key(local_only)]
+        residuals = sync.residuals(bank)
+        version, overwritten = apply_changes(bank, export)
+        assert ("record", b) not in overwritten and ("record", a) in overwritten
+        sync.installed(version, bank, residuals, overwritten)
+        np.testing.assert_allclose(read_field(bank, local_only), trained)
+        np.testing.assert_allclose(sync.deltas(bank)[row_key(local_only)], expected_delta)
+        np.testing.assert_allclose(
+            read_field(bank, RowID(Collection.MEMORY, "record", a, "value", "v1")),
+            read_field(coordinator.bank, RowID(Collection.MEMORY, "record", a, "value", "v1")),
+        )
+        bank.close()
     finally:
         coordinator.close()

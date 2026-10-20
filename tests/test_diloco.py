@@ -230,3 +230,34 @@ def test_coordinator_strict_init_never_replaces_committed_run(tmp_path):
     # Recover an older checkpoint; server never double-counts replayed windows.
     assert coordinator.heartbeat(0, session, steps=2, tokens=50)["global_tokens"] == 100
     assert coordinator.heartbeat(0, session, steps=5, tokens=120)["global_tokens"] == 120
+
+
+def test_global_install_carries_local_progress_made_while_the_round_is_in_flight():
+    from megatoken.training.diloco_client import DecoupledWorker
+
+    model = nn.Module()
+    model.weight = nn.Parameter(torch.zeros(6))
+    optimizer = MasterAdamW(model, lr=0.01, inner_optimizer="adamw")
+    try:
+        (fragment,) = plan_fragments(optimizer.masters, target_bytes=1 << 20)
+        worker = DecoupledWorker.__new__(DecoupledWorker)
+        worker.fragments = (fragment,)
+        worker.versions = [3]
+        worker.awaiting_global = {0}
+        # Anchor = the upload point; two more local steps then moved the weights.
+        upload_point = torch.full((6,), 1.0)
+        worker.baselines = [upload_point.clone()]
+        install_fragment(optimizer, fragment, upload_point + 0.25)
+        merged = torch.full((6,), 5.0)
+        assert worker._install(0, (4, merged), optimizer)
+        torch.testing.assert_close(pack_fragment(optimizer.masters, fragment), merged + 0.25)
+        torch.testing.assert_close(model.weight.detach(), merged + 0.25)
+        # The next pseudo-gradient is exactly the residual, against the new global.
+        torch.testing.assert_close(
+            worker.baselines[0] - pack_fragment(optimizer.masters, fragment),
+            torch.full((6,), -0.25),
+        )
+        assert worker.versions == [4] and not worker.awaiting_global
+        assert not worker._install(0, (4, merged), optimizer)
+    finally:
+        optimizer.close()

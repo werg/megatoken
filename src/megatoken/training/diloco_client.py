@@ -288,7 +288,7 @@ class DecoupledWorker:
                 payload = value.get("pending_payloads", {}).get(str(index))
                 if payload is None:
                     raise FileNotFoundError(f"Checkpoint lacks pending upload {index}")
-                save_tensors(filename, {"delta": payload})
+                entry["delta"] = payload
             entry["filename"] = str(filename)
             self._send_async(index)
         if self.kb is not None and self.kb.pending is not None:
@@ -317,16 +317,28 @@ class DecoupledWorker:
             path.unlink(missing_ok=True)
 
     def _install(self, index: int, update: tuple[int, torch.Tensor] | None, optimizer: Any) -> bool:
+        """Install a newer global fragment *without discarding local progress*.
+
+        ``baselines[index]`` is the anchor that local progress is measured from:
+        the last installed global, or the upload point once a pseudo-gradient
+        was queued. Steps trained since the anchor are carried onto the new
+        global (overlapped/streaming DiLoCo), so learners never idle or waste
+        compute while a round is in flight, and the next pseudo-gradient
+        contains exactly that residual progress.
+        """
         if update is None:
             return False
         version, tensor = update
         if version <= self.versions[index]:
             return False
-        install_fragment(optimizer, self.fragments[index], tensor)
+        anchor = self.baselines[index]
+        if anchor is None:
+            values = tensor
+        else:
+            values = tensor + (pack_fragment(optimizer.masters, self.fragments[index]) - anchor)
+        install_fragment(optimizer, self.fragments[index], values)
         self.versions[index] = version
         self.baselines[index] = tensor
-        self.steps_since[index] = 0
-        self.tokens_since[index] = 0
         self.awaiting_global.discard(index)
         return True
 
@@ -338,7 +350,7 @@ class DecoupledWorker:
         _, response, _ = self.transport.request(
             "POST",
             f"/v1/updates/{index}",
-            file=Path(entry["filename"]),
+            file=self._write_outbox(entry),
             headers={
                 "X-Worker": str(self.worker),
                 "X-Session": self.session,
@@ -470,11 +482,7 @@ class DecoupledWorker:
                     "retry_after": 0,
                 }
                 kb.pending["future"] = self.control_io.submit(self._upload_kb, dict(kb.pending))
-            else:
-                kb.steps_since = 0
-                kb.tokens_since = 0
-        # Install only once local progress is merged-or-empty, never over unsent work.
-        can_install = kb.awaiting_global or not kb.baselines or self._kb_force_fetch
+            kb.uploaded(bank)
         # Fetch as soon as the coordinator reports a newer canonical version;
         # without status information fall back to periodic polling.
         newer = (
@@ -482,12 +490,7 @@ class DecoupledWorker:
             if self.remote_kb_version is not None
             else steps % self.settings.poll_steps == 0
         )
-        if (
-            ready is None
-            and kb.download is None
-            and can_install
-            and (self._kb_force_fetch or newer)
-        ):
+        if ready is None and kb.download is None and (self._kb_force_fetch or newer):
             kb.download = self.control_io.submit(
                 self._fetch_kb,
                 -1 if self._kb_force_fetch else kb.version,
@@ -499,6 +502,14 @@ class DecoupledWorker:
         entry = self.pending[index]
         entry["future"] = self.io.submit(self._upload, index, dict(entry))
 
+    def _write_outbox(self, entry: dict) -> Path:
+        filename = Path(entry["filename"])
+        if not filename.exists():
+            staging = filename.with_suffix(".partial")
+            save_tensors(staging, {"delta": entry["delta"]})
+            os.replace(staging, filename)
+        return filename
+
     def _queue(self, index: int, optimizer: Any) -> None:
         if index in self.pending or index in self.awaiting_global or self.versions[index] < 0:
             return
@@ -506,29 +517,30 @@ class DecoupledWorker:
             return
         baseline = self.baselines[index]
         assert baseline is not None
-        delta = baseline - pack_fragment(optimizer.masters, self.fragments[index])
+        current = pack_fragment(optimizer.masters, self.fragments[index])
+        delta = baseline - current
         if not torch.isfinite(delta).all():
             raise ValueError("Nonfinite local DiLoCo pseudogradient")
         sequence = self.sequences[index] + 1
-        filename = self.outbox / f"{index:05d}-{sequence:09d}.safetensors"
-        save_tensors(
-            filename,
-            {
-                "delta": delta.to(
-                    torch.bfloat16 if self.settings.wire_dtype == "bf16" else torch.float32
-                )
-            },
-        )
         self.sequences[index] = sequence
         self.pending[index] = {
-            "filename": str(filename),
+            "filename": str(self.outbox / f"{index:05d}-{sequence:09d}.safetensors"),
             "sequence": sequence,
             "version": self.versions[index],
             "steps": self.steps_since[index],
             "tokens": self.tokens_since[index],
+            # Serialized by the I/O lane; the training thread never touches disk.
+            "delta": delta.to(
+                torch.bfloat16 if self.settings.wire_dtype == "bf16" else torch.float32
+            ),
             "future": None,
             "retry_after": 0,
         }
+        # Progress from here on is measured against the upload point, so the
+        # steps trained while this round is in flight survive the global install.
+        self.baselines[index] = current
+        self.steps_since[index] = 0
+        self.tokens_since[index] = 0
         self._send_async(index)
 
     def after_step(
@@ -683,12 +695,16 @@ class DecoupledWorker:
             "local_steps": self.local_steps,
             "local_tokens": self.local_tokens,
             "pending": {
-                str(k): {key: value for key, value in entry.items() if key != "future"}
+                str(k): {
+                    key: value for key, value in entry.items() if key not in ("future", "delta")
+                }
                 for k, entry in self.pending.items()
             },
             "awaiting_global": sorted(self.awaiting_global),
             "pending_payloads": {
-                str(k): load_tensors(entry["filename"])["delta"]
+                str(k): (
+                    entry["delta"] if "delta" in entry else load_tensors(entry["filename"])["delta"]
+                )
                 for k, entry in self.pending.items()
             },
             "kb": None if self.kb is None else self.kb.state_dict(),

@@ -30,7 +30,14 @@ from megatoken.io import content_hash, sha256_file, write_json
 from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
-from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
+from megatoken.training.checkpoint import (
+    CheckpointWriter,
+    commit_checkpoint,
+    load_checkpoint,
+    resolve_checkpoint,
+    snapshot_to_cpu,
+    stage_checkpoint,
+)
 from megatoken.training.concordance_recipe import load_concordance_recipe
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.diloco_client import DecoupledWorker
@@ -400,6 +407,7 @@ def train(
                 resume = str(restored)
     logger = JsonlLogger(output / "metrics.jsonl", context.is_primary)
     diloco = None
+    checkpoint_writer = None
     optimizer = None
     bank_owner = None
     kb_sync = None
@@ -863,6 +871,8 @@ def train(
         last_saved = global_step if resume and not phase_transition else -1
         updates_this_run = 0
 
+        checkpoint_writer = CheckpointWriter()
+
         def memory_attachment(stage: Path, name: str) -> dict[str, Any]:
             if bank_owner is None:
                 return {}
@@ -881,34 +891,43 @@ def train(
             return {"memory_checkpoint": manifest}
 
         def checkpoint(label: str, pinned: bool = False) -> str:
+            """Snapshot at the step boundary; periodic writes overlap training.
+
+            Pinned (phase/run boundary, interrupt) checkpoints are durable on return.
+            """
             nonlocal last_saved
             rank_state = context.all_gather_object(
                 {"cursor": stream.state_dict(), "rng": capture_rng()}
             )
             name = f"{phase.name}-{global_step:09d}-{label}"
             if context.is_primary:
-                save_checkpoint(
-                    output / "checkpoints",
-                    name,
-                    {
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        **({"diloco": diloco.state_dict()} if diloco is not None else {}),
-                        "model_config": model_config.to_dict(),
-                        "train_config": asdict(config),
-                        "codec_fingerprint": codec.fingerprint,
-                        "retrieval_sidecar_sha256": retrieval_sidecar_sha,
-                        "retrieval_document_sha256": document_sidecar_sha,
-                        "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
-                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
-                        "native_pack_fingerprint": native_pack_fingerprint,
-                        "chunking": chunking_identity,
-                        "rank_state": rank_state,
-                        "global_step": global_step,
-                        "phase_consumed": consumed,
-                        "counters": asdict(counters),
-                    },
-                    {
+                # Bound host memory to one in-flight snapshot.
+                checkpoint_writer.wait()
+                root = output / "checkpoints"
+                staged = stage_checkpoint(root, name)
+                try:
+                    extra = memory_attachment(staged, name)
+                    payload = snapshot_to_cpu(
+                        {
+                            "model": model.state_dict(),
+                            "optimizer": optimizer.state_dict(),
+                            **({"diloco": diloco.state_dict()} if diloco is not None else {}),
+                            "model_config": model_config.to_dict(),
+                            "train_config": asdict(config),
+                            "codec_fingerprint": codec.fingerprint,
+                            "retrieval_sidecar_sha256": retrieval_sidecar_sha,
+                            "retrieval_document_sha256": document_sidecar_sha,
+                            "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
+                            "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
+                            "native_pack_fingerprint": native_pack_fingerprint,
+                            "chunking": chunking_identity,
+                            "rank_state": rank_state,
+                            "global_step": global_step,
+                            "phase_consumed": consumed,
+                            "counters": asdict(counters),
+                        }
+                    )
+                    metadata = {
                         "global_step": global_step,
                         "phase": phase.name,
                         "phase_consumed": consumed,
@@ -919,14 +938,29 @@ def train(
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
-                    },
-                    pinned=pinned,
-                    keep=config.keep_checkpoints,
-                    attachments=lambda stage: memory_attachment(stage, name),
-                )
+                    }
+                except BaseException:
+                    shutil.rmtree(staged, ignore_errors=True)
+                    raise
+
+                def write() -> None:
+                    commit_checkpoint(
+                        root,
+                        name,
+                        staged,
+                        payload,
+                        metadata,
+                        extra=extra,
+                        pinned=pinned,
+                        keep=config.keep_checkpoints,
+                    )
+                    if checkpoint_store is not None:
+                        checkpoint_store.upload(root / name)
+
+                checkpoint_writer.submit(write)
+                if pinned:
+                    checkpoint_writer.wait()
             context.barrier()
-            if checkpoint_store is not None:
-                checkpoint_store.upload(output / "checkpoints" / name)
             last_saved = global_step
             return str(output / "checkpoints" / name)
 
@@ -1137,9 +1171,11 @@ def train(
 
                 # Between optimizer steps: no selected leaves or open transactions.
                 version, downloaded, kind = snapshot
+                residuals = kb_sync.residuals(bank_owner.bank)
+                overwritten = None
                 if kind == "changes":
                     try:
-                        applied = apply_changes(bank_owner.bank, downloaded)
+                        applied, overwritten = apply_changes(bank_owner.bank, downloaded)
                     finally:
                         downloaded.unlink(missing_ok=True)
                     if applied != version:
@@ -1148,7 +1184,7 @@ def train(
                     bank_owner.bank.close()
                     install_snapshot(downloaded, bank_path)
                     bank_owner = make_bank_owner(open_bank_for_recipe(retrieval_recipe, bank_path))
-                kb_sync.installed(version)
+                kb_sync.installed(version, bank_owner.bank, residuals, overwritten, bank_owner.ivf)
             model.core.set_model_version(global_step)
             local_sums = ledger.sums
             merged_sums = context.all_gather_object(local_sums)
@@ -1269,6 +1305,9 @@ def train(
     finally:
         for signum, handler in old_handlers.items():
             signal.signal(signum, handler)
+        if checkpoint_writer is not None:
+            # A periodic write still in flight must land before the run returns.
+            checkpoint_writer.close()
         if diloco is not None:
             diloco.close()
         if optimizer is not None:

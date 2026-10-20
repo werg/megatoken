@@ -289,8 +289,10 @@ def install_snapshot(downloaded: Path, local: Path) -> None:
     os.replace(downloaded, local)
 
 
-def apply_changes(bank: SQLiteKB, path: Path) -> int:
+def apply_changes(bank: SQLiteKB, path: Path) -> tuple[int, frozenset[tuple[str, int]]]:
     """Bring a learner bank to the exported canonical version in one transaction.
+
+    Returns the version and the (kind, id) rows the export overwrote.
 
     The export holds every row changed since the learner's base plus every row
     the learner trained, so afterwards all synchronized tables equal a full
@@ -307,6 +309,12 @@ def apply_changes(bank: SQLiteKB, path: Path) -> int:
                 row[0]
                 for row in db.execute("SELECT name FROM delta.sqlite_master WHERE type='table'")
             }
+            overwritten = frozenset(
+                (kind, int(row[0]))
+                for kind, table in (("record", "records"), ("relation", "relations"))
+                if table in present
+                for row in db.execute(f"SELECT id FROM delta.{table}")
+            )
             with bank.transaction():
                 db.execute("PRAGMA defer_foreign_keys=ON")
                 for table in SYNCED_TABLES:
@@ -336,7 +344,7 @@ def apply_changes(bank: SQLiteKB, path: Path) -> int:
                     )
         finally:
             db.execute("DETACH DATABASE delta")
-    return version
+    return version, overwritten
 
 
 def initialize_kb(
@@ -773,12 +781,53 @@ class KBSync:
             tuple(sorted({i.id for i in identities if i.kind == "relation"})),
         )
 
-    def installed(self, version: int) -> None:
-        self.version = version
-        self.baselines.clear()
+    def uploaded(self, bank: SQLiteKB) -> None:
+        """Re-anchor every touched row at its upload point (the value just sent)."""
+        for key in list(self.baselines):
+            current = read_field(bank, parse_row_key(key))
+            if current is None:
+                del self.baselines[key]
+            else:
+                self.baselines[key] = current
         self.steps_since = 0
         self.tokens_since = 0
+
+    def residuals(self, bank: SQLiteKB) -> dict[str, np.ndarray]:
+        """Local row progress not yet contained in any upload."""
+        return {key: -delta for key, delta in self.deltas(bank).items()}
+
+    def installed(
+        self,
+        version: int,
+        bank: SQLiteKB,
+        residuals: dict[str, np.ndarray],
+        overwritten: frozenset[tuple[str, int]] | None,
+        ivf: Any = None,
+    ) -> None:
+        """Adopt canonical rows, then carry unsent local progress onto them.
+
+        Mirrors the fragment install: steps trained while a round is in flight
+        are kept and become the next upload, never overwritten. ``overwritten``
+        names the rows the install replaced (None: a full snapshot). Rows it
+        left alone still hold their local progress against a valid baseline.
+        """
+        self.version = version
         self.awaiting_global = False
+        for key, residual in residuals.items():
+            identity = parse_row_key(key)
+            if overwritten is not None and (identity.kind, identity.id) not in overwritten:
+                continue
+            del self.baselines[key]
+            canonical = read_field(bank, identity)
+            if canonical is None or canonical.shape != residual.shape:
+                continue
+            write_field(bank, identity, canonical + residual, ivf)
+            self.baselines[key] = canonical
+        for key in [k for k in self.baselines if k not in residuals]:
+            identity = parse_row_key(key)
+            if overwritten is None or (identity.kind, identity.id) in overwritten:
+                # No unsent progress: the row now simply equals canonical.
+                del self.baselines[key]
 
     def state_dict(self) -> dict:
         return {
