@@ -429,7 +429,7 @@ def forward_meridian_batch(
                 for plan in step.plans
             )
             if retrieval_aux is not None:
-                examples, recipe, global_count = retrieval_aux
+                examples, recipe, global_count, bank_owner = retrieval_aux
                 for entry in step.records:
                     annotation = examples.get((
                         batch.windows[0].episode.episode_id, entry.record.record_id,
@@ -466,6 +466,18 @@ def forward_meridian_batch(
                     )
                     if unchanged is not state or selected.shape[1] != 1:
                         raise RuntimeError("Bootstrap query unexpectedly mutated native history")
+                    if bank_owner is not None:
+                        selected_bank = bank_owner.read(
+                            state, predicted, annotation, global_count=global_count,
+                        )
+                        state = selected_bank.state
+                        retrieval_losses.append(selected_bank.loss)
+                        for metric, count in (
+                            ("kb_source_candidates", selected_bank.source_hits),
+                            ("kb_memory_candidates", selected_bank.memory_hits),
+                            ("kb_admitted_groups", selected_bank.memory_groups),
+                        ):
+                            metrics[metric] = metrics.get(metric, 0) + count
                     # The teacher is a coordinate target, never P input.
                     # Unit normalization must hold even for sidecar exporters
                     # that retain unnormalized raw teacher magnitudes.
