@@ -105,6 +105,8 @@ class TrainConfig:
     grad_clip: float = 1.0
     weight_decay: float = 0.1
     inner_optimizer: str = "adamw"
+    router_balance_mode: str = "local"  # global uses optimizer-step replay
+    router_replay_assignments: int = 262144
     decoupled: DecoupledConfig | None = None
     loss_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LOSS_WEIGHTS))
     model_overrides: dict[str, Any] = field(default_factory=dict)
@@ -119,6 +121,10 @@ class TrainConfig:
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
             raise ValueError("decoupled must be a settings object or mapping")
+        if self.router_balance_mode not in {"local", "global"}:
+            raise ValueError("Router balance mode must be local or global")
+        if self.router_replay_assignments < 1:
+            raise ValueError("Router replay must have positive bounded capacity")
         if self.inner_optimizer not in {"adamw", "muon"}:
             raise ValueError("inner_optimizer must be adamw or muon")
         if self.phase not in PHASES:

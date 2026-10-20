@@ -538,6 +538,7 @@ class MultiTrackCore:
         )
         joined = joined + wrapper.attention_gate.sigmoid() * mixed
         individual = joined.reshape(batch * events, f, d)
+        core.p_router.record_executed(route)
         begin = 0
         for update, count in enumerate(core._row_counts(f, effort)):
             selected = RowRoute(

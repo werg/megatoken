@@ -770,6 +770,7 @@ class FacetedCore(nn.Module):
         history: KVHistory,
         positions: Tensor,
     ) -> Tensor:
+        self.p_router.record_executed(route)
         start = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
             self.p_bank.record_routes(
@@ -815,6 +816,7 @@ class FacetedCore(nn.Module):
             eligible_limit=eligible,
             allow_exploration=False,
         )
+        self.u_router.record_executed(route)
         self.u_bank.record_routes(
             route.expert_ids, route.eligible, gradient_enabled=torch.is_grad_enabled()
         )

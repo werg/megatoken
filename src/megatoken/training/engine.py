@@ -839,8 +839,20 @@ def train(
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
             weights = dict(config.loss_weights)
+            if config.router_balance_mode == "global":
+                # Old per-operation local term is deliberately disabled.
+                weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
+            router_replay = None
+            if config.router_balance_mode == "global":
+                from megatoken.training.router_balance import RouterBalanceWindow
+
+                router_replay = RouterBalanceWindow(
+                    max_assignments=config.router_replay_assignments
+                )
+                model.core.p_router.balance_recorder = router_replay
+                model.core.u_router.balance_recorder = router_replay
             learning_rate = phase.learning_rate(
                 diloco.global_tokens if diloco is not None else consumed
             )
@@ -854,6 +866,16 @@ def train(
                 for key, value in diagnostics_batch.items():
                     step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
             ledger.finish()
+            if router_replay is not None:
+                # All ranks participate, including workers with zero eligible
+                # assignments. The model's version remains fixed until step().
+                step_diagnostics.update(router_replay.backward(
+                    context,
+                    routers={"p": model.core.p_router, "u": model.core.u_router},
+                    coefficient=config.loss_weights["router_balance"],
+                ))
+                model.core.p_router.balance_recorder = None
+                model.core.u_router.balance_recorder = None
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)
