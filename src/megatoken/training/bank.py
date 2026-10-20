@@ -24,7 +24,7 @@ from megatoken.memory.optimizer import RowID, SparseRowAdam
 from megatoken.memory.reader import selected_evidence
 from megatoken.memory.recipe import RetrievalRecipe
 from megatoken.memory.sqlite import SQLiteKB
-from megatoken.training.memory import LocalMemoryWindow, annotated_ranking_loss
+from megatoken.training.memory import (\n    LocalMemoryWindow, LocalRetrievalTarget, annotated_ranking_loss,\n)\nfrom megatoken.training.source_features import NativeSourceFeatures
 
 
 def semantic_region(key: np.ndarray) -> str:
@@ -43,6 +43,7 @@ class ReadResult:
     source_hits: int
     memory_hits: int
     memory_groups: int
+    source_value_examples: int = 0
 
 
 class BankTrainingOwner:
@@ -53,15 +54,14 @@ class BankTrainingOwner:
     """
 
     def __init__(self, bank: SQLiteKB, recipe: RetrievalRecipe, *,
-                 device: torch.device, sparse_lr: float = 1e-3):
+                 device: torch.device, sparse_lr: float = 1e-3,\n                 source_features: NativeSourceFeatures | None = None):
         if bank.space.fingerprint != recipe.space.fingerprint or (
             bank.value_dim != recipe.model.semantic_value_dim
         ):
             raise ValueError("Bank/training semantic layout mismatch")
         if recipe.phase not in {"progressive_warmup", "free_kb_pretraining"}:
             raise ValueError("Bank updates are allowed only in free-KB pretraining phases")
-        self.bank = bank
-        self.recipe = recipe
+        if recipe.loss_weights.get("source_value", 0) and source_features is None:\n            raise ValueError("Source-value training requires actual detached native E(source) bytes")\n        self.bank = bank\n        self.source_features = source_features\n        self.recipe = recipe
         self.device = device
         self.index = ExactIndex(bank)
         self.sparse = SparseRowAdam(bank, lr=sparse_lr)
@@ -114,6 +114,27 @@ class BankTrainingOwner:
             query, s_ids, collection=Collection.SOURCE, positive=s_positive,
             complete=annotation.annotations_complete and not positives,
         )
+        source_value = query.sum() * 0
+        source_value_examples = 0
+        if s_ids and self.source_features is not None:
+            observed_features = torch.stack([
+                self.source_features.get(hit.record) for hit in source_hits.hits
+            ])[None].to(query.device)
+            target = LocalRetrievalTarget(
+                teacher_query=query.detach(),
+                useful_source=s_positive[None],
+                annotated_complete=torch.tensor(
+                    [annotation.annotations_complete and not positives],
+                    device=query.device, dtype=torch.bool,
+                ),
+                source_features=observed_features.detach(),
+            )
+            source_value, source_value_examples = self.selected.source_loss(
+                query, s_ids, target,
+                eligible=torch.ones(
+                    (1, len(s_ids)), dtype=torch.bool, device=query.device,
+                ),
+            )
         # Memory candidates reference STABLE ORIGINAL source assignments.
         m_hits = memory_hits.hits
         m_ids = tuple(hit.record.id for hit in m_hits)
@@ -149,8 +170,7 @@ class BankTrainingOwner:
             self.query_demand += 1
         self.reads += 1
         scale = self.recipe.loss_weights.get("query_ranking", 0.)
-        loss = scale * (s_loss + m_loss) / global_count
-        return ReadResult(state, loss, len(s_ids), len(m_ids), groups_count)
+        loss = (scale * (s_loss + m_loss) + (\n            self.recipe.loss_weights.get("source_value", 0.) * source_value\n        )) / global_count\n        return ReadResult(\n            state, loss, len(s_ids), len(m_ids), groups_count, source_value_examples,\n        )
 
     def catalog(self, scope: str) -> list[CatalogChunk]:
         """Source records are the allocation catalog, never model outputs."""
