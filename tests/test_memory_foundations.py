@@ -174,6 +174,39 @@ def test_demand_bootstrap_preserves_birth_and_existing_values(tmp_path):
         assert len(kb.scan(Collection.MEMORY, "team")) == 3
 
 
+
+def test_dense_growth_repeats_high_demand_region_before_exploration(tmp_path):
+    with SQLiteKB(tmp_path / "density.sqlite", space(), value_dim=16) as kb:
+        policy = GrowthPolicy(
+            value_dim=16, seed=7, dense_fraction=0.75, max_points=20,
+        )
+        growth = GrowthAllocator(kb, policy)
+        kb.put_growth_state("readiness", {"coherence": True, "embeddings": True})
+        for i in range(10):
+            assert growth.demand.observe(
+                event_id=f"hot-query-{i}", region="high-demand",
+                family=f"family-{i}", step=0,
+            )
+        catalog = [
+            CatalogChunk(
+                f"hot-{i}", np.eye(8, dtype=np.float32)[i % 8],
+                "team", "high-demand", support(f"hot-{i}"), f"hot-family-{i}",
+            ) for i in range(5)
+        ] + [
+            CatalogChunk(
+                f"cold-{i}", np.eye(8, dtype=np.float32)[i % 8],
+                "team", "low-demand", support(f"cold-{i}"), f"cold-family-{i}",
+            ) for i in range(5)
+        ]
+        ids = growth.grow(
+            catalog, visibility=Visibility("team", committed_cursor=10),
+            step=1, budget=4,
+        )
+        assignments = [kb.get(Collection.MEMORY, i).source_assignment for i in ids]
+        assert assignments[:3] == ["hot-0", "hot-1", "hot-2"]
+        assert assignments[3] == "cold-0"
+
+
 def test_correlations_absent_checked_partner_attenuates_only_correct_endpoint():
     base = torch.tensor([0.5, 0.7], requires_grad=True)
     logits = torch.tensor([[1.0, 2.0]], requires_grad=True)
