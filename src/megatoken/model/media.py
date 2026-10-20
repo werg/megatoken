@@ -201,6 +201,7 @@ class MediaStems(nn.Module):
         super().__init__()
         self.audio = AudioStem(config)
         self.vision = VisualStem(config)
+        self.view_dropout = config.media_view_dropout
         self.external_audio = (
             nn.Linear(config.audio_feature_dim, config.source_dim, bias=False)
             if config.audio_feature_dim else None
@@ -287,6 +288,16 @@ class MediaStems(nn.Module):
                 content = content + vector
             projected.append(content)
             masks.append(valid)
+        if self.training and self.view_dropout and len(masks) > 1:
+            # Missing modality views remain explicit masked slots. Never erase
+            # *every* available source view or condition dropout on gold peers.
+            keep = torch.rand(len(masks), device=masks[0].device) >= self.view_dropout
+            if not bool(keep.any()):
+                keep[0] = True
+            masks = [
+                mask if bool(keep[index]) else torch.zeros_like(mask)
+                for index, mask in enumerate(masks)
+            ]
         return self.encode_ordered_features(
             core, torch.cat(projected, dim=1), torch.cat(masks, dim=1),
         )

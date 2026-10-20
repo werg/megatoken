@@ -19,7 +19,7 @@ from megatoken.data import stage_recipe
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import EncodedRecord
 from megatoken.generation.targets import PreparedAction, PreparedTargets
-from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
+from megatoken.model.media import AUDIO_SAMPLE_RATE, MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.tensors import byte_tensor
 from megatoken.tool_schema import (
@@ -92,6 +92,7 @@ class MediaPlan:
         return MediaTrainTarget(
             self.modality, self.spec, source, target, self.mode,
             source_kind=self.reference.source.kind,
+            source_sample_rate=self.reference.source.sample_rate or AUDIO_SAMPLE_RATE,
             extractor=self.reference.source.extractor,
             target_kind=self.reference.target.kind, source_views=tuple(views),
             target_valid_mask=valid,

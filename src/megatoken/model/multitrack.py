@@ -899,7 +899,9 @@ class MultiTrackGenerator:
                         plan.modality, plan.source, extractor=plan.extractor
                     )
                 elif plan.source_kind == "raw":
-                    current = core.encode_media(plan.modality, plan.source)
+                    current = core.encode_media(
+                        plan.modality, plan.source, sample_rate=plan.source_sample_rate
+                    )
                 else:
                     raise ValueError("Codec source needs a pinned input feature view")
             else:
