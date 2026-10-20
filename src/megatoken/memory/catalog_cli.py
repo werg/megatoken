@@ -62,7 +62,10 @@ def build_source_catalog(
                         not source_path.is_file()
                     ):
                         raise ValueError("Source catalog path escapes immutable asset root")
-                    digest = bytes_verified.setdefault(source_path, sha256_file(source_path))
+                    digest = bytes_verified.get(source_path)
+                    if digest is None:
+                        digest = sha256_file(source_path)
+                        bytes_verified[source_path] = digest
                     if entry["asset_sha256"] != digest:
                         raise ValueError("Original source asset hash differs from catalog")
                     footprint = Footprint.from_json(json.dumps(entry["footprint"]))
