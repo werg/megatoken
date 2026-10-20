@@ -62,7 +62,7 @@ class CoarseIVF:
         blocked = excluded or set()
         hits = []
         for row in self.store.scan(collection, scope):
-            if row.id in blocked or not visibility.permits(row.footprint):
+            if not row.active or row.id in blocked or not visibility.permits(row.footprint):
                 continue
             # Moved learned keys are assigned by their CURRENT normalized location.
             if self.posting_cell(row.key) in cells:
