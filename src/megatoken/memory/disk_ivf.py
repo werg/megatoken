@@ -47,21 +47,41 @@ class SQLiteDiskIVF:
         )))
 
     def rebuild(self, *, scope: str, collection: Collection) -> int:
-        """One all-key rebuild only at declared centroid/scope drift barriers."""
-        rows = tuple(row for row in self.store.scan(collection, scope) if row.active)
+        """Stream bounded SQLite key pages into atomic IVF postings.
+
+        Neither a full key-bank tensor nor record metadata mirror is needed.
+        """
+        count = 0
         with self.store.transaction():
-            for i in range(0, len(rows), self.batch_size):
-                batch = rows[i:i+self.batch_size]
+            cursor = self.store.db.execute(
+                """SELECT id,key,key_revision FROM records
+                   WHERE collection=? AND scope=? AND active=1 ORDER BY id""",
+                (collection.value, scope),
+            )
+            while True:
+                rows = cursor.fetchmany(self.batch_size)
+                if not rows:
+                    break
                 self.store.db.executemany(
                     """INSERT INTO postings VALUES (?,?,?,?,?)
                        ON CONFLICT(collection,record_id) DO UPDATE SET
                        cell=excluded.cell,centroids_revision=excluded.centroids_revision,
                        key_revision=excluded.key_revision""",
                     [
-                        (collection.value, r.id, self.cell(r.key),
-                         self.identity.centroid_sha256, r.key_revision) for r in batch
+                        (
+                            collection.value, int(row["id"]),
+                            self.cell(np.frombuffer(row["key"], dtype="<f4")),
+                            self.identity.centroid_sha256, int(row["key_revision"]),
+                        ) for row in rows
                     ],
                 )
+                count += len(rows)
+            self.store.db.execute(
+                """DELETE FROM postings WHERE collection=? AND record_id IN (
+                     SELECT id FROM records WHERE collection=? AND scope=? AND active=0
+                   )""",
+                (collection.value, collection.value, scope),
+            )
             self.store.db.execute(
                 """INSERT INTO meta VALUES (?,?) ON CONFLICT(key)
                    DO UPDATE SET value=excluded.value""",
@@ -71,7 +91,7 @@ class SQLiteDiskIVF:
                 ),
             )
             self.store._bump("index")
-        return len(rows)
+        return count
 
     def patch_key(self, collection: Collection, record_id: int, *,
                   changed_key, expected_revision: int) -> None:
