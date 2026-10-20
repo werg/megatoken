@@ -35,7 +35,7 @@ def test_writer_dataset_rejects_missing_provenance():
 
 
 def test_writer_distillation_cli_publishes_only_pinned_frozen_target_outputs(tmp_path):
-    safetensors = pytest.importorskip("safetensors.torch")
+    pytest.importorskip("safetensors.torch")
     from safetensors.torch import save_file
 
     recipe = _recipe()
