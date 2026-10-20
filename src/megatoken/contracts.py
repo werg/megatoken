@@ -16,6 +16,8 @@ DEFAULT_LOSS_WEIGHTS = {
     "audio_reconstruction": 1.0,
     "visual_prediction": 1.0,
     "visual_reconstruction": 1.0,
+    # One mean per declared generated peer pair, not per arbitrary all-pairs clique.
+    "relation_semantic": 0.25,
     "structure": 0.25,
     "binding": 0.5,
     "placement": 0.25,

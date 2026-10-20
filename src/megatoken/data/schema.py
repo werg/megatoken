@@ -193,12 +193,15 @@ class TrackSpec:
     role: Role
     default_modality: str = "text"
     description: str = ""
+    settings_json: str = "{}"
 
     def __post_init__(self) -> None:
         if not self.track_id or self.role not in {
             "system", "user", "assistant", "tool", "document", "environment"
         }:
             raise ValueError("Track spec needs an identity and a supported role")
+        if not isinstance(self.description, str) or not isinstance(json.loads(self.settings_json), dict):
+            raise ValueError("Track defaults must contain a description and JSON settings object")
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +218,9 @@ class TrackEvent:
     asset_sha256: str | None = None
     request: str = ""
     request_revision: int = 0
+    instruction: str = ""
+    settings_json: str = "{}"
+    reference_event_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.record_id or not self.track_id or self.meridian_id < 0:
@@ -230,6 +236,13 @@ class TrackEvent:
             or any(c not in "0123456789abcdef" for c in self.asset_sha256)
         ):
             raise ValueError("Media asset digest must be a lowercase SHA256")
+        if (not isinstance(self.instruction, str) or type(self.request_revision) is not int
+                or self.request_revision < 0 or not isinstance(json.loads(self.settings_json), dict)):
+            raise ValueError("Event request requires a revision, instruction and settings object")
+        if (not isinstance(self.reference_event_ids, tuple)
+                or any(not isinstance(ref, str) or not ref for ref in self.reference_event_ids)
+                or len(set(self.reference_event_ids)) != len(self.reference_event_ids)):
+            raise ValueError("Event references must be distinct immutable event identities")
 
 
 @dataclass(frozen=True, slots=True)
@@ -501,11 +514,18 @@ class Episode:
             event_ids: set[str] = set()
             preceding = -1
             previous_record = -1
+            prior_events: set[str] = set()
+            track_revisions: dict[str, int] = {}
             for meridian in self.meridians:
                 if meridian.meridian_id <= preceding:
                     raise ValueError("Causal meridian numbers must increase strictly")
                 preceding = meridian.meridian_id
                 for event in meridian.events:
+                    if any(ref not in prior_events for ref in event.reference_event_ids):
+                        raise ValueError("Event request references missing or future meridian media")
+                    if event.request_revision < track_revisions.get(event.track_id, 0):
+                        raise ValueError("Track request revisions must not decrease")
+                    track_revisions[event.track_id] = event.request_revision
                     if event.track_id not in names:
                         raise ValueError("Meridian refers to a track absent from the session")
                     if event.record_id not in ids or event.record_id in event_ids:
@@ -517,6 +537,7 @@ class Episode:
                     previous_record = record_index
                     if self.records[record_index].role != event.role:
                         raise ValueError("Event role differs from its physical record")
+                prior_events.update(event.record_id for event in meridian.events)
             if self.meridians and event_ids != set(ids):
                 raise ValueError("Every physical record requires a meridian event")
 
@@ -610,6 +631,7 @@ class Episode:
                                 MediaSpan(**event["media_span"])
                                 if event.get("media_span") is not None else None
                             ),
+                            "reference_event_ids": tuple(event.get("reference_event_ids", ())),
                         }
                     )
                     for event in meridian["events"]

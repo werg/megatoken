@@ -37,7 +37,7 @@ class TensorAsset:
     """One physically stored array, excluding an implicit batch dimension."""
 
     modality: Modal
-    kind: Literal["raw", "features", "codec_latents"]
+    kind: Literal["raw", "features", "codec_latents", "mask"]
     sha256: str
     shape: tuple[int, ...]
     extractor: str = ""
@@ -51,12 +51,21 @@ class TensorAsset:
     normalization: str = ""
     artifact_version: str = ""
     source_family: str = ""
+    # Pinned native codec identity and explicit valid-coordinate metadata.
+    codec_id: str = ""
+    preprocessing_id: str = ""
+    normalization_json: str = "{}"
+    geometry: tuple[int, ...] = ()
+    clock_id: str = ""
+    start_ms: int = 0
+    end_ms: int = 0
+    profile: str = ""
 
     def __post_init__(self) -> None:
         _sha(self.sha256)
         if self.modality not in ("audio", "image", "video"):
             raise ValueError("Unsupported media modality")
-        if self.kind not in ("raw", "features", "codec_latents"):
+        if self.kind not in ("raw", "features", "codec_latents", "mask"):
             raise ValueError("Media asset kind must be raw, features or codec_latents")
         if (
             not isinstance(self.shape, tuple)
@@ -69,9 +78,21 @@ class TensorAsset:
             if len(self.shape) != 2 or not self.extractor:
                 raise ValueError("Cached features require tokens, width, and pinned extractor")
         elif self.kind == "codec_latents":
-            target_ranks = {"audio": 2, "image": 3, "video": 4}
-            if len(self.shape) != target_ranks[self.modality] or not self.extractor:
-                raise ValueError("Codec latents need a pinned codec and native latent rank")
+            if self.codec_id:
+                if not self.preprocessing_id or not self.geometry:
+                    raise ValueError("Codec latents require pinned codec, preprocessor and decoded geometry")
+                if len(self.shape) not in (2, 3, 4, 5):
+                    raise ValueError("Unsupported codec latent coordinates")
+                expected_rank = {"audio": 1, "image": 3, "video": 4}[self.modality]
+                if len(self.geometry) != expected_rank or any(n < 1 for n in self.geometry):
+                    raise ValueError("Codec latent geometry must describe decoded physical output")
+            else:
+                target_ranks = {"audio": 2, "image": 3, "video": 4}
+                if len(self.shape) != target_ranks[self.modality] or not self.extractor:
+                    raise ValueError("Codec latents need a pinned codec and native latent rank")
+        elif self.kind == "mask":
+            if len(self.shape) not in (1, 2, 3, 4, 5) or self.extractor or self.codec_id:
+                raise ValueError("Masks require valid coordinates, without codec/feature weights")
         else:
             target_ranks = {"audio": 1, "image": 3, "video": 4}
             if len(self.shape) != target_ranks[self.modality]:
@@ -96,6 +117,20 @@ class TensorAsset:
             raise ValueError("Valid data exceeds the padded tensor")
         if self.time_offset_num < 0 or self.time_offset_den < 1:
             raise ValueError("Invalid temporal origin")
+        if (type(self.start_ms) is not int or type(self.end_ms) is not int
+                or self.start_ms < 0 or self.end_ms < self.start_ms):
+            raise ValueError("Media clock interval is invalid")
+        if any(type(v) is not int or v < 1 for v in self.geometry):
+            raise ValueError("Invalid decoded geometry")
+        try:
+            normalization = strict_json_loads(self.normalization_json)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Invalid codec normalization metadata") from exc
+        if not isinstance(normalization, dict):
+            raise ValueError("Normalization must be a JSON object")
+        if self.kind == "codec_latents" and self.codec_id and (
+                not self.clock_id or self.end_ms <= self.start_ms):
+            raise ValueError("Codec target needs a real physical time interval")
         if self.modality != "audio" and self.sample_rate:
             raise ValueError("Non-audio media must not have a sample rate")
         if self.modality == "video" and not self.fps_num:
@@ -114,6 +149,8 @@ class TensorAsset:
             raise ValueError("Unknown tensor asset metadata fields")
         value = dict(mapping)
         value["shape"] = tuple(value["shape"])
+        if "geometry" in value:
+            value["geometry"] = tuple(value["geometry"])
         return cls(**value)
 
 
@@ -168,6 +205,9 @@ class MediaRecord:
     version: int = MEDIA_RECORD_VERSION
     source_views: tuple[TensorAsset, ...] = ()
     output_geometry: OutputGeometry | None = None
+    views: tuple[TensorAsset, ...] = ()
+    source_masks: tuple[TensorAsset, ...] = ()
+    target_mask: TensorAsset | None = None
 
     def __post_init__(self) -> None:
         if self.output_geometry is not None:
@@ -187,17 +227,35 @@ class MediaRecord:
             raise ValueError("Media reference modality does not match source/target")
         if self.target is not None and self.target.kind not in ("raw", "codec_latents"):
             raise ValueError("Realization targets must be raw or matching codec latents")
+        if self.version == 1 and (self.views or self.source_masks or self.target_mask):
+            raise ValueError("Masks and additional views require media record v2")
+        if any(v.modality != self.modality or v.kind not in ("raw", "features", "codec_latents")
+               for v in self.views):
+            raise ValueError("Supplementary input views must match the event modality")
+        if self.source_masks and len(self.source_masks) != len(self.views) + 1:
+            raise ValueError("Provide one valid mask for every declared source view")
+        for asset in (*self.source_masks, *((self.target_mask,) if self.target_mask else ())):
+            if asset.kind != "mask" or asset.modality != self.modality:
+                raise ValueError("Declared masks must be pinned mask assets")
 
     def to_bytes(self) -> bytes:
         data = asdict(self)
         if self.output_geometry is None:
             data.pop("output_geometry")
+        if not self.views:
+            data.pop("views")
+        if not self.source_masks:
+            data.pop("source_masks")
+        if self.target_mask is None:
+            data.pop("target_mask")
         if self.version == 1:
             data.pop("source_views")
             for field in ("source", "target"):
                 if data[field] is not None:
                     for extra in ("valid_count", "time_offset_num", "time_offset_den",
-                                  "normalization", "artifact_version", "source_family"):
+                                  "normalization", "artifact_version", "source_family",
+                                  "codec_id", "preprocessing_id", "normalization_json", "geometry",
+                                  "clock_id", "start_ms", "end_ms", "profile"):
                         data[field].pop(extra, None)
         return canonical_json(data)
 
@@ -207,7 +265,7 @@ class MediaRecord:
             raise ValueError("Media descriptor must be bounded canonical JSON bytes")
         value = strict_json_loads(payload)
         required = {"modality", "source", "target", "version"}
-        optional = {"source_views", "output_geometry"}
+        optional = {"source_views", "output_geometry", "views", "source_masks", "target_mask"}
         if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
             raise ValueError("Media record has incomplete or unknown fields")
         if canonical_json(value) != payload:
@@ -229,6 +287,12 @@ class MediaRecord:
                 None if value.get("output_geometry") is None
                 else OutputGeometry(**value["output_geometry"])
             ),
+            views=tuple(TensorAsset.from_dict(v) for v in value.get("views", ())),
+            source_masks=tuple(TensorAsset.from_dict(v) for v in value.get("source_masks", ())),
+            target_mask=(
+                None if value.get("target_mask") is None
+                else TensorAsset.from_dict(value["target_mask"])
+            ),
         )
 
 
@@ -243,7 +307,7 @@ class TensorAssetStore:
         value: np.ndarray,
         *,
         modality: Modal,
-        kind: Literal["raw", "features", "codec_latents"] = "raw",
+        kind: Literal["raw", "features", "codec_latents", "mask"] = "raw",
         extractor: str = "",
         sample_rate: int = 0,
         fps_num: int = 0,
@@ -254,6 +318,14 @@ class TensorAssetStore:
         normalization: str = "",
         artifact_version: str = "",
         source_family: str = "",
+        codec_id: str = "",
+        preprocessing_id: str = "",
+        normalization_json: str = "{}",
+        geometry: tuple[int, ...] = (),
+        clock_id: str = "",
+        start_ms: int = 0,
+        end_ms: int = 0,
+        profile: str = "",
     ) -> TensorAsset:
         values = np.asarray(value, dtype="<f4")
         if not np.isfinite(values).all():
@@ -266,6 +338,8 @@ class TensorAssetStore:
             sample_rate, fps_num, fps_den, valid_count,
             time_offset_num, time_offset_den, normalization,
             artifact_version, source_family,
+            codec_id, preprocessing_id, normalization_json, tuple(geometry),
+            clock_id, start_ms, end_ms, profile,
         )
         path = self.root / ref.relative_path
         if path.exists():
@@ -290,3 +364,21 @@ class TensorAssetStore:
         if not np.isfinite(result).all():
             raise ValueError("Media tensor is nonfinite")
         return result
+
+    def put_mask(self, mask: np.ndarray, *, modality: Modal,
+                 sample_rate: int = 0, fps_num: int = 0,
+                 fps_den: int = 1) -> TensorAsset:
+        """Store a deterministic binary valid-coordinate mask, not codec padding."""
+        values = np.asarray(mask)
+        if values.dtype != np.bool_ and not np.isin(values, (0, 1)).all():
+            raise ValueError("Valid-coordinate masks must be binary")
+        return self.put(values.astype("<f4"), modality=modality, kind="mask",
+                        sample_rate=sample_rate, fps_num=fps_num, fps_den=fps_den)
+
+    def load_mask(self, asset: TensorAsset) -> np.ndarray:
+        if asset.kind != "mask":
+            raise ValueError("Expected a declared mask tensor")
+        result = self.load(asset)
+        if not np.isin(result, (0, 1)).all():
+            raise ValueError("Valid-coordinate mask has nonbinary values")
+        return result.astype(bool)

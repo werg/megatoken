@@ -9,6 +9,7 @@ before they may participate in production model training.
 from __future__ import annotations
 
 import dataclasses
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -69,8 +70,9 @@ class MediaPlan:
         valid = None
         if self.reference.target.kind == "codec_latents":
             target_asset = self.reference.target
-            if self.modality == "video":
-                # Storage is time-major [T,C,H,W]; donor transformer is [B,C,T,H,W].
+            if self.modality == "video" and not target_asset.codec_id:
+                # Legacy donor packs store time-major tensors; typed native packs
+                # already use their own declared latent-coordinate ordering.
                 target = target.permute(0, 2, 1, 3, 4).contiguous()
                 if target_asset.valid_count:
                     valid = (torch.arange(target.shape[2], device=device)
@@ -89,13 +91,29 @@ class MediaPlan:
             source_asset = self.reference.source
             source, mask = _view_tokens(source, source_asset)
             views.insert(0, (source_asset.extractor, source, mask))
+        native_views = tuple(
+            torch.from_numpy(store.load(asset)).to(device)[None]
+            for asset in self.reference.views
+        )
+        source_masks = tuple(
+            torch.from_numpy(store.load_mask(asset)).to(device)[None]
+            for asset in self.reference.source_masks
+        )
+        target_mask = (
+            torch.from_numpy(store.load_mask(self.reference.target_mask)).to(device)[None]
+            if self.reference.target_mask is not None else None
+        )
         return MediaTrainTarget(
             self.modality, self.spec, source, target, self.mode,
             source_kind=self.reference.source.kind,
             source_sample_rate=self.reference.source.sample_rate or AUDIO_SAMPLE_RATE,
             extractor=self.reference.source.extractor,
             target_kind=self.reference.target.kind, source_views=tuple(views),
-            target_valid_mask=valid,
+            target_valid_mask=valid, target_mask=target_mask,
+            views=native_views,
+            view_kinds=tuple(asset.kind for asset in self.reference.views),
+            view_extractors=tuple(asset.extractor for asset in self.reference.views),
+            source_masks=source_masks,
         )
 
 
@@ -135,6 +153,7 @@ class MeridianStep:
     modalities: tuple[str, ...] = ()
     requests: tuple[tuple[str, int], ...] = ()
     relations: tuple[tuple[str, int, int, float], ...] = ()
+    semantic_relations: tuple[tuple[str, int, int], ...] = ()
 
     @property
     def generated(self) -> bool:
@@ -227,6 +246,26 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
         if source.extractor != feature_id or source.shape[-1] != feature_width:
             raise ValueError("Pinned media feature revision/width differs from model")
     target = reference.target
+    if target.kind == "codec_latents" and target.codec_id:
+        if not target.profile or not target.geometry:
+            raise ValueError("Native codec targets require exact generator pack and physical geometry")
+        native_kw = dict(
+            codec_id=target.codec_id, pack_id=target.profile,
+            latent_shape=target.shape,
+            sample_rate=target.sample_rate or AUDIO_SAMPLE_RATE,
+            fps_num=target.fps_num, fps_den=target.fps_den,
+            shape_provenance="teacher_only", extent_source="teacher_only",
+        )
+        geometry = target.geometry
+        if modality == "audio":
+            spec = MediaOutputSpec("audio", sample_count=geometry[0], **native_kw)
+        elif modality == "image":
+            spec = MediaOutputSpec("image", height=geometry[-2], width=geometry[-1], **native_kw)
+        else:
+            spec = MediaOutputSpec("video", frames=geometry[0], height=geometry[-2],
+                                   width=geometry[-1], **native_kw)
+        return MediaPlan(reference, spec, config.representation_training,
+                         model.config.n_facets, model.config.facet_dim)
     pretrained = target.kind == "codec_latents"
     renderer = (
         "pocket" if modality == "audio" else
@@ -307,6 +346,18 @@ def prepare_meridian_batch(
     validated Episode meridians.
     """
     window, episode = item.window, item.episode
+    if config.concordance_recipe is not None:
+        selected_media = {
+            record.record_id for record in episode.records[window.start:window.end]
+            if record.policy_mask
+        }
+        count = sum(
+            event.record_id in selected_media
+            and event.modality in {"audio", "image", "video"}
+            for meridian in episode.meridians for event in meridian.events
+        )
+        if count > config.max_media_events_per_window:
+            raise ValueError("Prepared concordance window exceeds the event-level media cap")
     if not episode.meridians:
         raise ValueError("Meridian preparation requires explicit causal groups")
     encoded = (*window.prefix, *window.records)
@@ -396,13 +447,26 @@ def prepare_meridian_batch(
             and relation.left in indices and relation.right in indices
         )
         counts["relation"] += len(same_step_relations)
+        semantic_relations = ()
+        if plans:
+            annotations = json.loads(episode.supervision.annotations_json)
+            if not isinstance(annotations, dict):
+                raise ValueError("Concordance annotations must be a JSON object")
+            rows = annotations.get("relations", ())
+            current = {entry.record.record_id: i for i, entry in enumerate(records)}
+            semantic_relations = tuple(
+                (relation["kind"], current[relation["left"]], current[relation["right"]])
+                for relation in rows
+                if relation["left"] in current and relation["right"] in current
+            )
+            counts["relation_semantic"] += len(semantic_relations)
         step = MeridianStep(
             meridian.meridian_id,
             tuple(event.track_id for event in meridian.events),
             tuple(ROLE_TO_ID[event.role] for event in meridian.events),
             offsets, records, plans, modalities,
             tuple((event.request, event.request_revision) for event in meridian.events),
-            same_step_relations,
+            same_step_relations, semantic_relations,
         )
         (prefix if offsets[-1] < window.start else steps).append(step)
     if sum(len(x.records) for x in (*prefix, *steps)) != window.end:
@@ -440,7 +504,22 @@ def _actual_raw(
                     source = MediaRecord.from_bytes(entry.payload).source
                     signal = torch.from_numpy(store.load(source)).to(device)[None]
                     reference = MediaRecord.from_bytes(entry.payload)
-                    if reference.source_views:
+                    if reference.views or reference.source_masks:
+                        refs = (reference.source, *reference.views)
+                        signals = tuple(
+                            torch.from_numpy(store.load(ref)).to(device)[None] for ref in refs
+                        )
+                        masks = tuple(
+                            torch.from_numpy(store.load_mask(ref)).to(device)[None]
+                            for ref in reference.source_masks
+                        )
+                        raw = model.core.media_stems.encode_multiview(
+                            model.core, modality, signals,
+                            tuple(ref.kind for ref in refs),
+                            tuple(ref.extractor for ref in refs),
+                            masks=masks, sample_rate=source.sample_rate or AUDIO_SAMPLE_RATE,
+                        )
+                    elif reference.source_views:
                         views = []
                         feature_assets = ((source,) if source.kind == "features" else ()) + reference.source_views
                         for view in feature_assets:
@@ -514,7 +593,13 @@ def forward_meridian_batch(
         # The core owner is versioned by the outer training loop.
         raise ValueError("Meridian trainer received a stale model version")
     payload = episode_control_payload(batch.windows[0].episode)
-    from megatoken.controls import causal_step_payloads
+    from megatoken.controls import causal_step_payloads, resolve_event_control
+    from megatoken.model.relations import SelectedRelation
+
+    episode = batch.windows[0].episode
+    event_by_record = {
+        event.record_id: event for meridian in episode.meridians for event in meridian.events
+    }
     losses = []
     metrics: dict[str, float | torch.Tensor] = {
         "grouped_training_windows": 1,
@@ -563,13 +648,20 @@ def forward_meridian_batch(
             )
             result = multi.supervised_meridian(
                 state, tracks=step.tracks, plans=resolved,
-                control_payloads=causal_step_payloads(
-                    batch.windows[0].episode, step.meridian_id,
-                    payload, step.tracks, step.requests,
+                control_payloads=(
+                    tuple(resolve_event_control(episode, event_by_record[rec.record.record_id])
+                          for rec in step.records)
+                    if any(event_by_record[rec.record.record_id].instruction or
+                           event_by_record[rec.record.record_id].reference_event_ids
+                           for rec in step.records)
+                    else causal_step_payloads(
+                        episode, step.meridian_id, payload, step.tracks, step.requests,
+                    )
                 ),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
                 relations=step.relations,
+                semantic_relations=tuple(SelectedRelation(*rel) for rel in step.semantic_relations),
             )
             state = result.state
             losses.append(ledger.backward_loss(result.losses))

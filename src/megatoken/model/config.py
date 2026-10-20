@@ -35,6 +35,12 @@ class ModelConfig:
     # Exact identities and widths for optional acoustic/codec/detail views.
     media_feature_views: dict[str, int] = field(default_factory=dict)
     media_view_dropout: float = 0.0
+    audio_acoustic_feature_dim: int = 0
+    audio_acoustic_feature_id: str = ""
+    vision_detail_feature_dim: int = 0
+    vision_detail_feature_id: str = ""
+    vision_codec_feature_dim: int = 0
+    vision_codec_feature_id: str = ""
     byte_dim: int = 8
     source_stride: int = 8
     ngram_dim: int = 16
@@ -123,6 +129,9 @@ class ModelConfig:
         for dim, identity in (
             (self.audio_feature_dim, self.audio_feature_id),
             (self.vision_feature_dim, self.vision_feature_id),
+            (self.audio_acoustic_feature_dim, self.audio_acoustic_feature_id),
+            (self.vision_detail_feature_dim, self.vision_detail_feature_id),
+            (self.vision_codec_feature_dim, self.vision_codec_feature_id),
         ):
             if type(dim) is not int or dim < 0 or (
                 bool(dim) != bool(identity)
@@ -177,6 +186,12 @@ class ModelConfig:
             self.audio_feature_id,
             self.vision_feature_id,
             tuple(sorted(self.media_feature_views.items())),
+            self.audio_acoustic_feature_dim,
+            self.audio_acoustic_feature_id,
+            self.vision_detail_feature_dim,
+            self.vision_detail_feature_id,
+            self.vision_codec_feature_dim,
+            self.vision_codec_feature_id,
         )
 
     @classmethod

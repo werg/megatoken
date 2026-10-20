@@ -103,6 +103,9 @@ class TrainConfig:
     # Immutable local checkpoint manifest. Donors are loaded before optimizer enumeration.
     pretrained_packs: str | None = None
     omni_recipe: str | None = None
+    native_pack_manifest: str | None = None
+    concordance_recipe: str | None = None
+    max_media_events_per_window: int = 5
     deterministic: bool = False
     require_blackwell: bool = False
     grad_clip: float = 1.0
@@ -148,6 +151,12 @@ class TrainConfig:
             raise ValueError("Concordant media tasks require an explicit G event budget")
         if self.pretrained_packs is not None and not self.pretrained_packs:
             raise ValueError("Pretrained pack manifest path must be nonempty")
+        if self.native_pack_manifest is not None and not self.native_pack_manifest:
+            raise ValueError("Pretrained native pack registry path must be nonempty")
+        if self.concordance_recipe is not None and not self.concordance_recipe:
+            raise ValueError("Concordance task mixture path must be nonempty")
+        if self.concordance_recipe is not None and self.budget_meter != "G":
+            raise ValueError("Concordance training requires an explicit G event budget")
         if self.media_root is not None and not self.media_root:
             raise ValueError("Media asset root must be a nonempty path")
         positive = (
@@ -158,6 +167,7 @@ class TrainConfig:
             "max_accumulation_windows",
             "max_history_tokens",
             "max_window_records",
+            "max_media_events_per_window",
             "scored_decisions",
             "max_record_bytes",
             "generated_capacity",

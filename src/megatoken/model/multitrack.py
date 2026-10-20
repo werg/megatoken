@@ -37,6 +37,7 @@ from megatoken.tensors import byte_tensor
 from .attention import AttentionFeatures, join_attention
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .media import MediaOutputSpec, MediaTrainTarget
+from .relations import SelectedRelation
 from .routing import RowRoute
 from .state import KVHistory, RealizationContext, assert_cache_version
 
@@ -702,16 +703,19 @@ class _GroupedTeacherReadout(nn.Module):
         for index, plan in enumerate(plans):
             context = self.core.prepare_realization(raw[:, index])
             if isinstance(plan, MediaTrainTarget):
-                condition = None if control is None else control[:, index]
                 family = "audio" if plan.modality == "audio" else "visual"
-                if plan.target_kind == "codec_latents":
+                if plan.target_kind == "codec_latents" and plan.spec.codec_id:
+                    value = self.media_realizers.loss_native(context, plan)
+                    sums[family], counts[family] = sums[family] + value, counts[family] + 1
+                elif plan.target_kind == "codec_latents":
                     value, count = self.media_realizers.training_loss(
                         context.facets, plan.spec, plan.target,
                         valid_mask=plan.target_valid_mask,
                     )
                     sums[family], counts[family] = sums[family] + value, counts[family] + count
                 else:
-                    predicted = self.media_realizers.realize(context, plan.spec, condition)
+                    # v8: current R reads selected raw Z, never prompt control.
+                    predicted = self.media_realizers.realize(context, plan.spec)
                     if predicted.shape != plan.target.shape:
                         raise ValueError("Media realization differs from prepared output target")
                     sums[family] = sums[family] + (
@@ -792,6 +796,13 @@ class MultiTrackGenerator:
         for plan in plans:
             if isinstance(plan, ActionSpec):
                 identities.append("text")
+            elif plan.codec_id:
+                if plan.modality not in generator.media_realizers.native:
+                    raise ValueError("Pinned native codec pack must be resident before generating")
+                pack = generator.media_realizers.native[plan.modality]
+                if pack.codec_id != plan.codec_id or pack.pack_id != plan.pack_id:
+                    raise ValueError("Native pack identity differs from requested output spec")
+                identities.append(f"{pack.pack_id}:{pack.codec_id}")
             elif plan.renderer == "native":
                 identities.append("native")
             else:
@@ -838,18 +849,33 @@ class MultiTrackGenerator:
                 validity.append(decoded.valid)
                 media.append(None)
             else:
-                if spec.shape_provenance == "teacher_only":
+                if spec.shape_provenance == "teacher_only" or (
+                    spec.codec_id and spec.extent_source == "teacher_only"
+                ):
                     raise ValueError("Gold target-derived geometry cannot condition served media")
-                vector = None if control is None or spec.renderer != "native" else control[:, index]
                 materializer = None
                 if seeds is not None:
                     materializer = torch.Generator(device=raw.device)
                     materializer.manual_seed(seeds[index])
                 tensor = self.generator.media_realizers.realize(
-                    context, spec, vector, generator=materializer,
+                    context, spec, generator=materializer,
+                    seed=(seeds[index] if seeds is not None and spec.codec_id else None),
                 )
-                payloads.append(tensor[0].detach().float().contiguous().cpu().numpy()
-                                .astype("<f4", copy=False).tobytes())
+                native_bytes = tensor[0].detach().float().contiguous().cpu().numpy().astype(
+                    "<f4", copy=False
+                ).tobytes()
+                if spec.codec_id:
+                    # Large native media is a digest-bound output, not a multi-MB tape field.
+                    payloads.append(json.dumps({
+                        "kind": "native-media-sha256-v1",
+                        "modality": spec.modality,
+                        "pack_id": spec.pack_id,
+                        "codec_id": spec.codec_id,
+                        "sha256": hashlib.sha256(native_bytes).hexdigest(),
+                        "shape": list(tensor[0].shape), "dtype": "f32le",
+                    }, sort_keys=True, separators=(",", ":")).encode())
+                else:
+                    payloads.append(native_bytes)
                 ids.append(())
                 validity.append(True)
                 media.append(tensor)
@@ -866,6 +892,7 @@ class MultiTrackGenerator:
         teacher_forced_action: bool = False,
         generator: torch.Generator | None = None,
         relations: Sequence[tuple[str, int, int, float]] = (),
+        semantic_relations: Sequence[SelectedRelation] = (),
     ) -> GroupSupervisedResult:
         """One production grouped objective with bootstrap or live recurrent state.
 
@@ -918,7 +945,16 @@ class MultiTrackGenerator:
         encoded = []
         for plan in plans:
             if isinstance(plan, MediaTrainTarget):
-                if plan.source_views:
+                if plan.views or plan.source_masks:
+                    current = core.media_stems.encode_multiview(
+                        core, plan.modality, (plan.source, *plan.views),
+                        (plan.source_kind, *plan.view_kinds),
+                        (plan.extractor, *plan.view_extractors),
+                        masks=plan.source_masks,
+                        sample_rate=plan.source_sample_rate,
+                        view_dropout=core.config.media_view_dropout if core.training else 0.0,
+                    )
+                elif plan.source_views:
                     current = core.encode_media_views(plan.modality, plan.source_views)
                 elif plan.source_kind == "features":
                     current = core.encode_media_features(
@@ -1027,6 +1063,12 @@ class MultiTrackGenerator:
             )
             sums["relation"] = sums["relation"] + strength * alignment_loss.sum()
             counts["relation"] += 1
+        semantic_relations = tuple(semantic_relations)
+        relation_loss, relation_count = self.generator.relations(
+            sampled, target_raw, modalities, semantic_relations,
+        )
+        sums["relation_semantic"] = relation_loss
+        counts["relation_semantic"] = relation_count
         sums["facet_prediction"] = correspondence
         counts["facet_prediction"] = target_raw.numel() if mode == "bootstrap" else 0
 
@@ -1058,6 +1100,7 @@ class MultiTrackGenerator:
             name: sum(plan.denominators[name] for plan in plans) for name in LOSS_NAMES
         }
         expected["relation"] += len(relations)
+        expected["relation_semantic"] += len(semantic_relations)
         if expected != counts:
             raise RuntimeError(
                 f"Grouped loss plan drift: expected {expected}, observed {counts}"
@@ -1087,6 +1130,8 @@ class MultiTrackGenerator:
             "facet_prediction_coordinates": counts["facet_prediction"],
             "encoder_alignment_loss_sum": alignment.detach(),
             "encoder_alignment_coordinates": counts["encoder_alignment"],
+            "relation_semantic_loss_sum": relation_loss.detach(),
+            "relation_semantic_pairs": relation_count,
             "prediction_facet_norm_sum": mean.detach().float().flatten(2).norm(dim=-1).sum(),
             "encoded_facet_norm_sum": target_raw.detach().float().flatten(2).norm(dim=-1).sum(),
             "facet_alignment_squared_error_sum": (
@@ -1166,14 +1211,15 @@ class MultiTrackGenerator:
                     values.append(torch.stack(active).sum())
                 else:
                     assert isinstance(target, Tensor)
+                    if spec.codec_id:
+                        raise ValueError("Native codec targets require prepared masked media training")
                     if spec.renderer != "native":
                         value, count = self.generator.media_realizers.training_loss(
                             ctx.facets, spec, target
                         )
                         values.append(value / max(1, count))
                     else:
-                        cond = None if control is None else control[:, i]
-                        out = self.generator.media_realizers.realize(ctx, spec, cond)
+                        out = self.generator.media_realizers.realize(ctx, spec)
                         if target.shape != out.shape or target.device != out.device:
                             raise ValueError("Media target must match realized shape/device")
                         values.append((out.float() - target.float()).square().mean())
