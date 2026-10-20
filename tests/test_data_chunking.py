@@ -282,7 +282,7 @@ def test_legacy_episode_and_native_tape_versions_fail_explicitly():
     value = episode.to_dict()
     assert value["schema_version"] == 3
     value["schema_version"] = 1
-    with pytest.raises(ValueError, match="legacy records"):
+    with pytest.raises(ValueError, match="old records"):
         Episode.from_dict(value)
     with pytest.raises(ValueError, match="incompatible legacy"):
         Supervision(
