@@ -54,7 +54,7 @@ These two phases additionally require the authoritative prepared SQLite KB, sour
 
 There is **no** `configs/train/b0.yaml`, implicit launcher default or `megatoken smoke`.
 
-**DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` and `scripts/coreweave_diloco.py` run decoupled learners over the same mandatory retrieval architecture ([configs/train/retrieval-coherence-diloco-coreweave.example.yaml](configs/train/retrieval-coherence-diloco-coreweave.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). The coherence + embedding phase runs decoupled today; live free-KB phases are gated until the coordinator KB row-sync protocol lands. The old stand-alone `megatoken rl` training command is also retired until the native retrieval-memory experience/writer acceptance gates are implemented.
+**DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` and `scripts/coreweave_diloco.py` run decoupled learners over the same mandatory retrieval architecture ([configs/train/retrieval-coherence-diloco-coreweave.example.yaml](configs/train/retrieval-coherence-diloco-coreweave.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). Every phase runs decoupled: neural parameters sync as fragments, and in live free-KB phases the coordinator owns the canonical bank and merges learners' sparse row updates ([configs/train/retrieval-free-kb-diloco.example.yaml](configs/train/retrieval-free-kb-diloco.example.yaml)). The old stand-alone `megatoken rl` training command is also retired until the native retrieval-memory experience/writer acceptance gates are implemented.
 
 ## Storage and writer utilities
 

@@ -6,11 +6,39 @@ loads the identical pinned recipe and query/document sidecars, and the coordinat
 rejects any worker whose sidecar or recipe content differs. All neural parameters
 (E/C/P/R, native KB KV projector, memory LoRA experts) synchronize as fragments.
 
-**Current phase coverage:** the coherence + embedding phase (`B0`/`P1`, no live
-bank) runs decoupled today. Live free-KB phases (`M1`+) need a coordinator-owned
-KB row-sync protocol (row ownership, staleness, duplicate handling, growth) and
-are rejected with `decoupled` until it lands; see
-[retrieval-memory-implementation-status.md](retrieval-memory-implementation-status.md).
+**Phase coverage:** every phase. The coherence + embedding phase (`B0`/`P1`)
+has no live bank and syncs only fragments. For live free-KB phases (`M1`+), set
+`retrieval_bank` in the config before `megatoken diloco init`; the coordinator
+copies that gate-ready bank and becomes its single owner (see below and
+[configs/train/retrieval-free-kb-diloco.example.yaml](../configs/train/retrieval-free-kb-diloco.example.yaml)).
+
+### Free-KB row sync
+
+Free-KB rows are sparse, dynamically allocated SQLite records, so they use
+their own protocol (`megatoken.training.diloco_kb`) next to fragments:
+
+- **Ownership:** the coordinator holds `kb/canonical.sqlite` and alone grows
+  rows and assigns IDs. Learners never grow locally; they forward query demand.
+- **Learners:** each downloads the published snapshot to
+  `<output>/worker-NN/diloco/kb.sqlite`, trains it with local sparse Adam, and
+  every `local_steps` uploads `baseline - current` for each touched row field
+  (baseline = value at the last installed canonical version) plus its demand.
+- **Merge:** per row field, contributions from the learners that touched it
+  are weighted like fragments and applied with per-row outer Nesterov momentum.
+  Rows retired on the canonical bank are skipped. Demand is recorded, growth
+  runs (`retrieval_growth_budget` per merge), and rows, version and the
+  per-worker sequence ledger commit in one SQLite transaction.
+- **Staleness/duplicates:** bases older than `max_staleness` get HTTP 409 and
+  the learner reinstalls; replayed sequences are idempotent.
+- **Install:** a stripped snapshot (no outer momentum, no learner moments) is
+  published atomically. Learners install it between optimizer steps once their
+  own update has been accepted, keeping their sparse Adam moments.
+- **Endpoints:** `GET /v1/kb?after=VERSION`, `POST /v1/kb/updates`; `status`
+  reports `kb_version`. Uploads are capped by `max_kb_update_bytes` (256 MiB).
+
+Known limits: snapshots are full-bank transfers (an incremental row changelog
+is a future optimization for very large banks), and outer momentum is applied
+only to rows touched in a merge.
 
 Its goal is useful multi-GPU pretraining with no GPU-to-GPU
 interconnect. The design follows [Decoupled DiLoCo](https://arxiv.org/abs/2604.21428):
