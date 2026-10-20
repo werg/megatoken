@@ -85,7 +85,7 @@ class MediaPlan:
             data = torch.from_numpy(store.load(asset)).to(device)[None]
             data, mask = _view_tokens(data, asset)
             views.append((asset.extractor, data, mask))
-        if self.reference.source.kind == "features":
+        if self.reference.source.kind in {"features", "codec_latents"}:
             source_asset = self.reference.source
             source, mask = _view_tokens(source, source_asset)
             views.insert(0, (source_asset.extractor, source, mask))
@@ -97,6 +97,27 @@ class MediaPlan:
             target_kind=self.reference.target.kind, source_views=tuple(views),
             target_valid_mask=valid,
         )
+
+
+def _validate_feature_identity(config, modality: str, asset) -> None:
+    """Accept both legacy single feature bridges and pinned additional views."""
+    if asset.kind not in {"features", "codec_latents"}:
+        raise ValueError("An input feature must be a pinned frozen view")
+    chosen = config.media_feature_views.get(asset.extractor)
+    if chosen is None:
+        expected_id, chosen = (
+            (config.audio_feature_id, config.audio_feature_dim)
+            if modality == "audio" else
+            (config.vision_feature_id, config.vision_feature_dim)
+        )
+        if asset.extractor != expected_id or not chosen:
+            raise ValueError("Media feature identity is not declared in model geometry")
+    width = asset.shape[-1] if asset.kind == "features" else (
+        asset.shape[0] if modality == "image" else
+        asset.shape[1] if modality == "video" else asset.shape[-1]
+    )
+    if width != chosen:
+        raise ValueError("Media feature view width differs from configured projection")
 
 
 def _view_tokens(value: torch.Tensor, asset) -> tuple[torch.Tensor, torch.Tensor]:
@@ -215,17 +236,8 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
     if reference.target is None:
         raise ValueError("Generated media events require a pinned media target")
     source = reference.source
-    if source.kind == "features":
-        feature_id = (
-            model.config.audio_feature_id if modality == "audio"
-            else model.config.vision_feature_id
-        )
-        feature_width = (
-            model.config.audio_feature_dim if modality == "audio"
-            else model.config.vision_feature_dim
-        )
-        if source.extractor != feature_id or source.shape[-1] != feature_width:
-            raise ValueError("Pinned media feature revision/width differs from model")
+    for view in ((source,) if source.kind != "raw" else ()) + reference.source_views:
+        _validate_feature_identity(model.config, modality, view)
     target = reference.target
     pretrained = target.kind == "codec_latents"
     if pretrained and hasattr(model, "media_realizers"):
@@ -365,16 +377,11 @@ def prepare_meridian_batch(
                     and event.asset_sha256 != ref.source.sha256
                 ):
                     raise ValueError("Media event modality/source hash differs from its asset")
-                if ref.source.kind == "features":
-                    identity, width = (
-                        (model.config.audio_feature_id, model.config.audio_feature_dim)
-                        if event.modality == "audio" else
-                        (model.config.vision_feature_id, model.config.vision_feature_dim)
-                    )
-                    if ref.source.extractor != identity or ref.source.shape[-1] != width:
-                        raise ValueError(
-                            "Observed media feature revision/width differs from model"
-                        )
+                for view in (
+                    ((ref.source,) if ref.source.kind != "raw" else ())
+                    + ref.source_views
+                ):
+                    _validate_feature_identity(model.config, event.modality, view)
             elif record.record.media_type == MEDIA_RECORD_TYPE or (
                 record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
             ):
@@ -453,14 +460,21 @@ def _actual_raw(
                     reference = MediaRecord.from_bytes(entry.payload)
                     if reference.source_views:
                         views = []
-                        feature_assets = ((source,) if source.kind == "features" else ()) + reference.source_views
+                        feature_assets = (
+                            ((source,) if source.kind != "raw" else ())
+                            + reference.source_views
+                        )
                         for view in feature_assets:
                             tensor = torch.from_numpy(store.load(view)).to(device)[None]
                             tensor, mask = _view_tokens(tensor, view)
                             views.append((view.extractor, tensor, mask))
                         raw = model.core.encode_media_views(modality, tuple(views))
-                    elif source.kind == "features":
-                        if source.valid_count and source.valid_count < source.shape[0]:
+                    elif source.kind in {"features", "codec_latents"}:
+                        if (
+                            source.kind == "codec_latents"
+                            or source.extractor in model.config.media_feature_views
+                            or (source.valid_count and source.valid_count < source.shape[0])
+                        ):
                             tokens, mask = _view_tokens(signal, source)
                             raw = model.core.encode_media_views(
                                 modality, ((source.extractor, tokens, mask),)

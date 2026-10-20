@@ -120,8 +120,8 @@ class MediaTrainTarget:
                 raise ValueError("Codec target mask must be nonempty boolean")
         if self.source.shape[0] != 1 or not self.source.is_floating_point():
             raise ValueError("Media source tensor must have one batch row")
-        if self.source_kind not in {"raw", "features"} or (
-            self.source_kind == "features" and not self.extractor
+        if self.source_kind not in {"raw", "features", "codec_latents"} or (
+            self.source_kind in {"features", "codec_latents"} and not self.extractor
         ) or (self.source_kind == "raw" and self.extractor):
             raise ValueError("Media source kind and extractor identity disagree")
         for identity, tokens, mask in self.source_views:
