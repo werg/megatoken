@@ -36,7 +36,7 @@ from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
 from megatoken.memory.contracts import NativeKVLayout
-from megatoken.memory.semantic import KBContext, MemoryMaterialization
+from megatoken.memory.semantic import (\n    KBContext, MemoryMaterialization, independently_drop_memory,\n)
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .media import MediaOutputSpec, MediaTrainTarget
 from .routing import RowRoute
@@ -890,6 +890,7 @@ class MultiTrackGenerator:
         effort: int = 6,
         teacher_forced_action: bool = False,
         generator: torch.Generator | None = None,
+        memory_dropout: tuple[float, float] = (0., 0.),
     ) -> GroupSupervisedResult:
         """One production grouped objective with bootstrap or live recurrent state.
 
@@ -928,6 +929,13 @@ class MultiTrackGenerator:
         core.routing_aux_loss(clear=True)
         control = self._controls(controls, state.device)
         memory_snapshot = self.tracks.materialize_memory(state)
+        if memory_dropout != (0., 0.):
+            if not self.generator.training:
+                raise RuntimeError("Memory dropout is training-only")
+            memory_snapshot = independently_drop_memory(
+                memory_snapshot,
+                kv_rate=memory_dropout[0], lora_rate=memory_dropout[1],
+            )
         mean = self.tracks.predict_group(
             state, tracks=names, control=control, effort=effort,
             modalities=modalities, memory_snapshot=memory_snapshot,
