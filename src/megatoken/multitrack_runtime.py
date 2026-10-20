@@ -49,6 +49,7 @@ class TrackSession:
     pending: PendingGroup | None = None
     delivered: dict[str, Delivery] = field(default_factory=dict)
     events: list[tuple[int, tuple[str, ...]]] = field(default_factory=list)
+    retrieval_receipts: list[dict] = field(default_factory=list)
 
 
 class MultiTrackRuntime:
