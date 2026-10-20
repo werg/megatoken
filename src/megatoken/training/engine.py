@@ -677,7 +677,6 @@ def train(
         if retrieval_recipe is not None and config.retrieval_bank:
             from megatoken.memory.recipe import open_bank_for_recipe, validate_checkpoint
             from megatoken.training.bank import BankTrainingOwner
-            from megatoken.io import sha256_file
 
             if not Path(config.retrieval_bank).is_file():
                 raise FileNotFoundError("Live KB must be source-populated before training")
@@ -692,10 +691,17 @@ def train(
                         retrieval_recipe, snapshot,
                         model_checkpoint_id=resolve_checkpoint(resume).name,
                     )
-                    if sha256_file(Path(config.retrieval_bank)) != sha256_file(snapshot):
-                        raise RuntimeError(
-                            "Live bank differs from exact-resume KB snapshot; restore it explicitly"
-                        )
+                    with open_bank_for_recipe(
+                        retrieval_recipe, snapshot, readonly=True,
+                    ) as pinned:
+                        if (
+                            bank.database_id != pinned.database_id
+                            or bank.revisions() != pinned.revisions()
+                        ):
+                            raise RuntimeError(
+                                "Live KB revisions differ from exact-resume snapshot; "
+                                "restore the matching SQLite snapshot explicitly"
+                            )
                 bank_owner = BankTrainingOwner(
                     bank, retrieval_recipe, device=context.device,
                     sparse_lr=config.retrieval_sparse_lr,
