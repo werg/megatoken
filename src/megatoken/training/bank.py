@@ -67,6 +67,7 @@ class BankTrainingOwner:
         self.selected = LocalMemoryWindow(self.sparse, "semantic-v1", device)
         self.growth = GrowthAllocator(bank, recipe.growth)
         self.query_demand = 0
+        self.pending_demand: list[tuple[str, str, str, int]] = []
         self.reads = 0
 
     def _rank(self, query: Tensor, ids: tuple[int, ...],
@@ -141,12 +142,13 @@ class BankTrainingOwner:
         # coverage or pair/ranking bonuses. Empty catalogs cannot fabricate KB.
         if source_hits.hits:
             region = semantic_region(source_hits.hits[0].record.key)
-            if self.growth.demand.observe(
-                event_id=f"{annotation.episode_id}/{annotation.event_id}",
-                region=region, family=annotation.split_family,
-                step=annotation.query.meridian,
-            ):
-                self.query_demand += 1
+            # Defer writes to the SINGLE primary-rank update barrier; queries
+            # on workers may not mutate the canonical SQLite demand catalog.
+            self.pending_demand.append((
+                f"{annotation.episode_id}/{annotation.event_id}",
+                region, annotation.split_family, annotation.query.meridian,
+            ))
+            self.query_demand += 1
         self.reads += 1
         scale = self.recipe.loss_weights.get("query_ranking", 0.)
         loss = scale * (s_loss + m_loss) / global_count
@@ -241,3 +243,28 @@ def synchronize_sparse_rows(owner: BankTrainingOwner, distributed: Any, *,
         raise RuntimeError(f"Sparse KB publication failed on primary: {failures}")
     distributed.barrier()
     return changed
+
+
+def synchronize_query_demand(owner: BankTrainingOwner, distributed: Any) -> int:
+    """Deduplicate global query demand at the same single-writer step barrier."""
+    local = tuple(owner.pending_demand)
+    gathered = distributed.all_gather_object(local)
+    written = 0
+    error = None
+    if distributed.is_primary:
+        try:
+            with owner.bank.transaction():
+                for batch in gathered:
+                    for event_id, region, family, cursor in batch:
+                        written += int(owner.growth.demand.observe(
+                            event_id=event_id, region=region,
+                            family=family, step=cursor,
+                        ))
+        except BaseException as exc:
+            error = f"{type(exc).__name__}: {exc}"
+    errors = distributed.all_gather_object(error)
+    if any(errors):
+        raise RuntimeError(f"Query demand publication failed: {errors}")
+    owner.pending_demand.clear()
+    distributed.barrier()
+    return written
