@@ -718,7 +718,9 @@ class GroupActionTape:
         value = strict_json_loads(serialized)
         if value.get("version") != GROUP_TAPE_VERSION:
             raise ValueError("Unknown grouped tape version")
-        decode = lambda b: base64.b64decode(b, validate=True)
+        def decode(b):
+            return base64.b64decode(b, validate=True)
+
         return cls(
             version=value["version"],
             meridian_id=int(value["meridian_id"]),

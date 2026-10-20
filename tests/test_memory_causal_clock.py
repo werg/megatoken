@@ -12,10 +12,9 @@ import json
 from pathlib import Path
 
 import pytest
+from retrieval_fixture import live_kb_train_config
 
 from megatoken.training.engine import train
-
-from retrieval_fixture import live_kb_train_config
 
 
 def _metrics(config):

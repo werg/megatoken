@@ -5,10 +5,13 @@ from dataclasses import replace
 import numpy as np
 import pytest
 import torch
+from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 
 from megatoken.data import Episode, Lineage, PhysicalRecord, WindowConfig, iter_windows
 from megatoken.data.media_assets import (
-    MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore,
+    MEDIA_RECORD_TYPE,
+    MediaRecord,
+    TensorAssetStore,
 )
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, encode_record
 from megatoken.generation.codec import ByteCodec
@@ -17,8 +20,6 @@ from megatoken.model import ModelConfig
 from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.stream import EpisodeWindow
-
-from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 
 
 def _case(tmp_path, *, external=False):
@@ -189,12 +190,12 @@ def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
 
 
 def test_real_event_budget_checkpoint_and_media_data(tmp_path):
+    from retrieval_fixture import write_retrieval_artifacts
+
     from megatoken.data import DedupConfig, DedupStore
     from megatoken.data.storage import export_prepared
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.engine import train
-
-    from retrieval_fixture import write_retrieval_artifacts
 
     torch.set_num_threads(1)
     _, ep, _, config = _case(tmp_path)

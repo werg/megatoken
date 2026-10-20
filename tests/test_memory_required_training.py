@@ -10,7 +10,9 @@ import pytest
 
 from megatoken.cli import parser
 from megatoken.data.document_embeddings import (
-    DocumentEmbeddingExample, read_document_sidecar, write_document_sidecar,
+    DocumentEmbeddingExample,
+    read_document_sidecar,
+    write_document_sidecar,
 )
 from megatoken.memory.contracts import Footprint, SourceRange
 from megatoken.model.config import ModelConfig

@@ -17,7 +17,10 @@ from megatoken.controls import effective_event_payloads
 
 if TYPE_CHECKING:
     from megatoken.model.multitrack import (
-        GroupActionTape, GroupGeneration, MultiTrackGenerator, MultiTrackState,
+        GroupActionTape,
+        GroupGeneration,
+        MultiTrackGenerator,
+        MultiTrackState,
         ObservedEvent,
     )
 

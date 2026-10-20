@@ -7,19 +7,18 @@ through the existing multitrack P; R only sees a given selected raw Z.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 import torch
-from torch import Tensor
 
 from megatoken.controls import resolve_event_control
 from megatoken.data.media_assets import MediaRecord, TensorAssetStore
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, stable_id
 from megatoken.generation.structure import ActionSpec
+from megatoken.model.core import ROLE_IDS
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import GroupGeneration, MultiTrackGenerator, MultiTrackState
-from megatoken.model.core import ROLE_IDS
 from megatoken.tensors import byte_tensor
 
 

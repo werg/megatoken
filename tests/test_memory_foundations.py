@@ -6,10 +6,15 @@ import pytest
 import torch
 
 from megatoken.generation.embedding import EmbeddingRealizer, EmbeddingSpec
-from megatoken.memory.contracts import (
-    Collection, Footprint, QueryBoundary, SemanticSpace, SourceRange, Visibility,
-)
 from megatoken.memory.context import admit_kb
+from megatoken.memory.contracts import (
+    Collection,
+    Footprint,
+    QueryBoundary,
+    SemanticSpace,
+    SourceRange,
+    Visibility,
+)
 from megatoken.memory.growth import CatalogChunk, GrowthAllocator, GrowthPolicy
 from megatoken.memory.index import CoarseIVF, ExactIndex
 from megatoken.memory.relations import pair_evidence

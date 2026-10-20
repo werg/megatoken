@@ -7,11 +7,11 @@ training update; missing receipts are not silently accepted.
 """
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from dataclasses import dataclass
 from hashlib import sha256
-import json
 from pathlib import Path
-from typing import Iterator
 
 import torch
 from torch import Tensor

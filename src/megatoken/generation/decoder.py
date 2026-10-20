@@ -21,7 +21,6 @@ from .structure import ActionSpec, Decision, FieldSpec
 from .targets import PreparedAction, PreparedTargets, planned_fields, source_ids, workspace_capacity
 
 
-
 @dataclass(frozen=True)
 class DecodedAction:
     payload: bytes

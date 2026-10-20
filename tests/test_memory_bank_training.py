@@ -1,13 +1,17 @@
 """Native bank-aware grouped training and canonical sparse publication regressions."""
-from hashlib import sha256
 from dataclasses import replace
+from hashlib import sha256
 
 import numpy as np
 import torch
 
 from megatoken.data.retrieval import RetrievalExample
 from megatoken.memory.contracts import (
-    Collection, Footprint, QueryBoundary, SemanticSpace, SourceRange,
+    Collection,
+    Footprint,
+    QueryBoundary,
+    SemanticSpace,
+    SourceRange,
 )
 from megatoken.memory.growth import GrowthPolicy
 from megatoken.memory.recipe import RetrievalRecipe
@@ -16,7 +20,9 @@ from megatoken.model.config import ModelConfig
 from megatoken.model.core import FacetedCore
 from megatoken.model.multitrack import MultiTrackCore
 from megatoken.training.bank import (
-    BankTrainingOwner, synchronize_query_demand, synchronize_sparse_rows,
+    BankTrainingOwner,
+    synchronize_query_demand,
+    synchronize_sparse_rows,
 )
 
 
@@ -196,6 +202,7 @@ def test_detached_actual_source_bytes_train_query_and_stored_source_key(tmp_path
 
 def test_supported_pair_growth_deduplicates_repeated_source_windows(tmp_path):
     import json
+
     from megatoken.memory.contracts import Collection
 
     config, bank, owner, annotation = _fixture(tmp_path)

@@ -1,9 +1,9 @@
 """Deterministic query-density allocation and incremental source-window pair admission."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from hashlib import sha256
-import math
 
 import numpy as np
 

@@ -9,7 +9,6 @@ import torch
 from test_generation_policy import invalid_materialization_spec
 
 from megatoken.contracts import ROLE_TO_ID
-from megatoken.data import WindowConfig, iter_windows
 from megatoken.data.collection import TeacherRequest
 from megatoken.data.schema import Episode, Lineage, PhysicalRecord, Supervision, canonical_json
 from megatoken.data.student import ModelTeacher

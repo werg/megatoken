@@ -1,7 +1,7 @@
 """Source catalog imports require original bytes, context and learned-space pins."""
+import json
 from dataclasses import asdict
 from hashlib import sha256
-import json
 
 import pytest
 

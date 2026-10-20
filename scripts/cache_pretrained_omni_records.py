@@ -15,12 +15,15 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
-
 from megatoken.data.media_assets import MediaRecord, TensorAssetStore
 from megatoken.data.pretrained_extract import (
-    exact_audio_rate, extract_minicpm_v47, extract_pocket_mimi,
-    extract_siglip2, extract_whistle, file_digest, pinned_export,
+    exact_audio_rate,
+    extract_minicpm_v47,
+    extract_pocket_mimi,
+    extract_siglip2,
+    extract_whistle,
+    file_digest,
+    pinned_export,
 )
 
 

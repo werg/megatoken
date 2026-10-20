@@ -11,12 +11,12 @@ by a target-only run.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
-from hashlib import sha256
 import json
 import os
-from pathlib import Path
 import tempfile
+from dataclasses import asdict
+from hashlib import sha256
+from pathlib import Path
 
 import torch
 

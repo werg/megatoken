@@ -6,8 +6,8 @@ import torch
 
 from megatoken.data.media_assets import MediaRecord, TensorAssetStore
 from megatoken.model.media import MediaOutputSpec
-from megatoken.training.meridians import MediaPlan
 from megatoken.omni.flow import flow_matching_loss
+from megatoken.training.meridians import MediaPlan
 
 
 def test_pocket_mask_broadcasts_only_valid_acoustic_frames(tmp_path):

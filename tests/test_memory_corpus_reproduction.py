@@ -6,7 +6,10 @@ import torch
 
 from megatoken.io import sha256_file
 from megatoken.memory.authoring import (
-    FrozenCorpusAuthor, FrozenWriterArtifact, PairAssignment, SourceAssignment,
+    FrozenCorpusAuthor,
+    FrozenWriterArtifact,
+    PairAssignment,
+    SourceAssignment,
 )
 from megatoken.memory.contracts import Collection, Footprint, SemanticSpace, SourceRange
 from megatoken.memory.sqlite import SQLiteKB

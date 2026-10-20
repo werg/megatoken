@@ -7,7 +7,8 @@ be validated BEFORE a learned pair changes either point or pair evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Protocol, Sequence
+from collections.abc import Sequence
+from typing import Protocol
 
 import torch
 from torch import Tensor
@@ -19,7 +20,6 @@ from megatoken.memory.reader import EvidenceScores, selected_evidence
 from megatoken.memory.relations import pair_evidence
 from megatoken.memory.semantic import AdmittedGroup, Constituent
 from megatoken.memory.sqlite import SQLiteKB
-
 
 
 class SemanticFieldReader(Protocol):

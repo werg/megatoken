@@ -5,15 +5,15 @@ all vector coordinates, provenance and optimizer rows are owned here.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
-from dataclasses import asdict
 import json
 import math
 import os
-from pathlib import Path
 import sqlite3
-from threading import RLock
 import uuid
+from contextlib import contextmanager
+from dataclasses import asdict
+from pathlib import Path
+from threading import RLock
 
 import numpy as np
 
@@ -518,13 +518,13 @@ class SQLiteKB:
             v = row["value"] if value is None else _vector(value, self.value_dim)
             d = row["dependence"] if dependence_logits is None else _vector(dependence_logits, 2)
             s = row["strength"] if strength is None else float(strength)
-            l = row["lifetime_logit"] if lifetime_logit is None else float(lifetime_logit)
-            if not math.isfinite(s) or s < 0 or not math.isfinite(l):
+            lifetime = row["lifetime_logit"] if lifetime_logit is None else float(lifetime_logit)
+            if not math.isfinite(s) or s < 0 or not math.isfinite(lifetime):
                 raise ValueError("Invalid relation strength or lifetime")
             self.db.execute(
                 """UPDATE relations SET value=?,dependence=?,strength=?,lifetime_logit=?,
                 payload_revision=payload_revision+1 WHERE id=?""",
-                (v, d, s, l, relation_id),
+                (v, d, s, lifetime, relation_id),
             )
             self._bump("graph", "payload")
 

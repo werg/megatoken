@@ -144,11 +144,12 @@ class MiniCPMVisualFeatures(nn.Module):
     @classmethod
     def from_local_export(cls, directory: str, *, extractor: str):
         verify_minicpm_export(directory)
+        from safetensors.torch import load_file
         from transformers import MiniCPMV4_7Config
         from transformers.models.minicpmv4_7.modeling_minicpmv4_7 import (
-            MiniCPMV4_7VisionModel, MiniCPMV4_7Merger,
+            MiniCPMV4_7Merger,
+            MiniCPMV4_7VisionModel,
         )
-        from safetensors.torch import load_file
         path = Path(directory)
         config = MiniCPMV4_7Config.from_pretrained(path, local_files_only=True)
         tower = MiniCPMV4_7VisionModel(config.vision_config)
@@ -195,6 +196,7 @@ def export_minicpm_submodules(parent_snapshot: str, destination: str):
     """
     import json
     from shutil import copyfile
+
     from safetensors import safe_open
     from safetensors.torch import save_file
     src, dst = Path(parent_snapshot),Path(destination)

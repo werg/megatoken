@@ -3,31 +3,38 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
-from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 import torch
+from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 from torch import nn
 
 from megatoken.controls import resolve_event_control
 from megatoken.data.concordance import (
-    AlignedBundle, BundleArtifact, TaskView, compile_task,
-    generated, group, observed, standard_views,
+    AlignedBundle,
+    BundleArtifact,
+    TaskView,
+    compile_task,
+    generated,
+    group,
+    observed,
+    standard_views,
 )
 from megatoken.data.media_assets import MediaRecord, TensorAssetStore
+from megatoken.data.packing import WindowConfig, iter_windows
 from megatoken.data.schema import Lineage
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.native_latents import (
-    FullFacetConditioner, NativeLatentFlow, PackSpec, masked_flow_mse,
+    NativeLatentFlow,
+    PackSpec,
+    masked_flow_mse,
 )
 from megatoken.model.relations import RelationProjection, SelectedRelation
 from megatoken.training.concordance_recipe import load_concordance_recipe
 from megatoken.training.engine import forward_batch, prepare_batches
 from megatoken.training.losses import LossLedger
-from megatoken.training.config import TrainConfig
 from megatoken.training.stream import EpisodeWindow
-from megatoken.data.packing import WindowConfig, iter_windows
 
 
 def _bundle(tmp_path):

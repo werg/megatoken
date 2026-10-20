@@ -7,6 +7,7 @@ source waveform, crop/resize, model directory and preprocessor revision.
 from __future__ import annotations
 
 import hashlib
+import itertools
 from pathlib import Path
 from typing import Any
 
@@ -164,7 +165,7 @@ def sample_video_endpoints(frames: np.ndarray, *, displayed_indices: tuple[int, 
     """
     if (frames.ndim != 4 or frames.shape[1] != 3 or not displayed_indices
             or len(displayed_indices) != len(frames)
-            or any(a >= b for a, b in zip(displayed_indices, displayed_indices[1:]))
+            or any(a >= b for a, b in itertools.pairwise(displayed_indices))
             or not crop_id):
         raise ValueError("Video display indices/crop must match final sampled clip")
     mapping = {

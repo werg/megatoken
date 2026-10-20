@@ -1,16 +1,13 @@
 """train() end-to-end on the mandatory retrieval-memory path."""
 
-import json
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 import torch
+from retrieval_fixture import make_episode, retrieval_train_config, write_retrieval_artifacts
 
 from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.engine import train
-
-from retrieval_fixture import retrieval_train_config, write_retrieval_artifacts, make_episode
 
 
 @pytest.fixture

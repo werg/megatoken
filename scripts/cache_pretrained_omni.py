@@ -13,8 +13,11 @@ import torch
 
 from megatoken.data.media_assets import TensorAssetStore
 from megatoken.omni.perception import (
-    WhistleFeatures, PocketAcousticFeatures, MiniCPMVisualFeatures,
+    MiniCPMVisualFeatures,
+    PocketAcousticFeatures,
+    WhistleFeatures,
 )
+
 
 def main():
     p=argparse.ArgumentParser()

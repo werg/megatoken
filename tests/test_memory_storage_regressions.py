@@ -7,7 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from megatoken.memory.contracts import Collection, Footprint, SourceRange, Visibility
+from megatoken.memory.contracts import Collection, Visibility
 from megatoken.memory.growth import GrowthAllocator, GrowthPolicy
 from megatoken.memory.index import CoarseIVF
 from megatoken.memory.sqlite import SQLiteKB

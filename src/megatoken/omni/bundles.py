@@ -5,9 +5,10 @@ It emits existing Episode/meridian objects through the public schema; verificati
 and withheld targets never appear in a prospective prompt.
 """
 from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Mapping, Sequence
 
 RELATIONS = frozenset(("same_spoken_content", "translation_of", "describes",
     "synchronized_with", "first_frame_of", "last_frame_of", "edit_of", "preserves"))
@@ -132,7 +133,15 @@ def compile_views(bundle: AlignedBundle, views: Sequence[TaskView]) -> tuple[Com
     Only input bytes become observations. All generated siblings occupy one
     atomic meridian; relations/verification are deliberately side metadata.
     """
-    from megatoken.data.schema import Episode, TrackSpec, TrackEvent, Meridian, Lineage, EpisodeRelation, canonical_json
+    from megatoken.data.schema import (
+        Episode,
+        EpisodeRelation,
+        Lineage,
+        Meridian,
+        TrackEvent,
+        TrackSpec,
+        canonical_json,
+    )
     # No direct dependency on tokenization: records contain bytes and are encoded
     # later by the repository's normal episode readers.
     by_id = {a.artifact_id: a for a in bundle.artifacts}
@@ -222,7 +231,12 @@ def compile_edit_trajectory(
     detached E(recorded) rather than claiming the sampled output was edited.
     """
     from megatoken.data.schema import (
-        Episode, Lineage, PhysicalRecord, TrackSpec, TrackEvent, Meridian,
+        Episode,
+        Lineage,
+        Meridian,
+        PhysicalRecord,
+        TrackEvent,
+        TrackSpec,
         canonical_json,
     )
     by_id={a.artifact_id:a for a in bundle.artifacts}

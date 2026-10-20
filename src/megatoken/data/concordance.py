@@ -9,12 +9,19 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Mapping
 
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord
 from megatoken.data.schema import (
-    Dependency, Episode, Lineage, Meridian, PhysicalRecord, Supervision,
-    TrackEvent, TrackSpec, stable_id, canonical_json,
+    Dependency,
+    Episode,
+    Lineage,
+    Meridian,
+    PhysicalRecord,
+    Supervision,
+    TrackEvent,
+    TrackSpec,
+    canonical_json,
+    stable_id,
 )
 
 COMPILER_VERSION = "concordance-v1"
@@ -273,7 +280,7 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
             if current_generated and artifact.parent_id:
                 deps.append(Dependency(seen_artifacts[artifact.parent_id], record_id, "edit"))
         groups.append(Meridian(index, tuple(entries)))
-        seen_artifacts.update({e.artifact_id: event.record_id for e, event in zip(item.events, entries)})
+        seen_artifacts.update({e.artifact_id: event.record_id for e, event in zip(item.events, entries, strict=True)})
     if not any(e.generated for g in view.groups for e in g.events):
         raise ValueError("A training task must contain supervised output events")
     relation_rows = []
@@ -567,7 +574,6 @@ def edit_task_view(
 
 def manifest_fingerprint(bundle: AlignedBundle, views: tuple[TaskView, ...]) -> str:
     """Stable manifest digest binds exact task family, source split and versions."""
-    from dataclasses import asdict
     # Bundle may contain bytes; encode without a lossy implicit string conversion.
     h = hashlib.sha256(COMPILER_VERSION.encode())
     h.update(bundle.bundle_id.encode())

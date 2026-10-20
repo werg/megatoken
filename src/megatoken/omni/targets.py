@@ -1,10 +1,13 @@
 """Codec-latent media asset manifest and immutable predecoder training targets."""
 from __future__ import annotations
+
+import json
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-import json
+
 import numpy as np
+
 
 @dataclass(frozen=True)
 class CodecLatentTarget:
@@ -29,7 +32,7 @@ class CodecLatentTarget:
                (self.codec_digest, self.source_sha256, self.latent_sha256)):
             raise ValueError("Codec/source/latent weight hashes must be pinned")
         if not self.shape or len(self.shape) != len(self.valid_shape) or any(
-                not 0 < v <= s for v, s in zip(self.valid_shape, self.shape)):
+                not 0 < v <= s for v, s in zip(self.valid_shape, self.shape, strict=True)):
             raise ValueError("Invalid valid/padded codec latent geometry")
         if self.clock_rate_num < 0 or self.clock_rate_den < 1 or self.latent_scale <= 0:
             raise ValueError("Invalid latent normalization or sample clock")
@@ -42,7 +45,8 @@ class CodecLatentTarget:
 
 def store_latents(root, values, *, expected_sha=None):
     """Write only immutable floating-point latent arrays with atomic replace."""
-    import os, tempfile
+    import os
+    import tempfile
     data = np.asarray(values, dtype="<f4")
     if not data.size or not np.isfinite(data).all():
         raise ValueError("Latent tensor must be finite and nonempty")

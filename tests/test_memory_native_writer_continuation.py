@@ -7,10 +7,14 @@ from megatoken.memory.writers import AssignmentTargets, SourceWriter
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.training.hindsight import (
-    SourceWriterBatch, WriterFitSettings, fit_source_writer_epoch,
+    SourceWriterBatch,
+    WriterFitSettings,
+    fit_source_writer_epoch,
 )
 from megatoken.training.hindsight_native import (
-    ContinuationMeridian, WriterContinuation, native_source_continuation,
+    ContinuationMeridian,
+    WriterContinuation,
+    native_source_continuation,
 )
 
 
@@ -84,10 +88,12 @@ def test_permitted_suffix_writer_receives_native_continuation_gradient():
 def test_pair_writer_learns_directional_dependence_through_frozen_native_reader():
     from megatoken.memory.writers import RelationWriter
     from megatoken.training.hindsight import (
-        PairWriterBatch, fit_relation_writer_epoch,
+        PairWriterBatch,
+        fit_relation_writer_epoch,
     )
     from megatoken.training.hindsight_native import (
-        PairWriterContinuation, native_pair_continuation,
+        PairWriterContinuation,
+        native_pair_continuation,
     )
 
     torch.manual_seed(37)

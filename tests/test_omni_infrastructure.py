@@ -1,16 +1,18 @@
 import hashlib
+from fractions import Fraction
+
 import pytest
 import torch
 
 from megatoken.controls import effective_event_payloads
-from megatoken.omni.bundles import Artifact, AlignedBundle, Relation, TaskView, compile_views
-from megatoken.omni.packs import PackSpec, PackRegistry
-from megatoken.omni.flow import FacetFlow, flow_matching_loss
-from megatoken.omni.relations import endpoint_targets, coordinate_kl
-from megatoken.omni.recipe import FamilySampler
-from megatoken.omni.clocks import TimeWindow, available_windows
 from megatoken.generation.latents import DiagonalGaussian
-from fractions import Fraction
+from megatoken.omni.bundles import AlignedBundle, Artifact, Relation, TaskView, compile_views
+from megatoken.omni.clocks import TimeWindow, available_windows
+from megatoken.omni.flow import FacetFlow, flow_matching_loss
+from megatoken.omni.packs import PackRegistry, PackSpec
+from megatoken.omni.recipe import FamilySampler
+from megatoken.omni.relations import coordinate_kl, endpoint_targets
+
 
 def test_distinct_event_requests_are_causal_and_repeatable():
     prompts = effective_event_payloads(b"global", ("speech", "caption"), (("Speak English", 2), ("Describe visuals", 7)))

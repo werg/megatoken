@@ -1,9 +1,12 @@
 """Moved trainable keys and disk postings are one atomic sparse Adam transaction."""
 import numpy as np
-import torch
 
 from megatoken.memory.contracts import (
-    Collection, Footprint, SemanticSpace, SourceRange, Visibility,
+    Collection,
+    Footprint,
+    SemanticSpace,
+    SourceRange,
+    Visibility,
 )
 from megatoken.memory.disk_ivf import SQLiteDiskIVF
 from megatoken.memory.optimizer import RowID, SparseRowAdam

@@ -10,9 +10,10 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import torch
 from safetensors.torch import load_file, save_file
@@ -157,18 +158,18 @@ def merge_pseudogradients(
     """
     if not deltas or not (len(deltas) == len(tokens) == len(steps) == len(staleness)):
         raise ValueError("Malformed outer gradient quorum")
-    if any(t <= 0 or s <= 0 or age < 0 for t, s, age in zip(tokens, steps, staleness)):
+    if any(t <= 0 or s <= 0 or age < 0 for t, s, age in zip(tokens, steps, staleness, strict=True)):
         raise ValueError("Outer gradients require positive counts and nonnegative age")
     if any(d.shape != deltas[0].shape or not torch.isfinite(d).all() for d in deltas):
         raise ValueError("Invalid outer gradient tensor")
     weights = [
         (float(t) * (float(t) / float(s))) / (1.0 + float(age))
-        for t, s, age in zip(tokens, steps, staleness)
+        for t, s, age in zip(tokens, steps, staleness, strict=True)
     ]
     if any(not math.isfinite(value) or value <= 0 for value in weights):
         raise ValueError("Invalid merge weight")
     total = sum(weights)
-    return sum((d.float() * (w / total) for d, w in zip(deltas, weights)), torch.zeros_like(deltas[0], dtype=torch.float32))
+    return sum((d.float() * (w / total) for d, w in zip(deltas, weights, strict=True)), torch.zeros_like(deltas[0], dtype=torch.float32))
 
 
 def outer_nesterov(

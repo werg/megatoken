@@ -7,31 +7,33 @@ the model's MasterAdamW optimizer or duplicate neural optimizer moments.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import Any
-from hashlib import sha256
 import json
+from dataclasses import dataclass, replace
+from hashlib import sha256
+from typing import Any
 
 import numpy as np
 import torch
 from torch import Tensor
 
 from megatoken.data.retrieval import RetrievalExample
-from megatoken.memory.context import admit_kb
 from megatoken.memory.bilateral import selected_joint_groups
+from megatoken.memory.context import admit_kb
 from megatoken.memory.contracts import Collection, Footprint, Visibility
+from megatoken.memory.disk_ivf import SQLiteDiskIVF
 from megatoken.memory.growth import CatalogChunk, GrowthAllocator
 from megatoken.memory.index import ExactIndex
-from megatoken.memory.disk_ivf import SQLiteDiskIVF
 from megatoken.memory.optimizer import RowID, SparseRowAdam
 from megatoken.memory.reader import selected_evidence
-from megatoken.memory.retrieval import RetrievalSession
 from megatoken.memory.recipe import RetrievalRecipe
+from megatoken.memory.retrieval import RetrievalSession
 from megatoken.memory.sqlite import SQLiteKB
 from megatoken.model.core import ROLE_IDS
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.training.memory import (
-    LocalMemoryWindow, LocalRetrievalTarget, annotated_ranking_loss,
+    LocalMemoryWindow,
+    LocalRetrievalTarget,
+    annotated_ranking_loss,
 )
 from megatoken.training.source_features import NativeSourceFeatures
 

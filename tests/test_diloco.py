@@ -143,7 +143,7 @@ def test_hybrid_muon_only_selects_eligible_hidden_matrices_and_resumes():
     assert optimizer.optimizer is not None
     assert optimizer.muon_optimizer is not None
     try:
-        for name, master in optimizer.masters.items():
+        for master in optimizer.masters.values():
             master.grad = torch.randn_like(master) * 0.03
         optimizer.step()
         state = copy.deepcopy(optimizer.state_dict())

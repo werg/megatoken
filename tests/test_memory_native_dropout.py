@@ -3,7 +3,9 @@ import torch
 
 from megatoken.memory.context import admit_kb
 from megatoken.memory.semantic import (
-    AdmittedGroup, Constituent, independently_drop_memory,
+    AdmittedGroup,
+    Constituent,
+    independently_drop_memory,
 )
 from megatoken.model.config import ModelConfig
 from megatoken.model.core import FacetedCore

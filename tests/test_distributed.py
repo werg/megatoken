@@ -13,6 +13,7 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+from retrieval_fixture import retrieval_train_config
 from torch import nn
 
 from megatoken.training.checkpoint import load_checkpoint
@@ -21,8 +22,6 @@ from megatoken.training.distributed import DistributedContext
 from megatoken.training.engine import train
 from megatoken.training.losses import LossLedger
 from megatoken.training.optimizer import MasterAdamW
-
-from retrieval_fixture import retrieval_train_config
 
 
 def _start_group(rank: int, rendezvous: str) -> DistributedContext:

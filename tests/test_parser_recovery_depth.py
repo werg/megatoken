@@ -17,7 +17,6 @@ from megatoken.data.parsing.engine import parse_content
 from megatoken.data.parsing.syntax import scan_generic
 from megatoken.data.parsing.types import ParseLimits
 
-
 LIMITS = ParseLimits(isolate_native=False)
 
 

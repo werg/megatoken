@@ -12,8 +12,14 @@ from megatoken.memory.optimizer import RowID, SparseRowAdam
 from megatoken.memory.recipe import RetrievalRecipe, open_bank_for_recipe
 from megatoken.model.config import ModelConfig
 from megatoken.training.diloco_kb import (
-    KBCoordinator, KBSync, initialize_kb, install_snapshot, load_kb_update,
-    read_field, row_key, save_kb_update,
+    KBCoordinator,
+    KBSync,
+    initialize_kb,
+    install_snapshot,
+    load_kb_update,
+    read_field,
+    row_key,
+    save_kb_update,
 )
 from megatoken.training.diloco_protocol import merge_pseudogradients
 

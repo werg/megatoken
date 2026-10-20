@@ -23,9 +23,9 @@ from .documents import (
     scan_markup_fallback,
 )
 from .prose import analyze_prose
-from .tabular import DELIMITERS, scan_delimited
 from .registry import bundled_languages, canonical_language, parser_provider_specs, resolve_language
 from .syntax import Injection, Scan, scan_generic, scan_syntax
+from .tabular import DELIMITERS, scan_delimited
 from .types import Diagnostic, ParseLimits, ParseResult, Region
 
 ENGINE_VERSION = "recursive-content-v1"

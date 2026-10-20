@@ -7,9 +7,9 @@ target semantic value or answer enters the writer's source input.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Iterable, Iterator
 
 import torch
 from torch import Tensor, nn

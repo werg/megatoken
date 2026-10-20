@@ -7,8 +7,8 @@ and refreshes newly allocated record postings at its growth barrier.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np

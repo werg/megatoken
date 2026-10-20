@@ -11,7 +11,6 @@ from megatoken.data.parsing.engine import parse_content
 from megatoken.data.parsing.tabular import scan_delimited
 from megatoken.data.parsing.types import ParseLimits
 
-
 LIMITS = ParseLimits(isolate_native=False)
 
 

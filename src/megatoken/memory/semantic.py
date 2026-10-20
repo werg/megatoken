@@ -1,10 +1,9 @@
 """Trainable semantic mixtures project to complete, anchored native facet K/V."""
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import hashlib
 import json
-
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import torch

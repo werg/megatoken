@@ -7,18 +7,18 @@ through the ordinary native E/C track.
 """
 from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
 
 import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from megatoken.io import sha256_file
 from megatoken.memory.base import Record
 from megatoken.memory.contracts import Collection
 from megatoken.memory.retrieval import Interval
 from megatoken.tensors import byte_tensor
-from megatoken.io import sha256_file
-from hashlib import sha256
 
 
 class NativeSourceFeatures:

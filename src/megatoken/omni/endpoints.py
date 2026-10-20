@@ -1,9 +1,9 @@
 """Deterministic displayed-video endpoint supervision; no decoder-side bypass."""
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from hashlib import sha256
-import json
 
 import numpy as np
 

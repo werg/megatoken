@@ -7,22 +7,19 @@ saved selected raw facets. Frozen reader PARAMETERS remain in autograd.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Callable, Sequence
 
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 
 from megatoken.memory.context import admit_kb
-from megatoken.memory.semantic import AdmittedGroup, Constituent
 from megatoken.memory.reader import selected_evidence
 from megatoken.memory.relations import pair_evidence
-from megatoken.memory.writers import PairWriterOutput
-from megatoken.training.hindsight import PairWriterBatch
-from megatoken.memory.writers import WriterOutput
+from megatoken.memory.semantic import AdmittedGroup, Constituent
+from megatoken.memory.writers import PairWriterOutput, WriterOutput
 from megatoken.model.multitrack import MultiTrackGenerator, MultiTrackState
-from megatoken.training.hindsight import SourceWriterBatch
+from megatoken.training.hindsight import PairWriterBatch, SourceWriterBatch
 
 
 @dataclass(frozen=True)

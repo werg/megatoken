@@ -4,9 +4,10 @@ A matched codec's decoder is deliberately outside this module: it may only
 consume the generated latents, never a gold prompt, transcript, or source U.
 """
 from __future__ import annotations
+
 import torch
 from torch import nn
-from torch.nn import functional as F
+
 
 def flow_matching_loss(prediction, target, valid_mask=None):
     if prediction.shape != target.shape:

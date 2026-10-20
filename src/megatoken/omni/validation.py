@@ -4,7 +4,9 @@ Run after loading exact donor checkpoints and before the first optimizer step.
 Tests contracts and gradients without acquiring data or changing weights.
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import torch
 
 REQUIRED_FACETS = 32

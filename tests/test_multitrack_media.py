@@ -5,18 +5,16 @@ import math
 import pytest
 import torch
 
-from megatoken.generation.latents import DiagonalGaussian
-
 from megatoken.controls import ControlBundle, ControlReference, build_control_payload
 from megatoken.data.schema import MediaSpan, Meridian, TrackEvent
 from megatoken.generation.codec import ByteCodec
+from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.policy import FacetedGenerator
 from megatoken.generation.structure import ActionSpec
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import (
     GroupActionTape,
-    MultiTrackCore,
     MultiTrackGenerator,
     ObservedEvent,
 )

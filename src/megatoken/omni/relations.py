@@ -1,7 +1,9 @@
 """Counted concordance objectives with no target-peer access to the policy."""
 from __future__ import annotations
+
 import torch
 from torch.nn import functional as F
+
 
 def pairwise_semantic_relation(left, right, *, valid=None):
     """Aligned semantic feature comparisons; raw Z need not be identical."""

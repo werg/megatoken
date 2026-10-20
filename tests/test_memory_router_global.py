@@ -33,7 +33,7 @@ def test_global_balance_matches_one_step_proxy_and_does_not_backprop_upstream():
     metrics = window.backward(_SingleRank(), routers={"p": router}, coefficient=0.3)
     assert metrics["balance_p_assignments"] == 2.0
     assert x.grad is None
-    for p, grad in zip(parameters, expected):
+    for p, grad in zip(parameters, expected, strict=True):
         if grad is None:
             assert p.grad is None
         else:
@@ -60,7 +60,7 @@ def test_shared_context_statistics_match_per_stage_replay_gradient_without_cap()
     window = RouterBalanceWindow()
     router.balance_recorder = window
     captures = []
-    for batch in range(3):  # several windows' worth of routes, many stages each
+    for _batch in range(3):  # several windows' worth of routes, many stages each
         x = torch.randn(4, 8)
         for stage in (1, 2, 3, 4):
             route = router.route(x, stage=stage, rows=5)
@@ -72,7 +72,7 @@ def test_shared_context_statistics_match_per_stage_replay_gradient_without_cap()
     assert window.assignments == sum(s.numel() for _, s, _ in captures)
     expected = _reference_backward(captures, router, 0.7)
     window.backward(_SingleRank(), routers={"p": router}, coefficient=0.7)
-    for p, grad in zip(router.parameters(), expected):
+    for p, grad in zip(router.parameters(), expected, strict=True):
         if grad is None:
             assert p.grad is None
         else:

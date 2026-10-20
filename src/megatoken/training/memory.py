@@ -3,8 +3,8 @@ selected sparse KB leaves and independent full-KV / LoRA dropout.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 import torch
 from torch import Tensor

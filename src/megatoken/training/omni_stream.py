@@ -6,9 +6,7 @@ to equal GPU compute. The cursor/RNG are checkpointable and rank-local.
 """
 from __future__ import annotations
 
-import json
 import random
-from pathlib import Path
 
 from megatoken.training.stream import MixtureWindowStream
 

@@ -3,6 +3,8 @@ import numpy as np
 import torch
 
 from megatoken.data.retrieval import RetrievalExample
+from megatoken.generation.codec import ByteCodec
+from megatoken.generation.policy import FacetedGenerator
 from megatoken.memory.contracts import Footprint, QueryBoundary, SemanticSpace, SourceRange
 from megatoken.memory.growth import GrowthPolicy
 from megatoken.memory.recipe import RetrievalRecipe
@@ -10,8 +12,6 @@ from megatoken.memory.retrieval import RetrievalSession
 from megatoken.memory.sqlite import SQLiteKB
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.multitrack import MultiTrackGenerator
-from megatoken.generation.codec import ByteCodec
-from megatoken.generation.policy import FacetedGenerator
 from megatoken.training.bank import BankTrainingOwner
 from megatoken.training.source_features import NativeSourceFeatures
 

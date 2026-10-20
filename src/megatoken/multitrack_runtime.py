@@ -7,9 +7,9 @@ without disturbing the committed session. Delivery is an irreversible ledger.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Callable, Sequence
 
 import torch
 

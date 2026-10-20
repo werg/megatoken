@@ -13,7 +13,6 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-
 KINDS = frozenset({
     "same_spoken_content", "translation_of", "describes",
     "synchronized_with", "first_frame_of", "last_frame_of",

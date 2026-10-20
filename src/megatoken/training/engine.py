@@ -9,9 +9,8 @@ an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
 from __future__ import annotations
 
 import dataclasses
-import json
 import hashlib
-import math
+import json
 import os
 import shutil
 import signal
@@ -32,8 +31,8 @@ from megatoken.loading import build_model, load_codec, load_model_config, parame
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
 from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
-from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.concordance_recipe import load_concordance_recipe
+from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.distributed import DistributedContext

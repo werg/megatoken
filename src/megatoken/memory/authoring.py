@@ -6,10 +6,10 @@ Source and pair writers are separately registered/frozen checkpoint artifacts.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 import torch
@@ -18,8 +18,11 @@ from torch import Tensor
 from megatoken.io import sha256_file
 from megatoken.memory.contracts import Footprint, SemanticSpace, SourceRange
 from megatoken.memory.reproduction import (
-    RebuildResult, ReproducedPair, ReproducedPoint,
-    ReproducedSource, regenerate_bank,
+    RebuildResult,
+    ReproducedPair,
+    ReproducedPoint,
+    ReproducedSource,
+    regenerate_bank,
 )
 from megatoken.memory.writers import RelationWriter, SourceWriter
 

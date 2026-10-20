@@ -1,7 +1,7 @@
 """Retrieved evidence misses must never become negative/no-answer supervision."""
 import torch
 
-from megatoken.memory.reader import selected_evidence, local_source_value_loss
+from megatoken.memory.reader import local_source_value_loss, selected_evidence
 from megatoken.training.memory import annotated_ranking_loss
 
 

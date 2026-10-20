@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from megatoken import __version__
-from megatoken.io import read_mapping, write_json
+from megatoken.io import write_json
 
 
 def _doctor(args):
@@ -90,12 +90,12 @@ def _diloco_initialize(args):
     import torch
 
     from megatoken.data import PreparedDataset
+    from megatoken.io import content_hash
     from megatoken.loading import build_model, load_codec, load_model_config
     from megatoken.runtime import seed_everything
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.config import TrainConfig
     from megatoken.training.diloco_protocol import training_identity
-    from megatoken.io import content_hash
     from megatoken.training.diloco_server import initialize_coordinator
     from megatoken.training.schedule import PHASES
 

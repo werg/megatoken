@@ -6,16 +6,19 @@ Unavailable independent verifiers are explicitly reported as unmeasured.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from collections.abc import Callable, Mapping
-from typing import Any
+from dataclasses import dataclass
 
 import numpy as np
 
 from megatoken.omni.bundles import Relation
 from megatoken.omni.evaluation import (
-    MetricAccumulator, edit_preservation_rmse, endpoint_rmse,
-    timed_event_matches, word_error_rate, character_error_rate,
+    MetricAccumulator,
+    character_error_rate,
+    edit_preservation_rmse,
+    endpoint_rmse,
+    timed_event_matches,
+    word_error_rate,
 )
 
 

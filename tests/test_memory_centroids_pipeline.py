@@ -5,12 +5,12 @@ import pytest
 from megatoken.io import sha256_file
 from megatoken.memory.centroids_cli import fit_centroids
 from megatoken.memory.contracts import Collection, Footprint, SemanticSpace, SourceRange, Visibility
+from megatoken.memory.disk_ivf import SQLiteDiskIVF
+from megatoken.memory.growth import GrowthPolicy
 from megatoken.memory.index_cli import publish_index
 from megatoken.memory.recipe import RetrievalRecipe
-from megatoken.memory.growth import GrowthPolicy
 from megatoken.memory.sqlite import SQLiteKB
 from megatoken.model.config import ModelConfig
-from megatoken.memory.disk_ivf import SQLiteDiskIVF
 
 
 def test_bounded_spherical_centroids_and_source_memory_postings(tmp_path):

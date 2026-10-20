@@ -4,11 +4,10 @@ from dataclasses import replace
 
 import pytest
 import torch
+from retrieval_fixture import retrieval_train_config
 
 from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.engine import train
-
-from retrieval_fixture import retrieval_train_config
 
 
 @pytest.fixture

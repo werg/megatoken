@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import pytest
 import torch
+from retrieval_fixture import MODEL_OVERRIDES, make_episode, retrieval_aux, retrieval_train_config
 
 from megatoken.data import WindowConfig, iter_windows
 from megatoken.generation import ByteCodec
@@ -14,8 +15,6 @@ from megatoken.training.engine import forward_batch, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.stream import EpisodeWindow
-
-from retrieval_fixture import MODEL_OVERRIDES, make_episode, retrieval_aux, retrieval_train_config
 
 
 def window_fixture():

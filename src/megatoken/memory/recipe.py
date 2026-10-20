@@ -15,7 +15,6 @@ from .contracts import SemanticSpace
 from .growth import GrowthPolicy
 from .sqlite import SQLiteKB
 
-
 PHASE_ORDER = (
     "coherence_embedding",
     "progressive_warmup",

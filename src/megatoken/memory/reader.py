@@ -1,8 +1,8 @@
 """Differentiable selected-row readout; ANN discovery stays discrete and detached."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import torch
 from torch import Tensor

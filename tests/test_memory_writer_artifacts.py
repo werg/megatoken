@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from megatoken.memory.recipe import GateReceipt, PHASE_REQUIREMENTS, RetrievalRecipe
+from megatoken.memory.recipe import PHASE_REQUIREMENTS, GateReceipt, RetrievalRecipe
 from megatoken.training.writer_cli import fit_pinned_dataset
 from megatoken.training.writer_data import WriterDataset, WriterShard
 

@@ -17,8 +17,13 @@ from pathlib import Path
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord
 from megatoken.data.schema import canonical_json
 from megatoken.omni.bundles import (
-    AlignedBundle, Artifact, Edit, Relation, TaskView,
-    compile_edit_trajectory, compile_views,
+    AlignedBundle,
+    Artifact,
+    Edit,
+    Relation,
+    TaskView,
+    compile_edit_trajectory,
+    compile_views,
 )
 
 

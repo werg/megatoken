@@ -1,8 +1,9 @@
 """Typed retrieval records. Address, semantic value, and native attention K are distinct."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 import numpy as np
 

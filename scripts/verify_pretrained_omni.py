@@ -12,8 +12,8 @@ import json
 
 import torch
 
-from megatoken.omni.loader import read_locked_manifest
 from megatoken.omni.donors import PocketFacetsStudent, SanaFacetsStudent
+from megatoken.omni.loader import read_locked_manifest
 from megatoken.omni.validation import check_pretrained_student
 
 
@@ -53,7 +53,7 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool =
             # Minimal dummy latent geometry is for exercising the flow objective,
             # not a meaningful image/video quality comparison.
             config = student.transformer.config
-            channels = int(getattr(config, "in_channels"))
+            channels = int(config.in_channels)
             if name == "sana":
                 latent = torch.zeros(1, channels, 16, 16, device=torch_device)
             else:
@@ -132,7 +132,7 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool =
                 # MIME and temporal codecs may introduce deterministic padding,
                 # which is excluded from the valid reconstruction RMSE.
                 slices = tuple(slice(0, min(n, m)) for n, m in zip(
-                    original.shape, decoded.shape,
+                    original.shape, decoded.shape, strict=True,
                 ))
                 aligned = decoded[slices].float()
                 valid = original[slices].float()

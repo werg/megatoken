@@ -652,7 +652,7 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
             else []
         )
         if not closing:
-            for attribute, value, left, right in attributes:
+            for attribute, _value, left, right in attributes:
                 if len(scan.injections) >= limits.max_injections:
                     break
                 if attribute in _PROSE_ATTRIBUTES:

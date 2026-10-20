@@ -6,22 +6,26 @@ through the existing E/C runtime; semantic K/V is never an artificial event.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from hashlib import sha256
-from typing import Callable
 
 import numpy as np
 import torch
 
 from megatoken.memory.base import Record, SearchBatch
+from megatoken.memory.bilateral import FrozenMemoryFields, selected_joint_groups
 from megatoken.memory.context import admit_kb
 from megatoken.memory.contracts import Collection, QueryBoundary, SemanticSpace, Visibility
-from megatoken.memory.bilateral import FrozenMemoryFields, selected_joint_groups
-from megatoken.memory.sqlite import SQLiteKB
 from megatoken.memory.replay import QueryActionReceipt
 from megatoken.memory.retrieval import (
-    Interval, RetrievalService, RetrievalSession, SourceObligation, subtract,
+    Interval,
+    RetrievalService,
+    RetrievalSession,
+    SourceObligation,
+    subtract,
 )
+from megatoken.memory.sqlite import SQLiteKB
 from megatoken.model.core import ROLE_IDS
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.multitrack_runtime import MultiTrackRuntime, TrackSession

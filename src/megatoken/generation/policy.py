@@ -12,12 +12,12 @@ import torch
 from torch import Tensor, nn
 
 from megatoken.controls import encode_controls
+from megatoken.model.media import MediaRealizers
+from megatoken.model.relations import RelationProjection
 from megatoken.tensors import byte_tensor
 
 from .codec import ByteCodec
 from .decoder import DecodedAction, DeterministicDecoder
-from megatoken.model.media import MediaRealizers
-from megatoken.model.relations import RelationProjection
 from .latents import DiagonalGaussian, FacetGaussian
 from .structure import TAPE_VERSION, ActionSpec, ActionTape, Observation, TapeMismatch
 from .targets import LOSS_NAMES, PreparedAction, PreparedTargets, prepare_action, prepare_targets

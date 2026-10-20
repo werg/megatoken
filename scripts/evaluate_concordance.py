@@ -15,8 +15,12 @@ from pathlib import Path
 import numpy as np
 
 from megatoken.training.concordance_eval import (
-    SampledEvalLedger, audit_source_prefix, clock_sync_ms,
-    compare_endpoints, masked_reconstruction, preserved_region_error,
+    SampledEvalLedger,
+    audit_source_prefix,
+    clock_sync_ms,
+    compare_endpoints,
+    masked_reconstruction,
+    preserved_region_error,
     transcript_metrics,
 )
 

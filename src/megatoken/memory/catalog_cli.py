@@ -7,17 +7,17 @@ source asset checksum and one normalized address in the recipe's named space.
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import tempfile
 from dataclasses import asdict
 from hashlib import sha256
-import json
 from pathlib import Path
-import tempfile
-import os
 
+from megatoken.io import sha256_file
 from megatoken.memory.contracts import Footprint, SourceRange
 from megatoken.memory.recipe import RetrievalRecipe
 from megatoken.memory.sqlite import SQLiteKB
-from megatoken.io import sha256_file
 
 
 def build_source_catalog(

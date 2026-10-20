@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import asdict, dataclass, field
-from enum import Enum
+from enum import StrEnum
 from hashlib import sha256
 
 
-class Collection(str, Enum):
+class Collection(StrEnum):
     SOURCE = "source"
     MEMORY = "memory"
 

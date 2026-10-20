@@ -9,7 +9,6 @@ from torch import Tensor, nn
 
 from megatoken.memory.semantic import MemoryMaterialization
 
-
 MODULES = ("c", "p", "r")
 
 

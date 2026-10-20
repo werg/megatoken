@@ -4,10 +4,14 @@ External donor frameworks are injected explicitly; unknown checkpoint APIs are
 never silently treated as compatible. All native generator inputs are raw Z.
 """
 from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
+
 import torch
+
 from megatoken.omni.packs import PackRegistry
+
 
 @dataclass(frozen=True)
 class FrozenFeatureView:

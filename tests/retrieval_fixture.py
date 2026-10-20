@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
 
@@ -66,7 +65,7 @@ def make_episode(index: int, *, turns: int = 1) -> Episode:
     ]
     meridians = [
         Meridian(
-            0, tuple(TrackEvent(n, n, "text", 0, r.role) for n, r in zip(names[:2], records[:2]))
+            0, tuple(TrackEvent(n, n, "text", 0, r.role) for n, r in zip(names[:2], records[:2], strict=True))
         ),
         Meridian(1, (TrackEvent("answer", "answer", "text", 1, "assistant"),)),
     ]
@@ -95,7 +94,7 @@ def make_episode(index: int, *, turns: int = 1) -> Episode:
             ),
         ]
     records, meridians = tuple(records), tuple(meridians)
-    tracks = tuple(TrackSpec(n, r.role) for n, r in zip(names, records))
+    tracks = tuple(TrackSpec(n, r.role) for n, r in zip(names, records, strict=True))
     return Episode(
         f"episode-{index}",
         records,

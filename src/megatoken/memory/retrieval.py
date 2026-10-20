@@ -1,9 +1,9 @@
 """Incremental query MaxSim and durable, disjoint source byte coverage."""
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from threading import RLock
-import math
 
 import numpy as np
 

@@ -5,7 +5,10 @@ import numpy as np
 import pytest
 
 from megatoken.data.media_assets import (
-    MEDIA_RECORD_TYPE, MediaRecord, OutputGeometry, TensorAssetStore,
+    MEDIA_RECORD_TYPE,
+    MediaRecord,
+    OutputGeometry,
+    TensorAssetStore,
 )
 from megatoken.training.meridians import _media_plan
 

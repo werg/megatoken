@@ -1,7 +1,9 @@
 import pytest
 import torch
 from torch import nn
-from megatoken.omni.validation import check_pretrained_student, assert_content_only_invariance
+
+from megatoken.omni.validation import assert_content_only_invariance, check_pretrained_student
+
 
 class MockDonor(nn.Module):
     def __init__(self):

@@ -1,10 +1,12 @@
 """Atomic selected-row ownership and sparse optimizer step chronology."""
 import numpy as np
 import pytest
-import torch
 
 from megatoken.memory.contracts import (
-    Collection, Footprint, SemanticSpace, SourceRange,
+    Collection,
+    Footprint,
+    SemanticSpace,
+    SourceRange,
 )
 from megatoken.memory.optimizer import RowID, SparseRowAdam
 from megatoken.memory.sqlite import SQLiteKB

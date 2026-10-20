@@ -164,7 +164,7 @@ class PocketFacetsStudent(nn.Module):
     def latent(self, raw: Tensor, *, max_frames: int, steps: int = 16,
                generator: torch.Generator | None = None):
         """Full free rollout; no target-conditioned acoustic prefix is supplied."""
-        from pocket_tts.modules.stateful_module import init_states, increment_steps
+        from pocket_tts.modules.stateful_module import increment_steps, init_states
         condition = self._cond(raw)
         b = raw.shape[0]
         if not 1 <= max_frames <= 1200 or not 1 <= steps <= 128:

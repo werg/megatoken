@@ -3,6 +3,7 @@ from dataclasses import asdict
 import numpy as np
 import pytest
 import torch
+from retrieval_fixture import retrieval_train_config
 from safetensors.torch import save_file
 
 from megatoken.assets import bake_checkpoint, extract_engram, install_engram_asset
@@ -13,8 +14,6 @@ from megatoken.loading import build_model, load_model_config
 from megatoken.runtime import capture_rng
 from megatoken.training.checkpoint import load_checkpoint, save_checkpoint
 from megatoken.training.optimizer import MasterAdamW
-
-from retrieval_fixture import retrieval_train_config
 
 
 def test_offline_engram_extract_install_checkpoint_bake_and_export(tmp_path):

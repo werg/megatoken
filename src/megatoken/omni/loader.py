@@ -79,7 +79,7 @@ def read_locked_manifest(filename: str):
             config = yaml.safe_load(config_file.read_text("utf-8"))
             if not isinstance(config, dict):
                 raise ValueError("Pocket config must be a YAML mapping")
-            def walk(node):
+            def walk(node, base=config_file.parent, verified=verified):
                 if isinstance(node, dict):
                     for key, value in node.items():
                         if key in {"weights_path", "weights_path_without_voice_cloning", "tokenizer_path"} and isinstance(value, str):
@@ -87,13 +87,13 @@ def read_locked_manifest(filename: str):
                                 raise ValueError(f"Remote Pocket resource in {key}")
                             resource = Path(value)
                             if not resource.is_absolute():
-                                resource = config_file.parent / resource
+                                resource = base / resource
                             if resource.resolve() not in verified:
                                 raise ValueError(f"Unhashed Pocket resource {key}")
-                        walk(value)
+                        walk(value, base, verified)
                 elif isinstance(node, list):
                     for value in node:
-                        walk(value)
+                        walk(value, base, verified)
             walk(config)
     return path.parent, packs
 

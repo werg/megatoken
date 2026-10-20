@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 
 from megatoken.data import Episode, Lineage, PhysicalRecord, WindowConfig, iter_windows
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
@@ -14,8 +15,6 @@ from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import MeridianPreparedBatch
 from megatoken.training.stream import EpisodeWindow
 
-from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
-
 
 def fixture_episode():
     names = ("a", "b", "worker_a", "worker_b", "answer")
@@ -25,7 +24,7 @@ def fixture_episode():
                        turn_index=max(0, i - 1), policy_mask=i >= 2)
         for i, name in enumerate(names)
     )
-    tracks = tuple(TrackSpec(name, record.role) for name, record in zip(names, records))
+    tracks = tuple(TrackSpec(name, record.role) for name, record in zip(names, records, strict=True))
     meridians = tuple(
         Meridian(g, tuple(TrackEvent(names[i], names[i], "text", g, records[i].role)
                           for i in indices))
@@ -126,10 +125,10 @@ def test_media_payload_is_not_silently_trained_as_text(tmp_path):
         )
 
 def test_grouped_episode_runs_in_existing_training_checkpoint_loop(tmp_path):
+    from retrieval_fixture import retrieval_train_config
+
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.engine import train
-
-    from retrieval_fixture import retrieval_train_config
 
     torch.set_num_threads(1)
     config = retrieval_train_config(

@@ -1,7 +1,9 @@
 """Explicit media clock windows and prefix-safe availability."""
 from __future__ import annotations
+
 from dataclasses import dataclass
 from fractions import Fraction
+
 
 @dataclass(frozen=True)
 class TimeWindow:

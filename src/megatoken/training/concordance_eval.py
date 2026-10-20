@@ -6,12 +6,12 @@ Returned metrics are observations, never claims of learned benchmark quality.
 """
 from __future__ import annotations
 
-import json
+import itertools
 import math
 import unicodedata
-from collections import Counter, defaultdict
+from collections import defaultdict
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Sequence
 
 import numpy as np
 
@@ -84,7 +84,7 @@ def compare_endpoints(clip: np.ndarray, first: np.ndarray, last: np.ndarray,
         raise ValueError("Endpoints require displayed [T,C,H,W] video")
     if displayed_indices is not None and (
         len(displayed_indices) != len(clip) or
-        any(a >= b for a, b in zip(displayed_indices, displayed_indices[1:]))
+        any(a >= b for a, b in itertools.pairwise(displayed_indices))
     ):
         raise ValueError("Displayed time sampling must be strictly increasing")
     a = masked_reconstruction(clip[0], first, mask)
@@ -119,7 +119,7 @@ def clock_sync_ms(audio_onsets_ms: Sequence[int], video_onsets_ms: Sequence[int]
         raise ValueError("A/V event timestamps must be nonnegative integer milliseconds")
     differences = [
         abs((a + offset_ms) - v)
-        for a, v in zip(audio_onsets_ms, video_onsets_ms)
+        for a, v in zip(audio_onsets_ms, video_onsets_ms, strict=True)
     ]
     return {
         "mean_sync_error_ms": float(np.mean(differences)),

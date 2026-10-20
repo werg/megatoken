@@ -1,6 +1,6 @@
 """Serving/training must use the same masked frozen feature fusion through E."""
-import torch
 import pytest
+import torch
 
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model

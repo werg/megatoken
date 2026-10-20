@@ -7,10 +7,10 @@ to reconstruct the native C/KV transition and evaluate P's action likelihood.
 from __future__ import annotations
 
 import base64
-from dataclasses import asdict, dataclass
-from hashlib import sha256
 import json
 import math
+from dataclasses import asdict, dataclass
+from hashlib import sha256
 
 import numpy as np
 import torch
@@ -19,7 +19,9 @@ from torch import Tensor
 from megatoken.generation.embedding import EmbeddingSpec
 from megatoken.model.core import ROLE_IDS
 from megatoken.model.multitrack import (
-    MultiTrackGenerator, MultiTrackState, retrieval_control_payload,
+    MultiTrackGenerator,
+    MultiTrackState,
+    retrieval_control_payload,
 )
 
 

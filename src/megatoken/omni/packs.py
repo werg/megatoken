@@ -1,8 +1,10 @@
 """Explicit frozen/pretrained component registry; no silent codec substitution."""
 from __future__ import annotations
+
+import json
 from dataclasses import dataclass
 from hashlib import sha256
-import json
+
 
 @dataclass(frozen=True)
 class PackSpec:

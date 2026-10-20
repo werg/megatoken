@@ -1,6 +1,6 @@
 """Causal source-footprint and teacher-target sidecar release gates."""
-from dataclasses import replace
 import base64
+from dataclasses import replace
 from hashlib import sha256
 
 import pytest

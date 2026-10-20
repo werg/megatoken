@@ -1,8 +1,10 @@
 """Versioned edit trajectories and atomic raw replay identity."""
 from __future__ import annotations
+
+import json
 from dataclasses import asdict, dataclass
 from hashlib import sha256
-import json
+
 
 @dataclass(frozen=True)
 class ArtifactVersion:

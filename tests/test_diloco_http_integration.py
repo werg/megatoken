@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 
 import torch
+from retrieval_fixture import retrieval_train_config
 
 from megatoken.data import PreparedDataset
 from megatoken.generation.codec import ByteCodec
@@ -21,8 +22,6 @@ from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.diloco_server import initialize_coordinator, serve_coordinator
 from megatoken.training.engine import train
 from megatoken.training.schedule import PHASES
-
-from retrieval_fixture import retrieval_train_config
 
 
 def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):

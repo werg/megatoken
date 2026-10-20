@@ -7,15 +7,18 @@ dataset/checkpoint identities and complete expected stable assignments.
 from __future__ import annotations
 
 import argparse
-from hashlib import sha256
 import json
+from hashlib import sha256
 from pathlib import Path
 
 import torch
 
 from megatoken.io import sha256_file
 from megatoken.memory.authoring import (
-    FrozenCorpusAuthor, FrozenWriterArtifact, PairAssignment, SourceAssignment,
+    FrozenCorpusAuthor,
+    FrozenWriterArtifact,
+    PairAssignment,
+    SourceAssignment,
 )
 from megatoken.memory.contracts import Footprint, SourceRange
 from megatoken.memory.recipe import RetrievalRecipe

@@ -7,12 +7,16 @@ import torch
 from megatoken.memory.contracts import Footprint, SemanticSpace, SourceRange
 from megatoken.memory.growth import GrowthPolicy
 from megatoken.memory.recipe import (
-    RetrievalRecipe, checkpoint_bank, validate_checkpoint,
+    RetrievalRecipe,
+    checkpoint_bank,
+    validate_checkpoint,
 )
 from megatoken.memory.sqlite import SQLiteKB
 from megatoken.model.config import ModelConfig
 from megatoken.training.checkpoint import (
-    load_checkpoint, resolve_checkpoint, save_checkpoint,
+    load_checkpoint,
+    resolve_checkpoint,
+    save_checkpoint,
 )
 
 

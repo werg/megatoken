@@ -1,5 +1,4 @@
 """Predecoder acoustic trace is exact and never feeds a transcript into native R."""
-from types import SimpleNamespace
 
 import pytest
 import torch

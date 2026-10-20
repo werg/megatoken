@@ -12,7 +12,8 @@ from hashlib import sha256
 from pathlib import Path
 
 from megatoken.data.document_embeddings import (
-    DocumentEmbeddingExample, write_document_sidecar,
+    DocumentEmbeddingExample,
+    write_document_sidecar,
 )
 from megatoken.data.retrieval import RetrievalExample, write_sidecar
 from megatoken.data.storage import PreparedDataset

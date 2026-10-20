@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from retrieval_fixture import SCOPE, live_kb_train_config
 
 from megatoken.memory.contracts import Collection
 from megatoken.memory.recipe import RetrievalRecipe, open_bank_for_recipe
@@ -23,8 +24,6 @@ from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.config import DecoupledConfig
 from megatoken.training.diloco_server import serve_coordinator
 from megatoken.training.engine import train
-
-from retrieval_fixture import SCOPE, live_kb_train_config
 
 
 def _rows(path, recipe):
