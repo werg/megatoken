@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import math
 import os
 import signal
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -29,18 +28,12 @@ from megatoken.io import content_hash, sha256_file, write_json
 from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
-from megatoken.tool_schema import (
-    compile_tool_spec,
-    matching_schema,
-    recent_copy_sources,
-    supervised_bindings,
-)
 from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.distributed import DistributedContext
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
-from megatoken.training.history import NativeHistory, replay_raw_tape
+from megatoken.training.history import NativeHistory
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import (
     MeridianPreparedBatch,
@@ -61,17 +54,7 @@ from megatoken.training.stream import (
     MixtureWindowStream,
     IndependentWindowStream,
     WindowStream,
-    compatible_batches,
 )
-
-
-@dataclass
-class PreparedBatch:
-    windows: list[EpisodeWindow]
-    targets: dict[int, Any]
-    counts: dict[str, int]
-    effort: int = 6
-    native_history: NativeHistory | None = None
 
 
 def ingest_records(
@@ -193,316 +176,111 @@ def make_training_control(
 
 def prepare_batches(
     model: Any, windows: list[EpisodeWindow], config: TrainConfig
-) -> list[PreparedBatch]:
-    result = []
-    raw_windows, action_windows, meridian_windows = [], [], []
-    native_histories: dict[int, NativeHistory] = {}
+) -> list[MeridianPreparedBatch]:
+    """Only native grouped-meridian episodes are valid training examples.
+
+    Earlier ungrouped/action fallback batching is removed, rather than silently
+    applying a different loss/history schedule without retrieval-memory.
+    """
+    result: list[MeridianPreparedBatch] = []
+    histories: dict[int, NativeHistory] = {}
+    verified_streams = {
+        "verified_trajectories", "verified_successful_multiturn",
+        "tested_artifacts", "successful_replay", "long_verified_dependencies",
+    }
     for item in windows:
-        if id(item.episode) not in native_histories:
-            native_histories[id(item.episode)] = NativeHistory.from_episode(item.episode, model)
+        episode = item.episode
+        if not episode.meridians:
+            raise ValueError(
+                "Training requires causal native meridians and retrieval sidecar; "
+                "reprepare this old ungrouped episode"
+            )
         if any(
             len(record.payload) > config.max_record_bytes
             for record in (*item.window.prefix, *item.window.records)
         ):
-            raise ValueError(
-                "A physical record exceeds max_record_bytes; prepare at the configured byte limit"
-            )
-        verified_streams = {
-            "verified_trajectories",
-            "verified_successful_multiturn",
-            "tested_artifacts",
-            "successful_replay",
-            "long_verified_dependencies",
-        }
-        if (
-            not config.allow_unverified_data
-            and item.episode.stream in verified_streams
-            and not item.episode.supervision.verified_success
-        ):
-            raise ValueError(
-                f"Stream {item.episode.stream} requires independent success verification"
-            )
-        if item.episode.stream == "long_verified_dependencies" and not item.episode.dependencies:
-            raise ValueError(
-                "Long dependency data requires explicit causal writer/reader annotations"
-            )
-        if item.episode.meridians:
-            meridian_windows.append(item)
-        elif native_histories[id(item.episode)].has_events or (
-            item.episode.tools_json != "[]"
-            and any(record.record.action_id for record in item.window.records)
-        ):
-            action_windows.append(item)
-        else:
-            raw_windows.append(item)
-    batches = compatible_batches(raw_windows, config.microbatch_episodes) + [
-        [item] for item in action_windows
-    ]
-    for batch in batches:
-        targets = {}
-        counts = dict.fromkeys(DEFAULT_LOSS_WEIGHTS, 0)
-        for offset in range(len(batch[0].window.records)):
-            records = [item.window.records[offset] for item in batch]
-            if not any(record.record.policy_mask for record in records):
-                continue
-            if not all(record.record.policy_mask for record in records):
-                raise ValueError("Incompatible record ownership in a supervised microbatch")
-            largest = max(len(record.token_ids) for record in records)
-            if largest > config.generated_capacity:
-                raise ValueError(
-                    f"Target has {largest} codec positions, exceeding generated_capacity="
-                    f"{config.generated_capacity}; prepare smaller physical records or "
-                    "explicitly raise the trained capacity"
-                )
-            capacity = min(
-                config.generated_capacity, max(1, 2 ** math.ceil(math.log2(max(1, largest))))
-            )
-            plan = None
-            native_tapes = [
-                native_histories[id(item.episode)].paired_tape(item.window.start + offset)
-                for item in batch
-            ]
-            if (
-                len(batch) == 1
-                and batch[0].episode.tools_json != "[]"
-                and records[0].record.action_id
-                and records[0].record.part_count == 1
-            ):
-                item, record = batch[0], records[0]
-                spec = compile_tool_spec(
-                    item.episode.tools_json,
-                    config.generated_capacity,
-                    wire_formats=("canonical", "openai", "anthropic"),
-                )
-                earlier = [
-                    entry.payload for entry in (*item.window.prefix, *item.window.records[:offset])
-                ]
-                spec = dataclasses.replace(spec, copy_sources=recent_copy_sources(earlier))
-                schema_index = matching_schema(spec, record.payload)
-                if schema_index is not None:
-                    bindings = supervised_bindings(spec, schema_index, record.payload)
-                    for layout in range(len(spec.schemas[schema_index].orders)):
-                        options = {
-                            "spec": spec,
-                            "schema_index": schema_index,
-                            "bindings": bindings,
-                            "layout": layout,
-                            "representation_mode": config.representation_training,
-                        }
-                        candidate = model.prepare_action_target(record.payload, **options)
-                        # Preserve immutable original history. Serialization
-                        # variants not represented by a public schema use raw CE.
-                        if candidate.payload == record.payload:
-                            # Native pairs must match the exact selected wire
-                            # layout. Do not validate against rejected candidate
-                            # serializations encountered while searching it.
-                            plan = (
-                                model.prepare_action_target(
-                                    record.payload, **options, native_tape=native_tapes[0]
-                                )
-                                if native_tapes[0] is not None
-                                else candidate
-                            )
-                            break
-            if plan is None:
-                plan = model.prepare_target(
-                    [record.token_ids for record in records],
-                    free_mask=[record.free_mask for record in records],
-                    capacity=capacity,
-                    terminal=[
-                        record.record.part_index + 1 == record.record.part_count
-                        for record in records
-                    ],
-                    representation_mode=config.representation_training,
-                    native_tapes=native_tapes,
-                )
-            targets[offset] = plan
-            for name, count in plan.denominators.items():
-                counts[name] += count
-        effort = config.effort
-        if config.use_effort_mixture:
-            mixture = stage_recipe(config.phase).effort_mix
-            choices = sorted(mixture)
-            effort = choices[
-                int(torch.multinomial(torch.tensor([mixture[key] for key in choices]), 1))
-            ]
-        native = native_histories[id(batch[0].episode)]
-        result.append(
-            PreparedBatch(batch, targets, counts, effort, native if native.has_events else None)
-        )
-    for item in meridian_windows:
-        result.append(
-            prepare_meridian_batch(model, item, native_histories[id(item.episode)], config)
-        )
+            raise ValueError("A native record exceeds the configured original-byte limit")
+        if (not config.allow_unverified_data and episode.stream in verified_streams
+                and not episode.supervision.verified_success):
+            raise ValueError("Training stream requires independent verified success")
+        if episode.stream == "long_verified_dependencies" and not episode.dependencies:
+            raise ValueError("Long dependency stream requires causal source relationships")
+        identity = id(episode)
+        if identity not in histories:
+            histories[identity] = NativeHistory.from_episode(episode, model)
+        result.append(prepare_meridian_batch(
+            model, item, histories[identity], config
+        ))
     return result
 
 
-def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Counters:
+def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     result = Counters()
     for batch in batches:
         for item in batch.windows:
             window = item.window
             prefix_tokens = sum(record.tokens for record in window.prefix)
             new_tokens = sum(record.tokens for record in window.records)
-            result.add(
-                Counters(
-                    D=new_tokens,
-                    I=new_tokens + prefix_tokens,
-                    G=len(window.records),
-                    source_bytes=sum(
-                        len(record.payload) for record in (*window.prefix, *window.records)
-                    ),
-                    record_ingestions=len(window.prefix) + len(window.records),
-                    reconstruction_tokens=prefix_tokens,
-                    reconstruction_records=len(window.prefix),
-                    scored_windows=int(bool(window.P)),
-                    writer_reader_windows=int(bool(window.writer_reader_pairs)),
-                )
-            )
-        if isinstance(batch, MeridianPreparedBatch):
-            for step in batch.steps:
-                for modality, record in zip(step.modalities, step.records, strict=True):
-                    if modality not in {"audio", "image", "video"}:
-                        continue
-                    reference = MediaRecord.from_bytes(record.payload)
-                    result.media_events += 1
-                    asset = reference.target or reference.source
-                    if modality == "audio" and asset.kind == "raw":
-                        result.audio_samples += asset.shape[0]
-                    elif modality == "video" and asset.kind == "raw":
-                        result.video_frames += asset.shape[0]
-                    elif modality == "image":
-                        result.image_events += 1
-            result.P += sum(
-                plan.scored_positions for step in batch.steps for plan in step.plans
-            )
-            result.facet_encodes += sum(len(step.plans) for step in batch.steps)
-            if batch.native_history.has_events:
-                for step in (*batch.prefix, *batch.steps):
-                    for cursor in step.offsets:
-                        result.raw_facet_replays += len(
-                            batch.native_history.events_for_record(
-                                cursor, include_record=False,
-                            )
-                        ) + int(batch.native_history.paired_tape(cursor) is not None)
-            if any(episode_control_payload(item.episode) for item in batch.windows):
-                result.control_encodes += sum(len(step.plans) for step in batch.steps)
-            continue
-        result.P += sum(plan.scored_positions for plan in batch.targets.values())
-        result.facet_encodes += sum(len(batch.windows) for _ in batch.targets)
-        if batch.native_history is not None:
-            window = batch.windows[0].window
-            for cursor in range(window.end):
-                events = batch.native_history.events_for_record(
-                    cursor,
-                    include_record=(
-                        cursor < window.start or cursor - window.start not in batch.targets
-                    ),
-                )
-                result.raw_facet_replays += len(events)
+            result.add(Counters(
+                D=new_tokens,
+                I=new_tokens + prefix_tokens,
+                G=len(window.records),
+                source_bytes=sum(
+                    len(record.payload) for record in (*window.prefix, *window.records)
+                ),
+                record_ingestions=len(window.prefix) + len(window.records),
+                reconstruction_tokens=prefix_tokens,
+                reconstruction_records=len(window.prefix),
+                scored_windows=int(bool(window.P)),
+                writer_reader_windows=int(bool(window.writer_reader_pairs)),
+            ))
+        for step in batch.steps:
+            for modality, record in zip(step.modalities, step.records, strict=True):
+                if modality not in {"audio", "image", "video"}:
+                    continue
+                reference = MediaRecord.from_bytes(record.payload)
+                result.media_events += 1
+                asset = reference.target or reference.source
+                if modality == "audio" and asset.kind == "raw":
+                    result.audio_samples += asset.shape[0]
+                elif modality == "video" and asset.kind == "raw":
+                    result.video_frames += asset.shape[0]
+                elif modality == "image":
+                    result.image_events += 1
+        result.P += sum(
+            plan.scored_positions for step in batch.steps for plan in step.plans
+        )
+        result.facet_encodes += sum(len(step.plans) for step in batch.steps)
+        if batch.native_history.has_events:
+            for step in (*batch.prefix, *batch.steps):
+                for cursor in step.offsets:
+                    result.raw_facet_replays += len(
+                        batch.native_history.events_for_record(
+                            cursor, include_record=False,
+                        )
+                    ) + int(batch.native_history.paired_tape(cursor) is not None)
         if any(episode_control_payload(item.episode) for item in batch.windows):
-            result.control_encodes += len(batch.windows)
+            result.control_encodes += sum(len(step.plans) for step in batch.steps)
     return result
 
 
 def forward_batch(
     model: Any,
-    batch: PreparedBatch | MeridianPreparedBatch,
+    batch: MeridianPreparedBatch,
     ledger: LossLedger,
     config: TrainConfig,
     device: torch.device,
     model_version: int,
-    retrieval_aux=None,
+    retrieval_aux: Any,
 ) -> dict[str, float | torch.Tensor]:
-    if isinstance(batch, MeridianPreparedBatch):
-        return forward_meridian_batch(
-            model, batch, ledger, config, device, model_version, retrieval_aux
+    if not isinstance(batch, MeridianPreparedBatch) or retrieval_aux is None:
+        raise ValueError(
+            "The legacy trainer is deleted; native meridians, retrieval sidecars "
+            "and a pinned semantic recipe are required"
         )
-    if retrieval_aux is not None:
-        raise ValueError("Retrieval sidecars require native meridian episodes")
-    state = model.core.initial_state(len(batch.windows), device=device, model_version=model_version)
-    with torch.no_grad():
-        for offset in range(len(batch.windows[0].window.prefix)):
-            if batch.native_history is not None:
-                for tape in batch.native_history.events_for_record(offset, include_record=True):
-                    state = replay_raw_tape(model, state, tape)
-                if batch.native_history.has_generated_record(offset):
-                    continue
-            state = ingest_records(
-                model, state, [item.window.prefix[offset] for item in batch.windows], device
-            )
-    control, teacher_control_examples = make_training_control(
-        model, batch.windows, device, recurrent=config.representation_training == "recurrent"
+    return forward_meridian_batch(
+        model, batch, ledger, config, device, model_version, retrieval_aux
     )
-    losses = []
-    metrics: dict[str, float | torch.Tensor] = {
-        "noisy_trajectory_control_examples": teacher_control_examples,
-    }
-    for offset in range(len(batch.windows[0].window.records)):
-        records = [item.window.records[offset] for item in batch.windows]
-        cursor = batch.windows[0].window.start + offset
-        if batch.native_history is not None:
-            for tape in batch.native_history.events_for_record(
-                cursor, include_record=offset not in batch.targets
-            ):
-                state = replay_raw_tape(model, state, tape)
-        if offset in batch.targets:
-            roles = torch.tensor(
-                [ROLE_TO_ID[record.record.role] for record in records], device=device
-            )
-            plan = batch.targets[offset]
-            # The recorded tool result is only causally compatible with its
-            # recorded action. Preserve that action's native raw tape when
-            # available, otherwise teacher-force E(recorded action) solely for
-            # the *successor* state. The sampled prior branch still receives
-            # its own ordinary lexical supervision.
-            teacher_forced_action = any(
-                (action_id := item.window.records[offset].record.action_id) is not None
-                and any(
-                    future.result_of == action_id for future in item.episode.records[cursor + 1 :]
-                )
-                for item in batch.windows
-            )
-            if hasattr(plan, "spec"):
-                step = model.supervised_action(
-                    state,
-                    plan=plan,
-                    effort=batch.effort,
-                    control=control,
-                    teacher_forced_action=teacher_forced_action,
-                )
-            else:
-                step = model.supervised_step(
-                    state,
-                    plan=plan,
-                    effort=batch.effort,
-                    control=control,
-                    role_ids=roles,
-                    teacher_forced_action=teacher_forced_action,
-                )
-            state = step.state
-            losses.append(ledger.backward_loss(step.losses))
-            for key, value in step.metrics.items():
-                if isinstance(value, (float, int, torch.Tensor)):
-                    metrics[key] = metrics.get(key, 0.0) + (
-                        value.detach() if isinstance(value, torch.Tensor) else value
-                    )
-        else:
-            if batch.native_history is not None and batch.native_history.has_generated_record(
-                cursor
-            ):
-                continue
-            state = ingest_records(
-                model,
-                state,
-                records,
-                device,
-                encoder_grad=config.representation_training == "bootstrap",
-            )
-    if losses:
-        torch.stack(losses).sum().backward()
-    # Retain graph only inside this differentiable writer-to-reader window.
-    return metrics
 
 
 def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transition: bool) -> None:
@@ -624,56 +402,54 @@ def train(
             "checkpoint_stages": config.gradient_checkpointing,
         }
         model_config = load_model_config(config.model, **overrides)
-        retrieval_recipe = None
-        retrieval_examples = {}
-        if config.retrieval_sidecar:
-            from megatoken.data.retrieval import read_sidecar
-            from megatoken.memory.recipe import RetrievalRecipe
+        from megatoken.data.retrieval import read_sidecar
+        from megatoken.memory.recipe import RetrievalRecipe
 
-            retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
-            if retrieval_recipe.model.to_dict() != model_config.to_dict():
-                raise ValueError("Training model differs from pinned recipe geometry")
-            if (
-                retrieval_recipe.space.teacher_revision.startswith("PIN_")
-                or retrieval_recipe.growth.partition_id.startswith("PIN_")
+        retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
+        retrieval_examples = {}
+        retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
+        if retrieval_recipe.model.to_dict() != model_config.to_dict():
+            raise ValueError("Training model differs from pinned recipe geometry")
+        if (
+            retrieval_recipe.space.teacher_revision.startswith("PIN_")
+            or retrieval_recipe.growth.partition_id.startswith("PIN_")
+        ):
+            raise ValueError("Pin teacher and data partition before training")
+        if retrieval_recipe.phase != "coherence_embedding":
+            if retrieval_recipe.phase not in {
+                "progressive_warmup", "free_kb_pretraining",
+            } or not config.retrieval_bank or not config.retrieval_gate_receipt:
+                raise ValueError("Live free-KB phases require a bank and phase gate")
+            if config.decoupled is not None:
+                raise ValueError("Free-KB training requires synchronous sparse-row ownership")
+            from megatoken.memory.recipe import GateReceipt, validate_gate
+            gate = json.loads(Path(config.retrieval_gate_receipt).read_text())
+            receipt = GateReceipt(**{
+                **gate, "successful": tuple(gate["successful"])
+            })
+            if receipt.phase != retrieval_recipe.phase:
+                raise ValueError("Retrieval phase gate must match training phase")
+            validate_gate(retrieval_recipe, receipt)
+        elif config.retrieval_bank:
+            raise ValueError("Coherence embedding bootstrap must not train free-KB rows")
+        for example in read_sidecar(config.retrieval_sidecar):
+            identity = (example.episode_id, example.event_id)
+            if identity in retrieval_examples:
+                raise ValueError("Duplicate retrieval event identity")
+            if example.query.space_fingerprint != retrieval_recipe.space.fingerprint:
+                raise ValueError("Sidecar semantic space differs from recipe")
+            if example.teacher_target is None or (
+                len(example.teacher_target) != retrieval_recipe.space.dimension
             ):
-                raise ValueError("Pin teacher and data partition before training")
-            if retrieval_recipe.phase != "coherence_embedding":
-                if retrieval_recipe.phase not in {
-                    "progressive_warmup", "free_kb_pretraining",
-                } or not config.retrieval_bank or not config.retrieval_gate_receipt:
-                    raise ValueError("Live free-KB phases require a bank and phase gate")
-                if config.decoupled is not None:
-                    raise ValueError("Free-KB training requires synchronous sparse-row ownership")
-                from megatoken.memory.recipe import GateReceipt, validate_gate
-                gate = json.loads(Path(config.retrieval_gate_receipt).read_text())
-                receipt = GateReceipt(**{
-                    **gate, "successful": tuple(gate["successful"])
-                })
-                if receipt.phase != retrieval_recipe.phase:
-                    raise ValueError("Retrieval phase gate must match training phase")
-                validate_gate(retrieval_recipe, receipt)
-            elif config.retrieval_bank:
-                raise ValueError("Coherence embedding bootstrap must not train free-KB rows")
-            for example in read_sidecar(config.retrieval_sidecar):
-                identity = (example.episode_id, example.event_id)
-                if identity in retrieval_examples:
-                    raise ValueError("Duplicate retrieval event identity")
-                if example.query.space_fingerprint != retrieval_recipe.space.fingerprint:
-                    raise ValueError("Sidecar semantic space differs from recipe")
-                if example.teacher_target is None or (
-                    len(example.teacher_target) != retrieval_recipe.space.dimension
-                ):
-                    raise ValueError("Teacher query target is missing or wrong width")
-                # Reject legacy sidecars that contain a teacher query target
-                # but no causal main request. Training on answer facets would
-                # turn the retrieval realizer into an answer embedding head.
-                example.request_content()
-                retrieval_examples[identity] = example
-        retrieval_sidecar_sha = (
-            sha256_file(Path(config.retrieval_sidecar))
-            if retrieval_recipe is not None else ""
-        )
+                raise ValueError("Teacher query target is missing or wrong width")
+            # Reject legacy sidecars that contain a teacher query target
+            # but no causal main request. Training on answer facets would
+            # turn the retrieval realizer into an answer embedding head.
+            example.request_content()
+            retrieval_examples[identity] = example
+        if not retrieval_examples:
+            raise ValueError("A mandatory retrieval training sidecar cannot be empty")
+        retrieval_sidecar_sha = sha256_file(Path(config.retrieval_sidecar))
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
@@ -685,7 +461,7 @@ def train(
             if not phase_transition and (
                 payload.get("retrieval_sidecar_sha256", "") != retrieval_sidecar_sha
                 or payload.get("retrieval_recipe_fingerprint", "") != (
-                    retrieval_recipe.fingerprint if retrieval_recipe is not None else ""
+                    retrieval_recipe.fingerprint
                 )
             ):
                 raise ValueError("Exact resume changed retrieval supervision or recipe identity")
@@ -700,7 +476,7 @@ def train(
             from megatoken.assets import install_engram_asset
 
             install_engram_asset(model, config.engram_import)
-        if retrieval_recipe is not None and config.retrieval_bank:
+        if config.retrieval_bank:
             from megatoken.memory.recipe import open_bank_for_recipe, validate_checkpoint
             from megatoken.training.bank import BankTrainingOwner
 
@@ -925,9 +701,7 @@ def train(
                         "train_config": asdict(config),
                         "codec_fingerprint": codec.fingerprint,
                         "retrieval_sidecar_sha256": retrieval_sidecar_sha,
-                        "retrieval_recipe_fingerprint": (
-                            retrieval_recipe.fingerprint if retrieval_recipe is not None else ""
-                        ),
+                        "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
                         "chunking": chunking_identity,
                         "rank_state": rank_state,
                         "global_step": global_step,
@@ -1001,17 +775,15 @@ def train(
                 key: sum(batch.counts[key] for batch in batches) for key in DEFAULT_LOSS_WEIGHTS
             }
             global_counts = context.sum_counts(local_counts)
-            retrieval_denom = 0
-            if retrieval_recipe is not None:
-                retrieval_local = sum(
-                    (b.windows[0].episode.episode_id, r.record.record_id)
-                    in retrieval_examples
-                    for b in batches if isinstance(b, MeridianPreparedBatch)
-                    for step in b.steps if step.generated for r in step.records
-                )
-                retrieval_denom = context.sum_counts(
-                    {"retrieval_queries": retrieval_local}
-                )["retrieval_queries"]
+            retrieval_local = sum(
+                (b.windows[0].episode.episode_id, r.record.record_id)
+                in retrieval_examples
+                for b in batches if isinstance(b, MeridianPreparedBatch)
+                for step in b.steps if step.generated for r in step.records
+            )
+            retrieval_denom = context.sum_counts(
+                {"retrieval_queries": retrieval_local}
+            )["retrieval_queries"]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -1019,20 +791,17 @@ def train(
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
             weights = dict(config.loss_weights)
-            if config.router_balance_mode == "global":
-                # Old per-operation local term is deliberately disabled.
-                weights["router_balance"] = 0.0
+            # The old per-operation router loss has been replaced.
+            weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
-            router_replay = None
-            if config.router_balance_mode == "global":
-                from megatoken.training.router_balance import RouterBalanceWindow
+            from megatoken.training.router_balance import RouterBalanceWindow
 
-                router_replay = RouterBalanceWindow(
-                    max_assignments=config.router_replay_assignments
-                )
-                model.core.p_router.balance_recorder = router_replay
-                model.core.u_router.balance_recorder = router_replay
+            router_replay = RouterBalanceWindow(
+                max_assignments=config.router_replay_assignments
+            )
+            model.core.p_router.balance_recorder = router_replay
+            model.core.u_router.balance_recorder = router_replay
             learning_rate = phase.learning_rate(
                 diloco.global_tokens if diloco is not None else consumed
             )
@@ -1042,7 +811,7 @@ def train(
             for batch in batches:
                 diagnostics_batch = forward_batch(
                     model, batch, ledger, config, context.device, global_step,
-                    retrieval_aux=None if retrieval_recipe is None else (
+                    retrieval_aux=(
                         retrieval_examples, retrieval_recipe, retrieval_denom, bank_owner
                     ),
                 )
