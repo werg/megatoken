@@ -228,6 +228,17 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
             raise ValueError("Pinned media feature revision/width differs from model")
     target = reference.target
     pretrained = target.kind == "codec_latents"
+    if pretrained and hasattr(model, "media_realizers"):
+        resident = model.media_realizers.pretrained
+        owner = ("pocket" if modality == "audio" else
+                 "sana" if modality == "image" else "sana_video")
+        if owner not in resident:
+            raise ValueError(f"Missing matched {owner} native generator/codec pack")
+        expected = getattr(resident[owner], "checkpoint_identity", "")
+        if not expected or reference.codec_sha256 != expected:
+            raise ValueError(
+                "Media target codec identity differs from loaded pretrained pack"
+            )
     renderer = (
         "pocket" if modality == "audio" else
         "sana" if modality == "image" else "sana_video"

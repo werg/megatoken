@@ -168,8 +168,13 @@ class MediaRecord:
     version: int = MEDIA_RECORD_VERSION
     source_views: tuple[TensorAsset, ...] = ()
     output_geometry: OutputGeometry | None = None
+    codec_sha256: str = ""
 
     def __post_init__(self) -> None:
+        if self.codec_sha256:
+            _sha(self.codec_sha256)
+            if self.version != MEDIA_RECORD_VERSION or self.target is None or self.target.kind != "codec_latents":
+                raise ValueError("Codec lock identity requires a versioned native latent target")
         if self.output_geometry is not None:
             if self.version != MEDIA_RECORD_VERSION or self.output_geometry.modality != self.modality:
                 raise ValueError("Output geometry requires a matching v2 media record")
@@ -192,6 +197,8 @@ class MediaRecord:
         data = asdict(self)
         if self.output_geometry is None:
             data.pop("output_geometry")
+        if not self.codec_sha256:
+            data.pop("codec_sha256")
         if self.version == 1:
             data.pop("source_views")
             for field in ("source", "target"):
@@ -207,7 +214,7 @@ class MediaRecord:
             raise ValueError("Media descriptor must be bounded canonical JSON bytes")
         value = strict_json_loads(payload)
         required = {"modality", "source", "target", "version"}
-        optional = {"source_views", "output_geometry"}
+        optional = {"source_views", "output_geometry", "codec_sha256"}
         if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
             raise ValueError("Media record has incomplete or unknown fields")
         if canonical_json(value) != payload:
@@ -229,6 +236,7 @@ class MediaRecord:
                 None if value.get("output_geometry") is None
                 else OutputGeometry(**value["output_geometry"])
             ),
+            codec_sha256=value.get("codec_sha256", ""),
         )
 
 

@@ -11,6 +11,7 @@ import argparse
 import json
 from dataclasses import asdict
 from pathlib import Path
+import hashlib
 
 import numpy as np
 import torch
@@ -151,6 +152,12 @@ def cache_codec(
         modality=modality, source=input_ref, target=target_ref,
         source_views=(target_ref,) if mode == "pocket" else (),
         output_geometry=geometry,
+        codec_sha256=hashlib.sha256(
+            json.dumps(
+                {"revision": packs[mode]["revision"], "files": packs[mode]["files"]},
+                sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest(),
     )
 
 
