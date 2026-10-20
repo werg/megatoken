@@ -28,6 +28,8 @@ class RetrievalExample:
     split_family: str
     teacher_target: tuple[float, ...] | None = None
     main_request_b64: str | None = None
+    pair_context_complete: bool = False
+    pair_support_units: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.episode_id or self.event_id != self.query.event_id:
@@ -53,6 +55,14 @@ class RetrievalExample:
             raise ValueError("Retrieved source context/support is not causally eligible")
         if self.main_request_b64 is not None:
             self.request_content()
+        if self.pair_support_units:
+            causal_sources = {
+                span.source_id for span in self.query_teacher_inputs.ranges
+            }
+            if len(set(self.pair_support_units)) != len(self.pair_support_units) or (
+                not set(self.pair_support_units).issubset(causal_sources)
+            ):
+                raise ValueError("Pair support units must be distinct causal prefix sources")
         if len(self.positive_content_ids) != len(self.support_weights):
             raise ValueError("Annotation IDs and weights must correspond")
         if len(set(self.positive_content_ids)) != len(self.positive_content_ids):
@@ -95,7 +105,7 @@ class RetrievalExample:
         for field in ("query_teacher_inputs", "document_key_context",
                       "optimization_supervision", "payload_support"):
             data[field] = Footprint.from_json(data[field])
-        for field in ("positive_content_ids", "support_weights"):
+        for field in ("positive_content_ids", "support_weights", "pair_support_units"):
             data[field] = tuple(data[field])
         if data["teacher_target"] is not None:
             data["teacher_target"] = tuple(data["teacher_target"])
