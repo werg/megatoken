@@ -712,6 +712,7 @@ def train(
                 source_features = NativeSourceFeatures(
                     model, config.retrieval_source_assets_root,
                     max_chunk_bytes=retrieval_recipe.max_source_bytes,
+                    strict_hash=True,
                 )
                 bank_owner = BankTrainingOwner(
                     bank, retrieval_recipe, device=context.device,
