@@ -407,7 +407,6 @@ def train(
 
         retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
         retrieval_examples = {}
-        retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
         if retrieval_recipe.model.to_dict() != model_config.to_dict():
             raise ValueError("Training model differs from pinned recipe geometry")
         if (
