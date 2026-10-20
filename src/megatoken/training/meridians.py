@@ -346,6 +346,18 @@ def prepare_meridian_batch(
     validated Episode meridians.
     """
     window, episode = item.window, item.episode
+    if config.concordance_recipe is not None:
+        selected_media = {
+            record.record_id for record in episode.records[window.start:window.end]
+            if record.policy_mask
+        }
+        count = sum(
+            event.record_id in selected_media
+            and event.modality in {"audio", "image", "video"}
+            for meridian in episode.meridians for event in meridian.events
+        )
+        if count > config.max_media_events_per_window:
+            raise ValueError("Prepared concordance window exceeds the event-level media cap")
     if not episode.meridians:
         raise ValueError("Meridian preparation requires explicit causal groups")
     encoded = (*window.prefix, *window.records)

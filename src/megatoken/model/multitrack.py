@@ -1130,6 +1130,8 @@ class MultiTrackGenerator:
             "facet_prediction_coordinates": counts["facet_prediction"],
             "encoder_alignment_loss_sum": alignment.detach(),
             "encoder_alignment_coordinates": counts["encoder_alignment"],
+            "relation_semantic_loss_sum": relation_loss.detach(),
+            "relation_semantic_pairs": relation_count,
             "prediction_facet_norm_sum": mean.detach().float().flatten(2).norm(dim=-1).sum(),
             "encoded_facet_norm_sum": target_raw.detach().float().flatten(2).norm(dim=-1).sum(),
             "facet_alignment_squared_error_sum": (

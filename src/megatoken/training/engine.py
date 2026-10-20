@@ -679,6 +679,12 @@ def train(
         data_world = config.decoupled.workers if config.decoupled else context.world_size
         if config.omni_recipe is not None and config.concordance_recipe is not None:
             raise ValueError("Select one of omni_recipe and concordance_recipe per run")
+        concordance_recipe = (
+            load_concordance_recipe(config.concordance_recipe)
+            if config.concordance_recipe is not None else None
+        )
+        if concordance_recipe is not None and phase.meter != "G":
+            raise ValueError("Concordance tasks must use event-based G training budgets")
         if config.omni_recipe is not None:
             from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
             stream = OmniWindowStream(
@@ -688,14 +694,8 @@ def train(
                 reduce_counts=context.sum_counts,
                 independent=config.decoupled is not None,
             )
-        elif config.use_stage_mixture or config.concordance_recipe is not None:
-            if config.concordance_recipe is not None and phase.meter != "G":
-                raise ValueError("Concordance tasks must use event-based G training budgets")
-            recipe = (
-                load_concordance_recipe(config.concordance_recipe)
-                if config.concordance_recipe is not None
-                else stage_recipe(config.phase)
-            )
+        elif config.use_stage_mixture or concordance_recipe is not None:
+            recipe = concordance_recipe if concordance_recipe is not None else stage_recipe(config.phase)
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
@@ -882,6 +882,11 @@ def train(
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
             weights = dict(config.loss_weights)
+            if concordance_recipe is not None:
+                # Reconstruction and distillation are auxiliaries, not extra mixture rows.
+                for name in ("reconstruction", "audio_reconstruction",
+                             "visual_reconstruction", "encoder_alignment"):
+                    weights[name] *= concordance_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
             learning_rate = phase.learning_rate(

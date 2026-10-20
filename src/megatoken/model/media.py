@@ -65,8 +65,11 @@ class MediaOutputSpec:
         if self.latent_shape and any(type(n) is not int or n < 1 for n in self.latent_shape):
             raise ValueError("Invalid native latent target dimensions")
         if self.modality == "audio":
-            if not 1 <= self.sample_count <= self.sample_rate * 60:
-                raise ValueError("Audio output must contain 1 to 60 seconds at 16 kHz")
+            limit = 120 if self.codec_id else 60
+            if self.codec_id and self.sample_rate not in (16000, 24000):
+                raise ValueError("Native speech needs a supported sample rate")
+            if not 1 <= self.sample_count <= self.sample_rate * limit:
+                raise ValueError("Audio output exceeds the declared renderer duration limit")
         elif self.modality in {"image", "video"}:
             if (
                 not 1 <= self.frames <= (32 if self.renderer == "native" and not self.codec_id else 193)
@@ -77,6 +80,8 @@ class MediaOutputSpec:
                 raise ValueError("Visual output exceeds the native baseline's bounds")
         else:
             raise ValueError("Media output must be audio, image or video")
+        if self.modality == "video" and self.codec_id and self.fps_num <= 0:
+            raise ValueError("Native video output requires its display frame clock")
 
 
 def validate_public_media_spec(spec: MediaOutputSpec) -> None:
@@ -146,11 +151,13 @@ class MediaTrainTarget:
                 raise ValueError("Codec target mask must be nonempty boolean")
         if len(self.views) != len(self.view_kinds) or len(self.views) != len(self.view_extractors):
             raise ValueError("Every external view needs a kind and extractor identity")
+        if any(not torch.isfinite(view).all() for view in self.views):
+            raise ValueError("Prepared source views must be finite")
         if self.source_masks and len(self.source_masks) != len(self.views) + 1:
             raise ValueError("Source view masks must cover source plus every extra view")
         if self.source.shape[0] != 1 or not self.source.is_floating_point():
             raise ValueError("Media source tensor must have one batch row")
-        if self.source_kind not in {"raw", "features"} or (
+        if self.source_kind not in {"raw", "features", "codec_latents"} or (
             self.source_kind == "features" and not self.extractor
         ) or (self.source_kind == "raw" and self.extractor):
             raise ValueError("Media source kind and extractor identity disagree")
