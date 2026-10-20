@@ -1,14 +1,15 @@
 """Strict retrieval-memory curriculum, phase gate, and coherent KB artifact manifests."""
+
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from hashlib import sha256
 import argparse
 import json
+from dataclasses import asdict, dataclass, field
+from hashlib import sha256
 from pathlib import Path
 
-from megatoken.model.config import ARCHITECTURE_VERSION, ModelConfig
 from megatoken.io import sha256_file
+from megatoken.model.config import ARCHITECTURE_VERSION, ModelConfig
 
 from .contracts import SemanticSpace
 from .growth import GrowthPolicy

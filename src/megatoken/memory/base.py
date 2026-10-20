@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol, Sequence
+
 import numpy as np
 
 from .contracts import Collection, Footprint, Revisions, SemanticSpace, SourceRange, Visibility

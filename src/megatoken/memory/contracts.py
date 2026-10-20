@@ -1,11 +1,12 @@
 """Versioned semantic space, complete provenance, and causal visibility contracts."""
+
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from hashlib import sha256
-import json
-import math
 
 
 class Collection(str, Enum):

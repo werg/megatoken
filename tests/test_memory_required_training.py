@@ -1,12 +1,12 @@
 """Breaking migration: old trainers and memory-disabled checkpoints never run."""
+
 from __future__ import annotations
 
 import argparse
-from hashlib import sha256
 import inspect
+from hashlib import sha256
 
 import pytest
-import torch
 
 from megatoken.cli import parser
 from megatoken.data.document_embeddings import (

@@ -6,10 +6,10 @@ that same actual original source event, not teacher vectors as P inputs.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from hashlib import sha256
 import json
 import math
+from dataclasses import asdict, dataclass
+from hashlib import sha256
 from pathlib import Path
 
 from megatoken.memory.contracts import Footprint, SourceRange, Visibility

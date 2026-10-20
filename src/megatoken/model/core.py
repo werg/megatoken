@@ -15,7 +15,9 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 
 from megatoken.contracts import ROLE_TO_ID
+from megatoken.memory.semantic import MemoryKVProjector
 
+from .adapters import MemoryAdapters
 from .attention import AttentionFeatures, AttentionRead, KVProjection, join_attention
 from .blocks import DenseFacetBlock
 from .config import ModelConfig
@@ -25,8 +27,6 @@ from .ingestion import ChunkEncoder
 from .layers import RMSNorm, SwiGLU
 from .media import MediaStems
 from .routing import EpochRouter, RowRoute
-from .adapters import MemoryAdapters
-from megatoken.memory.semantic import MemoryKVProjector
 from .state import CoreState, KVHistory, RealizationContext, assert_cache_version
 
 ROLE_IDS = ROLE_TO_ID

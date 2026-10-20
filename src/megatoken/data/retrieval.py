@@ -1,12 +1,13 @@
 """Checksummed, source-coordinate sidecars keyed by stable episode/event IDs."""
+
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import base64
 import binascii
-from hashlib import sha256
 import json
 import math
+from dataclasses import asdict, dataclass
+from hashlib import sha256
 from pathlib import Path
 
 from megatoken.memory.contracts import Footprint, QueryBoundary, Visibility

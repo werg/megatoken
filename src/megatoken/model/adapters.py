@@ -1,7 +1,9 @@
 """Independent, context-wide sparse LoRA factor banks shared across native tracks."""
+
 from __future__ import annotations
 
 import math
+
 import torch
 from torch import Tensor, nn
 
