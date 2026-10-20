@@ -699,6 +699,7 @@ class GroupSupervisedResult:
     components: dict[str, Tensor]
     losses: dict[str, tuple[Tensor, int]] | None = None
     metrics: dict[str, Tensor | int | float] | None = None
+    selected_raw: Tensor | None = None
 
 
 @dataclass(frozen=True)
@@ -1091,7 +1092,7 @@ class MultiTrackGenerator:
                 mode == "recurrent" and teacher_forced_action
             ),
         }
-        return GroupSupervisedResult(next_state, weighted, components, losses, metrics)
+        return GroupSupervisedResult(next_state, weighted, components, losses, metrics, sampled)
 
     def supervised_group(
         self,
