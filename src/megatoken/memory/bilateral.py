@@ -7,7 +7,7 @@ be validated BEFORE a learned pair changes either point or pair evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Sequence
+from typing import Protocol, Sequence
 
 import torch
 from torch import Tensor
@@ -19,7 +19,40 @@ from megatoken.memory.reader import EvidenceScores, selected_evidence
 from megatoken.memory.relations import pair_evidence
 from megatoken.memory.semantic import AdmittedGroup, Constituent
 from megatoken.memory.sqlite import SQLiteKB
-from megatoken.training.memory import LocalMemoryWindow
+
+
+
+class SemanticFieldReader(Protocol):
+    def field(self, collection: Collection, kind: str, record_id: int,
+              name: str) -> Tensor: ...
+
+
+class FrozenMemoryFields:
+    """Serve the SAME point/pair semantic values without optimizer leaves."""
+
+    def __init__(self, bank: SQLiteKB, device: torch.device):
+        self.bank, self.device = bank, device
+
+    def field(self, collection: Collection, kind: str,
+              record_id: int, name: str) -> Tensor:
+        if kind == "record":
+            row = self.bank.get(collection, record_id)
+            fields = {
+                "key": row.key, "value": row.value,
+                "strength": row.strength,
+                "lifetime_logit": row.lifetime_logit,
+            }
+        elif kind == "relation" and collection is Collection.MEMORY:
+            row = self.bank.get_relation(record_id)
+            fields = {
+                "value": row.value,
+                "strength": row.strength,
+                "lifetime_logit": row.lifetime_logit,
+                "dependence_logits": row.dependence_logits,
+            }
+        else:
+            raise ValueError("Unknown semantic storage kind")
+        return torch.as_tensor(fields[name], dtype=torch.float32, device=self.device)
 
 
 def _causal_support(record: Record, units: set[str]) -> float:
@@ -29,9 +62,12 @@ def _causal_support(record: Record, units: set[str]) -> float:
 
 
 def selected_joint_groups(
-    *, bank: SQLiteKB, selected: LocalMemoryWindow, query: Tensor,
-    records: Sequence[Record], visibility: Visibility, annotation: RetrievalExample,
+    *, bank: SQLiteKB, selected: SemanticFieldReader, query: Tensor,
+    records: Sequence[Record], visibility: Visibility,
     anchor: int, max_groups: int, threshold: float = 0.25,
+    annotation: RetrievalExample | None = None,
+    pair_support_units: tuple[str, ...] = (),
+    pair_context_complete: bool = False,
 ) -> tuple[tuple[AdmittedGroup, ...], EvidenceScores]:
     """Materialize live point/pair mixtures with exact null and causal support."""
     ordered = tuple(sorted(records, key=lambda row: row.id))
@@ -76,11 +112,14 @@ def selected_joint_groups(
         if edge.left in selected_ids and edge.right in selected_ids
         and visibility.permits(edge.footprint)
     ]
-    support_units = set(annotation.pair_support_units)
-    if support_units and not support_units.issubset({
-        r.source_id for r in annotation.query_teacher_inputs.ranges
-    }):
-        raise ValueError("Unobserved pair evidence must never enter the native reader")
+    if annotation is not None:
+        pair_support_units = annotation.pair_support_units
+        pair_context_complete = annotation.pair_context_complete
+        if not set(pair_support_units).issubset({
+            r.source_id for r in annotation.query_teacher_inputs.ranges
+        }):
+            raise ValueError("Unobserved pair evidence must never enter the native reader")
+    support_units = set(pair_support_units)
     depends: list[Tensor] = []
     priors: list[float] = []
     pair_strengths: list[Tensor] = []
@@ -118,7 +157,7 @@ def selected_joint_groups(
         right_partner.append(prior_left)
         # A fully checked absent endpoint may penalize the point only if the
         # caller has explicitly audited the whole eligible context.
-        checked.append(float(annotation.pair_context_complete))
+        checked.append(float(pair_context_complete))
         distinct.append(float(bool(prior_right or prior_left)))
     point_coeff = scores.coefficient[0]
     pair_coeff = query.new_empty(0)
