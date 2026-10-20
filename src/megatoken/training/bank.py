@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from typing import Any
+from hashlib import sha256
+import json
 
 import numpy as np
 import torch
@@ -17,7 +19,7 @@ from torch import Tensor
 from megatoken.data.retrieval import RetrievalExample
 from megatoken.memory.context import admit_kb
 from megatoken.memory.bilateral import selected_joint_groups
-from megatoken.memory.contracts import Collection, Visibility
+from megatoken.memory.contracts import Collection, Footprint, Visibility
 from megatoken.memory.growth import CatalogChunk, GrowthAllocator
 from megatoken.memory.index import ExactIndex
 from megatoken.memory.optimizer import RowID, SparseRowAdam
@@ -80,6 +82,7 @@ class BankTrainingOwner:
         self.sparse = SparseRowAdam(bank, lr=sparse_lr)
         self.selected = LocalMemoryWindow(self.sparse, "semantic-v1", device)
         self.growth = GrowthAllocator(bank, recipe.growth)
+        self.pairs_created = 0
         self.query_demand = 0
         self.pending_demand: list[tuple[str, str, str, int]] = []
         self.reads = 0
@@ -284,6 +287,31 @@ class BankTrainingOwner:
                 rows, visibility=Visibility(scope, cursor), step=step,
                 budget=max(0, budget - n),
             ))
+            if self.recipe.growth.max_pairs:
+                # Distinct source support windows are durable catalog records
+                # with explicit full-context lineage. Identical source
+                # footprints cannot multiply correlation support by aliasing
+                # window IDs or repeating a source family in the corpus.
+                seen_support: set[str] = set()
+                windows: dict[str, tuple[str, ...]] = {}
+                for item in self.bank.db.execute(
+                    """SELECT window_id,footprint,source_ids FROM source_windows
+                       WHERE scope=? ORDER BY window_id""",
+                    (scope,),
+                ).fetchall():
+                    footprint = Footprint.from_json(item["footprint"])
+                    if not Visibility(scope, cursor).permits(footprint):
+                        continue
+                    signature = sha256(footprint.to_json().encode()).hexdigest()
+                    if signature in seen_support:
+                        continue
+                    seen_support.add(signature)
+                    windows[item["window_id"]] = tuple(json.loads(item["source_ids"]))
+                if windows:
+                    self.pairs_created += len(self.growth.admit_pairs(
+                        windows, scope=scope,
+                        visibility=Visibility(scope, cursor),
+                    ))
             if n >= budget:
                 break
         return n
