@@ -536,11 +536,56 @@ def forward_meridian_batch(
                     value.detach() if isinstance(value, torch.Tensor) else value
                 )
         else:
-            state = multi.tracks.advance_group(
-                state, _actual_raw(
-                    model, step, batch.native_history, store, device,
-                    encoder_grad=config.representation_training == "bootstrap",
+            from megatoken.generation.embedding import EmbeddingSpec
+
+            examples, recipe, _, _, documents, global_docs = retrieval_aux
+            matches = [
+                documents.get((
+                    batch.windows[0].episode.episode_id,
+                    entry.record.record_id,
+                )) for entry in step.records
+            ]
+            source_raw = _actual_raw(
+                model, step, batch.native_history, store, device,
+                encoder_grad=(
+                    config.representation_training == "bootstrap"
+                    or any(x is not None for x in matches)
                 ),
+            )
+            for index, item in enumerate(matches):
+                if item is None:
+                    continue
+                if step.modalities[index] != "text" or step.records[index].record.role != "document":
+                    raise ValueError("Document R targets must attach to real original-source events")
+                item.validate_event(
+                    payload=step.records[index].payload,
+                    clock=int(state.meridians_seen[0]),
+                )
+                if global_docs < 1:
+                    raise RuntimeError("Document teacher has no globally planned loss count")
+                target = torch.as_tensor(
+                    item.teacher_target, device=device, dtype=torch.float32
+                )[None]
+                target = F.normalize(target, dim=-1)
+                output = model.embedding_realizer(
+                    source_raw[:, index],
+                    EmbeddingSpec(recipe.space.fingerprint, "document",
+                                  recipe.space.dimension),
+                )
+                distance = (1 - (output * target).sum(-1)).sum()
+                retrieval_losses.append(
+                    recipe.loss_weights["document_embedding"] *
+                    distance / global_docs
+                )
+                metrics["retrieval_document_embedding_sum"] = (
+                    metrics.get("retrieval_document_embedding_sum", 0.0)
+                    + distance.detach()
+                )
+                metrics["retrieval_document_embedding_count"] = (
+                    metrics.get("retrieval_document_embedding_count", 0) + 1
+                )
+            state = multi.tracks.advance_group(
+                state, source_raw,
                 tracks=step.tracks,
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
                 modalities=step.modalities,
