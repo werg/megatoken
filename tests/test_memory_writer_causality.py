@@ -42,7 +42,7 @@ def test_suffix_writer_reads_permitted_future_evidence_and_keeps_invalid_slots_m
     with torch.no_grad():
         baseline = model(original, mode="suffix", valid_blocks=available)
         future = original.clone()
-        future[:, 3] += 40
+        future[:, 3, 0, 0] += 40
         changed = model(future, mode="suffix", valid_blocks=available)
     assert baseline.valid.tolist() == [[True, True, True, True, False, False]]
     assert not torch.allclose(baseline.value[:, 0], changed.value[:, 0])
