@@ -22,6 +22,7 @@ from megatoken.memory.bilateral import selected_joint_groups
 from megatoken.memory.contracts import Collection, Footprint, Visibility
 from megatoken.memory.growth import CatalogChunk, GrowthAllocator
 from megatoken.memory.index import ExactIndex
+from megatoken.memory.disk_ivf import SQLiteDiskIVF
 from megatoken.memory.optimizer import RowID, SparseRowAdam
 from megatoken.memory.reader import selected_evidence
 from megatoken.memory.retrieval import RetrievalSession
@@ -65,7 +66,8 @@ class BankTrainingOwner:
 
     def __init__(self, bank: SQLiteKB, recipe: RetrievalRecipe, *,
                  device: torch.device, sparse_lr: float = 1e-3,
-                 source_features: NativeSourceFeatures | None = None):
+                 source_features: NativeSourceFeatures | None = None,
+                 centroids: np.ndarray | None = None, nprobe: int = 8):
         if bank.space.fingerprint != recipe.space.fingerprint or (
             bank.value_dim != recipe.model.semantic_value_dim
         ):
@@ -78,8 +80,12 @@ class BankTrainingOwner:
         self.source_features = source_features
         self.recipe = recipe
         self.device = device
-        self.index = ExactIndex(bank)
-        self.sparse = SparseRowAdam(bank, lr=sparse_lr)
+        self.ivf = (
+            SQLiteDiskIVF(bank, centroids, nprobe=nprobe)
+            if centroids is not None else None
+        )
+        self.index = self.ivf if self.ivf is not None else ExactIndex(bank)
+        self.sparse = SparseRowAdam(bank, lr=sparse_lr, index=self.ivf)
         self.selected = LocalMemoryWindow(self.sparse, "semantic-v1", device)
         self.growth = GrowthAllocator(bank, recipe.growth)
         self.pairs_created = 0
@@ -324,6 +330,12 @@ class BankTrainingOwner:
                         windows, scope=scope,
                         visibility=Visibility(scope, cursor),
                     ))
+            if self.ivf is not None:
+                # The growth barrier is the ONLY time newly allocated
+                # keyspaces need a bulk posting refresh. Selected key updates
+                # patch their own postings atomically in SparseRowAdam.
+                for collection in (Collection.SOURCE, Collection.MEMORY):
+                    self.ivf.rebuild(scope=scope, collection=collection)
             if n >= budget:
                 break
         return n
