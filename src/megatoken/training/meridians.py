@@ -375,7 +375,7 @@ def forward_meridian_batch(
     config: Any,
     device: torch.device,
     model_version: int,
-    retrieval_aux=None,
+    retrieval_aux,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
@@ -390,9 +390,11 @@ def forward_meridian_batch(
         # The core owner is versioned by the outer training loop.
         raise ValueError("Meridian trainer received a stale model version")
     payload = episode_control_payload(batch.windows[0].episode)
+    if retrieval_aux is None:
+        raise ValueError("Native training cannot omit its retrieval-memory supervision")
     losses = []
     retrieval_losses = []
-    if retrieval_aux is not None and retrieval_aux[3] is not None:
+    if retrieval_aux[3] is not None:
         from megatoken.memory.retrieval import RetrievalSession
 
         source_coverage = RetrievalSession()
@@ -434,91 +436,87 @@ def forward_meridian_batch(
                 plan.resolve(store, device) if isinstance(plan, MediaPlan) else plan
                 for plan in step.plans
             )
-            if retrieval_aux is not None:
-                examples, recipe, global_count, bank_owner = retrieval_aux
-                for entry in step.records:
-                    annotation = examples.get((
-                        batch.windows[0].episode.episode_id, entry.record.record_id,
-                    ))
-                    if annotation is None:
-                        continue
-                    if bank_owner is None:
-                        if annotation.query.meridian != step.meridian_id:
-                            raise ValueError("Bootstrap query sidecar meridian identity differs")
-                    elif annotation.query.meridian != int(state.meridians_seen[0]):
-                        raise ValueError(
-                            "Free-bank query sidecar must include every prior committed "
-                            "query/RAG native meridian in its causal clock"
-                        )
-                    if global_count <= 0:
-                        raise RuntimeError("Retrieval query supervision requires global events")
-                    teacher = torch.tensor(
-                        annotation.teacher_target, device=device, dtype=torch.float32
-                    )[None]
-                    # Sample P on a dedicated retrieval track, with the
-                    # PRE-ANSWER causal state and explicit request/purpose/space.
-                    # Do not mislabel answer-event raw facets as query actions.
-                    main_request = annotation.request_content()
-                    # The request is not simply an arbitrary hashed sidecar
-                    # string: it must occur in the actual already-committed
-                    # episode prefix. A future label/answer cannot masquerade
-                    # as a query-control payload.
-                    if not any(
-                        item.payload == main_request and item.role in {"user", "system"}
-                        for item in batch.windows[0].episode.records[:step.offsets[0]]
+            if retrieval_aux is None:
+                raise RuntimeError("Retrieval pretraining supervision is mandatory")
+            examples, recipe, global_count, bank_owner = retrieval_aux
+            for entry in step.records:
+                annotation = examples.get((
+                    batch.windows[0].episode.episode_id, entry.record.record_id,
+                ))
+                if annotation is None:
+                    continue
+                if annotation.query.meridian != int(state.meridians_seen[0]):
+                    raise ValueError(
+                        "Query sidecar must include EVERY preceding real query/RAG "
+                        "meridian, including coherence bootstrap, in its native clock"
+                    )
+                if global_count <= 0:
+                    raise RuntimeError("Retrieval query supervision requires global events")
+                teacher = torch.tensor(
+                    annotation.teacher_target, device=device, dtype=torch.float32
+                )[None]
+                # Sample P on a dedicated retrieval track, with the
+                # PRE-ANSWER causal state and explicit request/purpose/space.
+                # Do not mislabel answer-event raw facets as query actions.
+                main_request = annotation.request_content()
+                # The request is not simply an arbitrary hashed sidecar
+                # string: it must occur in the actual already-committed
+                # episode prefix. A future label/answer cannot masquerade
+                # as a query-control payload.
+                if not any(
+                    item.payload == main_request and item.role in {"user", "system"}
+                    for item in batch.windows[0].episode.records[:step.offsets[0]]
+                ):
+                    raise ValueError("Retrieval main request is absent from causal episode prefix")
+                before_query = state
+                predicted, queried, selected = multi.retrieve_embedding(
+                    state,
+                    main_request=main_request,
+                    purpose=annotation.query.purpose,
+                    space_fingerprint=recipe.space.fingerprint,
+                    effort=batch.effort,
+                    commit=True,
+                )
+                if selected.shape[1] != 1:
+                    raise RuntimeError("Retrieval R must use one selected raw P event")
+                if int(queried.meridians_seen[0]) != (
+                    int(before_query.meridians_seen[0]) + 1
+                ):
+                    raise RuntimeError("Every retrieval query must commit one native meridian")
+                state = queried
+                if bank_owner is not None:
+                    selected_bank = bank_owner.read(
+                        queried, predicted, annotation,
+                        global_count=global_count,
+                        multi=multi, coverage=source_coverage,
+                    )
+                    state = selected_bank.state
+                    retrieval_losses.append(selected_bank.loss)
+                    for metric, count in (
+                        ("kb_source_candidates", selected_bank.source_hits),
+                        ("kb_memory_candidates", selected_bank.memory_hits),
+                        ("kb_admitted_groups", selected_bank.memory_groups),
+                        ("kb_source_value_examples", selected_bank.source_value_examples),
+                        ("kb_source_committed", selected_bank.source_committed),
+                        ("kb_source_bytes_committed", selected_bank.source_bytes),
                     ):
-                        raise ValueError("Retrieval main request is absent from causal episode prefix")
-                    before_query = state
-                    predicted, queried, selected = multi.retrieve_embedding(
-                        state,
-                        main_request=main_request,
-                        purpose=annotation.query.purpose,
-                        space_fingerprint=recipe.space.fingerprint,
-                        effort=batch.effort,
-                        commit=bank_owner is not None,
-                    )
-                    if selected.shape[1] != 1:
-                        raise RuntimeError("Retrieval R must use one selected raw P event")
-                    if bank_owner is None:
-                        if queried is not before_query:
-                            raise RuntimeError("Bootstrap query unexpectedly mutated native history")
-                    else:
-                        if int(queried.meridians_seen[0]) != (
-                            int(before_query.meridians_seen[0]) + 1
-                        ):
-                            raise RuntimeError("Real retrieval query must commit one native meridian")
-                        selected_bank = bank_owner.read(
-                            queried, predicted, annotation,
-                            global_count=global_count,
-                            multi=multi, coverage=source_coverage,
-                        )
-                        state = selected_bank.state
-                        retrieval_losses.append(selected_bank.loss)
-                        for metric, count in (
-                            ("kb_source_candidates", selected_bank.source_hits),
-                            ("kb_memory_candidates", selected_bank.memory_hits),
-                            ("kb_admitted_groups", selected_bank.memory_groups),
-                            ("kb_source_value_examples", selected_bank.source_value_examples),
-                            ("kb_source_committed", selected_bank.source_committed),
-                            ("kb_source_bytes_committed", selected_bank.source_bytes),
-                        ):
-                            metrics[metric] = metrics.get(metric, 0) + count
-                    # The teacher is a coordinate target, never P input.
-                    # Unit normalization must hold even for sidecar exporters
-                    # that retain unnormalized raw teacher magnitudes.
-                    teacher = F.normalize(teacher, dim=-1)
-                    similarity = (predicted * teacher).sum(-1)
-                    retrieval_losses.append(
-                        recipe.loss_weights["embedding"] *
-                        (1 - similarity).sum() / global_count
-                    )
-                    metrics["retrieval_embedding_sum"] = (
-                        metrics.get("retrieval_embedding_sum", 0.0)
-                        + (1 - similarity.detach()).sum()
-                    )
-                    metrics["retrieval_embedding_count"] = (
-                        metrics.get("retrieval_embedding_count", 0) + 1
-                    )
+                        metrics[metric] = metrics.get(metric, 0) + count
+                # The teacher is a coordinate target, never P input.
+                # Unit normalization must hold even for sidecar exporters
+                # that retain unnormalized raw teacher magnitudes.
+                teacher = F.normalize(teacher, dim=-1)
+                similarity = (predicted * teacher).sum(-1)
+                retrieval_losses.append(
+                    recipe.loss_weights["embedding"] *
+                    (1 - similarity).sum() / global_count
+                )
+                metrics["retrieval_embedding_sum"] = (
+                    metrics.get("retrieval_embedding_sum", 0.0)
+                    + (1 - similarity.detach()).sum()
+                )
+                metrics["retrieval_embedding_count"] = (
+                    metrics.get("retrieval_embedding_count", 0) + 1
+                )
             result = multi.supervised_meridian(
                 state, tracks=step.tracks, plans=resolved,
                 control_payloads=(payload,) * len(step.tracks),
@@ -526,8 +524,7 @@ def forward_meridian_batch(
                 teacher_forced_action=teacher_forced,
                 memory_dropout=(
                     (config.retrieval_kv_dropout, config.retrieval_lora_dropout)
-                    if retrieval_aux is not None and retrieval_aux[3] is not None
-                    else (0., 0.)
+                    if retrieval_aux[3] is not None else (0., 0.)
                 ),
             )
             state = result.state
