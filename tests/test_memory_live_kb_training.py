@@ -60,17 +60,24 @@ def _changed(before, after):
         old = before.get(identity)
         if old is None:
             continue
-        same = np.array_equal(old[0], key) and (
-            (old[1] is None and value is None)
-            or (old[1] is not None and value is not None and np.array_equal(old[1], value))
-        ) and old[2] == strength
+        same = (
+            np.array_equal(old[0], key)
+            and (
+                (old[1] is None and value is None)
+                or (old[1] is not None and value is not None and np.array_equal(old[1], value))
+            )
+            and old[2] == strength
+        )
         changed += not same
     return changed
 
 
 def _metrics(run):
-    return [json.loads(line) for line in (Path(run) / "metrics.jsonl").read_text().splitlines()
-            if '"event": "train"' in line]
+    return [
+        json.loads(line)
+        for line in (Path(run) / "metrics.jsonl").read_text().splitlines()
+        if '"event": "train"' in line
+    ]
 
 
 @pytest.fixture
@@ -130,13 +137,24 @@ def test_diloco_http_free_kb_row_sync_train_and_resume(tmp_path, monkeypatch, re
     token = "test-diloco-token-" + "b" * 32
     monkeypatch.setenv("MEGATOKEN_DILOCO_TOKEN", token)
     settings = DecoupledConfig(
-        coordinator_url=url, run_id="kb-http-v1", workers=1, worker_id=0,
-        local_steps=1, poll_steps=1, heartbeat_steps=1, io_workers=2,
-        timeout_seconds=30, max_offline_steps=20,
+        coordinator_url=url,
+        run_id="kb-http-v1",
+        workers=1,
+        worker_id=0,
+        local_steps=1,
+        poll_steps=1,
+        heartbeat_steps=1,
+        io_workers=2,
+        timeout_seconds=30,
+        max_offline_steps=20,
     )
     config = live_kb_train_config(
-        tmp_path, phase="M1", max_steps=6, checkpoint_every=1,
-        inner_optimizer="muon", decoupled=settings,
+        tmp_path,
+        phase="M1",
+        max_steps=6,
+        checkpoint_every=1,
+        inner_optimizer="muon",
+        decoupled=settings,
     )
     recipe = recipe_of(config)
     initial, _, _ = _rows(config.retrieval_bank, recipe)
@@ -146,13 +164,22 @@ def test_diloco_http_free_kb_row_sync_train_and_resume(tmp_path, monkeypatch, re
     config_path = tmp_path / "train.json"
     config_path.write_text(json.dumps(dataclasses.asdict(config)))
     root = tmp_path / "coordinator"
-    _diloco_initialize(Namespace(
-        config=str(config_path), root=str(root), resume=None, quorum=1,
-        fragment_mib=1, outer_lr=0.7, outer_momentum=0.9, grace_seconds=0.0,
-        max_staleness=2,
-    ))
+    _diloco_initialize(
+        Namespace(
+            config=str(config_path),
+            root=str(root),
+            resume=None,
+            quorum=1,
+            fragment_mib=1,
+            outer_lr=0.7,
+            outer_momentum=0.9,
+            grace_seconds=0.0,
+            max_staleness=2,
+        )
+    )
     server = multiprocessing.get_context("spawn").Process(
-        target=serve_coordinator, args=(str(root), "127.0.0.1", port, token),
+        target=serve_coordinator,
+        args=(str(root), "127.0.0.1", port, token),
     )
     server.start()
     try:
@@ -184,7 +211,9 @@ def test_diloco_http_free_kb_row_sync_train_and_resume(tmp_path, monkeypatch, re
         assert momenta and any(np.frombuffer(m, dtype="<f4").any() for _, m in momenta)
         assert all(r.startswith("memory|record|") for r, _ in momenta)
         assert status["kb_version"] >= 2
-        learner, learner_moments, _ = _rows(Path(config.output) / "worker-00" / "diloco" / "kb.sqlite", recipe)
+        learner, learner_moments, _ = _rows(
+            Path(config.output) / "worker-00" / "diloco" / "kb.sqlite", recipe
+        )
         assert set(learner) <= set(rows)
         assert any(k[0] == "memory" for k in learner)
         assert learner_moments > 0  # canonical installs keep the learner's own moments

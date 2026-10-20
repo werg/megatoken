@@ -79,9 +79,7 @@ class ObservedEvent:
             raise TypeError("Media events must contain a tensor")
         if self.role_id not in ROLE_IDS.values():
             raise ValueError("Unknown event role")
-        if self.extractor and (
-            self.modality == "text" or not isinstance(self.payload, Tensor)
-        ):
+        if self.extractor and (self.modality == "text" or not isinstance(self.payload, Tensor)):
             raise ValueError("External features require a media tensor and pinned extractor")
         if self.source_views and not self.extractor:
             raise ValueError("Multiple ordered views require a declared primary extractor")
@@ -170,17 +168,17 @@ class MultiTrackCore:
             geometry=state.geometry,
             kb=KBContext(
                 NativeKVLayout(
-                    self.core.config.n_facets, self.core.config.kv_heads,
-                    self.core.config.attention_head_dim, "native-facets-v8",
+                    self.core.config.n_facets,
+                    self.core.config.kv_heads,
+                    self.core.config.attention_head_dim,
+                    "native-facets-v8",
                     "memory-kv-v1",
                 ),
                 max_positions=self.core.config.max_kb_positions,
             ),
         )
 
-    def materialize_memory(
-        self, state: MultiTrackState
-    ) -> MemoryMaterialization | None:
+    def materialize_memory(self, state: MultiTrackState) -> MemoryMaterialization | None:
         """Bounded local rematerialization once per native group transaction."""
         if state.kb is None or not state.kb.groups:
             return None
@@ -212,10 +210,14 @@ class MultiTrackCore:
             raise ValueError("Selected-event chronology has the wrong batch shape")
         if state.frontier_modalities and len(state.frontier_modalities) != state.frontier_count:
             raise ValueError("Frontier modality metadata must match selected events")
-        if (len(state.track_registry) > core.config.max_tracks
-                or len(set(state.track_registry)) != len(state.track_registry)
-                or any(name not in state.track_registry and name != RETRIEVAL_QUERY_TRACK
-                    for name in state.frontier_tracks)):
+        if (
+            len(state.track_registry) > core.config.max_tracks
+            or len(set(state.track_registry)) != len(state.track_registry)
+            or any(
+                name not in state.track_registry and name != RETRIEVAL_QUERY_TRACK
+                for name in state.frontier_tracks
+            )
+        ):
             raise ValueError("Track registry is inconsistent with the shared context")
         if state.frontier_roles.shape != state.raw.shape[:2]:
             raise ValueError("Frontier role metadata has the wrong shape")
@@ -230,17 +232,22 @@ class MultiTrackCore:
         if state.kb is None:
             raise ValueError("Every v8 multitrack state requires a KB context, even when empty")
         if state.kb is not None and (
-            state.kb.layout.facets != f or
-            state.kb.layout.kv_heads != core.config.kv_heads or
-            state.kb.layout.head_dim != core.config.attention_head_dim or
-            state.kb.max_positions != core.config.max_kb_positions
+            state.kb.layout.facets != f
+            or state.kb.layout.kv_heads != core.config.kv_heads
+            or state.kb.layout.head_dim != core.config.attention_head_dim
+            or state.kb.max_positions != core.config.max_kb_positions
         ):
             raise ValueError("KB context layout disagrees with native facet geometry")
 
     @staticmethod
     def _names(tracks: Sequence[str], count: int) -> tuple[str, ...]:
         names = tuple(tracks)
-        if count < 1 or len(names) != count or len(set(names)) != count or any(not s for s in names):
+        if (
+            count < 1
+            or len(names) != count
+            or len(set(names)) != count
+            or any(not s for s in names)
+        ):
             raise ValueError("One meridian needs unique nonempty event track identities")
         return names
 
@@ -264,7 +271,9 @@ class MultiTrackCore:
         )
         return values, tuple(registry)
 
-    def _history_for(self, state: MultiTrackState, new_events: int) -> tuple[KVHistory, tuple[int, ...]]:
+    def _history_for(
+        self, state: MultiTrackState, new_events: int
+    ) -> tuple[KVHistory, tuple[int, ...]]:
         """Evict complete oldest meridians, never a fraction of a selected event."""
         budget = self.core.config.max_history_chunks
         if new_events > budget:
@@ -298,9 +307,14 @@ class MultiTrackCore:
         """Jointly integrate selected blocks and commit one complete meridian."""
         self._validate(state)
         c = self.core.config
-        if raw.ndim != 4 or raw.shape[0] != state.batch_size or raw.shape[2:] != (
-            c.n_facets,
-            c.facet_dim,
+        if (
+            raw.ndim != 4
+            or raw.shape[0] != state.batch_size
+            or raw.shape[2:]
+            != (
+                c.n_facets,
+                c.facet_dim,
+            )
         ):
             raise ValueError("Raw group must be [batch, events, facets, width]")
         events = raw.shape[1]
@@ -395,13 +409,17 @@ class MultiTrackCore:
                         mask = event.valid_mask
                         if mask is None:
                             mask = torch.ones(
-                                payload.shape[:2], device=payload.device, dtype=torch.bool,
+                                payload.shape[:2],
+                                device=payload.device,
+                                dtype=torch.bool,
                             )
                         views = ((event.extractor, payload, mask), *event.source_views)
                         encoded = self.core.encode_media_views(event.modality, tuple(views))
                     else:
                         encoded = self.core.encode_media(
-                            event.modality, payload, sample_rate=event.sample_rate,
+                            event.modality,
+                            payload,
+                            sample_rate=event.sample_rate,
                         )
                 raws.append(encoded)
         return self.advance_group(
@@ -440,7 +458,8 @@ class MultiTrackCore:
         )
 
     def _predict_seed(
-        self, state: MultiTrackState,
+        self,
+        state: MultiTrackState,
         memory_snapshot: MemoryMaterialization | None = None,
     ) -> Tensor:
         if state.final is None:
@@ -454,11 +473,16 @@ class MultiTrackCore:
                 external_kb=None if memory_snapshot is None else memory_snapshot.features,
                 memory_snapshot=memory_snapshot,
                 memory_adapters=self.core.memory_adapters,
-                track_ids=(None if memory_snapshot is None else torch.zeros(
-                    state.batch_size, 1, dtype=torch.long, device=state.device
-                )),
-                history_track_ids=(None if memory_snapshot is None else
-                    state.history_tracks.repeat_interleave(self.core.config.n_facets, dim=1)),
+                track_ids=(
+                    None
+                    if memory_snapshot is None
+                    else torch.zeros(state.batch_size, 1, dtype=torch.long, device=state.device)
+                ),
+                history_track_ids=(
+                    None
+                    if memory_snapshot is None
+                    else state.history_tracks.repeat_interleave(self.core.config.n_facets, dim=1)
+                ),
             )
             return self.core.remix(final)
         return self.core.remix(state.final.mean(dim=1))
@@ -516,9 +540,12 @@ class MultiTrackCore:
             facets = facets + offsets[None, :, None]
         facets = facets + self.core.effort_embedding.weight[EFFORTS.index(effort)]
         if memory_snapshot is not None and self.core.memory_seed is not None:
-            facets = facets + self.core.memory_seed(
-                memory_snapshot.summary.to(self.core.memory_seed.weight.dtype)
-            )[:, None, None]
+            facets = (
+                facets
+                + self.core.memory_seed(
+                    memory_snapshot.summary.to(self.core.memory_seed.weight.dtype)
+                )[:, None, None]
+            )
         stages = tuple(range(1, self.core.config.prediction_layers + 1))
         nrows = sum(self.core._row_counts(f, effort))
         routes = self.core.p_router.compile(
@@ -531,7 +558,12 @@ class MultiTrackCore:
         self.core._record_routing_loss(routes.balance_loss, routes.stabilization_loss)
         for stage in stages:
             facets = self._stage(
-                facets, stage, routes.at(stage), effort, state, track_ids,
+                facets,
+                stage,
+                routes.at(stage),
+                effort,
+                state,
+                track_ids,
                 memory_snapshot=memory_snapshot,
             )
         return facets
@@ -556,12 +588,16 @@ class MultiTrackCore:
         slot_tracks = track_ids.repeat_interleave(f, dim=1)
         time = state.meridians_seen if stage in P_HISTORY_READ_STAGES else None
         current_kv = core.central.memory(
-            joined, temporal_positions=time, slot_codes=addresses,
+            joined,
+            temporal_positions=time,
+            slot_codes=addresses,
             track_ids=slot_tracks,
         )
         history = (
             AttentionFeatures(
-                state.history.keys, state.history.values, state.history.mask,
+                state.history.keys,
+                state.history.values,
+                state.history.mask,
                 state.history_tracks.repeat_interleave(f, dim=1),
             )
             if time is not None
@@ -571,7 +607,10 @@ class MultiTrackCore:
             history = join_attention(memory_snapshot.features, history)
         keys = join_attention(current_kv, history)
         mixed = wrapper.attention.read(
-            joined, keys, temporal_positions=time, slot_codes=addresses,
+            joined,
+            keys,
+            temporal_positions=time,
+            slot_codes=addresses,
             query_track_ids=slot_tracks,
         )
         joined = joined + wrapper.attention_gate.sigmoid() * mixed
@@ -607,8 +646,10 @@ class MultiTrackCore:
         if memory_snapshot is not None and core.memory_adapters is not None:
             individual = core.memory_adapters.apply(
                 individual.reshape(batch, events * f, d),
-                module="p", stage=stage,
-                track_ids=slot_tracks, snapshot=memory_snapshot,
+                module="p",
+                stage=stage,
+                track_ids=slot_tracks,
+                snapshot=memory_snapshot,
             ).reshape(batch * events, f, d)
         return individual.reshape(batch, events, f, d)
 
@@ -651,22 +692,29 @@ class GroupActionTape:
             object.__setattr__(self, "modalities", ("text",) * n)
         if n < 1 or f < 1 or d < 1 or len(self.raw_f32) != n * f * d * 4:
             raise ValueError("Tape must contain every complete raw FP32 event")
-        lengths = (len(self.tracks), len(self.modalities), len(self.roles), len(self.controls),
-                   len(self.spec_fingerprints), len(self.payloads),
-                   len(self.emitted_ids), len(self.valid))
+        lengths = (
+            len(self.tracks),
+            len(self.modalities),
+            len(self.roles),
+            len(self.controls),
+            len(self.spec_fingerprints),
+            len(self.payloads),
+            len(self.emitted_ids),
+            len(self.valid),
+        )
         if any(k != n for k in lengths) or len(set(self.tracks)) != n:
             raise ValueError("Grouped tape fields must agree on exact event identities")
         if self.renderer_seeds and (
-            len(self.renderer_seeds) != n or any(
-                type(seed) is not int or not 0 <= seed < 2**63
-                for seed in self.renderer_seeds
-            )
+            len(self.renderer_seeds) != n
+            or any(type(seed) is not int or not 0 <= seed < 2**63 for seed in self.renderer_seeds)
         ):
             raise ValueError("Renderer noise seeds must match group identities")
         if self.pack_fingerprints and (
             len(self.pack_fingerprints) != n
-            or any(not isinstance(fingerprint, str) or not fingerprint
-                   for fingerprint in self.pack_fingerprints)
+            or any(
+                not isinstance(fingerprint, str) or not fingerprint
+                for fingerprint in self.pack_fingerprints
+            )
         ):
             raise ValueError("Grouped tape pack identities must cover every event")
         if not math.isfinite(self.behavior_log_prob):
@@ -685,9 +733,11 @@ class GroupActionTape:
             raise ValueError("Raw facet tape contains nonfinite coordinates")
 
     def raw(self, device: torch.device) -> Tensor:
-        return torch.from_numpy(np.frombuffer(self.raw_f32, dtype="<f4").copy()).to(
-            device=device
-        ).reshape(1, *self.facet_shape)
+        return (
+            torch.from_numpy(np.frombuffer(self.raw_f32, dtype="<f4").copy())
+            .to(device=device)
+            .reshape(1, *self.facet_shape)
+        )
 
     def to_json(self) -> str:
         value = dict(
@@ -718,6 +768,7 @@ class GroupActionTape:
         value = strict_json_loads(serialized)
         if value.get("version") != GROUP_TAPE_VERSION:
             raise ValueError("Unknown grouped tape version")
+
         def decode(b):
             return base64.b64decode(b, validate=True)
 
@@ -771,9 +822,7 @@ class _GroupedTeacherReadout(nn.Module):
     during recurrent encoder-only reconstruction, without running C.
     """
 
-    def __init__(
-        self, core: FacetedCore, decoder: nn.Module, media_realizers: nn.Module
-    ) -> None:
+    def __init__(self, core: FacetedCore, decoder: nn.Module, media_realizers: nn.Module) -> None:
         super().__init__()
         self.core = core
         self.decoder = decoder
@@ -796,11 +845,16 @@ class _GroupedTeacherReadout(nn.Module):
         for index, plan in enumerate(plans):
             selected = raw[:, index]
             if memory_snapshot is not None and self.core.memory_adapters is not None:
-                slots = None if track_ids is None else track_ids[
-                    :, index:index+1
-                ].expand(-1, selected.shape[1])
+                slots = (
+                    None
+                    if track_ids is None
+                    else track_ids[:, index : index + 1].expand(-1, selected.shape[1])
+                )
                 selected = self.core.memory_adapters.apply(
-                    selected, module="r", stage=0, track_ids=slots,
+                    selected,
+                    module="r",
+                    stage=0,
+                    track_ids=slots,
                     snapshot=memory_snapshot,
                 )
             context = self.core.prepare_realization(selected)
@@ -811,7 +865,9 @@ class _GroupedTeacherReadout(nn.Module):
                     sums[family], counts[family] = sums[family] + value, counts[family] + 1
                 elif plan.target_kind == "codec_latents":
                     value, count = self.media_realizers.training_loss(
-                        context.facets, plan.spec, plan.target,
+                        context.facets,
+                        plan.spec,
+                        plan.target,
                         valid_mask=plan.target_valid_mask,
                     )
                     sums[family], counts[family] = sums[family] + value, counts[family] + count
@@ -820,9 +876,9 @@ class _GroupedTeacherReadout(nn.Module):
                     predicted = self.media_realizers.realize(context, plan.spec)
                     if predicted.shape != plan.target.shape:
                         raise ValueError("Media realization differs from prepared output target")
-                    sums[family] = sums[family] + (
-                        predicted.float() - plan.target.float()
-                    ).square().mean()
+                    sums[family] = (
+                        sums[family] + (predicted.float() - plan.target.float()).square().mean()
+                    )
                     counts[family] += 1
                 continue
             if isinstance(plan, PreparedTargets):
@@ -843,20 +899,27 @@ class _GroupedTeacherReadout(nn.Module):
         memory_snapshot: MemoryMaterialization | None = None,
         track_ids: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
-        return self.losses_for_selected(
-            raw, plans, control, memory_snapshot, track_ids
-        )
+        return self.losses_for_selected(raw, plans, control, memory_snapshot, track_ids)
 
 
-def retrieval_control_payload(*, main_request: bytes, purpose: str,
-                              space_fingerprint: str) -> bytes:
+def retrieval_control_payload(
+    *, main_request: bytes, purpose: str, space_fingerprint: str
+) -> bytes:
     """Exactly the same causal P conditioning in serving, training and replay."""
-    if not isinstance(main_request, bytes) or not main_request or not purpose or not space_fingerprint:
+    if (
+        not isinstance(main_request, bytes)
+        or not main_request
+        or not purpose
+        or not space_fingerprint
+    ):
         raise ValueError("Retrieval controls require nonempty request/purpose/space")
     return (
-        b"<main_request>\n" + main_request +
-        b"\n<retrieval_purpose>\n" + purpose.encode("utf-8") +
-        b"\n<semantic_space>\n" + space_fingerprint.encode("ascii")
+        b"<main_request>\n"
+        + main_request
+        + b"\n<retrieval_purpose>\n"
+        + purpose.encode("utf-8")
+        + b"\n<semantic_space>\n"
+        + space_fingerprint.encode("ascii")
     )
 
 
@@ -907,8 +970,9 @@ class MultiTrackGenerator:
         return "media:" + hashlib.sha256(value).hexdigest()
 
     @staticmethod
-    def _pack_ids(generator: FacetedGenerator,
-                  plans: Sequence[ActionSpec | MediaOutputSpec]) -> tuple[str, ...]:
+    def _pack_ids(
+        generator: FacetedGenerator, plans: Sequence[ActionSpec | MediaOutputSpec]
+    ) -> tuple[str, ...]:
         """Bind live raw actions to exact pretrained generator+decoder weights."""
         identities = []
         for plan in plans:
@@ -934,31 +998,43 @@ class MultiTrackGenerator:
         return tuple(identities)
 
     @staticmethod
-    def _renderer_seeds(raw: Tensor, names: Sequence[str], meridian_id: int,
-                        spec_fingerprints: Sequence[str]) -> tuple[int, ...]:
+    def _renderer_seeds(
+        raw: Tensor, names: Sequence[str], meridian_id: int, spec_fingerprints: Sequence[str]
+    ) -> tuple[int, ...]:
         """Materialization RNG is stable under pack loading or track permutation."""
         seeds = []
-        for idx, (name, spec_id) in enumerate(
-            zip(names, spec_fingerprints, strict=True)
-        ):
+        for idx, (name, spec_id) in enumerate(zip(names, spec_fingerprints, strict=True)):
             identity = hashlib.sha256(
-                str(meridian_id).encode() + b":" + name.encode()
-                + b":" + spec_id.encode() + b":"
-                + raw[0, idx].detach().float().contiguous().cpu()
-                    .numpy().astype("<f4", copy=False).tobytes()
+                str(meridian_id).encode()
+                + b":"
+                + name.encode()
+                + b":"
+                + spec_id.encode()
+                + b":"
+                + raw[0, idx]
+                .detach()
+                .float()
+                .contiguous()
+                .cpu()
+                .numpy()
+                .astype("<f4", copy=False)
+                .tobytes()
             ).digest()
             seeds.append(int.from_bytes(identity[:8], "big") % (2**63))
         return tuple(seeds)
 
     def _realize(
-        self, raw: Tensor, specs: Sequence[ActionSpec | MediaOutputSpec],
+        self,
+        raw: Tensor,
+        specs: Sequence[ActionSpec | MediaOutputSpec],
         control: Tensor | None,
         *,
         memory_snapshot: MemoryMaterialization | None = None,
         track_ids: Tensor | None = None,
         seeds: Sequence[int] | None = None,
-    ) -> tuple[tuple[bytes, ...], tuple[tuple[int, ...], ...],
-               tuple[bool, ...], tuple[Tensor | None, ...]]:
+    ) -> tuple[
+        tuple[bytes, ...], tuple[tuple[int, ...], ...], tuple[bool, ...], tuple[Tensor | None, ...]
+    ]:
         payloads, ids, validity, media = [], [], [], []
         if seeds is not None and len(seeds) != len(specs):
             raise ValueError("Renderer seeds must identify each selected event")
@@ -967,11 +1043,15 @@ class MultiTrackGenerator:
             adapters = self.generator.core.memory_adapters
             if adapters is not None and memory_snapshot is not None:
                 event_tracks = (
-                    None if track_ids is None else
-                    track_ids[:, index:index+1].expand(-1, selected.shape[1])
+                    None
+                    if track_ids is None
+                    else track_ids[:, index : index + 1].expand(-1, selected.shape[1])
                 )
                 selected = adapters.apply(
-                    selected, module="r", stage=0, track_ids=event_tracks,
+                    selected,
+                    module="r",
+                    stage=0,
+                    track_ids=event_tracks,
                     snapshot=memory_snapshot,
                 )
             context = self.generator.core.prepare_realization(selected)
@@ -991,22 +1071,38 @@ class MultiTrackGenerator:
                     materializer = torch.Generator(device=raw.device)
                     materializer.manual_seed(seeds[index])
                 tensor = self.generator.media_realizers.realize(
-                    context, spec, generator=materializer,
+                    context,
+                    spec,
+                    generator=materializer,
                     seed=(seeds[index] if seeds is not None and spec.codec_id else None),
                 )
-                native_bytes = tensor[0].detach().float().contiguous().cpu().numpy().astype(
-                    "<f4", copy=False
-                ).tobytes()
+                native_bytes = (
+                    tensor[0]
+                    .detach()
+                    .float()
+                    .contiguous()
+                    .cpu()
+                    .numpy()
+                    .astype("<f4", copy=False)
+                    .tobytes()
+                )
                 if spec.codec_id:
                     # Large native media is a digest-bound output, not a multi-MB tape field.
-                    payloads.append(json.dumps({
-                        "kind": "native-media-sha256-v1",
-                        "modality": spec.modality,
-                        "pack_id": spec.pack_id,
-                        "codec_id": spec.codec_id,
-                        "sha256": hashlib.sha256(native_bytes).hexdigest(),
-                        "shape": list(tensor[0].shape), "dtype": "f32le",
-                    }, sort_keys=True, separators=(",", ":")).encode())
+                    payloads.append(
+                        json.dumps(
+                            {
+                                "kind": "native-media-sha256-v1",
+                                "modality": spec.modality,
+                                "pack_id": spec.pack_id,
+                                "codec_id": spec.codec_id,
+                                "sha256": hashlib.sha256(native_bytes).hexdigest(),
+                                "shape": list(tensor[0].shape),
+                                "dtype": "f32le",
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode()
+                    )
                 else:
                     payloads.append(native_bytes)
                 ids.append(())
@@ -1024,7 +1120,7 @@ class MultiTrackGenerator:
         effort: int = 6,
         teacher_forced_action: bool = False,
         generator: torch.Generator | None = None,
-        memory_dropout: tuple[float, float] = (0., 0.),
+        memory_dropout: tuple[float, float] = (0.0, 0.0),
         relations: Sequence[tuple[str, int, int, float]] = (),
         semantic_relations: Sequence[SelectedRelation] = (),
     ) -> GroupSupervisedResult:
@@ -1051,12 +1147,12 @@ class MultiTrackGenerator:
         if any(isinstance(p, PreparedTargets) and len(p.payloads) != 1 for p in plans):
             raise ValueError("Each grouped target plan must describe one event")
         modalities = tuple(
-            plan.modality if isinstance(plan, MediaTrainTarget) else "text"
-            for plan in plans
+            plan.modality if isinstance(plan, MediaTrainTarget) else "text" for plan in plans
         )
         roles = torch.tensor(
             [[p.roles[0] if isinstance(p, PreparedTargets) else p.role_id for p in plans]],
-            dtype=torch.long, device=state.device,
+            dtype=torch.long,
+            device=state.device,
         )
         controls = tuple(control_payloads) if control_payloads is not None else (b"",) * len(names)
         if len(controls) != len(names) or any(not isinstance(x, bytes) for x in controls):
@@ -1065,32 +1161,45 @@ class MultiTrackGenerator:
         core.routing_aux_loss(clear=True)
         control = self._controls(controls, state.device)
         memory_snapshot = self.tracks.materialize_memory(state)
-        if memory_dropout != (0., 0.):
+        if memory_dropout != (0.0, 0.0):
             if not self.generator.training:
                 raise RuntimeError("Memory dropout is training-only")
             memory_snapshot = independently_drop_memory(
                 memory_snapshot,
-                kv_rate=memory_dropout[0], lora_rate=memory_dropout[1],
+                kv_rate=memory_dropout[0],
+                lora_rate=memory_dropout[1],
             )
         mean = self.tracks.predict_group(
-            state, tracks=names, control=control, effort=effort,
-            modalities=modalities, memory_snapshot=memory_snapshot,
+            state,
+            tracks=names,
+            control=control,
+            effort=effort,
+            modalities=modalities,
+            memory_snapshot=memory_snapshot,
         )
         prior = self.generator.facet_distribution(mean)
         sampled = self._sample_policy(prior, names, generator)
         # Only recurrent continuation needs C(sampled); R(sampled) does not.
         selected = (
             self.tracks.advance_group(
-                state, sampled, tracks=names, role_ids=roles, modalities=modalities,
+                state,
+                sampled,
+                tracks=names,
+                role_ids=roles,
+                modalities=modalities,
                 memory_snapshot=memory_snapshot,
-            ) if mode == "recurrent" else None
+            )
+            if mode == "recurrent"
+            else None
         )
         encoded = []
         for plan in plans:
             if isinstance(plan, MediaTrainTarget):
                 if plan.views or plan.source_masks:
                     current = core.media_stems.encode_multiview(
-                        core, plan.modality, (plan.source, *plan.views),
+                        core,
+                        plan.modality,
+                        (plan.source, *plan.views),
                         (plan.source_kind, *plan.view_kinds),
                         (plan.extractor, *plan.view_extractors),
                         masks=plan.source_masks,
@@ -1110,9 +1219,7 @@ class MultiTrackGenerator:
                 else:
                     raise ValueError("Codec source needs a pinned input feature view")
             else:
-                payload = (
-                    plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
-                )
+                payload = plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
                 values, lengths = byte_tensor([payload], state.device)
                 current = core.encode_chunk(values, lengths)
             encoded.append(current)
@@ -1132,24 +1239,23 @@ class MultiTrackGenerator:
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
-                recon_terms = readout(
-                    codec_sample, plans, control, memory_snapshot, track_ids
-                )
+                recon_terms = readout(codec_sample, plans, control, memory_snapshot, track_ids)
             continuation = target_raw
             correspondence = q.detach().kl(prior).sum()
         else:
             # Direct R is frozen for this encoder-only recurrent auxiliary;
             # only the encoder-produced canonical facets receive its gradient.
-            frozen = {
-                name: parameter.detach() for name, parameter in readout.named_parameters()
-            }
+            frozen = {name: parameter.detach() for name, parameter in readout.named_parameters()}
             with core.discard_routing_losses():
                 recon_terms = functional_call(
-                    readout, frozen,
+                    readout,
+                    frozen,
                     (
-                        codec_sample, plans,
+                        codec_sample,
+                        plans,
                         None if control is None else control.detach(),
-                        memory_snapshot, track_ids,
+                        memory_snapshot,
+                        track_ids,
                     ),
                 )
             correspondence = mean.float().sum() * 0
@@ -1157,27 +1263,37 @@ class MultiTrackGenerator:
                 actual = []
                 for index, plan in enumerate(plans):
                     tape = (
-                        plan.native_tapes[0] if isinstance(plan, PreparedTargets)
-                        else plan.native_tape if isinstance(plan, PreparedAction)
+                        plan.native_tapes[0]
+                        if isinstance(plan, PreparedTargets)
+                        else plan.native_tape
+                        if isinstance(plan, PreparedAction)
                         else None
                     )
                     if tape is None:
                         actual.append(target_raw[:, index].detach())
                     else:
-                        actual.append(torch.as_tensor(
-                            tape.facet_array().copy(), dtype=torch.float32,
-                            device=state.device,
-                        ).reshape_as(target_raw[:, index]))
+                        actual.append(
+                            torch.as_tensor(
+                                tape.facet_array().copy(),
+                                dtype=torch.float32,
+                                device=state.device,
+                            ).reshape_as(target_raw[:, index])
+                        )
                 continuation = torch.stack(actual, dim=1)
             else:
                 continuation = sampled
         # Ordinary recurrence keeps its one committed C pass for the next P.
         # Neither prior nor reconstruction realization processes C.
         next_state = (
-            selected if mode == "recurrent" and not teacher_forced_action
+            selected
+            if mode == "recurrent" and not teacher_forced_action
             else self.tracks.advance_group(
-                state, continuation, tracks=names, role_ids=roles,
-                modalities=modalities, memory_snapshot=memory_snapshot,
+                state,
+                continuation,
+                tracks=names,
+                role_ids=roles,
+                modalities=modalities,
+                memory_snapshot=memory_snapshot,
             )
         )
         zero = mean.float().sum() * 0
@@ -1187,9 +1303,9 @@ class MultiTrackGenerator:
         sums["reconstruction"], counts["reconstruction"] = recon_terms["lexical"]
         for family in ("audio", "visual"):
             sums[f"{family}_prediction"], counts[f"{family}_prediction"] = prior_terms[family]
-            sums[f"{family}_reconstruction"], counts[f"{family}_reconstruction"] = (
-                recon_terms[family]
-            )
+            sums[f"{family}_reconstruction"], counts[f"{family}_reconstruction"] = recon_terms[
+                family
+            ]
         for name in ("structure", "binding", "placement", "terminal"):
             a, a_count = prior_terms[name]
             b, b_count = recon_terms[name]
@@ -1198,23 +1314,40 @@ class MultiTrackGenerator:
         # Compare only coarse pooled semantic directions, not complete Z or
         # unrelated modality codec latents. All peers are sampled predictions.
         for relation_kind, left, right, strength in relations:
-            if (relation_kind not in {
-                "same_spoken_content", "translation_of", "describes",
-                "synchronized_with", "first_frame_of", "last_frame_of",
-                "edit_of", "preserves",
-            } or not 0 <= left < len(names) or not 0 <= right < len(names)
-                    or left == right or not 0 < strength <= 10):
+            if (
+                relation_kind
+                not in {
+                    "same_spoken_content",
+                    "translation_of",
+                    "describes",
+                    "synchronized_with",
+                    "first_frame_of",
+                    "last_frame_of",
+                    "edit_of",
+                    "preserves",
+                }
+                or not 0 <= left < len(names)
+                or not 0 <= right < len(names)
+                or left == right
+                or not 0 < strength <= 10
+            ):
                 raise ValueError("Unrecognized or invalid jointly selected relation")
             semantic_a = sampled[:, left].float().mean(dim=1)
             semantic_b = sampled[:, right].float().mean(dim=1)
             alignment_loss = 1 - torch.nn.functional.cosine_similarity(
-                semantic_a, semantic_b, dim=-1, eps=1e-6,
+                semantic_a,
+                semantic_b,
+                dim=-1,
+                eps=1e-6,
             )
             sums["relation"] = sums["relation"] + strength * alignment_loss.sum()
             counts["relation"] += 1
         semantic_relations = tuple(semantic_relations)
         relation_loss, relation_count = self.generator.relations(
-            sampled, target_raw, modalities, semantic_relations,
+            sampled,
+            target_raw,
+            modalities,
+            semantic_relations,
         )
         sums["relation_semantic"] = relation_loss
         counts["relation_semantic"] = relation_count
@@ -1226,18 +1359,19 @@ class MultiTrackGenerator:
         if mode == "recurrent":
             for index, plan in enumerate(plans):
                 tape = (
-                    plan.native_tapes[0] if isinstance(plan, PreparedTargets)
-                    else plan.native_tape if isinstance(plan, PreparedAction)
+                    plan.native_tapes[0]
+                    if isinstance(plan, PreparedTargets)
+                    else plan.native_tape
+                    if isinstance(plan, PreparedAction)
                     else None
                 )
                 if tape is not None:
                     actual = torch.as_tensor(
-                        tape.facet_array().copy(), dtype=torch.float32,
+                        tape.facet_array().copy(),
+                        dtype=torch.float32,
                         device=state.device,
                     ).reshape_as(target_raw[:, index])
-                    alignment = alignment + (
-                        target_raw[:, index].float() - actual
-                    ).square().sum()
+                    alignment = alignment + (target_raw[:, index].float() - actual).square().sum()
                     native_count += 1
         sums["encoder_alignment"] = alignment
         counts["encoder_alignment"] = native_count * core.config.n_facets * core.config.facet_dim
@@ -1245,32 +1379,34 @@ class MultiTrackGenerator:
         sums["router_balance"] = balance * len(names)
         sums["router_z"] = z_loss * len(names)
         counts["router_balance"] = counts["router_z"] = len(names)
+
         def planned(plan, name):
             if not isinstance(plan, MediaTrainTarget):
                 return plan.denominators[name]
             # A resolved media target carries no prepared denominators; they
             # mirror training.meridians.MediaPlan.denominators.
             family = "audio" if plan.modality == "audio" else "visual"
-            if name in (f"{family}_prediction", f"{family}_reconstruction",
-                        "router_balance", "router_z"):
+            if name in (
+                f"{family}_prediction",
+                f"{family}_reconstruction",
+                "router_balance",
+                "router_z",
+            ):
                 return 1
             if name == "facet_prediction" and plan.mode == "bootstrap":
                 return core.config.n_facets * core.config.facet_dim
             return 0
 
-        expected = {
-            name: sum(planned(plan, name) for plan in plans) for name in LOSS_NAMES
-        }
+        expected = {name: sum(planned(plan, name) for plan in plans) for name in LOSS_NAMES}
         expected["relation"] += len(relations)
         expected["relation_semantic"] += len(semantic_relations)
         if expected != counts:
-            raise RuntimeError(
-                f"Grouped loss plan drift: expected {expected}, observed {counts}"
-            )
+            raise RuntimeError(f"Grouped loss plan drift: expected {expected}, observed {counts}")
         losses = {name: (sums[name], counts[name]) for name in LOSS_NAMES}
         weighted = sum(
             sums[name] * (DEFAULT_LOSS_WEIGHTS[name] / counts[name])
-            for name in LOSS_NAMES if counts[name]
+            for name in LOSS_NAMES
+            if counts[name]
         )
         components = {
             "prediction": prior_terms["lexical"][0] / max(1, prior_terms["lexical"][1]),
@@ -1298,7 +1434,9 @@ class MultiTrackGenerator:
             "encoded_facet_norm_sum": target_raw.detach().float().flatten(2).norm(dim=-1).sum(),
             "facet_alignment_squared_error_sum": (
                 target_raw.detach().float() - mean.detach().float()
-            ).square().sum(),
+            )
+            .square()
+            .sum(),
             "facet_alignment_coordinates": target_raw.numel(),
             "teacher_forced_action_continuations": int(
                 mode == "recurrent" and teacher_forced_action
@@ -1348,8 +1486,12 @@ class MultiTrackGenerator:
         )
         memory_snapshot = self.tracks.materialize_memory(state)
         mean = self.tracks.predict_group(
-            state, tracks=names, control=control, effort=effort,
-            modalities=modal_names, memory_snapshot=memory_snapshot,
+            state,
+            tracks=names,
+            control=control,
+            effort=effort,
+            modalities=modal_names,
+            memory_snapshot=memory_snapshot,
         )
         distribution = self.generator.facet_distribution(mean)
         sampled = self._sample_policy(distribution, names, generator)
@@ -1364,8 +1506,10 @@ class MultiTrackGenerator:
                 if memory_snapshot is not None and core.memory_adapters is not None:
                     tracks_ids = self.tracks._track_indices(state, names)[0]
                     selected = core.memory_adapters.apply(
-                        selected, module="r", stage=0,
-                        track_ids=tracks_ids[:, i:i+1].expand(-1, selected.shape[1]),
+                        selected,
+                        module="r",
+                        stage=0,
+                        track_ids=tracks_ids[:, i : i + 1].expand(-1, selected.shape[1]),
                         snapshot=memory_snapshot,
                     )
                 ctx = core.prepare_realization(selected)
@@ -1377,14 +1521,14 @@ class MultiTrackGenerator:
                         target_bytes=target, representation_mode="bootstrap"
                     )
                     items = self.generator.decoder.teacher_raw(core, ctx, plan)
-                    active = [
-                        item / max(1, count) for item, count in items.values() if count
-                    ]
+                    active = [item / max(1, count) for item, count in items.values() if count]
                     values.append(torch.stack(active).sum())
                 else:
                     assert isinstance(target, Tensor)
                     if spec.codec_id:
-                        raise ValueError("Native codec targets require prepared masked media training")
+                        raise ValueError(
+                            "Native codec targets require prepared masked media training"
+                        )
                     if spec.renderer != "native":
                         value, count = self.generator.media_realizers.training_loss(
                             ctx.facets, spec, target
@@ -1422,8 +1566,12 @@ class MultiTrackGenerator:
         # The real live state is the clean teacher-forced encoding, not either
         # alternate sampled/reconstruction branch used to score the objective.
         next_state = self.tracks.advance_group(
-            state, encoded_raw, tracks=names, role_ids=roles,
-            modalities=modal_names, memory_snapshot=memory_snapshot,
+            state,
+            encoded_raw,
+            tracks=names,
+            role_ids=roles,
+            modalities=modal_names,
+            memory_snapshot=memory_snapshot,
         )
         router_balance, router_stabilization = core.routing_aux_loss(clear=True)
         routing = router_balance * 0.005 + router_stabilization * 1e-4
@@ -1431,15 +1579,23 @@ class MultiTrackGenerator:
         return GroupSupervisedResult(
             next_state,
             total,
-            {"prediction": main_loss, "reconstruction": recon_loss,
-             "facet_kl": kl, "routing": routing},
+            {
+                "prediction": main_loss,
+                "reconstruction": recon_loss,
+                "facet_kl": kl,
+                "routing": routing,
+            },
         )
 
     @torch.no_grad()
     def generate_group(
-        self, state: MultiTrackState, *, tracks: Sequence[str],
+        self,
+        state: MultiTrackState,
+        *,
+        tracks: Sequence[str],
         specs: Sequence[ActionSpec | MediaOutputSpec] | None = None,
-        controls: Sequence[bytes] | None = None, effort: int = 6,
+        controls: Sequence[bytes] | None = None,
+        effort: int = 6,
         generator: torch.Generator | None = None,
     ) -> GroupGeneration:
         self.tracks._validate(state)
@@ -1452,33 +1608,45 @@ class MultiTrackGenerator:
         plans = self._specs(specs, len(names), self.generator.config.max_capacity)
         pack_fingerprints = self._pack_ids(self.generator, plans)
         from .media import validate_public_media_spec
+
         for plan in plans:
             if isinstance(plan, MediaOutputSpec):
                 validate_public_media_spec(plan)
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         encoded = self._controls(payloads, state.device)
-        modalities = tuple(
-            "text" if isinstance(x, ActionSpec) else x.modality for x in plans
-        )
+        modalities = tuple("text" if isinstance(x, ActionSpec) else x.modality for x in plans)
         memory_snapshot = self.tracks.materialize_memory(state)
         mean = self.tracks.predict_group(
-            state, tracks=names, control=encoded, effort=effort, modalities=modalities,
+            state,
+            tracks=names,
+            control=encoded,
+            effort=effort,
+            modalities=modalities,
             memory_snapshot=memory_snapshot,
         )
         gaussian = self.generator.facet_distribution(mean)
         raw = self._sample_policy(gaussian, names, generator)
         roles = (ROLE_IDS["assistant"],) * len(names)
         seeds = self._renderer_seeds(
-            raw, names, int(state.meridians_seen[0]),
+            raw,
+            names,
+            int(state.meridians_seen[0]),
             tuple(self._spec_id(spec) for spec in plans),
         )
         output, emitted, valid, media = self._realize(
-            raw, plans, encoded, memory_snapshot=memory_snapshot,
-            track_ids=self.tracks._track_indices(state, names)[0], seeds=seeds,
+            raw,
+            plans,
+            encoded,
+            memory_snapshot=memory_snapshot,
+            track_ids=self.tracks._track_indices(state, names)[0],
+            seeds=seeds,
         )
         committed = self.tracks.advance_group(
-            state, raw, tracks=names, memory_snapshot=memory_snapshot,
+            state,
+            raw,
+            tracks=names,
+            memory_snapshot=memory_snapshot,
             role_ids=torch.tensor([roles], device=state.device, dtype=torch.long),
             modalities=modalities,
         )
@@ -1490,28 +1658,39 @@ class MultiTrackGenerator:
             tracks=names,
             roles=roles,
             controls=payloads,
-            modalities=tuple(
-                "text" if isinstance(x, ActionSpec) else x.modality for x in plans
-            ),
+            modalities=tuple("text" if isinstance(x, ActionSpec) else x.modality for x in plans),
             spec_fingerprints=tuple(self._spec_id(x) for x in plans),
             codec_fingerprint=self.generator.codec.fingerprint,
             facet_shape=tuple(raw.shape[1:]),
-            raw_f32=raw[0].detach().float().contiguous().cpu().numpy()
-                .astype("<f4", copy=False).tobytes(),
+            raw_f32=raw[0]
+            .detach()
+            .float()
+            .contiguous()
+            .cpu()
+            .numpy()
+            .astype("<f4", copy=False)
+            .tobytes(),
             behavior_log_prob=float(density),
             effort=effort,
             event_log_probs=tuple(float(x) for x in event_densities[0]),
             memory_snapshot_id="" if memory_snapshot is None else memory_snapshot.identity,
             renderer_seeds=seeds,
             pack_fingerprints=pack_fingerprints,
-            payloads=output, emitted_ids=emitted, valid=valid,
+            payloads=output,
+            emitted_ids=emitted,
+            valid=valid,
         )
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)
 
     def retrieve_embedding(
-        self, state: MultiTrackState, *, main_request: bytes, purpose: str,
-        space_fingerprint: str, effort: int = 6,
+        self,
+        state: MultiTrackState,
+        *,
+        main_request: bytes,
+        purpose: str,
+        space_fingerprint: str,
+        effort: int = 6,
         generator: torch.Generator | None = None,
     ) -> tuple[Tensor, MultiTrackState, Tensor]:
         """A single causal P query event; R reads its SELECTED raw action.
@@ -1520,18 +1699,23 @@ class MultiTrackGenerator:
         before sampling. No teacher or online vector ingestion is required.
         """
         from megatoken.generation.embedding import EmbeddingSpec
+
         realizer = self.generator.embedding_realizer
         if realizer is None or not space_fingerprint or not purpose or not main_request:
             raise ValueError("An enabled embedding R and explicit causal request are required")
         names = (RETRIEVAL_QUERY_TRACK,)
         payload = retrieval_control_payload(
-            main_request=main_request, purpose=purpose,
+            main_request=main_request,
+            purpose=purpose,
             space_fingerprint=space_fingerprint,
         )
         encoded = self._controls((payload,), state.device)
         snapshot = self.tracks.materialize_memory(state)
         mean = self.tracks.predict_group(
-            state, tracks=names, control=encoded, effort=effort,
+            state,
+            tracks=names,
+            control=encoded,
+            effort=effort,
             memory_snapshot=snapshot,
         )
         selected = self.generator.facet_distribution(mean).sample(generator)
@@ -1540,10 +1724,14 @@ class MultiTrackGenerator:
         )
         # Every selected query is a native committed action, including B0.
         updated = self.tracks.advance_group(
-            state, selected, tracks=names,
+            state,
+            selected,
+            tracks=names,
             role_ids=torch.full(
-                (state.batch_size, 1), ROLE_IDS["assistant"],
-                dtype=torch.long, device=state.device,
+                (state.batch_size, 1),
+                ROLE_IDS["assistant"],
+                dtype=torch.long,
+                device=state.device,
             ),
             memory_snapshot=snapshot,
         )
@@ -1551,9 +1739,14 @@ class MultiTrackGenerator:
 
     @torch.no_grad()
     def replay_group(
-        self, state: MultiTrackState, tape: GroupActionTape, *,
+        self,
+        state: MultiTrackState,
+        tape: GroupActionTape,
+        *,
         specs: Sequence[ActionSpec | MediaOutputSpec] | None = None,
-        effort: int = 6, atol: float = 1e-4, rtol: float = 1e-5,
+        effort: int = 6,
+        atol: float = 1e-4,
+        rtol: float = 1e-5,
     ) -> GroupGeneration:
         self.tracks._validate(state)
         if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
@@ -1569,10 +1762,14 @@ class MultiTrackGenerator:
         # such a tape to silently replay with new pretrained weights.
         if tape.pack_fingerprints and tape.pack_fingerprints != expected_pack_ids:
             raise ValueError("Grouped tape pretrained pack identity mismatch")
-        if not tape.pack_fingerprints and any(x not in ("text", "native") for x in expected_pack_ids):
+        if not tape.pack_fingerprints and any(
+            x not in ("text", "native") for x in expected_pack_ids
+        ):
             raise ValueError("Legacy group tape cannot certify a pretrained renderer")
-        if (tuple(self._spec_id(x) for x in plans) != tape.spec_fingerprints
-                or modality_names != tape.modalities):
+        if (
+            tuple(self._spec_id(x) for x in plans) != tape.spec_fingerprints
+            or modality_names != tape.modalities
+        ):
             raise ValueError("Grouped tape output specifications differ")
         core = self.generator.core
         core.routing_aux_loss(clear=True)
@@ -1582,8 +1779,12 @@ class MultiTrackGenerator:
         if tape.memory_snapshot_id != snapshot_id:
             raise ValueError("Historical KB materialization differs from recorded action")
         mean = self.tracks.predict_group(
-            state, tracks=tape.tracks, control=encoded, effort=effort,
-            modalities=tape.modalities, memory_snapshot=memory_snapshot,
+            state,
+            tracks=tape.tracks,
+            control=encoded,
+            effort=effort,
+            modalities=tape.modalities,
+            memory_snapshot=memory_snapshot,
         )
         raw = tape.raw(state.device)
         if tuple(raw.shape[1:]) != tuple(mean.shape[1:]):
@@ -1594,37 +1795,52 @@ class MultiTrackGenerator:
         if not torch.allclose(
             event_densities[0].float(),
             torch.tensor(tape.event_log_probs, device=state.device),
-            atol=atol, rtol=rtol,
+            atol=atol,
+            rtol=rtol,
         ):
             raise ValueError("Grouped per-event policy density replay mismatch")
         if not torch.isclose(
-            density.float(), torch.tensor(tape.behavior_log_prob, device=state.device),
-            atol=atol, rtol=rtol,
+            density.float(),
+            torch.tensor(tape.behavior_log_prob, device=state.device),
+            atol=atol,
+            rtol=rtol,
         ):
             raise ValueError("Grouped policy density replay mismatch")
         seeds = self._renderer_seeds(
-            raw, tape.tracks, tape.meridian_id, tape.spec_fingerprints,
+            raw,
+            tape.tracks,
+            tape.meridian_id,
+            tape.spec_fingerprints,
         )
         if tape.renderer_seeds and tape.renderer_seeds != seeds:
             raise ValueError("Grouped tape renderer noise identity mismatch")
         output, emitted, valid, media = self._realize(
-            raw, plans, encoded, memory_snapshot=memory_snapshot,
+            raw,
+            plans,
+            encoded,
+            memory_snapshot=memory_snapshot,
             track_ids=self.tracks._track_indices(state, tape.tracks)[0],
             seeds=tape.renderer_seeds or seeds,
         )
         committed = self.tracks.advance_group(
-            state, raw, tracks=tape.tracks, memory_snapshot=memory_snapshot,
+            state,
+            raw,
+            tracks=tape.tracks,
+            memory_snapshot=memory_snapshot,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
             modalities=tape.modalities,
         )
-        if (output != tape.payloads or emitted != tape.emitted_ids or valid != tape.valid):
+        if output != tape.payloads or emitted != tape.emitted_ids or valid != tape.valid:
             raise ValueError("Grouped realization replay mismatch")
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)
 
     def score_recorded_group(
-        self, state: MultiTrackState, tape: GroupActionTape,
-        *, effort: int | None = None,
+        self,
+        state: MultiTrackState,
+        tape: GroupActionTape,
+        *,
+        effort: int | None = None,
     ) -> tuple[Tensor, MultiTrackState]:
         """Differentiable Gaussian score of immutable selected raw actions.
 
@@ -1645,34 +1861,59 @@ class MultiTrackGenerator:
             raise ValueError("Policy score cannot use refreshed historical KB controls")
         encoded = self._controls(tape.controls, state.device)
         predicted = self.tracks.predict_group(
-            state, tracks=tape.tracks, control=encoded, effort=tape.effort,
-            modalities=tape.modalities, memory_snapshot=snapshot,
+            state,
+            tracks=tape.tracks,
+            control=encoded,
+            effort=tape.effort,
+            modalities=tape.modalities,
+            memory_snapshot=snapshot,
         )
         selected = tape.raw(state.device).detach()
         log_prob = self.generator.facet_distribution(predicted).log_prob(selected).sum()
         next_state = self.tracks.advance_group(
-            state, selected, tracks=tape.tracks,
+            state,
+            selected,
+            tracks=tape.tracks,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
-            modalities=tape.modalities, memory_snapshot=snapshot,
+            modalities=tape.modalities,
+            memory_snapshot=snapshot,
         )
         return log_prob, next_state
 
     def generate_text_group(
-        self, state: MultiTrackState, *, tracks: Sequence[str],
+        self,
+        state: MultiTrackState,
+        *,
+        tracks: Sequence[str],
         controls: Sequence[bytes] | None = None,
         specs: Sequence[ActionSpec] | None = None,
-        effort: int = 6, generator: torch.Generator | None = None,
+        effort: int = 6,
+        generator: torch.Generator | None = None,
     ) -> GroupGeneration:
         return self.generate_group(
-            state, tracks=tracks, specs=specs, controls=controls,
-            effort=effort, generator=generator,
+            state,
+            tracks=tracks,
+            specs=specs,
+            controls=controls,
+            effort=effort,
+            generator=generator,
         )
 
     def replay_text_group(
-        self, state: MultiTrackState, tape: GroupActionTape, *,
-        specs: Sequence[ActionSpec] | None = None, effort: int = 6,
-        atol: float = 1e-4, rtol: float = 1e-5,
+        self,
+        state: MultiTrackState,
+        tape: GroupActionTape,
+        *,
+        specs: Sequence[ActionSpec] | None = None,
+        effort: int = 6,
+        atol: float = 1e-4,
+        rtol: float = 1e-5,
     ) -> GroupGeneration:
         return self.replay_group(
-            state, tape, specs=specs, effort=effort, atol=atol, rtol=rtol,
+            state,
+            tape,
+            specs=specs,
+            effort=effort,
+            atol=atol,
+            rtol=rtol,
         )

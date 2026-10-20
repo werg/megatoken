@@ -220,11 +220,7 @@ def test_control_changes_prediction_without_changing_selected_processing():
     first = core.predict_facets(state)
     second = core.predict_facets(state, torch.randn(2, core.config.control_dim))
     assert not torch.equal(first, second)
-    assert (
-        state.facets is raw
-        and state.final is final
-        and state.history is history
-    )
+    assert state.facets is raw and state.final is final and state.history is history
     with pytest.raises(TypeError):
         core.advance_raw(state, raw, control=torch.zeros(2, core.config.control_dim))
 
@@ -471,7 +467,8 @@ def test_owner_groups_are_disjoint_complete_and_allow_fixed_decoder_latent_rl():
     core.predict_facets(state).square().mean().backward()
     assert all(
         parameter.grad is None
-        for group in (groups[0], groups[1], groups[3], groups[4]) for parameter in group
+        for group in (groups[0], groups[1], groups[3], groups[4])
+        for parameter in group
     )
     assert core.remix.channels.down.weight.grad.norm() > 0
     assert core.stages[0].attention.query.weight.grad.norm() > 0
@@ -495,10 +492,13 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
         sum(name == "central.memory.key_value.weight" for name, _ in core.named_parameters()) == 1
     )
     assert len(core.central.temporary_memories) == 3
-    assert sum(
-        name.startswith("central.temporary_memories.") and name.endswith(".key_value.weight")
-        for name, _ in core.named_parameters()
-    ) == 3
+    assert (
+        sum(
+            name.startswith("central.temporary_memories.") and name.endswith(".key_value.weight")
+            for name, _ in core.named_parameters()
+        )
+        == 3
+    )
     assert core.central.slot_embedding.shape == (config.n_facets, config.facet_dim)
     assert all(core.central.layers[index].temporary_gate is not None for index in (1, 2, 3))
     assert sum(name == "u_always.gate_up.weight" for name, _ in core.named_parameters()) == 1
@@ -605,11 +605,11 @@ def test_partial_reset_masks_whole_retained_slots_and_oldest_chunk_eviction():
     after = core.advance_raw(reset, torch.randn(2, config.n_facets, config.facet_dim))
     assert after.history.slots == 3 * config.n_facets
     assert after.history.mask is not None
-    assert not after.history.mask[0, :-config.n_facets].any()
+    assert not after.history.mask[0, : -config.n_facets].any()
     assert after.history.mask[0, -config.n_facets :].all()
     assert after.history.mask[1].all()
     torch.testing.assert_close(
-        after.history.keys[1, :, :-config.n_facets],
+        after.history.keys[1, :, : -config.n_facets],
         previous[1, :, config.n_facets :],
         rtol=0,
         atol=0,

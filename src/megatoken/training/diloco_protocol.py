@@ -51,14 +51,35 @@ class Fragment:
 def training_identity(config: Any) -> str:
     """Objective identity excludes local paths, worker IDs and logging cadence."""
     fields = (
-        "phase", "model", "codec", "precision", "seed", "model_overrides",
-        "expert_backend", "representation_mode", "generated_capacity",
-        "microbatch_episodes", "accumulate_scored", "accumulate_ingested",
-        "max_accumulation_windows", "max_history_tokens", "max_window_records",
-        "scored_decisions", "max_record_bytes", "effort", "use_stage_mixture",
-        "use_effort_mixture", "loss_weights", "grad_clip", "weight_decay",
-        "inner_optimizer", "gradient_checkpointing", "budget_meter", "accumulate_events",
-        "router_balance_mode", "retrieval_kv_dropout",
+        "phase",
+        "model",
+        "codec",
+        "precision",
+        "seed",
+        "model_overrides",
+        "expert_backend",
+        "representation_mode",
+        "generated_capacity",
+        "microbatch_episodes",
+        "accumulate_scored",
+        "accumulate_ingested",
+        "max_accumulation_windows",
+        "max_history_tokens",
+        "max_window_records",
+        "scored_decisions",
+        "max_record_bytes",
+        "effort",
+        "use_stage_mixture",
+        "use_effort_mixture",
+        "loss_weights",
+        "grad_clip",
+        "weight_decay",
+        "inner_optimizer",
+        "gradient_checkpointing",
+        "budget_meter",
+        "accumulate_events",
+        "router_balance_mode",
+        "retrieval_kv_dropout",
         "retrieval_lora_dropout",
     )
     identity: dict[str, Any] = {name: getattr(config, name) for name in fields}
@@ -116,9 +137,10 @@ def pack_fragment(masters: Mapping[str, torch.Tensor], fragment: Fragment) -> to
     """Take a consistent snapshot only at a completed optimizer-step boundary."""
     return torch.cat(
         [
-            masters[part.name].detach().reshape(-1)[
-                part.offset : part.offset + part.length
-            ].to(device="cpu", dtype=torch.float32)
+            masters[part.name]
+            .detach()
+            .reshape(-1)[part.offset : part.offset + part.length]
+            .to(device="cpu", dtype=torch.float32)
             for part in fragment.slices
         ]
     ).contiguous()
@@ -169,7 +191,10 @@ def merge_pseudogradients(
     if any(not math.isfinite(value) or value <= 0 for value in weights):
         raise ValueError("Invalid merge weight")
     total = sum(weights)
-    return sum((d.float() * (w / total) for d, w in zip(deltas, weights, strict=True)), torch.zeros_like(deltas[0], dtype=torch.float32))
+    return sum(
+        (d.float() * (w / total) for d, w in zip(deltas, weights, strict=True)),
+        torch.zeros_like(deltas[0], dtype=torch.float32),
+    )
 
 
 def outer_nesterov(

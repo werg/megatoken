@@ -1,4 +1,5 @@
 """Copy-on-write group speculation never publishes a subset or rewinds delivery."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,7 @@ class FakeTracks:
     def _validate(self, state):
         if state.batch_size != 1:
             raise ValueError("bad session")
+
     def observe_group(self, state, events, *, encoder_grad):
         assert not encoder_grad
         return SimpleNamespace(batch_size=1, revision=state.revision + 1)
@@ -18,6 +20,7 @@ class FakeTracks:
 class FakeGenerator:
     def __init__(self):
         self.tracks = FakeTracks()
+
     def generate_group(self, state, *, tracks, specs, controls, effort, generator):
         tape = SimpleNamespace(
             meridian_id=state.revision,
@@ -25,12 +28,15 @@ class FakeGenerator:
             payloads=tuple(b"abcdef" for _ in tracks),
             controls=tuple(controls),
             effort=effort,
-            to_json=lambda: "|".join(tuple(tracks) + tuple(c.hex() for c in controls)).encode().hex(),
+            to_json=lambda: (
+                "|".join(tuple(tracks) + tuple(c.hex() for c in controls)).encode().hex()
+            ),
         )
         return SimpleNamespace(
             state=SimpleNamespace(batch_size=1, revision=state.revision + 1),
             tape=tape,
         )
+
     def replay_group(self, state, tape, *, specs, effort):
         assert effort == tape.effort
         assert len(specs) == len(tape.tracks)
@@ -41,14 +47,16 @@ class FakeGenerator:
 
 def _session():
     return OmniSession(
-        FakeGenerator(), SimpleNamespace(batch_size=1, revision=0),
+        FakeGenerator(),
+        SimpleNamespace(batch_size=1, revision=0),
     )
 
 
 def test_speculation_acceptance_is_atomic_and_replayable():
     session = _session()
     candidate = session.propose(
-        tracks=("speech", "caption"), specs=(object(), object()),
+        tracks=("speech", "caption"),
+        specs=(object(), object()),
         requests=(("Speak words", 1), ("Describe scene", 2)),
     )
     assert session.state.revision == 0
@@ -69,7 +77,8 @@ def test_speculation_acceptance_is_atomic_and_replayable():
 def test_new_evidence_invalidates_unaccepted_work_but_not_played_output():
     session = _session()
     candidate = session.propose(
-        tracks=("speech",), specs=(object(),),
+        tracks=("speech",),
+        specs=(object(),),
         requests=(("Speak answer", 1),),
     )
     session.observe((object(),))
@@ -77,7 +86,8 @@ def test_new_evidence_invalidates_unaccepted_work_but_not_played_output():
     with pytest.raises(ValueError, match="stale"):
         session.accept(candidate.candidate_id)
     second = session.propose(
-        tracks=("speech",), specs=(object(),),
+        tracks=("speech",),
+        specs=(object(),),
         requests=(("Speak corrected answer", 2),),
     )
     session.reject(second.candidate_id)

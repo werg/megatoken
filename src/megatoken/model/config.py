@@ -144,28 +144,35 @@ class ModelConfig:
             (self.vision_detail_feature_dim, self.vision_detail_feature_id),
             (self.vision_codec_feature_dim, self.vision_codec_feature_id),
         ):
-            if type(dim) is not int or dim < 0 or (
-                bool(dim) != bool(identity)
-            ) or (identity and (not isinstance(identity, str) or len(identity) < 12)):
+            if (
+                type(dim) is not int
+                or dim < 0
+                or (bool(dim) != bool(identity))
+                or (identity and (not isinstance(identity, str) or len(identity) < 12))
+            ):
                 raise ValueError(
                     "External feature projectors require a positive width and pinned ID"
                 )
         if min(self.semantic_dim, self.semantic_value_dim, self.max_kb_positions) <= 0:
-            raise ValueError("Retrieval embedding, free semantic memory and full-facet KB "
-                             "are required on every model; zero-width legacy modes are removed")
+            raise ValueError(
+                "Retrieval embedding, free semantic memory and full-facet KB "
+                "are required on every model; zero-width legacy modes are removed"
+            )
         if min(self.memory_lora_experts, self.memory_lora_rank, self.memory_lora_topk) < 1:
             raise ValueError("LoRA geometry must be positive")
         if self.memory_lora_topk > self.memory_lora_experts:
             raise ValueError("LoRA top-k exceeds independent expert count")
-        if (not isinstance(self.media_feature_views, dict)
-                or any(not isinstance(k, str) or len(k) < 12
-                       or type(v) is not int or v <= 0
-                       for k, v in self.media_feature_views.items())):
+        if not isinstance(self.media_feature_views, dict) or any(
+            not isinstance(k, str) or len(k) < 12 or type(v) is not int or v <= 0
+            for k, v in self.media_feature_views.items()
+        ):
             raise ValueError("Auxiliary view names require pinned identities and widths")
-        if (not isinstance(self.media_view_dropout, (float, int))
-                or isinstance(self.media_view_dropout, bool)
-                or not math.isfinite(self.media_view_dropout)
-                or not 0 <= self.media_view_dropout < 1):
+        if (
+            not isinstance(self.media_view_dropout, (float, int))
+            or isinstance(self.media_view_dropout, bool)
+            or not math.isfinite(self.media_view_dropout)
+            or not 0 <= self.media_view_dropout < 1
+        ):
             raise ValueError("Media view dropout must lie in [0, 1)")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
@@ -276,11 +283,19 @@ class ModelConfig:
         unknown = set(values) - {field.name for field in fields(cls)}
         if unknown:
             raise ValueError(f"Unknown model configuration fields: {sorted(unknown)}")
-        mandatory = {"semantic_dim", "semantic_value_dim", "max_kb_positions",
-                     "memory_lora_experts", "memory_lora_rank", "memory_lora_topk"}
+        mandatory = {
+            "semantic_dim",
+            "semantic_value_dim",
+            "max_kb_positions",
+            "memory_lora_experts",
+            "memory_lora_rank",
+            "memory_lora_topk",
+        }
         if mandatory - set(values):
-            raise ValueError("Old non-retrieval model geometry is unsupported: "
-                             f"missing {sorted(mandatory - set(values))}")
+            raise ValueError(
+                "Old non-retrieval model geometry is unsupported: "
+                f"missing {sorted(mandatory - set(values))}"
+            )
         values = dict(values)
         if "ngram_orders" in values:
             values["ngram_orders"] = tuple(values["ngram_orders"])

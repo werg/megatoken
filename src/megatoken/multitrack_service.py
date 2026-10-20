@@ -39,8 +39,10 @@ def _float_tensor(
     *,
     max_elements: int = 8_000_000,
 ) -> torch.Tensor:
-    if not isinstance(shape, list) or not shape or any(
-        not isinstance(n, int) or isinstance(n, bool) or n < 1 for n in shape
+    if (
+        not isinstance(shape, list)
+        or not shape
+        or any(not isinstance(n, int) or isinstance(n, bool) or n < 1 for n in shape)
     ):
         raise ValueError("Media data requires a nonempty integer shape")
     size = math.prod(shape)
@@ -65,7 +67,9 @@ def _read_event(value: Mapping[str, object], device: torch.device) -> ObservedEv
     else:
         payload = _float_tensor(value.get("payload_f32_b64", ""), value.get("shape"), device)
     return ObservedEvent(
-        track=track, modality=modality, payload=payload,
+        track=track,
+        modality=modality,
+        payload=payload,
         role_id=ROLE_TO_ID[role_name],
         sample_rate=int(value.get("sample_rate", 16000)),
     )
@@ -149,7 +153,8 @@ def serve_multitrack_jsonl(
                     events = [_read_event(value, engine.device) for value in raw]
                     runtime.observe(session, events)
                     answer = {
-                        "session": session_id, "revision": session.revision,
+                        "session": session_id,
+                        "revision": session.revision,
                         "next_meridian": int(session.state.meridians_seen[0]),
                         "events_seen": int(session.state.events_seen[0]),
                         "retained_events": sum(session.state.meridian_sizes),
@@ -164,19 +169,24 @@ def serve_multitrack_jsonl(
                     )
                     controls = tuple(_bytes(item.get("control_b64", "")) for item in requested)
                     rng = (
-                        None if request.get("seed") is None
+                        None
+                        if request.get("seed") is None
                         else torch.Generator(device=engine.device).manual_seed(int(request["seed"]))
                     )
                     args = dict(
-                        tracks=names, specs=specs, controls=controls,
-                        effort=int(request.get("effort", 6)), generator=rng,
+                        tracks=names,
+                        specs=specs,
+                        controls=controls,
+                        effort=int(request.get("effort", 6)),
+                        generator=rng,
                     )
                     if op == "generate":
                         group = runtime.generate(session, **args)
                     else:
                         group = runtime.speculate(session, **args).result
                     answer = {
-                        "session": session_id, "revision": session.revision,
+                        "session": session_id,
+                        "revision": session.revision,
                         "provisional": op == "speculate",
                         "log_prob": float(group.log_prob),
                         "outputs": _output_response(group, specs),
@@ -188,7 +198,8 @@ def serve_multitrack_jsonl(
                         raise ValueError("No speculative group is pending")
                     group = runtime.accept(session, pending)
                     answer = {
-                        "session": session_id, "revision": session.revision,
+                        "session": session_id,
+                        "revision": session.revision,
                         "meridian_id": group.tape.meridian_id,
                     }
                 elif op == "cancel":
@@ -196,7 +207,8 @@ def serve_multitrack_jsonl(
                     answer = {"session": session_id, "revision": session.revision}
                 elif op == "status":
                     answer = {
-                        "session": session_id, "revision": session.revision,
+                        "session": session_id,
+                        "revision": session.revision,
                         "meridians": int(session.state.meridians_seen[0]),
                         "events_seen": int(session.state.events_seen[0]),
                         "retained_meridians": len(session.state.meridian_sizes),

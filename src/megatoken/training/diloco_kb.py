@@ -56,8 +56,15 @@ RECORD_FIELDS = ("key", "value", "strength", "lifetime_logit")
 # Canonical tables mirrored to learners, parents before children. Learner-local
 # optimizer moments and coordinator-only outer state are never synchronized.
 SYNCED_TABLES = (
-    "meta", "records", "relations", "source_range_refs", "source_windows",
-    "contributions", "postings", "retired_source_versions", "demand_events",
+    "meta",
+    "records",
+    "relations",
+    "source_range_refs",
+    "source_windows",
+    "contributions",
+    "postings",
+    "retired_source_versions",
+    "demand_events",
     "growth_state",
 )
 COORDINATOR_TABLES = ("diloco_kb_outer", "diloco_kb_meta", "diloco_kb_changes")
@@ -65,15 +72,22 @@ COORDINATOR_TABLES = ("diloco_kb_outer", "diloco_kb_meta", "diloco_kb_changes")
 
 class KBChangesExpired(LookupError):
     """The requested base version predates the retained change history."""
+
+
 RELATION_FIELDS = ("value", "dependence_logits", "strength", "lifetime_logit")
 MAX_DEMAND = 1 << 20
 
 
 def row_key(identity: RowID) -> str:
-    return "|".join((
-        identity.collection.value, identity.kind, str(identity.id),
-        identity.field, identity.layout,
-    ))
+    return "|".join(
+        (
+            identity.collection.value,
+            identity.kind,
+            str(identity.id),
+            identity.field,
+            identity.layout,
+        )
+    )
 
 
 def parse_row_key(key: str) -> RowID:
@@ -81,9 +95,13 @@ def parse_row_key(key: str) -> RowID:
     if len(parts) != 5:
         raise ValueError("Malformed KB row key")
     collection, kind, identity, field, layout = parts
-    if kind == "record" and field not in RECORD_FIELDS or (
-        kind == "relation" and field not in RELATION_FIELDS
-    ) or kind not in {"record", "relation"} or not identity.isdigit():
+    if (
+        kind == "record"
+        and field not in RECORD_FIELDS
+        or (kind == "relation" and field not in RELATION_FIELDS)
+        or kind not in {"record", "relation"}
+        or not identity.isdigit()
+    ):
         raise ValueError("Unsupported KB row field")
     return RowID(Collection(collection), kind, int(identity), field, layout)
 
@@ -91,8 +109,11 @@ def parse_row_key(key: str) -> RowID:
 def read_field(bank: SQLiteKB, identity: RowID) -> np.ndarray | None:
     """Current FP32 field value, or None when the row is missing or retired."""
     try:
-        row = (bank.get(identity.collection, identity.id) if identity.kind == "record"
-               else bank.get_relation(identity.id))
+        row = (
+            bank.get(identity.collection, identity.id)
+            if identity.kind == "record"
+            else bank.get_relation(identity.id)
+        )
     except KeyError:
         return None
     if not row.active:
@@ -111,10 +132,13 @@ def write_field(bank: SQLiteKB, identity: RowID, values: np.ndarray, ivf: Any = 
     if identity.kind == "record":
         index = {}
         if ivf is not None and identity.field == "key":
-            index = {"posting_cell": ivf.cell(values),
-                     "centroids_revision": ivf.identity.centroid_sha256}
-        bank.update_record(identity.collection, identity.id,
-                           **{identity.field: replacement}, **index)
+            index = {
+                "posting_cell": ivf.cell(values),
+                "centroids_revision": ivf.identity.centroid_sha256,
+            }
+        bank.update_record(
+            identity.collection, identity.id, **{identity.field: replacement}, **index
+        )
     else:
         bank.update_relation(identity.id, **{identity.field: replacement})
 
@@ -126,12 +150,16 @@ def _metadata(path: Path) -> dict[str, str]:
         return file.metadata() or {}
 
 
-def save_kb_update(path: Path, rows: dict[str, np.ndarray],
-                   demand: list[tuple[str, str, str, int]], *, wire_dtype: str,
-                   metadata: dict[str, str] | None = None) -> None:
+def save_kb_update(
+    path: Path,
+    rows: dict[str, np.ndarray],
+    demand: list[tuple[str, str, str, int]],
+    *,
+    wire_dtype: str,
+    metadata: dict[str, str] | None = None,
+) -> None:
     keys = sorted(rows)
-    flat = (torch.from_numpy(np.concatenate([rows[k] for k in keys]))
-            if keys else torch.zeros(0))
+    flat = torch.from_numpy(np.concatenate([rows[k] for k in keys])) if keys else torch.zeros(0)
     save_tensors(
         path,
         {"delta": flat.to(torch.bfloat16 if wire_dtype == "bf16" else torch.float32)},
@@ -155,8 +183,10 @@ def load_kb_update(path: Path) -> KBUpdate:
     if tensors.keys() != {"delta"}:
         raise ValueError("Expected exactly one KB delta tensor")
     flat = tensors["delta"]
-    if flat.dtype not in (torch.float32, torch.bfloat16) or flat.ndim != 1 or (
-        not torch.isfinite(flat).all()
+    if (
+        flat.dtype not in (torch.float32, torch.bfloat16)
+        or flat.ndim != 1
+        or (not torch.isfinite(flat).all())
     ):
         raise ValueError("KB delta dtype, shape, or finiteness invalid")
     layout = json.loads(meta.get("rows", "[]"))
@@ -169,14 +199,18 @@ def load_kb_update(path: Path) -> KBUpdate:
         parse_row_key(key)
         if type(size) is not int or size < 1 or key in rows:
             raise ValueError("Malformed KB update row layout")
-        rows[key] = flat[cursor:cursor + size].float()
+        rows[key] = flat[cursor : cursor + size].float()
         cursor += size
     if cursor != flat.numel():
         raise ValueError("KB update row layout does not cover the delta")
     parsed = []
     for item in demand:
-        if (not isinstance(item, list) or len(item) != 4
-                or not all(isinstance(x, str) for x in item[:3]) or type(item[3]) is not int):
+        if (
+            not isinstance(item, list)
+            or len(item) != 4
+            or not all(isinstance(x, str) for x in item[:3])
+            or type(item[3]) is not int
+        ):
             raise ValueError("Malformed KB query demand entry")
         parsed.append((item[0], item[1], item[2], item[3]))
     return KBUpdate(rows, tuple(parsed))
@@ -197,16 +231,19 @@ def _install_change_log(db: sqlite3.Connection) -> None:
                version INTEGER NOT NULL, tbl TEXT NOT NULL, pk TEXT NOT NULL,
                deleted INTEGER NOT NULL, PRIMARY KEY (version, tbl, pk))"""
     )
-    db.execute("CREATE INDEX IF NOT EXISTS diloco_kb_change_version "
-               "ON diloco_kb_changes(version)")
-    producing = ("COALESCE((SELECT CAST(content AS INTEGER) FROM diloco_kb_meta "
-                 "WHERE name='version'),0)+1")
+    db.execute("CREATE INDEX IF NOT EXISTS diloco_kb_change_version ON diloco_kb_changes(version)")
+    producing = (
+        "COALESCE((SELECT CAST(content AS INTEGER) FROM diloco_kb_meta WHERE name='version'),0)+1"
+    )
     for table in SYNCED_TABLES:
         key = _primary_key(db, table)
         if not key:
             raise RuntimeError(f"Synchronized KB table {table} lacks a primary key")
-        for op, alias, deleted in (("INSERT", "NEW", 0), ("UPDATE", "NEW", 0),
-                                   ("DELETE", "OLD", 1)):
+        for op, alias, deleted in (
+            ("INSERT", "NEW", 0),
+            ("UPDATE", "NEW", 0),
+            ("DELETE", "OLD", 1),
+        ):
             values = ",".join(f"{alias}.{column}" for column in key)
             db.execute(
                 f"""CREATE TRIGGER IF NOT EXISTS diloco_kb_{op.lower()}_{table}
@@ -244,9 +281,7 @@ def install_snapshot(downloaded: Path, local: Path) -> None:
             connection.execute("ATTACH DATABASE ? AS previous", (str(local),))
             connection.execute("BEGIN")
             connection.execute("DELETE FROM optimizer_rows")
-            connection.execute(
-                "INSERT INTO optimizer_rows SELECT * FROM previous.optimizer_rows"
-            )
+            connection.execute("INSERT INTO optimizer_rows SELECT * FROM previous.optimizer_rows")
             connection.execute("COMMIT")
             connection.execute("DETACH DATABASE previous")
     finally:
@@ -268,8 +303,10 @@ def apply_changes(bank: SQLiteKB, path: Path) -> int:
         db.execute("ATTACH DATABASE ? AS delta", (str(path),))
         try:
             version = int(db.execute("SELECT version FROM delta._version").fetchone()[0])
-            present = {row[0] for row in db.execute(
-                "SELECT name FROM delta.sqlite_master WHERE type='table'")}
+            present = {
+                row[0]
+                for row in db.execute("SELECT name FROM delta.sqlite_master WHERE type='table'")
+            }
             with bank.transaction():
                 db.execute("PRAGMA defer_foreign_keys=ON")
                 for table in SYNCED_TABLES:
@@ -281,7 +318,8 @@ def apply_changes(bank: SQLiteKB, path: Path) -> int:
                     rest = [c for c in columns if c not in key]
                     conflict = (
                         "DO UPDATE SET " + ",".join(f"{c}=excluded.{c}" for c in rest)
-                        if rest else "DO NOTHING"
+                        if rest
+                        else "DO NOTHING"
                     )
                     db.execute(
                         f"""INSERT INTO main.{table}({names}) SELECT {names}
@@ -301,9 +339,17 @@ def apply_changes(bank: SQLiteKB, path: Path) -> int:
     return version
 
 
-def initialize_kb(root: Path, *, recipe_path: str, bank_path: str,
-                  centroids_path: str | None, centroids_sha256: str | None,
-                  nprobe: int, scopes: tuple[str, ...], growth_budget: int) -> dict:
+def initialize_kb(
+    root: Path,
+    *,
+    recipe_path: str,
+    bank_path: str,
+    centroids_path: str | None,
+    centroids_sha256: str | None,
+    nprobe: int,
+    scopes: tuple[str, ...],
+    growth_budget: int,
+) -> dict:
     """Copy the gate-ready source-populated bank into coordinator ownership."""
     from megatoken.memory.recipe import RetrievalRecipe, open_bank_for_recipe
 
@@ -326,22 +372,42 @@ def initialize_kb(root: Path, *, recipe_path: str, bank_path: str,
         database_id = source.database_id
         source.backup(directory / "canonical.sqlite")
     settings = {
-        "database_id": database_id, "recipe_fingerprint": recipe.fingerprint,
+        "database_id": database_id,
+        "recipe_fingerprint": recipe.fingerprint,
         "centroids_sha256": centroids_sha256 if centroids_path else None,
-        "nprobe": nprobe, "scopes": sorted(set(scopes)), "growth_budget": growth_budget,
+        "nprobe": nprobe,
+        "scopes": sorted(set(scopes)),
+        "growth_budget": growth_budget,
     }
     # Opening once creates the coordinator tables and publishes version 0.
-    KBCoordinator(root, settings, outer_lr=1.0, outer_momentum=0.0, max_staleness=0,
-                  min_quorum=1, workers=1, grace_seconds=0).close()
+    KBCoordinator(
+        root,
+        settings,
+        outer_lr=1.0,
+        outer_momentum=0.0,
+        max_staleness=0,
+        min_quorum=1,
+        workers=1,
+        grace_seconds=0,
+    ).close()
     return settings
 
 
 class KBCoordinator:
     """Single canonical bank writer behind the fragment coordinator's lock."""
 
-    def __init__(self, root: Path, settings: dict, *, outer_lr: float,
-                 outer_momentum: float, max_staleness: int, min_quorum: int,
-                 workers: int, grace_seconds: float) -> None:
+    def __init__(
+        self,
+        root: Path,
+        settings: dict,
+        *,
+        outer_lr: float,
+        outer_momentum: float,
+        max_staleness: int,
+        min_quorum: int,
+        workers: int,
+        grace_seconds: float,
+    ) -> None:
         from megatoken.memory.growth import GrowthAllocator
         from megatoken.memory.recipe import RetrievalRecipe, open_bank_for_recipe
 
@@ -372,8 +438,9 @@ class KBCoordinator:
             centroids = self.root / "centroids.npy"
             if sha256_file(centroids) != settings["centroids_sha256"]:
                 raise ValueError("Coordinator IVF centroids changed")
-            self.ivf = SQLiteDiskIVF(self.bank, np.load(centroids, allow_pickle=False),
-                                     nprobe=settings["nprobe"])
+            self.ivf = SQLiteDiskIVF(
+                self.bank, np.load(centroids, allow_pickle=False), nprobe=settings["nprobe"]
+            )
         self.quorum_since: float | None = None
         self.merges = 0
 
@@ -406,9 +473,14 @@ class KBCoordinator:
         pointer = json.loads((self.root / "public.json").read_text())
         return int(pointer["version"]), self.root / pointer["file"]
 
-    def export_changes(self, after: int, destination: Path, *,
-                       records: tuple[int, ...] = (),
-                       relations: tuple[int, ...] = ()) -> int | None:
+    def export_changes(
+        self,
+        after: int,
+        destination: Path,
+        *,
+        records: tuple[int, ...] = (),
+        relations: tuple[int, ...] = (),
+    ) -> int | None:
         """Write rows changed since ``after`` plus the learner's trained rows.
 
         ``records``/``relations`` are the IDs the learner modified locally; their
@@ -425,7 +497,8 @@ class KBCoordinator:
         latest: dict[tuple[str, str], int] = {}
         for table, pk, deleted in self.bank.db.execute(
             """SELECT tbl, pk, deleted FROM diloco_kb_changes WHERE version > ?
-               ORDER BY version""", (after,),
+               ORDER BY version""",
+            (after,),
         ):
             latest[(table, pk)] = deleted
         db = self.bank.db
@@ -470,8 +543,10 @@ class KBCoordinator:
                     found = {row[0] for row in db.execute(f"SELECT id FROM delta.{table}")}
                     for (identity,) in by_table[table]:
                         if identity not in found:
-                            db.execute("INSERT INTO delta._deleted VALUES (?,?)",
-                                       (table, json.dumps([identity])))
+                            db.execute(
+                                "INSERT INTO delta._deleted VALUES (?,?)",
+                                (table, json.dumps([identity])),
+                            )
             db.execute("COMMIT")
         except BaseException:
             db.execute("ROLLBACK")
@@ -491,18 +566,31 @@ class KBCoordinator:
         target.unlink(missing_ok=True)
         self.bank.backup(target)
         strip_snapshot(target)
-        write_json(pointer, {"version": version, "file": name,
-                             "sha256": sha256_file(target)})
+        write_json(pointer, {"version": version, "file": name, "sha256": sha256_file(target)})
         for old in self.root.glob("public-*.sqlite"):
             if old.name != name:
                 old.unlink(missing_ok=True)
 
-    def submit(self, worker: int, sequence: int, base_version: int, steps: int,
-               tokens: int, incoming: Path, conflict: type[Exception]) -> dict:
-        if (type(sequence) is not int or sequence < 1
-                or type(base_version) is not int or base_version < 0
-                or type(steps) is not int or steps <= 0
-                or type(tokens) is not int or tokens <= 0):
+    def submit(
+        self,
+        worker: int,
+        sequence: int,
+        base_version: int,
+        steps: int,
+        tokens: int,
+        incoming: Path,
+        conflict: type[Exception],
+    ) -> dict:
+        if (
+            type(sequence) is not int
+            or sequence < 1
+            or type(base_version) is not int
+            or base_version < 0
+            or type(steps) is not int
+            or steps <= 0
+            or type(tokens) is not int
+            or tokens <= 0
+        ):
             raise ValueError("Invalid KB update metadata")
         version = self.version()
         last_seq = self._meta("last_seq", {})
@@ -517,11 +605,17 @@ class KBCoordinator:
                 return {"status": "already_queued", "version": version}
             raise conflict("One KB update per worker may be in flight")
         save_kb_update(
-            target, {k: v.numpy() for k, v in update.rows.items()},
-            list(update.demand), wire_dtype="fp32",
-            metadata={"worker": str(worker), "sequence": str(sequence),
-                      "base_version": str(base_version), "steps": str(steps),
-                      "tokens": str(tokens)},
+            target,
+            {k: v.numpy() for k, v in update.rows.items()},
+            list(update.demand),
+            wire_dtype="fp32",
+            metadata={
+                "worker": str(worker),
+                "sequence": str(sequence),
+                "base_version": str(base_version),
+                "steps": str(steps),
+                "tokens": str(tokens),
+            },
         )
         self.try_merge()
         return {"status": "queued", "version": self.version()}
@@ -545,8 +639,10 @@ class KBCoordinator:
             return False
         if self.quorum_since is None:
             self.quorum_since = time.monotonic()
-        if (len(proposals) < self.workers
-                and time.monotonic() - self.quorum_since < self.grace_seconds):
+        if (
+            len(proposals) < self.workers
+            and time.monotonic() - self.quorum_since < self.grace_seconds
+        ):
             return False
         self.quorum_since = None
         updates = [(load_kb_update(file), item, age) for file, item, age in proposals]
@@ -566,18 +662,25 @@ class KBCoordinator:
                 if not parts:
                     continue
                 delta = merge_pseudogradients(
-                    [p[0] for p in parts], [p[1] for p in parts],
-                    [p[2] for p in parts], [p[3] for p in parts],
+                    [p[0] for p in parts],
+                    [p[1] for p in parts],
+                    [p[2] for p in parts],
+                    [p[3] for p in parts],
                 )
                 stored = self.bank.db.execute(
                     "SELECT momentum FROM diloco_kb_outer WHERE row=?", (key,)
                 ).fetchone()
-                velocity = (torch.from_numpy(np.frombuffer(stored[0], dtype="<f4").copy())
-                            if stored is not None and len(stored[0]) == 4 * current.size
-                            else torch.zeros(current.size))
+                velocity = (
+                    torch.from_numpy(np.frombuffer(stored[0], dtype="<f4").copy())
+                    if stored is not None and len(stored[0]) == 4 * current.size
+                    else torch.zeros(current.size)
+                )
                 theta, velocity = outer_nesterov(
-                    torch.from_numpy(current), velocity, delta,
-                    lr=self.outer_lr, momentum=self.outer_momentum,
+                    torch.from_numpy(current),
+                    velocity,
+                    delta,
+                    lr=self.outer_lr,
+                    momentum=self.outer_momentum,
                 )
                 write_field(self.bank, identity, theta.numpy(), self.ivf)
                 self.bank.db.execute(
@@ -588,12 +691,19 @@ class KBCoordinator:
             for update, _, _ in updates:
                 for event_id, region, family, cursor in update.demand:
                     self.growth.demand.observe(
-                        event_id=event_id, region=region, family=family, step=cursor,
+                        event_id=event_id,
+                        region=region,
+                        family=family,
+                        step=cursor,
                     )
             if self.settings["growth_budget"]:
                 grow_bank(
-                    self.bank, self.recipe, self.growth, self.ivf,
-                    scopes=tuple(self.settings["scopes"]), step=version + 1,
+                    self.bank,
+                    self.recipe,
+                    self.growth,
+                    self.ivf,
+                    scopes=tuple(self.settings["scopes"]),
+                    step=version + 1,
                     budget=self.settings["growth_budget"],
                 )
             for _, item, _ in updates:
@@ -604,8 +714,7 @@ class KBCoordinator:
             self._put_meta("version", version + 1)
             floor = version + 1 - self.retained_versions
             if floor > int(self._meta("changes_floor", 0)):
-                self.bank.db.execute(
-                    "DELETE FROM diloco_kb_changes WHERE version <= ?", (floor,))
+                self.bank.db.execute("DELETE FROM diloco_kb_changes WHERE version <= ?", (floor,))
                 self._put_meta("changes_floor", floor)
         for file, _, _ in proposals:
             file.unlink(missing_ok=True)
@@ -679,12 +788,11 @@ class KBSync:
             "steps_since": self.steps_since,
             "tokens_since": self.tokens_since,
             "sequence": self.sequence,
-            "pending": None if self.pending is None else {
-                k: v for k, v in self.pending.items() if k != "future"
-            },
+            "pending": None
+            if self.pending is None
+            else {k: v for k, v in self.pending.items() if k != "future"},
             "pending_payload": (
-                None if self.pending is None
-                else load_tensors(self.pending["filename"])["delta"]
+                None if self.pending is None else load_tensors(self.pending["filename"])["delta"]
             ),
             "pending_meta": (
                 None if self.pending is None else _metadata(Path(self.pending["filename"]))
@@ -705,10 +813,10 @@ class KBSync:
             entry = dict(value["pending"])
             filename = outbox / f"kb-{entry['sequence']:09d}.safetensors"
             if not filename.exists():
-                save_tensors(filename, {"delta": value["pending_payload"]},
-                             metadata=value["pending_meta"])
+                save_tensors(
+                    filename, {"delta": value["pending_payload"]}, metadata=value["pending_meta"]
+                )
             entry["filename"] = str(filename)
             entry["future"] = None
             entry["retry_after"] = 0
             self.pending = entry
-

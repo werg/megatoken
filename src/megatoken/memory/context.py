@@ -1,4 +1,5 @@
 """Admission/replay helpers for external KB context, not native selected events."""
+
 from __future__ import annotations
 
 from dataclasses import replace

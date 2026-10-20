@@ -4,6 +4,7 @@ Memory is O(distinct routing contexts), not O(stages x contexts): hard counts
 are accumulated eagerly as sufficient statistics, and each detached context is
 held once with a per-stage executed-prefix weight. There is no replay cap.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -31,6 +32,7 @@ class _RouterState:
 @dataclass
 class RouterBalanceWindow:
     """Captured inputs are detached; downstream fairness affects router heads only."""
+
     states: dict[int, _RouterState] = field(default_factory=dict)
 
     def capture(self, router: EpochRouter, route: RowRoute) -> None:
@@ -49,8 +51,14 @@ class RouterBalanceWindow:
             0, assignment, torch.ones_like(assignment, dtype=state.counts.dtype)
         )
         context = route.router_context.detach()
-        key = (context.data_ptr(), tuple(context.shape), context.stride(), context.dtype,
-               context.device, context._version)
+        key = (
+            context.data_ptr(),
+            tuple(context.shape),
+            context.stride(),
+            context.dtype,
+            context.device,
+            context._version,
+        )
         entry = state.contexts.get(key)
         if entry is None:
             entry = state.contexts[key] = _ContextEntry(context, context._version)
@@ -68,13 +76,15 @@ class RouterBalanceWindow:
         for name, router in sorted(routers.items()):
             state = self.states.get(id(router))
             values[name] = (
-                state.counts.to(distributed.device) if state is not None else
-                torch.zeros(router.experts, dtype=torch.float64, device=distributed.device)
+                state.counts.to(distributed.device)
+                if state is not None
+                else torch.zeros(router.experts, dtype=torch.float64, device=distributed.device)
             )
         return distributed.sum_tensors(values)
 
-    def backward(self, distributed, *, routers: dict[str, EpochRouter],
-                 coefficient: float) -> dict[str, float]:
+    def backward(
+        self, distributed, *, routers: dict[str, EpochRouter], coefficient: float
+    ) -> dict[str, float]:
         """Exact pooled hard-load/soft-palette proxy, stopping at captured inputs."""
         if coefficient < 0:
             raise ValueError("Balance coefficient cannot be negative")
@@ -101,8 +111,7 @@ class RouterBalanceWindow:
                     soft_sum = contribution if soft_sum is None else soft_sum + contribution
             if soft_sum is None:
                 continue
-            loss = (coefficient * pool_scale * router.experts *
-                    (fraction * soft_sum / a).sum())
+            loss = coefficient * pool_scale * router.experts * (fraction * soft_sum / a).sum()
             total_loss = loss if total_loss is None else total_loss + loss
             diagnostics[f"balance_{name}_loss"] = float(loss.detach())
         if total_loss is not None and coefficient:

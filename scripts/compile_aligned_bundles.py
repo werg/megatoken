@@ -6,6 +6,7 @@ supplied immutable bytes/MediaRecords and never downloads, extracts, trains or
 applies verifiers. Its output is directly consumable by the native source
 adapter with preserve_native_stream=true in the existing preparation engine.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,15 +52,21 @@ def compile_bundle(value: dict):
     views = source.pop("views", ())
     chains = source.pop("trajectories", ())
     bundle = AlignedBundle(
-        artifacts=artifacts, relations=relations, edits=edits, **source,
+        artifacts=artifacts,
+        relations=relations,
+        edits=edits,
+        **source,
     )
     compiled_views = []
     for spec in views:
         spec = dict(spec)
         selected_relations = spec.pop("relations", ())
         refs = tuple(
-            relations[i] if type(i) is int and 0 <= i < len(relations)
-            else Relation(**i) if isinstance(i, dict) else None
+            relations[i]
+            if type(i) is int and 0 <= i < len(relations)
+            else Relation(**i)
+            if isinstance(i, dict)
+            else None
             for i in selected_relations
         )
         if any(r is None for r in refs):
@@ -67,7 +74,8 @@ def compile_bundle(value: dict):
         task = TaskView(
             inputs=tuple(spec.pop("inputs", ())),
             outputs=tuple(spec.pop("outputs")),
-            relations=refs, **spec,
+            relations=refs,
+            **spec,
         )
         # Do not allow content plans to be relabeled as supplied inputs.
         if task.content_plan and task.content_plan in task.inputs:
@@ -80,8 +88,11 @@ def compile_bundle(value: dict):
             if type(index) is not int or index < 0 or index >= len(edits):
                 raise ValueError("Edit chain requires certified edit index")
             steps.append(
-                (edits[index], entry["output_artifact_id"],
-                 tuple(entry.get("related_output_ids", ())))
+                (
+                    edits[index],
+                    entry["output_artifact_id"],
+                    tuple(entry.get("related_output_ids", ())),
+                )
             )
         compiled_views.append(
             compile_edit_trajectory(
@@ -112,7 +123,9 @@ def compile_manifest(source: str, output: str) -> dict:
         for view in views:
             existing = families.setdefault(view.source_family, view.split)
             if existing != view.split:
-                raise ValueError("Counterfactual siblings or source families crossed a frozen split")
+                raise ValueError(
+                    "Counterfactual siblings or source families crossed a frozen split"
+                )
             prepared.append(view)
         count += 1
     if not prepared:

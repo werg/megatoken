@@ -1,4 +1,5 @@
 """Aligned bundle compiler writes canonical native Episode stream without any data prep."""
+
 import base64
 import json
 
@@ -11,9 +12,11 @@ from scripts.compile_aligned_bundles import compile_manifest
 def _bundle(source_family="family", split="train"):
     def artifact(name, text):
         return {
-            "artifact_id": name, "modality": "text",
+            "artifact_id": name,
+            "modality": "text",
             "payload_base64": base64.b64encode(text.encode()).decode(),
         }
+
     return {
         "bundle_id": "recording",
         "source_family": source_family,
@@ -24,18 +27,20 @@ def _bundle(source_family="family", split="train"):
             artifact("caption", "Scene description"),
             artifact("spoken", "Spoken utterance"),
         ],
-        "views": [{
-            "family": "verbalization",
-            "inputs": ["recording"],
-            "content_plan": "plan",
-            "outputs": ["caption", "spoken"],
-            "requests": {
-                "recording": "Read literal source words",
-                "plan": "Commit coherent content selection",
-                "caption": "Describe committed content",
-                "spoken": "Speak committed content",
-            },
-        }],
+        "views": [
+            {
+                "family": "verbalization",
+                "inputs": ["recording"],
+                "content_plan": "plan",
+                "outputs": ["caption", "spoken"],
+                "requests": {
+                    "recording": "Read literal source words",
+                    "plan": "Commit coherent content selection",
+                    "caption": "Describe committed content",
+                    "spoken": "Speak committed content",
+                },
+            }
+        ],
     }
 
 

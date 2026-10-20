@@ -5,6 +5,7 @@ returned state trains the selected query/key/value/projector/adapter path. The
 SQLite writer is the sole sparse-row authority; its transactions never replace
 the model's MasterAdamW optimizer or duplicate neural optimizer moments.
 """
+
 from __future__ import annotations
 
 import json
@@ -66,10 +67,17 @@ class BankTrainingOwner:
     supervised meridian. No future source or teacher target is passed to ANN.
     """
 
-    def __init__(self, bank: SQLiteKB, recipe: RetrievalRecipe, *,
-                 device: torch.device, sparse_lr: float = 1e-3,
-                 source_features: NativeSourceFeatures | None = None,
-                 centroids: np.ndarray | None = None, nprobe: int = 8):
+    def __init__(
+        self,
+        bank: SQLiteKB,
+        recipe: RetrievalRecipe,
+        *,
+        device: torch.device,
+        sparse_lr: float = 1e-3,
+        source_features: NativeSourceFeatures | None = None,
+        centroids: np.ndarray | None = None,
+        nprobe: int = 8,
+    ):
         if bank.space.fingerprint != recipe.space.fingerprint or (
             bank.value_dim != recipe.model.semantic_value_dim
         ):
@@ -77,15 +85,14 @@ class BankTrainingOwner:
         if recipe.phase not in {"progressive_warmup", "free_kb_pretraining"}:
             raise ValueError("Bank updates are allowed only in free-KB pretraining phases")
         if recipe.loss_weights.get("source_value", 0) and source_features is None:
-            raise ValueError("Source-value training requires actual detached native E(source) bytes")
+            raise ValueError(
+                "Source-value training requires actual detached native E(source) bytes"
+            )
         self.bank = bank
         self.source_features = source_features
         self.recipe = recipe
         self.device = device
-        self.ivf = (
-            SQLiteDiskIVF(bank, centroids, nprobe=nprobe)
-            if centroids is not None else None
-        )
+        self.ivf = SQLiteDiskIVF(bank, centroids, nprobe=nprobe) if centroids is not None else None
         self.index = self.ivf if self.ivf is not None else ExactIndex(bank)
         self.sparse = SparseRowAdam(bank, lr=sparse_lr, index=self.ivf)
         self.selected = LocalMemoryWindow(self.sparse, "semantic-v1", device)
@@ -95,25 +102,40 @@ class BankTrainingOwner:
         self.pending_demand: list[tuple[str, str, str, int]] = []
         self.reads = 0
 
-    def _rank(self, query: Tensor, ids: tuple[int, ...],
-              *, collection: Collection, positive: Tensor,
-              complete: bool) -> Tensor:
+    def _rank(
+        self,
+        query: Tensor,
+        ids: tuple[int, ...],
+        *,
+        collection: Collection,
+        positive: Tensor,
+        complete: bool,
+    ) -> Tensor:
         # A missed annotated positive is omitted, never trained as no-answer.
         if not ids:
             return query.sum() * 0
-        keys = torch.stack([
-            self.selected.field(collection, "record", identity, "key")
-            for identity in ids
-        ]).to(query.device)
+        keys = torch.stack(
+            [self.selected.field(collection, "record", identity, "key") for identity in ids]
+        ).to(query.device)
         scores = selected_evidence(query, keys[None].expand(query.shape[0], -1, -1))
         numerator, valid_count = annotated_ranking_loss(
-            scores, positive[None], torch.tensor([complete], device=query.device),
+            scores,
+            positive[None],
+            torch.tensor([complete], device=query.device),
         )
         return numerator if valid_count else query.sum() * 0
 
-    def read(self, state: Any, query: Tensor, annotation: RetrievalExample,
-             *, global_count: int, clock: int, multi: MultiTrackGenerator | None = None,
-             coverage: RetrievalSession | None = None) -> ReadResult:
+    def read(
+        self,
+        state: Any,
+        query: Tensor,
+        annotation: RetrievalExample,
+        *,
+        global_count: int,
+        clock: int,
+        multi: MultiTrackGenerator | None = None,
+        coverage: RetrievalSession | None = None,
+    ) -> ReadResult:
         if query.shape != (1, self.recipe.space.dimension) or global_count < 1:
             raise ValueError("Training KB read requires one query and global event count")
         if annotation.query.space_fingerprint != self.recipe.space.fingerprint:
@@ -137,60 +159,84 @@ class BankTrainingOwner:
         visibility = Visibility(scope, clock)
         q = query.detach().float().cpu().numpy()[0]
         source_hits = self.index.search(
-            q, collection=Collection.SOURCE, scope=scope,
-            visibility=visibility, limit=self.recipe.max_selected_source,
+            q,
+            collection=Collection.SOURCE,
+            scope=scope,
+            visibility=visibility,
+            limit=self.recipe.max_selected_source,
         )
         memory_hits = self.index.search(
-            q, collection=Collection.MEMORY, scope=scope,
-            visibility=visibility, limit=self.recipe.max_selected_memory,
+            q,
+            collection=Collection.MEMORY,
+            scope=scope,
+            visibility=visibility,
+            limit=self.recipe.max_selected_memory,
         )
         positives = set(annotation.positive_content_ids)
         # Ranking labels apply only to truly eligible, selected source IDs.
         s_ids = source_hits.ids
-        s_positive = torch.tensor([
-            hit.record.content_id in positives for hit in source_hits.hits
-        ], device=self.device, dtype=torch.bool)
+        s_positive = torch.tensor(
+            [hit.record.content_id in positives for hit in source_hits.hits],
+            device=self.device,
+            dtype=torch.bool,
+        )
         s_loss = self._rank(
-            query, s_ids, collection=Collection.SOURCE, positive=s_positive,
+            query,
+            s_ids,
+            collection=Collection.SOURCE,
+            positive=s_positive,
             complete=annotation.annotations_complete and not positives,
         )
         source_value = query.sum() * 0
         source_value_examples = 0
         if s_ids and self.source_features is not None:
-            observed_features = torch.stack([
-                self.source_features.get(hit.record) for hit in source_hits.hits
-            ])[None].to(query.device)
+            observed_features = torch.stack(
+                [self.source_features.get(hit.record) for hit in source_hits.hits]
+            )[None].to(query.device)
             target = LocalRetrievalTarget(
                 teacher_query=query.detach(),
                 useful_source=s_positive[None],
                 annotated_complete=torch.tensor(
                     [annotation.annotations_complete and not positives],
-                    device=query.device, dtype=torch.bool,
+                    device=query.device,
+                    dtype=torch.bool,
                 ),
                 source_features=observed_features.detach(),
             )
             source_value, source_value_examples = self.selected.source_loss(
-                query, s_ids, target,
+                query,
+                s_ids,
+                target,
                 eligible=torch.ones(
-                    (1, len(s_ids)), dtype=torch.bool, device=query.device,
+                    (1, len(s_ids)),
+                    dtype=torch.bool,
+                    device=query.device,
                 ),
             )
         # Memory candidates reference STABLE ORIGINAL source assignments.
         m_hits = memory_hits.hits
         m_ids = tuple(hit.record.id for hit in m_hits)
-        m_positive = torch.tensor([
-            hit.record.source_assignment in positives for hit in m_hits
-        ], device=self.device, dtype=torch.bool)
+        m_positive = torch.tensor(
+            [hit.record.source_assignment in positives for hit in m_hits],
+            device=self.device,
+            dtype=torch.bool,
+        )
         m_loss = self._rank(
-            query, m_ids, collection=Collection.MEMORY, positive=m_positive,
+            query,
+            m_ids,
+            collection=Collection.MEMORY,
+            positive=m_positive,
             complete=annotation.annotations_complete and not positives,
         )
         groups_count = 0
         if m_ids:
             groups, _ = selected_joint_groups(
-                bank=self.bank, selected=self.selected, query=query,
+                bank=self.bank,
+                selected=self.selected,
+                query=query,
                 records=[hit.record for hit in m_hits],
-                visibility=visibility, annotation=annotation,
+                visibility=visibility,
+                annotation=annotation,
                 anchor=int(state.meridians_seen[0]),
                 max_groups=self.recipe.max_kb_positions,
             )
@@ -203,10 +249,14 @@ class BankTrainingOwner:
             region = semantic_region(source_hits.hits[0].record.key)
             # Defer writes to the SINGLE primary-rank update barrier; queries
             # on workers may not mutate the canonical SQLite demand catalog.
-            self.pending_demand.append((
-                f"{annotation.episode_id}/{annotation.event_id}",
-                region, annotation.split_family, annotation.query.meridian,
-            ))
+            self.pending_demand.append(
+                (
+                    f"{annotation.episode_id}/{annotation.event_id}",
+                    region,
+                    annotation.split_family,
+                    annotation.query.meridian,
+                )
+            )
             self.query_demand += 1
         committed_sources = 0
         committed_bytes = 0
@@ -218,11 +268,13 @@ class BankTrainingOwner:
                 )
             epochs = self.bank.revisions()
             scoring_epoch = epochs.scoring_identity(
-                f"native-p-r:{state.model_version}", self.recipe.space,
+                f"native-p-r:{state.model_version}",
+                self.recipe.space,
             )
             boundary = replace(annotation.query, snapshot_id=scoring_epoch)
             coverage.incremental(
-                list(source_hits.hits), boundary=boundary,
+                list(source_hits.hits),
+                boundary=boundary,
                 threshold=float(self.recipe.extra_rules.get("source_threshold", 0.35)),
             )
             reserved = coverage.reserve(
@@ -235,16 +287,21 @@ class BankTrainingOwner:
                 row = self.bank.get(Collection.SOURCE, obligation.record_id)
                 if not row.active or not visibility.permits(row.footprint):
                     coverage.release(
-                        obligation.interval, f"{annotation.episode_id}/{annotation.event_id}",
+                        obligation.interval,
+                        f"{annotation.episode_id}/{annotation.event_id}",
                     )
                     raise ValueError("Source became ineligible before native RAG admission")
                 data = self.source_features.read_interval(row, obligation.interval)
                 state = multi.tracks.observe_group(
                     state,
-                    (ObservedEvent(
-                        "retrieved_source", "text", data,
-                        role_id=ROLE_IDS["document"],
-                    ),),
+                    (
+                        ObservedEvent(
+                            "retrieved_source",
+                            "text",
+                            data,
+                            role_id=ROLE_IDS["document"],
+                        ),
+                    ),
                     encoder_grad=False,
                 )
                 coverage.commit(
@@ -259,25 +316,36 @@ class BankTrainingOwner:
                 committed_sources += 1
                 committed_bytes += len(data)
         self.reads += 1
-        scale = self.recipe.loss_weights.get("query_ranking", 0.)
-        loss = (scale * (s_loss + m_loss) + (
-            self.recipe.loss_weights.get("source_value", 0.) * source_value
-        )) / global_count
+        scale = self.recipe.loss_weights.get("query_ranking", 0.0)
+        loss = (
+            scale * (s_loss + m_loss)
+            + (self.recipe.loss_weights.get("source_value", 0.0) * source_value)
+        ) / global_count
         return ReadResult(
-            state, loss, len(s_ids), len(m_ids), groups_count,
-            source_value_examples, committed_sources, committed_bytes,
+            state,
+            loss,
+            len(s_ids),
+            len(m_ids),
+            groups_count,
+            source_value_examples,
+            committed_sources,
+            committed_bytes,
         )
 
     def catalog(self, scope: str) -> list[CatalogChunk]:
         """Source records are the allocation catalog, never model outputs."""
         return bank_catalog(self.bank, scope)
 
-    def grow_at_barrier(self, *, scopes: tuple[str, ...],
-                        step: int, budget: int) -> int:
+    def grow_at_barrier(self, *, scopes: tuple[str, ...], step: int, budget: int) -> int:
         """Only after one completed, globally synchronized optimizer step."""
         grown, pairs = grow_bank(
-            self.bank, self.recipe, self.growth, self.ivf,
-            scopes=scopes, step=step, budget=budget,
+            self.bank,
+            self.recipe,
+            self.growth,
+            self.ivf,
+            scopes=scopes,
+            step=step,
+            budget=budget,
         )
         self.pairs_created += pairs
         return grown
@@ -289,18 +357,30 @@ def bank_catalog(bank: SQLiteKB, scope: str) -> list[CatalogChunk]:
     for row in bank.scan(Collection.SOURCE, scope):
         if not row.active:
             continue
-        catalog.append(CatalogChunk(
-            content_id=row.content_id, key=row.key, scope=row.scope,
-            region=semantic_region(row.key), footprint=row.footprint,
-            family=row.footprint.ranges[0].family or row.content_id,
-            group=row.group,
-        ))
+        catalog.append(
+            CatalogChunk(
+                content_id=row.content_id,
+                key=row.key,
+                scope=row.scope,
+                region=semantic_region(row.key),
+                footprint=row.footprint,
+                family=row.footprint.ranges[0].family or row.content_id,
+                group=row.group,
+            )
+        )
     return catalog
 
 
-def grow_bank(bank: SQLiteKB, recipe: RetrievalRecipe, growth: GrowthAllocator,
-              ivf: SQLiteDiskIVF | None, *, scopes: tuple[str, ...],
-              step: int, budget: int) -> tuple[int, int]:
+def grow_bank(
+    bank: SQLiteKB,
+    recipe: RetrievalRecipe,
+    growth: GrowthAllocator,
+    ivf: SQLiteDiskIVF | None,
+    *,
+    scopes: tuple[str, ...],
+    step: int,
+    budget: int,
+) -> tuple[int, int]:
     """Bounded point/pair growth on the single authoritative bank writer.
 
     Used by the synchronous rank-zero barrier and by the DiLoCo coordinator,
@@ -317,10 +397,14 @@ def grow_bank(bank: SQLiteKB, recipe: RetrievalRecipe, growth: GrowthAllocator,
         if not rows:
             continue
         cursor = max(r.available_at for c in rows for r in c.footprint.ranges)
-        n += len(growth.grow(
-            rows, visibility=Visibility(scope, cursor), step=step,
-            budget=max(0, budget - n),
-        ))
+        n += len(
+            growth.grow(
+                rows,
+                visibility=Visibility(scope, cursor),
+                step=step,
+                budget=max(0, budget - n),
+            )
+        )
         if recipe.growth.max_pairs:
             # Distinct source support windows are durable catalog records
             # with explicit full-context lineage. Identical source
@@ -344,10 +428,13 @@ def grow_bank(bank: SQLiteKB, recipe: RetrievalRecipe, growth: GrowthAllocator,
                 seen_support.add(signature)
                 windows[item["window_id"]] = tuple(json.loads(item["source_ids"]))
             if windows:
-                pairs += len(growth.admit_pairs(
-                    windows, scope=scope,
-                    visibility=Visibility(scope, cursor),
-                ))
+                pairs += len(
+                    growth.admit_pairs(
+                        windows,
+                        scope=scope,
+                        visibility=Visibility(scope, cursor),
+                    )
+                )
         if ivf is not None:
             # The growth barrier is the ONLY time newly allocated
             # keyspaces need a bulk posting refresh. Selected key updates
@@ -359,8 +446,9 @@ def grow_bank(bank: SQLiteKB, recipe: RetrievalRecipe, growth: GrowthAllocator,
     return n, pairs
 
 
-def synchronize_sparse_rows(owner: BankTrainingOwner, distributed: Any, *,
-                            optimizer_step: int, max_norm: float) -> int:
+def synchronize_sparse_rows(
+    owner: BankTrainingOwner, distributed: Any, *, optimizer_step: int, max_norm: float
+) -> int:
     """Reference all-rank union/SUM of touched sparse rows. Never average.
 
     Gradients already use true global evidence denominators. Keep a sorted
@@ -424,10 +512,14 @@ def synchronize_query_demand(owner: BankTrainingOwner, distributed: Any) -> int:
             with owner.bank.transaction():
                 for batch in gathered:
                     for event_id, region, family, cursor in batch:
-                        written += int(owner.growth.demand.observe(
-                            event_id=event_id, region=region,
-                            family=family, step=cursor,
-                        ))
+                        written += int(
+                            owner.growth.demand.observe(
+                                event_id=event_id,
+                                region=region,
+                                family=family,
+                                step=cursor,
+                            )
+                        )
         except BaseException as exc:
             error = f"{type(exc).__name__}: {exc}"
     errors = distributed.all_gather_object(error)

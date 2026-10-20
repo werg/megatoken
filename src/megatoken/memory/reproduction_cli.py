@@ -4,6 +4,7 @@ All optimized free-memory rows are labels only. This command consumes exactly
 the prepared SOURCE E facet views and source-window statistics, verifying the
 dataset/checkpoint identities and complete expected stable assignments.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,13 +36,18 @@ def _footprint(value: list[dict]) -> Footprint:
 
 def _source_assignment(item: dict) -> SourceAssignment:
     return SourceAssignment(
-        identity=item["identity"], content_id=item["content_id"],
-        scope=item["scope"], footprint=_footprint(item["footprint"]),
-        evidence_span=SourceRange(**{
-            **item["evidence_span"],
-            "ancestors": tuple(item["evidence_span"].get("ancestors", ())),
-        }),
-        asset_ref=item["asset_ref"], original_source=item["original_source"],
+        identity=item["identity"],
+        content_id=item["content_id"],
+        scope=item["scope"],
+        footprint=_footprint(item["footprint"]),
+        evidence_span=SourceRange(
+            **{
+                **item["evidence_span"],
+                "ancestors": tuple(item["evidence_span"].get("ancestors", ())),
+            }
+        ),
+        asset_ref=item["asset_ref"],
+        original_source=item["original_source"],
         original_distance=float(item["original_distance"]),
         batch_index=int(item["batch_index"]),
         output_slot=int(item["output_slot"]),
@@ -51,16 +57,25 @@ def _source_assignment(item: dict) -> SourceAssignment:
 def _digest_rows(rows: list[dict], *, field: str | None = None) -> str:
     if field == "footprint":
         rows = [row[field] for row in rows]
-    return sha256(json.dumps(
-        rows, sort_keys=True, separators=(",", ":"),
-    ).encode()).hexdigest()
+    return sha256(
+        json.dumps(
+            rows,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
 
 
 def reproduce(
-    recipe: RetrievalRecipe, *, source_dataset_path: Path,
-    source_metadata_path: Path, pair_metadata_path: Path,
-    expected_manifest_path: Path, source_writer_path: Path,
-    pair_writer_path: Path, output: Path,
+    recipe: RetrievalRecipe,
+    *,
+    source_dataset_path: Path,
+    source_metadata_path: Path,
+    pair_metadata_path: Path,
+    expected_manifest_path: Path,
+    source_writer_path: Path,
+    pair_writer_path: Path,
+    output: Path,
 ) -> dict:
     if recipe.phase != "corpus_reproduction":
         raise ValueError("Corpus rebuild requires a post-pretraining reproduction recipe")
@@ -73,26 +88,36 @@ def reproduce(
     ):
         raise RuntimeError("Full-target dataset/assignment manifest identity differs")
     dataset = WriterDataset.load(source_dataset_path)
-    if dataset.kind != "source" or dataset.mode != "full" or (
-        dataset.recipe_fingerprint != recipe.fingerprint
-        or dataset.semantic_space_fingerprint != recipe.space.fingerprint
+    if (
+        dataset.kind != "source"
+        or dataset.mode != "full"
+        or (
+            dataset.recipe_fingerprint != recipe.fingerprint
+            or dataset.semantic_space_fingerprint != recipe.space.fingerprint
+        )
     ):
         raise ValueError("Source writer requires the matching frozen full-context source view")
     source_writer = FrozenWriterArtifact(
-        source_writer_path, expected_recipe=recipe.fingerprint,
+        source_writer_path,
+        expected_recipe=recipe.fingerprint,
         expected_space=recipe.space.fingerprint,
         expected_model_snapshot=dataset.model_checkpoint_id,
-        expected_free_bank=dataset.free_bank_sha256, kind="source",
+        expected_free_bank=dataset.free_bank_sha256,
+        kind="source",
     )
     pair_writer = FrozenWriterArtifact(
-        pair_writer_path, expected_recipe=recipe.fingerprint,
+        pair_writer_path,
+        expected_recipe=recipe.fingerprint,
         expected_space=recipe.space.fingerprint,
         expected_model_snapshot=dataset.model_checkpoint_id,
-        expected_free_bank=dataset.free_bank_sha256, kind="pair",
+        expected_free_bank=dataset.free_bank_sha256,
+        kind="pair",
     )
     author = FrozenCorpusAuthor(
-        source_writer=source_writer, pair_writer=pair_writer,
-        semantic_space=recipe.space, value_dim=recipe.model.semantic_value_dim,
+        source_writer=source_writer,
+        pair_writer=pair_writer,
+        semantic_space=recipe.space,
+        value_dim=recipe.model.semantic_value_dim,
     )
     source_rows = _lines(source_metadata_path)
     by_shard: dict[str, list[dict]] = {}
@@ -109,32 +134,37 @@ def reproduce(
             raise RuntimeError("Original source assignment/footprint digest differs")
         values = _shard_tensors(root, shard)
         author.add_sources(
-            values["encoded"], values["valid_blocks"].bool(),
+            values["encoded"],
+            values["valid_blocks"].bool(),
             tuple(_source_assignment(item) for item in rows),
         )
     pair_rows = _lines(pair_metadata_path)
     pairs = []
     for item in pair_rows:
-        pairs.append(PairAssignment(
-            left_assignment=item["left_assignment"],
-            right_assignment=item["right_assignment"],
-            scope=item["scope"], footprint=_footprint(item["footprint"]),
-            prior=float(item["prior"]),
-            statistics=torch.tensor(item["statistics"], dtype=torch.float32),
-        ))
+        pairs.append(
+            PairAssignment(
+                left_assignment=item["left_assignment"],
+                right_assignment=item["right_assignment"],
+                scope=item["scope"],
+                footprint=_footprint(item["footprint"]),
+                prior=float(item["prior"]),
+                statistics=torch.tensor(item["statistics"], dtype=torch.float32),
+            )
+        )
     author.add_pairs(pairs)
     expected_point = set(targets["point_assignments"])
     expected_source = set(targets["source_content_ids"])
-    expected_pair = {
-        tuple(sorted(pair)) for pair in targets["pair_assignments"]
-    }
+    expected_pair = {tuple(sorted(pair)) for pair in targets["pair_assignments"]}
     result = author.publish(
-        output, expected_points=expected_point,
-        expected_sources=expected_source, expected_pairs=expected_pair,
+        output,
+        expected_points=expected_point,
+        expected_sources=expected_source,
+        expected_pairs=expected_pair,
     )
     receipt = {
         "schema": "megatoken-reproduced-bank-v1",
-        "recipe": recipe.fingerprint, "space": recipe.space.fingerprint,
+        "recipe": recipe.fingerprint,
+        "space": recipe.space.fingerprint,
         "source_writer_weights": source_writer.manifest["weights_sha256"],
         "pair_writer_weights": pair_writer.manifest["weights_sha256"],
         "original_target_manifest_sha256": sha256_file(expected_manifest_path),
@@ -156,8 +186,14 @@ def reproduce(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Regenerate full source+KB from frozen writers")
     for arg in (
-        "recipe", "source-dataset", "source-metadata", "pair-metadata",
-        "expected-manifest", "source-writer", "pair-writer", "output",
+        "recipe",
+        "source-dataset",
+        "source-metadata",
+        "pair-metadata",
+        "expected-manifest",
+        "source-writer",
+        "pair-writer",
+        "output",
     ):
         parser.add_argument(f"--{arg}", required=True, type=Path)
     opts = parser.parse_args(argv)

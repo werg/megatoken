@@ -27,7 +27,9 @@ class CheckpointStore:
         try:
             import boto3
         except ImportError as exc:
-            raise ImportError("Install megatoken[coreweave] for durable checkpoint storage") from exc
+            raise ImportError(
+                "Install megatoken[coreweave] for durable checkpoint storage"
+            ) from exc
         self.bucket = parsed.netloc
         self.prefix = "/".join(
             x for x in (parsed.path.strip("/"), run_id, f"worker-{worker_id:02d}") if x

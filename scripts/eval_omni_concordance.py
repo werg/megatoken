@@ -5,6 +5,7 @@ Input manifest declares relative decoded output tensors or generated text, and
 relations that were actually requested. Independent verification is optional
 but missing evaluations are explicitly unmeasured. No model is run here.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,7 +53,9 @@ def evaluate_manifest(path: str, *, asr_path: str | None = None):
                 raise ValueError("Invalid requested edit-region path")
             mask = np.load(source.parent / region, allow_pickle=False).astype(bool)
         outputs[name] = SampledEvent(
-            name, modality, value,
+            name,
+            modality,
+            value,
             detected_events=tuple(
                 (event["name"], float(event["time"]))
                 for event in description.get("detected_events", ())
@@ -67,13 +70,17 @@ def evaluate_manifest(path: str, *, asr_path: str | None = None):
         if not asr.get("verifier") or not asr.get("revision"):
             raise ValueError("Independent ASR results require a named pinned verifier")
         transcripts = asr["by_audio_sha256"]
+
         def speech_oracle(audio):
             digest = hashlib.sha256(np.ascontiguousarray(audio).tobytes()).hexdigest()
             if digest not in transcripts:
                 raise ValueError("ASR verification does not match sampled audio bytes")
             return transcripts[digest]
+
     report = score_sampled_relations(
-        relations, outputs, speech_recognizer=speech_oracle,
+        relations,
+        outputs,
+        speech_recognizer=speech_oracle,
     )
     return {
         "schema_version": 1,
@@ -88,7 +95,9 @@ def evaluate_manifest(path: str, *, asr_path: str | None = None):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
-    parser.add_argument("--asr", default=None, help="Independent ASR results keyed by waveform digest")
+    parser.add_argument(
+        "--asr", default=None, help="Independent ASR results keyed by waveform digest"
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     result = evaluate_manifest(args.manifest, asr_path=args.asr)

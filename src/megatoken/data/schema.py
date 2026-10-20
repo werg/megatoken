@@ -197,10 +197,17 @@ class TrackSpec:
 
     def __post_init__(self) -> None:
         if not self.track_id or self.role not in {
-            "system", "user", "assistant", "tool", "document", "environment"
+            "system",
+            "user",
+            "assistant",
+            "tool",
+            "document",
+            "environment",
         }:
             raise ValueError("Track spec needs an identity and a supported role")
-        if not isinstance(self.description, str) or not isinstance(json.loads(self.settings_json), dict):
+        if not isinstance(self.description, str) or not isinstance(
+            json.loads(self.settings_json), dict
+        ):
             raise ValueError("Track defaults must contain a description and JSON settings object")
 
 
@@ -229,19 +236,29 @@ class TrackEvent:
             raise ValueError("Unknown event modality")
         if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
             raise ValueError("Unknown track event role")
-        if not isinstance(self.request, str) or not isinstance(self.request_revision, int) or self.request_revision < 0:
+        if (
+            not isinstance(self.request, str)
+            or not isinstance(self.request_revision, int)
+            or self.request_revision < 0
+        ):
             raise ValueError("Event request and revision must be well-formed")
         if self.asset_sha256 is not None and (
             len(self.asset_sha256) != 64
             or any(c not in "0123456789abcdef" for c in self.asset_sha256)
         ):
             raise ValueError("Media asset digest must be a lowercase SHA256")
-        if (not isinstance(self.instruction, str) or type(self.request_revision) is not int
-                or self.request_revision < 0 or not isinstance(json.loads(self.settings_json), dict)):
+        if (
+            not isinstance(self.instruction, str)
+            or type(self.request_revision) is not int
+            or self.request_revision < 0
+            or not isinstance(json.loads(self.settings_json), dict)
+        ):
             raise ValueError("Event request requires a revision, instruction and settings object")
-        if (not isinstance(self.reference_event_ids, tuple)
-                or any(not isinstance(ref, str) or not ref for ref in self.reference_event_ids)
-                or len(set(self.reference_event_ids)) != len(self.reference_event_ids)):
+        if (
+            not isinstance(self.reference_event_ids, tuple)
+            or any(not isinstance(ref, str) or not ref for ref in self.reference_event_ids)
+            or len(set(self.reference_event_ids)) != len(self.reference_event_ids)
+        ):
             raise ValueError("Event references must be distinct immutable event identities")
 
 
@@ -374,6 +391,7 @@ class Dependency:
 @dataclass(frozen=True, slots=True)
 class EpisodeRelation:
     """Out-of-band supervision, never model-visible evidence."""
+
     kind: str
     left: str
     right: str
@@ -381,13 +399,23 @@ class EpisodeRelation:
 
     def __post_init__(self):
         kinds = {
-            "same_spoken_content", "translation_of", "describes",
-            "synchronized_with", "first_frame_of", "last_frame_of",
-            "edit_of", "preserves",
+            "same_spoken_content",
+            "translation_of",
+            "describes",
+            "synchronized_with",
+            "first_frame_of",
+            "last_frame_of",
+            "edit_of",
+            "preserves",
         }
-        if (self.kind not in kinds or not self.left or not self.right
-                or self.left == self.right or not math.isfinite(self.weight)
-                or not 0 < self.weight <= 10):
+        if (
+            self.kind not in kinds
+            or not self.left
+            or not self.right
+            or self.left == self.right
+            or not math.isfinite(self.weight)
+            or not 0 < self.weight <= 10
+        ):
             raise ValueError("Relation requires a bounded pair of distinct artifacts")
 
 
@@ -479,8 +507,10 @@ class Episode:
                     raise ValueError("A logical action must execute exactly once")
                 result_logical[record.result_of] = logical
         logical_ids = {record.logical_id for record in self.records}
-        if any(relation.left not in logical_ids or relation.right not in logical_ids
-               for relation in self.omni_relations):
+        if any(
+            relation.left not in logical_ids or relation.right not in logical_ids
+            for relation in self.omni_relations
+        ):
             raise ValueError("Omnimodal relation references a missing source artifact")
         if self.records[-1].part_index + 1 != self.records[-1].part_count:
             raise ValueError("Incomplete final logical record")
@@ -522,7 +552,9 @@ class Episode:
                 preceding = meridian.meridian_id
                 for event in meridian.events:
                     if any(ref not in prior_events for ref in event.reference_event_ids):
-                        raise ValueError("Event request references missing or future meridian media")
+                        raise ValueError(
+                            "Event request references missing or future meridian media"
+                        )
                     if event.request_revision < track_revisions.get(event.track_id, 0):
                         raise ValueError("Track request revisions must not decrease")
                     track_revisions[event.track_id] = event.request_revision
@@ -629,7 +661,8 @@ class Episode:
                             **event,
                             "media_span": (
                                 MediaSpan(**event["media_span"])
-                                if event.get("media_span") is not None else None
+                                if event.get("media_span") is not None
+                                else None
                             ),
                             "reference_event_ids": tuple(event.get("reference_event_ids", ())),
                         }
@@ -679,8 +712,10 @@ def encode_record(record: PhysicalRecord, codec: Codec) -> EncodedRecord:
 
     if record.media_type == MEDIA_RECORD_TYPE:
         MediaRecord.from_bytes(record.payload)
-        if record.emitted_ids is not None or record.cached_ids is not None or (
-            record.emitted_free_mask is not None or record.free_spans is not None
+        if (
+            record.emitted_ids is not None
+            or record.cached_ids is not None
+            or (record.emitted_free_mask is not None or record.free_spans is not None)
         ):
             raise ValueError("Media references cannot carry lexical token labels")
         return EncodedRecord(record, (), (), (), codec.fingerprint, 0)

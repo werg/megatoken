@@ -31,9 +31,17 @@ class LowRankFamily(nn.Module):
 class MemoryAdapters(nn.Module):
     """Snapshot controls are functions of the same semantic groups as complete KV."""
 
-    def __init__(self, *, width: int, value_dim: int, experts: int = 4,
-                 rank: int = 8, topk: int = 2, max_tracks: int = 8,
-                 max_stage: int = 32):
+    def __init__(
+        self,
+        *,
+        width: int,
+        value_dim: int,
+        experts: int = 4,
+        rank: int = 8,
+        topk: int = 2,
+        max_tracks: int = 8,
+        max_stage: int = 32,
+    ):
         super().__init__()
         if min(width, value_dim, experts, rank, topk) <= 0 or topk > experts:
             raise ValueError("Invalid LoRA expert/rank/selection budget")
@@ -61,12 +69,23 @@ class MemoryAdapters(nn.Module):
 
     def shared_control_parameters(self):
         """The one controller path every module reads; owned with C's pinned map."""
-        for module in (self.semantic_norm, self.controller,
-                       self.track_preference, self.stage_preference):
+        for module in (
+            self.semantic_norm,
+            self.controller,
+            self.track_preference,
+            self.stage_preference,
+        ):
             yield from module.parameters()
 
-    def apply(self, x: Tensor, *, module: str, stage: int,
-              track_ids: Tensor | None, snapshot: MemoryMaterialization | None) -> Tensor:
+    def apply(
+        self,
+        x: Tensor,
+        *,
+        module: str,
+        stage: int,
+        track_ids: Tensor | None,
+        snapshot: MemoryMaterialization | None,
+    ) -> Tensor:
         if snapshot is None or snapshot.strengths.shape[1] == 0:
             return x
         if module not in self.families or x.ndim != 3 or x.shape[-1] != self.width:
@@ -80,9 +99,11 @@ class MemoryAdapters(nn.Module):
             if track_ids.shape != (batch, length):
                 raise ValueError("Adapter control must identify every flattened track row")
             tracks = track_ids.clamp_min(0).clamp_max(self.track_preference.num_embeddings - 1)
-        bias = (self.track_preference(tracks) +
-                self.stage_preference.weight[stage] +
-                self.module_preference[module])
+        bias = (
+            self.track_preference(tracks)
+            + self.stage_preference.weight[stage]
+            + self.module_preference[module]
+        )
         delta = torch.zeros_like(x)
         for group in range(snapshot.strengths.shape[1]):
             strength = snapshot.strengths[:, group]
@@ -91,8 +112,8 @@ class MemoryAdapters(nn.Module):
             chosen = torch.topk(logits, self.topk, dim=-1).indices
             probabilities = torch.softmax(logits, -1).gather(-1, chosen)
             probabilities = probabilities / probabilities.sum(-1, keepdim=True).clamp_min(1e-8)
-            delta = delta + self.families[module](
-                x, chosen, probabilities.to(x.dtype)
-            ) * strength[:, None, None].to(x.dtype)
+            delta = delta + self.families[module](x, chosen, probabilities.to(x.dtype)) * strength[
+                :, None, None
+            ].to(x.dtype)
         # Exactly zero strength never activates the adapters, even with biases.
         return x + delta

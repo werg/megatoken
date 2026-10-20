@@ -2,6 +2,7 @@
 
 These use deterministic CPU weights, not trained retrieval quality.
 """
+
 import pytest
 import torch
 
@@ -11,8 +12,13 @@ from megatoken.memory.writers import SourceWriter
 def _writer():
     torch.manual_seed(31)
     return SourceWriter(
-        facets=4, facet_dim=8, semantic_dim=12, value_dim=10,
-        hidden=32, heads=4, max_blocks=8,
+        facets=4,
+        facet_dim=8,
+        semantic_dim=12,
+        value_dim=10,
+        hidden=32,
+        heads=4,
+        max_blocks=8,
     ).eval()
 
 
@@ -32,7 +38,8 @@ def test_suffix_writer_ignores_current_and_prefix_content(changed):
         torch.testing.assert_close(
             getattr(baseline, field)[:, 0],
             getattr(changed_output, field)[:, 0],
-            rtol=0, atol=1e-6,
+            rtol=0,
+            atol=1e-6,
         )
 
 
@@ -53,18 +60,22 @@ def test_suffix_writer_requires_positive_gap():
     model = _writer()
     with pytest.raises(ValueError, match="positive gap"):
         model(
-            torch.randn(1, 4, 4, 8), mode="suffix",
-            valid_blocks=torch.ones(1, 4, dtype=torch.bool), local_gap=0,
+            torch.randn(1, 4, 4, 8),
+            mode="suffix",
+            valid_blocks=torch.ones(1, 4, dtype=torch.bool),
+            local_gap=0,
         )
 
 
 def test_scored_assignment_does_not_silently_clamp_to_wrong_source():
     from megatoken.memory.writers import AssignmentTargets, writer_distillation
+
     model = _writer()
     inputs = torch.randn(1, 4, 4, 8)
     with torch.no_grad():
         output = model(
-            inputs, mode="full",
+            inputs,
+            mode="full",
             valid_blocks=torch.ones(1, 4, dtype=torch.bool),
         )
     bad = AssignmentTargets(
@@ -84,7 +95,8 @@ def test_suffix_writer_has_no_gradient_to_forbidden_prefix():
     model = _writer()
     encoded = torch.randn(1, 6, 4, 8, requires_grad=True)
     output = model(
-        encoded, mode="suffix",
+        encoded,
+        mode="suffix",
         valid_blocks=torch.ones(1, 6, dtype=torch.bool),
         local_gap=2,
     )

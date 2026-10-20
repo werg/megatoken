@@ -1,4 +1,5 @@
 """Counted concordance objectives with no target-peer access to the policy."""
+
 from __future__ import annotations
 
 import torch
@@ -19,6 +20,7 @@ def pairwise_semantic_relation(left, right, *, valid=None):
         raise ValueError("Pair validity must match relation sites")
     return diff.masked_select(mask).sum(), mask.sum()
 
+
 def endpoint_targets(video, first_index=0, last_index=None):
     """Take displayed endpoints after video sampling and crop, not codec padding."""
     if video.ndim != 5 or video.shape[2] != 3:
@@ -27,6 +29,7 @@ def endpoint_targets(video, first_index=0, last_index=None):
     if not 0 <= first_index <= last < video.shape[1]:
         raise ValueError("Endpoint indices outside displayed interval")
     return video[:, first_index], video[:, last]
+
 
 def coordinate_kl(posterior, prior, active_coordinates: int):
     """Return globally aggregatable KL numerator and coordinate denominator."""

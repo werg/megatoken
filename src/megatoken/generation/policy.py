@@ -75,6 +75,7 @@ class FacetedGenerator(nn.Module):
         self.decoder = DeterministicDecoder(self.config, self.codec)
         self.media_realizers = MediaRealizers(self.config)
         from .embedding import EmbeddingRealizer
+
         self.embedding_realizer = EmbeddingRealizer(
             self.config.n_facets, self.config.facet_dim, self.config.semantic_dim
         )
@@ -123,7 +124,8 @@ class FacetedGenerator(nn.Module):
         sampled = prior.sample(generator)
         selected = (
             self.core.advance_raw(state, sampled, role_ids=roles)
-            if plan.mode == "recurrent" else sampled
+            if plan.mode == "recurrent"
+            else sampled
         )
         values, lengths = byte_tensor(payloads, state.device)
         target = self.core.encode_chunk(values, lengths=lengths)

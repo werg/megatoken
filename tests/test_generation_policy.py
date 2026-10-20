@@ -811,9 +811,14 @@ def test_owner_groups_partition_every_parameter_exactly_once(model):
     assert owner_of(adapters.families["p"].a) == "P"
     assert owner_of(adapters.families["r"].a) == "R"
     assert owner_of(adapters.families["c"].a) == "C"
-    assert owner_of(model.embedding_realizer.query.weight
-                    if hasattr(model.embedding_realizer.query, "weight")
-                    else next(model.embedding_realizer.query.parameters())) == "R"
+    assert (
+        owner_of(
+            model.embedding_realizer.query.weight
+            if hasattr(model.embedding_realizer.query, "weight")
+            else next(model.embedding_realizer.query.parameters())
+        )
+        == "R"
+    )
 
 
 def test_rl_freeze_leaves_p_side_memory_trainable(model):

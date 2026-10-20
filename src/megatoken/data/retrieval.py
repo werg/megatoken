@@ -42,8 +42,10 @@ class RetrievalExample:
         # key/support footprint may depend on unavailable evidence.
         scope = self.query_teacher_inputs.ranges[0].scope
         all_footprints = (
-            self.query_teacher_inputs, self.document_key_context,
-            self.payload_support, self.optimization_supervision,
+            self.query_teacher_inputs,
+            self.document_key_context,
+            self.payload_support,
+            self.optimization_supervision,
         )
         if any(r.scope != scope for fp in all_footprints for r in fp.ranges):
             raise ValueError("Query, evidence and label footprints must share one scope")
@@ -59,9 +61,7 @@ class RetrievalExample:
         if self.main_request_b64 is not None:
             self.request_content()
         if self.pair_support_units:
-            causal_sources = {
-                span.source_id for span in self.query_teacher_inputs.ranges
-            }
+            causal_sources = {span.source_id for span in self.query_teacher_inputs.ranges}
             if len(set(self.pair_support_units)) != len(self.pair_support_units) or (
                 not set(self.pair_support_units).issubset(causal_sources)
             ):
@@ -75,9 +75,11 @@ class RetrievalExample:
         if self.positive_content_ids and sum(self.support_weights) <= 0:
             raise ValueError("Annotated support requires positive target mass")
         if self.teacher_target is not None:
-            if not self.teacher_target or any(
-                not math.isfinite(x) for x in self.teacher_target
-            ) or not 1e-12 < math.sqrt(sum(x * x for x in self.teacher_target)) < float("inf"):
+            if (
+                not self.teacher_target
+                or any(not math.isfinite(x) for x in self.teacher_target)
+                or not 1e-12 < math.sqrt(sum(x * x for x in self.teacher_target)) < float("inf")
+            ):
                 raise ValueError("Teacher query vector must be finite and nonzero")
 
     def request_content(self) -> bytes:
@@ -105,8 +107,12 @@ class RetrievalExample:
     def from_dict(cls, data: dict) -> RetrievalExample:
         data = dict(data)
         data["query"] = QueryBoundary(**data["query"])
-        for field in ("query_teacher_inputs", "document_key_context",
-                      "optimization_supervision", "payload_support"):
+        for field in (
+            "query_teacher_inputs",
+            "document_key_context",
+            "optimization_supervision",
+            "payload_support",
+        ):
             data[field] = Footprint.from_json(data[field])
         for field in ("positive_content_ids", "support_weights", "pair_support_units"):
             data[field] = tuple(data[field])
@@ -129,8 +135,11 @@ def write_sidecar(path: str | Path, entries: list[RetrievalExample]) -> dict:
         lines.append(json.dumps(entry.to_dict(), sort_keys=True, separators=(",", ":")))
     payload = ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
     path.write_bytes(payload)
-    result = {"format": "megatoken-retrieval-v1", "entries": len(entries),
-              "sha256": sha256(payload).hexdigest()}
+    result = {
+        "format": "megatoken-retrieval-v1",
+        "entries": len(entries),
+        "sha256": sha256(payload).hexdigest(),
+    }
     path.with_suffix(path.suffix + ".manifest.json").write_text(
         json.dumps(result, sort_keys=True) + "\n"
     )

@@ -29,8 +29,13 @@ def _generator(rows, name):
 @pytest.mark.parametrize("window_records", [16, 2])
 def test_second_query_after_rag_admissions_and_mid_episode_windows(tmp_path, window_records):
     config = live_kb_train_config(
-        tmp_path, phase="M2", episodes=2, turns=2, max_steps=3,
-        max_window_records=window_records, retrieval_growth_every=10,
+        tmp_path,
+        phase="M2",
+        episodes=2,
+        turns=2,
+        max_steps=3,
+        max_window_records=window_records,
+        retrieval_growth_every=10,
     )
     result = train(config)
     assert result["global_step"] == 3

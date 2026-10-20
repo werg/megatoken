@@ -5,6 +5,7 @@ The inventory is JSON: {"sana": {"revision": "<40hex>", "snapshot": "sana"},
 "pocket": {"revision": "<40hex>", "config": "pocket/local.yaml",
 "snapshot": "pocket"}}. All referenced files must already exist.
 """
+
 from __future__ import annotations
 
 import argparse

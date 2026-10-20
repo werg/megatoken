@@ -1,6 +1,7 @@
 """Causal retrieval-pretraining utilities with teacher targets, local feature utility,
 selected sparse KB leaves and independent full-KV / LoRA dropout.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -30,10 +31,17 @@ class RetrievalWeights:
     memory_regularization: float = 1e-3
 
     def __post_init__(self):
-        if any(x < 0 for x in (
-            self.embedding, self.ranking, self.source_value, self.key_anchor,
-            self.null, self.memory_regularization,
-        )):
+        if any(
+            x < 0
+            for x in (
+                self.embedding,
+                self.ranking,
+                self.source_value,
+                self.key_anchor,
+                self.null,
+                self.memory_regularization,
+            )
+        ):
             raise ValueError("Retrieval loss weights must be nonnegative")
 
 
@@ -46,8 +54,9 @@ class LocalRetrievalTarget:
     key_teacher: Tensor | None = None
 
 
-def query_embedding_loss(realizer, raw: Tensor, target: Tensor,
-                         spec: EmbeddingSpec) -> tuple[Tensor, int]:
+def query_embedding_loss(
+    realizer, raw: Tensor, target: Tensor, spec: EmbeddingSpec
+) -> tuple[Tensor, int]:
     query = realizer(raw, spec)
     teacher = F.normalize(target.detach().float(), dim=-1)
     if query.shape != teacher.shape:
@@ -55,8 +64,9 @@ def query_embedding_loss(realizer, raw: Tensor, target: Tensor,
     return (1 - (query * teacher).sum(-1)).sum(), query.shape[0]
 
 
-def annotated_ranking_loss(scores, positive: Tensor, complete: Tensor,
-                           *, eta: float = 1.0) -> tuple[Tensor, int]:
+def annotated_ranking_loss(
+    scores, positive: Tensor, complete: Tensor, *, eta: float = 1.0
+) -> tuple[Tensor, int]:
     positives = positive.bool().detach() & scores.valid
     mass = scores.weights.masked_fill(~positives, 0).sum(-1)
     selected = positives.any(-1)
@@ -64,7 +74,8 @@ def annotated_ranking_loss(scores, positive: Tensor, complete: Tensor,
     # supervision. Reserve the null loss for annotated empty support only.
     explicit_null = complete.detach().bool() & ~positive.detach().bool().any(-1)
     losses = torch.where(
-        selected, -eta * mass.clamp_min(1e-8).log(),
+        selected,
+        -eta * mass.clamp_min(1e-8).log(),
         -eta * scores.null_weight.clamp_min(1e-8).log(),
     )
     valid = selected | explicit_null
@@ -86,50 +97,90 @@ class LocalMemoryWindow:
         return leaf
 
     def source_loss(
-        self, query: Tensor, ids: Sequence[int], target: LocalRetrievalTarget,
-        *, eligible: Tensor, threshold: float = 0.25,
+        self,
+        query: Tensor,
+        ids: Sequence[int],
+        target: LocalRetrievalTarget,
+        *,
+        eligible: Tensor,
+        threshold: float = 0.25,
     ) -> tuple[Tensor, int]:
         batch = query.shape[0]
-        keys = (torch.stack(
-            [self.field(Collection.SOURCE, "record", i, "key") for i in ids], 0
-        )[None].expand(batch, -1, -1) if ids else
-            query.new_empty(batch, 0, query.shape[-1]))
+        keys = (
+            torch.stack([self.field(Collection.SOURCE, "record", i, "key") for i in ids], 0)[
+                None
+            ].expand(batch, -1, -1)
+            if ids
+            else query.new_empty(batch, 0, query.shape[-1])
+        )
         scores = selected_evidence(query, keys, masks=eligible, threshold=threshold)
         return local_source_value_loss(
-            scores, target.source_features,
-            positive=target.useful_source, complete_annotations=target.annotated_complete,
+            scores,
+            target.source_features,
+            positive=target.useful_source,
+            complete_annotations=target.annotated_complete,
         )
 
     def memory_groups(
-        self, query: Tensor, ids: Sequence[int], *, anchor: int,
-        eligible: Tensor, scopes: Sequence[str], groups: Sequence[str],
-        versions: Sequence[str], threshold: float = 0.25,
+        self,
+        query: Tensor,
+        ids: Sequence[int],
+        *,
+        anchor: int,
+        eligible: Tensor,
+        scopes: Sequence[str],
+        groups: Sequence[str],
+        versions: Sequence[str],
+        threshold: float = 0.25,
         max_groups: int = 4,
     ):
         batch = query.shape[0]
-        keys = (torch.stack([
-            self.field(Collection.MEMORY, "record", i, "key") for i in ids
-        ], 0)[None].expand(batch, -1, -1) if ids else
-            query.new_empty(batch, 0, query.shape[-1]))
-        values = (torch.stack([
-            self.field(Collection.MEMORY, "record", i, "value") for i in ids
-        ], 0)[None].expand(batch, -1, -1) if ids else
-            query.new_empty(batch, 0, self.sparse.bank.value_dim))
-        strengths = (torch.stack([
-            self.field(Collection.MEMORY, "record", i, "strength").reshape(())
-            for i in ids
-        ], 0)[None].expand(batch, -1) if ids else
-            query.new_empty(batch, 0))
-        lifetimes = (torch.stack([
-            self.field(Collection.MEMORY, "record", i, "lifetime_logit").reshape(())
-            for i in ids
-        ], 0)[None].expand(batch, -1) if ids else
-            query.new_empty(batch, 0))
+        keys = (
+            torch.stack([self.field(Collection.MEMORY, "record", i, "key") for i in ids], 0)[
+                None
+            ].expand(batch, -1, -1)
+            if ids
+            else query.new_empty(batch, 0, query.shape[-1])
+        )
+        values = (
+            torch.stack([self.field(Collection.MEMORY, "record", i, "value") for i in ids], 0)[
+                None
+            ].expand(batch, -1, -1)
+            if ids
+            else query.new_empty(batch, 0, self.sparse.bank.value_dim)
+        )
+        strengths = (
+            torch.stack(
+                [self.field(Collection.MEMORY, "record", i, "strength").reshape(()) for i in ids], 0
+            )[None].expand(batch, -1)
+            if ids
+            else query.new_empty(batch, 0)
+        )
+        lifetimes = (
+            torch.stack(
+                [
+                    self.field(Collection.MEMORY, "record", i, "lifetime_logit").reshape(())
+                    for i in ids
+                ],
+                0,
+            )[None].expand(batch, -1)
+            if ids
+            else query.new_empty(batch, 0)
+        )
         return build_memory_groups(
-            queries=query, keys=keys, semantics=values, strengths=strengths,
-            lifetime_logits=lifetimes, record_ids=[str(x) for x in ids],
-            scopes=scopes, groups=groups, versions=versions, eligible=eligible,
-            anchor=anchor, threshold=threshold, max_groups=max_groups,
+            queries=query,
+            keys=keys,
+            semantics=values,
+            strengths=strengths,
+            lifetime_logits=lifetimes,
+            record_ids=[str(x) for x in ids],
+            scopes=scopes,
+            groups=groups,
+            versions=versions,
+            eligible=eligible,
+            anchor=anchor,
+            threshold=threshold,
+            max_groups=max_groups,
         )
 
     def advance(self, *, step: int, max_norm: float = 1.0) -> int:

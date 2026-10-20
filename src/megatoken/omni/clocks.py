@@ -1,4 +1,5 @@
 """Explicit media clock windows and prefix-safe availability."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,9 +11,11 @@ class TimeWindow:
     start: Fraction
     end: Fraction
     available_until: Fraction
+
     def __post_init__(self):
         if not 0 <= self.start <= self.end <= self.available_until:
             raise ValueError("Window would see future source media")
+
 
 def available_windows(windows, decision_time):
     limit = Fraction(decision_time)
@@ -20,6 +23,7 @@ def available_windows(windows, decision_time):
         if w.available_until > limit:
             raise ValueError("Encoder window leaks unavailable future samples")
     return tuple(windows)
+
 
 def video_endpoints(frame_count, displayed_first=0, displayed_last=None):
     if frame_count < 1:

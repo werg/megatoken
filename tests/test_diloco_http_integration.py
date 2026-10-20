@@ -68,7 +68,9 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
         root,
         run_id=settings.run_id,
         model_state=model.state_dict(),
-        masters={name: p.detach().float() for name, p in model.named_parameters() if p.requires_grad},
+        masters={
+            name: p.detach().float() for name, p in model.named_parameters() if p.requires_grad
+        },
         model_config=model_config.to_dict(),
         codec_fingerprint=codec.fingerprint,
         train_identity=training_identity(config),
@@ -80,7 +82,8 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
         token_budget=config.budget or PHASES[config.phase].budget,
     )
     server = multiprocessing.get_context("spawn").Process(
-        target=serve_coordinator, args=(str(root), "127.0.0.1", port, token),
+        target=serve_coordinator,
+        args=(str(root), "127.0.0.1", port, token),
     )
     server.start()
     try:

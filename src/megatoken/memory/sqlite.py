@@ -3,6 +3,7 @@
 Adapted from the transactional storage patterns of hindsight-kb@4501647;
 all vector coordinates, provenance and optimizer rows are owned here.
 """
+
 from __future__ import annotations
 
 import json
@@ -114,8 +115,9 @@ CREATE TABLE IF NOT EXISTS growth_state (
 class SQLiteKB:
     SCHEMA_VERSION = 1
 
-    def __init__(self, path: str | Path, space: SemanticSpace, *, value_dim: int,
-                 readonly: bool = False):
+    def __init__(
+        self, path: str | Path, space: SemanticSpace, *, value_dim: int, readonly: bool = False
+    ):
         if not 1 <= value_dim <= 16384:
             raise ValueError("Invalid semantic-value width")
         self.path = Path(path)
@@ -127,8 +129,13 @@ class SQLiteKB:
         if not readonly:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         uri = f"file:{self.path.resolve().as_posix()}?mode=ro" if readonly else None
-        self.db = sqlite3.connect(uri if readonly else str(self.path), uri=readonly,
-                                  isolation_level=None, timeout=10, check_same_thread=False)
+        self.db = sqlite3.connect(
+            uri if readonly else str(self.path),
+            uri=readonly,
+            isolation_level=None,
+            timeout=10,
+            check_same_thread=False,
+        )
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.execute("PRAGMA busy_timeout=10000")
@@ -155,9 +162,11 @@ class SQLiteKB:
         return str(row[0])
 
     def _verify_manifest(self) -> None:
-        if int(self._meta("schema_version")) != self.SCHEMA_VERSION or (
-            json.loads(self._meta("space")) != asdict(self.space)
-        ) or int(self._meta("value_dim")) != self.value_dim:
+        if (
+            int(self._meta("schema_version")) != self.SCHEMA_VERSION
+            or (json.loads(self._meta("space")) != asdict(self.space))
+            or int(self._meta("value_dim")) != self.value_dim
+        ):
             raise ValueError("Incompatible KB space, schema, or semantic-value layout")
 
     @property
@@ -216,24 +225,39 @@ class SQLiteKB:
 
     def revisions(self) -> Revisions:
         with self._lock:
-            values = {name: int(self._meta("generation_" + name))
-                      for name in ("key", "index", "payload", "policy", "graph", "growth")}
+            values = {
+                name: int(self._meta("generation_" + name))
+                for name in ("key", "index", "payload", "policy", "graph", "growth")
+            }
             return Revisions(**values)
 
     def _record(self, row: sqlite3.Row) -> Record:
         collection = Collection(row["collection"])
         return Record(
-            row["id"], collection, row["scope"],
+            row["id"],
+            collection,
+            row["scope"],
             _unpack(row["key"], self.space.dimension),
-            Footprint.from_json(row["footprint"]), row["key_revision"],
-            row["payload_revision"], row["content_id"], row["asset_ref"],
+            Footprint.from_json(row["footprint"]),
+            row["key_revision"],
+            row["payload_revision"],
+            row["content_id"],
+            row["asset_ref"],
             None if row["value"] is None else _unpack(row["value"], self.value_dim),
-            row["strength"], row["lifetime_logit"], row["birth_step"],
-            row["group_id"], row["assignment"], bool(row["active"]),
-            None if not row["source_span"] else SourceRange(**{
-                **json.loads(row["source_span"]),
-                "ancestors": tuple(json.loads(row["source_span"]).get("ancestors", ())),
-            }),
+            row["strength"],
+            row["lifetime_logit"],
+            row["birth_step"],
+            row["group_id"],
+            row["assignment"],
+            bool(row["active"]),
+            None
+            if not row["source_span"]
+            else SourceRange(
+                **{
+                    **json.loads(row["source_span"]),
+                    "ancestors": tuple(json.loads(row["source_span"]).get("ancestors", ())),
+                }
+            ),
         )
 
     def scan(
@@ -243,7 +267,8 @@ class SQLiteKB:
         with self._lock:
             rows = self.db.execute(
                 "SELECT * FROM records WHERE collection=? AND scope=?"
-                + ("" if include_inactive else " AND active=1") + " ORDER BY id",
+                + ("" if include_inactive else " AND active=1")
+                + " ORDER BY id",
                 (collection.value, scope),
             ).fetchall()
             return tuple(self._record(row) for row in rows)
@@ -258,11 +283,23 @@ class SQLiteKB:
                 raise KeyError((collection.value, record_id))
             return self._record(row)
 
-    def _insert(self, collection: Collection, scope: str, footprint: Footprint, key,
-                *, value=None, content_id: str = "", asset_ref: str = "",
-                strength: float = 1, lifetime_logit: float = -10, birth_step: int = 0,
-                group: str = "", assignment: str = "",
-                evidence_span: SourceRange | None = None) -> int:
+    def _insert(
+        self,
+        collection: Collection,
+        scope: str,
+        footprint: Footprint,
+        key,
+        *,
+        value=None,
+        content_id: str = "",
+        asset_ref: str = "",
+        strength: float = 1,
+        lifetime_logit: float = -10,
+        birth_step: int = 0,
+        group: str = "",
+        assignment: str = "",
+        evidence_span: SourceRange | None = None,
+    ) -> int:
         if not scope or any(r.scope != scope for r in footprint.ranges):
             raise ValueError("Every support range must belong to the record scope")
         if not all(math.isfinite(x) for x in (strength, lifetime_logit)) or strength < 0:
@@ -274,7 +311,9 @@ class SQLiteKB:
                 raise ValueError("A source key requires immutable content identity/ref")
             if evidence_span is None:
                 if len(footprint.ranges) != 1:
-                    raise ValueError("Contextual source keys require an explicit byte evidence span")
+                    raise ValueError(
+                        "Contextual source keys require an explicit byte evidence span"
+                    )
                 evidence_span = footprint.ranges[0]
             if evidence_span not in footprint.ranges:
                 raise ValueError("Delivered source span must belong to full key provenance")
@@ -290,9 +329,23 @@ class SQLiteKB:
                 (collection,scope,key,value,footprint,content_id,asset_ref,strength,
                  lifetime_logit,birth_step,group_id,assignment,source_span)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (collection.value, scope, k, v, footprint.to_json(), content_id, asset_ref,
-                 strength, lifetime_logit, birth_step, group, assignment,
-                 "" if evidence_span is None else json.dumps(asdict(evidence_span), sort_keys=True)),
+                (
+                    collection.value,
+                    scope,
+                    k,
+                    v,
+                    footprint.to_json(),
+                    content_id,
+                    asset_ref,
+                    strength,
+                    lifetime_logit,
+                    birth_step,
+                    group,
+                    assignment,
+                    ""
+                    if evidence_span is None
+                    else json.dumps(asdict(evidence_span), sort_keys=True),
+                ),
             )
             record_id = int(cursor.lastrowid)
             self._footprint_refs(collection.value, "record", record_id, footprint)
@@ -313,8 +366,9 @@ class SQLiteKB:
                     return True
         return False
 
-    def _footprint_refs(self, collection: str, kind: str, identity: int,
-                        footprint: Footprint) -> None:
+    def _footprint_refs(
+        self, collection: str, kind: str, identity: int, footprint: Footprint
+    ) -> None:
         self.db.executemany(
             """INSERT INTO source_range_refs VALUES (?,?,?,?,?,?,?)""",
             [
@@ -352,9 +406,7 @@ class SQLiteKB:
                         revoked_records.add(identity)
                         # IVF must never retain a live-looking posting for a
                         # retired key, even if a stale candidate cache survives.
-                        self.db.execute(
-                            "DELETE FROM postings WHERE record_id=?", (identity,)
-                        )
+                        self.db.execute("DELETE FROM postings WHERE record_id=?", (identity,))
                 else:
                     counts["relation"] += self.db.execute(
                         "UPDATE relations SET active=0 WHERE id=? AND active=1",
@@ -374,25 +426,66 @@ class SQLiteKB:
                 self._bump("policy", "graph", "index")
             return counts
 
-    def insert_source(self, *, scope: str, footprint: Footprint, key,
-                      content_id: str, asset_ref: str,
-                      evidence_span: SourceRange | None = None) -> int:
-        return self._insert(Collection.SOURCE, scope, footprint, key,
-                            content_id=content_id, asset_ref=asset_ref,
-                            evidence_span=evidence_span)
+    def insert_source(
+        self,
+        *,
+        scope: str,
+        footprint: Footprint,
+        key,
+        content_id: str,
+        asset_ref: str,
+        evidence_span: SourceRange | None = None,
+    ) -> int:
+        return self._insert(
+            Collection.SOURCE,
+            scope,
+            footprint,
+            key,
+            content_id=content_id,
+            asset_ref=asset_ref,
+            evidence_span=evidence_span,
+        )
 
-    def insert_memory(self, *, scope: str, footprint: Footprint, key, value,
-                      assignment: str, birth_step: int, group: str = "",
-                      strength: float = 0.1, lifetime_logit: float = -10) -> int:
-        return self._insert(Collection.MEMORY, scope, footprint, key, value=value,
-                            assignment=assignment, birth_step=birth_step, group=group,
-                            strength=strength, lifetime_logit=lifetime_logit)
+    def insert_memory(
+        self,
+        *,
+        scope: str,
+        footprint: Footprint,
+        key,
+        value,
+        assignment: str,
+        birth_step: int,
+        group: str = "",
+        strength: float = 0.1,
+        lifetime_logit: float = -10,
+    ) -> int:
+        return self._insert(
+            Collection.MEMORY,
+            scope,
+            footprint,
+            key,
+            value=value,
+            assignment=assignment,
+            birth_step=birth_step,
+            group=group,
+            strength=strength,
+            lifetime_logit=lifetime_logit,
+        )
 
-    def update_record(self, collection: Collection, record_id: int, *,
-                      key=None, value=None, strength=None, lifetime_logit=None,
-                      expected_key_revision: int | None = None,
-                      expected_payload_revision: int | None = None,
-                      posting_cell: int | None = None, centroids_revision: str = "") -> Record:
+    def update_record(
+        self,
+        collection: Collection,
+        record_id: int,
+        *,
+        key=None,
+        value=None,
+        strength=None,
+        lifetime_logit=None,
+        expected_key_revision: int | None = None,
+        expected_payload_revision: int | None = None,
+        posting_cell: int | None = None,
+        centroids_revision: str = "",
+    ) -> Record:
         with self.transaction():
             old = self.get(collection, record_id)
             if not old.active:
@@ -403,11 +496,11 @@ class SQLiteKB:
                 old.payload_revision != expected_payload_revision
             ):
                 raise RuntimeError("Stale KB payload revision")
-            new_key = old.key if key is None else unit_finite(
-                key, dimension=self.space.dimension
-            )
-            new_value = old.value if value is None else (
-                _unpack(_vector(value, self.value_dim), self.value_dim)
+            new_key = old.key if key is None else unit_finite(key, dimension=self.space.dimension)
+            new_value = (
+                old.value
+                if value is None
+                else (_unpack(_vector(value, self.value_dim), self.value_dim))
             )
             if collection is Collection.SOURCE and value is not None:
                 raise ValueError("A source value must remain exact immutable bytes")
@@ -418,18 +511,26 @@ class SQLiteKB:
             key_changed = not np.array_equal(new_key, old.key)
             payload_changed = (
                 (new_value is not None and not np.array_equal(new_value, old.value))
-                or st != old.strength or lt != old.lifetime_logit
+                or st != old.strength
+                or lt != old.lifetime_logit
             )
             if key_changed or payload_changed:
                 self.db.execute(
                     """UPDATE records SET key=?,value=?,strength=?,lifetime_logit=?,
                     key_revision=?,payload_revision=? WHERE id=?""",
-                    (new_key.tobytes(), None if new_value is None else new_value.tobytes(),
-                     st, lt, old.key_revision + int(key_changed),
-                     old.payload_revision + int(payload_changed), record_id),
+                    (
+                        new_key.tobytes(),
+                        None if new_value is None else new_value.tobytes(),
+                        st,
+                        lt,
+                        old.key_revision + int(key_changed),
+                        old.payload_revision + int(payload_changed),
+                        record_id,
+                    ),
                 )
-                self._bump(*(["key"] if key_changed else []),
-                           *(["payload"] if payload_changed else []))
+                self._bump(
+                    *(["key"] if key_changed else []), *(["payload"] if payload_changed else [])
+                )
             if posting_cell is not None:
                 if posting_cell < 0 or not centroids_revision:
                     raise ValueError("Postings require a pinned IVF centroid revision")
@@ -438,8 +539,13 @@ class SQLiteKB:
                     ON CONFLICT(collection,record_id) DO UPDATE SET
                     cell=excluded.cell,centroids_revision=excluded.centroids_revision,
                     key_revision=excluded.key_revision""",
-                    (collection.value, record_id, posting_cell, centroids_revision,
-                     old.key_revision + int(key_changed)),
+                    (
+                        collection.value,
+                        record_id,
+                        posting_cell,
+                        centroids_revision,
+                        old.key_revision + int(key_changed),
+                    ),
                 )
                 self._bump("index")
             elif key_changed:
@@ -447,19 +553,32 @@ class SQLiteKB:
                 self._bump("index")
             return self.get(collection, record_id)
 
-    def insert_relation(self, *, scope: str, left: int, right: int, prior: float,
-                        value, dependence_logits: tuple[float, float],
-                        footprint: Footprint, strength: float = 0.1,
-                        lifetime_logit: float = -10) -> int:
-        if not 0 <= prior <= 1 or len(dependence_logits) != 2 or (
-            not all(math.isfinite(x) for x in (*dependence_logits, strength, lifetime_logit))
+    def insert_relation(
+        self,
+        *,
+        scope: str,
+        left: int,
+        right: int,
+        prior: float,
+        value,
+        dependence_logits: tuple[float, float],
+        footprint: Footprint,
+        strength: float = 0.1,
+        lifetime_logit: float = -10,
+    ) -> int:
+        if (
+            not 0 <= prior <= 1
+            or len(dependence_logits) != 2
+            or (not all(math.isfinite(x) for x in (*dependence_logits, strength, lifetime_logit)))
         ):
             raise ValueError("Invalid relation probability/control")
         with self.transaction():
             a, b = sorted((left, right))
-            if a == b or any(
-                self.get(Collection.MEMORY, x).scope != scope for x in (a, b)
-            ) or any(r.scope != scope for r in footprint.ranges):
+            if (
+                a == b
+                or any(self.get(Collection.MEMORY, x).scope != scope for x in (a, b))
+                or any(r.scope != scope for r in footprint.ranges)
+            ):
                 raise ValueError("Pair requires distinct eligible memory members and support")
             if self.footprint_revoked(footprint) or any(
                 not self.get(Collection.MEMORY, x).active for x in (a, b)
@@ -468,49 +587,79 @@ class SQLiteKB:
             result = self.db.execute(
                 """INSERT INTO relations (left_id,right_id,scope,prior,value,dependence,
                 footprint,strength,lifetime_logit) VALUES (?,?,?,?,?,?,?,?,?)""",
-                (a, b, scope, prior, _vector(value, self.value_dim),
-                 _vector(dependence_logits, 2), footprint.to_json(), strength, lifetime_logit),
+                (
+                    a,
+                    b,
+                    scope,
+                    prior,
+                    _vector(value, self.value_dim),
+                    _vector(dependence_logits, 2),
+                    footprint.to_json(),
+                    strength,
+                    lifetime_logit,
+                ),
             )
             relation_id = int(result.lastrowid)
             self._footprint_refs(Collection.MEMORY.value, "relation", relation_id, footprint)
             self._bump("graph", "payload", "growth")
             return relation_id
 
-    def relations(self, scope: str, *, include_inactive: bool = False
-                  ) -> tuple[Relation, ...]:
+    def relations(self, scope: str, *, include_inactive: bool = False) -> tuple[Relation, ...]:
         with self._lock:
             rows = self.db.execute(
                 "SELECT * FROM relations WHERE scope=?"
-                + ("" if include_inactive else " AND active=1") + " ORDER BY id",
+                + ("" if include_inactive else " AND active=1")
+                + " ORDER BY id",
                 (scope,),
             ).fetchall()
-        return tuple(Relation(
-            row["id"], row["left_id"], row["right_id"], row["scope"], row["prior"],
-            _unpack(row["value"], self.value_dim),
-            tuple(float(x) for x in _unpack(row["dependence"], 2)),
-            Footprint.from_json(row["footprint"]), row["strength"], row["lifetime_logit"],
-            row["payload_revision"],
-        ) for row in rows)
+        return tuple(
+            Relation(
+                row["id"],
+                row["left_id"],
+                row["right_id"],
+                row["scope"],
+                row["prior"],
+                _unpack(row["value"], self.value_dim),
+                tuple(float(x) for x in _unpack(row["dependence"], 2)),
+                Footprint.from_json(row["footprint"]),
+                row["strength"],
+                row["lifetime_logit"],
+                row["payload_revision"],
+            )
+            for row in rows
+        )
 
     def get_relation(self, relation_id: int) -> Relation:
         with self._lock:
-            row = self.db.execute("SELECT * FROM relations WHERE id=?", (relation_id,)
-                                  ).fetchone()
+            row = self.db.execute("SELECT * FROM relations WHERE id=?", (relation_id,)).fetchone()
         if row is None:
             raise KeyError(relation_id)
         return Relation(
-            row["id"], row["left_id"], row["right_id"], row["scope"], row["prior"],
+            row["id"],
+            row["left_id"],
+            row["right_id"],
+            row["scope"],
+            row["prior"],
             _unpack(row["value"], self.value_dim),
             tuple(float(x) for x in _unpack(row["dependence"], 2)),
-            Footprint.from_json(row["footprint"]), row["strength"], row["lifetime_logit"],
-            row["payload_revision"], bool(row["active"]),
+            Footprint.from_json(row["footprint"]),
+            row["strength"],
+            row["lifetime_logit"],
+            row["payload_revision"],
+            bool(row["active"]),
         )
 
-    def update_relation(self, relation_id: int, *, value=None, dependence_logits=None,
-                        strength=None, lifetime_logit=None) -> None:
+    def update_relation(
+        self,
+        relation_id: int,
+        *,
+        value=None,
+        dependence_logits=None,
+        strength=None,
+        lifetime_logit=None,
+    ) -> None:
         with self.transaction():
-            row = self.db.execute("SELECT * FROM relations WHERE id=?",
-                                  (relation_id,)).fetchone()
+            row = self.db.execute("SELECT * FROM relations WHERE id=?", (relation_id,)).fetchone()
             if row is None:
                 raise KeyError(relation_id)
             if not row["active"]:
@@ -528,9 +677,20 @@ class SQLiteKB:
             )
             self._bump("graph", "payload")
 
-    def write_moments(self, *, collection: Collection, kind: str, entity_id: int,
-                      field: str, layout_generation: str, first, second,
-                      updates: int, step: int, row_revision: int) -> None:
+    def write_moments(
+        self,
+        *,
+        collection: Collection,
+        kind: str,
+        entity_id: int,
+        field: str,
+        layout_generation: str,
+        first,
+        second,
+        updates: int,
+        step: int,
+        row_revision: int,
+    ) -> None:
         if kind not in {"record", "relation"} or not field or not layout_generation:
             raise ValueError("Sparse moments require an unambiguous typed field identity")
         if min(updates, step, row_revision) < 0:
@@ -545,12 +705,29 @@ class SQLiteKB:
                 ON CONFLICT(collection,kind,entity_id,field,layout_generation) DO UPDATE SET
                 first=excluded.first,second=excluded.second,updates=excluded.updates,
                 step=excluded.step,row_revision=excluded.row_revision""",
-                (collection.value, kind, entity_id, field, layout_generation,
-                 _vector(a, a.size), _vector(b, b.size), updates, step, row_revision),
+                (
+                    collection.value,
+                    kind,
+                    entity_id,
+                    field,
+                    layout_generation,
+                    _vector(a, a.size),
+                    _vector(b, b.size),
+                    updates,
+                    step,
+                    row_revision,
+                ),
             )
 
-    def moments(self, *, collection: Collection, kind: str, entity_id: int,
-                field: str, layout_generation: str):
+    def moments(
+        self,
+        *,
+        collection: Collection,
+        kind: str,
+        entity_id: int,
+        field: str,
+        layout_generation: str,
+    ):
         with self._lock:
             row = self.db.execute(
                 """SELECT * FROM optimizer_rows WHERE collection=? AND kind=? AND
@@ -560,11 +737,17 @@ class SQLiteKB:
             if row is None:
                 return None
             n = len(row["first"]) // 4
-            return (_unpack(row["first"], n), _unpack(row["second"], n),
-                    row["updates"], row["step"], row["row_revision"])
+            return (
+                _unpack(row["first"], n),
+                _unpack(row["second"], n),
+                row["updates"],
+                row["step"],
+                row["row_revision"],
+            )
 
-    def record_demand(self, event_id: str, partition: str, region: str,
-                      family: str, step: int) -> bool:
+    def record_demand(
+        self, event_id: str, partition: str, region: str, family: str, step: int
+    ) -> bool:
         with self.transaction():
             cursor = self.db.execute(
                 "INSERT OR IGNORE INTO demand_events VALUES (?,?,?,?,?)",
@@ -574,8 +757,9 @@ class SQLiteKB:
 
     def growth_state(self, name: str, default=None):
         with self._lock:
-            row = self.db.execute("SELECT content FROM growth_state WHERE name=?", (name,)
-                                  ).fetchone()
+            row = self.db.execute(
+                "SELECT content FROM growth_state WHERE name=?", (name,)
+            ).fetchone()
         return default if row is None else json.loads(row[0])
 
     def put_growth_state(self, name: str, value) -> None:

@@ -152,7 +152,8 @@ class Coordinator:
             from megatoken.training.diloco_kb import KBCoordinator
 
             self.kb = KBCoordinator(
-                self.root, self.manifest["kb"],
+                self.root,
+                self.manifest["kb"],
                 outer_lr=self.manifest["outer_lr"],
                 outer_momentum=self.manifest["outer_momentum"],
                 max_staleness=self.manifest["max_staleness"],
@@ -187,7 +188,8 @@ class Coordinator:
                 if not public.exists() or int(_metadata(public)["version"]) != version:
                     theta = load_tensors(self._path(index))["theta"]
                     save_tensors(
-                        public, {"theta": theta},
+                        public,
+                        {"theta": theta},
                         metadata={"version": str(version)},
                     )
 
@@ -206,11 +208,7 @@ class Coordinator:
             ):
                 raise ValueError("Invalid worker ID or session UUID")
             previous = self.progress["leases"].get(str(worker))
-            if (
-                previous
-                and previous["expires"] > time.time()
-                and previous["session"] != session
-            ):
+            if previous and previous["expires"] > time.time() and previous["session"] != session:
                 raise Conflict("Worker ID already leased by a live session")
             self.progress["leases"][str(worker)] = {
                 "session": session,
@@ -273,10 +271,14 @@ class Coordinator:
             self._lease_valid(worker, session)
             self._path(index)  # Reject an unknown fragment before touching queued files.
             if (
-                type(sequence) is not int or sequence < 1
-                or type(base_version) is not int or base_version < 0
-                or type(steps) is not int or steps <= 0
-                or type(tokens) is not int or tokens <= 0
+                type(sequence) is not int
+                or sequence < 1
+                or type(base_version) is not int
+                or base_version < 0
+                or type(steps) is not int
+                or steps <= 0
+                or type(tokens) is not int
+                or tokens <= 0
             ):
                 raise ValueError("Invalid update metadata")
             fragment = self.fragments[index]
@@ -363,11 +365,13 @@ class Coordinator:
         # Atomic fragment publication includes last_seq. This is the commit
         # record; replayed queued proposals will be discarded on restart.
         save_tensors(
-            path, {"theta": theta, "momentum": momentum},
+            path,
+            {"theta": theta, "momentum": momentum},
             metadata={"version": str(version + 1), "last_seq": json.dumps(last_seq)},
         )
         save_tensors(
-            self._published(index), {"theta": theta},
+            self._published(index),
+            {"theta": theta},
             metadata={"version": str(version + 1)},
         )
         for file, _, _ in proposals:
@@ -376,15 +380,27 @@ class Coordinator:
         self._write_progress()
 
     def submit_kb(
-        self, worker: int, session: str, sequence: int, base_version: int,
-        steps: int, tokens: int, incoming: Path,
+        self,
+        worker: int,
+        session: str,
+        sequence: int,
+        base_version: int,
+        steps: int,
+        tokens: int,
+        incoming: Path,
     ) -> dict:
         with self.lock:
             self._lease_valid(worker, session)
             if self.kb is None:
                 raise ValueError("This coordinator run does not own a free KB")
             return self.kb.submit(
-                worker, sequence, base_version, steps, tokens, incoming, Conflict,
+                worker,
+                sequence,
+                base_version,
+                steps,
+                tokens,
+                incoming,
+                Conflict,
             )
 
     def tick(self) -> None:
@@ -424,7 +440,10 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
             self.wfile.write(body)
 
         def _stream_file(
-            self, file, version: int | None = None, header: str = "X-Fragment-Version",
+            self,
+            file,
+            version: int | None = None,
+            header: str = "X-Fragment-Version",
         ) -> None:
             with file:
                 size = os.fstat(file.fileno()).st_size
@@ -569,7 +588,8 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                         with coordinator.lock:
                             try:
                                 version = coordinator.kb.export_changes(
-                                    int(value["after"]), target,
+                                    int(value["after"]),
+                                    target,
                                     records=tuple(value.get("records", ())),
                                     relations=tuple(value.get("relations", ())),
                                 )
@@ -582,15 +602,17 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                             self.end_headers()
                         else:
                             self._stream_file(
-                                target.open("rb"), version, header="X-KB-Version",
+                                target.open("rb"),
+                                version,
+                                header="X-KB-Version",
                             )
                     finally:
                         target.unlink(missing_ok=True)
                     return
                 elif parsed.path == "/v1/kb/updates":
-                    filename = self._receive(coordinator.manifest.get(
-                        "max_kb_update_bytes", 256 << 20
-                    ))
+                    filename = self._receive(
+                        coordinator.manifest.get("max_kb_update_bytes", 256 << 20)
+                    )
                     try:
                         result = coordinator.submit_kb(*self._update_headers(), filename)
                     finally:

@@ -6,6 +6,7 @@ generator/backbone and matching codec are used; original text/voice encoders
 are never called to realize a Megatoken event. Other prompting APIs are
 intentionally absent. This module is importable without optional packages.
 """
+
 from __future__ import annotations
 
 import math
@@ -46,8 +47,9 @@ class PocketFacetsStudent(nn.Module):
         # never calls it and does not retain its large tokenizer embedding.
         self.flow_lm.conditioner = None
         self.facet_width = facet_width
-        self.prefix = nn.Sequential(nn.LayerNorm(facet_width),
-                                    nn.Linear(facet_width, self.flow_lm.dim))
+        self.prefix = nn.Sequential(
+            nn.LayerNorm(facet_width), nn.Linear(facet_width, self.flow_lm.dim)
+        )
         for parameter in self.mimi.parameters():
             parameter.requires_grad_(False)
         for parameter in self.flow_lm.parameters():
@@ -59,17 +61,16 @@ class PocketFacetsStudent(nn.Module):
             raise ValueError("Pocket flow/mimi continuous latent geometry differs")
 
     @classmethod
-    def from_checkpoint(cls, *, config: str, facet_width: int = 512,
-                        checkpoint: str | None = None):
+    def from_checkpoint(cls, *, config: str, facet_width: int = 512, checkpoint: str | None = None):
         """config must refer to an inspected, pinned *local* Pocket YAML."""
         from pocket_tts import TTSModel
+
         if not Path(config).is_file():
             raise FileNotFoundError("Pocket YAML is not a local pinned file")
         model = TTSModel.load_model(config=config, checkpoint=checkpoint, quantize=False)
         return cls(model, facet_width=facet_width)
 
-    def train_adapter(self, *, train_backbone: bool = False,
-                      train_flow_head: bool = False):
+    def train_adapter(self, *, train_backbone: bool = False, train_flow_head: bool = False):
         for parameter in self.flow_lm.transformer.parameters():
             parameter.requires_grad_(train_backbone)
         for parameter in self.flow_lm.flow_net.parameters():
@@ -79,11 +80,12 @@ class PocketFacetsStudent(nn.Module):
     def add_lora(self, *, rank: int = 8, alpha: int = 16):
         """Limited backbone adaptation, retaining the original trained prior."""
         from peft import LoraConfig, get_peft_model
+
         if rank < 1:
             raise ValueError("LoRA rank must be positive")
         self.flow_lm.transformer = get_peft_model(
             self.flow_lm.transformer,
-            LoraConfig(r=rank, lora_alpha=alpha, target_modules="all-linear")
+            LoraConfig(r=rank, lora_alpha=alpha, target_modules="all-linear"),
         )
         return self
 
@@ -104,8 +106,14 @@ class PocketFacetsStudent(nn.Module):
             raise ValueError("Pocket target must contain continuous Mimi latents")
         return (target - self.flow_lm.emb_mean) / self.flow_lm.emb_std.clamp_min(1e-6)
 
-    def native_loss(self, raw: Tensor, mimi_latents: Tensor, *, valid_mask=None,
-                    generator: torch.Generator | None = None):
+    def native_loss(
+        self,
+        raw: Tensor,
+        mimi_latents: Tensor,
+        *,
+        valid_mask=None,
+        generator: torch.Generator | None = None,
+    ):
         """Donor flow-head loss with scheduled, matched teacher acoustic prefixes.
 
         This trains conditioner/flow; the input sequence is teacher forcing local
@@ -117,61 +125,73 @@ class PocketFacetsStudent(nn.Module):
         b, frames, channels = clean.shape
         if b != condition.shape[0] or frames < 1:
             raise ValueError("Mimi latent batch or frame count mismatch")
-        bos = torch.full((b, 1, channels), float("nan"),
-                         device=clean.device, dtype=clean.dtype)
+        bos = torch.full((b, 1, channels), float("nan"), device=clean.device, dtype=clean.dtype)
         teacher_prefix = torch.cat((bos, clean[:, :-1]), dim=1)
-        embedded = torch.where(torch.isnan(teacher_prefix),
-                               self.flow_lm.bos_emb, teacher_prefix)
+        embedded = torch.where(torch.isnan(teacher_prefix), self.flow_lm.bos_emb, teacher_prefix)
         seq = torch.cat((condition, self.flow_lm.input_linear(embedded)), dim=1)
         hidden = self.flow_lm.transformer(seq, model_state=None)
         if self.flow_lm.out_norm is not None:
             hidden = self.flow_lm.out_norm(hidden)
         hidden = hidden[:, -frames:].float()
         flow_type = self.flow_lm.flow_type
-        noise = torch.randn(clean.shape, device=clean.device,
-                            dtype=clean.dtype, generator=generator).float()
+        noise = torch.randn(
+            clean.shape, device=clean.device, dtype=clean.dtype, generator=generator
+        ).float()
         clean = clean.float()
         if flow_type == "flow_matching":
             t = torch.rand((b, frames, 1), device=clean.device, generator=generator)
             sig_min = 0.001
-            x_t = (1 - (1-sig_min)*t)*noise + t*clean
+            x_t = (1 - (1 - sig_min) * t) * noise + t * clean
             pred = self.flow_lm.flow_net(hidden, t, x_t)
-            target = clean - (1-sig_min)*noise
-            error = (pred.float()-target).square()
+            target = clean - (1 - sig_min) * noise
+            error = (pred.float() - target).square()
         elif flow_type == "lsd":
             # Matched Pocket LSD diagonal and student self-distillation terms:
             # classic stopgrad variant, deterministic full distillation subset.
-            t = torch.sigmoid(torch.randn((b,frames,1),device=clean.device)*1.0+0.4)
-            x_t = t*clean+(1-t)*noise
-            diag = (self.flow_lm.flow_net(hidden,t,t,x_t)-(clean-noise)).square()
-            logits = torch.randn((b,frames,2),device=clean.device)+0.4
-            s = torch.sigmoid(logits.min(dim=-1,keepdim=True).values)
-            end = torch.sigmoid(logits.max(dim=-1,keepdim=True).values)
-            x_s = s*clean+(1-s)*noise
-            def field(s0,t0,x0):
-                return self.flow_lm.flow_net(hidden,s0,t0,x0)
-            vt,dvdt = torch.func.jvp(field,(s,end,x_s),
-                (torch.zeros_like(s),torch.ones_like(end),torch.zeros_like(x_s)))
-            x_end=x_s+(end-s)*vt
+            t = torch.sigmoid(torch.randn((b, frames, 1), device=clean.device) * 1.0 + 0.4)
+            x_t = t * clean + (1 - t) * noise
+            diag = (self.flow_lm.flow_net(hidden, t, t, x_t) - (clean - noise)).square()
+            logits = torch.randn((b, frames, 2), device=clean.device) + 0.4
+            s = torch.sigmoid(logits.min(dim=-1, keepdim=True).values)
+            end = torch.sigmoid(logits.max(dim=-1, keepdim=True).values)
+            x_s = s * clean + (1 - s) * noise
+
+            def field(s0, t0, x0):
+                return self.flow_lm.flow_net(hidden, s0, t0, x0)
+
+            vt, dvdt = torch.func.jvp(
+                field,
+                (s, end, x_s),
+                (torch.zeros_like(s), torch.ones_like(end), torch.zeros_like(x_s)),
+            )
+            x_end = x_s + (end - s) * vt
             with torch.no_grad():
-                target_velocity=self.flow_lm.flow_net(hidden,end,end,x_end)
-            distill=(vt+(end-s)*dvdt-target_velocity).square()
-            error=0.75*diag+0.25*distill
+                target_velocity = self.flow_lm.flow_net(hidden, end, end, x_end)
+            distill = (vt + (end - s) * dvdt - target_velocity).square()
+            error = 0.75 * diag + 0.25 * distill
         else:
             raise ValueError("Unsupported Pocket flow objective: use LSD or OT")
         return flow_matching_loss(error.sqrt(), torch.zeros_like(error), valid_mask)
 
-    def latent(self, raw: Tensor, *, max_frames: int, steps: int = 16,
-               generator: torch.Generator | None = None):
+    def latent(
+        self,
+        raw: Tensor,
+        *,
+        max_frames: int,
+        steps: int = 16,
+        generator: torch.Generator | None = None,
+    ):
         """Full free rollout; no target-conditioned acoustic prefix is supplied."""
         from pocket_tts.modules.stateful_module import increment_steps, init_states
+
         condition = self._cond(raw)
         b = raw.shape[0]
         if not 1 <= max_frames <= 1200 or not 1 <= steps <= 128:
             raise ValueError("Unbounded speech rollout")
         states = init_states(self.flow_lm, b, 32 + max_frames + 4)
-        previous = torch.full((b, 1, self.latent_width), float("nan"),
-                              device=raw.device, dtype=condition.dtype)
+        previous = torch.full(
+            (b, 1, self.latent_width), float("nan"), device=raw.device, dtype=condition.dtype
+        )
         outputs = []
         for t in range(max_frames):
             # The pretrained FlowLM sample is stateful, with correct prefix
@@ -183,13 +203,23 @@ class PocketFacetsStudent(nn.Module):
                 with torch.random.fork_rng(devices=devices):
                     torch.manual_seed(noise_seed)
                     next_latent, eos = self.flow_lm._sample_next_latent(
-                        previous, embeddings, states, steps, self.pocket.temp,
-                        self.pocket.noise_clamp, self.pocket.eos_threshold,
+                        previous,
+                        embeddings,
+                        states,
+                        steps,
+                        self.pocket.temp,
+                        self.pocket.noise_clamp,
+                        self.pocket.eos_threshold,
                     )
             else:
                 next_latent, eos = self.flow_lm._sample_next_latent(
-                    previous, embeddings, states, steps, self.pocket.temp,
-                    self.pocket.noise_clamp, self.pocket.eos_threshold,
+                    previous,
+                    embeddings,
+                    states,
+                    steps,
+                    self.pocket.temp,
+                    self.pocket.noise_clamp,
+                    self.pocket.eos_threshold,
                 )
             increment_steps(self.flow_lm, states, increment=previous.shape[1] + embeddings.shape[1])
             outputs.append(next_latent[:, None])
@@ -201,6 +231,7 @@ class PocketFacetsStudent(nn.Module):
 
     def decode(self, native_latents: Tensor):
         from pocket_tts.modules.stateful_module import init_states
+
         if native_latents.ndim != 3 or native_latents.shape[-1] != self.latent_width:
             raise ValueError("Pocket latent/decoder mismatch")
         ratio = self.mimi.encoder_frame_rate / self.mimi.frame_rate
@@ -210,7 +241,8 @@ class PocketFacetsStudent(nn.Module):
         # *not* at the 12.5Hz continuous latent rate. A 16x codec ratio
         # needs 16 times as much decoder-state sequence capacity.
         state = init_states(
-            self.mimi, native_latents.shape[0],
+            self.mimi,
+            native_latents.shape[0],
             native_latents.shape[1] * int(ratio) + 16,
         )
         with torch.no_grad():
@@ -220,7 +252,9 @@ class PocketFacetsStudent(nn.Module):
             return waveform[:, 0]
 
     def realize(self, raw: Tensor, *, max_frames: int, steps=16, generator=None):
-        return self.decode(self.latent(raw, max_frames=max_frames, steps=steps, generator=generator))
+        return self.decode(
+            self.latent(raw, max_frames=max_frames, steps=steps, generator=generator)
+        )
 
 
 class SanaFacetsStudent(nn.Module):
@@ -242,8 +276,7 @@ class SanaFacetsStudent(nn.Module):
         pipeline.tokenizer = None
         self.pipe = pipeline
         channels = int(pipeline.transformer.config.caption_channels)
-        self.condition = nn.Sequential(nn.LayerNorm(facet_width),
-                                       nn.Linear(facet_width, channels))
+        self.condition = nn.Sequential(nn.LayerNorm(facet_width), nn.Linear(facet_width, channels))
         # Pipeline holds the exact matching checkpoint components, including
         # the video LTX2 VAE; the frozen codec never receives source media.
         self.transformer = pipeline.transformer
@@ -254,9 +287,16 @@ class SanaFacetsStudent(nn.Module):
             parameter.requires_grad_(False)
 
     @classmethod
-    def from_checkpoint(cls, *, snapshot: str, modality: str,
-                        facet_width: int = 512, torch_dtype: torch.dtype = torch.bfloat16):
+    def from_checkpoint(
+        cls,
+        *,
+        snapshot: str,
+        modality: str,
+        facet_width: int = 512,
+        torch_dtype: torch.dtype = torch.bfloat16,
+    ):
         from diffusers import SanaPipeline, SanaVideoPipeline
+
         if not Path(snapshot).is_dir():
             raise FileNotFoundError("Require a pinned downloaded local Diffusers snapshot")
         klass = SanaPipeline if modality == "image" else SanaVideoPipeline
@@ -276,11 +316,11 @@ class SanaFacetsStudent(nn.Module):
 
     def add_lora(self, *, rank: int = 8, alpha: int = 16):
         from peft import LoraConfig, get_peft_model
+
         if rank < 1:
             raise ValueError("LoRA rank must be positive")
         self.transformer = get_peft_model(
-            self.transformer,
-            LoraConfig(r=rank, lora_alpha=alpha, target_modules="all-linear")
+            self.transformer, LoraConfig(r=rank, lora_alpha=alpha, target_modules="all-linear")
         )
         self.pipe.transformer = self.transformer
         return self
@@ -291,28 +331,43 @@ class SanaFacetsStudent(nn.Module):
         mask = torch.ones(embeds.shape[:2], device=embeds.device, dtype=torch.bool)
         return embeds, mask
 
-    def latent(self, raw: Tensor, *, height: int, width: int, frames=1,
-               steps: int = 30, guidance: float = 4.0, generator=None):
+    def latent(
+        self,
+        raw: Tensor,
+        *,
+        height: int,
+        width: int,
+        frames=1,
+        steps: int = 30,
+        guidance: float = 4.0,
+        generator=None,
+    ):
         embeds, mask = self._embeddings(raw)
         if self.modality == "image" and frames != 1:
             raise ValueError("Image renderer only accepts one frame")
         if not 1 <= steps <= 200:
             raise ValueError("Invalid Sana scheduler steps")
-        kwargs = dict(prompt_embeds=embeds, prompt_attention_mask=mask,
-                      negative_prompt_embeds=torch.zeros_like(embeds),
-                      negative_prompt_attention_mask=mask, height=height,
-                      width=width, guidance_scale=guidance,
-                      num_inference_steps=steps, generator=generator,
-                      output_type="latent", return_dict=False,
-                      use_resolution_binning=False)
+        kwargs = dict(
+            prompt_embeds=embeds,
+            prompt_attention_mask=mask,
+            negative_prompt_embeds=torch.zeros_like(embeds),
+            negative_prompt_attention_mask=mask,
+            height=height,
+            width=width,
+            guidance_scale=guidance,
+            num_inference_steps=steps,
+            generator=generator,
+            output_type="latent",
+            return_dict=False,
+            use_resolution_binning=False,
+        )
         if self.modality == "video":
             kwargs["frames"] = frames
         # Never pass text prompt, original source latents or donor text state.
         output = self.pipe(**kwargs)[0]
         return output
 
-    def native_loss(self, raw: Tensor, target_latents: Tensor, *, valid_mask=None,
-                    generator=None):
+    def native_loss(self, raw: Tensor, target_latents: Tensor, *, valid_mask=None, generator=None):
         """Use the checkpoint scheduler's declared prediction convention.
 
         The diffusion training input may read noisy U (teacher target); the
@@ -324,8 +379,12 @@ class SanaFacetsStudent(nn.Module):
         if getattr(config, "num_train_timesteps", 0) <= 0:
             raise ValueError("Sana scheduler has no declared training clock")
         b = target_latents.shape[0]
-        noise = torch.randn(target_latents.shape, dtype=target_latents.dtype,
-                            device=target_latents.device, generator=generator)
+        noise = torch.randn(
+            target_latents.shape,
+            dtype=target_latents.dtype,
+            device=target_latents.device,
+            generator=generator,
+        )
         if hasattr(scheduler, "scale_noise"):
             # The donor's FlowMatchEulerDiscrete parameterization predicts
             # dU/dsigma = epsilon - U. Training must not sample from the
@@ -334,7 +393,9 @@ class SanaFacetsStudent(nn.Module):
             # Uniform OT training time covers the full continuous trajectory,
             # independent of any inference-step count or pack residence.
             sigma = torch.rand(
-                (b,), device=target_latents.device, generator=generator,
+                (b,),
+                device=target_latents.device,
+                generator=generator,
             ).to(dtype=target_latents.dtype)
             shifted = float(getattr(config, "shift", 1.0))
             if not math.isfinite(shifted) or shifted <= 0:
@@ -349,8 +410,11 @@ class SanaFacetsStudent(nn.Module):
             prediction_type = "flow"
         elif hasattr(scheduler, "add_noise"):
             timestep = torch.randint(
-                0, int(config.num_train_timesteps), (b,),
-                device=target_latents.device, generator=generator,
+                0,
+                int(config.num_train_timesteps),
+                (b,),
+                device=target_latents.device,
+                generator=generator,
             )
             prediction_type = getattr(config, "prediction_type", "epsilon")
             if prediction_type not in ("epsilon", "v_prediction", "sample"):
@@ -382,15 +446,20 @@ class SanaFacetsStudent(nn.Module):
         # Decode via *this pipeline's* matched VAE and scaling conventions;
         # don't reimplement video VAE normalization from another checkpoint.
         embeds, mask = self._embeddings(raw)
-        kwargs = dict(prompt_embeds=embeds, prompt_attention_mask=mask,
-                      negative_prompt_embeds=torch.zeros_like(embeds),
-                      negative_prompt_attention_mask=mask,
-                      guidance_scale=spec.get("guidance",4.0),
-                      num_inference_steps=spec.get("steps",30),
-                      height=spec["height"], width=spec["width"],
-                      generator=spec.get("generator"),
-                      output_type="pt", return_dict=False,
-                      use_resolution_binning=False)
+        kwargs = dict(
+            prompt_embeds=embeds,
+            prompt_attention_mask=mask,
+            negative_prompt_embeds=torch.zeros_like(embeds),
+            negative_prompt_attention_mask=mask,
+            guidance_scale=spec.get("guidance", 4.0),
+            num_inference_steps=spec.get("steps", 30),
+            height=spec["height"],
+            width=spec["width"],
+            generator=spec.get("generator"),
+            output_type="pt",
+            return_dict=False,
+            use_resolution_binning=False,
+        )
         if self.modality == "video":
             kwargs["frames"] = spec["frames"]
         output = self.pipe(**kwargs)[0]

@@ -8,6 +8,7 @@ This is a distillation launcher; native frozen-reader continuation fitting is
 available through training.hindsight's behavior callback, not silently claimed
 by a target-only run.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -31,7 +32,10 @@ from megatoken.training.writer_data import WriterDataset, pair_batches, source_b
 
 
 def fit_pinned_dataset(
-    recipe: RetrievalRecipe, receipt: GateReceipt, dataset: WriterDataset, *,
+    recipe: RetrievalRecipe,
+    receipt: GateReceipt,
+    dataset: WriterDataset,
+    *,
     dataset_path: Path,
     output: Path,
     epochs: int,
@@ -45,7 +49,9 @@ def fit_pinned_dataset(
     if receipt.phase != recipe.phase:
         raise RuntimeError("Writer checkpoint requires an exact phase gate receipt")
     if recipe.phase not in {
-        "local_source_writer", "cross_source_writer", "corpus_reproduction",
+        "local_source_writer",
+        "cross_source_writer",
+        "corpus_reproduction",
     }:
         raise RuntimeError("Source writer cannot train before free-memory pretraining")
     if dataset.kind == "pair" and recipe.phase != "corpus_reproduction":
@@ -82,28 +88,38 @@ def fit_pinned_dataset(
         ):
             raise ValueError("Source writer must consume the actual native E facet layout")
         writer = SourceWriter(
-            facets=layout["facets"], facet_dim=layout["facet_dim"],
-            semantic_dim=layout["semantic_dim"], value_dim=layout["value_dim"],
-            max_blocks=layout["max_blocks"], hidden=hidden, heads=heads,
+            facets=layout["facets"],
+            facet_dim=layout["facet_dim"],
+            semantic_dim=layout["semantic_dim"],
+            value_dim=layout["value_dim"],
+            max_blocks=layout["max_blocks"],
+            hidden=hidden,
+            heads=heads,
         ).to(device)
     else:
         writer = RelationWriter(
-            key_dim=layout["semantic_dim"], value_dim=layout["value_dim"],
-            statistics_dim=layout["statistics_dim"], hidden=hidden,
+            key_dim=layout["semantic_dim"],
+            value_dim=layout["value_dim"],
+            statistics_dim=layout["statistics_dim"],
+            hidden=hidden,
         ).to(device)
-    optimizer = torch.optim.AdamW(writer.parameters(), lr=lr, weight_decay=0.)
-    settings = WriterFitSettings(learning_rate=lr, distillation_weight=1.)
+    optimizer = torch.optim.AdamW(writer.parameters(), lr=lr, weight_decay=0.0)
+    settings = WriterFitSettings(learning_rate=lr, distillation_weight=1.0)
     metrics = []
     for epoch in range(epochs):
         if dataset.kind == "source":
             reports = fit_source_writer_epoch(
-                writer, source_batches(dataset_path, dataset, device=device),
-                settings=settings, optimizer=optimizer,
+                writer,
+                source_batches(dataset_path, dataset, device=device),
+                settings=settings,
+                optimizer=optimizer,
             )
         else:
             reports = fit_relation_writer_epoch(
-                writer, pair_batches(dataset_path, dataset, device=device),
-                settings=settings, optimizer=optimizer,
+                writer,
+                pair_batches(dataset_path, dataset, device=device),
+                settings=settings,
+                optimizer=optimizer,
             )
         if reports["updates"] == 0:
             raise RuntimeError("No valid source/pair assignments were fitted")
@@ -117,13 +133,17 @@ def fit_pinned_dataset(
     staging = Path(tempfile.mkdtemp(prefix=".writer-stage-", dir=parent))
     try:
         weights = staging / "writer.safetensors"
-        save_file({
-            name: tensor.detach().cpu().contiguous()
-            for name, tensor in writer.state_dict().items()
-        }, str(weights))
+        save_file(
+            {
+                name: tensor.detach().cpu().contiguous()
+                for name, tensor in writer.state_dict().items()
+            },
+            str(weights),
+        )
         metadata = {
             "schema": "megatoken-writer-checkpoint-v1",
-            "kind": dataset.kind, "mode": dataset.mode,
+            "kind": dataset.kind,
+            "mode": dataset.mode,
             "recipe": recipe.fingerprint,
             "semantic_space": recipe.space.fingerprint,
             "native_model_snapshot": receipt.model_snapshot,
@@ -131,8 +151,12 @@ def fit_pinned_dataset(
             "source_context_policy": dataset.source_context_policy,
             "dataset_manifest_sha256": sha256(dataset_path.read_bytes()).hexdigest(),
             "shards": [asdict(ref) for ref in dataset.shards],
-            "layout": layout, "epochs": epochs, "seed": seed,
-            "hidden": hidden, "heads": heads, "learning_rate": lr,
+            "layout": layout,
+            "epochs": epochs,
+            "seed": seed,
+            "hidden": hidden,
+            "heads": heads,
+            "learning_rate": lr,
             "training_objective": "frozen-target-distillation",
             "behavioral_continuation_verified": False,
             "metrics": metrics,
@@ -168,9 +192,17 @@ def main(argv: list[str] | None = None) -> int:
     receipt = GateReceipt(**{**received, "successful": tuple(received["successful"])})
     dataset = WriterDataset.load(args.dataset)
     report = fit_pinned_dataset(
-        recipe, receipt, dataset, dataset_path=args.dataset, output=args.output,
-        epochs=args.epochs, lr=args.lr, hidden=args.hidden, heads=args.heads,
-        seed=args.seed, device=torch.device(args.device),
+        recipe,
+        receipt,
+        dataset,
+        dataset_path=args.dataset,
+        output=args.output,
+        epochs=args.epochs,
+        lr=args.lr,
+        hidden=args.hidden,
+        heads=args.heads,
+        seed=args.seed,
+        device=torch.device(args.device),
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0

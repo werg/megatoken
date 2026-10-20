@@ -51,9 +51,7 @@ def scan_delimited(payload: bytes, language: str, limits: ParseLimits) -> Scan:
             return
         scan.nodes += 1
         if row_start < end and len(scan.result.regions) < limits.max_regions:
-            scan.result.regions.append(
-                Region(row_start, end, "row", language, 0, True, source)
-            )
+            scan.result.regions.append(Region(row_start, end, "row", language, 0, True, source))
         if len(scan.result.boundaries) < limits.max_regions * 4:
             scan.result.boundaries.append(Boundary(end, "row", 0, source))
 

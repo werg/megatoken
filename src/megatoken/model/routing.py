@@ -170,8 +170,14 @@ class EpochRouter(nn.Module):
             palette_logits.logsumexp(-1).square().mean() + row_logits.logsumexp(-1).square().mean()
         )
         return RowRoute(
-            ids, confidence, eligible, palette_probability, balance, stabilization,
-            context.detach() if self.balance_recorder is not None else None, stage,
+            ids,
+            confidence,
+            eligible,
+            palette_probability,
+            balance,
+            stabilization,
+            context.detach() if self.balance_recorder is not None else None,
+            stage,
         )
 
     def compile(

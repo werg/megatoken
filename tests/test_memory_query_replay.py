@@ -1,4 +1,5 @@
 """Exact retrieval-query replay and failed-boundary atomicity."""
+
 from dataclasses import replace
 
 import numpy as np
@@ -20,9 +21,13 @@ from megatoken.multitrack_runtime import MultiTrackRuntime
 
 def _generator():
     torch.manual_seed(7)
-    core = FacetedCore(ModelConfig.tiny(
-        semantic_dim=8, semantic_value_dim=16, max_kb_positions=2,
-    ))
+    core = FacetedCore(
+        ModelConfig.tiny(
+            semantic_dim=8,
+            semantic_value_dim=16,
+            max_kb_positions=2,
+        )
+    )
     return MultiTrackGenerator(FacetedGenerator(core, ByteCodec.byte_fallback()))
 
 
@@ -30,20 +35,30 @@ def test_selected_query_tape_replay_reproduces_kv_vector_and_policy_density():
     generator = _generator()
     original = generator.tracks.initial_state(1)
     query, served, raw = generator.retrieve_embedding(
-        original, main_request=b"Locate design decision",
-        purpose="source", space_fingerprint="pinned-space",
-        effort=1, generator=torch.Generator().manual_seed(31),
+        original,
+        main_request=b"Locate design decision",
+        purpose="source",
+        space_fingerprint="pinned-space",
+        effort=1,
+        generator=torch.Generator().manual_seed(31),
     )
     tape = QueryActionReceipt.capture(
-        event_id="lookup-1", meridian=0,
+        event_id="lookup-1",
+        meridian=0,
         model_version=generator.generator.core.model_version,
-        request=b"Locate design decision", purpose="source",
-        space_fingerprint="pinned-space", selected=raw,
-        vector=query, effort=1, snapshot_id="epoch-1",
+        request=b"Locate design decision",
+        purpose="source",
+        space_fingerprint="pinned-space",
+        selected=raw,
+        vector=query,
+        effort=1,
+        snapshot_id="epoch-1",
     )
     parsed = QueryActionReceipt.from_json(tape.to_json())
     reconstructed, query_again, policy_log_prob = replay_query_action(
-        generator, original, parsed,
+        generator,
+        original,
+        parsed,
     )
     assert torch.isfinite(policy_log_prob)
     torch.testing.assert_close(query_again, query)
@@ -59,25 +74,53 @@ def test_incremental_source_coverage_snapshot_roundtrips_and_rejects_corruption(
     from megatoken.memory.contracts import Collection, QueryBoundary
 
     space = SemanticSpace(
-        "shared", "v1", "teacher", "pinned", 8, "doc", "query", "context",
+        "shared",
+        "v1",
+        "teacher",
+        "pinned",
+        8,
+        "doc",
+        "query",
+        "context",
     )
-    support = Footprint((SourceRange(
-        "source", "v1", 0, 12, "sha", "team",
-    ),))
+    support = Footprint(
+        (
+            SourceRange(
+                "source",
+                "v1",
+                0,
+                12,
+                "sha",
+                "team",
+            ),
+        )
+    )
     with SQLiteKB(tmp_path / "bank.sqlite", space, value_dim=16) as bank:
         row_id = bank.insert_source(
-            scope="team", footprint=support, content_id="source-0",
-            asset_ref="source-0.bytes", key=np.ones(8),
+            scope="team",
+            footprint=support,
+            content_id="source-0",
+            asset_ref="source-0.bytes",
+            key=np.ones(8),
         )
         row = bank.get(Collection.SOURCE, row_id)
         coverage = RetrievalSession()
         boundary = QueryBoundary(
-            "event-1", 0, "source", "main", "request",
-            space.fingerprint, "score-1", 5,
+            "event-1",
+            0,
+            "source",
+            "main",
+            "request",
+            space.fingerprint,
+            "score-1",
+            5,
         )
         coverage.incremental([Hit(row, 0.9)], boundary=boundary, threshold=0.5)
         selected = coverage.reserve(
-            max_bytes=12, max_events=1, now=1, request_id="fetch",
+            max_bytes=12,
+            max_events=1,
+            now=1,
+            request_id="fetch",
         )
         assert len(selected) == 1
         revived = RetrievalSession.from_dict(coverage.to_dict())
@@ -98,21 +141,35 @@ def test_failed_search_does_not_publish_query_or_kb_session_state(tmp_path):
     session = runtime.open()
     before = session.state
     space = SemanticSpace(
-        "space", "v1", "teacher", "pinned", 8, "doc", "query", "context",
+        "space",
+        "v1",
+        "teacher",
+        "pinned",
+        8,
+        "doc",
+        "query",
+        "context",
     )
     with SQLiteKB(tmp_path / "bank.sqlite", space, value_dim=16) as bank:
+
         class FailingIndex(ExactIndex):
             def search(self, *args, **kwargs):
                 raise RuntimeError("injected ANN failure")
 
         retrieval = NativeRetrieval(
-            generator, runtime, RetrievalService(FailingIndex(bank)),
-            space, RetrievalPolicy(),
+            generator,
+            runtime,
+            RetrievalService(FailingIndex(bank)),
+            space,
+            RetrievalPolicy(),
         )
         with pytest.raises(RuntimeError, match="injected ANN failure"):
             retrieval.boundary(
-                session, request=b"search", purpose="source",
-                visibility=Visibility("team", 0), request_id="request-1",
+                session,
+                request=b"search",
+                purpose="source",
+                visibility=Visibility("team", 0),
+                request_id="request-1",
                 effort=1,
             )
         assert session.state is before
@@ -128,19 +185,33 @@ def test_serving_causal_clock_excludes_inserted_query_meridians(tmp_path):
     runtime = MultiTrackRuntime(generator)
     session = runtime.open()
     space = SemanticSpace(
-        "space", "v1", "teacher", "pinned", 8, "doc", "query", "context",
+        "space",
+        "v1",
+        "teacher",
+        "pinned",
+        8,
+        "doc",
+        "query",
+        "context",
     )
     with SQLiteKB(tmp_path / "bank.sqlite", space, value_dim=16) as bank:
         retrieval = NativeRetrieval(
-            generator, runtime, RetrievalService(ExactIndex(bank)),
-            space, RetrievalPolicy(),
+            generator,
+            runtime,
+            RetrievalService(ExactIndex(bank)),
+            space,
+            RetrievalPolicy(),
         )
         runtime.observe(session, (ObservedEvent("user", "text", b"hello"),))
         assert session.causal_clock == 1
         for request_id in ("request-1", "request-2"):
             retrieval.boundary(
-                session, request=b"search", purpose="source",
-                visibility=Visibility("team", 1), request_id=request_id, effort=1,
+                session,
+                request=b"search",
+                purpose="source",
+                visibility=Visibility("team", 1),
+                request_id=request_id,
+                effort=1,
             )
         first, second = session.retrieval_receipts
         # Queries advance the native positional counter only.

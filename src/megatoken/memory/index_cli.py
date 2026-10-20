@@ -4,6 +4,7 @@ Use after source-catalog creation, before training and at centroid-revision
 boundaries. The training owner updates touched key postings transactionally
 and refreshes newly allocated record postings at its growth barrier.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,8 +21,11 @@ from megatoken.memory.recipe import RetrievalRecipe, open_bank_for_recipe
 
 
 def publish_index(
-    recipe: RetrievalRecipe, *, bank_path: Path,
-    centroid_path: Path, centroid_sha256: str,
+    recipe: RetrievalRecipe,
+    *,
+    bank_path: Path,
+    centroid_path: Path,
+    centroid_sha256: str,
     nprobe: int = 8,
 ) -> dict:
     if not centroid_sha256 or sha256_file(centroid_path) != centroid_sha256:
@@ -30,7 +34,8 @@ def publish_index(
     with open_bank_for_recipe(recipe, bank_path) as bank:
         index = SQLiteDiskIVF(bank, centroids, nprobe=nprobe)
         scopes = [
-            row[0] for row in bank.db.execute(
+            row[0]
+            for row in bank.db.execute(
                 "SELECT DISTINCT scope FROM records WHERE active=1 ORDER BY scope"
             ).fetchall()
         ]
@@ -47,8 +52,10 @@ def publish_index(
             "database_id": bank.database_id,
             "centroid_file_sha256": centroid_sha256,
             "centroid_vectors_sha256": index.identity.centroid_sha256,
-            "nprobe": nprobe, "cells": index.identity.cells,
-            "scopes": scopes, "postings": results,
+            "nprobe": nprobe,
+            "cells": index.identity.cells,
+            "scopes": scopes,
+            "postings": results,
             "revisions": asdict(bank.revisions()),
         }
         bank.put_growth_state("ivf_publication", receipt)
@@ -65,8 +72,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--nprobe", type=int, default=8)
     args = parser.parse_args(argv)
     report = publish_index(
-        RetrievalRecipe.load(args.recipe), bank_path=args.bank,
-        centroid_path=args.centroids, centroid_sha256=args.sha256,
+        RetrievalRecipe.load(args.recipe),
+        bank_path=args.bank,
+        centroid_path=args.centroids,
+        centroid_sha256=args.sha256,
         nprobe=args.nprobe,
     )
     args.bank.with_suffix(args.bank.suffix + ".index.json").write_text(

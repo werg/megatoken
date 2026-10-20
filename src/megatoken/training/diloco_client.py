@@ -67,7 +67,9 @@ class Transport:
         body = (
             json.dumps(json_body, sort_keys=True, allow_nan=False).encode()
             if json_body is not None
-            else file.read_bytes() if file else None
+            else file.read_bytes()
+            if file
+            else None
         )
         request = urllib.request.Request(
             self.url + path,
@@ -93,7 +95,9 @@ class Transport:
                 raw = response.read()
                 return (
                     response.status,
-                    json.loads(raw) if raw and response.headers.get_content_type() == "application/json" else raw,
+                    json.loads(raw)
+                    if raw and response.headers.get_content_type() == "application/json"
+                    else raw,
                     response_headers,
                 )
         except urllib.error.HTTPError as error:
@@ -107,15 +111,21 @@ class Transport:
         return result
 
     def fetch_file(
-        self, path: str, directory: Path, *, json_body: dict | None = None,
+        self,
+        path: str,
+        directory: Path,
+        *,
+        json_body: dict | None = None,
     ) -> tuple[Path | None, dict]:
         fd, name = tempfile.mkstemp(dir=directory, suffix=".download")
         os.close(fd)
         target = Path(name)
         try:
             status, _, headers = self.request(
-                "GET" if json_body is None else "POST", path,
-                json_body=json_body, output=target,
+                "GET" if json_body is None else "POST",
+                path,
+                json_body=json_body,
+                output=target,
             )
             if status == 204:
                 target.unlink()
@@ -346,15 +356,21 @@ class DecoupledWorker:
         return response
 
     def _fetch_kb(
-        self, version: int, trained: tuple[tuple[int, ...], tuple[int, ...]] = ((), ()),
+        self,
+        version: int,
+        trained: tuple[tuple[int, ...], tuple[int, ...]] = ((), ()),
     ) -> tuple[int, Path, str] | None:
         """Rows changed since ``version`` plus trained rows; snapshot as fallback."""
         if version >= 0:
             try:
                 path, headers = self.transport.fetch_file(
-                    "/v1/kb/changes", self.outbox,
-                    json_body={"after": version, "records": list(trained[0]),
-                               "relations": list(trained[1])},
+                    "/v1/kb/changes",
+                    self.outbox,
+                    json_body={
+                        "after": version,
+                        "records": list(trained[0]),
+                        "relations": list(trained[1]),
+                    },
                 )
                 if path is None:
                     return None
@@ -401,8 +417,10 @@ class DecoupledWorker:
                 entry["retry_after"] = steps + min(64, 2 ** min(6, entry.get("attempts", 0)))
                 entry["attempts"] = entry.get("attempts", 0) + 1
                 self.last_progress_error = str(exc)
-        if kb.pending is not None and kb.pending["future"] is None and (
-            steps >= kb.pending["retry_after"]
+        if (
+            kb.pending is not None
+            and kb.pending["future"] is None
+            and (steps >= kb.pending["retry_after"])
         ):
             kb.pending["future"] = self.io.submit(self._upload_kb, dict(kb.pending))
         if kb.download is not None and kb.download.done():
@@ -430,9 +448,13 @@ class DecoupledWorker:
                 kb.sequence = sequence
                 kb.demand = []
                 kb.pending = {
-                    "filename": str(filename), "sequence": sequence,
-                    "version": kb.version, "steps": kb.steps_since,
-                    "tokens": max(1, kb.tokens_since), "future": None, "retry_after": 0,
+                    "filename": str(filename),
+                    "sequence": sequence,
+                    "version": kb.version,
+                    "steps": kb.steps_since,
+                    "tokens": max(1, kb.tokens_since),
+                    "future": None,
+                    "retry_after": 0,
                 }
                 kb.pending["future"] = self.io.submit(self._upload_kb, dict(kb.pending))
             else:
@@ -441,11 +463,14 @@ class DecoupledWorker:
         # Install only once local progress is merged-or-empty, never over unsent work.
         can_install = kb.awaiting_global or not kb.baselines or self._kb_force_fetch
         if (
-            ready is None and kb.download is None and can_install
+            ready is None
+            and kb.download is None
+            and can_install
             and (self._kb_force_fetch or steps % self.settings.poll_steps == 0)
         ):
             kb.download = self.io.submit(
-                self._fetch_kb, -1 if self._kb_force_fetch else kb.version,
+                self._fetch_kb,
+                -1 if self._kb_force_fetch else kb.version,
                 kb.trained_rows(),
             )
         return errors, ready
@@ -468,9 +493,11 @@ class DecoupledWorker:
         filename = self.outbox / f"{index:05d}-{sequence:09d}.safetensors"
         save_tensors(
             filename,
-            {"delta": delta.to(
-                torch.bfloat16 if self.settings.wire_dtype == "bf16" else torch.float32
-            )},
+            {
+                "delta": delta.to(
+                    torch.bfloat16 if self.settings.wire_dtype == "bf16" else torch.float32
+                )
+            },
         )
         self.sequences[index] = sequence
         self.pending[index] = {
@@ -485,7 +512,12 @@ class DecoupledWorker:
         self._send_async(index)
 
     def after_step(
-        self, optimizer: Any, *, steps: int, tokens: int, bank: Any = None,
+        self,
+        optimizer: Any,
+        *,
+        steps: int,
+        tokens: int,
+        bank: Any = None,
     ) -> dict:
         """Called *after* each complete optimizer step; never blocks on network.
 
@@ -597,9 +629,18 @@ class DecoupledWorker:
                 f"DiLoCo coordinator unreachable for too many steps: {self.last_progress_error}"
             )
         return {
-            "updated": int(updated), "pending": len(self.pending), "merges": self.merges,
-            **({"kb_version": self.kb.version, "kb_pending": int(self.kb.pending is not None),
-                "kb_snapshot": kb_ready} if self.kb is not None else {}),
+            "updated": int(updated),
+            "pending": len(self.pending),
+            "merges": self.merges,
+            **(
+                {
+                    "kb_version": self.kb.version,
+                    "kb_pending": int(self.kb.pending is not None),
+                    "kb_snapshot": kb_ready,
+                }
+                if self.kb is not None
+                else {}
+            ),
         }
 
     def state_dict(self) -> dict:

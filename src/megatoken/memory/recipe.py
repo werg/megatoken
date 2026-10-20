@@ -29,15 +29,28 @@ PHASE_ORDER = (
 PHASE_REQUIREMENTS = {
     "coherence_embedding": (),
     "progressive_warmup": ("coherence", "embedding_alignment", "query_alignment"),
-    "free_kb_pretraining": ("coherence", "embedding_alignment", "query_alignment",
-                            "empty_bank", "eligible_gradient", "index_recall"),
+    "free_kb_pretraining": (
+        "coherence",
+        "embedding_alignment",
+        "query_alignment",
+        "empty_bank",
+        "eligible_gradient",
+        "index_recall",
+    ),
     "local_source_writer": ("native_usefulness", "final_free_bank_checkpoint"),
     "cross_source_writer": ("local_writer_quality", "permitted_suffix"),
     "corpus_reproduction": ("transfer_quality", "frozen_target_assignment"),
-    "acceptance": ("point_reconstruction", "pair_reconstruction",
-                   "fresh_index_recall", "behavioral_uptake"),
-    "experience": ("frozen_reader_policy", "verified_behavior_replay",
-                   "regenerated_write_acceptance"),
+    "acceptance": (
+        "point_reconstruction",
+        "pair_reconstruction",
+        "fresh_index_recall",
+        "behavioral_uptake",
+    ),
+    "experience": (
+        "frozen_reader_policy",
+        "verified_behavior_replay",
+        "regenerated_write_acceptance",
+    ),
 }
 
 
@@ -68,8 +81,16 @@ class RetrievalRecipe:
             self.model.max_kb_positions != self.max_kb_positions
         ):
             raise ValueError("Memory value and native K/V geometry must match the recipe")
-        if min(self.max_selected_source, self.max_selected_memory, self.max_source_bytes,
-               self.max_kb_positions, self.max_readout_groups) < 0:
+        if (
+            min(
+                self.max_selected_source,
+                self.max_selected_memory,
+                self.max_source_bytes,
+                self.max_kb_positions,
+                self.max_readout_groups,
+            )
+            < 0
+        ):
             raise ValueError("Retrieval budgets must be bounded and nonnegative")
         if self.max_kb_positions < self.max_readout_groups:
             raise ValueError("A KB snapshot cannot contain more groups than materialized slots")
@@ -82,9 +103,12 @@ class RetrievalRecipe:
 
     def to_dict(self):
         return {
-            "schema": self.schema, "space": asdict(self.space),
-            "model": self.model.to_dict(), "growth": asdict(self.growth),
-            "loss_weights": dict(self.loss_weights), "phase": self.phase,
+            "schema": self.schema,
+            "space": asdict(self.space),
+            "model": self.model.to_dict(),
+            "growth": asdict(self.growth),
+            "loss_weights": dict(self.loss_weights),
+            "phase": self.phase,
             "router_balance_mode": self.router_balance_mode,
             "max_selected_source": self.max_selected_source,
             "max_selected_memory": self.max_selected_memory,
@@ -135,28 +159,40 @@ def validate_gate(recipe: RetrievalRecipe, receipt: GateReceipt) -> None:
         raise RuntimeError("Every completed gate requires a traceable evidence artifact")
 
 
-def open_bank_for_recipe(recipe: RetrievalRecipe, path: str | Path, *,
-                         readonly: bool = False) -> SQLiteKB:
-    return SQLiteKB(path, recipe.space, value_dim=recipe.model.semantic_value_dim,
-                    readonly=readonly)
+def open_bank_for_recipe(
+    recipe: RetrievalRecipe, path: str | Path, *, readonly: bool = False
+) -> SQLiteKB:
+    return SQLiteKB(
+        path, recipe.space, value_dim=recipe.model.semantic_value_dim, readonly=readonly
+    )
 
 
-def record_readiness(recipe: RetrievalRecipe, bank: SQLiteKB, *,
-                     coherence: bool, embedding_alignment: bool,
-                     query_alignment: bool) -> None:
+def record_readiness(
+    recipe: RetrievalRecipe,
+    bank: SQLiteKB,
+    *,
+    coherence: bool,
+    embedding_alignment: bool,
+    query_alignment: bool,
+) -> None:
     if recipe.phase != "coherence_embedding":
         raise RuntimeError("Readiness is set only at the curriculum bootstrap handoff")
-    bank.put_growth_state("readiness", {
-        "coherence": coherence,
-        "embeddings": embedding_alignment and query_alignment,
-        "space": recipe.space.fingerprint,
-        "model": recipe.model.to_dict(),
-        "recipe": recipe.fingerprint,
-    })
+    bank.put_growth_state(
+        "readiness",
+        {
+            "coherence": coherence,
+            "embeddings": embedding_alignment and query_alignment,
+            "space": recipe.space.fingerprint,
+            "model": recipe.model.to_dict(),
+            "recipe": recipe.fingerprint,
+        },
+    )
 
 
 def checkpoint_bank(
-    recipe: RetrievalRecipe, bank: SQLiteKB, *,
+    recipe: RetrievalRecipe,
+    bank: SQLiteKB,
+    *,
     checkpoint_file: str | Path,
     model_checkpoint_id: str,
     optimizer_step: int,
@@ -186,15 +222,16 @@ def checkpoint_bank(
     return info
 
 
-def validate_checkpoint(recipe: RetrievalRecipe, path: str | Path, *,
-                        model_checkpoint_id: str) -> dict:
+def validate_checkpoint(
+    recipe: RetrievalRecipe, path: str | Path, *, model_checkpoint_id: str
+) -> dict:
     path = Path(path)
     info = json.loads(path.with_suffix(path.suffix + ".manifest.json").read_text())
     if info.get("schema") != "megatoken-memory-checkpoint-v1" or (
-        info["recipe"] != recipe.fingerprint or
-        info["space"] != recipe.space.fingerprint or
-        info["model_checkpoint_id"] != model_checkpoint_id or
-        sha256_file(path) != info["kb_sha256"]
+        info["recipe"] != recipe.fingerprint
+        or info["space"] != recipe.space.fingerprint
+        or info["model_checkpoint_id"] != model_checkpoint_id
+        or sha256_file(path) != info["kb_sha256"]
     ):
         raise RuntimeError("Model/KB snapshot content or identity is incompatible")
     with open_bank_for_recipe(recipe, path, readonly=True) as bank:
@@ -212,20 +249,24 @@ def main(argv: list[str] | None = None) -> int:
     recipe = RetrievalRecipe.load(args.recipe)
     if args.gate_receipt:
         payload = json.loads(Path(args.gate_receipt).read_text())
-        receipt = GateReceipt(**{
-            **payload, "successful": tuple(payload["successful"])
-        })
+        receipt = GateReceipt(**{**payload, "successful": tuple(payload["successful"])})
         validate_gate(recipe, receipt)
     if args.bank:
         with open_bank_for_recipe(recipe, args.bank, readonly=True) as bank:
             print("KB identity:", bank.database_id)
             print("Revisions:", asdict(bank.revisions()))
-    print(json.dumps({
-        "phase": recipe.phase,
-        "fingerprint": recipe.fingerprint,
-        "semantic_space": recipe.space.fingerprint,
-        "required_gates": PHASE_REQUIREMENTS[recipe.phase],
-    }, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "phase": recipe.phase,
+                "fingerprint": recipe.fingerprint,
+                "semantic_space": recipe.space.fingerprint,
+                "required_gates": PHASE_REQUIREMENTS[recipe.phase],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 

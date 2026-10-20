@@ -65,7 +65,11 @@ def make_episode(index: int, *, turns: int = 1) -> Episode:
     ]
     meridians = [
         Meridian(
-            0, tuple(TrackEvent(n, n, "text", 0, r.role) for n, r in zip(names[:2], records[:2], strict=True))
+            0,
+            tuple(
+                TrackEvent(n, n, "text", 0, r.role)
+                for n, r in zip(names[:2], records[:2], strict=True)
+            ),
         ),
         Meridian(1, (TrackEvent("answer", "answer", "text", 1, "assistant"),)),
     ]

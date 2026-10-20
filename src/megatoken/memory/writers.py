@@ -1,4 +1,5 @@
 """Post-pretraining source and pair writers in the final FROZEN semantic space."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,8 +19,10 @@ class WriterOutput:
 
     def __post_init__(self):
         shape = self.key.shape[:2]
-        if self.value.shape[:2] != shape or self.strength.shape != shape or (
-            self.lifetime_logit.shape != shape or self.valid.shape != shape
+        if (
+            self.value.shape[:2] != shape
+            or self.strength.shape != shape
+            or (self.lifetime_logit.shape != shape or self.valid.shape != shape)
         ):
             raise ValueError("Writer outputs must have identical source-slot correspondence")
 
@@ -38,9 +41,18 @@ class SourceWriter(nn.Module):
     Physical suffix and full passes have disjoint attention masks; no hidden
     cache or teacher answer can carry forbidden future or target information.
     """
-    def __init__(self, *, facets: int, facet_dim: int, semantic_dim: int,
-                 value_dim: int, hidden: int = 256, heads: int = 4,
-                 max_blocks: int = 256):
+
+    def __init__(
+        self,
+        *,
+        facets: int,
+        facet_dim: int,
+        semantic_dim: int,
+        value_dim: int,
+        hidden: int = 256,
+        heads: int = 4,
+        max_blocks: int = 256,
+    ):
         super().__init__()
         if min(facets, facet_dim, semantic_dim, value_dim, hidden, heads, max_blocks) <= 0:
             raise ValueError("Writer dimensions must be positive")
@@ -54,8 +66,12 @@ class SourceWriter(nn.Module):
         self.facet_gate = nn.Linear(facet_dim, 1, bias=False)
         self.block_address = nn.Parameter(torch.randn(max_blocks, hidden) * 0.01)
         self.self_attention = nn.MultiheadAttention(hidden, heads, batch_first=True)
-        self.feed = nn.Sequential(nn.LayerNorm(hidden), nn.Linear(hidden, 4 * hidden),
-                                  nn.GELU(), nn.Linear(4 * hidden, hidden))
+        self.feed = nn.Sequential(
+            nn.LayerNorm(hidden),
+            nn.Linear(hidden, 4 * hidden),
+            nn.GELU(),
+            nn.Linear(4 * hidden, hidden),
+        )
         self.norm_output = nn.LayerNorm(hidden)
         self.key = nn.Linear(hidden, semantic_dim, bias=False)
         self.value = nn.Linear(hidden, value_dim, bias=False)
@@ -64,8 +80,9 @@ class SourceWriter(nn.Module):
         nn.init.constant_(self.strength.bias, -2.0)
         nn.init.constant_(self.lifetime.bias, -9.0)
 
-    def forward(self, encoded: Tensor, *, mode: str, valid_blocks: Tensor,
-                local_gap: int = 2) -> WriterOutput:
+    def forward(
+        self, encoded: Tensor, *, mode: str, valid_blocks: Tensor, local_gap: int = 2
+    ) -> WriterOutput:
         if mode not in {"suffix", "full"}:
             raise ValueError("Post-pretraining writer must declare permitted source view")
         if encoded.ndim != 4 or not 0 < encoded.shape[1] <= self.max_blocks:
@@ -83,8 +100,9 @@ class SourceWriter(nn.Module):
         # A residual from pooled[i] here would leak source block i into the
         # writer target even when the attention mask starts at i + local_gap.
         x = pooled + self.block_address[:count]
-        queries = (self.block_address[:count].unsqueeze(0).expand(batch, -1, -1)
-                   if mode == "suffix" else x)
+        queries = (
+            self.block_address[:count].unsqueeze(0).expand(batch, -1, -1) if mode == "suffix" else x
+        )
         q = torch.arange(count, device=x.device)[:, None]
         k = torch.arange(count, device=x.device)[None, :]
         if mode == "suffix":
@@ -101,13 +119,15 @@ class SourceWriter(nn.Module):
         # NaNs. Such output slots are never scored or written.
         physical = allowed[None] & effective[:, None, :]
         original_valid = physical.any(-1)
-        fallback = F.one_hot(
-            effective.long().argmax(-1), num_classes=count
-        ).bool()[:, None, :]
+        fallback = F.one_hot(effective.long().argmax(-1), num_classes=count).bool()[:, None, :]
         physical = physical | ((~original_valid)[:, :, None] & fallback)
         mask = (~physical).repeat_interleave(self.heads, dim=0)
         attention = self.self_attention(
-            queries, x, x, attn_mask=mask, key_padding_mask=~effective,
+            queries,
+            x,
+            x,
+            attn_mask=mask,
+            key_padding_mask=~effective,
             need_weights=False,
         )[0]
         # In suffix mode, the residual also contains only the position query.
@@ -127,8 +147,7 @@ class SourceWriter(nn.Module):
 class RelationWriter(nn.Module):
     """Pair keys/values and original source-window stats -> learned pair field targets."""
 
-    def __init__(self, *, key_dim: int, value_dim: int, statistics_dim: int,
-                 hidden: int = 256):
+    def __init__(self, *, key_dim: int, value_dim: int, statistics_dim: int, hidden: int = 256):
         super().__init__()
         if min(key_dim, value_dim, statistics_dim, hidden) < 1:
             raise ValueError("Relation writer requires declared member/statistics widths")
@@ -145,16 +164,20 @@ class RelationWriter(nn.Module):
         self.lifetime = nn.Linear(hidden, 1)
         nn.init.constant_(self.dependence.bias, -2.0)
 
-    def forward(self, left_key: Tensor, right_key: Tensor,
-                left_value: Tensor, right_value: Tensor,
-                statistics: Tensor) -> PairWriterOutput:
+    def forward(
+        self,
+        left_key: Tensor,
+        right_key: Tensor,
+        left_value: Tensor,
+        right_value: Tensor,
+        statistics: Tensor,
+    ) -> PairWriterOutput:
         # Canonical left/right endpoint ordering is enforced by caller.
-        features = torch.cat(
-            (left_key, right_key, left_value, right_value, statistics), -1
-        )
+        features = torch.cat((left_key, right_key, left_value, right_value, statistics), -1)
         hidden = self.member(features)
         return PairWriterOutput(
-            self.value(hidden), self.dependence(hidden),
+            self.value(hidden),
+            self.dependence(hidden),
             self.strength(hidden).squeeze(-1).sigmoid(),
             self.lifetime(hidden).squeeze(-1),
         )
@@ -163,6 +186,7 @@ class RelationWriter(nn.Module):
 @dataclass(frozen=True)
 class AssignmentTargets:
     """Explicit source-output-slot correspondence; no lossy averaged target."""
+
     slots: Tensor
     key: Tensor
     value: Tensor
@@ -179,9 +203,12 @@ class AssignmentTargets:
 
 
 def writer_distillation(
-    predicted: WriterOutput, targets: AssignmentTargets, *,
+    predicted: WriterOutput,
+    targets: AssignmentTargets,
+    *,
     distance_temperature: float = 0.2,
-    value_weight: float = 1.0, gate_weight: float = 0.25,
+    value_weight: float = 1.0,
+    gate_weight: float = 0.25,
     lifetime_weight: float = 0.1,
 ) -> tuple[Tensor, int]:
     if distance_temperature <= 0 or min(value_weight, gate_weight, lifetime_weight) < 0:
@@ -210,15 +237,25 @@ def writer_distillation(
     value_error = (val.float() - targets.value.detach().float()).square().mean(-1)
     strength_error = (strength.float() - targets.strength.detach().float()).square()
     lifetime_error = (lifetime.float() - targets.lifetime_logit.detach().float()).square()
-    terms = (key_error + value_weight * value_error +
-             gate_weight * strength_error + lifetime_weight * lifetime_error)
+    terms = (
+        key_error
+        + value_weight * value_error
+        + gate_weight * strength_error
+        + lifetime_weight * lifetime_error
+    )
     return (terms * distance_weight * valid).sum(), int(valid.sum())
 
 
 def relation_distillation(
-    predicted: PairWriterOutput, *, value: Tensor, strength: Tensor,
-    lifetime_logit: Tensor, dependence_logits: Tensor,
-    valid: Tensor, distance: Tensor, temperature: float = 0.2,
+    predicted: PairWriterOutput,
+    *,
+    value: Tensor,
+    strength: Tensor,
+    lifetime_logit: Tensor,
+    dependence_logits: Tensor,
+    valid: Tensor,
+    distance: Tensor,
+    temperature: float = 0.2,
 ) -> tuple[Tensor, int]:
     """Pair targets include BOTH ordered directional dependence fields."""
     if predicted.dependence_logits.shape != dependence_logits.shape or (
@@ -227,9 +264,9 @@ def relation_distillation(
         raise ValueError("Pair writer output/target layout differs")
     weight = torch.exp(-distance.detach().clamp_min(0) / temperature)
     mismatch = (
-        (predicted.value - value.detach()).square().mean(-1) +
-        (predicted.dependence_logits - dependence_logits.detach()).square().mean(-1) +
-        (predicted.strength - strength.detach()).square() +
-        0.1 * (predicted.lifetime_logit - lifetime_logit.detach()).square()
+        (predicted.value - value.detach()).square().mean(-1)
+        + (predicted.dependence_logits - dependence_logits.detach()).square().mean(-1)
+        + (predicted.strength - strength.detach()).square()
+        + 0.1 * (predicted.lifetime_logit - lifetime_logit.detach()).square()
     )
     return (mismatch * weight * valid.detach()).sum(), int(valid.sum())

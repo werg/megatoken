@@ -1,4 +1,5 @@
 """Optimizer-step pooled router balance must use executed prefixes and local grads."""
+
 import torch
 
 from megatoken.model.routing import EpochRouter
@@ -25,9 +26,11 @@ def test_global_balance_matches_one_step_proxy_and_does_not_backprop_upstream():
     chosen = route.expert_ids[:, :1].detach().flatten()
     counts = torch.bincount(chosen, minlength=router.experts).float()
     fraction = counts / counts.sum()
-    reference = 0.3 * router.experts * (
-        fraction * router.balance_probabilities(x.detach(), 2).mean(0)
-    ).sum()
+    reference = (
+        0.3
+        * router.experts
+        * (fraction * router.balance_probabilities(x.detach(), 2).mean(0)).sum()
+    )
     parameters = list(router.parameters())
     expected = torch.autograd.grad(reference, parameters, allow_unused=True)
     metrics = window.backward(_SingleRank(), routers={"p": router}, coefficient=0.3)
@@ -45,11 +48,14 @@ def _reference_backward(captures, router, coefficient):
     """The removed receipt-replay objective: one cloned context per stage route."""
     counts = torch.zeros(router.experts, dtype=torch.float64)
     for _, selected, _ in captures:
-        counts.scatter_add_(0, selected.flatten(), torch.ones(selected.numel(), dtype=torch.float64))
+        counts.scatter_add_(
+            0, selected.flatten(), torch.ones(selected.numel(), dtype=torch.float64)
+        )
     a = counts.sum()
     fraction = (counts / a).float()
-    soft = sum((router.balance_probabilities(x, st) * sel.shape[1]).sum(0)
-               for x, sel, st in captures)
+    soft = sum(
+        (router.balance_probabilities(x, st) * sel.shape[1]).sum(0) for x, sel, st in captures
+    )
     loss = coefficient * router.experts * (fraction * soft / float(a)).sum()
     return torch.autograd.grad(loss, list(router.parameters()), allow_unused=True)
 

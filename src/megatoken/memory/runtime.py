@@ -4,6 +4,7 @@ The backend is a candidate locator. Native P creates the query event, R
 realizes its selected raw facets, and source evidence is observed byte-exact
 through the existing E/C runtime; semantic K/V is never an artificial event.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -43,9 +44,17 @@ class RetrievalPolicy:
     deadline_meridians: int = 4
 
     def __post_init__(self):
-        if min(self.source_candidates, self.memory_candidates, self.max_source_bytes,
-               self.max_source_events, self.max_compat_groups,
-               self.deadline_meridians) < 0:
+        if (
+            min(
+                self.source_candidates,
+                self.memory_candidates,
+                self.max_source_bytes,
+                self.max_source_events,
+                self.max_compat_groups,
+                self.deadline_meridians,
+            )
+            < 0
+        ):
             raise ValueError("Retrieval limits must be nonnegative")
 
 
@@ -62,8 +71,14 @@ class BoundaryResult:
 
 
 class NativeRetrieval:
-    def __init__(self, generator: MultiTrackGenerator, runtime: MultiTrackRuntime,
-                 service: RetrievalService, space: SemanticSpace, policy: RetrievalPolicy):
+    def __init__(
+        self,
+        generator: MultiTrackGenerator,
+        runtime: MultiTrackRuntime,
+        service: RetrievalService,
+        space: SemanticSpace,
+        policy: RetrievalPolicy,
+    ):
         if generator.generator.embedding_realizer is None or (
             generator.generator.embedding_realizer.dimension != space.dimension
         ):
@@ -83,17 +98,32 @@ class NativeRetrieval:
         covered = self.ledger(session).injected
         records = self.service.backend.store.scan(Collection.SOURCE, visibility.scope)
         return {
-            row.id for row in records
-            if row.evidence_span is not None and not subtract(
-                Interval(row.evidence_span.source_id, row.evidence_span.version,
-                         row.evidence_span.start, row.evidence_span.end), covered,
+            row.id
+            for row in records
+            if row.evidence_span is not None
+            and not subtract(
+                Interval(
+                    row.evidence_span.source_id,
+                    row.evidence_span.version,
+                    row.evidence_span.start,
+                    row.evidence_span.end,
+                ),
+                covered,
             )
         }
 
-    def boundary(self, session: TrackSession, *, request: bytes,
-                 purpose: str, visibility: Visibility, request_id: str,
-                 effort: int = 6, generator: torch.Generator | None = None,
-                 enable_memory: bool = True) -> BoundaryResult:
+    def boundary(
+        self,
+        session: TrackSession,
+        *,
+        request: bytes,
+        purpose: str,
+        visibility: Visibility,
+        request_id: str,
+        effort: int = 6,
+        generator: torch.Generator | None = None,
+        enable_memory: bool = True,
+    ) -> BoundaryResult:
         if not request_id or not isinstance(request, bytes):
             raise ValueError("A retrieval boundary requires an immutable request identity")
         clock = session.causal_clock
@@ -101,8 +131,11 @@ class NativeRetrieval:
         if visibility.committed_cursor > clock:
             raise ValueError("Future sources cannot be made available to a past query")
         vector, next_state, _raw = self.generator.retrieve_embedding(
-            session.state, main_request=request, purpose=purpose,
-            space_fingerprint=self.space.fingerprint, effort=effort,
+            session.state,
+            main_request=request,
+            purpose=purpose,
+            space_fingerprint=self.space.fingerprint,
+            effort=effort,
             generator=generator,
         )
         # Stage native query and scheduling state until BOTH collections,
@@ -114,14 +147,18 @@ class NativeRetrieval:
         query_model = f"model-v{self.generator.generator.core.model_version}"
         epoch = f"{revisions.scoring_identity(query_model, self.space)}:{revisions.policy}"
         receipt = QueryBoundary(
-            event_id=request_id, meridian=clock, purpose=purpose,
+            event_id=request_id,
+            meridian=clock,
+            purpose=purpose,
             originating_track="__retrieval_query__",
             request_hash=sha256(request).hexdigest(),
-            space_fingerprint=self.space.fingerprint, snapshot_id=epoch,
+            space_fingerprint=self.space.fingerprint,
+            snapshot_id=epoch,
             deadline=clock + self.policy.deadline_meridians,
         )
         source, memory = self.service.search(
-            query, visibility=visibility,
+            query,
+            visibility=visibility,
             source_limit=self.policy.source_candidates,
             memory_limit=self.policy.memory_candidates,
             excluded_source=self._excluded_content(session, visibility),
@@ -129,7 +166,8 @@ class NativeRetrieval:
         if source.revisions != memory.revisions:
             raise RuntimeError("Source and semantic candidates came from incompatible KB views")
         queued = scheduling.incremental(
-            list(source.hits), boundary=receipt,
+            list(source.hits),
+            boundary=receipt,
             threshold=self.policy.source_threshold,
         )
         groups = ()
@@ -138,31 +176,33 @@ class NativeRetrieval:
             if not isinstance(store, SQLiteKB):
                 raise TypeError("Point/pair serving requires the authoritative SQLite KB")
             chosen = [
-                hit.record for hit in memory.hits
-                if hit.similarity >= self.policy.memory_threshold
+                hit.record for hit in memory.hits if hit.similarity >= self.policy.memory_threshold
             ]
             if chosen:
                 # Only sources already committed through real E/C admissions
                 # may supply the independent second leg of a relation. ANN hits,
                 # future observations and source coverage reservations do not.
                 covered = {
-                    (item.content_id, item.version)
-                    for item in self.ledger(session).injected
+                    (item.content_id, item.version) for item in self.ledger(session).injected
                 }
-                observed_sources = sorted({
-                    span.source_id
-                    for row in store.scan(Collection.SOURCE, visibility.scope)
-                    if row.active
-                    and row.evidence_span is not None
-                    and (row.evidence_span.source_id, row.evidence_span.version) in covered
-                    for span in row.footprint.ranges
-                })
+                observed_sources = sorted(
+                    {
+                        span.source_id
+                        for row in store.scan(Collection.SOURCE, visibility.scope)
+                        if row.active
+                        and row.evidence_span is not None
+                        and (row.evidence_span.source_id, row.evidence_span.version) in covered
+                        for span in row.footprint.ranges
+                    }
+                )
                 device = session.state.device
                 with torch.no_grad():
                     groups, _ = selected_joint_groups(
-                        bank=store, selected=FrozenMemoryFields(store, device),
+                        bank=store,
+                        selected=FrozenMemoryFields(store, device),
                         query=torch.from_numpy(query).to(device)[None],
-                        records=chosen, visibility=visibility,
+                        records=chosen,
+                        visibility=visibility,
                         anchor=int(next_state.meridians_seen.min()),
                         threshold=self.policy.memory_threshold,
                         max_groups=self.policy.max_compat_groups,
@@ -174,26 +214,31 @@ class NativeRetrieval:
         # Complete all serialization/validation work BEFORE session commit.
         # Replay is positional: the tape pins the NATIVE meridian it starts from.
         tape = QueryActionReceipt.capture(
-            event_id=request_id, meridian=native,
+            event_id=request_id,
+            meridian=native,
             model_version=self.generator.generator.core.model_version,
-            request=request, purpose=purpose,
+            request=request,
+            purpose=purpose,
             space_fingerprint=self.space.fingerprint,
-            selected=_raw, vector=vector, effort=effort,
+            selected=_raw,
+            vector=vector,
+            effort=effort,
             snapshot_id=receipt.snapshot_id,
         )
         query_receipt = {
-            "kind": "query", "event_id": request_id,
+            "kind": "query",
+            "event_id": request_id,
             "action": tape.to_dict(),
-            "meridian": clock, "native_meridian": native,
+            "meridian": clock,
+            "native_meridian": native,
             "request_hash": receipt.request_hash,
             "snapshot_id": receipt.snapshot_id,
-            "query_vector_sha256": sha256(
-                query.astype("<f4", copy=False).tobytes()
-            ).hexdigest(),
+            "query_vector_sha256": sha256(query.astype("<f4", copy=False).tobytes()).hexdigest(),
             "selected_raw_sha256": sha256(
                 _raw.detach().float().cpu().contiguous().numpy().tobytes()
             ).hexdigest(),
-            "source_ids": list(source.ids), "memory_ids": list(memory.ids),
+            "source_ids": list(source.ids),
+            "memory_ids": list(memory.ids),
             "coverage": scheduling.to_dict(),
         }
         # Publish the entire causal transaction only after every step succeeds.
@@ -205,13 +250,19 @@ class NativeRetrieval:
         session.events.append((session.revision, ("__retrieval_query__",)))
         session.retrieval_receipts.append(query_receipt)
         return BoundaryResult(
-            receipt, query, source, memory, tuple(queued),
+            receipt,
+            query,
+            source,
+            memory,
+            tuple(queued),
             tuple(group.group_id for group in groups),
-            source.shortfall, memory.shortfall,
+            source.shortfall,
+            memory.shortfall,
         )
 
-    def ready_sources(self, session: TrackSession, *, request_id: str
-                      ) -> tuple[SourceObligation, ...]:
+    def ready_sources(
+        self, session: TrackSession, *, request_id: str
+    ) -> tuple[SourceObligation, ...]:
         return self.ledger(session).reserve(
             max_bytes=self.policy.max_source_bytes,
             max_events=self.policy.max_source_events,
@@ -220,8 +271,12 @@ class NativeRetrieval:
         )
 
     def observe_source(
-        self, session: TrackSession, obligation: SourceObligation,
-        *, request_id: str, fetch: Callable[[Record, Interval], bytes],
+        self,
+        session: TrackSession,
+        obligation: SourceObligation,
+        *,
+        request_id: str,
+        fetch: Callable[[Record, Interval], bytes],
         visibility: Visibility,
     ) -> bool:
         """Source bytes become covered only after the E/C event is committed."""
@@ -239,9 +294,11 @@ class NativeRetrieval:
                 return False
             span = row.evidence_span
             if (
-                span is None or span.source_id != interval.content_id
+                span is None
+                or span.source_id != interval.content_id
                 or span.version != interval.version
-                or interval.start < span.start or interval.end > span.end
+                or interval.start < span.start
+                or interval.end > span.end
             ):
                 ledger.release(interval, request_id)
                 raise ValueError("Source obligation no longer matches immutable versioned bytes")
@@ -253,11 +310,11 @@ class NativeRetrieval:
                 return False
             # E/C is a real selected observation. Construct successor off-state
             # and publish content coverage before making it visible to the session.
-            observed = ObservedEvent(
-                "retrieved_source", "text", data, role_id=ROLE_IDS["document"]
-            )
+            observed = ObservedEvent("retrieved_source", "text", data, role_id=ROLE_IDS["document"])
             candidate = self.generator.tracks.observe_group(
-                session.state, (observed,), encoder_grad=False,
+                session.state,
+                (observed,),
+                encoder_grad=False,
             )
             receipt = (
                 f"source:{interval.content_id}:{interval.version}:"
@@ -269,15 +326,19 @@ class NativeRetrieval:
             session.revision += 1
             session.pending = None
             session.events.append((session.revision, ("retrieved_source",)))
-            session.retrieval_receipts.append({
-                "kind": "source", "request_id": request_id,
-                "source_interval": asdict(interval), "record_id": row.id,
-                "source_asset_ref": row.asset_ref,
-                "source_bytes_sha256": sha256(data).hexdigest(),
-                "native_meridian_after": int(session.state.meridians_seen.min()),
-                "commit_receipt": receipt,
-                "coverage": ledger.to_dict(),
-            })
+            session.retrieval_receipts.append(
+                {
+                    "kind": "source",
+                    "request_id": request_id,
+                    "source_interval": asdict(interval),
+                    "record_id": row.id,
+                    "source_asset_ref": row.asset_ref,
+                    "source_bytes_sha256": sha256(data).hexdigest(),
+                    "native_meridian_after": int(session.state.meridians_seen.min()),
+                    "commit_receipt": receipt,
+                    "coverage": ledger.to_dict(),
+                }
+            )
             return True
         except Exception:
             if ledger.reserved.get(interval) == request_id:

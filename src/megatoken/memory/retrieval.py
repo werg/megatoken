@@ -1,4 +1,5 @@
 """Incremental query MaxSim and durable, disjoint source byte coverage."""
+
 from __future__ import annotations
 
 import math
@@ -55,6 +56,7 @@ class SourceObligation:
 @dataclass
 class RetrievalSession:
     """Pure scheduling state: never a second native event clock."""
+
     scoring_epoch: str = ""
     maxima: dict[int, float] = field(default_factory=dict)
     qualified: dict[Interval, SourceObligation] = field(default_factory=dict)
@@ -70,9 +72,7 @@ class RetrievalSession:
                 "schema": "megatoken-source-coverage-v1",
                 "scoring_epoch": self.scoring_epoch,
                 "maxima": {str(i): score for i, score in sorted(self.maxima.items())},
-                "qualified": [
-                    asdict(item) for _, item in sorted(self.qualified.items())
-                ],
+                "qualified": [asdict(item) for _, item in sorted(self.qualified.items())],
                 "reserved": [
                     {"interval": asdict(interval), "request_id": request_id}
                     for interval, request_id in sorted(self.reserved.items())
@@ -92,8 +92,12 @@ class RetrievalSession:
         for entry in data["qualified"]:
             interval = Interval(**entry["interval"])
             item = SourceObligation(
-                interval, int(entry["record_id"]), float(entry["score"]),
-                entry["event_id"], entry["epoch"], int(entry["deadline"]),
+                interval,
+                int(entry["record_id"]),
+                float(entry["score"]),
+                entry["event_id"],
+                entry["epoch"],
+                int(entry["deadline"]),
                 int(entry.get("ordinal", 0)),
             )
             if not math.isfinite(item.score) or interval in qualified:
@@ -114,9 +118,12 @@ class RetrievalSession:
         if any(not subtract(interval, injected) for interval in qualified):
             raise ValueError("Queued source overlaps fully injected coverage")
         return cls(
-            scoring_epoch=data["scoring_epoch"], maxima=maxima,
-            qualified=qualified, reserved=reserved,
-            injected=injected, receipts=set(data["receipts"]),
+            scoring_epoch=data["scoring_epoch"],
+            maxima=maxima,
+            qualified=qualified,
+            reserved=reserved,
+            injected=injected,
+            receipts=set(data["receipts"]),
         )
 
     def fork(self) -> RetrievalSession:
@@ -133,7 +140,11 @@ class RetrievalSession:
                 # Committed bytes remain covered across key/index changes.
 
     def incremental(
-        self, hits: list[Hit], *, boundary: QueryBoundary, threshold: float,
+        self,
+        hits: list[Hit],
+        *,
+        boundary: QueryBoundary,
+        threshold: float,
     ) -> list[SourceObligation]:
         """Only fresh incoming scores can QUALIFY bytes; old high maxima cannot."""
         if not -1 <= threshold <= 1:
@@ -156,15 +167,20 @@ class RetrievalSession:
                 for missing in subtract(whole, taken):
                     if missing not in self.qualified:
                         obligation = SourceObligation(
-                            missing, row.id, hit.similarity, boundary.event_id,
-                            self.scoring_epoch, boundary.deadline
+                            missing,
+                            row.id,
+                            hit.similarity,
+                            boundary.event_id,
+                            self.scoring_epoch,
+                            boundary.deadline,
                         )
                         self.qualified[missing] = obligation
                         new.append(obligation)
             return new
 
-    def reserve(self, *, max_bytes: int, max_events: int, now: int,
-                request_id: str) -> tuple[SourceObligation, ...]:
+    def reserve(
+        self, *, max_bytes: int, max_events: int, now: int, request_id: str
+    ) -> tuple[SourceObligation, ...]:
         """Claim novel chunks before fetching; retry keeps the original score."""
         if max_bytes < 0 or max_events < 0 or not request_id:
             raise ValueError("Invalid source reservation budget/identity")
@@ -220,12 +236,25 @@ class RetrievalService:
     def __init__(self, backend: SearchBackend):
         self.backend = backend
 
-    def search(self, query: np.ndarray, *, visibility: Visibility,
-               source_limit: int, memory_limit: int, excluded_source: set[int] | None = None):
+    def search(
+        self,
+        query: np.ndarray,
+        *,
+        visibility: Visibility,
+        source_limit: int,
+        memory_limit: int,
+        excluded_source: set[int] | None = None,
+    ):
         """Same learned space, independent budgets and eligibility-first scans."""
         options = {"scope": visibility.scope, "visibility": visibility}
-        sources = self.backend.search(query, collection=Collection.SOURCE, limit=source_limit,
-                                      excluded=excluded_source, **options)
-        memories = self.backend.search(query, collection=Collection.MEMORY, limit=memory_limit,
-                                       **options)
+        sources = self.backend.search(
+            query,
+            collection=Collection.SOURCE,
+            limit=source_limit,
+            excluded=excluded_source,
+            **options,
+        )
+        memories = self.backend.search(
+            query, collection=Collection.MEMORY, limit=memory_limit, **options
+        )
         return sources, memories

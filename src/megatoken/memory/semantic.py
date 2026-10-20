@@ -1,4 +1,5 @@
 """Trainable semantic mixtures project to complete, anchored native facet K/V."""
+
 from __future__ import annotations
 
 import hashlib
@@ -27,8 +28,9 @@ def _attention():
 class MemoryKVProjector(nn.Module):
     """Registered native geometry: ONE K/V head set for each of F facet identities."""
 
-    def __init__(self, semantic_width: int, facet_width: int, kv_heads: int,
-                 head_dim: int, facets: int):
+    def __init__(
+        self, semantic_width: int, facet_width: int, kv_heads: int, head_dim: int, facets: int
+    ):
         super().__init__()
         if min(semantic_width, facet_width, kv_heads, head_dim, facets) < 1:
             raise ValueError("Invalid full-facet KB projector geometry")
@@ -41,8 +43,10 @@ class MemoryKVProjector(nn.Module):
         self.to_kv = nn.Linear(facet_width, 2 * kv_heads * head_dim, bias=False)
 
     def forward(self, semantic: Tensor, slot_codes: Tensor) -> tuple[Tensor, Tensor]:
-        if semantic.ndim != 2 or semantic.shape[-1] != self.semantic_width or (
-            slot_codes.shape != (self.facets, self.to_facets.out_features)
+        if (
+            semantic.ndim != 2
+            or semantic.shape[-1] != self.semantic_width
+            or (slot_codes.shape != (self.facets, self.to_facets.out_features))
         ):
             raise ValueError("Memory projector requires full native facet geometry")
         features = self.to_facets(self.value_norm(semantic.float()))
@@ -56,10 +60,11 @@ class MemoryKVProjector(nn.Module):
 @dataclass(frozen=True)
 class Constituent:
     """A pinned selected point or verified pair, with independently decaying weight."""
+
     identity: str
-    semantic: Tensor       # [batch, semantic_dim], live FP32 parameter leaf
-    coefficient: Tensor    # [batch], live lookup weight from query/key/correlation
-    lifetime_logit: Tensor # [batch] or scalar, live learned decay rate
+    semantic: Tensor  # [batch, semantic_dim], live FP32 parameter leaf
+    coefficient: Tensor  # [batch], live lookup weight from query/key/correlation
+    lifetime_logit: Tensor  # [batch] or scalar, live learned decay rate
     admitted_at: int
     version: str
     valid: Tensor | None = None
@@ -93,8 +98,8 @@ class AdmittedGroup:
 @dataclass(frozen=True)
 class MemoryMaterialization:
     features: AttentionFeatures
-    semantics: Tensor     # [batch, groups, semantic_dim]
-    strengths: Tensor     # [batch, groups], exact zero for no evidence
+    semantics: Tensor  # [batch, groups, semantic_dim]
+    strengths: Tensor  # [batch, groups], exact zero for no evidence
     identity: str
 
     @property
@@ -105,8 +110,10 @@ class MemoryMaterialization:
 
 
 def independently_drop_memory(
-    snapshot: MemoryMaterialization | None, *,
-    kv_rate: float, lora_rate: float,
+    snapshot: MemoryMaterialization | None,
+    *,
+    kv_rate: float,
+    lora_rate: float,
 ) -> MemoryMaterialization | None:
     """Independent exact-null interventions on ONE already frozen native snapshot.
 
@@ -119,9 +126,7 @@ def independently_drop_memory(
     if snapshot is None or (kv_rate == 0 and lora_rate == 0):
         return snapshot
     device = snapshot.strengths.device
-    drop_kv = kv_rate == 1 or (
-        kv_rate > 0 and bool(torch.rand((), device=device) < kv_rate)
-    )
+    drop_kv = kv_rate == 1 or (kv_rate > 0 and bool(torch.rand((), device=device) < kv_rate))
     drop_lora = lora_rate == 1 or (
         lora_rate > 0 and bool(torch.rand((), device=device) < lora_rate)
     )
@@ -130,15 +135,17 @@ def independently_drop_memory(
     features = snapshot.features
     if drop_kv:
         features = _attention().AttentionFeatures(
-            features.keys, features.values,
-            torch.zeros_like(features.mask), features.track_ids,
+            features.keys,
+            features.values,
+            torch.zeros_like(features.mask),
+            features.track_ids,
             torch.zeros_like(features.log_strength),
         )
-    strengths = (
-        torch.zeros_like(snapshot.strengths) if drop_lora else snapshot.strengths
-    )
+    strengths = torch.zeros_like(snapshot.strengths) if drop_lora else snapshot.strengths
     return MemoryMaterialization(
-        features, snapshot.semantics, strengths,
+        features,
+        snapshot.semantics,
+        strengths,
         f"{snapshot.identity}/kvdrop:{int(drop_kv)}/loradrop:{int(drop_lora)}",
     )
 
@@ -146,6 +153,7 @@ def independently_drop_memory(
 @dataclass(frozen=True)
 class KBContext:
     """External complete-facet context. Never appended to native raw/final/history."""
+
     layout: NativeKVLayout
     groups: tuple[AdmittedGroup, ...] = ()
     generation: int = 0
@@ -168,32 +176,53 @@ class KBContext:
         if previous is not None and group.anchor < previous.anchor:
             raise ValueError("A KB refresh cannot move its original anchor backwards")
         retained = tuple(g for g in self.groups if g.group_id != group.group_id)
-        return replace(self, groups=(*retained, group)[-self.max_positions:],
-                       generation=self.generation + 1)
+        return replace(
+            self, groups=(*retained, group)[-self.max_positions :], generation=self.generation + 1
+        )
 
     def evict(self, group_id: str) -> KBContext:
         kept = tuple(g for g in self.groups if g.group_id != group_id)
-        return self if len(kept) == len(self.groups) else replace(
-            self, groups=kept, generation=self.generation + 1
+        return (
+            self
+            if len(kept) == len(self.groups)
+            else replace(self, groups=kept, generation=self.generation + 1)
         )
 
     def detach(self) -> KBContext:
-        groups = tuple(replace(g, constituents=tuple(
-            replace(c, semantic=c.semantic.detach(), coefficient=c.coefficient.detach(),
-                    lifetime_logit=c.lifetime_logit.detach(),
-                    valid=None if c.valid is None else c.valid.detach())
-            for c in g.constituents
-        )) for g in self.groups)
+        groups = tuple(
+            replace(
+                g,
+                constituents=tuple(
+                    replace(
+                        c,
+                        semantic=c.semantic.detach(),
+                        coefficient=c.coefficient.detach(),
+                        lifetime_logit=c.lifetime_logit.detach(),
+                        valid=None if c.valid is None else c.valid.detach(),
+                    )
+                    for c in g.constituents
+                ),
+            )
+            for g in self.groups
+        )
         return replace(self, groups=groups)
 
-    def materialize(self, *, age: Tensor, projector: MemoryKVProjector,
-                    slot_codes: Tensor, dtype: torch.dtype = torch.float32,
-                    batch_size: int | None = None) -> MemoryMaterialization:
+    def materialize(
+        self,
+        *,
+        age: Tensor,
+        projector: MemoryKVProjector,
+        slot_codes: Tensor,
+        dtype: torch.dtype = torch.float32,
+        batch_size: int | None = None,
+    ) -> MemoryMaterialization:
         if age.ndim != 1 or (batch_size is not None and age.shape[0] != batch_size):
             raise ValueError("Memory materialization needs one committed meridian clock per row")
         batch = age.shape[0]
         if (self.layout.facets, self.layout.kv_heads, self.layout.head_dim) != (
-            projector.facets, projector.kv_heads, projector.head_dim
+            projector.facets,
+            projector.kv_heads,
+            projector.head_dim,
         ):
             raise ValueError("Materialized KB geometry differs from native layout")
         all_keys, all_values, masks, log_strengths, semantics, strengths = [], [], [], [], [], []
@@ -248,32 +277,49 @@ class KBContext:
         # External KB identity is distinct from every categorical native track.
         track_ids = torch.full((batch, keys.shape[2]), -2, device=age.device, dtype=torch.long)
         identity_payload = [
-            (g.group_id, g.revision, g.anchor,
-             [
-                 (
-                     x.identity, x.version, x.admitted_at,
-                     hashlib.sha256(
-                         x.semantic.detach().float().cpu().contiguous().numpy().tobytes()
-                     ).hexdigest(),
-                     hashlib.sha256(
-                         x.coefficient.detach().float().cpu().contiguous().numpy().tobytes()
-                     ).hexdigest(),
-                     hashlib.sha256(
-                         x.lifetime_logit.detach().float().cpu().contiguous().numpy().tobytes()
-                     ).hexdigest(),
-                     None if x.valid is None else hashlib.sha256(
-                         x.valid.detach().cpu().contiguous().numpy().tobytes()
-                     ).hexdigest(),
-                 )
-                 for x in g.constituents
-             ])
+            (
+                g.group_id,
+                g.revision,
+                g.anchor,
+                [
+                    (
+                        x.identity,
+                        x.version,
+                        x.admitted_at,
+                        hashlib.sha256(
+                            x.semantic.detach().float().cpu().contiguous().numpy().tobytes()
+                        ).hexdigest(),
+                        hashlib.sha256(
+                            x.coefficient.detach().float().cpu().contiguous().numpy().tobytes()
+                        ).hexdigest(),
+                        hashlib.sha256(
+                            x.lifetime_logit.detach().float().cpu().contiguous().numpy().tobytes()
+                        ).hexdigest(),
+                        None
+                        if x.valid is None
+                        else hashlib.sha256(
+                            x.valid.detach().cpu().contiguous().numpy().tobytes()
+                        ).hexdigest(),
+                    )
+                    for x in g.constituents
+                ],
+            )
             for g in self.groups
         ]
-        fingerprint = hashlib.sha256(json.dumps(
-            [self.generation, self.layout.projector_revision, identity_payload,
-             age.detach().cpu().tolist()], sort_keys=True
-        ).encode()).hexdigest()
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                [
+                    self.generation,
+                    self.layout.projector_revision,
+                    identity_payload,
+                    age.detach().cpu().tolist(),
+                ],
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
         return MemoryMaterialization(
             _attention().AttentionFeatures(keys, vals, mask, track_ids, log_strength),
-            latent, gates, fingerprint,
+            latent,
+            gates,
+            fingerprint,
         )

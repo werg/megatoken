@@ -46,12 +46,8 @@ def test_record_scanner_is_byte_exact_and_respects_quoted_line_endings(
 ):
     scan = scan_delimited(source, language, LIMITS)
     scan.result.validate(len(source))
-    actual_rows = [
-        source[r.start : r.end] for r in scan.result.regions if r.kind == "row"
-    ]
-    actual_fields = [
-        source[r.start : r.end] for r in scan.result.regions if r.kind == "table_cell"
-    ]
+    actual_rows = [source[r.start : r.end] for r in scan.result.regions if r.kind == "row"]
+    actual_fields = [source[r.start : r.end] for r in scan.result.regions if r.kind == "table_cell"]
     assert actual_rows == rows
     assert actual_fields[: len(fields)] == fields
     assert not scan.result.diagnostics
@@ -62,15 +58,9 @@ def test_record_scanner_is_byte_exact_and_respects_quoted_line_endings(
 def test_delimited_records_are_routed_without_native_grammar(language):
     delimiter = {"csv": b",", "tsv": b"\t", "psv": b"|"}[language]
     payload = b"first" + delimiter + b'"value with\nline"\r\nsecond' + delimiter + b"third"
-    by_hint = parse_content(
-        payload, language=language, limits=LIMITS, backend="fallback"
-    )
-    by_filename = parse_content(
-        payload, filename="table." + language, limits=LIMITS
-    )
-    by_kind = parse_content(
-        payload, content_kind=language, limits=LIMITS
-    )
+    by_hint = parse_content(payload, language=language, limits=LIMITS, backend="fallback")
+    by_filename = parse_content(payload, filename="table." + language, limits=LIMITS)
+    by_kind = parse_content(payload, content_kind=language, limits=LIMITS)
     for parsed in (by_hint, by_filename, by_kind):
         parsed.validate(len(payload))
         assert language in parsed.languages
@@ -93,18 +83,17 @@ def test_malformed_delimiters_report_recoverable_diagnostics(payload, expected):
     parsed = parse_content(payload, language="csv", limits=LIMITS)
     parsed.validate(len(payload))
     assert any(d.code == expected for d in parsed.diagnostics)
-    assert b"".join(
-        payload[region.start : region.end]
-        for region in parsed.regions
-        if region.kind == "row"
-    ) == payload
+    assert (
+        b"".join(
+            payload[region.start : region.end] for region in parsed.regions if region.kind == "row"
+        )
+        == payload
+    )
 
 
 def test_tabular_scanner_budget_caps_and_reports_partial_analysis():
     source = b'a,"very long\nvalue",b\n' * 64
-    limits = replace(
-        LIMITS, max_parse_bytes=32, max_nodes=16, max_regions=3
-    )
+    limits = replace(LIMITS, max_parse_bytes=32, max_nodes=16, max_regions=3)
     scan = scan_delimited(source, "csv", limits)
     scan.result.validate(len(source))
     assert scan.nodes <= limits.max_nodes
@@ -118,13 +107,9 @@ def test_table_scanner_fuzz_never_leaks_invalid_coordinates():
     for language in ("csv", "tsv", "psv"):
         for _ in range(40):
             payload = randomizer.randbytes(randomizer.randrange(1, 257))
-            parsed = parse_content(
-                payload, language=language, backend="fallback", limits=limits
-            )
+            parsed = parse_content(payload, language=language, backend="fallback", limits=limits)
             parsed.validate(len(payload))
-            assert all(
-                0 <= r.start <= r.end <= len(payload) for r in parsed.regions
-            )
+            assert all(0 <= r.start <= r.end <= len(payload) for r in parsed.regions)
             assert len(parsed.regions) <= limits.max_regions
 
 
@@ -133,7 +118,7 @@ def test_chunker_integrates_row_evidence_with_exact_token_preservation():
     from megatoken.generation.codec import ByteCodec
 
     source = (
-        b'name,note\r\n'
+        b"name,note\r\n"
         b'Alice,"Hello, world."\r\n'
         b'Bob,"Embedded\nnewline"\r\n'
         b'Charlie,"Escaped ""quote"""\r\n'
@@ -153,8 +138,7 @@ def test_chunker_integrates_row_evidence_with_exact_token_preservation():
         codec.encode(source)
     )
     assert all(
-        len(chunk.token_ids) <= config.hard_max_tokens
-        and len(chunk.payload) <= config.max_bytes
+        len(chunk.token_ids) <= config.hard_max_tokens and len(chunk.payload) <= config.max_bytes
         for chunk in report.chunks
     )
     assert not any(d.code == "grammar_unavailable" for d in report.parse.diagnostics)
@@ -162,15 +146,11 @@ def test_chunker_integrates_row_evidence_with_exact_token_preservation():
 
 def test_large_single_record_uses_field_budget_not_byte_budget():
     payload = b"col," + b"x" * 150_000 + b"\n"
-    limits = replace(
-        LIMITS, max_parse_bytes=200_000, max_nodes=12, max_regions=24
-    )
+    limits = replace(LIMITS, max_parse_bytes=200_000, max_nodes=12, max_regions=24)
     scan = scan_delimited(payload, "csv", limits)
     scan.result.validate(len(payload))
     assert scan.nodes <= 4
     assert not scan.result.diagnostics
-    assert [
-        payload[row.start : row.end]
-        for row in scan.result.regions
-        if row.kind == "row"
-    ] == [payload]
+    assert [payload[row.start : row.end] for row in scan.result.regions if row.kind == "row"] == [
+        payload
+    ]

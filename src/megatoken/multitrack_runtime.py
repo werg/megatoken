@@ -68,9 +68,7 @@ class MultiTrackRuntime:
     def open(self) -> TrackSession:
         return TrackSession(self.generator.tracks.initial_state(1))
 
-    def observe(
-        self, session: TrackSession, events: Sequence[ObservedEvent]
-    ) -> MultiTrackState:
+    def observe(self, session: TrackSession, events: Sequence[ObservedEvent]) -> MultiTrackState:
         """Only already available inputs may become shared causal observations."""
         ready = tuple(events)
         if not ready:
@@ -112,8 +110,12 @@ class MultiTrackRuntime:
     ) -> PendingGroup:
         """Produce a candidate without committing raw state, KV or output."""
         result = self.generator.generate_group(
-            session.state, tracks=tracks, specs=specs,
-            controls=controls, effort=effort, generator=generator,
+            session.state,
+            tracks=tracks,
+            specs=specs,
+            controls=controls,
+            effort=effort,
+            generator=generator,
         )
         branch = PendingGroup(session.revision, result)
         session.pending = branch
@@ -145,8 +147,12 @@ class MultiTrackRuntime:
         return self.accept(
             session,
             self.speculate(
-                session, tracks=tracks, specs=specs,
-                controls=controls, effort=effort, generator=generator,
+                session,
+                tracks=tracks,
+                specs=specs,
+                controls=controls,
+                effort=effort,
+                generator=generator,
             ),
         )
 
@@ -155,7 +161,10 @@ class MultiTrackRuntime:
 
     @staticmethod
     def record_delivery(
-        session: TrackSession, event_id: str, transmitted_bytes: int, *,
+        session: TrackSession,
+        event_id: str,
+        transmitted_bytes: int,
+        *,
         complete: bool,
     ) -> None:
         if not event_id or transmitted_bytes < 0:

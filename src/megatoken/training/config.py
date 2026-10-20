@@ -142,13 +142,20 @@ class TrainConfig:
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
             raise ValueError("decoupled must be a settings object or mapping")
-        if not (self.retrieval_sidecar and self.retrieval_document_sidecar
-                and self.retrieval_memory_recipe):
-            raise ValueError("Every training invocation requires query and document "
-                             "embedding sidecars and the pinned retrieval-memory recipe")
-        if (self.retrieval_sidecar.startswith("PIN_")
-                or self.retrieval_document_sidecar.startswith("PIN_")
-                or self.retrieval_memory_recipe.startswith("PIN_")):
+        if not (
+            self.retrieval_sidecar
+            and self.retrieval_document_sidecar
+            and self.retrieval_memory_recipe
+        ):
+            raise ValueError(
+                "Every training invocation requires query and document "
+                "embedding sidecars and the pinned retrieval-memory recipe"
+            )
+        if (
+            self.retrieval_sidecar.startswith("PIN_")
+            or self.retrieval_document_sidecar.startswith("PIN_")
+            or self.retrieval_memory_recipe.startswith("PIN_")
+        ):
             raise ValueError("Pin actual retrieval preparation artifacts before training")
         # DiLoCo is the target training methodology for every phase: neural
         # parameters sync as fragments and free-KB rows through diloco_kb.
@@ -162,17 +169,19 @@ class TrainConfig:
             raise ValueError("A live KB requires retrieval supervision sidecars")
         if self.retrieval_bank and not self.retrieval_gate_receipt:
             raise ValueError("Live KB phases require audited phase gate receipts")
-        if not 0 <= self.retrieval_kv_dropout <= 1 or not (
-            0 <= self.retrieval_lora_dropout <= 1
-        ):
+        if not 0 <= self.retrieval_kv_dropout <= 1 or not (0 <= self.retrieval_lora_dropout <= 1):
             raise ValueError("Retrieval KV and LoRA dropout must be valid probabilities")
-        if self.retrieval_sparse_lr <= 0 or self.retrieval_growth_every < 1 or (
-            self.retrieval_growth_budget < 0
+        if (
+            self.retrieval_sparse_lr <= 0
+            or self.retrieval_growth_every < 1
+            or (self.retrieval_growth_budget < 0)
         ):
             raise ValueError("Invalid bounded retrieval sparse LR/growth settings")
         if self.router_balance_mode != "global":
-            raise ValueError("The local router fairness objective is removed; "
-                             "all training uses optimizer-step global router replay")
+            raise ValueError(
+                "The local router fairness objective is removed; "
+                "all training uses optimizer-step global router replay"
+            )
         if self.budget_meter != "G":
             raise ValueError("Training only supports causal grouped megatoken meridians")
         if self.inner_optimizer not in {"adamw", "muon"}:

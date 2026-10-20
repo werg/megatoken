@@ -48,8 +48,12 @@ def test_required_training_assets_cannot_be_switched_off():
     decoupled = {"coordinator_url": "https://example.invalid", "run_id": "run"}
     # DiLoCo is the target methodology for every phase, including live free KB.
     assert config(decoupled=decoupled).decoupled.run_id == "run"
-    assert config(decoupled=decoupled, retrieval_bank="kb.sqlite",
-                  retrieval_gate_receipt="gate.json").retrieval_bank == "kb.sqlite"
+    assert (
+        config(
+            decoupled=decoupled, retrieval_bank="kb.sqlite", retrieval_gate_receipt="gate.json"
+        ).retrieval_bank
+        == "kb.sqlite"
+    )
     assert config().router_balance_mode == "global"
     assert config().budget_meter == "G"
 
@@ -75,15 +79,12 @@ def test_memory_geometry_is_required_even_in_coherence_bootstrap():
 
 
 def test_query_events_cannot_opt_out_of_native_commit():
-    assert "commit" not in inspect.signature(
-        MultiTrackGenerator.retrieve_embedding
-    ).parameters
+    assert "commit" not in inspect.signature(MultiTrackGenerator.retrieve_embedding).parameters
 
 
 def test_public_legacy_training_commands_are_absent():
     command_action = next(
-        action for action in parser()._actions
-        if isinstance(action, argparse._SubParsersAction)
+        action for action in parser()._actions if isinstance(action, argparse._SubParsersAction)
     )
     for previous in ("rl", "smoke"):
         assert previous not in command_action.choices
@@ -91,18 +92,21 @@ def test_public_legacy_training_commands_are_absent():
     sub = next(a for a in diloco._actions if isinstance(a, argparse._SubParsersAction))
     assert set(sub.choices) == {"init", "serve", "export"}
     train = command_action.choices["train"]
-    config_action = next(
-        action for action in train._actions
-        if action.dest == "config"
-    )
+    config_action = next(action for action in train._actions if action.dest == "config")
     assert config_action.required
 
 
 def test_document_teacher_roundtrip_and_original_byte_causality(tmp_path):
     content = b"only these original source bytes"
     span = SourceRange(
-        "project/document", "v1", 0, len(content), sha256(content).hexdigest(),
-        "workspace", available_at=0, family="source-family",
+        "project/document",
+        "v1",
+        0,
+        len(content),
+        sha256(content).hexdigest(),
+        "workspace",
+        available_at=0,
+        family="source-family",
     )
     label = DocumentEmbeddingExample(
         episode_id="episode-a",

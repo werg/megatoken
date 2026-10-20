@@ -4,6 +4,7 @@ A query is its own real raw-facet meridian. Teacher vectors and source bytes are
 not a substitute for the selected latent sample; immutable tape bytes are used
 to reconstruct the native C/KV transition and evaluate P's action likelihood.
 """
+
 from __future__ import annotations
 
 import base64
@@ -44,8 +45,11 @@ class QueryActionReceipt:
     def __post_init__(self):
         if self.schema != "megatoken-query-action-v1":
             raise ValueError("Query tape schema is incompatible")
-        if not self.event_id or not self.purpose or not self.snapshot_id or (
-            not self.space_fingerprint or self.meridian < 0 or self.model_version < 0
+        if (
+            not self.event_id
+            or not self.purpose
+            or not self.snapshot_id
+            or (not self.space_fingerprint or self.meridian < 0 or self.model_version < 0)
         ):
             raise ValueError("Query tape needs complete causal/model identity")
         if self.raw_shape[0] != 1 or min(self.raw_shape) < 1:
@@ -81,23 +85,42 @@ class QueryActionReceipt:
         return vector
 
     @classmethod
-    def capture(cls, *, event_id: str, meridian: int, model_version: int,
-                request: bytes, purpose: str, space_fingerprint: str,
-                selected: Tensor, vector: Tensor, effort: int,
-                snapshot_id: str) -> QueryActionReceipt:
-        if selected.ndim != 4 or selected.shape[0:2] != (1, 1) or (
-            vector.ndim != 2 or vector.shape[0] != 1
+    def capture(
+        cls,
+        *,
+        event_id: str,
+        meridian: int,
+        model_version: int,
+        request: bytes,
+        purpose: str,
+        space_fingerprint: str,
+        selected: Tensor,
+        vector: Tensor,
+        effort: int,
+        snapshot_id: str,
+    ) -> QueryActionReceipt:
+        if (
+            selected.ndim != 4
+            or selected.shape[0:2] != (1, 1)
+            or (vector.ndim != 2 or vector.shape[0] != 1)
         ):
             raise ValueError("Replay tape requires one batched selected query event")
         raw = selected[0].detach().float().contiguous().cpu().numpy().astype("<f4")
         value = vector[0].detach().float().contiguous().cpu().numpy().astype("<f4")
         return cls(
-            "megatoken-query-action-v1", event_id, meridian, model_version,
-            base64.b64encode(request).decode("ascii"), sha256(request).hexdigest(),
-            purpose, space_fingerprint, tuple(raw.shape),
+            "megatoken-query-action-v1",
+            event_id,
+            meridian,
+            model_version,
+            base64.b64encode(request).decode("ascii"),
+            sha256(request).hexdigest(),
+            purpose,
+            space_fingerprint,
+            tuple(raw.shape),
             base64.b64encode(raw.tobytes()).decode("ascii"),
             base64.b64encode(value.tobytes()).decode("ascii"),
-            effort, snapshot_id,
+            effort,
+            snapshot_id,
         )
 
     def to_dict(self) -> dict:
@@ -116,8 +139,12 @@ class QueryActionReceipt:
 
 
 def replay_query_action(
-    generator: MultiTrackGenerator, state: MultiTrackState,
-    tape: QueryActionReceipt, *, atol: float = 1e-5, rtol: float = 1e-5,
+    generator: MultiTrackGenerator,
+    state: MultiTrackState,
+    tape: QueryActionReceipt,
+    *,
+    atol: float = 1e-5,
+    rtol: float = 1e-5,
 ) -> tuple[MultiTrackState, Tensor, Tensor]:
     """Return (native successor, selected semantic query, log P(raw|causal state)).
 
@@ -137,31 +164,46 @@ def replay_query_action(
         raise ValueError("Missing or incompatible embedding realizer")
     device = state.device
     selected = torch.from_numpy(tape._raw_array()).to(device)[None]
-    control = generator._controls((
-        retrieval_control_payload(
-            main_request=tape.request, purpose=tape.purpose,
-            space_fingerprint=tape.space_fingerprint,
+    control = generator._controls(
+        (
+            retrieval_control_payload(
+                main_request=tape.request,
+                purpose=tape.purpose,
+                space_fingerprint=tape.space_fingerprint,
+            ),
         ),
-    ), device)
+        device,
+    )
     snapshot = generator.tracks.materialize_memory(state)
     mean = generator.tracks.predict_group(
-        state, tracks=("__retrieval_query__",), control=control,
-        effort=tape.effort, memory_snapshot=snapshot,
+        state,
+        tracks=("__retrieval_query__",),
+        control=control,
+        effort=tape.effort,
+        memory_snapshot=snapshot,
     )
     prior = generator.generator.facet_distribution(mean)
     log_density = prior.log_prob(selected).sum()
     vector = realizer(
-        selected[:, 0], EmbeddingSpec(
-            tape.space_fingerprint, "query", realizer.dimension,
+        selected[:, 0],
+        EmbeddingSpec(
+            tape.space_fingerprint,
+            "query",
+            realizer.dimension,
         ),
     )
     expected = torch.from_numpy(tape._vector_array()).to(device)
     if not torch.allclose(vector[0].detach().float(), expected, atol=atol, rtol=rtol):
         raise ValueError("Selected retrieval vector no longer matches frozen readout")
     next_state = generator.tracks.advance_group(
-        state, selected, tracks=("__retrieval_query__",),
+        state,
+        selected,
+        tracks=("__retrieval_query__",),
         role_ids=torch.full(
-            (1, 1), ROLE_IDS["assistant"], device=device, dtype=torch.long,
+            (1, 1),
+            ROLE_IDS["assistant"],
+            device=device,
+            dtype=torch.long,
         ),
         memory_snapshot=snapshot,
     )

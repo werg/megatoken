@@ -4,6 +4,7 @@ No labels, transcripts, target videos or teacher prefixes enter P through this
 module. This is a post-realization evaluator, not an implied differentiable loss.
 Unavailable independent verifiers are explicitly reported as unmeasured.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
@@ -33,6 +34,7 @@ class SampledEvent:
     # For edits, only the actual requested changed region is exempted.
     changed_region: np.ndarray | None = None
     provenance: str = "sampled"
+
     def __post_init__(self):
         if self.provenance != "sampled":
             raise ValueError("Concordance evaluation requires sampled outputs")
@@ -80,7 +82,8 @@ def score_sampled_relations(
             if left.modality != "image" or right.modality != "video":
                 raise ValueError("Endpoint relation needs image -> video direction")
             first, last = endpoint_rmse(
-                np.asarray(right.decoded), np.asarray(left.decoded),
+                np.asarray(right.decoded),
+                np.asarray(left.decoded),
                 np.asarray(left.decoded),
             )
             metrics.record(kind + "_rmse", first if kind == "first_frame_of" else last)
@@ -89,7 +92,8 @@ def score_sampled_relations(
                 missing.append(label + ":no_output_event_detection")
                 continue
             matched, count = timed_event_matches(
-                left.detected_events, right.detected_events,
+                left.detected_events,
+                right.detected_events,
                 tolerance_seconds=timing_tolerance_seconds,
             )
             if count:
@@ -110,16 +114,19 @@ def score_sampled_relations(
             metrics.record("sampled_speech_text_wer", word_error_rate(transcript, recognized))
             metrics.record("sampled_speech_text_cer", character_error_rate(transcript, recognized))
         elif kind in {"edit_of", "preserves"}:
-            if (left.modality != right.modality
-                    or not isinstance(left.decoded, np.ndarray)
-                    or not isinstance(right.decoded, np.ndarray)):
+            if (
+                left.modality != right.modality
+                or not isinstance(left.decoded, np.ndarray)
+                or not isinstance(right.decoded, np.ndarray)
+            ):
                 missing.append(label + ":decoded_edit_geometry_required")
                 continue
             if left.changed_region is None:
                 missing.append(label + ":requested_change_mask_required")
                 continue
             preservation = edit_preservation_rmse(
-                np.asarray(right.decoded), np.asarray(left.decoded),
+                np.asarray(right.decoded),
+                np.asarray(left.decoded),
                 left.changed_region,
             )
             metrics.record("edit_unchanged_rmse", preservation)

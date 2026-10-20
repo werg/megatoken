@@ -4,6 +4,7 @@ Everything here produces ordered features, masks, and explicit physical time.
 No donor language model, transcript, future target, or hidden decoder KV is
 exposed as a Megatoken semantic input.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,26 +17,30 @@ from torch import Tensor, nn
 
 @dataclass(frozen=True)
 class OrderedView:
-    features: Tensor          # [1, positions, donor_width]
-    valid: Tensor             # [1, positions]
-    timestamps: Tensor        # [positions] native-media seconds
+    features: Tensor  # [1, positions, donor_width]
+    valid: Tensor  # [1, positions]
+    timestamps: Tensor  # [positions] native-media seconds
     extractor: str
+
     def __post_init__(self):
-        if (self.features.ndim != 3 or self.features.shape[0] != 1
-                or self.valid.shape != self.features.shape[:2]
-                or self.valid.dtype != torch.bool
-                or self.timestamps.shape != (self.features.shape[1],)
-                or not bool(torch.isfinite(self.features).all())
-                or not bool(torch.isfinite(self.timestamps).all())):
+        if (
+            self.features.ndim != 3
+            or self.features.shape[0] != 1
+            or self.valid.shape != self.features.shape[:2]
+            or self.valid.dtype != torch.bool
+            or self.timestamps.shape != (self.features.shape[1],)
+            or not bool(torch.isfinite(self.features).all())
+            or not bool(torch.isfinite(self.timestamps).all())
+        ):
             raise ValueError("Frozen ordered feature geometry or clock is invalid")
 
 
 class WhistleFeatures:
     """Whistle encoder embeddings, one frame every 80 ms, no ASR transcript."""
 
-    def __init__(self, weights: str, *, feature_width: int,
-                 extractor: str, max_window_seconds=30):
+    def __init__(self, weights: str, *, feature_width: int, extractor: str, max_window_seconds=30):
         from needle import Whistle
+
         path = Path(weights)
         if not path.is_file() or path.suffix != ".cact":
             raise ValueError("Whistle requires an explicit local .cact checkpoint")
@@ -45,8 +50,9 @@ class WhistleFeatures:
         self.feature_width, self.extractor = feature_width, extractor
         self.window = min(30, max_window_seconds) * 16000
 
-    def __call__(self, signal: np.ndarray, *, sample_rate=16000,
-                 available_samples: int | None = None) -> OrderedView:
+    def __call__(
+        self, signal: np.ndarray, *, sample_rate=16000, available_samples: int | None = None
+    ) -> OrderedView:
         if sample_rate != 16000:
             raise ValueError("Whistle needs an explicitly resampled 16kHz mono view")
         audio = np.asarray(signal, dtype=np.float32)
@@ -59,24 +65,26 @@ class WhistleFeatures:
         if not len(audio):
             raise ValueError("An audio event cannot be empty")
         frames, times = [], []
-        for offset in range(0,len(audio),self.window):
-            chunk = audio[offset:offset+self.window]
+        for offset in range(0, len(audio), self.window):
+            chunk = audio[offset : offset + self.window]
             values = np.asarray(self.model.embed(chunk), dtype=np.float32).reshape(-1)
             if values.size % self.feature_width or not values.size:
                 raise ValueError("Whistle embed size differs from pinned donor geometry")
-            features = values.reshape(-1,self.feature_width)
+            features = values.reshape(-1, self.feature_width)
             frames.append(features)
-            times.extend((offset/16000) + 0.08*np.arange(len(features)))
+            times.extend((offset / 16000) + 0.08 * np.arange(len(features)))
         merged = np.concatenate(frames, axis=0)
         return OrderedView(
             torch.from_numpy(merged.copy())[None],
-            torch.ones((1,len(merged)),dtype=torch.bool),
-            torch.tensor(np.asarray(times),dtype=torch.float32), self.extractor
+            torch.ones((1, len(merged)), dtype=torch.bool),
+            torch.tensor(np.asarray(times), dtype=torch.float32),
+            self.extractor,
         )
 
 
 class PocketAcousticFeatures:
     """Pocket's matching continuous acoustic codec view at its native rate."""
+
     def __init__(self, mimi: nn.Module, extractor: str):
         self.mimi, self.extractor = mimi, extractor
         self.sample_rate = int(mimi.sample_rate)
@@ -88,8 +96,7 @@ class PocketAcousticFeatures:
             p.requires_grad_(False)
 
     @torch.no_grad()
-    def __call__(self, waveform: Tensor, *, sample_rate: int,
-                 available_samples: int | None = None):
+    def __call__(self, waveform: Tensor, *, sample_rate: int, available_samples: int | None = None):
         if sample_rate != self.sample_rate or waveform.ndim != 2 or waveform.shape[0] != 1:
             raise ValueError("Pocket acoustic view expects [1, native-rate mono samples]")
         if available_samples is not None:
@@ -97,9 +104,13 @@ class PocketAcousticFeatures:
                 raise ValueError("Acoustic view cannot see future media")
             waveform = waveform[:, :available_samples]
         latents = self.mimi.encode_to_latent(waveform[:, None])
-        seconds = torch.arange(latents.shape[1],device=latents.device)/self.frame_rate
-        return OrderedView(latents, torch.ones(latents.shape[:2],device=latents.device,
-                                              dtype=torch.bool), seconds,self.extractor)
+        seconds = torch.arange(latents.shape[1], device=latents.device) / self.frame_rate
+        return OrderedView(
+            latents,
+            torch.ones(latents.shape[:2], device=latents.device, dtype=torch.bool),
+            seconds,
+            self.extractor,
+        )
 
 
 def verify_minicpm_export(directory: str) -> dict:
@@ -113,8 +124,9 @@ def verify_minicpm_export(directory: str) -> dict:
     if not receipt.is_file():
         raise FileNotFoundError("MiniCPM export requires a pinned source receipt")
     value = json.loads(receipt.read_text(encoding="utf-8"))
-    if (value.get("schema_version") != 1
-            or not re.fullmatch(r"[0-9a-f]{40}", value.get("source_revision", ""))):
+    if value.get("schema_version") != 1 or not re.fullmatch(
+        r"[0-9a-f]{40}", value.get("source_revision", "")
+    ):
         raise ValueError("Invalid pinned MiniCPM export revision")
     expected = value.get("sha256")
     names = {"vision_tower.safetensors", "merger.safetensors", "config.json"}
@@ -150,18 +162,25 @@ class MiniCPMVisualFeatures(nn.Module):
             MiniCPMV4_7Merger,
             MiniCPMV4_7VisionModel,
         )
+
         path = Path(directory)
         config = MiniCPMV4_7Config.from_pretrained(path, local_files_only=True)
         tower = MiniCPMV4_7VisionModel(config.vision_config)
         merger = MiniCPMV4_7Merger(config)
-        tower.load_state_dict(load_file(path/"vision_tower.safetensors"),strict=True)
-        merger.load_state_dict(load_file(path/"merger.safetensors"),strict=True)
-        return cls(config,tower,merger,extractor)
+        tower.load_state_dict(load_file(path / "vision_tower.safetensors"), strict=True)
+        merger.load_state_dict(load_file(path / "merger.safetensors"), strict=True)
+        return cls(config, tower, merger, extractor)
 
     @torch.no_grad()
-    def forward(self, pixel_values: Tensor, target_sizes: Tensor, *,
-                downsample_mode: str = "16x", frame_times=None):
-        if downsample_mode not in ("16x","4x"):
+    def forward(
+        self,
+        pixel_values: Tensor,
+        target_sizes: Tensor,
+        *,
+        downsample_mode: str = "16x",
+        frame_times=None,
+    ):
+        if downsample_mode not in ("16x", "4x"):
             raise ValueError("Unknown MiniCPM downsampling mode")
         if target_sizes.ndim != 2 or target_sizes.shape[-1] != 2:
             raise ValueError("MiniCPM requires actual patch grids")
@@ -171,20 +190,26 @@ class MiniCPMVisualFeatures(nn.Module):
             raise ValueError("Every image/frame needs an actual local timestamp")
         use_vit_merger = downsample_mode != "4x"
         result = self.tower(
-            pixel_values.to(self.tower.dtype), target_sizes=target_sizes,
+            pixel_values.to(self.tower.dtype),
+            target_sizes=target_sizes,
             use_vit_merger=use_vit_merger,
         )
         grid = target_sizes // 2 if use_vit_merger else target_sizes
-        patches = self.merger(result.last_hidden_state,grid)
-        features = torch.cat(patches,dim=0)
+        patches = self.merger(result.last_hidden_state, grid)
+        features = torch.cat(patches, dim=0)
         times = torch.cat(
-            (torch.full((x.shape[0],),float(t),device=features.device)
-             for x,t in zip(patches,frame_times,strict=True)),dim=0
+            (
+                torch.full((x.shape[0],), float(t), device=features.device)
+                for x, t in zip(patches, frame_times, strict=True)
+            ),
+            dim=0,
         )
-        return OrderedView(features[None],
-                           torch.ones((1,features.shape[0]),dtype=torch.bool,
-                                      device=features.device),
-                           times, self.extractor)
+        return OrderedView(
+            features[None],
+            torch.ones((1, features.shape[0]), dtype=torch.bool, device=features.device),
+            times,
+            self.extractor,
+        )
 
 
 def export_minicpm_submodules(parent_snapshot: str, destination: str):
@@ -199,27 +224,28 @@ def export_minicpm_submodules(parent_snapshot: str, destination: str):
 
     from safetensors import safe_open
     from safetensors.torch import save_file
-    src, dst = Path(parent_snapshot),Path(destination)
-    config = src/"config.json"
+
+    src, dst = Path(parent_snapshot), Path(destination)
+    config = src / "config.json"
     if not config.is_file():
         raise FileNotFoundError("MiniCPM parent config.json missing")
-    index=src/"model.safetensors.index.json"
+    index = src / "model.safetensors.index.json"
     if index.exists():
-        names=sorted(set(json.loads(index.read_text())["weight_map"].values()))
+        names = sorted(set(json.loads(index.read_text())["weight_map"].values()))
     else:
-        names=["model.safetensors"]
-    grouped={"vision_tower": {}, "merger": {}}
+        names = ["model.safetensors"]
+    grouped = {"vision_tower": {}, "merger": {}}
     for name in names:
-        with safe_open(src/name,framework="pt",device="cpu") as handle:
+        with safe_open(src / name, framework="pt", device="cpu") as handle:
             for key in handle.keys():
                 for part in grouped:
-                    prefix="model."+part+"."
+                    prefix = "model." + part + "."
                     if key.startswith(prefix):
-                        grouped[part][key[len(prefix):]]=handle.get_tensor(key)
+                        grouped[part][key[len(prefix) :]] = handle.get_tensor(key)
     if any(not value for value in grouped.values()):
         raise ValueError("Parent snapshot lacks trained vision tower/merger tensors")
-    dst.mkdir(parents=True,exist_ok=True)
-    for key,weights in grouped.items():
-        save_file(weights,dst/(key+".safetensors"))
-    copyfile(config,dst/"config.json")
-    return {k:len(v) for k,v in grouped.items()}
+    dst.mkdir(parents=True, exist_ok=True)
+    for key, weights in grouped.items():
+        save_file(weights, dst / (key + ".safetensors"))
+    copyfile(config, dst / "config.json")
+    return {k: len(v) for k, v in grouped.items()}

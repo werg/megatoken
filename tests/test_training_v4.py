@@ -37,11 +37,15 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
     torch.manual_seed(771)
     codec, windows = window_fixture()
     base = retrieval_train_config(
-        tmp_path, phase="P1", representation_mode="recurrent",
-        microbatch_episodes=1, max_accumulation_windows=1,
+        tmp_path,
+        phase="P1",
+        representation_mode="recurrent",
+        microbatch_episodes=1,
+        max_accumulation_windows=1,
     )
     initial = build_model(
-        ModelConfig.tiny(checkpoint_stages=True, **MODEL_OVERRIDES), codec,
+        ModelConfig.tiny(checkpoint_stages=True, **MODEL_OVERRIDES),
+        codec,
     )
     models = [initial, copy.deepcopy(initial)]
     reports, optimizers, gradients = [], [], []

@@ -33,9 +33,10 @@ def test_counterfactual_pairs_change_only_the_targeted_evidence(tmp_path, index)
         baseline.lineage.family_id
     }
     assert len({episode.episode_id for episode in (baseline, audio_swap, visual_swap)}) == 3
-    assert all(episode.meridians[0].events[2].modality ==
-               ("video" if index % 2 else "image")
-               for episode in (baseline, audio_swap, visual_swap))
+    assert all(
+        episode.meridians[0].events[2].modality == ("video" if index % 2 else "image")
+        for episode in (baseline, audio_swap, visual_swap)
+    )
 
 
 def test_unknown_counterfactual_variant_rejected(tmp_path):

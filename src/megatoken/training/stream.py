@@ -223,12 +223,25 @@ class WindowStream:
 class IndependentWindowStream(WindowStream):
     """Stable disjoint shards; no cross-worker block maxima or collective barriers."""
 
-    def __init__(self, dataset: PreparedDataset, codec: Any, config: WindowConfig, *,
-                 seed: int, rank: int, world_size: int) -> None:
+    def __init__(
+        self,
+        dataset: PreparedDataset,
+        codec: Any,
+        config: WindowConfig,
+        *,
+        seed: int,
+        rank: int,
+        world_size: int,
+    ) -> None:
         if len(dataset) < world_size:
             raise ValueError("Independent shards require at least one episode per worker")
         super().__init__(
-            dataset, codec, config, seed=seed, rank=rank, world_size=world_size,
+            dataset,
+            codec,
+            config,
+            seed=seed,
+            rank=rank,
+            world_size=world_size,
             reduce_counts=lambda counts: counts,
         )
 
@@ -316,13 +329,21 @@ class MixtureWindowStream:
                         )
                     if independent:
                         self.streams[name] = IndependentWindowStream(
-                            dataset, codec, config, seed=seed + index * 1009,
-                            rank=rank, world_size=world_size,
+                            dataset,
+                            codec,
+                            config,
+                            seed=seed + index * 1009,
+                            rank=rank,
+                            world_size=world_size,
                         )
                     else:
                         self.streams[name] = WindowStream(
-                            dataset, codec, config, seed=seed + index * 1009,
-                            rank=rank, world_size=world_size,
+                            dataset,
+                            codec,
+                            config,
+                            seed=seed + index * 1009,
+                            rank=rank,
+                            world_size=world_size,
                             reduce_counts=reduce_counts,
                         )
                 except BaseException:

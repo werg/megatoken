@@ -1,4 +1,5 @@
 """Exact independently sampled KV/LoRA no-evidence interventions."""
+
 import torch
 
 from megatoken.memory.context import admit_kb
@@ -13,19 +14,31 @@ from megatoken.model.multitrack import MultiTrackCore
 
 
 def _snapshot():
-    core = FacetedCore(ModelConfig.tiny(
-        semantic_dim=8, semantic_value_dim=16, max_kb_positions=2,
-    ))
+    core = FacetedCore(
+        ModelConfig.tiny(
+            semantic_dim=8,
+            semantic_value_dim=16,
+            max_kb_positions=2,
+        )
+    )
     tracks = MultiTrackCore(core)
     initial = tracks.initial_state(1)
     semantic = torch.randn(1, 16, requires_grad=True)
     group = AdmittedGroup(
-        "point-a", (
+        "point-a",
+        (
             Constituent(
-                "a", semantic, torch.ones(1), torch.ones(1) * -10,
-                admitted_at=0, version="r1",
+                "a",
+                semantic,
+                torch.ones(1),
+                torch.ones(1) * -10,
+                admitted_at=0,
+                version="r1",
             ),
-        ), anchor=0, revision="r1", compatible_group="team/a",
+        ),
+        anchor=0,
+        revision="r1",
+        compatible_group="team/a",
     )
     return core, initial, tracks.materialize_memory(admit_kb(initial, group))
 
@@ -40,8 +53,15 @@ def test_memory_interventions_use_exact_kv_mask_and_zero_lora_gate():
     x = torch.randn(1, 4, core.config.facet_dim)
     torch.testing.assert_close(
         core.memory_adapters.apply(
-            x, module="p", stage=0, track_ids=None, snapshot=dropped,
-        ), x, rtol=0, atol=0,
+            x,
+            module="p",
+            stage=0,
+            track_ids=None,
+            snapshot=dropped,
+        ),
+        x,
+        rtol=0,
+        atol=0,
     )
     assert initial.history.slots == 0
 

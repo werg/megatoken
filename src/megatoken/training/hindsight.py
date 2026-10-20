@@ -5,6 +5,7 @@ the free KB. The input must be actual frozen E source facets with complete
 permitted source-view footprints prepared by the data pipeline. No teacher key,
 target semantic value or answer enters the writer's source input.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
@@ -109,8 +110,9 @@ def _normalized_loss(numerator: Tensor, count: int, label: str) -> Tensor:
     return numerator / max(1, count)
 
 
-def _update(writer: nn.Module, optimizer: torch.optim.Optimizer,
-            loss: Tensor, *, grad_clip: float) -> None:
+def _update(
+    writer: nn.Module, optimizer: torch.optim.Optimizer, loss: Tensor, *, grad_clip: float
+) -> None:
     if not loss.requires_grad:
         raise RuntimeError("Writer loss has no live gradient path")
     optimizer.zero_grad(set_to_none=True)
@@ -125,7 +127,8 @@ def _update(writer: nn.Module, optimizer: torch.optim.Optimizer,
 
 def fit_source_writer_epoch(
     writer: SourceWriter,
-    batches: Iterable[SourceWriterBatch], *,
+    batches: Iterable[SourceWriterBatch],
+    *,
     settings: WriterFitSettings,
     optimizer: torch.optim.Optimizer,
     frozen_owners: tuple[nn.Module, ...] = (),
@@ -136,16 +139,20 @@ def fit_source_writer_epoch(
     writer.train()
     updates = 0
     examples = 0
-    weighted_loss = 0.
+    weighted_loss = 0.0
     with frozen_readers(*frozen_owners), torch.enable_grad():
         for batch in batches:
             prediction = writer(
-                batch.encoded.detach(), mode=batch.mode,
-                valid_blocks=batch.valid_blocks, local_gap=batch.local_gap,
+                batch.encoded.detach(),
+                mode=batch.mode,
+                valid_blocks=batch.valid_blocks,
+                local_gap=batch.local_gap,
             )
             d_sum, d_count = writer_distillation(prediction, batch.assignments)
             loss = settings.distillation_weight * _normalized_loss(
-                d_sum, d_count, "assignment distillation",
+                d_sum,
+                d_count,
+                "assignment distillation",
             )
             # Count supervised examples once, only for objectives that train.
             counted = d_count if settings.distillation_weight else 0
@@ -153,7 +160,9 @@ def fit_source_writer_epoch(
                 assert behavior is not None
                 b_sum, b_count = behavior(prediction, batch)
                 loss = loss + settings.behavior_weight * _normalized_loss(
-                    b_sum, b_count, "frozen-reader behavior",
+                    b_sum,
+                    b_count,
+                    "frozen-reader behavior",
                 )
                 counted = max(counted, b_count)
             # No-update windows are legal; they cannot fabricate examples.
@@ -163,13 +172,17 @@ def fit_source_writer_epoch(
             updates += 1
             examples += counted
             weighted_loss += float(loss.detach())
-    return {"updates": updates, "valid_targets": examples,
-            "mean_step_loss": weighted_loss / max(1, updates)}
+    return {
+        "updates": updates,
+        "valid_targets": examples,
+        "mean_step_loss": weighted_loss / max(1, updates),
+    }
 
 
 def fit_relation_writer_epoch(
     writer: RelationWriter,
-    batches: Iterable[PairWriterBatch], *,
+    batches: Iterable[PairWriterBatch],
+    *,
     settings: WriterFitSettings,
     optimizer: torch.optim.Optimizer,
     frozen_owners: tuple[nn.Module, ...] = (),
@@ -180,24 +193,31 @@ def fit_relation_writer_epoch(
     writer.train()
     updates = 0
     examples = 0
-    loss_sum = 0.
+    loss_sum = 0.0
     with frozen_readers(*frozen_owners), torch.enable_grad():
         for batch in batches:
             # Only source writer outputs and permitted source statistics enter
             # the relation writer. Optimized target fields are strictly labels.
             prediction = writer(
-                batch.left_key.detach(), batch.right_key.detach(),
-                batch.left_value.detach(), batch.right_value.detach(),
+                batch.left_key.detach(),
+                batch.right_key.detach(),
+                batch.left_value.detach(),
+                batch.right_value.detach(),
                 batch.statistics.detach(),
             )
             d_sum, d_count = relation_distillation(
-                prediction, value=batch.target_value,
-                strength=batch.target_strength, lifetime_logit=batch.target_lifetime,
+                prediction,
+                value=batch.target_value,
+                strength=batch.target_strength,
+                lifetime_logit=batch.target_lifetime,
                 dependence_logits=batch.target_dependence,
-                valid=batch.valid, distance=batch.distance,
+                valid=batch.valid,
+                distance=batch.distance,
             )
             loss = settings.distillation_weight * _normalized_loss(
-                d_sum, d_count, "pair distillation",
+                d_sum,
+                d_count,
+                "pair distillation",
             )
             # Count supervised examples once, only for objectives that train.
             counted = d_count if settings.distillation_weight else 0
@@ -205,7 +225,9 @@ def fit_relation_writer_epoch(
                 assert behavior is not None
                 b_sum, b_count = behavior(prediction, batch)
                 loss = loss + settings.behavior_weight * _normalized_loss(
-                    b_sum, b_count, "frozen pair-reader behavior",
+                    b_sum,
+                    b_count,
+                    "frozen pair-reader behavior",
                 )
                 counted = max(counted, b_count)
             if counted == 0:
@@ -214,5 +236,8 @@ def fit_relation_writer_epoch(
             updates += 1
             examples += counted
             loss_sum += float(loss.detach())
-    return {"updates": updates, "valid_targets": examples,
-            "mean_step_loss": loss_sum / max(1, updates)}
+    return {
+        "updates": updates,
+        "valid_targets": examples,
+        "mean_step_loss": loss_sum / max(1, updates),
+    }

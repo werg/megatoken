@@ -5,6 +5,7 @@ original optimized assignment targets. No answer vectors or optimized target
 values are concatenated to writer inputs. The shard is checked before any
 training update; missing receipts are not silently accepted.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,9 +29,14 @@ class WriterShard:
     assignment_digest: str
 
     def __post_init__(self) -> None:
-        if not self.path or any(not x or x.startswith("PIN_") for x in (
-            self.sha256, self.source_footprint_digest, self.assignment_digest,
-        )):
+        if not self.path or any(
+            not x or x.startswith("PIN_")
+            for x in (
+                self.sha256,
+                self.source_footprint_digest,
+                self.assignment_digest,
+            )
+        ):
             raise ValueError("Writer shard requires pinned bytes and original source identity")
         if len(self.sha256) != 64 or any(c not in "0123456789abcdef" for c in self.sha256):
             raise ValueError("Writer shard SHA256 must be a lowercase hexadecimal digest")
@@ -59,8 +65,11 @@ class WriterDataset:
         if self.kind == "pair" and self.mode != "full":
             raise ValueError("Pair reproduction requires permitted full source footprints")
         for name in (
-            "recipe_fingerprint", "semantic_space_fingerprint", "model_checkpoint_id",
-            "free_bank_sha256", "source_context_policy",
+            "recipe_fingerprint",
+            "semantic_space_fingerprint",
+            "model_checkpoint_id",
+            "free_bank_sha256",
+            "source_context_policy",
         ):
             value = getattr(self, name)
             if not value or value.startswith("PIN_"):
@@ -69,11 +78,11 @@ class WriterDataset:
             raise ValueError("Writer dataset has no audited shards")
         required = (
             {"facets", "facet_dim", "semantic_dim", "value_dim", "max_blocks"}
-            if self.kind == "source" else {"semantic_dim", "value_dim", "statistics_dim"}
+            if self.kind == "source"
+            else {"semantic_dim", "value_dim", "statistics_dim"}
         )
         if not required.issubset(self.layout) or any(
-            not isinstance(self.layout[k], int) or self.layout[k] <= 0
-            for k in required
+            not isinstance(self.layout[k], int) or self.layout[k] <= 0 for k in required
         ):
             raise ValueError("Writer shard layout must pin strictly positive dimensions")
 
@@ -103,8 +112,9 @@ def _shard_tensors(root: Path, ref: WriterShard) -> dict[str, Tensor]:
     if file_sha256(path) != ref.sha256:
         raise RuntimeError(f"Writer shard checksum differs: {ref.path}")
     result = load_file(str(path), device="cpu")
-    if not result or any(not bool(torch.isfinite(t).all()) for t in result.values()
-                         if t.is_floating_point()):
+    if not result or any(
+        not bool(torch.isfinite(t).all()) for t in result.values() if t.is_floating_point()
+    ):
         raise ValueError("Writer shard contains nonfinite or missing tensors")
     return result
 
@@ -117,8 +127,11 @@ def _required(data: dict[str, Tensor], names: tuple[str, ...]) -> tuple[Tensor, 
 
 
 def source_batches(
-    manifest_path: str | Path, manifest: WriterDataset, *,
-    device: torch.device, local_gap: int = 2,
+    manifest_path: str | Path,
+    manifest: WriterDataset,
+    *,
+    device: torch.device,
+    local_gap: int = 2,
 ) -> Iterator[SourceWriterBatch]:
     if manifest.kind != "source" or (manifest.mode == "suffix" and local_gap != 2):
         raise ValueError("Source writer requires its declared local j >= i+2 view")
@@ -126,15 +139,24 @@ def source_batches(
     for ref in manifest.shards:
         data = _shard_tensors(root, ref)
         names = (
-            "encoded", "valid_blocks", "slots", "key", "value",
-            "strength", "lifetime_logit", "distance", "valid",
+            "encoded",
+            "valid_blocks",
+            "slots",
+            "key",
+            "value",
+            "strength",
+            "lifetime_logit",
+            "distance",
+            "valid",
         )
-        (encoded, valid_blocks, slots, key, value, strength, lifetime,
-         distance, valid) = _required(data, names)
+        (encoded, valid_blocks, slots, key, value, strength, lifetime, distance, valid) = _required(
+            data, names
+        )
         n, blocks, facets, width = encoded.shape
         layout = manifest.layout
         if (
-            facets != layout["facets"] or width != layout["facet_dim"]
+            facets != layout["facets"]
+            or width != layout["facet_dim"]
             or blocks > layout["max_blocks"]
             or key.shape[-1] != layout["semantic_dim"]
             or value.shape[-1] != layout["value_dim"]
@@ -142,19 +164,28 @@ def source_batches(
         ):
             raise ValueError("Writer shard does not match pinned native semantic layout")
         target = AssignmentTargets(
-            slots=slots.to(device), key=key.to(device), value=value.to(device),
-            strength=strength.to(device), lifetime_logit=lifetime.to(device),
-            distance=distance.to(device), valid=valid.to(device).bool(),
+            slots=slots.to(device),
+            key=key.to(device),
+            value=value.to(device),
+            strength=strength.to(device),
+            lifetime_logit=lifetime.to(device),
+            distance=distance.to(device),
+            valid=valid.to(device).bool(),
         )
         yield SourceWriterBatch(
             encoded.detach().to(device),
             valid_blocks.to(device).bool(),
-            target, manifest.mode, local_gap,
+            target,
+            manifest.mode,
+            local_gap,
         )
 
 
 def pair_batches(
-    manifest_path: str | Path, manifest: WriterDataset, *, device: torch.device,
+    manifest_path: str | Path,
+    manifest: WriterDataset,
+    *,
+    device: torch.device,
 ) -> Iterator[PairWriterBatch]:
     if manifest.kind != "pair":
         raise ValueError("Expected a prepared pair-writer dataset")
@@ -162,22 +193,33 @@ def pair_batches(
     for ref in manifest.shards:
         data = _shard_tensors(root, ref)
         fields = (
-            "left_key", "right_key", "left_value", "right_value",
-            "statistics", "target_value", "target_strength",
-            "target_lifetime", "target_dependence", "valid", "distance",
+            "left_key",
+            "right_key",
+            "left_value",
+            "right_value",
+            "statistics",
+            "target_value",
+            "target_strength",
+            "target_lifetime",
+            "target_dependence",
+            "valid",
+            "distance",
         )
         values = _required(data, fields)
         key_dim = manifest.layout["semantic_dim"]
         value_dim = manifest.layout["value_dim"]
         stats_dim = manifest.layout["statistics_dim"]
         if (
-            values[0].shape[-1] != key_dim or values[1].shape[-1] != key_dim
+            values[0].shape[-1] != key_dim
+            or values[1].shape[-1] != key_dim
             or any(values[i].shape[-1] != value_dim for i in (2, 3, 5))
             or values[4].shape[-1] != stats_dim
             or values[8].shape[-1] != 2
         ):
             raise ValueError("Pair writer shard has incompatible key/value/edge geometry")
-        yield PairWriterBatch(*(
-            t.detach().to(device).bool() if i == 9 else t.detach().to(device)
-            for i, t in enumerate(values)
-        ))
+        yield PairWriterBatch(
+            *(
+                t.detach().to(device).bool() if i == 9 else t.detach().to(device)
+                for i, t in enumerate(values)
+            )
+        )

@@ -17,8 +17,12 @@ from tests.test_memory_foundations import space, support
 
 def _memory(kb, name, key=None, footprint=None):
     return kb.insert_memory(
-        scope="team", footprint=footprint or support(name), assignment=name,
-        key=np.ones(8) if key is None else key, value=np.zeros(16), birth_step=0,
+        scope="team",
+        footprint=footprint or support(name),
+        assignment=name,
+        key=np.ones(8) if key is None else key,
+        value=np.zeros(16),
+        birth_step=0,
     )
 
 
@@ -31,8 +35,13 @@ def test_retired_relation_pair_is_not_reproposed(tmp_path):
     with SQLiteKB(tmp_path / "a.sqlite", space(), value_dim=16) as kb:
         a, b, c = (_memory(kb, n) for n in "abc")
         rel = kb.insert_relation(
-            scope="team", left=a, right=b, prior=.5, value=np.zeros(16),
-            dependence_logits=(0., 0.), footprint=support("pairsrc"),
+            scope="team",
+            left=a,
+            right=b,
+            prior=0.5,
+            value=np.zeros(16),
+            dependence_logits=(0.0, 0.0),
+            footprint=support("pairsrc"),
         )
         kb.tombstone_source_version("pairsrc", "version1")
         assert not kb.relations("team")
@@ -49,7 +58,9 @@ def test_pair_budget_is_respected_without_wasted_degrees(tmp_path):
         growth = _growth(kb, max_pairs=1)
         ids = growth.admit_pairs(
             {"w1": ("a", "b"), "w2": ("a", "b"), "w3": ("c", "d"), "w4": ("c", "d")},
-            scope="team", visibility=Visibility("team", 9))
+            scope="team",
+            visibility=Visibility("team", 9),
+        )
         assert len(ids) == 1
 
 
@@ -70,6 +81,7 @@ def test_insert_revocation_check_is_inside_transaction(tmp_path):
         def probe(footprint):
             seen.append(kb._depth)
             return original(footprint)
+
         kb.footprint_revoked = probe
         _memory(kb, "x", footprint=fp)
         assert seen and all(depth > 0 for depth in seen)
@@ -108,8 +120,13 @@ def test_coarse_ivf_rejects_negative_limit(tmp_path):
     with SQLiteKB(tmp_path / "f.sqlite", space(), value_dim=16) as kb:
         index = CoarseIVF(kb, np.eye(8)[:2], probes=1)
         with pytest.raises(ValueError, match="Negative"):
-            index.search(np.ones(8), collection=Collection.MEMORY, scope="team",
-                         visibility=Visibility("team", 1), limit=-1)
+            index.search(
+                np.ones(8),
+                collection=Collection.MEMORY,
+                scope="team",
+                visibility=Visibility("team", 1),
+                limit=-1,
+            )
 
 
 def test_retired_rows_cannot_be_updated(tmp_path):
@@ -118,16 +135,24 @@ def test_retired_rows_cannot_be_updated(tmp_path):
         b = _memory(kb, "b")
         c = _memory(kb, "c")
         rel = kb.insert_relation(
-            scope="team", left=b, right=c, prior=.5, value=np.zeros(16),
-            dependence_logits=(0., 0.), footprint=support("rel"),
+            scope="team",
+            left=b,
+            right=c,
+            prior=0.5,
+            value=np.zeros(16),
+            dependence_logits=(0.0, 0.0),
+            footprint=support("rel"),
         )
-        kb.update_record(Collection.MEMORY, b, strength=.3)  # active still fine
+        kb.update_record(Collection.MEMORY, b, strength=0.3)  # active still fine
         kb.tombstone_source_version("gone", "version1")
         kb.tombstone_source_version("rel", "version1")
         with pytest.raises(ValueError, match="retired"):
-            kb.update_record(Collection.MEMORY, a, strength=.5,
-                             posting_cell=0, centroids_revision="r")
-        assert kb.db.execute("SELECT count(*) FROM postings WHERE record_id=?",
-                             (a,)).fetchone()[0] == 0
+            kb.update_record(
+                Collection.MEMORY, a, strength=0.5, posting_cell=0, centroids_revision="r"
+            )
+        assert (
+            kb.db.execute("SELECT count(*) FROM postings WHERE record_id=?", (a,)).fetchone()[0]
+            == 0
+        )
         with pytest.raises(ValueError, match="retired"):
-            kb.update_relation(rel, strength=.5)
+            kb.update_relation(rel, strength=0.5)

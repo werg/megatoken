@@ -1,4 +1,5 @@
 """Public render geometry never reads teacher-only codec targets."""
+
 import pytest
 import torch
 from torch import nn
@@ -14,20 +15,21 @@ from megatoken.model.state import RealizationContext
 
 def test_public_media_shape_cannot_use_training_teacher_metadata():
     teacher = MediaOutputSpec(
-        "audio", renderer="pocket", sample_rate=24000,
-        sample_count=1920, latent_shape=(1, 32),
+        "audio",
+        renderer="pocket",
+        sample_rate=24000,
+        sample_count=1920,
+        latent_shape=(1, 32),
         shape_provenance="teacher_only",
     )
     with pytest.raises(ValueError, match="Teacher-only"):
         validate_public_media_spec(teacher)
     with pytest.raises(ValueError, match="codec geometry"):
         validate_public_media_spec(
-            MediaOutputSpec("image", renderer="sana", height=64, width=64,
-                            latent_shape=(32, 2, 2))
+            MediaOutputSpec("image", renderer="sana", height=64, width=64, latent_shape=(32, 2, 2))
         )
     validate_public_media_spec(
-        MediaOutputSpec("video", renderer="sana_video", frames=17,
-                        height=64, width=64)
+        MediaOutputSpec("video", renderer="sana_video", frames=17, height=64, width=64)
     )
 
 
@@ -45,7 +47,10 @@ def test_public_pocket_waveform_trimming_is_deterministic():
     realizer = MediaRealizers(config)
     realizer.register_pretrained("pocket", ShortUtterance())
     spec = MediaOutputSpec(
-        "audio", renderer="pocket", sample_rate=24000, sample_count=2400,
+        "audio",
+        renderer="pocket",
+        sample_rate=24000,
+        sample_count=2400,
     )
     raw = RealizationContext(torch.zeros(1, 32, config.facet_dim))
     output = realizer.realize(raw, spec)
@@ -54,6 +59,6 @@ def test_public_pocket_waveform_trimming_is_deterministic():
     assert torch.equal(output[:, :2000], torch.ones(1, 2000))
     with pytest.raises(ValueError, match="native rate"):
         realizer.realize(
-            raw, MediaOutputSpec("audio", renderer="pocket", sample_rate=16000,
-                                 sample_count=1600),
+            raw,
+            MediaOutputSpec("audio", renderer="pocket", sample_rate=16000, sample_count=1600),
         )

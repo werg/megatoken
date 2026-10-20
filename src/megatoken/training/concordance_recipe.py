@@ -3,6 +3,7 @@
 Selection uses the production MixtureWindowStream. No independent learner,
 network, optimizer or source preparation happens in this module.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,8 +26,10 @@ class ConcordanceRecipe:
 
     def __post_init__(self) -> None:
         if not self.mixture or any(
-            key not in TASK_FAMILIES and key != "general_replay" or
-            not math.isfinite(share) or share <= 0
+            key not in TASK_FAMILIES
+            and key != "general_replay"
+            or not math.isfinite(share)
+            or share <= 0
             for key, share in self.mixture.items()
         ):
             raise ValueError("Invalid or unsupported concordance stream mixture")
@@ -40,6 +43,7 @@ class ConcordanceRecipe:
 
 def load_concordance_recipe(path: str | Path, *, phase: str | None = None) -> ConcordanceRecipe:
     import hashlib
+
     raw = Path(path).read_bytes()
     obj = json.loads(raw)
     if obj.get("schema_version") != 1 or obj.get("plan") != "pretrained-omnimodal-bottleneck-v2":
@@ -49,8 +53,11 @@ def load_concordance_recipe(path: str | Path, *, phase: str | None = None) -> Co
         raise ValueError("Concordance phase must be A/B/C/D")
     part = obj["phases"][active]
     return ConcordanceRecipe(
-        active, part["mixture"], part["auxiliary_weight"],
-        obj["max_media_events_per_window"], obj["quotas"],
+        active,
+        part["mixture"],
+        part["auxiliary_weight"],
+        obj["max_media_events_per_window"],
+        obj["quotas"],
         hashlib.sha256(raw).hexdigest(),
     )
 
@@ -58,6 +65,7 @@ def load_concordance_recipe(path: str | Path, *, phase: str | None = None) -> Co
 @dataclass
 class TaskCoverage:
     """Report what actually ran, rather than claiming recipe target quotas."""
+
     events: int = 0
     tasks: int = 0
     joint_tasks: int = 0
@@ -77,25 +85,34 @@ class TaskCoverage:
         self.tasks += 1
         self.events += len(episode.records)
         if episode.meridians:
-            self.joint_tasks += int(any(
-                len(group.events) >= 2 and all(
-                    episode.records[next(i for i, record in enumerate(episode.records)
-                                         if record.record_id == event.record_id)].policy_mask
-                    for event in group.events
+            self.joint_tasks += int(
+                any(
+                    len(group.events) >= 2
+                    and all(
+                        episode.records[
+                            next(
+                                i
+                                for i, record in enumerate(episode.records)
+                                if record.record_id == event.record_id
+                            )
+                        ].policy_mask
+                        for event in group.events
+                    )
+                    for group in episode.meridians
                 )
-                for group in episode.meridians
-            ))
-        self.multiple_input_tasks += int(sum(
-            not record.policy_mask for record in episode.records
-        ) >= 2)
+            )
+        self.multiple_input_tasks += int(
+            sum(not record.policy_mask for record in episode.records) >= 2
+        )
         self.variant_tasks += int(
-            family.endswith("_edit") or
-            bool(annotations.get("counterfactual_base")) or
-            any(dep.kind in {"edit", "preserve"} for dep in episode.dependencies)
+            family.endswith("_edit")
+            or bool(annotations.get("counterfactual_base"))
+            or any(dep.kind in {"edit", "preserve"} for dep in episode.dependencies)
         )
         self.media_events += sum(
             e.modality in {"audio", "image", "video"}
-            for group in episode.meridians for e in group.events
+            for group in episode.meridians
+            for e in group.events
         )
 
     def report(self, recipe: ConcordanceRecipe) -> dict[str, object]:
@@ -106,8 +123,11 @@ class TaskCoverage:
             "variant_fraction": self.variant_tasks / count,
         }
         return {
-            "tasks": self.tasks, "events": self.events, "media_events": self.media_events,
-            "phase": recipe.phase, "recipe_fingerprint": recipe.fingerprint,
+            "tasks": self.tasks,
+            "events": self.events,
+            "media_events": self.media_events,
+            "phase": recipe.phase,
+            "recipe_fingerprint": recipe.fingerprint,
             "families": dict(self.family_counts),
             "actual_fractions": measured,
             "quota_met": {

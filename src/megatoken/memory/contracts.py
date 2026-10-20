@@ -27,8 +27,17 @@ class SemanticSpace:
     normalized: bool = True
 
     def __post_init__(self) -> None:
-        if not all((self.name, self.revision, self.teacher, self.teacher_revision,
-                    self.document_recipe, self.query_recipe, self.context_recipe)):
+        if not all(
+            (
+                self.name,
+                self.revision,
+                self.teacher,
+                self.teacher_revision,
+                self.document_recipe,
+                self.query_recipe,
+                self.context_recipe,
+            )
+        ):
             raise ValueError("Semantic space and teacher/preprocessing revisions must be pinned")
         if not 1 <= self.dimension <= 16384 or not self.normalized:
             raise ValueError("The initial semantic space requires unit keys and a valid dimension")
@@ -41,6 +50,7 @@ class SemanticSpace:
 @dataclass(frozen=True, order=True)
 class SourceRange:
     """Half-open BYTE range of a versioned original source; not tokenizer offsets."""
+
     source_id: str
     version: str
     start: int
@@ -65,6 +75,7 @@ class SourceRange:
 @dataclass(frozen=True)
 class Footprint:
     """ALL ranges seen by a query teacher, contextual key, support, or writer."""
+
     ranges: tuple[SourceRange, ...]
 
     def __post_init__(self) -> None:
@@ -76,8 +87,12 @@ class Footprint:
 
     @classmethod
     def from_json(cls, value: str) -> Footprint:
-        return cls(tuple(SourceRange(**{**r, "ancestors": tuple(r.get("ancestors", ()))})
-                         for r in json.loads(value)))
+        return cls(
+            tuple(
+                SourceRange(**{**r, "ancestors": tuple(r.get("ancestors", ()))})
+                for r in json.loads(value)
+            )
+        )
 
     @property
     def fingerprint(self) -> str:
@@ -98,9 +113,11 @@ class Visibility:
         for r in footprint.ranges:
             if r.scope != self.scope or r.available_at > self.committed_cursor:
                 return False
-            if r.valid_until is not None and (
-                self.at_time if self.at_time is not None else self.committed_cursor
-            ) >= r.valid_until:
+            if (
+                r.valid_until is not None
+                and (self.at_time if self.at_time is not None else self.committed_cursor)
+                >= r.valid_until
+            ):
                 return False
             if self.source_versions and self.source_versions.get(r.source_id) != r.version:
                 return False
@@ -123,8 +140,16 @@ class QueryBoundary:
     deadline: int
 
     def __post_init__(self) -> None:
-        if not all((self.event_id, self.purpose, self.originating_track, self.request_hash,
-                    self.space_fingerprint, self.snapshot_id)):
+        if not all(
+            (
+                self.event_id,
+                self.purpose,
+                self.originating_track,
+                self.request_hash,
+                self.space_fingerprint,
+                self.snapshot_id,
+            )
+        ):
             raise ValueError("Query must identify its causal request and semantic space")
         if self.deadline < self.meridian or self.meridian < 0:
             raise ValueError("Query scheduling cannot travel backwards")
@@ -167,6 +192,7 @@ class NativeKVLayout:
 def unit_finite(values, *, dimension: int):
     """Portable little-endian FP32 normalized address; reject nonfinite payloads."""
     import numpy as np
+
     v = np.asarray(values, dtype="<f4")
     if v.shape != (dimension,) or not np.isfinite(v).all():
         raise ValueError("Incorrect, missing, or nonfinite semantic vector")

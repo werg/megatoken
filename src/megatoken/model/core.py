@@ -117,9 +117,7 @@ class CentralProcessor(nn.Module):
         )
         self.memory = KVProjection(c.facet_dim, c.kv_heads, c.attention_head_dim, c.norm_eps)
         self.layers = nn.ModuleList(
-            DenseFacetBlock(
-                c, c.central_hidden, shared_kv=True, temporary_read=index > 0
-            )
+            DenseFacetBlock(c, c.central_hidden, shared_kv=True, temporary_read=index > 0)
             for index in range(c.central_layers)
         )
         self.layer_codes = nn.Parameter(torch.empty(c.central_layers, c.facet_dim))
@@ -170,11 +168,12 @@ class CentralProcessor(nn.Module):
         facets = facets + role_features + addresses.to(facets.dtype)[None]
         if track_ids is not None and track_ids.shape != (raw.shape[0], events):
             raise ValueError("Track IDs must identify every event in the meridian")
-        live_tracks = None if track_ids is None else track_ids.repeat_interleave(
-            self.config.n_facets, dim=1
+        live_tracks = (
+            None if track_ids is None else track_ids.repeat_interleave(self.config.n_facets, dim=1)
         )
         if history_track_ids is not None and history_track_ids.shape != (
-            raw.shape[0], history.slots
+            raw.shape[0],
+            history.slots,
         ):
             raise ValueError("Historical track IDs must identify every retained facet")
         if modality_ids is not None:
@@ -224,14 +223,19 @@ class CentralProcessor(nn.Module):
                 )
             if memory_adapters is not None and memory_snapshot is not None:
                 facets = memory_adapters.apply(
-                    facets, module="c", stage=index + 1,
-                    track_ids=live_tracks, snapshot=memory_snapshot,
+                    facets,
+                    module="c",
+                    stage=index + 1,
+                    track_ids=live_tracks,
+                    snapshot=memory_snapshot,
                 )
             # Stage i publishes only a short-lived, position-rotated KV for i+1.
             # Neither these projections nor their tensors enter KVHistory.
             if index < len(self.temporary_memories):
                 temporary = projector(
-                    facets, temporal_positions=positions, slot_codes=addresses,
+                    facets,
+                    temporal_positions=positions,
+                    slot_codes=addresses,
                     track_ids=live_tracks,
                 )
         return facets
@@ -262,7 +266,9 @@ class CentralProcessor(nn.Module):
             mask = torch.cat(
                 (
                     history.mask,
-                    torch.ones(final.shape[0], final.shape[1], dtype=torch.bool, device=final.device),
+                    torch.ones(
+                        final.shape[0], final.shape[1], dtype=torch.bool, device=final.device
+                    ),
                 ),
                 dim=1,
             )[:, -max_slots:]
@@ -309,13 +315,19 @@ class FacetedCore(nn.Module):
         for name, tensor in self._pair_topology().items():
             self.register_buffer(name, tensor, persistent=False)
         self.memory_projector = MemoryKVProjector(
-            c.semantic_value_dim, c.facet_dim, c.kv_heads,
-            c.attention_head_dim, c.n_facets,
+            c.semantic_value_dim,
+            c.facet_dim,
+            c.kv_heads,
+            c.attention_head_dim,
+            c.n_facets,
         )
         self.memory_adapters = MemoryAdapters(
-            width=c.facet_dim, value_dim=c.semantic_value_dim,
-            experts=c.memory_lora_experts, rank=c.memory_lora_rank,
-            topk=c.memory_lora_topk, max_tracks=c.max_tracks,
+            width=c.facet_dim,
+            value_dim=c.semantic_value_dim,
+            experts=c.memory_lora_experts,
+            rank=c.memory_lora_rank,
+            topk=c.memory_lora_topk,
+            max_tracks=c.max_tracks,
             max_stage=max(c.central_layers, c.prediction_layers) + 1,
         )
         self.memory_seed = nn.Linear(c.semantic_value_dim, c.facet_dim, bias=False)
@@ -525,21 +537,13 @@ class FacetedCore(nn.Module):
         """History-, role-, and control-independent hierarchical E(bytes)."""
         return self.frontend(byte_ids, lengths)
 
-    def encode_media(
-        self, modality: str, payload: Tensor, *, sample_rate: int = 16000
-    ) -> Tensor:
+    def encode_media(self, modality: str, payload: Tensor, *, sample_rate: int = 16000) -> Tensor:
         """Audio/images/video use the existing E reduction and readout owners."""
-        return self.media_stems.encode(
-            self, modality, payload, sample_rate=sample_rate
-        )
+        return self.media_stems.encode(self, modality, payload, sample_rate=sample_rate)
 
-    def encode_media_features(
-        self, modality: str, features: Tensor, *, extractor: str
-    ) -> Tensor:
+    def encode_media_features(self, modality: str, features: Tensor, *, extractor: str) -> Tensor:
         """Project pinned external feature tokens through the shared E hierarchy."""
-        return self.media_stems.encode_external(
-            self, modality, features, extractor=extractor
-        )
+        return self.media_stems.encode_external(self, modality, features, extractor=extractor)
 
     def encode_media_views(
         self, modality: str, views: tuple[tuple[str, Tensor, Tensor], ...]
@@ -730,14 +734,11 @@ class FacetedCore(nn.Module):
         # cancels out of Q·K. Avoid unnecessary rotations at eight P sites.
         reads_history = stage in P_HISTORY_READ_STAGES
         time = positions if reads_history else None
-        live = self.central.memory(
-            facets, temporal_positions=time, slot_codes=addresses
-        )
+        live = self.central.memory(facets, temporal_positions=time, slot_codes=addresses)
         # Every P stage mixes live facets. Exactly four fixed stages also query
         # old committed records; prediction never writes a new KV representation.
         historical = (
-            AttentionFeatures(history.keys, history.values, history.mask)
-            if reads_history else None
+            AttentionFeatures(history.keys, history.values, history.mask) if reads_history else None
         )
         projected = join_attention(live, historical)
         facets = facets + wrapper.attention_gate.sigmoid() * wrapper.attention.read(

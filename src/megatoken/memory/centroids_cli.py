@@ -4,6 +4,7 @@ Offline data-prep utility; never changes indexed source keys or trains an online
 teacher. A fixed reservoir bounds RAM for large sources. Its output .npy is
 immutable and must be content-hash pinned in the live training recipe.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,15 +27,18 @@ def _normalize(x: np.ndarray) -> np.ndarray:
 
 
 def fit_centroids(
-    recipe: RetrievalRecipe, *, bank_path: Path, output: Path,
-    cells: int, max_samples: int = 32768, iterations: int = 12,
+    recipe: RetrievalRecipe,
+    *,
+    bank_path: Path,
+    output: Path,
+    cells: int,
+    max_samples: int = 32768,
+    iterations: int = 12,
     seed: int = 12345,
 ) -> dict:
     if output.exists() or output.with_suffix(output.suffix + ".manifest.json").exists():
         raise FileExistsError("Never overwrite pinned semantic-space centroids")
-    if not output.name.endswith(".npy") or (
-        cells < 1 or max_samples < cells or iterations < 1
-    ):
+    if not output.name.endswith(".npy") or (cells < 1 or max_samples < cells or iterations < 1):
         raise ValueError("Centroid sampling/iterations and file layout must be bounded")
     rng = np.random.default_rng(seed)
     samples = []
@@ -64,7 +68,7 @@ def fit_centroids(
         totals = np.zeros_like(centers)
         counts = np.zeros(cells, dtype=np.int64)
         for start in range(0, len(matrix), 2048):
-            block = matrix[start:start + 2048]
+            block = matrix[start : start + 2048]
             closest = np.argmax(block @ centers.T, axis=1)
             np.add.at(totals, closest, block)
             np.add.at(counts, closest, 1)
@@ -79,7 +83,10 @@ def fit_centroids(
     centers = _normalize(centers)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
-        dir=output.parent, prefix=".ivf-centroids-", suffix=".npy", delete=False,
+        dir=output.parent,
+        prefix=".ivf-centroids-",
+        suffix=".npy",
+        delete=False,
     ) as staging:
         staged_path = Path(staging.name)
         np.save(staging, centers, allow_pickle=False)
@@ -119,12 +126,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--iterations", type=int, default=12)
     p.add_argument("--seed", type=int, default=12345)
     args = p.parse_args(argv)
-    print(json.dumps(fit_centroids(
-        RetrievalRecipe.load(args.recipe),
-        bank_path=args.bank, output=args.output, cells=args.cells,
-        max_samples=args.max_samples, iterations=args.iterations,
-        seed=args.seed,
-    ), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            fit_centroids(
+                RetrievalRecipe.load(args.recipe),
+                bank_path=args.bank,
+                output=args.output,
+                cells=args.cells,
+                max_samples=args.max_samples,
+                iterations=args.iterations,
+                seed=args.seed,
+            ),
+            indent=2,
+            sort_keys=True,
+        )
+    )
     return 0
 
 

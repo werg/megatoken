@@ -49,7 +49,9 @@ def test_all_32_raw_slot_identities_reach_short_output_and_receive_gradients():
     model = make_model(n_facets=32, max_capacity=4)
     facets = torch.randn(1, 32, model.config.facet_dim, requires_grad=True)
     rows = model.decoder.realizer(
-        model.core, RealizationContext(facets), 1,
+        model.core,
+        RealizationContext(facets),
+        1,
         torch.zeros(1, model.config.facet_dim),
     )
     assert model.decoder.realizer.seed_count == 32
@@ -116,8 +118,7 @@ def test_bootstrap_reconstruction_directly_trains_encoder_and_realizer():
     result = model.supervised_step(model.core.initial_state(1), plan=plan)
     result.losses["reconstruction"][0].backward()
     assert any(
-        p.grad is not None and p.grad.abs().sum() > 0
-        for p in model.core.encoder_parameters()
+        p.grad is not None and p.grad.abs().sum() > 0 for p in model.core.encoder_parameters()
     )
     assert model.decoder.realizer.seed.weight.grad is not None
     assert all(p.grad is None for p in model.core.central_parameters())
@@ -140,8 +141,7 @@ def test_recurrent_e_reconstruction_never_evaluates_central():
     assert calls == []
     losses["lexical"][0].backward()
     assert any(
-        p.grad is not None and p.grad.abs().sum() > 0
-        for p in model.core.encoder_parameters()
+        p.grad is not None and p.grad.abs().sum() > 0 for p in model.core.encoder_parameters()
     )
     assert all(p.grad is None for p in model.core.central_parameters())
 

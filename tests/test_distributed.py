@@ -213,8 +213,11 @@ def test_two_rank_variable_mask_gradient_and_master_update_matches_combined_batc
 def test_two_rank_full_engine_checkpoint_resume_and_phase_transition(tmp_path):
     torch.set_num_threads(1)
     config = retrieval_train_config(
-        tmp_path, microbatch_episodes=1, accumulate_scored=1,
-        max_accumulation_windows=1, gradient_checkpointing=True,
+        tmp_path,
+        microbatch_episodes=1,
+        accumulate_scored=1,
+        max_accumulation_windows=1,
+        gradient_checkpointing=True,
     )
     mp.spawn(
         _engine_worker,

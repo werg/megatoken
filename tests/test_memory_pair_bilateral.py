@@ -1,4 +1,5 @@
 """Independent causal support is necessary for a learned pair to enter native KV."""
+
 import numpy as np
 import torch
 
@@ -12,34 +13,50 @@ def _source(name):
 
 
 def _setup(bank, left_source, right_source):
-    key = np.array([1.] + [0.] * 7, dtype=np.float32)
+    key = np.array([1.0] + [0.0] * 7, dtype=np.float32)
     a = bank.insert_memory(
-        scope="team", footprint=Footprint((_source(left_source),)),
-        key=key, value=np.ones(16), assignment="left", birth_step=0,
+        scope="team",
+        footprint=Footprint((_source(left_source),)),
+        key=key,
+        value=np.ones(16),
+        assignment="left",
+        birth_step=0,
         group="pair-compatible",
     )
     b = bank.insert_memory(
-        scope="team", footprint=Footprint((_source(right_source),)),
-        key=key, value=np.ones(16) * 0.5, assignment="right", birth_step=0,
+        scope="team",
+        footprint=Footprint((_source(right_source),)),
+        key=key,
+        value=np.ones(16) * 0.5,
+        assignment="right",
+        birth_step=0,
         group="pair-compatible",
     )
     bank.insert_relation(
-        scope="team", left=a, right=b,
-        prior=0.9, value=np.ones(16) * 2,
-        dependence_logits=(1., -1.),
+        scope="team",
+        left=a,
+        right=b,
+        prior=0.9,
+        value=np.ones(16) * 2,
+        dependence_logits=(1.0, -1.0),
         footprint=Footprint((_source(left_source), _source(right_source)))
-        if left_source != right_source else Footprint((_source(left_source),)),
+        if left_source != right_source
+        else Footprint((_source(left_source),)),
     )
     return bank.scan(Collection.MEMORY, "team")
 
 
 def _run(bank, sources, units):
     result, _ = selected_joint_groups(
-        bank=bank, selected=FrozenMemoryFields(bank, torch.device("cpu")),
-        query=torch.tensor([[1.] + [0.] * 7]),
-        records=sources, visibility=Visibility("team", 10),
-        anchor=10, max_groups=2,
-        pair_support_units=units, pair_context_complete=True,
+        bank=bank,
+        selected=FrozenMemoryFields(bank, torch.device("cpu")),
+        query=torch.tensor([[1.0] + [0.0] * 7]),
+        records=sources,
+        visibility=Visibility("team", 10),
+        anchor=10,
+        max_groups=2,
+        pair_support_units=units,
+        pair_context_complete=True,
     )
     return [c.identity for group in result for c in group.constituents]
 

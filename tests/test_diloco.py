@@ -88,7 +88,9 @@ def test_quorum_merge_is_atomic_and_crash_idempotent(tmp_path):
     sessions = [str(uuid.uuid4()) for _ in range(3)]
     for i in range(3):
         coordinator.lease(i, sessions[i])
-    assert _submit(coordinator, tmp_path, worker=0, session=sessions[0], delta=1)["status"] == "queued"
+    assert (
+        _submit(coordinator, tmp_path, worker=0, session=sessions[0], delta=1)["status"] == "queued"
+    )
     assert coordinator.status()["versions"] == [0]
     assert _submit(coordinator, tmp_path, worker=1, session=sessions[1], delta=3)["version"] == 1
     state = load_tensors(coordinator._path(0))
@@ -96,14 +98,24 @@ def test_quorum_merge_is_atomic_and_crash_idempotent(tmp_path):
     assert coordinator.status()["merges"] == 1
     # Simulate a crash after atomic publication but before pending cleanup.
     queued = coordinator._pending_dir(0) / "000.safetensors"
-    save_tensors(queued, {"delta": torch.ones(64)}, metadata={
-        "worker": "0", "sequence": "1", "base_version": "0",
-        "steps": "10", "tokens": "100",
-    })
+    save_tensors(
+        queued,
+        {"delta": torch.ones(64)},
+        metadata={
+            "worker": "0",
+            "sequence": "1",
+            "base_version": "0",
+            "steps": "10",
+            "tokens": "100",
+        },
+    )
     restarted = Coordinator(tmp_path / "syncer")
     assert not queued.exists()
     assert restarted.status()["versions"] == [1]
-    assert _submit(restarted, tmp_path, worker=0, session=sessions[0], delta=1)["status"] == "already_merged"
+    assert (
+        _submit(restarted, tmp_path, worker=0, session=sessions[0], delta=1)["status"]
+        == "already_merged"
+    )
     with pytest.raises(Conflict, match="Stale"):
         _submit(restarted, tmp_path, worker=2, session=sessions[2], delta=1, version=0)
     assert manifest["min_quorum"] == 2
@@ -133,11 +145,13 @@ def test_weighting_and_outer_momentum_use_finite_float32():
 
 def test_hybrid_muon_only_selects_eligible_hidden_matrices_and_resumes():
     torch.manual_seed(23)
-    model = nn.ModuleDict({
-        "hidden": nn.Linear(8, 8),
-        "embed": nn.Embedding(16, 8),
-        "layernorm": nn.LayerNorm(8),
-    }).bfloat16()
+    model = nn.ModuleDict(
+        {
+            "hidden": nn.Linear(8, 8),
+            "embed": nn.Embedding(16, 8),
+            "layernorm": nn.LayerNorm(8),
+        }
+    ).bfloat16()
     optimizer = MasterAdamW(model, lr=0.003, inner_optimizer="muon")
     assert optimizer.muon_names == ["hidden.weight"]
     assert optimizer.optimizer is not None

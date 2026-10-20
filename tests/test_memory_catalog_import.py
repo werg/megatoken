@@ -1,4 +1,5 @@
 """Source catalog imports require original bytes, context and learned-space pins."""
+
 import json
 from dataclasses import asdict
 from hashlib import sha256
@@ -15,31 +16,49 @@ from megatoken.model.config import ModelConfig
 
 def _source_setup(tmp_path):
     model = ModelConfig.tiny(
-        semantic_dim=8, semantic_value_dim=16, max_kb_positions=2,
+        semantic_dim=8,
+        semantic_value_dim=16,
+        max_kb_positions=2,
     )
     space = SemanticSpace(
-        "teacher-shared", "v1", "offline", "pinned-checkpoint", 8,
-        "document-format", "query-format", "ordered-block-context",
+        "teacher-shared",
+        "v1",
+        "offline",
+        "pinned-checkpoint",
+        8,
+        "document-format",
+        "query-format",
+        "ordered-block-context",
     )
     recipe = RetrievalRecipe(
         schema="megatoken-retrieval-recipe-v1",
-        model=model, space=space,
+        model=model,
+        space=space,
         growth=GrowthPolicy(
-            value_dim=16, seed=2, partition_id="pinned-source-partition",
+            value_dim=16,
+            seed=2,
+            partition_id="pinned-source-partition",
         ),
-        loss_weights={"native": 1.}, max_kb_positions=2,
+        loss_weights={"native": 1.0},
+        max_kb_positions=2,
         max_readout_groups=2,
     )
     root = tmp_path / "originals"
     root.mkdir()
     payload = b"The exact immutable versioned original bytes."
     (root / "doc.bin").write_bytes(payload)
-    footprint = Footprint((
-        SourceRange(
-            "document-id", "v1", 0, len(payload),
-            sha256(payload).hexdigest(), "team",
-        ),
-    ))
+    footprint = Footprint(
+        (
+            SourceRange(
+                "document-id",
+                "v1",
+                0,
+                len(payload),
+                sha256(payload).hexdigest(),
+                "team",
+            ),
+        )
+    )
     entry = {
         "semantic_space_fingerprint": space.fingerprint,
         "scope": "team",
@@ -48,7 +67,7 @@ def _source_setup(tmp_path):
         "asset_sha256": sha256(payload).hexdigest(),
         "footprint": [asdict(r) for r in footprint.ranges],
         "evidence_span": asdict(footprint.ranges[0]),
-        "key": [1.] + [0.] * 7,
+        "key": [1.0] + [0.0] * 7,
     }
     return recipe, root, entry
 
@@ -59,7 +78,10 @@ def test_source_catalog_import_keeps_free_values_disabled_until_measured_readine
     catalog.write_text(json.dumps(entry) + "\n")
     output = tmp_path / "catalog.sqlite"
     report = build_source_catalog(
-        recipe, catalog=catalog, assets_root=root, output=output,
+        recipe,
+        catalog=catalog,
+        assets_root=root,
+        output=output,
     )
     assert report["sources"] == 1
     assert not report["ready_for_free_allocation"]
@@ -79,6 +101,9 @@ def test_catalog_rejects_tampered_inputs_without_publishing_bank(tmp_path, corru
     output = tmp_path / "catalog.sqlite"
     with pytest.raises(ValueError):
         build_source_catalog(
-            recipe, catalog=catalog, assets_root=root, output=output,
+            recipe,
+            catalog=catalog,
+            assets_root=root,
+            output=output,
         )
     assert not output.exists()

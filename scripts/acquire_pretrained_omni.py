@@ -12,6 +12,7 @@ The exact 40-hex commit and immutable local destination are compulsory.
 Pocket multi-repository tokenizer/model resources must be copied into its
 local snapshot and referenced by a fully local Pocket YAML before locking.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -57,8 +58,7 @@ def acquire(root: str, inventory: dict, *, token: str | None = None):
             shutil.rmtree(cache)
         # Avoid a hidden download cache from being mistaken for an executable
         # checkpoint. The lock helper will hash *every* remaining file.
-        acquired[name] = {"repository": repository, "revision": revision,
-                          "snapshot": name}
+        acquired[name] = {"repository": repository, "revision": revision, "snapshot": name}
     return acquired
 
 
@@ -66,13 +66,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--inventory", required=True)
-    parser.add_argument("--output", required=True,
-                        help="Path for acquisition receipt JSON (not pack lock)")
+    parser.add_argument(
+        "--output", required=True, help="Path for acquisition receipt JSON (not pack lock)"
+    )
     args = parser.parse_args()
     requested = json.loads(Path(args.inventory).read_text(encoding="utf-8"))
     results = acquire(args.root, requested)
     Path(args.output).write_text(
-        json.dumps(results, sort_keys=True, indent=2) + "\n", encoding="utf-8",
+        json.dumps(results, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
     )
     print(args.output)
 

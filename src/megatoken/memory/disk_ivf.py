@@ -1,4 +1,5 @@
 """Disk-backed IVF postings over canonical SQLite, with exact per-cell rescoring."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,26 +26,28 @@ class SQLiteDiskIVF:
     top-k, and return one coherent SQLite scoring snapshot per call.
     """
 
-    def __init__(self, store: SQLiteKB, centroids, *,
-                 nprobe: int = 8, batch_size: int = 1024):
+    def __init__(self, store: SQLiteKB, centroids, *, nprobe: int = 8, batch_size: int = 1024):
         matrix = np.asarray(centroids, dtype="<f4")
-        if matrix.ndim != 2 or matrix.shape[1] != store.space.dimension or (
-            matrix.shape[0] < 1 or nprobe < 1 or batch_size < 1
+        if (
+            matrix.ndim != 2
+            or matrix.shape[1] != store.space.dimension
+            or (matrix.shape[0] < 1 or nprobe < 1 or batch_size < 1)
         ):
             raise ValueError("Disk-IVF centroids require a compatible learned space")
-        self.centroids = np.stack([
-            unit_finite(row, dimension=store.space.dimension) for row in matrix
-        ])
+        self.centroids = np.stack(
+            [unit_finite(row, dimension=store.space.dimension) for row in matrix]
+        )
         self.identity = IVFIdentity(
             sha256(self.centroids.tobytes()).hexdigest(),
-            matrix.shape[0], store.space.fingerprint,
+            matrix.shape[0],
+            store.space.fingerprint,
         )
         self.store, self.nprobe, self.batch_size = store, nprobe, batch_size
 
     def cell(self, key) -> int:
-        return int(np.argmax(self.centroids @ unit_finite(
-            key, dimension=self.store.space.dimension
-        )))
+        return int(
+            np.argmax(self.centroids @ unit_finite(key, dimension=self.store.space.dimension))
+        )
 
     def rebuild(self, *, scope: str, collection: Collection) -> int:
         """Stream bounded SQLite key pages into atomic IVF postings.
@@ -69,10 +72,13 @@ class SQLiteDiskIVF:
                        key_revision=excluded.key_revision""",
                     [
                         (
-                            collection.value, int(row["id"]),
+                            collection.value,
+                            int(row["id"]),
                             self.cell(np.frombuffer(row["key"], dtype="<f4")),
-                            self.identity.centroid_sha256, int(row["key_revision"]),
-                        ) for row in rows
+                            self.identity.centroid_sha256,
+                            int(row["key_revision"]),
+                        )
+                        for row in rows
                     ],
                 )
                 count += len(rows)
@@ -93,8 +99,9 @@ class SQLiteDiskIVF:
             self.store._bump("index")
         return count
 
-    def patch_key(self, collection: Collection, record_id: int, *,
-                  changed_key, expected_revision: int) -> None:
+    def patch_key(
+        self, collection: Collection, record_id: int, *, changed_key, expected_revision: int
+    ) -> None:
         """Storage applies key/posting and revisions in ONE owned write txn."""
         with self.store.transaction():
             self._patch_key(collection, record_id, changed_key, expected_revision)
@@ -102,7 +109,9 @@ class SQLiteDiskIVF:
     def _patch_key(self, collection, record_id, changed_key, expected_revision) -> None:
         row = self.store.get(collection, record_id)
         self.store.update_record(
-            collection, record_id, key=changed_key,
+            collection,
+            record_id,
+            key=changed_key,
             posting_cell=self.cell(changed_key),
             centroids_revision=self.identity.centroid_sha256,
             expected_key_revision=expected_revision,
@@ -121,15 +130,15 @@ class SQLiteDiskIVF:
                 self.store.db.execute(
                     """INSERT INTO meta VALUES (?,?) ON CONFLICT(key)
                        DO UPDATE SET value=excluded.value""",
-                    (f"ivf:{collection.value}:{row.scope}:{self.identity.centroid_sha256}",
-                     str(self.store.revisions().key)),
+                    (
+                        f"ivf:{collection.value}:{row.scope}:{self.identity.centroid_sha256}",
+                        str(self.store.revisions().key),
+                    ),
                 )
 
     def _check_complete(self, collection: Collection, scope: str):
         key = f"ivf:{collection.value}:{scope}:{self.identity.centroid_sha256}"
-        entry = self.store.db.execute(
-            "SELECT value FROM meta WHERE key=?", (key,)
-        ).fetchone()
+        entry = self.store.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         if entry is None:
             raise RuntimeError("Disk-IVF postings are not published for this collection/scope")
         # Cross-collection updates may advance global key generation: validate
@@ -144,13 +153,20 @@ class SQLiteDiskIVF:
         if gap:
             raise RuntimeError("Index cannot search unposted or stale learned keys")
 
-    def search(self, query, *, collection: Collection, scope: str,
-               visibility: Visibility, limit: int,
-               excluded: set[int] | None = None) -> SearchBatch:
+    def search(
+        self,
+        query,
+        *,
+        collection: Collection,
+        scope: str,
+        visibility: Visibility,
+        limit: int,
+        excluded: set[int] | None = None,
+    ) -> SearchBatch:
         if limit < 0:
             raise ValueError("Negative source/memory retrieval budget")
         q = unit_finite(query, dimension=self.store.space.dimension)
-        cells = np.argsort(-(self.centroids @ q), kind="stable")[:self.nprobe]
+        cells = np.argsort(-(self.centroids @ q), kind="stable")[: self.nprobe]
         with self.store.read_snapshot():
             self._check_complete(collection, scope)
             revisions = self.store.revisions()
@@ -166,8 +182,14 @@ class SQLiteDiskIVF:
                            WHERE p.collection=? AND r.scope=? AND p.cell=? AND
                              p.centroids_revision=? AND r.id>?
                            ORDER BY r.id LIMIT ?""",
-                        (collection.value, scope, int(cell),
-                         self.identity.centroid_sha256, after, self.batch_size),
+                        (
+                            collection.value,
+                            scope,
+                            int(cell),
+                            self.identity.centroid_sha256,
+                            after,
+                            self.batch_size,
+                        ),
                     ).fetchall()
                     if not rows:
                         break
@@ -182,5 +204,6 @@ class SQLiteDiskIVF:
                         hits.append(Hit(row, score))
                         candidates_evaluated += 1
             hits.sort(key=lambda x: (-x.similarity, x.record.id))
-            return SearchBatch(tuple(hits[:limit]), max(0, limit - len(hits)),
-                               candidates_evaluated, revisions)
+            return SearchBatch(
+                tuple(hits[:limit]), max(0, limit - len(hits)), candidates_evaluated, revisions
+            )

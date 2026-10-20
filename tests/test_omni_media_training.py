@@ -29,51 +29,86 @@ def _case(tmp_path, *, external=False):
     wave_asset = assets.put(wave, modality="audio", sample_rate=16000)
     image_asset = assets.put(image, modality="image")
     feature_id = "pinned-audio-test-v1"
-    features = assets.put(
-        np.ones((12, 16), dtype=np.float32), modality="audio",
-        kind="features", extractor=feature_id, sample_rate=16000,
-    ) if external else wave_asset
+    features = (
+        assets.put(
+            np.ones((12, 16), dtype=np.float32),
+            modality="audio",
+            kind="features",
+            extractor=feature_id,
+            sample_rate=16000,
+        )
+        if external
+        else wave_asset
+    )
     observed = MediaRecord("audio", features)
     generated = MediaRecord("image", image_asset, image_asset)
     tracks = (
-        TrackSpec("mic", "user"), TrackSpec("prompt", "user"),
-        TrackSpec("caption", "assistant"), TrackSpec("picture", "assistant"),
+        TrackSpec("mic", "user"),
+        TrackSpec("prompt", "user"),
+        TrackSpec("caption", "assistant"),
+        TrackSpec("picture", "assistant"),
     )
     records = (
-        PhysicalRecord("sound", "user", observed.to_bytes(),
-                       media_type=MEDIA_RECORD_TYPE),
+        PhysicalRecord("sound", "user", observed.to_bytes(), media_type=MEDIA_RECORD_TYPE),
         PhysicalRecord("prompt", "user", b"Describe the sound and draw a scene"),
-        PhysicalRecord("caption", "assistant", b"bright", turn_index=1,
-                       policy_mask=True),
-        PhysicalRecord("picture", "assistant", generated.to_bytes(),
-                       turn_index=1, policy_mask=True,
-                       media_type=MEDIA_RECORD_TYPE),
+        PhysicalRecord("caption", "assistant", b"bright", turn_index=1, policy_mask=True),
+        PhysicalRecord(
+            "picture",
+            "assistant",
+            generated.to_bytes(),
+            turn_index=1,
+            policy_mask=True,
+            media_type=MEDIA_RECORD_TYPE,
+        ),
     )
     meridians = (
-        Meridian(0, (
-            TrackEvent("sound", "mic", "audio", 0, "user",
-                       asset_sha256=features.sha256),
-            TrackEvent("prompt", "prompt", "text", 0, "user"),
-        )),
-        Meridian(1, (
-            TrackEvent("caption", "caption", "text", 1, "assistant"),
-            TrackEvent("picture", "picture", "image", 1, "assistant",
-                       asset_sha256=image_asset.sha256),
-        )),
+        Meridian(
+            0,
+            (
+                TrackEvent("sound", "mic", "audio", 0, "user", asset_sha256=features.sha256),
+                TrackEvent("prompt", "prompt", "text", 0, "user"),
+            ),
+        ),
+        Meridian(
+            1,
+            (
+                TrackEvent("caption", "caption", "text", 1, "assistant"),
+                TrackEvent(
+                    "picture", "picture", "image", 1, "assistant", asset_sha256=image_asset.sha256
+                ),
+            ),
+        ),
     )
     episode = Episode(
-        "omni", records, Lineage("local", "revision", "family"),
-        tracks=tracks, meridians=meridians,
+        "omni",
+        records,
+        Lineage("local", "revision", "family"),
+        tracks=tracks,
+        meridians=meridians,
     )
     model = build_model(
-        ModelConfig.tiny(**MODEL_OVERRIDES, **({
-            "audio_feature_dim": 16, "audio_feature_id": feature_id,
-        } if external else {})),
+        ModelConfig.tiny(
+            **MODEL_OVERRIDES,
+            **(
+                {
+                    "audio_feature_dim": 16,
+                    "audio_feature_id": feature_id,
+                }
+                if external
+                else {}
+            ),
+        ),
         ByteCodec.byte_fallback(),
     )
     config = retrieval_train_config(
-        tmp_path / "retrieval", phase="B0", media_root=str(tmp_path),
-        budget_meter="G", budget=4, generated_capacity=16, max_history_tokens=128, max_record_bytes=1024,
+        tmp_path / "retrieval",
+        phase="B0",
+        media_root=str(tmp_path),
+        budget_meter="G",
+        budget=4,
+        generated_capacity=16,
+        max_history_tokens=128,
+        max_record_bytes=1024,
     )
     return assets, episode, model, config
 
@@ -104,25 +139,36 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, external, mode
         representation_mode=mode,
         phase="B0" if mode == "bootstrap" else "P1",
     )
-    windows = list(iter_windows(
-        episode, ByteCodec.byte_fallback(),
-        WindowConfig(max_records=8, max_decisions=4),
-    ))
-    batch, = prepare_batches(
-        model, [EpisodeWindow(episode, windows[0])], config,
+    windows = list(
+        iter_windows(
+            episode,
+            ByteCodec.byte_fallback(),
+            WindowConfig(max_records=8, max_decisions=4),
+        )
+    )
+    (batch,) = prepare_batches(
+        model,
+        [EpisodeWindow(episode, windows[0])],
+        config,
     )
     assert batch.counts["visual_prediction"] == 1
     assert batch.counts["visual_reconstruction"] == 1
     assert batch.counts["audio_prediction"] == 0
     assert batch.counts["lexical"] == len(b"bright")
     assert batch.counts["facet_prediction"] == (
-        2 * model.config.n_facets * model.config.facet_dim
-        if mode == "bootstrap" else 0
+        2 * model.config.n_facets * model.config.facet_dim if mode == "bootstrap" else 0
     )
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
     model.core.set_model_version(0)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
-                  retrieval_aux(config, supervised=False))
+    forward_batch(
+        model,
+        batch,
+        ledger,
+        config,
+        torch.device("cpu"),
+        0,
+        retrieval_aux(config, supervised=False),
+    )
     ledger.finish()
     assert model.media_realizers.visual_filter[0].weight.grad is not None
     assert model.core.frontend.facet_queries.grad is not None
@@ -157,32 +203,51 @@ def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
     assets, ep, model, config = _case(tmp_path)
     raw = assets.put(
         np.sin(np.arange(512, dtype=np.float32) / 21),
-        modality="audio", sample_rate=16000,
+        modality="audio",
+        sample_rate=16000,
     )
     audio = MediaRecord("audio", raw, raw)
     voice_record = PhysicalRecord(
-        "voice", "assistant", audio.to_bytes(), turn_index=1,
-        media_type=MEDIA_RECORD_TYPE, policy_mask=True,
+        "voice",
+        "assistant",
+        audio.to_bytes(),
+        turn_index=1,
+        media_type=MEDIA_RECORD_TYPE,
+        policy_mask=True,
     )
-    second = Meridian(1, (
-        *ep.meridians[1].events,
-        TrackEvent("voice", "voice", "audio", 1, "assistant",
-                   asset_sha256=raw.sha256),
-    ))
-    ep = replace(ep, records=(*ep.records, voice_record),
-                 tracks=(*ep.tracks, TrackSpec("voice", "assistant")),
-                 meridians=(ep.meridians[0], second))
+    second = Meridian(
+        1,
+        (
+            *ep.meridians[1].events,
+            TrackEvent("voice", "voice", "audio", 1, "assistant", asset_sha256=raw.sha256),
+        ),
+    )
+    ep = replace(
+        ep,
+        records=(*ep.records, voice_record),
+        tracks=(*ep.tracks, TrackSpec("voice", "assistant")),
+        meridians=(ep.meridians[0], second),
+    )
     window = next(iter_windows(ep, ByteCodec.byte_fallback()))
-    batch, = prepare_batches(
-        model, [EpisodeWindow(ep, window)], config,
+    (batch,) = prepare_batches(
+        model,
+        [EpisodeWindow(ep, window)],
+        config,
     )
     assert batch.counts["audio_prediction"] == 1
     assert batch.counts["audio_reconstruction"] == 1
     assert batch.counts["visual_prediction"] == 1
     assert batch.counts["lexical"] == len(b"bright")
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
-                  retrieval_aux(config, supervised=False))
+    forward_batch(
+        model,
+        batch,
+        ledger,
+        config,
+        torch.device("cpu"),
+        0,
+        retrieval_aux(config, supervised=False),
+    )
     ledger.finish()
     assert model.media_realizers.audio_filter[0].weight.grad is not None
     assert model.media_realizers.visual_filter[0].weight.grad is not None
@@ -203,19 +268,19 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path):
     # meridian 0 and a query at the generated caption.
     ep = replace(
         ep,
-        records=(PhysicalRecord("doc", "document", b"the sound is a bright tone"),
-                 *ep.records),
+        records=(PhysicalRecord("doc", "document", b"the sound is a bright tone"), *ep.records),
         tracks=(TrackSpec("doc", "document"), *ep.tracks),
         meridians=(
-            Meridian(0, (TrackEvent("doc", "doc", "text", 0, "document"),
-                         *ep.meridians[0].events)),
+            Meridian(0, (TrackEvent("doc", "doc", "text", 0, "document"), *ep.meridians[0].events)),
             ep.meridians[1],
         ),
     )
     data = tmp_path / "omni-data"
     source = DedupStore(
-        tmp_path / "index.sqlite", DedupConfig(
-            train_fraction=1.0, validation_fraction=0.0,
+        tmp_path / "index.sqlite",
+        DedupConfig(
+            train_fraction=1.0,
+            validation_fraction=0.0,
         ),
     )
     try:
@@ -223,21 +288,37 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path):
             source.add(ep, ByteCodec.byte_fallback())
         source.freeze()
         export_prepared(
-            source, data, codec=ByteCodec.byte_fallback(),
-            source_receipts=[], pipeline_fingerprint="omni-event-pilot-v1",
+            source,
+            data,
+            codec=ByteCodec.byte_fallback(),
+            source_receipts=[],
+            pipeline_fingerprint="omni-event-pilot-v1",
         )
     finally:
         source.close()
     artifacts = write_retrieval_artifacts(
-        tmp_path / "omni-retrieval", [ep], doc="doc", request="prompt", answer="caption",
+        tmp_path / "omni-retrieval",
+        [ep],
+        doc="doc",
+        request="prompt",
+        answer="caption",
     )
     # B0's text-token budget would not account for image/audio events. G is an
     # explicit event budget with its own advance/accumulation and checkpoint.
     config = replace(
-        config, dataset=str(data), output=str(tmp_path / "run"), **artifacts,
-        max_steps=1, accumulate_events=5, accumulate_scored=100_000,
-        accumulate_ingested=100_000, max_accumulation_windows=1, budget=5,
-        microbatch_episodes=1, checkpoint_every=0, use_stage_mixture=False,
+        config,
+        dataset=str(data),
+        output=str(tmp_path / "run"),
+        **artifacts,
+        max_steps=1,
+        accumulate_events=5,
+        accumulate_scored=100_000,
+        accumulate_ingested=100_000,
+        max_accumulation_windows=1,
+        budget=5,
+        microbatch_episodes=1,
+        checkpoint_every=0,
+        use_stage_mixture=False,
     )
     result = train(config)
     payload, _ = load_checkpoint(result["checkpoint"])
@@ -252,28 +333,48 @@ def test_video_training_is_one_32_facet_megatoken(tmp_path):
     torch.set_num_threads(1)
     torch.manual_seed(922)
     assets, ep, model, config = _case(tmp_path)
-    clip = np.stack((np.zeros((3, 8, 8), dtype=np.float32),
-                     np.ones((3, 8, 8), dtype=np.float32)))
+    clip = np.stack((np.zeros((3, 8, 8), dtype=np.float32), np.ones((3, 8, 8), dtype=np.float32)))
     video = assets.put(clip, modality="video", fps_num=8)
     replacement = MediaRecord("video", video, video)
     from megatoken.data.schema import Meridian, TrackEvent
 
-    records = (*ep.records[:-1], replace(
-        ep.records[-1], payload=replacement.to_bytes(),
-    ))
-    changed = replace(ep, records=records, meridians=(
-        ep.meridians[0],
-        Meridian(1, (ep.meridians[1].events[0],
-                     TrackEvent("picture", "picture", "video", 1, "assistant",
-                                asset_sha256=video.sha256))),
-    ))
+    records = (
+        *ep.records[:-1],
+        replace(
+            ep.records[-1],
+            payload=replacement.to_bytes(),
+        ),
+    )
+    changed = replace(
+        ep,
+        records=records,
+        meridians=(
+            ep.meridians[0],
+            Meridian(
+                1,
+                (
+                    ep.meridians[1].events[0],
+                    TrackEvent(
+                        "picture", "picture", "video", 1, "assistant", asset_sha256=video.sha256
+                    ),
+                ),
+            ),
+        ),
+    )
     window = next(iter_windows(changed, ByteCodec.byte_fallback()))
-    batch, = prepare_batches(model, [EpisodeWindow(changed, window)], config)
+    (batch,) = prepare_batches(model, [EpisodeWindow(changed, window)], config)
     assert batch.counts["visual_prediction"] == 1
     assert batch_counters([batch]).video_frames == 2
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
-                  retrieval_aux(config, supervised=False))
+    forward_batch(
+        model,
+        batch,
+        ledger,
+        config,
+        torch.device("cpu"),
+        0,
+        retrieval_aux(config, supervised=False),
+    )
     ledger.finish()
     assert model.media_realizers.visual_filter[0].weight.grad is not None
 
@@ -286,26 +387,41 @@ def test_generated_pretrained_vision_features_train_e_in_recurrent_mode(tmp_path
     identifier = "vision-features-pinned-test-v1"
     cached = assets.put(
         np.arange(12 * 16, dtype=np.float32).reshape(12, 16) / 192,
-        modality="image", kind="features", extractor=identifier,
+        modality="image",
+        kind="features",
+        extractor=identifier,
     )
     target = MediaRecord("image", cached, reference.target)
-    records = (*ep.records[:-1], replace(ep.records[-1],
-                                        payload=target.to_bytes()))
-    meridian = Meridian(1, (
-        ep.meridians[1].events[0],
-        TrackEvent("picture", "picture", "image", 1, "assistant",
-                   asset_sha256=cached.sha256),
-    ))
+    records = (*ep.records[:-1], replace(ep.records[-1], payload=target.to_bytes()))
+    meridian = Meridian(
+        1,
+        (
+            ep.meridians[1].events[0],
+            TrackEvent("picture", "picture", "image", 1, "assistant", asset_sha256=cached.sha256),
+        ),
+    )
     ep = replace(ep, records=records, meridians=(ep.meridians[0], meridian))
-    model = build_model(ModelConfig.tiny(
-        **MODEL_OVERRIDES, vision_feature_dim=16, vision_feature_id=identifier,
-    ), ByteCodec.byte_fallback())
+    model = build_model(
+        ModelConfig.tiny(
+            **MODEL_OVERRIDES,
+            vision_feature_dim=16,
+            vision_feature_id=identifier,
+        ),
+        ByteCodec.byte_fallback(),
+    )
     config = replace(config, phase="P1", representation_mode="recurrent")
     window = next(iter_windows(ep, ByteCodec.byte_fallback()))
-    batch, = prepare_batches(model, [EpisodeWindow(ep, window)], config)
+    (batch,) = prepare_batches(model, [EpisodeWindow(ep, window)], config)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
-                  retrieval_aux(config, supervised=False))
+    forward_batch(
+        model,
+        batch,
+        ledger,
+        config,
+        torch.device("cpu"),
+        0,
+        retrieval_aux(config, supervised=False),
+    )
     ledger.finish()
     assert model.core.media_stems.external_vision.weight.grad is not None
     assert model.media_realizers.visual_filter[0].weight.grad is not None

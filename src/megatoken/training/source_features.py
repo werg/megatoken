@@ -5,6 +5,7 @@ row. Neither the retrieved source features nor teacher answer labels can enter
 the predictor's causal query controls. Actual RAG byte observations still recur
 through the ordinary native E/C track.
 """
+
 from __future__ import annotations
 
 from hashlib import sha256
@@ -22,8 +23,14 @@ from megatoken.tensors import byte_tensor
 
 
 class NativeSourceFeatures:
-    def __init__(self, model, assets_root: str | Path, *,
-                 max_chunk_bytes: int = 16384, strict_hash: bool = False):
+    def __init__(
+        self,
+        model,
+        assets_root: str | Path,
+        *,
+        max_chunk_bytes: int = 16384,
+        strict_hash: bool = False,
+    ):
         root = Path(assets_root).resolve()
         if not root.is_dir() or max_chunk_bytes < 1:
             raise ValueError("RAG value training requires a pinned source asset directory")
@@ -35,9 +42,14 @@ class NativeSourceFeatures:
     def read_interval(self, row: Record, interval: Interval) -> bytes:
         """Fetch only reserved original source coordinates and verify identity."""
         span = row.evidence_span
-        if row.collection is not Collection.SOURCE or span is None or (
-            interval.content_id != span.source_id or interval.version != span.version
-            or not span.start <= interval.start < interval.end <= span.end
+        if (
+            row.collection is not Collection.SOURCE
+            or span is None
+            or (
+                interval.content_id != span.source_id
+                or interval.version != span.version
+                or not span.start <= interval.start < interval.end <= span.end
+            )
         ):
             raise ValueError("Source obligation differs from original versioned byte interval")
         if interval.end - interval.start > self.max_chunk_bytes:
@@ -80,7 +92,8 @@ class NativeSourceFeatures:
             return self._features[identity]
         interval = row.evidence_span
         content = self.read_interval(
-            row, Interval(interval.source_id, interval.version, interval.start, interval.end),
+            row,
+            Interval(interval.source_id, interval.version, interval.start, interval.end),
         )
         device = self.model.core.initial_facets.device
         bytes_tensor, lengths = byte_tensor([content], device)

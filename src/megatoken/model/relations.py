@@ -5,6 +5,7 @@ Never force distinct speech/text/image/video raw facet tensors to equality.
 Actual acoustic/visual timing and preservation are checked on sampled decoded
 outputs in the separate concordance evaluation module.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -13,11 +14,18 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-KINDS = frozenset({
-    "same_spoken_content", "translation_of", "describes",
-    "synchronized_with", "first_frame_of", "last_frame_of",
-    "edit_of", "preserves",
-})
+KINDS = frozenset(
+    {
+        "same_spoken_content",
+        "translation_of",
+        "describes",
+        "synchronized_with",
+        "first_frame_of",
+        "last_frame_of",
+        "edit_of",
+        "preserves",
+    }
+)
 MODALITIES = ("text", "audio", "image", "video")
 
 
@@ -38,14 +46,21 @@ class RelationProjection(nn.Module):
     The corresponding E target lives in the supervised loss only. Pooling and
     separate modality mappings avoid the invalid full-facet equality objective.
     """
+
     def __init__(self, width: int, hidden: int | None = None):
         super().__init__()
         shared = hidden or min(128, width)
-        self.projectors = nn.ModuleDict({
-            modality: nn.Sequential(nn.LayerNorm(width), nn.Linear(width, shared),
-                                    nn.SiLU(), nn.Linear(shared, shared))
-            for modality in MODALITIES
-        })
+        self.projectors = nn.ModuleDict(
+            {
+                modality: nn.Sequential(
+                    nn.LayerNorm(width),
+                    nn.Linear(width, shared),
+                    nn.SiLU(),
+                    nn.Linear(shared, shared),
+                )
+                for modality in MODALITIES
+            }
+        )
 
     def project(self, value: Tensor, modality: str) -> Tensor:
         if modality not in self.projectors or value.ndim != 3:
@@ -54,8 +69,13 @@ class RelationProjection(nn.Module):
         features = value.mean(1).to(next(layer.parameters()).dtype)
         return F.normalize(layer(features).float(), dim=-1)
 
-    def forward(self, selected: Tensor, teachers: Tensor, modalities: tuple[str, ...],
-                relations: tuple[SelectedRelation, ...]) -> tuple[Tensor, int]:
+    def forward(
+        self,
+        selected: Tensor,
+        teachers: Tensor,
+        modalities: tuple[str, ...],
+        relations: tuple[SelectedRelation, ...],
+    ) -> tuple[Tensor, int]:
         if selected.shape != teachers.shape or selected.ndim != 4:
             raise ValueError("Relation supervision needs sampled and E-teacher raw groups")
         if len(modalities) != selected.shape[1]:
@@ -74,7 +94,10 @@ class RelationProjection(nn.Module):
             with torch.no_grad():
                 tleft = self.project(teachers[:, rel.left].detach(), modalities[rel.left])
                 tright = self.project(teachers[:, rel.right].detach(), modalities[rel.right])
-            total = total + ((1 - (left * tright).sum(-1)).mean()
-                             + (1 - (right * tleft).sum(-1)).mean()) * 0.5
+            total = (
+                total
+                + ((1 - (left * tright).sum(-1)).mean() + (1 - (right * tleft).sum(-1)).mean())
+                * 0.5
+            )
             count += 1
         return total, count

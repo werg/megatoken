@@ -4,6 +4,7 @@ One data-prep row names a real native observed source event and the complete
 teacher input footprint. The trained document R consumes E's raw facets from
 that same actual original source event, not teacher vectors as P inputs.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,9 +35,11 @@ class DocumentEmbeddingExample:
             raise ValueError("Document labels require exact SHA256 of source payload bytes")
         if self.source_span not in self.teacher_inputs.ranges:
             raise ValueError("Model source span must be part of complete teacher provenance")
-        if not self.teacher_target or any(
-            not math.isfinite(value) for value in self.teacher_target
-        ) or sum(v * v for v in self.teacher_target) <= 1e-12:
+        if (
+            not self.teacher_target
+            or any(not math.isfinite(value) for value in self.teacher_target)
+            or sum(v * v for v in self.teacher_target) <= 1e-12
+        ):
             raise ValueError("Document teacher must supply a finite nonzero target vector")
         if len({r.scope for r in self.teacher_inputs.ranges}) != 1:
             raise ValueError("A document key may not mix causal source scopes")
@@ -51,7 +54,8 @@ class DocumentEmbeddingExample:
         source = dict(value["source_span"])
         source["ancestors"] = tuple(source.get("ancestors", ()))
         return cls(
-            episode_id=value["episode_id"], event_id=value["event_id"],
+            episode_id=value["episode_id"],
+            event_id=value["event_id"],
             payload_sha256=value["payload_sha256"],
             teacher_inputs=Footprint.from_json(value["teacher_inputs"]),
             source_span=SourceRange(**source),
@@ -68,8 +72,7 @@ class DocumentEmbeddingExample:
             raise ValueError("Document byte offsets must identify exactly the source event")
 
 
-def write_document_sidecar(path: str | Path,
-                           examples: list[DocumentEmbeddingExample]) -> dict:
+def write_document_sidecar(path: str | Path, examples: list[DocumentEmbeddingExample]) -> dict:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     identities = set()
@@ -101,12 +104,9 @@ def read_document_sidecar(path: str | Path) -> list[DocumentEmbeddingExample]:
         manifest.get("sha256") != sha256(payload).hexdigest()
     ):
         raise ValueError("Document embedding sidecar checksum/format mismatch")
-    result = [
-        DocumentEmbeddingExample.from_dict(json.loads(line))
-        for line in payload.splitlines()
-    ]
-    if len(result) != manifest.get("entries") or len({
-        (x.episode_id, x.event_id) for x in result
-    }) != len(result):
+    result = [DocumentEmbeddingExample.from_dict(json.loads(line)) for line in payload.splitlines()]
+    if len(result) != manifest.get("entries") or len(
+        {(x.episode_id, x.event_id) for x in result}
+    ) != len(result):
         raise ValueError("Incomplete or duplicated document embedding labels")
     return result

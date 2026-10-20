@@ -5,6 +5,7 @@ Use --manifest only with an existing, fully checksummed local pack snapshot.
 The script probes the *real* donor code, not the native debug media heads.
 Large video checkpoints require accelerator memory; no downloads occur.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,10 +25,19 @@ def _device(name: str) -> torch.device:
     return device
 
 
-def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool = False,
-          image_size: int = 1024, video_height: int = 704,
-          video_width: int = 1280, video_frames: int = 81, steps: int = 16,
-          roundtrip: bool = False) -> dict:
+def probe(
+    manifest: str,
+    *,
+    device: str,
+    packs: tuple[str, ...],
+    rollout: bool = False,
+    image_size: int = 1024,
+    video_height: int = 704,
+    video_width: int = 1280,
+    video_frames: int = 81,
+    steps: int = 16,
+    roundtrip: bool = False,
+) -> dict:
     base, items = read_locked_manifest(manifest)
     result = {}
     torch_device = _device(device)
@@ -73,24 +83,38 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool =
                 rng = torch.Generator(device=torch_device).manual_seed(78117)
                 if name == "pocket":
                     output = student.realize(
-                        raw, max_frames=16, steps=steps, generator=rng,
+                        raw,
+                        max_frames=16,
+                        steps=steps,
+                        generator=rng,
                     )
                     expected_rank = 2
                 elif name == "sana":
                     output = student.realize(
-                        raw, height=image_size, width=image_size, steps=steps,
+                        raw,
+                        height=image_size,
+                        width=image_size,
+                        steps=steps,
                         generator=rng,
                     )
                     expected_rank = 5
                 else:
                     output = student.realize(
-                        raw, height=video_height, width=video_width,
-                        frames=video_frames, steps=steps, generator=rng,
+                        raw,
+                        height=video_height,
+                        width=video_width,
+                        frames=video_frames,
+                        steps=steps,
+                        generator=rng,
                     )
                     expected_rank = 5
                 if not isinstance(output, torch.Tensor):
                     raise ValueError("Donor rollout must materialize as a Torch tensor")
-                if output.ndim != expected_rank or not output.is_floating_point() or not torch.isfinite(output).all():
+                if (
+                    output.ndim != expected_rank
+                    or not output.is_floating_point()
+                    or not torch.isfinite(output).all()
+                ):
                     raise ValueError("Full donor rollout returned invalid media")
                 if output.shape[0] != raw.shape[0]:
                     raise ValueError("Donor rollout changed the selected event batch")
@@ -109,12 +133,21 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool =
                 else:
                     if name == "sana":
                         original = torch.zeros(
-                            1, 3, 64, 64, device=torch_device,
+                            1,
+                            3,
+                            64,
+                            64,
+                            device=torch_device,
                             dtype=student.vae.dtype,
                         )
                     else:
                         original = torch.zeros(
-                            1, 3, 9, 64, 64, device=torch_device,
+                            1,
+                            3,
+                            9,
+                            64,
+                            64,
+                            device=torch_device,
                             dtype=student.vae.dtype,
                         )
                     encoded = student.vae.encode(original, return_dict=True)
@@ -125,15 +158,22 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool =
                     else:
                         raise ValueError("Donor codec has no explicit encoded latent result")
                     decoded = student.vae.decode(latent_codec, return_dict=False)[0]
-                if (not isinstance(decoded, torch.Tensor)
-                        or not torch.isfinite(decoded).all()
-                        or decoded.ndim != original.ndim):
+                if (
+                    not isinstance(decoded, torch.Tensor)
+                    or not torch.isfinite(decoded).all()
+                    or decoded.ndim != original.ndim
+                ):
                     raise ValueError("Matched codec round trip has invalid shape/values")
                 # MIME and temporal codecs may introduce deterministic padding,
                 # which is excluded from the valid reconstruction RMSE.
-                slices = tuple(slice(0, min(n, m)) for n, m in zip(
-                    original.shape, decoded.shape, strict=True,
-                ))
+                slices = tuple(
+                    slice(0, min(n, m))
+                    for n, m in zip(
+                        original.shape,
+                        decoded.shape,
+                        strict=True,
+                    )
+                )
                 aligned = decoded[slices].float()
                 valid = original[slices].float()
                 error = float((aligned - valid).square().mean().sqrt().cpu())
@@ -160,13 +200,23 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--packs", nargs="+", choices=("pocket", "sana", "sana_video"),
-                        default=["pocket", "sana", "sana_video"])
+    parser.add_argument(
+        "--packs",
+        nargs="+",
+        choices=("pocket", "sana", "sana_video"),
+        default=["pocket", "sana", "sana_video"],
+    )
     parser.add_argument("--output", default="")
-    parser.add_argument("--roundtrip", action="store_true",
-                        help="Verify exact frozen codec encode/decode and synthetic RMSE")
-    parser.add_argument("--rollout", action="store_true",
-                        help="Actually generate raw-facets-conditioned speech/image/video")
+    parser.add_argument(
+        "--roundtrip",
+        action="store_true",
+        help="Verify exact frozen codec encode/decode and synthetic RMSE",
+    )
+    parser.add_argument(
+        "--rollout",
+        action="store_true",
+        help="Actually generate raw-facets-conditioned speech/image/video",
+    )
     parser.add_argument("--image-size", type=int, default=1024)
     parser.add_argument("--video-height", type=int, default=704)
     parser.add_argument("--video-width", type=int, default=1280)
@@ -174,15 +224,21 @@ def main():
     parser.add_argument("--steps", type=int, default=16)
     args = parser.parse_args()
     report = probe(
-        args.manifest, device=args.device, packs=tuple(args.packs),
-        rollout=args.rollout, image_size=args.image_size,
-        video_height=args.video_height, video_width=args.video_width,
-        video_frames=args.video_frames, steps=args.steps,
+        args.manifest,
+        device=args.device,
+        packs=tuple(args.packs),
+        rollout=args.rollout,
+        image_size=args.image_size,
+        video_height=args.video_height,
+        video_width=args.video_width,
+        video_frames=args.video_frames,
+        steps=args.steps,
         roundtrip=args.roundtrip,
     )
     value = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         from pathlib import Path
+
         Path(args.output).write_text(value + "\n", encoding="utf-8")
     print(value)
 

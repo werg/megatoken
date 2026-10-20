@@ -20,23 +20,34 @@ def fixture_episode():
     names = ("a", "b", "worker_a", "worker_b", "answer")
     values = (b"red", b"blue", b"one", b"two", b"three")
     records = tuple(
-        PhysicalRecord(name, "user" if i < 2 else "assistant", values[i],
-                       turn_index=max(0, i - 1), policy_mask=i >= 2)
+        PhysicalRecord(
+            name,
+            "user" if i < 2 else "assistant",
+            values[i],
+            turn_index=max(0, i - 1),
+            policy_mask=i >= 2,
+        )
         for i, name in enumerate(names)
     )
-    tracks = tuple(TrackSpec(name, record.role) for name, record in zip(names, records, strict=True))
+    tracks = tuple(
+        TrackSpec(name, record.role) for name, record in zip(names, records, strict=True)
+    )
     meridians = tuple(
-        Meridian(g, tuple(TrackEvent(names[i], names[i], "text", g, records[i].role)
-                          for i in indices))
+        Meridian(
+            g, tuple(TrackEvent(names[i], names[i], "text", g, records[i].role) for i in indices)
+        )
         for g, indices in enumerate(((0, 1), (2, 3), (4,)))
     )
-    return Episode("joint", records, Lineage("fixture", "v1", "family"),
-                   tracks=tracks, meridians=meridians)
+    return Episode(
+        "joint", records, Lineage("fixture", "v1", "family"), tracks=tracks, meridians=meridians
+    )
 
 
 def train_config(root, mode):
     return retrieval_train_config(
-        root, phase="B0" if mode == "bootstrap" else "P1", representation_mode=mode,
+        root,
+        phase="B0" if mode == "bootstrap" else "P1",
+        representation_mode=mode,
     )
 
 
@@ -46,13 +57,18 @@ def tiny_model():
 
 def grouped_batch(model, config):
     episode = fixture_episode()
-    windows = list(iter_windows(
-        episode, ByteCodec.byte_fallback(),
-        WindowConfig(max_records=8, max_decisions=4, max_window_tokens=4096),
-    ))
+    windows = list(
+        iter_windows(
+            episode,
+            ByteCodec.byte_fallback(),
+            WindowConfig(max_records=8, max_decisions=4, max_window_tokens=4096),
+        )
+    )
     assert len(windows) == 1
-    batch, = prepare_batches(
-        model, [EpisodeWindow(episode, windows[0])], config,
+    (batch,) = prepare_batches(
+        model,
+        [EpisodeWindow(episode, windows[0])],
+        config,
     )
     assert isinstance(batch, MeridianPreparedBatch)
     return batch
@@ -60,10 +76,13 @@ def grouped_batch(model, config):
 
 def test_meridians_are_indivisible_window_groups():
     episode = fixture_episode()
-    windows = list(iter_windows(
-        episode, ByteCodec.byte_fallback(),
-        WindowConfig(max_records=1, max_decisions=1, max_window_tokens=8),
-    ))
+    windows = list(
+        iter_windows(
+            episode,
+            ByteCodec.byte_fallback(),
+            WindowConfig(max_records=1, max_decisions=1, max_window_tokens=8),
+        )
+    )
     assert [(w.start, w.end) for w in windows] == [(0, 2), (2, 4), (4, 5)]
 
 
@@ -79,8 +98,7 @@ def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch, tmp_pa
     assert batch.counts["lexical"] == len(b"onetwothree")
     assert batch.counts["reconstruction"] == batch.counts["lexical"]
     assert batch.counts["facet_prediction"] == (
-        3 * model.config.n_facets * model.config.facet_dim
-        if mode == "bootstrap" else 0
+        3 * model.config.n_facets * model.config.facet_dim if mode == "bootstrap" else 0
     )
     seen = []
     original = MultiTrackGenerator.supervised_meridian
@@ -94,7 +112,12 @@ def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch, tmp_pa
     monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", watch)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
     metrics = forward_batch(
-        model, batch, ledger, config, torch.device("cpu"), 0,
+        model,
+        batch,
+        ledger,
+        config,
+        torch.device("cpu"),
+        0,
         retrieval_aux(config, supervised=False),
     )
     ledger.finish()
@@ -111,18 +134,28 @@ def test_media_payload_is_not_silently_trained_as_text(tmp_path):
     from dataclasses import replace
 
     ep = fixture_episode()
-    changed = replace(ep, meridians=(
-        Meridian(0, (
-            TrackEvent("a", "a", "audio", 0, "user"),
-            TrackEvent("b", "b", "text", 0, "user"),
-        )), *ep.meridians[1:],
-    ))
+    changed = replace(
+        ep,
+        meridians=(
+            Meridian(
+                0,
+                (
+                    TrackEvent("a", "a", "audio", 0, "user"),
+                    TrackEvent("b", "b", "text", 0, "user"),
+                ),
+            ),
+            *ep.meridians[1:],
+        ),
+    )
     model = tiny_model()
     window = next(iter_windows(changed, ByteCodec.byte_fallback()))
     with pytest.raises(ValueError, match="pinned canonical media asset"):
         prepare_batches(
-            model, [EpisodeWindow(changed, window)], train_config(tmp_path, "bootstrap"),
+            model,
+            [EpisodeWindow(changed, window)],
+            train_config(tmp_path, "bootstrap"),
         )
+
 
 def test_grouped_episode_runs_in_existing_training_checkpoint_loop(tmp_path):
     from retrieval_fixture import retrieval_train_config
@@ -132,8 +165,11 @@ def test_grouped_episode_runs_in_existing_training_checkpoint_loop(tmp_path):
 
     torch.set_num_threads(1)
     config = retrieval_train_config(
-        tmp_path, phase="P1", representation_mode="recurrent",
-        microbatch_episodes=1, max_accumulation_windows=1,
+        tmp_path,
+        phase="P1",
+        representation_mode="recurrent",
+        microbatch_episodes=1,
+        max_accumulation_windows=1,
     )
     outcome = train(config)
     payload, _ = load_checkpoint(outcome["checkpoint"])
@@ -154,8 +190,11 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
         replace(original.records[2], action_id="call-1"),
         original.records[3],
         replace(
-            original.records[4], role="tool", policy_mask=False,
-            result_of="call-1", execution_id="execution-1",
+            original.records[4],
+            role="tool",
+            policy_mask=False,
+            result_of="call-1",
+            execution_id="execution-1",
         ),
     )
     tracks = (*original.tracks[:4], TrackSpec("answer", "tool"))
@@ -164,21 +203,34 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
         Meridian(2, (TrackEvent("answer", "answer", "text", 2, "tool"),)),
     )
     action = LogicalAction(
-        "call-1", "id-1", "noop", "{}", ("worker_a",),
-        digest_bytes(b"one"), execution_id="execution-1",
+        "call-1",
+        "id-1",
+        "noop",
+        "{}",
+        ("worker_a",),
+        digest_bytes(b"one"),
+        execution_id="execution-1",
     )
     episode = replace(
-        original, records=records, tracks=tracks, meridians=meridians,
+        original,
+        records=records,
+        tracks=tracks,
+        meridians=meridians,
         actions=(action,),
     )
     model = tiny_model()
     config = train_config(tmp_path, "recurrent")
-    window = next(iter_windows(
-        episode, ByteCodec.byte_fallback(),
-        WindowConfig(max_records=8, max_decisions=4),
-    ))
-    batch, = prepare_batches(
-        model, [EpisodeWindow(episode, window)], config,
+    window = next(
+        iter_windows(
+            episode,
+            ByteCodec.byte_fallback(),
+            WindowConfig(max_records=8, max_decisions=4),
+        )
+    )
+    (batch,) = prepare_batches(
+        model,
+        [EpisodeWindow(episode, window)],
+        config,
     )
     selected = []
     original_step = MultiTrackGenerator.supervised_meridian
@@ -190,7 +242,12 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
     monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", capture)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
     forward_batch(
-        model, batch, ledger, config, torch.device("cpu"), 0,
+        model,
+        batch,
+        ledger,
+        config,
+        torch.device("cpu"),
+        0,
         retrieval_aux(config, supervised=False),
     )
     ledger.finish()

@@ -4,6 +4,7 @@ No teacher call occurs here. The caller's immutable prepared catalog must
 identify every original byte span, its full contextual teacher footprint,
 source asset checksum and one normalized address in the recipe's named space.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,16 +22,18 @@ from megatoken.memory.sqlite import SQLiteKB
 
 
 def build_source_catalog(
-    recipe: RetrievalRecipe, *, catalog: Path, assets_root: Path,
+    recipe: RetrievalRecipe,
+    *,
+    catalog: Path,
+    assets_root: Path,
     output: Path,
 ) -> dict:
     if output.exists():
         raise FileExistsError("Never overwrite the authoritative learned-space catalog")
     if recipe.phase != "coherence_embedding":
         raise ValueError("Literal source catalog construction precedes free-bank growth")
-    if (
-        recipe.space.teacher_revision.startswith("PIN_")
-        or recipe.growth.partition_id.startswith("PIN_")
+    if recipe.space.teacher_revision.startswith("PIN_") or recipe.growth.partition_id.startswith(
+        "PIN_"
     ):
         raise ValueError("Pin an actual teacher revision and split partition before import")
     if not catalog.is_file() or not assets_root.is_dir():
@@ -70,17 +73,24 @@ def build_source_catalog(
                     if entry["asset_sha256"] != digest:
                         raise ValueError("Original source asset hash differs from catalog")
                     footprint = Footprint.from_json(json.dumps(entry["footprint"]))
-                    evidence = SourceRange(**{
-                        **entry["evidence_span"],
-                        "ancestors": tuple(entry["evidence_span"].get("ancestors", ())),
-                    })
-                    if evidence not in footprint.ranges or evidence.scope != scope or (
-                        evidence.end > source_path.stat().st_size
+                    evidence = SourceRange(
+                        **{
+                            **entry["evidence_span"],
+                            "ancestors": tuple(entry["evidence_span"].get("ancestors", ())),
+                        }
+                    )
+                    if (
+                        evidence not in footprint.ranges
+                        or evidence.scope != scope
+                        or (evidence.end > source_path.stat().st_size)
                     ):
                         raise ValueError("Returned evidence is outside pinned source and context")
                     bank.insert_source(
-                        scope=scope, footprint=footprint, key=entry["key"],
-                        content_id=entry["content_id"], asset_ref=asset,
+                        scope=scope,
+                        footprint=footprint,
+                        key=entry["key"],
+                        content_id=entry["content_id"],
+                        asset_ref=asset,
                         evidence_span=evidence,
                     )
                     rows += 1
@@ -93,10 +103,14 @@ def build_source_catalog(
                     for window_id in windows:
                         if not isinstance(window_id, str) or not window_id:
                             raise ValueError("Source window identity must be nonempty")
-                        owner = source_windows.setdefault(window_id, {
-                            "scope": scope, "chunks": set(),
-                            "ranges": set(),
-                        })
+                        owner = source_windows.setdefault(
+                            window_id,
+                            {
+                                "scope": scope,
+                                "chunks": set(),
+                                "ranges": set(),
+                            },
+                        )
                         if owner["scope"] != scope:
                             raise ValueError("One source window cannot cross visibility scopes")
                         owner["chunks"].add(entry["content_id"])
@@ -108,22 +122,31 @@ def build_source_catalog(
                            (window_id,scope,footprint,source_ids)
                            VALUES (?,?,?,?)""",
                         (
-                            window_id, window["scope"], support.to_json(),
+                            window_id,
+                            window["scope"],
+                            support.to_json(),
                             json.dumps(sorted(window["chunks"])),
                         ),
                     )
                 # Never auto-open the allocator without measured generator
                 # coherence and query/document embedding acceptance receipts.
-                bank.put_growth_state("readiness", {
-                    "coherence": False, "embeddings": False,
-                    "space": recipe.space.fingerprint,
-                    "recipe": recipe.fingerprint,
-                })
-                bank.put_growth_state("source_catalog", {
-                    "snapshot": sha256_file(catalog),
-                    "space": recipe.space.fingerprint,
-                    "partition_id": recipe.growth.partition_id,
-                })
+                bank.put_growth_state(
+                    "readiness",
+                    {
+                        "coherence": False,
+                        "embeddings": False,
+                        "space": recipe.space.fingerprint,
+                        "recipe": recipe.fingerprint,
+                    },
+                )
+                bank.put_growth_state(
+                    "source_catalog",
+                    {
+                        "snapshot": sha256_file(catalog),
+                        "space": recipe.space.fingerprint,
+                        "partition_id": recipe.growth.partition_id,
+                    },
+                )
             db_id = bank.database_id
             revisions = asdict(bank.revisions())
             bank.backup(Path(tmp) / "catalog.sqlite")
@@ -136,7 +159,8 @@ def build_source_catalog(
             "partition_id": recipe.growth.partition_id,
             "source_manifest_sha256": sha256(catalog.read_bytes()).hexdigest(),
             "catalog_sha256": sha256_file(final),
-            "database_id": db_id, "sources": rows,
+            "database_id": db_id,
+            "sources": rows,
             "independent_source_windows": len(source_windows),
             "verified_original_assets": len(bytes_verified),
             "revisions": revisions,
@@ -157,8 +181,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     report = build_source_catalog(
-        RetrievalRecipe.load(args.recipe), catalog=args.catalog,
-        assets_root=args.assets_root, output=args.output,
+        RetrievalRecipe.load(args.recipe),
+        catalog=args.catalog,
+        assets_root=args.assets_root,
+        output=args.output,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0

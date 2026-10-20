@@ -1,4 +1,5 @@
 """Typed retrieval records. Address, semantic value, and native attention K are distinct."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -31,8 +32,10 @@ class Record:
     evidence_span: SourceRange | None = None
 
     def __post_init__(self) -> None:
-        if self.id < 1 or self.collection is Collection.SOURCE and (
-            not self.content_id or not self.asset_ref or self.value is not None
+        if (
+            self.id < 1
+            or self.collection is Collection.SOURCE
+            and (not self.content_id or not self.asset_ref or self.value is not None)
         ):
             raise ValueError("Source records need immutable content and no learned payload")
         if self.collection is Collection.MEMORY and self.value is None:
@@ -79,12 +82,19 @@ class SearchBatch:
 
 class SearchBackend(Protocol):
     def search(
-        self, query: np.ndarray, *, collection: Collection, scope: str,
-        visibility: Visibility, limit: int, excluded: set[int] | None = None,
+        self,
+        query: np.ndarray,
+        *,
+        collection: Collection,
+        scope: str,
+        visibility: Visibility,
+        limit: int,
+        excluded: set[int] | None = None,
     ) -> SearchBatch: ...
 
 
 class RecordStore(Protocol):
     space: SemanticSpace
+
     def scan(self, collection: Collection, scope: str) -> Sequence[Record]: ...
     def revisions(self) -> Revisions: ...

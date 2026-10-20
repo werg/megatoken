@@ -188,8 +188,11 @@ def prepare_batches(
     result: list[MeridianPreparedBatch] = []
     histories: dict[int, NativeHistory] = {}
     verified_streams = {
-        "verified_trajectories", "verified_successful_multiturn",
-        "tested_artifacts", "successful_replay", "long_verified_dependencies",
+        "verified_trajectories",
+        "verified_successful_multiturn",
+        "tested_artifacts",
+        "successful_replay",
+        "long_verified_dependencies",
     }
     for item in windows:
         episode = item.episode
@@ -203,17 +206,18 @@ def prepare_batches(
             for record in (*item.window.prefix, *item.window.records)
         ):
             raise ValueError("A native record exceeds the configured original-byte limit")
-        if (not config.allow_unverified_data and episode.stream in verified_streams
-                and not episode.supervision.verified_success):
+        if (
+            not config.allow_unverified_data
+            and episode.stream in verified_streams
+            and not episode.supervision.verified_success
+        ):
             raise ValueError("Training stream requires independent verified success")
         if episode.stream == "long_verified_dependencies" and not episode.dependencies:
             raise ValueError("Long dependency stream requires causal source relationships")
         identity = id(episode)
         if identity not in histories:
             histories[identity] = NativeHistory.from_episode(episode, model)
-        result.append(prepare_meridian_batch(
-            model, item, histories[identity], config
-        ))
+        result.append(prepare_meridian_batch(model, item, histories[identity], config))
     return result
 
 
@@ -224,19 +228,21 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
             window = item.window
             prefix_tokens = sum(record.tokens for record in window.prefix)
             new_tokens = sum(record.tokens for record in window.records)
-            result.add(Counters(
-                D=new_tokens,
-                I=new_tokens + prefix_tokens,
-                G=len(window.records),
-                source_bytes=sum(
-                    len(record.payload) for record in (*window.prefix, *window.records)
-                ),
-                record_ingestions=len(window.prefix) + len(window.records),
-                reconstruction_tokens=prefix_tokens,
-                reconstruction_records=len(window.prefix),
-                scored_windows=int(bool(window.P)),
-                writer_reader_windows=int(bool(window.writer_reader_pairs)),
-            ))
+            result.add(
+                Counters(
+                    D=new_tokens,
+                    I=new_tokens + prefix_tokens,
+                    G=len(window.records),
+                    source_bytes=sum(
+                        len(record.payload) for record in (*window.prefix, *window.records)
+                    ),
+                    record_ingestions=len(window.prefix) + len(window.records),
+                    reconstruction_tokens=prefix_tokens,
+                    reconstruction_records=len(window.prefix),
+                    scored_windows=int(bool(window.P)),
+                    writer_reader_windows=int(bool(window.writer_reader_pairs)),
+                )
+            )
         for step in batch.steps:
             for modality, record in zip(step.modalities, step.records, strict=True):
                 if modality not in {"audio", "image", "video"}:
@@ -250,16 +256,15 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
                     result.video_frames += asset.shape[0]
                 elif modality == "image":
                     result.image_events += 1
-        result.P += sum(
-            plan.scored_positions for step in batch.steps for plan in step.plans
-        )
+        result.P += sum(plan.scored_positions for step in batch.steps for plan in step.plans)
         result.facet_encodes += sum(len(step.plans) for step in batch.steps)
         if batch.native_history.has_events:
             for step in (*batch.prefix, *batch.steps):
                 for cursor in step.offsets:
                     result.raw_facet_replays += len(
                         batch.native_history.events_for_record(
-                            cursor, include_record=False,
+                            cursor,
+                            include_record=False,
                         )
                     ) + int(batch.native_history.paired_tape(cursor) is not None)
         if any(episode_control_payload(item.episode) for item in batch.windows):
@@ -356,7 +361,9 @@ def train(
         int(os.environ.get("WORLD_SIZE", "1")) != 1
         or (torch.distributed.is_available() and torch.distributed.is_initialized())
     ):
-        raise ValueError("Decoupled learners require one independent process per sandbox, not torchrun")
+        raise ValueError(
+            "Decoupled learners require one independent process per sandbox, not torchrun"
+        )
     context = DistributedContext.initialize(config.device)
     output = Path(config.output)
     if config.decoupled is not None:
@@ -416,8 +423,7 @@ def train(
         # Activation checkpointing and the expert kernel are runtime choices,
         # not pinned geometry.
         runtime_only = ("checkpoint_stages", "expert_backend")
-        if {k: v for k, v in retrieval_recipe.model.to_dict().items()
-                if k not in runtime_only} != {
+        if {k: v for k, v in retrieval_recipe.model.to_dict().items() if k not in runtime_only} != {
             k: v for k, v in model_config.to_dict().items() if k not in runtime_only
         }:
             raise ValueError("Training model differs from pinned recipe geometry")
@@ -431,21 +437,25 @@ def train(
                 f"Native training stage {config.phase} is not in the mandatory "
                 f"{retrieval_recipe.phase} retrieval-memory curriculum"
             )
-        if (
-            retrieval_recipe.space.teacher_revision.startswith("PIN_")
-            or retrieval_recipe.growth.partition_id.startswith("PIN_")
-        ):
+        if retrieval_recipe.space.teacher_revision.startswith(
+            "PIN_"
+        ) or retrieval_recipe.growth.partition_id.startswith("PIN_"):
             raise ValueError("Pin teacher and data partition before training")
         if retrieval_recipe.phase != "coherence_embedding":
-            if retrieval_recipe.phase not in {
-                "progressive_warmup", "free_kb_pretraining",
-            } or not config.retrieval_bank or not config.retrieval_gate_receipt:
+            if (
+                retrieval_recipe.phase
+                not in {
+                    "progressive_warmup",
+                    "free_kb_pretraining",
+                }
+                or not config.retrieval_bank
+                or not config.retrieval_gate_receipt
+            ):
                 raise ValueError("Live free-KB phases require a bank and phase gate")
             from megatoken.memory.recipe import GateReceipt, validate_gate
+
             gate = json.loads(Path(config.retrieval_gate_receipt).read_text())
-            receipt = GateReceipt(**{
-                **gate, "successful": tuple(gate["successful"])
-            })
+            receipt = GateReceipt(**{**gate, "successful": tuple(gate["successful"])})
             if receipt.phase != retrieval_recipe.phase:
                 raise ValueError("Retrieval phase gate must match training phase")
             validate_gate(retrieval_recipe, receipt)
@@ -487,14 +497,20 @@ def train(
             sha256_file(config.native_pack_manifest) if config.native_pack_manifest else None
         )
         model = build_model(
-            model_config, codec, device=context.device, precision=config.precision,
+            model_config,
+            codec,
+            device=context.device,
+            precision=config.precision,
             native_pack_manifest=config.native_pack_manifest,
         )
         pretrained_pack_fingerprint = ""
         if config.pretrained_packs is not None:
             from megatoken.omni.loader import install_pretrained_packs
+
             install_pretrained_packs(
-                model, config.pretrained_packs, device=context.device,
+                model,
+                config.pretrained_packs,
+                device=context.device,
                 dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
             )
             pretrained_pack_fingerprint = hashlib.sha256(
@@ -507,9 +523,7 @@ def train(
             if not phase_transition and (
                 payload.get("retrieval_sidecar_sha256", "") != retrieval_sidecar_sha
                 or payload.get("retrieval_document_sha256", "") != document_sidecar_sha
-                or payload.get("retrieval_recipe_fingerprint", "") != (
-                    retrieval_recipe.fingerprint
-                )
+                or payload.get("retrieval_recipe_fingerprint", "") != (retrieval_recipe.fingerprint)
             ):
                 raise ValueError("Exact resume changed retrieval supervision or recipe identity")
             if payload.get("pretrained_pack_fingerprint", "") != pretrained_pack_fingerprint:
@@ -551,15 +565,20 @@ def train(
             try:
                 ready = bank.growth_state("readiness", {})
                 if not (ready.get("coherence") and ready.get("embeddings")):
-                    raise RuntimeError("Free-KB training requires verified coherence/embedding readiness")
+                    raise RuntimeError(
+                        "Free-KB training requires verified coherence/embedding readiness"
+                    )
                 if payload is not None and not phase_transition:
                     snapshot = resolve_checkpoint(resume) / "kb.sqlite"
                     validate_checkpoint(
-                        retrieval_recipe, snapshot,
+                        retrieval_recipe,
+                        snapshot,
                         model_checkpoint_id=resolve_checkpoint(resume).name,
                     )
                     with open_bank_for_recipe(
-                        retrieval_recipe, snapshot, readonly=True,
+                        retrieval_recipe,
+                        snapshot,
+                        readonly=True,
                     ) as pinned:
                         if (
                             bank.database_id != pinned.database_id
@@ -577,7 +596,8 @@ def train(
                 from megatoken.training.source_features import NativeSourceFeatures
 
                 source_features = NativeSourceFeatures(
-                    model, config.retrieval_source_assets_root,
+                    model,
+                    config.retrieval_source_assets_root,
                     max_chunk_bytes=retrieval_recipe.max_source_bytes,
                     strict_hash=True,
                 )
@@ -591,11 +611,15 @@ def train(
                     import numpy as np
 
                     centroids = np.load(
-                        config.retrieval_ivf_centroids, allow_pickle=False,
+                        config.retrieval_ivf_centroids,
+                        allow_pickle=False,
                     )
-                elif bank.db.execute(
-                    "SELECT COUNT(*) FROM records WHERE collection='source' AND active=1"
-                ).fetchone()[0] > 10000:
+                elif (
+                    bank.db.execute(
+                        "SELECT COUNT(*) FROM records WHERE collection='source' AND active=1"
+                    ).fetchone()[0]
+                    > 10000
+                ):
                     raise ValueError(
                         "Large training corpora require pinned disk-IVF centroids "
                         "instead of unbounded exact-source scans"
@@ -603,9 +627,12 @@ def train(
 
                 def make_bank_owner(opened):
                     return BankTrainingOwner(
-                        opened, retrieval_recipe, device=context.device,
+                        opened,
+                        retrieval_recipe,
+                        device=context.device,
                         sparse_lr=config.retrieval_sparse_lr,
-                        source_features=source_features, centroids=centroids,
+                        source_features=source_features,
+                        centroids=centroids,
                         nprobe=config.retrieval_ivf_nprobe,
                     )
 
@@ -616,6 +643,7 @@ def train(
         context.broadcast_model(model)
         if bank_owner is not None:
             from megatoken.training.bank import assert_shared_bank_snapshot
+
             assert_shared_bank_snapshot(bank_owner, context)
         phase = dataclasses.replace(
             PHASES[config.phase],
@@ -623,7 +651,9 @@ def train(
             meter="G" if config.budget_meter == "G" else PHASES[config.phase].meter,
         )
         optimizer = MasterAdamW(
-            model, phase.learning_rate(0), config.weight_decay,
+            model,
+            phase.learning_rate(0),
+            config.weight_decay,
             inner_optimizer=config.inner_optimizer,
         )
         if config.representation_training == "recurrent":
@@ -654,21 +684,30 @@ def train(
             raise ValueError("Select one of omni_recipe and concordance_recipe per run")
         concordance_recipe = (
             load_concordance_recipe(config.concordance_recipe)
-            if config.concordance_recipe is not None else None
+            if config.concordance_recipe is not None
+            else None
         )
         if concordance_recipe is not None and phase.meter != "G":
             raise ValueError("Concordance tasks must use event-based G training budgets")
         if config.omni_recipe is not None:
             from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
+
             stream = OmniWindowStream(
-                config.dataset, codec, windows_config,
-                load_omni_recipe(config.omni_recipe), "G",
-                seed=config.seed, rank=data_rank, world_size=data_world,
+                config.dataset,
+                codec,
+                windows_config,
+                load_omni_recipe(config.omni_recipe),
+                "G",
+                seed=config.seed,
+                rank=data_rank,
+                world_size=data_world,
                 reduce_counts=context.sum_counts,
                 independent=config.decoupled is not None,
             )
         elif config.use_stage_mixture or concordance_recipe is not None:
-            recipe = concordance_recipe if concordance_recipe is not None else stage_recipe(config.phase)
+            recipe = (
+                concordance_recipe if concordance_recipe is not None else stage_recipe(config.phase)
+            )
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
@@ -684,13 +723,21 @@ def train(
         else:
             stream = (
                 IndependentWindowStream(
-                    dataset, codec, windows_config, seed=config.seed,
-                    rank=data_rank, world_size=data_world,
+                    dataset,
+                    codec,
+                    windows_config,
+                    seed=config.seed,
+                    rank=data_rank,
+                    world_size=data_world,
                 )
                 if config.decoupled is not None
                 else WindowStream(
-                    dataset, codec, windows_config, seed=config.seed,
-                    rank=context.rank, world_size=context.world_size,
+                    dataset,
+                    codec,
+                    windows_config,
+                    seed=config.seed,
+                    rank=context.rank,
+                    world_size=context.world_size,
                     reduce_counts=context.sum_counts,
                 )
             )
@@ -775,11 +822,14 @@ def train(
             if bank_owner is None:
                 return {}
             from megatoken.memory.recipe import checkpoint_bank
+
             growth = bank_owner.bank.growth_state("last_growth", {})
             manifest = checkpoint_bank(
-                retrieval_recipe, bank_owner.bank,
+                retrieval_recipe,
+                bank_owner.bank,
                 checkpoint_file=stage / "kb.sqlite",
-                model_checkpoint_id=name, optimizer_step=global_step,
+                model_checkpoint_id=name,
+                optimizer_step=global_step,
                 growth_cursor=content_hash(growth),
                 query_model_snapshot=f"native-p-r:{global_step}:{model_config.routing_version}",
             )
@@ -883,23 +933,24 @@ def train(
             }
             global_counts = context.sum_counts(local_counts)
             retrieval_local = sum(
-                (b.windows[0].episode.episode_id, r.record.record_id)
-                in retrieval_examples
-                for b in batches if isinstance(b, MeridianPreparedBatch)
-                for step in b.steps if step.generated for r in step.records
-            )
-            retrieval_denom = context.sum_counts(
-                {"retrieval_queries": retrieval_local}
-            )["retrieval_queries"]
-            doc_local = sum(
-                (b.windows[0].episode.episode_id, r.record.record_id)
-                in document_examples
+                (b.windows[0].episode.episode_id, r.record.record_id) in retrieval_examples
                 for b in batches
-                for step in b.steps if not step.generated for r in step.records
+                if isinstance(b, MeridianPreparedBatch)
+                for step in b.steps
+                if step.generated
+                for r in step.records
             )
-            document_denom = context.sum_counts(
-                {"document_chunks": doc_local}
-            )["document_chunks"]
+            retrieval_denom = context.sum_counts({"retrieval_queries": retrieval_local})[
+                "retrieval_queries"
+            ]
+            doc_local = sum(
+                (b.windows[0].episode.episode_id, r.record.record_id) in document_examples
+                for b in batches
+                for step in b.steps
+                if not step.generated
+                for r in step.records
+            )
+            document_denom = context.sum_counts({"document_chunks": doc_local})["document_chunks"]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -911,8 +962,12 @@ def train(
             weights["router_balance"] = 0.0
             if concordance_recipe is not None:
                 # Reconstruction and distillation are auxiliaries, not extra mixture rows.
-                for name in ("reconstruction", "audio_reconstruction",
-                             "visual_reconstruction", "encoder_alignment"):
+                for name in (
+                    "reconstruction",
+                    "audio_reconstruction",
+                    "visual_reconstruction",
+                    "encoder_alignment",
+                ):
                     weights[name] *= concordance_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
@@ -929,10 +984,19 @@ def train(
             step_diagnostics: dict[str, float | torch.Tensor] = {}
             for batch in batches:
                 diagnostics_batch = forward_batch(
-                    model, batch, ledger, config, context.device, global_step,
+                    model,
+                    batch,
+                    ledger,
+                    config,
+                    context.device,
+                    global_step,
                     retrieval_aux=(
-                        retrieval_examples, retrieval_recipe, retrieval_denom, bank_owner,
-                        document_examples, document_denom,
+                        retrieval_examples,
+                        retrieval_recipe,
+                        retrieval_denom,
+                        bank_owner,
+                        document_examples,
+                        document_denom,
                     ),
                 )
                 for key, value in diagnostics_batch.items():
@@ -941,11 +1005,13 @@ def train(
             if router_replay is not None:
                 # All ranks participate, including workers with zero eligible
                 # assignments. The model's version remains fixed until step().
-                step_diagnostics.update(router_replay.backward(
-                    context,
-                    routers={"p": model.core.p_router, "u": model.core.u_router},
-                    coefficient=config.loss_weights["router_balance"],
-                ))
+                step_diagnostics.update(
+                    router_replay.backward(
+                        context,
+                        routers={"p": model.core.p_router, "u": model.core.u_router},
+                        coefficient=config.loss_weights["router_balance"],
+                    )
+                )
                 model.core.p_router.balance_recorder = None
                 model.core.u_router.balance_recorder = None
             context.synchronize_gradients(optimizer.parameters)
@@ -964,7 +1030,9 @@ def train(
                 if kb_sync is not None:
                     kb_sync.capture(bank_owner.sparse.leaves)
                 step_metrics["memory_sparse_updated"] = synchronize_sparse_rows(
-                    bank_owner, context, optimizer_step=global_step,
+                    bank_owner,
+                    context,
+                    optimizer_step=global_step,
                     max_norm=config.grad_clip,
                 )
                 if kb_sync is not None:
@@ -975,19 +1043,25 @@ def train(
                     # Growth allocates from published demand; publish every step so
                     # pending demand never accumulates between growth barriers.
                     step_metrics["memory_demand_published"] = synchronize_query_demand(
-                        bank_owner, context,
+                        bank_owner,
+                        context,
                     )
                 if kb_sync is None and global_step % config.retrieval_growth_every == 0:
                     error = None
                     grown = 0
                     if context.is_primary:
                         try:
-                            scopes = tuple(sorted({
-                                a.query_teacher_inputs.ranges[0].scope
-                                for a in retrieval_examples.values()
-                            }))
+                            scopes = tuple(
+                                sorted(
+                                    {
+                                        a.query_teacher_inputs.ranges[0].scope
+                                        for a in retrieval_examples.values()
+                                    }
+                                )
+                            )
                             grown = bank_owner.grow_at_barrier(
-                                scopes=scopes, step=global_step,
+                                scopes=scopes,
+                                step=global_step,
                                 budget=config.retrieval_growth_budget,
                             )
                         except BaseException as exc:
@@ -1003,7 +1077,9 @@ def train(
             counters.add(global_work)
             diloco_metrics = (
                 diloco.after_step(
-                    optimizer, steps=global_step, tokens=getattr(global_work, phase.meter),
+                    optimizer,
+                    steps=global_step,
+                    tokens=getattr(global_work, phase.meter),
                     bank=None if bank_owner is None else bank_owner.bank,
                 )
                 if diloco is not None
@@ -1026,9 +1102,7 @@ def train(
                 else:
                     bank_owner.bank.close()
                     install_snapshot(downloaded, bank_path)
-                    bank_owner = make_bank_owner(
-                        open_bank_for_recipe(retrieval_recipe, bank_path)
-                    )
+                    bank_owner = make_bank_owner(open_bank_for_recipe(retrieval_recipe, bank_path))
                 kb_sync.installed(version)
             model.core.set_model_version(global_step)
             local_sums = ledger.sums
@@ -1141,9 +1215,7 @@ def train(
             "global_step": global_step,
             "phase": phase.name,
             "phase_consumed": consumed,
-            "complete": consumed >= phase.budget or (
-                diloco is not None and diloco.finished
-            ),
+            "complete": consumed >= phase.budget or (diloco is not None and diloco.finished),
             "checkpoint": last_checkpoint,
             "counters": asdict(counters),
         }

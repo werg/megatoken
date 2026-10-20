@@ -21,8 +21,11 @@ def test_train_checkpoint_and_exact_resume(config):
     payload, _ = load_checkpoint(first["checkpoint"])
     assert first["global_step"] == payload["global_step"] == 1
     assert first["counters"]["P"] > 0
-    for key in ("retrieval_sidecar_sha256", "retrieval_document_sha256",
-                "retrieval_recipe_fingerprint"):
+    for key in (
+        "retrieval_sidecar_sha256",
+        "retrieval_document_sha256",
+        "retrieval_recipe_fingerprint",
+    ):
         assert payload[key]
     resumed = train(config, resume=first["checkpoint"])
     assert resumed["global_step"] == 2
@@ -33,7 +36,9 @@ def test_train_checkpoint_and_exact_resume(config):
 def test_resume_rejects_changed_sidecar_content(config, tmp_path):
     first = train(config)
     write_retrieval_artifacts(
-        tmp_path / "retrieval", [make_episode(i) for i in range(4)], seed=1,
+        tmp_path / "retrieval",
+        [make_episode(i) for i in range(4)],
+        seed=1,
     )
     with pytest.raises(ValueError, match="changed retrieval supervision"):
         train(config, resume=first["checkpoint"])

@@ -1,4 +1,5 @@
 """Causal source-footprint and teacher-target sidecar release gates."""
+
 import base64
 from dataclasses import replace
 from hashlib import sha256
@@ -10,30 +11,47 @@ from megatoken.memory.contracts import Footprint, QueryBoundary, SourceRange
 
 
 def _support(name, *, available_at=0, scope="team"):
-    return Footprint((
-        SourceRange(
-            name, "v1", 0, 10, "sha-source-bytes", scope,
-            available_at=available_at, family="fixture",
-        ),
-    ))
+    return Footprint(
+        (
+            SourceRange(
+                name,
+                "v1",
+                0,
+                10,
+                "sha-source-bytes",
+                scope,
+                available_at=available_at,
+                family="fixture",
+            ),
+        )
+    )
 
 
 def _example():
     boundary = QueryBoundary(
-        "event-1", meridian=3, purpose="source",
-        originating_track="main", request_hash="request-digest",
+        "event-1",
+        meridian=3,
+        purpose="source",
+        originating_track="main",
+        request_hash="request-digest",
         space_fingerprint="space-digest",
-        snapshot_id="scoring-snapshot", deadline=4,
+        snapshot_id="scoring-snapshot",
+        deadline=4,
     )
     return RetrievalExample(
-        episode_id="episode-1", event_id="event-1", query=boundary,
+        episode_id="episode-1",
+        event_id="event-1",
+        query=boundary,
         query_teacher_inputs=_support("request", available_at=3),
         document_key_context=_support("document", available_at=3),
         optimization_supervision=_support("future-label", available_at=100),
         payload_support=_support("document", available_at=3),
-        positive_content_ids=("document/chunk",), support_weights=(1.,),
-        annotations_complete=True, source_snapshot="pinned-corpus",
-        split_family="family-a", teacher_target=(1., 0.),
+        positive_content_ids=("document/chunk",),
+        support_weights=(1.0,),
+        annotations_complete=True,
+        source_snapshot="pinned-corpus",
+        split_family="family-a",
+        teacher_target=(1.0, 0.0),
     )
 
 
@@ -53,7 +71,7 @@ def test_optimizer_labels_may_use_future_outcomes_but_not_as_query_inputs():
     assert example.query_teacher_inputs.ranges[0].available_at <= example.query.meridian
 
 
-@pytest.mark.parametrize("target", [(float("nan"), 0.), (float("inf"), 1.), (0., 0.)])
+@pytest.mark.parametrize("target", [(float("nan"), 0.0), (float("inf"), 1.0), (0.0, 0.0)])
 def test_invalid_teacher_target_rejected(target):
     with pytest.raises(ValueError, match="finite and nonzero"):
         replace(_example(), teacher_target=target)

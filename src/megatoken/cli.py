@@ -142,10 +142,14 @@ def _diloco_initialize(args):
             "centroids_path": config.retrieval_ivf_centroids,
             "centroids_sha256": config.retrieval_ivf_sha256,
             "nprobe": config.retrieval_ivf_nprobe,
-            "scopes": tuple(sorted({
-                example.query_teacher_inputs.ranges[0].scope
-                for example in read_sidecar(config.retrieval_sidecar)
-            })),
+            "scopes": tuple(
+                sorted(
+                    {
+                        example.query_teacher_inputs.ranges[0].scope
+                        for example in read_sidecar(config.retrieval_sidecar)
+                    }
+                )
+            ),
             "growth_budget": config.retrieval_growth_budget,
         }
     return initialize_coordinator(
@@ -175,7 +179,9 @@ def _diloco_serve(args):
     from megatoken.training.diloco_server import serve_coordinator
 
     serve_coordinator(
-        args.root, args.host, args.port,
+        args.root,
+        args.host,
+        args.port,
         token=os.environ.get("MEGATOKEN_DILOCO_TOKEN", ""),
     )
 
@@ -467,7 +473,9 @@ def parser() -> argparse.ArgumentParser:
     serving.add_argument("--host", default="127.0.0.1")
     serving.add_argument("--port", type=int, default=8823)
     serving.set_defaults(func=_diloco_serve)
-    exporting = sub.add_parser("export", help="Export a stopped syncer's global model for evaluation")
+    exporting = sub.add_parser(
+        "export", help="Export a stopped syncer's global model for evaluation"
+    )
     exporting.add_argument("--root", required=True)
     exporting.add_argument("--output", required=True)
     exporting.add_argument("--config", required=True)

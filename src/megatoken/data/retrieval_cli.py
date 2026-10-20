@@ -4,6 +4,7 @@ This is a strict importer, not an online teacher or an ungrounded embedding
 ingester. Every query/document label must correspond to a verified episode
 event in the already checksummed prepared corpus.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -37,8 +38,10 @@ def _rows(path: Path):
 def _canonical_query(row: dict) -> dict:
     result = dict(row)
     for name in (
-        "query_teacher_inputs", "document_key_context",
-        "optimization_supervision", "payload_support",
+        "query_teacher_inputs",
+        "document_key_context",
+        "optimization_supervision",
+        "payload_support",
     ):
         if isinstance(result.get(name), list):
             result[name] = json.dumps(result[name], sort_keys=True)
@@ -53,18 +56,21 @@ def _canonical_document(row: dict) -> dict:
 
 
 def prepare_supervision(
-    *, recipe: RetrievalRecipe, prepared_dataset: str | Path,
-    query_jsonl: str | Path, document_jsonl: str | Path,
-    destination: str | Path, source_snapshot: str,
+    *,
+    recipe: RetrievalRecipe,
+    prepared_dataset: str | Path,
+    query_jsonl: str | Path,
+    document_jsonl: str | Path,
+    destination: str | Path,
+    source_snapshot: str,
 ) -> dict[str, object]:
-    if (recipe.space.teacher_revision.startswith("PIN_")
-            or recipe.growth.partition_id.startswith("PIN_")):
+    if recipe.space.teacher_revision.startswith("PIN_") or recipe.growth.partition_id.startswith(
+        "PIN_"
+    ):
         raise ValueError("Pin teacher weight/preprocessing and source partition first")
     if not source_snapshot or source_snapshot.startswith("PIN_"):
         raise ValueError("The canonical source catalog snapshot is required")
-    queries = [
-        RetrievalExample.from_dict(_canonical_query(x)) for x in _rows(Path(query_jsonl))
-    ]
+    queries = [RetrievalExample.from_dict(_canonical_query(x)) for x in _rows(Path(query_jsonl))]
     documents = [
         DocumentEmbeddingExample.from_dict(_canonical_document(x))
         for x in _rows(Path(document_jsonl))
@@ -81,9 +87,7 @@ def prepare_supervision(
             raise ValueError("Query source snapshot differs from original catalog")
         if entry.query.space_fingerprint != recipe.space.fingerprint:
             raise ValueError("Query belongs to another learned semantic space")
-        if entry.teacher_target is None or (
-            len(entry.teacher_target) != recipe.space.dimension
-        ):
+        if entry.teacher_target is None or (len(entry.teacher_target) != recipe.space.dimension):
             raise ValueError("Wrong teacher query dimension for learned space")
         entry.request_content()
         q_lookup[identity] = entry
@@ -91,8 +95,10 @@ def prepare_supervision(
         identity = (item.episode_id, item.event_id)
         if identity in d_lookup:
             raise ValueError(f"Duplicate document supervision event: {identity}")
-        if (len(item.teacher_target) != recipe.space.dimension or
-                item.preprocessing_revision != recipe.space.document_recipe):
+        if (
+            len(item.teacher_target) != recipe.space.dimension
+            or item.preprocessing_revision != recipe.space.document_recipe
+        ):
             raise ValueError("Document teacher role/preprocessing/dimension mismatch")
         d_lookup[identity] = item
     found_q, found_d = set(), set()
@@ -103,7 +109,9 @@ def prepare_supervision(
                 annotation = q_lookup.get(identity)
                 if annotation is not None:
                     if record.role != "assistant" or not record.policy_mask:
-                        raise ValueError("Retrieval query annotation must attach to a generated action")
+                        raise ValueError(
+                            "Retrieval query annotation must attach to a generated action"
+                        )
                     request = annotation.request_content()
                     if not any(
                         before.role in {"user", "system"} and before.payload == request
@@ -126,8 +134,8 @@ def prepare_supervision(
                     found_d.add(identity)
     if found_q != set(q_lookup) or found_d != set(d_lookup):
         raise ValueError(
-            f"Orphaned teacher labels: query={len(set(q_lookup)-found_q)}, "
-            f"document={len(set(d_lookup)-found_d)}"
+            f"Orphaned teacher labels: query={len(set(q_lookup) - found_q)}, "
+            f"document={len(set(d_lookup) - found_d)}"
         )
     root = Path(destination)
     root.mkdir(parents=True, exist_ok=True)
@@ -138,11 +146,14 @@ def prepare_supervision(
     qm = write_sidecar(q_path, queries)
     dm = write_document_sidecar(d_path, documents)
     return {
-        "query_file": str(q_path), "document_file": str(d_path),
-        "queries": len(queries), "documents": len(documents),
+        "query_file": str(q_path),
+        "document_file": str(d_path),
+        "queries": len(queries),
+        "documents": len(documents),
         "source_snapshot": source_snapshot,
         "semantic_space": recipe.space.fingerprint,
-        "query_sha256": qm["sha256"], "document_sha256": dm["sha256"],
+        "query_sha256": qm["sha256"],
+        "document_sha256": dm["sha256"],
     }
 
 
@@ -160,8 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     receipt = prepare_supervision(
         recipe=RetrievalRecipe.load(args.recipe),
         prepared_dataset=args.prepared_dataset,
-        query_jsonl=args.queries, document_jsonl=args.documents,
-        destination=args.output, source_snapshot=args.source_snapshot,
+        query_jsonl=args.queries,
+        document_jsonl=args.documents,
+        destination=args.output,
+        source_snapshot=args.source_snapshot,
     )
     print(json.dumps(receipt, indent=2, sort_keys=True))
     return 0
