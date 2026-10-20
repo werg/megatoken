@@ -41,7 +41,7 @@ def test_public_pocket_waveform_trimming_is_deterministic():
             assert max_frames == 2
             return torch.ones(raw.shape[0], 2000)
 
-    config = ModelConfig.tiny()
+    config = ModelConfig.tiny(n_facets=32)
     realizer = MediaRealizers(config)
     realizer.register_pretrained("pocket", ShortUtterance())
     spec = MediaOutputSpec(

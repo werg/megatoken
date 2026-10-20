@@ -28,11 +28,21 @@ class Artifact:
     clock_start: float = 0.0
     clock_end: float = 0.0
     reference_origin: str = ""
+    observed_role: str = "user"
+    annotation_type: str = ""
     def __post_init__(self):
         if not self.artifact_id or self.modality not in MODALITIES or not isinstance(self.payload, bytes):
             raise ValueError("Invalid aligned artifact")
         if not 0 <= self.clock_start <= self.clock_end:
             raise ValueError("Invalid artifact clock")
+        if self.observed_role not in {"user", "tool", "environment", "document", "system"}:
+            raise ValueError("Observed artifact has an invalid causal role")
+        if self.annotation_type not in {
+            "", "written_text", "spoken_form", "verbatim_transcript",
+            "display_caption", "audio_event_description", "translation_text",
+            "content_plan",
+        }:
+            raise ValueError("Artifact annotation meaning must be explicit")
 
 @dataclass(frozen=True)
 class Relation:
@@ -86,15 +96,24 @@ class TaskView:
     revision: int = 0
     relations: tuple[Relation, ...] = ()
     task_version: str = "v1"
+    content_plan: str | None = None
+    event_revisions: Mapping[str, int] = field(default_factory=dict)
     def __post_init__(self):
         if self.family not in FAMILIES or not self.outputs or set(self.inputs) & set(self.outputs):
             raise ValueError("Invalid causal task partitions")
         if len(set(self.outputs)) != len(self.outputs) or len(set(self.inputs)) != len(self.inputs):
             raise ValueError("Repeated task artifact")
-        if any(not self.requests.get(x) for x in (*self.inputs, *self.outputs)):
+        names = (*self.inputs, *((self.content_plan,) if self.content_plan else ()),
+                 *self.outputs)
+        if self.content_plan and self.content_plan in (*self.inputs, *self.outputs):
+            raise ValueError("The committed content plan must be separately generated")
+        if any(not self.requests.get(x) for x in names):
             raise ValueError("Every task track needs an interpretation or output prompt")
-        if self.revision < 0:
-            raise ValueError("Negative request revision")
+        if self.revision < 0 or any(
+            track not in names or type(revision) is not int or revision < 0
+            for track, revision in self.event_revisions.items()
+        ):
+            raise ValueError("Invalid event request revision")
 
 @dataclass(frozen=True)
 class CompiledView:
@@ -119,7 +138,8 @@ def compile_views(bundle: AlignedBundle, views: Sequence[TaskView]) -> tuple[Com
     by_id = {a.artifact_id: a for a in bundle.artifacts}
     results = []
     for view in views:
-        names = (*view.inputs, *view.outputs)
+        names = (*view.inputs, *((view.content_plan,) if view.content_plan else ()),
+                 *view.outputs)
         if any(name not in by_id for name in names):
             raise ValueError("Task references an absent bundle artifact")
         if any(r not in bundle.relations for r in view.relations):
@@ -134,20 +154,31 @@ def compile_views(bundle: AlignedBundle, views: Sequence[TaskView]) -> tuple[Com
             from megatoken.data.schema import PhysicalRecord
             record = PhysicalRecord(
                 record_id=sha256((bundle.bundle_id + ":" + view.family + ":" + name + ":" + str(index)).encode()).hexdigest()[:32],
-                role="user" if index < len(view.inputs) else "assistant",
-                payload=a.payload, turn_index=0 if index < len(view.inputs) else 1,
+                role=a.observed_role if index < len(view.inputs) else "assistant",
+                payload=a.payload, turn_index=(
+                    0 if index < len(view.inputs)
+                    else 1 if view.content_plan and name == view.content_plan
+                    else 2 if view.content_plan else 1
+                ),
                 logical_id=name, part_index=0, part_count=1,
                 policy_mask=index >= len(view.inputs),
                 media_type=a.media_type,
             )
             records.append(record)
             tracks.append(TrackSpec(name, record.role, default_modality=a.modality, description=view.requests[name]))
-        for group_id, indices in enumerate((range(len(view.inputs)), range(len(view.inputs),len(names)))):
-            if not indices:
-                continue
+        partitions = []
+        if view.inputs:
+            partitions.append(range(len(view.inputs)))
+        start = len(view.inputs)
+        if view.content_plan:
+            partitions.append(range(start, start + 1))
+            start += 1
+        partitions.append(range(start, len(names)))
+        for group_id, indices in enumerate(partitions):
             members = tuple(TrackEvent(
                 records[i].record_id, names[i], by_id[names[i]].modality, group_id,
-                records[i].role, request=view.requests[names[i]], request_revision=view.revision,
+                records[i].role, request=view.requests[names[i]],
+                request_revision=view.event_revisions.get(names[i], view.revision),
             ) for i in indices)
             meridians.append(Meridian(group_id, members))
         episode = Episode(
