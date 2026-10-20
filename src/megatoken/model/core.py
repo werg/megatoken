@@ -308,24 +308,17 @@ class FacetedCore(nn.Module):
         self.lexical_gate = nn.Parameter(torch.tensor(-2.0))
         for name, tensor in self._pair_topology().items():
             self.register_buffer(name, tensor, persistent=False)
-        self.memory_projector = (
-            MemoryKVProjector(
-                c.semantic_value_dim, c.facet_dim, c.kv_heads,
-                c.attention_head_dim, c.n_facets,
-            ) if c.semantic_value_dim else None
+        self.memory_projector = MemoryKVProjector(
+            c.semantic_value_dim, c.facet_dim, c.kv_heads,
+            c.attention_head_dim, c.n_facets,
         )
-        self.memory_adapters = (
-            MemoryAdapters(
-                width=c.facet_dim, value_dim=c.semantic_value_dim,
-                experts=c.memory_lora_experts, rank=c.memory_lora_rank,
-                topk=c.memory_lora_topk, max_tracks=c.max_tracks,
-                max_stage=max(c.central_layers, c.prediction_layers) + 1,
-            ) if c.semantic_value_dim else None
+        self.memory_adapters = MemoryAdapters(
+            width=c.facet_dim, value_dim=c.semantic_value_dim,
+            experts=c.memory_lora_experts, rank=c.memory_lora_rank,
+            topk=c.memory_lora_topk, max_tracks=c.max_tracks,
+            max_stage=max(c.central_layers, c.prediction_layers) + 1,
         )
-        self.memory_seed = (
-            nn.Linear(c.semantic_value_dim, c.facet_dim, bias=False)
-            if c.semantic_value_dim else None
-        )
+        self.memory_seed = nn.Linear(c.semantic_value_dim, c.facet_dim, bias=False)
         self._routing_losses: list[tuple[Tensor, Tensor]] = []
 
     def encoder_parameters(self) -> Iterator[nn.Parameter]:

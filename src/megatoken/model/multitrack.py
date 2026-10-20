@@ -146,16 +146,13 @@ class MultiTrackCore:
             model_version=state.model_version,
             routing_version=state.routing_version,
             geometry=state.geometry,
-            kb=(
-                KBContext(
-                    NativeKVLayout(
-                        self.core.config.n_facets, self.core.config.kv_heads,
-                        self.core.config.attention_head_dim, "native-facets-v8",
-                        "memory-kv-v1",
-                    ),
-                    max_positions=self.core.config.max_kb_positions,
-                )
-                if self.core.memory_projector is not None else None
+            kb=KBContext(
+                NativeKVLayout(
+                    self.core.config.n_facets, self.core.config.kv_heads,
+                    self.core.config.attention_head_dim, "native-facets-v8",
+                    "memory-kv-v1",
+                ),
+                max_positions=self.core.config.max_kb_positions,
             ),
         )
 
@@ -207,8 +204,8 @@ class MultiTrackCore:
             raise ValueError("History exceeds its full-block capacity")
         if state.final is None and state.meridian_sizes:
             raise ValueError("Only initial state may lack processed features")
-        if (state.kb is None) != (core.memory_projector is None):
-            raise ValueError("State and model disagree on KB availability")
+        if state.kb is None:
+            raise ValueError("Every v8 multitrack state requires a KB context, even when empty")
         if state.kb is not None and (
             state.kb.layout.facets != f or
             state.kb.layout.kv_heads != core.config.kv_heads or

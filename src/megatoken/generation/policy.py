@@ -74,10 +74,8 @@ class FacetedGenerator(nn.Module):
         self.decoder = DeterministicDecoder(self.config, self.codec)
         self.media_realizers = MediaRealizers(self.config)
         from .embedding import EmbeddingRealizer
-        self.embedding_realizer = (
-            EmbeddingRealizer(
-                self.config.n_facets, self.config.facet_dim, self.config.semantic_dim
-            ) if self.config.semantic_dim else None
+        self.embedding_realizer = EmbeddingRealizer(
+            self.config.n_facets, self.config.facet_dim, self.config.semantic_dim
         )
 
     @property
