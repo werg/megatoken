@@ -60,7 +60,12 @@ class NativeSourceFeatures:
                 # source version or the exact chunk. Accept precisely those
                 # two declared bytes, never a different stale source revision.
                 whole = sha256_file(path)
-                local = sha256(content).hexdigest()
+                with path.open("rb") as source:
+                    source.seek(span.start)
+                    original_span = source.read(span.end - span.start)
+                if len(original_span) != span.end - span.start:
+                    raise ValueError("Pinned original source evidence was truncated")
+                local = sha256(original_span).hexdigest()
                 if digest not in {whole, local}:
                     raise ValueError("Original source bytes differ from pinned source hash")
                 self._verified_assets[identity] = True
