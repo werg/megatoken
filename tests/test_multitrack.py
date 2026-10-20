@@ -299,6 +299,6 @@ def test_retrieval_query_track_is_reserved_outside_user_capacity():
     q_ids, q_registry = multi._track_indices(state, (RETRIEVAL_QUERY_TRACK,))
     assert q_registry == users  # query does not consume a user slot
     assert q_ids[0, 0].item() == core.config.reserved_query_track_index == cap
-    assert cap < core.memory_adapters.track_preference.num_embeddings
+    assert cap < core.memory_adapters.controllers["p"].track_preference.num_embeddings
     with pytest.raises(ValueError, match="Too many tracks"):
         multi._track_indices(state, ("one_too_many",))

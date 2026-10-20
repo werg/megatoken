@@ -827,4 +827,8 @@ def test_rl_freeze_leaves_p_side_memory_trainable(model):
     assert model.core.memory_adapters.families["p"].a.requires_grad
     assert not model.core.memory_adapters.families["c"].a.requires_grad
     assert not model.core.memory_adapters.families["r"].a.requires_grad
-    assert not model.core.memory_adapters.controller.weight.requires_grad
+    # Latent RL adapts how P selects memory experts; C/R selection stays pinned.
+    controllers = model.core.memory_adapters.controllers
+    assert all(p.requires_grad for p in controllers["p"].parameters())
+    assert not any(p.requires_grad for p in controllers["c"].parameters())
+    assert not any(p.requires_grad for p in controllers["r"].parameters())

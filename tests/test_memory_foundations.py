@@ -545,4 +545,4 @@ def test_admission_keeps_native_frontier_and_allows_full_kv_gradients():
     assert semantic.grad is not None and semantic.grad.abs().sum() > 0
     assert coefficient.grad is not None and coefficient.grad.abs().sum() > 0
     assert model.memory_projector.to_kv.weight.grad is not None
-    assert model.memory_adapters.controller.weight.grad is not None
+    assert model.memory_adapters.controllers["p"].router.weight.grad is not None

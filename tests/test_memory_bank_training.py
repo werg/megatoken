@@ -176,7 +176,7 @@ def test_live_source_and_memory_leaves_train_through_actual_native_kv(tmp_path):
         loss.backward()
         assert query.grad is not None and query.grad.abs().sum() > 0
         assert tracks.core.memory_projector.to_kv.weight.grad is not None
-        assert tracks.core.memory_adapters.controller.weight.grad is not None
+        assert tracks.core.memory_adapters.controllers["p"].router.weight.grad is not None
         grads = {(k.collection, k.field): v.grad for k, v in owner.sparse.leaves.items()}
         assert grads[(Collection.SOURCE, "key")] is not None
         assert grads[(Collection.MEMORY, "key")] is not None

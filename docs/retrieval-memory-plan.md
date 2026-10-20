@@ -459,7 +459,7 @@ Materialization/replay identities include constituents and revisions, query/key/
 
 ### 12.5 Context-wide independent LoRA experts
 
-Use the same correlation-adjusted aggregate states \(\bar m_s(t)\) and null-aware group strengths as the KV projector to drive the shared LoRA controller. Preserve source/point/pair provenance, and condition on declared causal context and module descriptors. Its output is a sparse mixture over independently parameterized adapter experts:
+Use the same correlation-adjusted aggregate states \(\bar m_s(t)\) and null-aware group strengths as the KV projector to drive the LoRA controllers. **Each module family (C, P, R) owns its own controller** (semantic norm, router, track/stage/module preferences) over the shared semantic input, so the fixed C/R map can be pinned for latent RL while P keeps learning how it selects memory experts. Preserve source/point/pair provenance, and condition on declared causal context and module descriptors. Its output is a sparse mixture over independently parameterized adapter experts:
 
 \[
 y_g=W_gx+\sum_{e\in A_g}c_{g,e}\,B_{g,e}A_{g,e}x.

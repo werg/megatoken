@@ -28,8 +28,33 @@ class LowRankFamily(nn.Module):
         return (result * weights[..., None]).sum(-2) / self.rank
 
 
+class ExpertController(nn.Module):
+    """One module's expert selection: semantic router plus track/stage/module bias."""
+
+    def __init__(self, *, value_dim: int, experts: int, max_tracks: int, max_stage: int):
+        super().__init__()
+        self.semantic_norm = nn.LayerNorm(value_dim)
+        self.router = nn.Linear(value_dim, experts, bias=False)
+        # Rows 0..max_tracks-1 are user tracks; row max_tracks is the reserved
+        # retrieval-query track; the final row is overflow slack.
+        self.track_preference = nn.Embedding(max_tracks + 2, experts)
+        self.stage_preference = nn.Embedding(max_stage + 1, experts)
+        self.bias = nn.Parameter(torch.zeros(experts))
+        nn.init.normal_(self.track_preference.weight, std=0.01)
+        nn.init.normal_(self.stage_preference.weight, std=0.01)
+
+    def forward(self, semantics: Tensor, tracks: Tensor, stage: int) -> Tensor:
+        preference = self.track_preference(tracks) + self.stage_preference.weight[stage] + self.bias
+        return self.router(self.semantic_norm(semantics))[:, None, :] + preference
+
+
 class MemoryAdapters(nn.Module):
-    """Snapshot controls are functions of the same semantic groups as complete KV."""
+    """Snapshot controls are functions of the same semantic groups as complete KV.
+
+    C, P and R each own their LoRA factors AND their expert controller. They read
+    the same semantic snapshot, but no selection parameter is shared, so pinning
+    C/R for latent RL never freezes how P uses memory.
+    """
 
     def __init__(
         self,
@@ -49,33 +74,18 @@ class MemoryAdapters(nn.Module):
         self.families = nn.ModuleDict(
             {name: LowRankFamily(width, experts, rank) for name in MODULES}
         )
-        self.semantic_norm = nn.LayerNorm(value_dim)
-        self.controller = nn.Linear(value_dim, experts, bias=False)
-        # Rows 0..max_tracks-1 are user tracks; row max_tracks is the reserved
-        # retrieval-query track; the final row is overflow slack.
-        self.track_preference = nn.Embedding(max_tracks + 2, experts)
-        self.stage_preference = nn.Embedding(max_stage + 1, experts)
-        # One bias per owning module so each family's selection bias has one owner.
-        self.module_preference = nn.ParameterDict(
-            {name: nn.Parameter(torch.zeros(experts)) for name in MODULES}
-        )
-        nn.init.normal_(self.track_preference.weight, std=0.01)
-        nn.init.normal_(self.stage_preference.weight, std=0.01)
+        self.controllers = nn.ModuleDict({
+            name: ExpertController(
+                value_dim=value_dim, experts=experts,
+                max_tracks=max_tracks, max_stage=max_stage,
+            )
+            for name in MODULES
+        })
 
     def module_parameters(self, module: str):
-        """Factors and selection bias owned by exactly one of C, P or R."""
+        """Factors and expert controller owned by exactly one of C, P or R."""
         yield from self.families[module].parameters()
-        yield self.module_preference[module]
-
-    def shared_control_parameters(self):
-        """The one controller path every module reads; owned with C's pinned map."""
-        for module in (
-            self.semantic_norm,
-            self.controller,
-            self.track_preference,
-            self.stage_preference,
-        ):
-            yield from module.parameters()
+        yield from self.controllers[module].parameters()
 
     def apply(
         self,
@@ -90,7 +100,8 @@ class MemoryAdapters(nn.Module):
             return x
         if module not in self.families or x.ndim != 3 or x.shape[-1] != self.width:
             raise ValueError("Adapter requires one declared model family and native rows")
-        if not 0 <= stage < self.stage_preference.num_embeddings:
+        controller = self.controllers[module]
+        if not 0 <= stage < controller.stage_preference.num_embeddings:
             raise ValueError("Adapter stage lies outside registered control geometry")
         batch, length, _ = x.shape
         if track_ids is None:
@@ -98,17 +109,13 @@ class MemoryAdapters(nn.Module):
         else:
             if track_ids.shape != (batch, length):
                 raise ValueError("Adapter control must identify every flattened track row")
-            tracks = track_ids.clamp_min(0).clamp_max(self.track_preference.num_embeddings - 1)
-        bias = (
-            self.track_preference(tracks)
-            + self.stage_preference.weight[stage]
-            + self.module_preference[module]
-        )
+            tracks = track_ids.clamp_min(0).clamp_max(
+                controller.track_preference.num_embeddings - 1
+            )
         delta = torch.zeros_like(x)
         for group in range(snapshot.strengths.shape[1]):
             strength = snapshot.strengths[:, group]
-            aggregate = snapshot.semantics[:, group]
-            logits = self.controller(self.semantic_norm(aggregate))[:, None, :] + bias
+            logits = controller(snapshot.semantics[:, group], tracks, stage)
             chosen = torch.topk(logits, self.topk, dim=-1).indices
             probabilities = torch.softmax(logits, -1).gather(-1, chosen)
             probabilities = probabilities / probabilities.sum(-1, keepdim=True).clamp_min(1e-8)

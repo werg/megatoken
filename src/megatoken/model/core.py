@@ -348,7 +348,6 @@ class FacetedCore(nn.Module):
         yield from self.central.parameters()
         yield from self.memory_projector.parameters()
         yield from self.memory_adapters.module_parameters("c")
-        yield from self.memory_adapters.shared_control_parameters()
 
     def predictor_parameters(self) -> Iterator[nn.Parameter]:
         """All P owners incl. its memory seed and adapter family; excludes E, C, R/U."""
