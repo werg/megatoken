@@ -30,10 +30,8 @@ def test_query_embedding_training_uses_native_p_draw_without_committing_answer_h
     )
     assert torch.allclose(query.norm(dim=-1), torch.ones(1), atol=1e-5)
     query[:, 0].sum().backward()
-    assert model.embedding_realizer.query_head.weight.grad is not None or any(
-        p.grad is not None and p.grad.abs().sum() > 0
-        for p in model.embedding_realizer.parameters()
-    )
+    assert model.embedding_realizer.query.weight.grad is not None
+    assert model.embedding_realizer.query.weight.grad.abs().sum() > 0
     assert any(
         p.grad is not None and p.grad.abs().sum() > 0
         for p in model.core.predictor_parameters()
