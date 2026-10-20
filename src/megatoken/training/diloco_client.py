@@ -196,6 +196,12 @@ class DecoupledWorker:
         self.outbox = output / "outbox"
         self.outbox.mkdir(parents=True, exist_ok=True)
         self.io = ThreadPoolExecutor(max_workers=settings.io_workers, thread_name_prefix="diloco")
+        # Heartbeats and KB sync are small and latency-sensitive: give them their
+        # own lane so bulk fragment transfers can never starve them.
+        self.control_io = ThreadPoolExecutor(max_workers=2, thread_name_prefix="diloco-control")
+        # Coordinator versions from the latest status; drives targeted fetches.
+        self.remote_versions: list[int] | None = None
+        self.remote_kb_version: int | None = None
         self.session = str(uuid.uuid4())
         self.versions = [-1] * len(self.fragments)
         self.baselines: list[torch.Tensor | None] = [None] * len(self.fragments)
@@ -235,6 +241,11 @@ class DecoupledWorker:
         self.global_tokens = int(value["global_tokens"])
         self.merges = int(value["merges"])
         self.finished = bool(value["finished"])
+        versions = value.get("versions")
+        if isinstance(versions, list) and len(versions) == len(self.fragments):
+            self.remote_versions = [int(v) for v in versions]
+        if value.get("kb_version") is not None:
+            self.remote_kb_version = int(value["kb_version"])
 
     def bootstrap(self, model: torch.nn.Module, optimizer: Any) -> None:
         """Get identical initialization, then reconcile with latest global fragments."""
@@ -281,7 +292,9 @@ class DecoupledWorker:
             entry["filename"] = str(filename)
             self._send_async(index)
         if self.kb is not None and self.kb.pending is not None:
-            self.kb.pending["future"] = self.io.submit(self._upload_kb, dict(self.kb.pending))
+            self.kb.pending["future"] = self.control_io.submit(
+                self._upload_kb, dict(self.kb.pending)
+            )
         self._fetch_all(optimizer)
 
     def _fetch(self, index: int, version: int) -> tuple[int, torch.Tensor] | None:
@@ -422,7 +435,7 @@ class DecoupledWorker:
             and kb.pending["future"] is None
             and (steps >= kb.pending["retry_after"])
         ):
-            kb.pending["future"] = self.io.submit(self._upload_kb, dict(kb.pending))
+            kb.pending["future"] = self.control_io.submit(self._upload_kb, dict(kb.pending))
         if kb.download is not None and kb.download.done():
             try:
                 result = kb.download.result()
@@ -456,19 +469,26 @@ class DecoupledWorker:
                     "future": None,
                     "retry_after": 0,
                 }
-                kb.pending["future"] = self.io.submit(self._upload_kb, dict(kb.pending))
+                kb.pending["future"] = self.control_io.submit(self._upload_kb, dict(kb.pending))
             else:
                 kb.steps_since = 0
                 kb.tokens_since = 0
         # Install only once local progress is merged-or-empty, never over unsent work.
         can_install = kb.awaiting_global or not kb.baselines or self._kb_force_fetch
+        # Fetch as soon as the coordinator reports a newer canonical version;
+        # without status information fall back to periodic polling.
+        newer = (
+            self.remote_kb_version > kb.version
+            if self.remote_kb_version is not None
+            else steps % self.settings.poll_steps == 0
+        )
         if (
             ready is None
             and kb.download is None
             and can_install
-            and (self._kb_force_fetch or steps % self.settings.poll_steps == 0)
+            and (self._kb_force_fetch or newer)
         ):
-            kb.download = self.io.submit(
+            kb.download = self.control_io.submit(
                 self._fetch_kb,
                 -1 if self._kb_force_fetch else kb.version,
                 kb.trained_rows(),
@@ -577,7 +597,12 @@ class DecoupledWorker:
                 errors += 1
                 self.last_progress_error = str(exc)
             del self.downloads[index]
-        if steps - self.last_poll_step >= self.settings.poll_steps:
+        if self.remote_versions is not None:
+            # Status-driven: fetch exactly the fragments the coordinator advanced.
+            for index, remote in enumerate(self.remote_versions):
+                if remote > self.versions[index] and index not in self.downloads:
+                    self.downloads[index] = self.io.submit(self._fetch, index, self.versions[index])
+        elif steps - self.last_poll_step >= self.settings.poll_steps:
             self.last_poll_step = steps
             for _ in range(min(self.settings.io_workers, len(self.fragments))):
                 index = self._poll_cursor % len(self.fragments)
@@ -598,7 +623,7 @@ class DecoupledWorker:
             and steps - self.last_heartbeat_step >= self.settings.heartbeat_steps
         ):
             self.last_heartbeat_step = steps
-            self.heartbeat = self.io.submit(
+            self.heartbeat = self.control_io.submit(
                 self.transport.json,
                 "POST",
                 "/v1/progress",
@@ -683,6 +708,7 @@ class DecoupledWorker:
 
     def close(self) -> None:
         self.io.shutdown(wait=True, cancel_futures=False)
+        self.control_io.shutdown(wait=True, cancel_futures=False)
         if self.kb is not None and self.kb.download is not None and self.kb.download.done():
             try:
                 result = self.kb.download.result()
