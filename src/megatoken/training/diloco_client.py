@@ -106,12 +106,17 @@ class Transport:
             raise ValueError(f"Expected JSON coordinator response from {path}")
         return result
 
-    def fetch_file(self, path: str, directory: Path) -> tuple[Path | None, dict]:
+    def fetch_file(
+        self, path: str, directory: Path, *, json_body: dict | None = None,
+    ) -> tuple[Path | None, dict]:
         fd, name = tempfile.mkstemp(dir=directory, suffix=".download")
         os.close(fd)
         target = Path(name)
         try:
-            status, _, headers = self.request("GET", path, output=target)
+            status, _, headers = self.request(
+                "GET" if json_body is None else "POST", path,
+                json_body=json_body, output=target,
+            )
             if status == 204:
                 target.unlink()
                 return None, headers
@@ -340,14 +345,30 @@ class DecoupledWorker:
         )
         return response
 
-    def _fetch_kb(self, version: int) -> tuple[int, Path] | None:
+    def _fetch_kb(
+        self, version: int, trained: tuple[tuple[int, ...], tuple[int, ...]] = ((), ()),
+    ) -> tuple[int, Path, str] | None:
+        """Rows changed since ``version`` plus trained rows; snapshot as fallback."""
+        if version >= 0:
+            try:
+                path, headers = self.transport.fetch_file(
+                    "/v1/kb/changes", self.outbox,
+                    json_body={"after": version, "records": list(trained[0]),
+                               "relations": list(trained[1])},
+                )
+                if path is None:
+                    return None
+                return int(headers["X-KB-Version"]), path, "changes"
+            except RemoteError as exc:
+                if exc.status != 410:
+                    raise
         path, headers = self.transport.fetch_file(f"/v1/kb?after={version}", self.outbox)
         if path is None:
             return None
-        return int(headers["X-KB-Version"]), path
+        return int(headers["X-KB-Version"]), path, "snapshot"
 
     def _kb_step(self, steps: int, tokens: int, bank: Any) -> tuple[int, Any]:
-        """Advance KB uploads/polls. Returns (errors, ready (version, path) or None)."""
+        """Advance KB uploads/polls. Returns (errors, ready (version, path, kind) or None)."""
         from megatoken.training.diloco_kb import save_kb_update
 
         kb = self.kb
@@ -424,7 +445,8 @@ class DecoupledWorker:
             and (self._kb_force_fetch or steps % self.settings.poll_steps == 0)
         ):
             kb.download = self.io.submit(
-                self._fetch_kb, -1 if self._kb_force_fetch else kb.version
+                self._fetch_kb, -1 if self._kb_force_fetch else kb.version,
+                kb.trained_rows(),
             )
         return errors, ready
 
@@ -468,8 +490,8 @@ class DecoupledWorker:
         """Called *after* each complete optimizer step; never blocks on network.
 
         With an attached KB, ``bank`` is the learner's local SQLite bank and the
-        result's ``kb_snapshot`` is a downloaded (version, path) for the caller
-        to install between optimizer steps.
+        result's ``kb_snapshot`` is a downloaded (version, path, kind) for the
+        caller to apply between optimizer steps; kind is "changes" or "snapshot".
         """
         kb_errors, kb_ready = (
             self._kb_step(steps, tokens, bank) if self.kb is not None else (0, None)

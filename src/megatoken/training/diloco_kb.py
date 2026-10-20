@@ -19,9 +19,12 @@ dynamically allocated SQLite records, so they need their own protocol:
   bases older than ``max_staleness`` versions are refused with a 409 so the
   learner reinstalls the current bank.
 * **Publication.** Row updates, demand, growth, the version and the sequence
-  ledger commit in one SQLite transaction. A stripped snapshot (no outer
-  momentum, no learner optimizer moments) is then published atomically.
-  Learners install it between optimizer steps, keeping their own moments.
+  ledger commit in one SQLite transaction. Triggers on the canonical bank log
+  every changed row's primary key under the version being produced, so a
+  learner at version ``v`` pulls only rows changed since ``v`` (cost scales
+  with the merge, not the bank). Learners apply them between optimizer steps,
+  keeping their own sparse Adam moments. A full stripped snapshot is built
+  lazily for bootstrap and for learners older than the retained history.
 """
 
 from __future__ import annotations
@@ -50,6 +53,18 @@ from megatoken.training.diloco_protocol import (
 )
 
 RECORD_FIELDS = ("key", "value", "strength", "lifetime_logit")
+# Canonical tables mirrored to learners, parents before children. Learner-local
+# optimizer moments and coordinator-only outer state are never synchronized.
+SYNCED_TABLES = (
+    "meta", "records", "relations", "source_range_refs", "source_windows",
+    "contributions", "postings", "retired_source_versions", "demand_events",
+    "growth_state",
+)
+COORDINATOR_TABLES = ("diloco_kb_outer", "diloco_kb_meta", "diloco_kb_changes")
+
+
+class KBChangesExpired(LookupError):
+    """The requested base version predates the retained change history."""
 RELATION_FIELDS = ("value", "dependence_logits", "strength", "lifetime_logit")
 MAX_DEMAND = 1 << 20
 
@@ -167,12 +182,51 @@ def load_kb_update(path: Path) -> KBUpdate:
     return KBUpdate(rows, tuple(parsed))
 
 
+def _primary_key(db: sqlite3.Connection, table: str, schema: str = "main") -> list[str]:
+    info = db.execute(f"PRAGMA {schema}.table_info({table})").fetchall()
+    return [row[1] for row in sorted(info, key=lambda r: r[5]) if row[5] > 0]
+
+
+def _columns(db: sqlite3.Connection, table: str, schema: str = "main") -> list[str]:
+    return [row[1] for row in db.execute(f"PRAGMA {schema}.table_info({table})")]
+
+
+def _install_change_log(db: sqlite3.Connection) -> None:
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS diloco_kb_changes (
+               version INTEGER NOT NULL, tbl TEXT NOT NULL, pk TEXT NOT NULL,
+               deleted INTEGER NOT NULL, PRIMARY KEY (version, tbl, pk))"""
+    )
+    db.execute("CREATE INDEX IF NOT EXISTS diloco_kb_change_version "
+               "ON diloco_kb_changes(version)")
+    producing = ("COALESCE((SELECT CAST(content AS INTEGER) FROM diloco_kb_meta "
+                 "WHERE name='version'),0)+1")
+    for table in SYNCED_TABLES:
+        key = _primary_key(db, table)
+        if not key:
+            raise RuntimeError(f"Synchronized KB table {table} lacks a primary key")
+        for op, alias, deleted in (("INSERT", "NEW", 0), ("UPDATE", "NEW", 0),
+                                   ("DELETE", "OLD", 1)):
+            values = ",".join(f"{alias}.{column}" for column in key)
+            db.execute(
+                f"""CREATE TRIGGER IF NOT EXISTS diloco_kb_{op.lower()}_{table}
+                    AFTER {op} ON {table} BEGIN
+                    INSERT OR REPLACE INTO diloco_kb_changes VALUES (
+                        {producing}, '{table}', json_array({values}), {deleted});
+                    END"""
+            )
+
+
 def strip_snapshot(path: Path) -> None:
-    """Published snapshots carry no outer momentum or learner optimizer moments."""
+    """Published snapshots carry no coordinator state or learner optimizer moments."""
     connection = sqlite3.connect(path, isolation_level=None)
     try:
-        connection.execute("DROP TABLE IF EXISTS diloco_kb_outer")
-        connection.execute("DROP TABLE IF EXISTS diloco_kb_meta")
+        for (trigger,) in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'diloco_kb_%'"
+        ).fetchall():
+            connection.execute(f"DROP TRIGGER {trigger}")
+        for table in COORDINATOR_TABLES:
+            connection.execute(f"DROP TABLE IF EXISTS {table}")
         connection.execute("DELETE FROM optimizer_rows")
         connection.execute("VACUUM")
     finally:
@@ -198,6 +252,53 @@ def install_snapshot(downloaded: Path, local: Path) -> None:
     finally:
         connection.close()
     os.replace(downloaded, local)
+
+
+def apply_changes(bank: SQLiteKB, path: Path) -> int:
+    """Bring a learner bank to the exported canonical version in one transaction.
+
+    The export holds every row changed since the learner's base plus every row
+    the learner trained, so afterwards all synchronized tables equal a full
+    snapshot, while learner-local optimizer moments are kept. Rows are
+    upserted by primary key, never REPLACEd: that would cascade deletes
+    through foreign keys.
+    """
+    db = bank.db
+    with bank._lock:
+        db.execute("ATTACH DATABASE ? AS delta", (str(path),))
+        try:
+            version = int(db.execute("SELECT version FROM delta._version").fetchone()[0])
+            present = {row[0] for row in db.execute(
+                "SELECT name FROM delta.sqlite_master WHERE type='table'")}
+            with bank.transaction():
+                db.execute("PRAGMA defer_foreign_keys=ON")
+                for table in SYNCED_TABLES:
+                    if table not in present:
+                        continue
+                    columns = _columns(db, table)
+                    key = _primary_key(db, table)
+                    names = ",".join(columns)
+                    rest = [c for c in columns if c not in key]
+                    conflict = (
+                        "DO UPDATE SET " + ",".join(f"{c}=excluded.{c}" for c in rest)
+                        if rest else "DO NOTHING"
+                    )
+                    db.execute(
+                        f"""INSERT INTO main.{table}({names}) SELECT {names}
+                            FROM delta.{table} WHERE true
+                            ON CONFLICT({",".join(key)}) {conflict}"""
+                    )
+                for table, pk in db.execute("SELECT tbl, pk FROM delta._deleted").fetchall():
+                    if table not in SYNCED_TABLES:
+                        raise ValueError("KB change set deletes an unsynchronized table")
+                    db.execute(
+                        f"DELETE FROM main.{table} WHERE "
+                        + " AND ".join(f"{c}=?" for c in _primary_key(db, table)),
+                        json.loads(pk),
+                    )
+        finally:
+            db.execute("DETACH DATABASE delta")
+    return version
 
 
 def initialize_kb(root: Path, *, recipe_path: str, bank_path: str,
@@ -261,6 +362,8 @@ class KBCoordinator:
                CREATE TABLE IF NOT EXISTS diloco_kb_outer (
                    row TEXT PRIMARY KEY, momentum BLOB NOT NULL);"""
         )
+        _install_change_log(self.bank.db)
+        self.retained_versions = int(settings.get("retained_versions", 1024))
         self.growth = GrowthAllocator(self.bank, self.recipe.growth)
         self.ivf = None
         if settings.get("centroids_sha256"):
@@ -273,7 +376,6 @@ class KBCoordinator:
                                      nprobe=settings["nprobe"])
         self.quorum_since: float | None = None
         self.merges = 0
-        self.sync_public()
 
     def close(self) -> None:
         self.bank.close()
@@ -299,11 +401,87 @@ class KBCoordinator:
         return self.root / "pending"
 
     def published(self) -> tuple[int, Path]:
+        """Full snapshot of the current version, built lazily (bootstrap/fallback)."""
+        self.sync_public()
         pointer = json.loads((self.root / "public.json").read_text())
         return int(pointer["version"]), self.root / pointer["file"]
 
+    def export_changes(self, after: int, destination: Path, *,
+                       records: tuple[int, ...] = (),
+                       relations: tuple[int, ...] = ()) -> int | None:
+        """Write rows changed since ``after`` plus the learner's trained rows.
+
+        ``records``/``relations`` are the IDs the learner modified locally; their
+        canonical contents (and postings) overwrite the local values. Returns
+        None when already current and nothing was trained.
+        """
+        version = self.version()
+        if type(after) is not int or after > version:
+            raise ValueError("Unknown KB base version")
+        if after == version and not (records or relations):
+            return None
+        if after < int(self._meta("changes_floor", 0)):
+            raise KBChangesExpired("KB base predates retained changes; fetch the snapshot")
+        latest: dict[tuple[str, str], int] = {}
+        for table, pk, deleted in self.bank.db.execute(
+            """SELECT tbl, pk, deleted FROM diloco_kb_changes WHERE version > ?
+               ORDER BY version""", (after,),
+        ):
+            latest[(table, pk)] = deleted
+        db = self.bank.db
+        for table, ids in (("records", records), ("relations", relations)):
+            for identity in ids:
+                if type(identity) is not int:
+                    raise ValueError("Trained KB row IDs must be integers")
+                latest.setdefault((table, json.dumps([identity])), 0)
+        for identity in records:
+            for (collection,) in db.execute(
+                "SELECT collection FROM postings WHERE record_id=?", (identity,)
+            ):
+                latest.setdefault(("postings", json.dumps([collection, identity])), 0)
+        # meta holds tiny generation counters that learners bump locally.
+        for (name,) in db.execute("SELECT key FROM meta"):
+            latest.setdefault(("meta", json.dumps([name])), 0)
+        destination.unlink(missing_ok=True)
+        db.execute("ATTACH DATABASE ? AS delta", (str(destination),))
+        try:
+            db.execute("BEGIN")
+            db.execute("CREATE TABLE delta._version (version INTEGER NOT NULL)")
+            db.execute("INSERT INTO delta._version VALUES (?)", (version,))
+            db.execute("CREATE TABLE delta._deleted (tbl TEXT NOT NULL, pk TEXT NOT NULL)")
+            by_table: dict[str, list[list]] = {}
+            for (table, pk), deleted in latest.items():
+                if deleted:
+                    db.execute("INSERT INTO delta._deleted VALUES (?,?)", (table, pk))
+                else:
+                    by_table.setdefault(table, []).append(json.loads(pk))
+            for table in SYNCED_TABLES:
+                if table not in by_table:
+                    continue
+                key = _primary_key(db, table)
+                db.execute(f"CREATE TABLE delta.{table} AS SELECT * FROM main.{table} WHERE 0")
+                db.executemany(
+                    f"INSERT INTO delta.{table} SELECT * FROM main.{table} WHERE "
+                    + " AND ".join(f"{c}=?" for c in key),
+                    by_table[table],
+                )
+                if table in {"records", "relations"}:
+                    # A trained row retired or never present canonically: drop it.
+                    found = {row[0] for row in db.execute(f"SELECT id FROM delta.{table}")}
+                    for (identity,) in by_table[table]:
+                        if identity not in found:
+                            db.execute("INSERT INTO delta._deleted VALUES (?,?)",
+                                       (table, json.dumps([identity])))
+            db.execute("COMMIT")
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
+        finally:
+            db.execute("DETACH DATABASE delta")
+        return version
+
     def sync_public(self) -> None:
-        """Republish after a crash between the commit and snapshot publication."""
+        """Build the full snapshot for the current version if it is stale."""
         version = self.version()
         pointer = self.root / "public.json"
         if pointer.exists() and json.loads(pointer.read_text())["version"] == version:
@@ -424,7 +602,11 @@ class KBCoordinator:
             # queued proposals are discarded after a coordinator restart.
             self._put_meta("last_seq", last_seq)
             self._put_meta("version", version + 1)
-        self.sync_public()
+            floor = version + 1 - self.retained_versions
+            if floor > int(self._meta("changes_floor", 0)):
+                self.bank.db.execute(
+                    "DELETE FROM diloco_kb_changes WHERE version <= ?", (floor,))
+                self._put_meta("changes_floor", floor)
         for file, _, _ in proposals:
             file.unlink(missing_ok=True)
         self.merges += 1
@@ -473,6 +655,14 @@ class KBSync:
             if np.any(delta):
                 rows[key] = delta.astype(np.float32)
         return rows
+
+    def trained_rows(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """Record and relation IDs modified locally since the last install."""
+        identities = [parse_row_key(key) for key in self.baselines]
+        return (
+            tuple(sorted({i.id for i in identities if i.kind == "record"})),
+            tuple(sorted({i.id for i in identities if i.kind == "relation"})),
+        )
 
     def installed(self, version: int) -> None:
         self.version = version

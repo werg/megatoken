@@ -967,13 +967,23 @@ def train(
             snapshot = diloco_metrics.pop("kb_snapshot", None)
             if snapshot is not None:
                 from megatoken.memory.recipe import open_bank_for_recipe
-                from megatoken.training.diloco_kb import install_snapshot
+                from megatoken.training.diloco_kb import apply_changes, install_snapshot
 
                 # Between optimizer steps: no selected leaves or open transactions.
-                version, downloaded = snapshot
-                bank_owner.bank.close()
-                install_snapshot(downloaded, bank_path)
-                bank_owner = make_bank_owner(open_bank_for_recipe(retrieval_recipe, bank_path))
+                version, downloaded, kind = snapshot
+                if kind == "changes":
+                    try:
+                        applied = apply_changes(bank_owner.bank, downloaded)
+                    finally:
+                        downloaded.unlink(missing_ok=True)
+                    if applied != version:
+                        raise RuntimeError("KB change set version differs from its header")
+                else:
+                    bank_owner.bank.close()
+                    install_snapshot(downloaded, bank_path)
+                    bank_owner = make_bank_owner(
+                        open_bank_for_recipe(retrieval_recipe, bank_path)
+                    )
                 kb_sync.installed(version)
             model.core.set_model_version(global_step)
             local_sums = ledger.sums

@@ -441,9 +441,9 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
         def _file(self, path: Path) -> None:
             self._stream_file(path.open("rb"))
 
-        def _read_json(self) -> dict:
+        def _read_json(self, maximum: int = 65536) -> dict:
             size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= 65536:
+            if not 0 < size <= maximum:
                 raise ValueError("Invalid JSON payload size")
             result = strict_json_loads(self.rfile.read(size))
             if not isinstance(result, dict):
@@ -553,6 +553,40 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                         result = coordinator.submit(index, *self._update_headers(), filename)
                     finally:
                         filename.unlink(missing_ok=True)
+                elif parsed.path == "/v1/kb/changes":
+                    # POST: the body lists the learner's locally trained row IDs.
+                    if coordinator.kb is None:
+                        raise ValueError("This coordinator run does not own a free KB")
+                    from megatoken.training.diloco_kb import KBChangesExpired
+
+                    value = self._read_json(16 << 20)
+                    exports = coordinator.root / "kb" / "exports"
+                    exports.mkdir(exist_ok=True)
+                    fd, name = tempfile.mkstemp(dir=exports, suffix=".sqlite")
+                    os.close(fd)
+                    target = Path(name)
+                    try:
+                        with coordinator.lock:
+                            try:
+                                version = coordinator.kb.export_changes(
+                                    int(value["after"]), target,
+                                    records=tuple(value.get("records", ())),
+                                    relations=tuple(value.get("relations", ())),
+                                )
+                            except KBChangesExpired as exc:
+                                self._json(410, {"error": str(exc)})
+                                return
+                        if version is None:
+                            self.send_response(204)
+                            self.send_header("Content-Length", "0")
+                            self.end_headers()
+                        else:
+                            self._stream_file(
+                                target.open("rb"), version, header="X-KB-Version",
+                            )
+                    finally:
+                        target.unlink(missing_ok=True)
+                    return
                 elif parsed.path == "/v1/kb/updates":
                     filename = self._receive(coordinator.manifest.get(
                         "max_kb_update_bytes", 256 << 20

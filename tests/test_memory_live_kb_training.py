@@ -188,7 +188,12 @@ def test_diloco_http_free_kb_row_sync_train_and_resume(tmp_path, monkeypatch, re
         learner, learner_moments, _ = _rows(Path(config.output) / "worker-00" / "diloco" / "kb.sqlite", recipe)
         assert set(learner) <= set(rows)
         assert any(k[0] == "memory" for k in learner)
-        assert learner_moments > 0  # snapshot installs keep the learner's own moments
+        assert learner_moments > 0  # canonical installs keep the learner's own moments
+        # After bootstrap, learners pull incremental change sets: the full
+        # snapshot is built lazily and only for version 0 here.
+        assert [p.name for p in (root / "kb").glob("public-*.sqlite")] == [
+            "public-000000000.sqlite"
+        ]
         assert (Path(first["checkpoint"]) / "kb.sqlite").is_file()
         resumed = train(dataclasses.replace(config, max_steps=1), resume=first["checkpoint"])
         assert resumed["global_step"] == 7
