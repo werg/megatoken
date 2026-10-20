@@ -159,7 +159,10 @@ class DeterministicDecoder(nn.Module):
 
     @staticmethod
     def logits(header: Tensor, codes: nn.Embedding) -> Tensor:
-        return F.linear(header, codes.weight) / math.sqrt(header.shape[-1])
+        # Header states are GRU-bounded and codes start near unit norm, so logits
+        # already begin small. An extra 1/sqrt(width) temperature capped them near
+        # one and left structure/terminal heads stuck at chance in real training.
+        return F.linear(header, codes.weight)
 
     def condition(self, header, codes, value):
         if not isinstance(value, Tensor):
