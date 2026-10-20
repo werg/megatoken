@@ -162,6 +162,11 @@ class FrozenCorpusAuthor:
     def add_pairs(self, assignments: Sequence[PairAssignment]) -> int:
         seen = {tuple(sorted((p.left_assignment, p.right_assignment)))
                 for p in self.pairs}
+        device = next(self.pair_writer.parameters()).device
+
+        def tensor(value):
+            return torch.as_tensor(value, dtype=torch.float32, device=device)[None]
+
         for item in assignments:
             names = tuple(sorted((item.left_assignment, item.right_assignment)))
             if names in seen or names[0] == names[1] or (
@@ -173,9 +178,6 @@ class FrozenCorpusAuthor:
                 any(r.scope != item.scope for r in item.footprint.ranges)
             ):
                 raise ValueError("Pair original support scope mismatches endpoints")
-            device = next(self.pair_writer.parameters()).device
-            def tensor(value):
-                return torch.as_tensor(value, dtype=torch.float32, device=device)[None]
             stats = item.statistics.detach().float().to(device)
             if stats.ndim != 1:
                 raise ValueError("Pair source-window stats must be one bounded vector")
