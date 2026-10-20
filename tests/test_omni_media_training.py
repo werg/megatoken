@@ -14,10 +14,11 @@ from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, encode_record
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
-from megatoken.training.config import TrainConfig
 from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.stream import EpisodeWindow
+
+from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 
 
 def _case(tmp_path, *, external=False):
@@ -64,17 +65,14 @@ def _case(tmp_path, *, external=False):
         tracks=tracks, meridians=meridians,
     )
     model = build_model(
-        ModelConfig.tiny(**({
+        ModelConfig.tiny(**MODEL_OVERRIDES, **({
             "audio_feature_dim": 16, "audio_feature_id": feature_id,
         } if external else {})),
         ByteCodec.byte_fallback(),
     )
-    config = TrainConfig(
-        phase="B0", dataset=str(tmp_path), output=str(tmp_path / "run"),
-        model="tiny", device="cpu", precision="fp32",
-        budget_meter="G", budget=4, eval_every=0, effort=1,
-        use_stage_mixture=False, use_effort_mixture=False,
-        max_history_tokens=128, generated_capacity=16,
+    config = retrieval_train_config(
+        tmp_path / "retrieval", phase="B0", media_root=str(tmp_path),
+        budget_meter="G", budget=4, generated_capacity=16, max_history_tokens=128, max_record_bytes=1024,
     )
     return assets, episode, model, config
 
@@ -122,7 +120,8 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, external, mode
     )
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
     model.core.set_model_version(0)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
+                  retrieval_aux(config, supervised=False))
     ledger.finish()
     assert model.media_realizers.visual_filter[0].weight.grad is not None
     assert model.core.frontend.facet_queries.grad is not None
@@ -144,7 +143,7 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, external, mode
 
 def test_feature_revision_does_not_fall_back_to_unpinned_source(tmp_path):
     _, episode, model, config = _case(tmp_path, external=True)
-    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    model = build_model(ModelConfig.tiny(**MODEL_OVERRIDES), ByteCodec.byte_fallback())
     window = next(iter_windows(episode, ByteCodec.byte_fallback()))
     with pytest.raises(ValueError, match="revision/width|fingerprint"):
         prepare_batches(model, [EpisodeWindow(episode, window)], config)
@@ -181,7 +180,8 @@ def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
     assert batch.counts["visual_prediction"] == 1
     assert batch.counts["lexical"] == len(b"bright")
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
+                  retrieval_aux(config, supervised=False))
     ledger.finish()
     assert model.media_realizers.audio_filter[0].weight.grad is not None
     assert model.media_realizers.visual_filter[0].weight.grad is not None
@@ -194,8 +194,24 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path):
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.engine import train
 
+    from retrieval_fixture import write_retrieval_artifacts
+
     torch.set_num_threads(1)
     _, ep, _, config = _case(tmp_path)
+    # Mandatory retrieval supervision needs a document-role source event in
+    # meridian 0 and a query at the generated caption.
+    ep = replace(
+        ep,
+        records=(PhysicalRecord("doc", "document", b"the sound is a bright tone"),
+                 *ep.records),
+        tracks=(TrackSpec("doc", "document"), *ep.tracks),
+        meridians=(
+            Meridian(0, (TrackEvent("doc", "doc", "text", 0, "document"),
+                         *ep.meridians[0].events)),
+            ep.meridians[1],
+        ),
+    )
+    data = tmp_path / "omni-data"
     source = DedupStore(
         tmp_path / "index.sqlite", DedupConfig(
             train_fraction=1.0, validation_fraction=0.0,
@@ -206,25 +222,29 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path):
             source.add(ep, ByteCodec.byte_fallback())
         source.freeze()
         export_prepared(
-            source, tmp_path, codec=ByteCodec.byte_fallback(),
+            source, data, codec=ByteCodec.byte_fallback(),
             source_receipts=[], pipeline_fingerprint="omni-event-pilot-v1",
         )
     finally:
         source.close()
+    artifacts = write_retrieval_artifacts(
+        tmp_path / "omni-retrieval", [ep], doc="doc", request="prompt", answer="caption",
+    )
     # B0's text-token budget would not account for image/audio events. G is an
     # explicit event budget with its own advance/accumulation and checkpoint.
     config = replace(
-        config, max_steps=1, accumulate_events=4, accumulate_scored=100_000,
-        accumulate_ingested=100_000, max_accumulation_windows=1,
+        config, dataset=str(data), output=str(tmp_path / "run"), **artifacts,
+        max_steps=1, accumulate_events=5, accumulate_scored=100_000,
+        accumulate_ingested=100_000, max_accumulation_windows=1, budget=5,
         microbatch_episodes=1, checkpoint_every=0, use_stage_mixture=False,
     )
     result = train(config)
     payload, _ = load_checkpoint(result["checkpoint"])
     assert result["global_step"] == 1
     assert result["phase_consumed"] == result["counters"]["G"]
-    assert result["counters"]["G"] == 4
+    assert result["counters"]["G"] == 5
     assert result["counters"]["media_events"] == 2
-    assert payload["phase_consumed"] == 4
+    assert payload["phase_consumed"] == 5
 
 
 def test_video_training_is_one_32_facet_megatoken(tmp_path):
@@ -251,7 +271,8 @@ def test_video_training_is_one_32_facet_megatoken(tmp_path):
     assert batch.counts["visual_prediction"] == 1
     assert batch_counters([batch]).video_frames == 2
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
+                  retrieval_aux(config, supervised=False))
     ledger.finish()
     assert model.media_realizers.visual_filter[0].weight.grad is not None
 
@@ -276,13 +297,14 @@ def test_generated_pretrained_vision_features_train_e_in_recurrent_mode(tmp_path
     ))
     ep = replace(ep, records=records, meridians=(ep.meridians[0], meridian))
     model = build_model(ModelConfig.tiny(
-        vision_feature_dim=16, vision_feature_id=identifier,
+        **MODEL_OVERRIDES, vision_feature_dim=16, vision_feature_id=identifier,
     ), ByteCodec.byte_fallback())
     config = replace(config, phase="P1", representation_mode="recurrent")
     window = next(iter_windows(ep, ByteCodec.byte_fallback()))
     batch, = prepare_batches(model, [EpisodeWindow(ep, window)], config)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
+                  retrieval_aux(config, supervised=False))
     ledger.finish()
     assert model.core.media_stems.external_vision.weight.grad is not None
     assert model.media_realizers.visual_filter[0].weight.grad is not None

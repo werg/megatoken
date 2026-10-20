@@ -77,8 +77,11 @@ def _range(episode: Episode, name: str) -> SourceRange:
 def write_retrieval_artifacts(
     root: Path, episodes: list[Episode], *, seed: int = 0,
     phase: str = "coherence_embedding", source_snapshot: str = "snapshot-1",
+    doc: str = "doc", request: str = "request", answer: str = "answer",
 ) -> dict:
-    """Write recipe, query sidecar and document sidecar under ``root``."""
+    """Write recipe, query sidecar and document sidecar under ``root``.
+
+    ``doc``/``request``/``answer`` name the episode records they annotate."""
     root.mkdir(parents=True, exist_ok=True)
     model_config = load_model_config("tiny", **MODEL_OVERRIDES)
     recipe = {
@@ -101,15 +104,15 @@ def write_retrieval_artifacts(
     space_fp = SemanticSpace(**SPACE).fingerprint
     queries, documents = [], []
     for i, episode in enumerate(episodes):
-        request = next(r.payload for r in episode.records if r.record_id == "request")
-        doc_range = _range(episode, "doc")
-        request_range = _range(episode, "request")
+        request_bytes = next(r.payload for r in episode.records if r.record_id == request)
+        doc_range = _range(episode, doc)
+        request_range = _range(episode, request)
         footprint = Footprint((request_range,))
         support = Footprint((doc_range,))
         queries.append(RetrievalExample(
-            episode_id=episode.episode_id, event_id="answer",
+            episode_id=episode.episode_id, event_id=answer,
             query=QueryBoundary(
-                "answer", 1, "rag", "request", sha256(request).hexdigest(),
+                answer, 1, "rag", request, sha256(request_bytes).hexdigest(),
                 space_fp, source_snapshot, 1,
             ),
             query_teacher_inputs=footprint, document_key_context=support,
@@ -117,11 +120,11 @@ def write_retrieval_artifacts(
             positive_content_ids=(doc_range.source_id,), support_weights=(1.0,),
             annotations_complete=True, source_snapshot=source_snapshot,
             split_family=f"family-{i}", teacher_target=tuple(_vector(i + seed)),
-            main_request_b64=base64.b64encode(request).decode(),
+            main_request_b64=base64.b64encode(request_bytes).decode(),
         ))
-        doc = next(r.payload for r in episode.records if r.record_id == "doc")
+        doc_bytes = next(r.payload for r in episode.records if r.record_id == doc)
         documents.append(DocumentEmbeddingExample(
-            episode.episode_id, "doc", sha256(doc).hexdigest(),
+            episode.episode_id, doc, sha256(doc_bytes).hexdigest(),
             Footprint((doc_range,)), doc_range, tuple(_vector(i + 5 + seed, 1.0)),
             "e2e-preprocess-1",
         ))
