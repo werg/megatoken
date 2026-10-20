@@ -1,8 +1,6 @@
 """Regeneration must be writer-only, complete, shadow-published and source-addressable."""
 import json
-from dataclasses import asdict
 
-import numpy as np
 import pytest
 import torch
 
