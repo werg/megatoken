@@ -1,8 +1,9 @@
 """Incremental query MaxSim and durable, disjoint source byte coverage."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from threading import RLock
+import math
 
 import numpy as np
 
@@ -61,6 +62,66 @@ class RetrievalSession:
     injected: list[Interval] = field(default_factory=list)
     receipts: set[str] = field(default_factory=set)
     _lock: RLock = field(default_factory=RLock, repr=False)
+
+    def to_dict(self) -> dict:
+        """Portable deterministic replay receipt, without a second event clock."""
+        with self._lock:
+            return {
+                "schema": "megatoken-source-coverage-v1",
+                "scoring_epoch": self.scoring_epoch,
+                "maxima": {str(i): score for i, score in sorted(self.maxima.items())},
+                "qualified": [
+                    asdict(item) for _, item in sorted(self.qualified.items())
+                ],
+                "reserved": [
+                    {"interval": asdict(interval), "request_id": request_id}
+                    for interval, request_id in sorted(self.reserved.items())
+                ],
+                "injected": [asdict(interval) for interval in self.injected],
+                "receipts": sorted(self.receipts),
+            }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> RetrievalSession:
+        if data.get("schema") != "megatoken-source-coverage-v1":
+            raise ValueError("Unrecognized source scheduling replay schema")
+        maxima = {int(i): float(v) for i, v in data["maxima"].items()}
+        if any(i < 1 or not math.isfinite(v) for i, v in maxima.items()):
+            raise ValueError("Corrupt MaxSim receipt values")
+        qualified = {}
+        for entry in data["qualified"]:
+            interval = Interval(**entry["interval"])
+            item = SourceObligation(
+                interval, int(entry["record_id"]), float(entry["score"]),
+                entry["event_id"], entry["epoch"], int(entry["deadline"]),
+                int(entry.get("ordinal", 0)),
+            )
+            if not math.isfinite(item.score) or interval in qualified:
+                raise ValueError("Corrupt or duplicate queued source obligation")
+            qualified[interval] = item
+        reserved = {}
+        for entry in data["reserved"]:
+            interval = Interval(**entry["interval"])
+            if interval not in qualified or interval in reserved:
+                raise ValueError("Reservation must own a unique queued source interval")
+            reserved[interval] = entry["request_id"]
+        injected = [Interval(**entry) for entry in data["injected"]]
+        covered = []
+        for interval in injected:
+            if subtract(interval, covered) != [interval]:
+                raise ValueError("Overlapping durable source coverage in replay")
+            covered.append(interval)
+        if any(not subtract(interval, injected) for interval in qualified):
+            raise ValueError("Queued source overlaps fully injected coverage")
+        return cls(
+            scoring_epoch=data["scoring_epoch"], maxima=maxima,
+            qualified=qualified, reserved=reserved,
+            injected=injected, receipts=set(data["receipts"]),
+        )
+
+    def fork(self) -> RetrievalSession:
+        """Stage boundary mutations; failed lookups cannot consume query state."""
+        return self.from_dict(self.to_dict())
 
     def new_epoch(self, epoch: str) -> None:
         with self._lock:
