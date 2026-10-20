@@ -449,9 +449,15 @@ def _actual_raw(
                             views.append((view.extractor, tensor, mask))
                         raw = model.core.encode_media_views(modality, tuple(views))
                     elif source.kind == "features":
-                        raw = model.core.encode_media_features(
-                            modality, signal, extractor=source.extractor
-                        )
+                        if source.valid_count and source.valid_count < source.shape[0]:
+                            tokens, mask = _view_tokens(signal, source)
+                            raw = model.core.encode_media_views(
+                                modality, ((source.extractor, tokens, mask),)
+                            )
+                        else:
+                            raw = model.core.encode_media_features(
+                                modality, signal, extractor=source.extractor
+                            )
                     elif source.kind == "raw":
                         raw = model.core.encode_media(
                             modality, signal, sample_rate=source.sample_rate or 16000

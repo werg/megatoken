@@ -319,21 +319,21 @@ class SanaFacetsStudent(nn.Module):
         noise = torch.randn(target_latents.shape, dtype=target_latents.dtype,
                             device=target_latents.device, generator=generator)
         if hasattr(scheduler, "scale_noise"):
-            # Sana's FlowMatchEulerDiscreteScheduler predicts the transport
-            # direction from clean latents to noise. It has no DDPM add_noise
-            # or get_velocity interface. Draw from its *actual shifted*
-            # schedule rather than replacing it with uniform timesteps.
-            schedule = scheduler.timesteps
-            if schedule.numel() == 0 or scheduler.sigmas.numel() < schedule.numel():
-                raise ValueError("Flow scheduler has no initialized noise schedule")
-            indices = torch.randint(
-                0, schedule.numel(), (b,), device=target_latents.device,
-                generator=generator,
-            )
-            timestep = schedule.to(target_latents.device)[indices]
-            sigma = scheduler.sigmas.to(
-                device=target_latents.device, dtype=target_latents.dtype
-            )[indices]
+            # The donor's FlowMatchEulerDiscrete parameterization predicts
+            # dU/dsigma = epsilon - U. Training must not sample from the
+            # *mutable inference* scheduler.timesteps: a previous free rollout
+            # may have reduced it from 1000 steps to ~20.
+            # Uniform OT training time covers the full continuous trajectory,
+            # independent of any inference-step count or pack residence.
+            sigma = torch.rand(
+                (b,), device=target_latents.device, generator=generator,
+            ).to(dtype=target_latents.dtype)
+            shifted = float(getattr(config, "shift", 1.0))
+            if not math.isfinite(shifted) or shifted <= 0:
+                raise ValueError("Invalid donor scheduler time shift")
+            # Match the scheduler's static shift convention when configured.
+            sigma = (shifted * sigma) / (1.0 + (shifted - 1.0) * sigma)
+            timestep = sigma * int(config.num_train_timesteps)
             while sigma.ndim < target_latents.ndim:
                 sigma = sigma.unsqueeze(-1)
             noisy = sigma * noise + (1.0 - sigma) * target_latents

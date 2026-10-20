@@ -84,3 +84,20 @@ def test_video_pretrained_output_and_padded_time_loss():
     numerator, count = student.native_loss(raw, target, valid_mask=valid)
     assert count.item() == 4 * 2 * 8 * 8
     assert numerator.isfinite()
+
+
+def test_native_flow_loss_independent_of_prior_inference_schedule():
+    pipe = DummyPipeline(frames=0)
+    student = SanaFacetsStudent(pipe, "image", facet_width=8)
+    raw = torch.randn(1, 32, 8)
+    target = torch.randn(1, 4, 8, 8)
+    gen = torch.Generator().manual_seed(9031)
+    first, count = student.native_loss(raw, target, generator=gen)
+    # A completed free rollout changes the scheduler's inference schedule.
+    pipe.scheduler.timesteps = torch.tensor([4.])
+    pipe.scheduler.sigmas = torch.tensor([0.4, 0.0])
+    second, count2 = student.native_loss(
+        raw, target, generator=torch.Generator().manual_seed(9031),
+    )
+    assert count.item() == count2.item()
+    assert torch.allclose(first, second, rtol=0, atol=0)

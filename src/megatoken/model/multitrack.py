@@ -58,6 +58,10 @@ class ObservedEvent:
     # Optional immutable donor identity; nonempty means payload is ordered
     # feature tokens rather than native waveform/image/video pixels.
     extractor: str = ""
+    # Frozen Whistle/Mimi/MiniCPM features carry a deterministic, causal
+    # valid-position mask. Additional views reduce through the same E once.
+    valid_mask: Tensor | None = None
+    source_views: tuple[tuple[str, Tensor, Tensor], ...] = ()
 
     def __post_init__(self) -> None:
         if self.modality not in {"text", "audio", "image", "video"}:
@@ -72,6 +76,19 @@ class ObservedEvent:
             self.modality == "text" or not isinstance(self.payload, Tensor)
         ):
             raise ValueError("External features require a media tensor and pinned extractor")
+        if self.source_views and not self.extractor:
+            raise ValueError("Multiple ordered views require a declared primary extractor")
+        if self.extractor:
+            if self.payload.ndim != 3 or self.payload.shape[1] < 1:
+                raise ValueError("Frozen input must be ordered [batch,frames,width]")
+            if self.valid_mask is not None and (
+                self.valid_mask.shape != self.payload.shape[:2]
+                or self.valid_mask.dtype != torch.bool
+                or not bool(self.valid_mask.any(dim=1).all())
+            ):
+                raise ValueError("Frozen source features need a nonempty boolean valid mask")
+        elif self.valid_mask is not None:
+            raise ValueError("Native raw media cannot carry a frozen token mask")
 
 
 @dataclass(frozen=True)
@@ -320,9 +337,18 @@ class MultiTrackCore:
                     # A single media event has a single batch dimension.
                     if payload.device != state.device or payload.shape[0] != 1:
                         raise ValueError("Media event must be one batch row on the model device")
-                    encoded = self.core.encode_media(
-                        event.modality, payload, sample_rate=event.sample_rate
-                    )
+                    if event.extractor:
+                        mask = event.valid_mask
+                        if mask is None:
+                            mask = torch.ones(
+                                payload.shape[:2], device=payload.device, dtype=torch.bool,
+                            )
+                        views = ((event.extractor, payload, mask), *event.source_views)
+                        encoded = self.core.encode_media_views(event.modality, tuple(views))
+                    else:
+                        encoded = self.core.encode_media(
+                            event.modality, payload, sample_rate=event.sample_rate,
+                        )
                 raws.append(encoded)
         return self.advance_group(
             state,
