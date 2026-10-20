@@ -633,6 +633,10 @@ def train(
                     len(example.teacher_target) != retrieval_recipe.space.dimension
                 ):
                     raise ValueError("Teacher query target is missing or wrong width")
+                # Reject legacy sidecars that contain a teacher query target
+                # but no causal main request. Training on answer facets would
+                # turn the retrieval realizer into an answer embedding head.
+                example.request_content()
                 retrieval_examples[identity] = example
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
