@@ -90,9 +90,10 @@ class LocalMemoryWindow:
         *, eligible: Tensor, threshold: float = 0.25,
     ) -> tuple[Tensor, int]:
         batch = query.shape[0]
-        keys = torch.stack(
+        keys = (torch.stack(
             [self.field(Collection.SOURCE, "record", i, "key") for i in ids], 0
-        )[None].expand(batch, -1, -1)
+        )[None].expand(batch, -1, -1) if ids else
+            query.new_empty(batch, 0, query.shape[-1]))
         scores = selected_evidence(query, keys, masks=eligible, threshold=threshold)
         return local_source_value_loss(
             scores, target.source_features,
@@ -106,20 +107,24 @@ class LocalMemoryWindow:
         max_groups: int = 4,
     ):
         batch = query.shape[0]
-        keys = torch.stack([
+        keys = (torch.stack([
             self.field(Collection.MEMORY, "record", i, "key") for i in ids
-        ], 0)[None].expand(batch, -1, -1)
-        values = torch.stack([
+        ], 0)[None].expand(batch, -1, -1) if ids else
+            query.new_empty(batch, 0, query.shape[-1]))
+        values = (torch.stack([
             self.field(Collection.MEMORY, "record", i, "value") for i in ids
-        ], 0)[None].expand(batch, -1, -1)
-        strengths = torch.stack([
+        ], 0)[None].expand(batch, -1, -1) if ids else
+            query.new_empty(batch, 0, self.sparse.bank.value_dim))
+        strengths = (torch.stack([
             self.field(Collection.MEMORY, "record", i, "strength").reshape(())
             for i in ids
-        ], 0)[None].expand(batch, -1)
-        lifetimes = torch.stack([
+        ], 0)[None].expand(batch, -1) if ids else
+            query.new_empty(batch, 0))
+        lifetimes = (torch.stack([
             self.field(Collection.MEMORY, "record", i, "lifetime_logit").reshape(())
             for i in ids
-        ], 0)[None].expand(batch, -1)
+        ], 0)[None].expand(batch, -1) if ids else
+            query.new_empty(batch, 0))
         return build_memory_groups(
             queries=query, keys=keys, semantics=values, strengths=strengths,
             lifetime_logits=lifetimes, record_ids=[str(x) for x in ids],
