@@ -1071,8 +1071,21 @@ class MultiTrackGenerator:
         sums["router_balance"] = balance * len(names)
         sums["router_z"] = z_loss * len(names)
         counts["router_balance"] = counts["router_z"] = len(names)
+        def planned(plan, name):
+            if not isinstance(plan, MediaTrainTarget):
+                return plan.denominators[name]
+            # A resolved media target carries no prepared denominators; they
+            # mirror training.meridians.MediaPlan.denominators.
+            family = "audio" if plan.modality == "audio" else "visual"
+            if name in (f"{family}_prediction", f"{family}_reconstruction",
+                        "router_balance", "router_z"):
+                return 1
+            if name == "facet_prediction" and plan.mode == "bootstrap":
+                return core.config.n_facets * core.config.facet_dim
+            return 0
+
         expected = {
-            name: sum(plan.denominators[name] for plan in plans) for name in LOSS_NAMES
+            name: sum(planned(plan, name) for plan in plans) for name in LOSS_NAMES
         }
         if expected != counts:
             raise RuntimeError(
