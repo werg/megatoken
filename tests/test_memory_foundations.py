@@ -133,6 +133,42 @@ def test_source_version_tombstone_cascades_and_is_idempotent(tmp_path):
         assert kb.revisions() == epoch
 
 
+
+def test_retired_version_cannot_be_reallocated_via_old_pair_window(tmp_path):
+    with SQLiteKB(tmp_path / "retired.sqlite", space(), value_dim=16) as kb:
+        obsolete = support("obsolete")
+        valid = support("still-valid")
+        left = kb.insert_memory(
+            scope="team", footprint=obsolete, assignment="old-a",
+            key=np.ones(8), value=np.zeros(16), birth_step=0,
+        )
+        right = kb.insert_memory(
+            scope="team", footprint=valid, assignment="old-b",
+            key=np.arange(1, 9), value=np.zeros(16), birth_step=0,
+        )
+        kb.tombstone_source_version("obsolete", "version1")
+        assert kb.footprint_revoked(obsolete)
+        with pytest.raises(ValueError, match="Retired"):
+            kb.insert_memory(
+                scope="team", footprint=obsolete, assignment="new-a",
+                key=np.ones(8), value=np.zeros(16), birth_step=1,
+            )
+        with pytest.raises(ValueError, match="retired"):
+            kb.insert_relation(
+                scope="team", left=left, right=right, prior=0.5,
+                value=np.zeros(16), dependence_logits=(0., 0.),
+                footprint=valid,
+            )
+        kb.put_growth_state("readiness", {"coherence": True, "embeddings": True})
+        growth = GrowthAllocator(
+            kb, GrowthPolicy(value_dim=16, seed=5, min_pair_windows=2),
+        )
+        assert growth.admit_pairs({
+            "window1": ("old-a", "old-b"),
+            "window2": ("old-a", "old-b"),
+        }, scope="team", visibility=Visibility("team", 10)) == ()
+
+
 def test_exact_and_ivf_filter_before_truncation(tmp_path):
     with SQLiteKB(tmp_path / "kb.sqlite", space(), value_dim=16) as kb:
         allowed = kb.insert_source(
