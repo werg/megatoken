@@ -2,7 +2,6 @@
 from hashlib import sha256
 
 import numpy as np
-import pytest
 import torch
 
 from megatoken.data.retrieval import RetrievalExample
