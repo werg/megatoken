@@ -702,18 +702,17 @@ def train(
                                 "Live KB revisions differ from exact-resume snapshot; "
                                 "restore the matching SQLite snapshot explicitly"
                             )
-                source_features = None
-                if retrieval_recipe.loss_weights.get("source_value", 0):
-                    if not config.retrieval_source_assets_root:
-                        raise ValueError(
-                            "Local RAG value loss needs pinned original source assets"
-                        )
-                    from megatoken.training.source_features import NativeSourceFeatures
-
-                    source_features = NativeSourceFeatures(
-                        model, config.retrieval_source_assets_root,
-                        max_chunk_bytes=retrieval_recipe.max_source_bytes,
+                if not config.retrieval_source_assets_root:
+                    raise ValueError(
+                        "Native free-KB pretraining requires pinned original source "
+                        "assets to ingest RAG evidence through E/C"
                     )
+                from megatoken.training.source_features import NativeSourceFeatures
+
+                source_features = NativeSourceFeatures(
+                    model, config.retrieval_source_assets_root,
+                    max_chunk_bytes=retrieval_recipe.max_source_bytes,
+                )
                 bank_owner = BankTrainingOwner(
                     bank, retrieval_recipe, device=context.device,
                     sparse_lr=config.retrieval_sparse_lr,
