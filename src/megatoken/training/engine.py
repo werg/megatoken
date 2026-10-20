@@ -617,6 +617,13 @@ def train(
             pretrained_pack_fingerprint = hashlib.sha256(
                 Path(config.pretrained_packs).read_bytes()
             ).hexdigest()
+            if context.is_primary:
+                from megatoken.omni.accounting import resident_footprint
+
+                write_json(
+                    output / "omni-residency.json",
+                    resident_footprint(model),
+                )
         payload = None
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
