@@ -6,6 +6,7 @@ import dataclasses
 import json
 import multiprocessing
 import socket
+import sqlite3
 import time
 import urllib.error
 import urllib.request
@@ -40,6 +41,18 @@ def _rows(path, recipe):
         moments = bank.db.execute("SELECT COUNT(*) FROM optimizer_rows").fetchone()[0]
         demand = bank.db.execute("SELECT COUNT(*) FROM demand_events").fetchone()[0]
     return out, moments, demand
+
+
+def _copy_live(path, destination):
+    """Consistent copy of a bank another process holds open (WAL-aware)."""
+    source = sqlite3.connect(str(path), timeout=10)
+    target = sqlite3.connect(str(destination))
+    try:
+        source.backup(target)
+    finally:
+        target.close()
+        source.close()
+    return destination
 
 
 def _changed(before, after):
@@ -101,3 +114,91 @@ def test_synchronous_live_kb_train_updates_rows_and_resumes(tmp_path, phase, rec
     assert resumed["global_step"] == 3
     after, _, _ = _rows(config.retrieval_bank, recipe)
     assert _changed(live, after) > 0
+
+
+def _get(url, token, path):
+    request = urllib.request.Request(url + path, headers={"Authorization": f"Bearer {token}"})
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return json.loads(response.read())
+
+
+def test_diloco_http_free_kb_row_sync_train_and_resume(tmp_path, monkeypatch, recipe_of):
+    torch.set_num_threads(1)
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    url = f"http://127.0.0.1:{port}"
+    token = "test-diloco-token-" + "b" * 32
+    monkeypatch.setenv("MEGATOKEN_DILOCO_TOKEN", token)
+    settings = DecoupledConfig(
+        coordinator_url=url, run_id="kb-http-v1", workers=1, worker_id=0,
+        local_steps=1, poll_steps=1, heartbeat_steps=1, io_workers=2,
+        timeout_seconds=30, max_offline_steps=20,
+    )
+    config = live_kb_train_config(
+        tmp_path, phase="M1", max_steps=6, checkpoint_every=1,
+        inner_optimizer="muon", decoupled=settings,
+    )
+    recipe = recipe_of(config)
+    initial, _, _ = _rows(config.retrieval_bank, recipe)
+    # Initialize exactly as `megatoken diloco init` does, from a config file.
+    from megatoken.cli import _diloco_initialize
+
+    config_path = tmp_path / "train.json"
+    config_path.write_text(json.dumps(dataclasses.asdict(config)))
+    root = tmp_path / "coordinator"
+    _diloco_initialize(Namespace(
+        config=str(config_path), root=str(root), resume=None, quorum=1,
+        fragment_mib=1, outer_lr=0.7, outer_momentum=0.9, grace_seconds=0.0,
+        max_staleness=2,
+    ))
+    server = multiprocessing.get_context("spawn").Process(
+        target=serve_coordinator, args=(str(root), "127.0.0.1", port, token),
+    )
+    server.start()
+    try:
+        for _ in range(200):
+            try:
+                status = _get(url, token, "/v1/status")
+                break
+            except (OSError, urllib.error.URLError):
+                time.sleep(0.05)
+        else:
+            raise AssertionError("Coordinator failed to start")
+        assert status["kb_version"] == 0
+        first = train(config)
+        assert first["global_step"] == 6
+        state, _ = load_checkpoint(first["checkpoint"])
+        assert state["diloco"]["kb"]["version"] >= 1
+        status = _get(url, token, "/v1/status")
+        assert status["kb_version"] >= 1
+        # The worker never grew locally: all ids come from the coordinator bank.
+        canonical = _copy_live(root / "kb" / "canonical.sqlite", tmp_path / "canonical-copy.sqlite")
+        rows, _, demand = _rows(canonical, recipe)
+        assert demand > 0
+        # Only the coordinator grows: memory rows exist beyond the imported sources.
+        assert len(rows) > len(initial) and any(k[0] == "memory" for k in rows)
+        assert set(initial) <= set(rows)
+        # Learner deltas were merged into canonical rows: outer momentum is nonzero.
+        with open_bank_for_recipe(recipe, canonical, readonly=True) as bank:
+            momenta = bank.db.execute("SELECT row, momentum FROM diloco_kb_outer").fetchall()
+        assert momenta and any(np.frombuffer(m, dtype="<f4").any() for _, m in momenta)
+        assert all(r.startswith("memory|record|") for r, _ in momenta)
+        assert status["kb_version"] >= 2
+        learner, learner_moments, _ = _rows(Path(config.output) / "worker-00" / "diloco" / "kb.sqlite", recipe)
+        assert set(learner) <= set(rows)
+        assert any(k[0] == "memory" for k in learner)
+        assert learner_moments > 0  # snapshot installs keep the learner's own moments
+        assert (Path(first["checkpoint"]) / "kb.sqlite").is_file()
+        resumed = train(dataclasses.replace(config, max_steps=1), resume=first["checkpoint"])
+        assert resumed["global_step"] == 7
+        state2, _ = load_checkpoint(resumed["checkpoint"])
+        assert state2["diloco"]["local_steps"] == 7
+        assert state2["diloco"]["kb"]["version"] >= state["diloco"]["kb"]["version"]
+        assert state2["diloco"]["kb"]["sequence"] >= state["diloco"]["kb"]["sequence"]
+    finally:
+        server.terminate()
+        server.join(timeout=10)
+        if server.is_alive():
+            server.kill()
+            server.join()
