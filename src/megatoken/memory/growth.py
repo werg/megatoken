@@ -91,7 +91,9 @@ class GrowthAllocator:
         existing = self.store.scan(Collection.MEMORY, visibility.scope)
         assigned = {x.source_assignment for x in existing}
         available = [x for x in catalog if x.scope == visibility.scope
-                     and x.content_id not in assigned and visibility.permits(x.footprint)]
+                     and x.content_id not in assigned
+                     and visibility.permits(x.footprint)
+                     and not self.store.footprint_revoked(x.footprint)]
         counts = self.demand.counts()
         allocated: dict[str, int] = {}
         for row in existing:
@@ -155,7 +157,11 @@ class GrowthAllocator:
                     scope: str, visibility: Visibility) -> tuple[int, ...]:
         """Count each source window once irrespective of allocation order."""
         from .contracts import Collection
-        memories = self.store.scan(Collection.MEMORY, scope)
+        memories = tuple(
+            row for row in self.store.scan(Collection.MEMORY, scope)
+            if row.active and visibility.permits(row.footprint)
+            and not self.store.footprint_revoked(row.footprint)
+        )
         assignment = {x.source_assignment: x for x in memories}
         previous = self.store.relations(scope)
         existing = {(x.left, x.right) for x in previous}
@@ -185,7 +191,7 @@ class GrowthAllocator:
             joint = Footprint(tuple(dict.fromkeys(
                 (*left.footprint.ranges, *right.footprint.ranges)
             )))
-            if not visibility.permits(joint):
+            if not visibility.permits(joint) or self.store.footprint_revoked(joint):
                 continue
             proposals.append((left, right, joint, len(counts[a,b])))
             degrees[left.id] = degrees.get(left.id, 0) + 1
