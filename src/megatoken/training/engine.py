@@ -544,6 +544,9 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "retrieval_memory_recipe",
             "retrieval_bank",
             "retrieval_source_assets_root",
+            "retrieval_ivf_centroids",
+            "retrieval_ivf_sha256",
+            "retrieval_ivf_nprobe",
             "retrieval_gate_receipt",
             "retrieval_sparse_lr",
             "retrieval_growth_every",
@@ -737,10 +740,30 @@ def train(
                     max_chunk_bytes=retrieval_recipe.max_source_bytes,
                     strict_hash=True,
                 )
+                centroids = None
+                if config.retrieval_ivf_centroids:
+                    if (
+                        sha256_file(Path(config.retrieval_ivf_centroids))
+                        != config.retrieval_ivf_sha256
+                    ):
+                        raise ValueError("Learned IVF centroid artifact SHA256 mismatch")
+                    import numpy as np
+
+                    centroids = np.load(
+                        config.retrieval_ivf_centroids, allow_pickle=False,
+                    )
+                elif bank.db.execute(
+                    "SELECT COUNT(*) FROM records WHERE collection='source' AND active=1"
+                ).fetchone()[0] > 10000:
+                    raise ValueError(
+                        "Large training corpora require pinned disk-IVF centroids "
+                        "instead of unbounded exact-source scans"
+                    )
                 bank_owner = BankTrainingOwner(
                     bank, retrieval_recipe, device=context.device,
                     sparse_lr=config.retrieval_sparse_lr,
-                    source_features=source_features,
+                    source_features=source_features, centroids=centroids,
+                    nprobe=config.retrieval_ivf_nprobe,
                 )
             except BaseException:
                 bank.close()
