@@ -110,6 +110,16 @@ class BankTrainingOwner:
             raise ValueError("Training KB read requires one query and global event count")
         if annotation.query.space_fingerprint != self.recipe.space.fingerprint:
             raise ValueError("Query/KV semantic-space revision mismatch")
+        if multi is not None:
+            catalog = self.bank.growth_state("source_catalog", {})
+            if (
+                catalog.get("snapshot") != annotation.source_snapshot
+                or catalog.get("space") != self.recipe.space.fingerprint
+                or catalog.get("partition_id") != self.recipe.growth.partition_id
+            ):
+                raise ValueError(
+                    "Native query sidecar is not from this exact source/partition snapshot"
+                )
         scope = annotation.query_teacher_inputs.ranges[0].scope
         # Deadline is a delivery limit, not permission to see future evidence.
         # Selected inputs must be available at the actual native boundary.
