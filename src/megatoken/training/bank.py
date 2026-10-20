@@ -16,6 +16,7 @@ from torch import Tensor
 
 from megatoken.data.retrieval import RetrievalExample
 from megatoken.memory.context import admit_kb
+from megatoken.memory.bilateral import selected_joint_groups
 from megatoken.memory.contracts import Collection, Visibility
 from megatoken.memory.growth import CatalogChunk, GrowthAllocator
 from megatoken.memory.index import ExactIndex
@@ -114,7 +115,7 @@ class BankTrainingOwner:
             complete=annotation.annotations_complete and not positives,
         )
         # Memory candidates reference STABLE ORIGINAL source assignments.
-        m_hits = memory_hits.hits[:self.recipe.max_readout_groups]
+        m_hits = memory_hits.hits
         m_ids = tuple(hit.record.id for hit in m_hits)
         m_positive = torch.tensor([
             hit.record.source_assignment in positives for hit in m_hits
@@ -125,14 +126,11 @@ class BankTrainingOwner:
         )
         groups_count = 0
         if m_ids:
-            # Mixing is only allowed inside explicit compatible group IDs.
-            # Legacy records with unspecified groups are kept separate.
-            groups, _ = self.selected.memory_groups(
-                query, m_ids, anchor=int(state.meridians_seen[0]),
-                eligible=torch.ones((1, len(m_ids)), dtype=torch.bool, device=query.device),
-                scopes=[x.record.scope for x in m_hits],
-                groups=[x.record.group or f"point:{x.record.id}" for x in m_hits],
-                versions=[self.recipe.space.revision] * len(m_ids),
+            groups, _ = selected_joint_groups(
+                bank=self.bank, selected=self.selected, query=query,
+                records=[hit.record for hit in m_hits],
+                visibility=visibility, annotation=annotation,
+                anchor=int(state.meridians_seen[0]),
                 max_groups=self.recipe.max_kb_positions,
             )
             for group in groups:
