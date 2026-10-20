@@ -9,6 +9,7 @@ an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
 import os
 import signal
