@@ -76,7 +76,7 @@ class MediaPlan:
                     valid = (torch.arange(target.shape[2], device=device)
                              [None, None, :, None, None] < target_asset.valid_count)
             elif self.modality == "audio" and target_asset.valid_count:
-                valid = (torch.arange(target.shape[1], device=device)[None, :]
+                valid = (torch.arange(target.shape[1], device=device)[None, :, None]
                          < target_asset.valid_count)
         if self.modality == "image" and self.reference.target.kind == "raw":
             target = target[:, None]
