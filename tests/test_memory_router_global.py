@@ -17,6 +17,7 @@ def test_global_balance_matches_one_step_proxy_and_does_not_backprop_upstream():
     torch.manual_seed(7)
     router = EpochRouter(8, 12, experts=5, max_eligible=3)
     window = RouterBalanceWindow(max_assignments=10)
+    router.balance_recorder = window
     x = torch.randn(2, 8, requires_grad=True)
     route = router.route(x, stage=2, rows=4)
     # Only one of the four compiled rows actually ran on each example.
@@ -42,7 +43,8 @@ def test_global_balance_matches_one_step_proxy_and_does_not_backprop_upstream():
 
 def test_replay_capacity_counts_executed_prefix_not_compiled_suffix():
     router = EpochRouter(8, 12, experts=5, max_eligible=3)
-    route = router.route(torch.randn(2, 8), stage=1, rows=9)
     window = RouterBalanceWindow(max_assignments=2)
+    router.balance_recorder = window
+    route = router.route(torch.randn(2, 8), stage=1, rows=9)
     window.capture(router, route.prefix(1))
     assert sum(r.assignments for r in window.receipts) == 2
