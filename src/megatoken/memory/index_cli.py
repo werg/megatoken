@@ -52,6 +52,7 @@ def publish_index(
             "revisions": asdict(bank.revisions()),
         }
         bank.put_growth_state("ivf_publication", receipt)
+        receipt["published_revisions"] = asdict(bank.revisions())
         return receipt
 
 
