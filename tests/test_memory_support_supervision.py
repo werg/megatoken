@@ -1,0 +1,54 @@
+"""Retrieved evidence misses must never become negative/no-answer supervision."""
+import torch
+
+from megatoken.memory.reader import selected_evidence, local_source_value_loss
+from megatoken.training.memory import annotated_ranking_loss
+
+
+def _scores(mask):
+    query = torch.tensor([[1., 0.]])
+    keys = torch.tensor([[[1., 0.], [0., 1.]]])
+    return selected_evidence(query, keys, masks=torch.tensor([mask]))
+
+
+def test_masked_positive_is_not_an_explicit_null_target():
+    scores = _scores([False, True])
+    positive = torch.tensor([[True, False]])
+    complete = torch.tensor([True])
+    features = torch.tensor([[[1., 0.], [0., 1.]]])
+    source, n_source = local_source_value_loss(
+        scores, features, positive=positive, complete_annotations=complete
+    )
+    rank, n_rank = annotated_ranking_loss(scores, positive, complete)
+    assert n_source == n_rank == 0
+    assert source == 0
+    assert rank == 0
+
+
+def test_truly_empty_complete_annotation_trains_null():
+    scores = _scores([True, True])
+    positive = torch.tensor([[False, False]])
+    complete = torch.tensor([True])
+    features = torch.tensor([[[1., 0.], [0., 1.]]])
+    source, n_source = local_source_value_loss(
+        scores, features, positive=positive, complete_annotations=complete
+    )
+    rank, n_rank = annotated_ranking_loss(scores, positive, complete)
+    assert n_source == n_rank == 1
+    assert source.item() > 0
+    assert rank.item() > 0
+
+
+def test_visible_useful_source_keeps_bilateral_gradients():
+    query = torch.tensor([[0.8, 0.6]], requires_grad=True)
+    key = torch.tensor([[[0.2, 0.9], [0.9, 0.1]]], requires_grad=True)
+    scores = selected_evidence(query, key)
+    source, count = local_source_value_loss(
+        scores, torch.tensor([[[0., 1.], [1., 0.]]]),
+        positive=torch.tensor([[True, False]]),
+        complete_annotations=torch.tensor([True]),
+    )
+    assert count == 1
+    source.backward()
+    assert query.grad is not None and query.grad.abs().sum() > 0
+    assert key.grad is not None and key.grad.abs().sum() > 0
