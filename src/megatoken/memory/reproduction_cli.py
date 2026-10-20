@@ -7,7 +7,6 @@ dataset/checkpoint identities and complete expected stable assignments.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 from hashlib import sha256
 import json
 from pathlib import Path
