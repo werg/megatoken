@@ -16,7 +16,7 @@ import torch
 from megatoken.memory.base import Record, SearchBatch
 from megatoken.memory.context import admit_kb
 from megatoken.memory.contracts import Collection, QueryBoundary, SemanticSpace, Visibility
-from megatoken.memory.reader import build_memory_groups
+from megatoken.memory.bilateral import FrozenMemoryFields, selected_joint_groups\nfrom megatoken.memory.sqlite import SQLiteKB
 from megatoken.memory.replay import QueryActionReceipt
 from megatoken.memory.retrieval import (
     Interval, RetrievalService, RetrievalSession, SourceObligation, subtract,
@@ -128,42 +128,40 @@ class NativeRetrieval:
         )
         groups = ()
         if enable_memory and memory.hits and self.policy.max_compat_groups:
-            valid_hits = [hit for hit in memory.hits
-                          if hit.similarity >= self.policy.memory_threshold]
-            # Bound incompatible groups before materialization, deterministic
-            # rank-score order, no grouping solely by vector proximity.
-            chosen: list = []
-            named = set()
-            for hit in valid_hits:
-                row = hit.record
-                key = (row.scope, row.group or f"point:{row.id}", row.payload_revision)
-                if key not in named and len(named) >= self.policy.max_compat_groups:
-                    continue
-                chosen.append(row)
-                named.add(key)
+            store = self.service.backend.store
+            if not isinstance(store, SQLiteKB):
+                raise TypeError("Point/pair serving requires the authoritative SQLite KB")
+            chosen = [
+                hit.record for hit in memory.hits
+                if hit.similarity >= self.policy.memory_threshold
+            ]
             if chosen:
+                # Only sources already committed through real E/C admissions
+                # may supply the independent second leg of a relation. ANN hits,
+                # future observations and source coverage reservations do not.
+                covered = {
+                    (item.content_id, item.version)
+                    for item in self.ledger(session).injected
+                }
+                observed_sources = sorted({
+                    span.source_id
+                    for row in store.scan(Collection.SOURCE, visibility.scope)
+                    if row.active
+                    and row.evidence_span is not None
+                    and (row.content_id, row.evidence_span.version) in covered
+                    for span in row.footprint.ranges
+                })
                 device = session.state.device
                 with torch.no_grad():
-                    keys = torch.from_numpy(np.stack([r.key for r in chosen])).to(device)[None]
-                    values = torch.from_numpy(np.stack([r.value for r in chosen])).to(device)[None]
-                    strengths = torch.tensor(
-                        [[r.strength for r in chosen]], device=device
-                    )
-                    lifetimes = torch.tensor(
-                        [[r.lifetime_logit for r in chosen]], device=device
-                    )
-                    queries = torch.from_numpy(query).to(device)[None]
-                    groups, _ = build_memory_groups(
-                        queries=queries, keys=keys, semantics=values,
-                        strengths=strengths, lifetime_logits=lifetimes,
-                        record_ids=[f"memory:{r.id}" for r in chosen],
-                        scopes=[r.scope for r in chosen],
-                        groups=[r.group or f"point:{r.id}" for r in chosen],
-                        versions=[f"payload-v{r.payload_revision}" for r in chosen],
-                        eligible=torch.ones(1, len(chosen), dtype=torch.bool, device=device),
+                    groups, _ = selected_joint_groups(
+                        bank=store, selected=FrozenMemoryFields(store, device),
+                        query=torch.from_numpy(query).to(device)[None],
+                        records=chosen, visibility=visibility,
                         anchor=int(next_state.meridians_seen.min()),
                         threshold=self.policy.memory_threshold,
                         max_groups=self.policy.max_compat_groups,
+                        pair_support_units=tuple(observed_sources),
+                        pair_context_complete=False,
                     )
                 for group in groups:
                     next_state = admit_kb(next_state, group)
