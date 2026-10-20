@@ -446,9 +446,19 @@ def forward_meridian_batch(
                     # Sample P on a dedicated retrieval track, with the
                     # PRE-ANSWER causal state and explicit request/purpose/space.
                     # Do not mislabel answer-event raw facets as query actions.
+                    main_request = annotation.request_content()
+                    # The request is not simply an arbitrary hashed sidecar
+                    # string: it must occur in the actual already-committed
+                    # episode prefix. A future label/answer cannot masquerade
+                    # as a query-control payload.
+                    if not any(
+                        item.payload == main_request and item.role in {"user", "system"}
+                        for item in batch.windows[0].episode.records[:step.offsets[0]]
+                    ):
+                        raise ValueError("Retrieval main request is absent from causal episode prefix")
                     predicted, unchanged, selected = multi.retrieve_embedding(
                         state,
-                        main_request=annotation.request_content(),
+                        main_request=main_request,
                         purpose=annotation.query.purpose,
                         space_fingerprint=recipe.space.fingerprint,
                         effort=batch.effort,
