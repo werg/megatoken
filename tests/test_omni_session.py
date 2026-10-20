@@ -25,7 +25,7 @@ class FakeGenerator:
             payloads=tuple(b"abcdef" for _ in tracks),
             controls=tuple(controls),
             effort=effort,
-            to_json=lambda: "|".join(tracks + tuple(controls)).encode().hex(),
+            to_json=lambda: "|".join(tuple(tracks) + tuple(c.hex() for c in controls)).encode().hex(),
         )
         return SimpleNamespace(
             state=SimpleNamespace(batch_size=1, revision=state.revision + 1),

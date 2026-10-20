@@ -3,12 +3,13 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 import torch
 from torch import nn
 
 from megatoken.controls import resolve_event_control
 from megatoken.data.concordance import (
-    AlignedBundle, BundleArtifact, Relation, TaskView, compile_task,
+    AlignedBundle, BundleArtifact, TaskView, compile_task,
     generated, group, observed, standard_views,
 )
 from megatoken.data.media_assets import MediaRecord, TensorAssetStore
@@ -107,7 +108,7 @@ def test_media_asset_native_masks_and_clock_revisions(tmp_path):
     record = MediaRecord("image", source, target, target_mask=mask)
     assert MediaRecord.from_bytes(record.to_bytes()) == record
     assert store.load_mask(mask).shape == (4, 4)
-    with pytest.raises(ValueError, match="Codec latents require"):
+    with pytest.raises(ValueError, match="Codec latents need"):
         replace(target, codec_id="")
     with pytest.raises(ValueError, match="time interval"):
         replace(target, end_ms=0)
@@ -120,7 +121,7 @@ class _FakeDenoiser(nn.Module):
 
     def forward(self, noisy, timestep, conditioning):
         del timestep
-        return noisy * self.scale + conditioning.mean() * torch.ones_like(noisy)
+        return noisy * self.scale + conditioning[..., :4].square().mean() * torch.ones_like(noisy)
 
 
 class _IdentityDecoder(nn.Module):
@@ -206,7 +207,7 @@ def test_native_codec_target_enters_existing_grouped_loss_ledger(tmp_path):
     )
     compiled = compile_task(bundle, next(view for view in standard_views(bundle)
                                         if view.family == "image_creation"))
-    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    model = build_model(ModelConfig.tiny(**MODEL_OVERRIDES), ByteCodec.byte_fallback())
     pack = PackSpec("sana-image-600m", "sana_image", "not-loaded", "a" * 64,
                     "revision", "sana-dcae-r1", 16, steps=2)
     model.media_realizers.install_native(
@@ -214,12 +215,9 @@ def test_native_codec_target_enters_existing_grouped_loss_ledger(tmp_path):
             facet_count=4, facet_width=32, pack=pack,
             denoiser=_FakeDenoiser(), decoder=_IdentityDecoder(),
         ))
-    config = TrainConfig(
-        model="tiny", dataset=str(tmp_path), output=str(tmp_path / "run"),
-        phase="B0", device="cpu", precision="fp32",
-        budget_meter="G", budget=10, eval_every=0,
-        use_stage_mixture=False, use_effort_mixture=False,
-        max_history_tokens=128, generated_capacity=32, effort=1,
+    config = retrieval_train_config(
+        tmp_path / "retrieval", phase="B0", budget_meter="G", budget=10, media_root=str(tmp_path),
+        max_history_tokens=128, generated_capacity=32, effort=1, max_record_bytes=1024,
     )
     window = next(iter_windows(compiled, ByteCodec.byte_fallback(),
                                WindowConfig(max_records=6, max_decisions=3)))
@@ -230,6 +228,7 @@ def test_native_codec_target_enters_existing_grouped_loss_ledger(tmp_path):
     assert batch.counts["relation_semantic"] == 1
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
     model.core.set_model_version(0)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0,
+                  retrieval_aux(config, supervised=False))
     ledger.finish()
     assert model.media_realizers.native["image"].conditioner.to_donor.weight.grad is not None

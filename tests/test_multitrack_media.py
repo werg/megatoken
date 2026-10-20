@@ -209,7 +209,7 @@ def test_grouped_bootstrap_kl_is_normalized_once_per_latent_coordinate():
             encoded.float(),
             torch.full_like(encoded.float(), math.log(core.config.codec_noise_std)),
         )
-        expected = posterior.kl(model.facet_distribution(mean)).mean()
+        expected = posterior.kl(model.facet_distribution(mean)).sum() / encoded.numel()
     torch.testing.assert_close(result.components["facet_kl"], expected, rtol=1e-5, atol=1e-5)
     assert float(expected) > 0
 

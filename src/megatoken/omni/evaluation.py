@@ -12,6 +12,32 @@ from dataclasses import dataclass
 import numpy as np
 
 
+def _edit_distance(a, b) -> int:
+    previous = list(range(len(b) + 1))
+    for i, x in enumerate(a, 1):
+        current = [i]
+        for j, y in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1,
+                               previous[j - 1] + (x != y)))
+        previous = current
+    return previous[-1]
+
+
+def word_error_rate(reference: str, hypothesis: str) -> float:
+    """Word-level Levenshtein distance over reference length (case-insensitive)."""
+    ref, hyp = reference.lower().split(), hypothesis.lower().split()
+    if not ref:
+        return float(len(hyp) > 0)
+    return _edit_distance(ref, hyp) / len(ref)
+
+
+def character_error_rate(reference: str, hypothesis: str) -> float:
+    ref, hyp = reference.lower(), hypothesis.lower()
+    if not ref:
+        return float(len(hyp) > 0)
+    return _edit_distance(ref, hyp) / len(ref)
+
+
 def endpoint_rmse(actual_video: np.ndarray, first: np.ndarray, last: np.ndarray):
     if actual_video.ndim != 4 or first.shape != actual_video.shape[1:] or last.shape != first.shape:
         raise ValueError("Video and independently sampled endpoint pixels need identical geometry")
