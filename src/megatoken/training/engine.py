@@ -999,7 +999,7 @@ def train(
             optimizer_seconds = time.perf_counter() - optimizer_started
             global_step += 1
             if bank_owner is not None:
-                from megatoken.training.bank import synchronize_sparse_rows
+                from megatoken.training.bank import (\n                    synchronize_query_demand, synchronize_sparse_rows,\n                )
 
                 step_metrics["memory_sparse_updated"] = synchronize_sparse_rows(
                     bank_owner, context, optimizer_step=global_step,
