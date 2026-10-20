@@ -55,3 +55,25 @@ def test_suffix_writer_requires_positive_gap():
             torch.randn(1, 4, 4, 8), mode="suffix",
             valid_blocks=torch.ones(1, 4, dtype=torch.bool), local_gap=0,
         )
+
+
+def test_scored_assignment_does_not_silently_clamp_to_wrong_source():
+    from megatoken.memory.writers import AssignmentTargets, writer_distillation
+    model = _writer()
+    inputs = torch.randn(1, 4, 4, 8)
+    with torch.no_grad():
+        output = model(
+            inputs, mode="full",
+            valid_blocks=torch.ones(1, 4, dtype=torch.bool),
+        )
+    bad = AssignmentTargets(
+        slots=torch.tensor([[99]], dtype=torch.long),
+        key=torch.randn(1, 1, 12),
+        value=torch.randn(1, 1, 10),
+        strength=torch.ones(1, 1),
+        lifetime_logit=torch.zeros(1, 1),
+        distance=torch.zeros(1, 1),
+        valid=torch.ones(1, 1, dtype=torch.bool),
+    )
+    with pytest.raises(ValueError, match="missing output slot"):
+        writer_distillation(output, bad)
