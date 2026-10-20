@@ -57,7 +57,6 @@ def test_selected_query_tape_replay_reproduces_kv_vector_and_policy_density():
 def test_incremental_source_coverage_snapshot_roundtrips_and_rejects_corruption(tmp_path):
     from megatoken.memory.base import Hit
     from megatoken.memory.contracts import Collection, QueryBoundary
-    from megatoken.memory.retrieval import Interval
 
     space = SemanticSpace(
         "shared", "v1", "teacher", "pinned", 8, "doc", "query", "context",
