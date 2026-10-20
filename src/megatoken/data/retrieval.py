@@ -42,7 +42,7 @@ class RetrievalExample:
         if self.teacher_target is not None:
             if not self.teacher_target or any(
                 not math.isfinite(x) for x in self.teacher_target
-            ) or math.sqrt(sum(x * x for x in self.teacher_target)) <= 1e-12:
+            ) or not 1e-12 < math.sqrt(sum(x * x for x in self.teacher_target)) < float("inf"):
                 raise ValueError("Teacher query vector must be finite and nonzero")
 
     def to_dict(self) -> dict:
