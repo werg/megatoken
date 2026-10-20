@@ -92,7 +92,7 @@ class BankTrainingOwner:
         if annotation.query.space_fingerprint != self.recipe.space.fingerprint:
             raise ValueError("Query/KV semantic-space revision mismatch")
         scope = annotation.query_teacher_inputs.ranges[0].scope
-        visibility = Visibility(scope, annotation.query.deadline)
+        # Deadline is a delivery limit, not permission to see future evidence.\n        # Selected inputs must be available at the actual native boundary.\n        committed = int(state.meridians_seen[0])\n        if annotation.query.meridian > committed:\n            raise ValueError("KB query cannot see a future native meridian")\n        visibility = Visibility(scope, min(annotation.query.meridian, committed))
         q = query.detach().float().cpu().numpy()[0]
         source_hits = self.index.search(
             q, collection=Collection.SOURCE, scope=scope,
