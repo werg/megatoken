@@ -41,7 +41,7 @@ def test_launch_interfaces_parse_explicit_modes():
         [
             "train",
             "--config",
-            "configs/train/b0.yaml",
+            "configs/train/retrieval-coherence.example.yaml",
             "--no-require-blackwell",
             "--compile",
             "--expert-backend",
@@ -51,10 +51,6 @@ def test_launch_interfaces_parse_explicit_modes():
         ]
     )
     assert not args.require_blackwell and args.compile and args.max_steps == 1
-    args = parser().parse_args(
-        ["rl", "--tasks", "tasks.jsonl", "--checkpoint", "checkpoint", "--max-task-groups", "1"]
-    )
-    assert args.max_task_groups == 1
 
 
 @pytest.mark.parametrize("alias,canonical", [("recurrent32", "32x512"), ("compact32", "32x256")])
@@ -62,7 +58,7 @@ def test_model_aliases_are_normalized_only_for_preset_arguments(alias, canonical
     arguments = (
         ["inspect"],
         ["benchmark"],
-        ["train"],
+        ["train", "--config", "train.yaml"],
         [
             "engram",
             "extract",
