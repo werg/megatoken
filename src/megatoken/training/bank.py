@@ -24,7 +24,10 @@ from megatoken.memory.optimizer import RowID, SparseRowAdam
 from megatoken.memory.reader import selected_evidence
 from megatoken.memory.recipe import RetrievalRecipe
 from megatoken.memory.sqlite import SQLiteKB
-from megatoken.training.memory import (\n    LocalMemoryWindow, LocalRetrievalTarget, annotated_ranking_loss,\n)\nfrom megatoken.training.source_features import NativeSourceFeatures
+from megatoken.training.memory import (
+    LocalMemoryWindow, LocalRetrievalTarget, annotated_ranking_loss,
+)
+from megatoken.training.source_features import NativeSourceFeatures
 
 
 def semantic_region(key: np.ndarray) -> str:
@@ -54,14 +57,19 @@ class BankTrainingOwner:
     """
 
     def __init__(self, bank: SQLiteKB, recipe: RetrievalRecipe, *,
-                 device: torch.device, sparse_lr: float = 1e-3,\n                 source_features: NativeSourceFeatures | None = None):
+                 device: torch.device, sparse_lr: float = 1e-3,
+                 source_features: NativeSourceFeatures | None = None):
         if bank.space.fingerprint != recipe.space.fingerprint or (
             bank.value_dim != recipe.model.semantic_value_dim
         ):
             raise ValueError("Bank/training semantic layout mismatch")
         if recipe.phase not in {"progressive_warmup", "free_kb_pretraining"}:
             raise ValueError("Bank updates are allowed only in free-KB pretraining phases")
-        if recipe.loss_weights.get("source_value", 0) and source_features is None:\n            raise ValueError("Source-value training requires actual detached native E(source) bytes")\n        self.bank = bank\n        self.source_features = source_features\n        self.recipe = recipe
+        if recipe.loss_weights.get("source_value", 0) and source_features is None:
+            raise ValueError("Source-value training requires actual detached native E(source) bytes")
+        self.bank = bank
+        self.source_features = source_features
+        self.recipe = recipe
         self.device = device
         self.index = ExactIndex(bank)
         self.sparse = SparseRowAdam(bank, lr=sparse_lr)
@@ -94,7 +102,12 @@ class BankTrainingOwner:
         if annotation.query.space_fingerprint != self.recipe.space.fingerprint:
             raise ValueError("Query/KV semantic-space revision mismatch")
         scope = annotation.query_teacher_inputs.ranges[0].scope
-        # Deadline is a delivery limit, not permission to see future evidence.\n        # Selected inputs must be available at the actual native boundary.\n        committed = int(state.meridians_seen[0])\n        if annotation.query.meridian > committed:\n            raise ValueError("KB query cannot see a future native meridian")\n        visibility = Visibility(scope, min(annotation.query.meridian, committed))
+        # Deadline is a delivery limit, not permission to see future evidence.
+        # Selected inputs must be available at the actual native boundary.
+        committed = int(state.meridians_seen[0])
+        if annotation.query.meridian > committed:
+            raise ValueError("KB query cannot see a future native meridian")
+        visibility = Visibility(scope, min(annotation.query.meridian, committed))
         q = query.detach().float().cpu().numpy()[0]
         source_hits = self.index.search(
             q, collection=Collection.SOURCE, scope=scope,
@@ -170,7 +183,12 @@ class BankTrainingOwner:
             self.query_demand += 1
         self.reads += 1
         scale = self.recipe.loss_weights.get("query_ranking", 0.)
-        loss = (scale * (s_loss + m_loss) + (\n            self.recipe.loss_weights.get("source_value", 0.) * source_value\n        )) / global_count\n        return ReadResult(\n            state, loss, len(s_ids), len(m_ids), groups_count, source_value_examples,\n        )
+        loss = (scale * (s_loss + m_loss) + (
+            self.recipe.loss_weights.get("source_value", 0.) * source_value
+        )) / global_count
+        return ReadResult(
+            state, loss, len(s_ids), len(m_ids), groups_count, source_value_examples,
+        )
 
     def catalog(self, scope: str) -> list[CatalogChunk]:
         """Source records are the allocation catalog, never model outputs."""
