@@ -97,6 +97,10 @@ CREATE TABLE IF NOT EXISTS optimizer_rows (
     updates INTEGER NOT NULL, step INTEGER NOT NULL, row_revision INTEGER NOT NULL,
     PRIMARY KEY(collection,kind,entity_id,field,layout_generation)
 );
+CREATE TABLE IF NOT EXISTS retired_source_versions (
+    source_id TEXT NOT NULL, source_version TEXT NOT NULL,
+    PRIMARY KEY (source_id,source_version)
+);
 CREATE TABLE IF NOT EXISTS demand_events (
     event_id TEXT PRIMARY KEY, partition_id TEXT NOT NULL, region TEXT NOT NULL,
     family TEXT NOT NULL, step INTEGER NOT NULL
@@ -242,6 +246,8 @@ class SQLiteKB:
                 evidence_span: SourceRange | None = None) -> int:
         if not scope or any(r.scope != scope for r in footprint.ranges):
             raise ValueError("Every support range must belong to the record scope")
+        if self.footprint_revoked(footprint):
+            raise ValueError("Retired source versions cannot seed new source or memory records")
         if not all(math.isfinite(x) for x in (strength, lifetime_logit)) or strength < 0:
             raise ValueError("Invalid learned memory gate/lifetime")
         if birth_step < 0:
@@ -274,6 +280,20 @@ class SQLiteKB:
             self._bump("key", "policy", *(("payload", "growth") if value is not None else ()))
             return record_id
 
+    def footprint_revoked(self, footprint: Footprint) -> bool:
+        """Source retirement is a durable version-level hard exclusion."""
+        if not footprint.ranges:
+            raise ValueError("A memory footprint must have original support")
+        with self._lock:
+            for span in footprint.ranges:
+                if self.db.execute(
+                    """SELECT 1 FROM retired_source_versions
+                       WHERE source_id=? AND source_version=?""",
+                    (span.source_id, span.version),
+                ).fetchone():
+                    return True
+        return False
+
     def _footprint_refs(self, collection: str, kind: str, identity: int,
                         footprint: Footprint) -> None:
         self.db.executemany(
@@ -289,6 +309,11 @@ class SQLiteKB:
         if not source_id or not version:
             raise ValueError("Source invalidation requires both source and version")
         with self.transaction():
+            revoked_new = self.db.execute(
+                """INSERT OR IGNORE INTO retired_source_versions
+                   (source_id,source_version) VALUES (?,?)""",
+                (source_id, version),
+            ).rowcount
             rows = self.db.execute(
                 """SELECT DISTINCT collection,entity_kind,entity_id
                    FROM source_range_refs WHERE source_id=? AND source_version=?""",
@@ -326,7 +351,7 @@ class SQLiteKB:
                     (left_id IN (SELECT id FROM records WHERE active=0) OR
                      right_id IN (SELECT id FROM records WHERE active=0))"""
                 ).rowcount
-            if any(counts.values()):
+            if revoked_new or any(counts.values()):
                 self._bump("policy", "graph", "index")
             return counts
 
@@ -415,6 +440,10 @@ class SQLiteKB:
                 self.get(Collection.MEMORY, x).scope != scope for x in (a, b)
             ) or any(r.scope != scope for r in footprint.ranges):
                 raise ValueError("Pair requires distinct eligible memory members and support")
+            if self.footprint_revoked(footprint) or any(
+                not self.get(Collection.MEMORY, x).active for x in (a, b)
+            ):
+                raise ValueError("Pair support or endpoint references retired evidence")
             result = self.db.execute(
                 """INSERT INTO relations (left_id,right_id,scope,prior,value,dependence,
                 footprint,strength,lifetime_logit) VALUES (?,?,?,?,?,?,?,?,?)""",
