@@ -25,9 +25,8 @@ import torch
 from torch import Tensor, nn
 from torch.func import functional_call
 
-from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, LOSS_NAMES
+from megatoken.contracts import DECODER_LOSSES, DEFAULT_LOSS_WEIGHTS, LOSS_NAMES
 from megatoken.controls import encode_controls
-from megatoken.generation.decoder import DECODER_LOSSES
 from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.structure import ActionSpec
 from megatoken.generation.targets import PreparedAction, PreparedTargets

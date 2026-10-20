@@ -11,6 +11,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from megatoken.contracts import DECODER_LOSSES
 from megatoken.model.layers import position_features
 
 from .distributions import TiedVocabulary
@@ -19,7 +20,6 @@ from .realizer import ParallelRealizer
 from .structure import ActionSpec, Decision, FieldSpec
 from .targets import PreparedAction, PreparedTargets, planned_fields, source_ids, workspace_capacity
 
-DECODER_LOSSES = ("lexical", "structure", "binding", "placement", "terminal")
 
 
 @dataclass(frozen=True)
