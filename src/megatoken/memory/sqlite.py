@@ -126,7 +126,7 @@ class SQLiteKB:
         self._depth = 0
         if not readonly:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        uri = f"file:{self.path.resolve().as_posix()}?mode=ro&immutable=1" if readonly else None
+        uri = f"file:{self.path.resolve().as_posix()}?mode=ro" if readonly else None
         self.db = sqlite3.connect(uri if readonly else str(self.path), uri=readonly,
                                   isolation_level=None, timeout=10, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
@@ -192,6 +192,21 @@ class SQLiteKB:
                 else:
                     self.db.execute("COMMIT")
 
+    @contextmanager
+    def read_snapshot(self):
+        """One deferred read transaction: every SELECT inside sees one snapshot."""
+        with self._lock:
+            if self._depth:
+                yield self
+                return
+            self.db.execute("BEGIN")
+            self._depth += 1
+            try:
+                yield self
+            finally:
+                self._depth -= 1
+                self.db.execute("ROLLBACK")
+
     def _bump(self, *generations: str) -> None:
         for name in set(generations):
             self.db.execute(
@@ -250,8 +265,6 @@ class SQLiteKB:
                 evidence_span: SourceRange | None = None) -> int:
         if not scope or any(r.scope != scope for r in footprint.ranges):
             raise ValueError("Every support range must belong to the record scope")
-        if self.footprint_revoked(footprint):
-            raise ValueError("Retired source versions cannot seed new source or memory records")
         if not all(math.isfinite(x) for x in (strength, lifetime_logit)) or strength < 0:
             raise ValueError("Invalid learned memory gate/lifetime")
         if birth_step < 0:
@@ -270,6 +283,8 @@ class SQLiteKB:
         k = unit_finite(key, dimension=self.space.dimension).tobytes()
         v = None if value is None else _vector(value, self.value_dim)
         with self.transaction():
+            if self.footprint_revoked(footprint):
+                raise ValueError("Retired source versions cannot seed new source or memory records")
             cursor = self.db.execute(
                 """INSERT INTO records
                 (collection,scope,key,value,footprint,content_id,asset_ref,strength,
@@ -380,6 +395,8 @@ class SQLiteKB:
                       posting_cell: int | None = None, centroids_revision: str = "") -> Record:
         with self.transaction():
             old = self.get(collection, record_id)
+            if not old.active:
+                raise ValueError("A retired record cannot be updated")
             if expected_key_revision is not None and old.key_revision != expected_key_revision:
                 raise RuntimeError("Stale KB key revision")
             if expected_payload_revision is not None and (
@@ -459,10 +476,12 @@ class SQLiteKB:
             self._bump("graph", "payload", "growth")
             return relation_id
 
-    def relations(self, scope: str) -> tuple[Relation, ...]:
+    def relations(self, scope: str, *, include_inactive: bool = False
+                  ) -> tuple[Relation, ...]:
         with self._lock:
             rows = self.db.execute(
-                "SELECT * FROM relations WHERE scope=? AND active=1 ORDER BY id",
+                "SELECT * FROM relations WHERE scope=?"
+                + ("" if include_inactive else " AND active=1") + " ORDER BY id",
                 (scope,),
             ).fetchall()
         return tuple(Relation(
@@ -494,6 +513,8 @@ class SQLiteKB:
                                   (relation_id,)).fetchone()
             if row is None:
                 raise KeyError(relation_id)
+            if not row["active"]:
+                raise ValueError("A retired relation cannot be updated")
             v = row["value"] if value is None else _vector(value, self.value_dim)
             d = row["dependence"] if dependence_logits is None else _vector(dependence_logits, 2)
             s = row["strength"] if strength is None else float(strength)
