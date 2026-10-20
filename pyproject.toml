@@ -29,6 +29,7 @@ megatoken-memory = "megatoken.memory.recipe:main"
 megatoken-memory-writer = "megatoken.training.writer_cli:main"
 megatoken-memory-catalog = "megatoken.memory.catalog_cli:main"
 megatoken-memory-reproduce = "megatoken.memory.reproduction_cli:main"
+megatoken-memory-index = "megatoken.memory.index_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/megatoken"]
