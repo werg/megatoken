@@ -203,8 +203,16 @@ class PocketFacetsStudent(nn.Module):
         from pocket_tts.modules.stateful_module import init_states
         if native_latents.ndim != 3 or native_latents.shape[-1] != self.latent_width:
             raise ValueError("Pocket latent/decoder mismatch")
-        state = init_states(self.mimi, native_latents.shape[0],
-                            native_latents.shape[1] + 16)
+        ratio = self.mimi.encoder_frame_rate / self.mimi.frame_rate
+        if ratio != int(ratio) or ratio < 1:
+            raise ValueError("Pocket Mimi requires an integer encoder/latent frame ratio")
+        # Mimi's upsampler and decoder advance at encoder-frame rate,
+        # *not* at the 12.5Hz continuous latent rate. A 16x codec ratio
+        # needs 16 times as much decoder-state sequence capacity.
+        state = init_states(
+            self.mimi, native_latents.shape[0],
+            native_latents.shape[1] * int(ratio) + 16,
+        )
         with torch.no_grad():
             waveform = self.mimi.decode_from_latent(native_latents, state)
             if waveform.ndim != 3 or waveform.shape[1] != 1:

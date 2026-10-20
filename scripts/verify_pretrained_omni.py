@@ -24,7 +24,10 @@ def _device(name: str) -> torch.device:
     return device
 
 
-def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool = False,\n          image_size: int = 1024, video_height: int = 704,\n          video_width: int = 1280, video_frames: int = 81, steps: int = 16) -> dict:
+def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool = False,
+          image_size: int = 1024, video_height: int = 704,
+          video_width: int = 1280, video_frames: int = 81, steps: int = 16,
+          roundtrip: bool = False) -> dict:
     base, items = read_locked_manifest(manifest)
     result = {}
     torch_device = _device(device)
@@ -97,7 +100,51 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool =
                     "min": float(output.min()),
                     "max": float(output.max()),
                 }
+        codec_check = {"status": "not_run"}
+        if roundtrip:
+            with torch.inference_mode():
+                if name == "pocket":
+                    decoded = student.decode(latent)
+                    original = sample
+                else:
+                    if name == "sana":
+                        original = torch.zeros(
+                            1, 3, 64, 64, device=torch_device,
+                            dtype=student.vae.dtype,
+                        )
+                    else:
+                        original = torch.zeros(
+                            1, 3, 9, 64, 64, device=torch_device,
+                            dtype=student.vae.dtype,
+                        )
+                    encoded = student.vae.encode(original, return_dict=True)
+                    if hasattr(encoded, "latent_dist"):
+                        latent_codec = encoded.latent_dist.mode()
+                    elif hasattr(encoded, "latents"):
+                        latent_codec = encoded.latents
+                    else:
+                        raise ValueError("Donor codec has no explicit encoded latent result")
+                    decoded = student.vae.decode(latent_codec, return_dict=False)[0]
+                if (not isinstance(decoded, torch.Tensor)
+                        or not torch.isfinite(decoded).all()
+                        or decoded.ndim != original.ndim):
+                    raise ValueError("Matched codec round trip has invalid shape/values")
+                # MIME and temporal codecs may introduce deterministic padding,
+                # which is excluded from the valid reconstruction RMSE.
+                slices = tuple(slice(0, min(n, m)) for n, m in zip(
+                    original.shape, decoded.shape,
+                ))
+                aligned = decoded[slices].float()
+                valid = original[slices].float()
+                error = float((aligned - valid).square().mean().sqrt().cpu())
+                codec_check = {
+                    "status": "physical_contract_pass",
+                    "native_shape": list(original.shape),
+                    "decoded_shape": list(decoded.shape),
+                    "measured_synthetic_rmse": error,
+                }
         result[name] = {
+            "codec_roundtrip": codec_check,
             "latent_shape": contract.latent_shape,
             "finite_native_loss": contract.loss,
             "trainable_parameters": contract.trainable_parameters,
@@ -116,6 +163,8 @@ def main():
     parser.add_argument("--packs", nargs="+", choices=("pocket", "sana", "sana_video"),
                         default=["pocket", "sana", "sana_video"])
     parser.add_argument("--output", default="")
+    parser.add_argument("--roundtrip", action="store_true",
+                        help="Verify exact frozen codec encode/decode and synthetic RMSE")
     parser.add_argument("--rollout", action="store_true",
                         help="Actually generate raw-facets-conditioned speech/image/video")
     parser.add_argument("--image-size", type=int, default=1024)
@@ -129,6 +178,7 @@ def main():
         rollout=args.rollout, image_size=args.image_size,
         video_height=args.video_height, video_width=args.video_width,
         video_frames=args.video_frames, steps=args.steps,
+        roundtrip=args.roundtrip,
     )
     value = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
