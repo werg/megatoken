@@ -30,15 +30,22 @@ their own protocol (`megatoken.training.diloco_kb`) next to fragments:
   per-worker sequence ledger commit in one SQLite transaction.
 - **Staleness/duplicates:** bases older than `max_staleness` get HTTP 409 and
   the learner reinstalls; replayed sequences are idempotent.
-- **Install:** a stripped snapshot (no outer momentum, no learner moments) is
-  published atomically. Learners install it between optimizer steps once their
-  own update has been accepted, keeping their sparse Adam moments.
-- **Endpoints:** `GET /v1/kb?after=VERSION`, `POST /v1/kb/updates`; `status`
-  reports `kb_version`. Uploads are capped by `max_kb_update_bytes` (256 MiB).
+- **Incremental pulls:** triggers on the canonical bank log every changed
+  primary key under the version being produced. Once its own update is
+  accepted, a learner POSTs its base version and the row IDs it trained; the
+  coordinator returns only rows changed since that base plus those trained rows
+  (with postings and `meta`). The learner upserts them in one transaction, which
+  leaves its synchronized tables identical to the canonical bank while keeping
+  its own sparse Adam moments. Transfer cost scales with the merge, not the bank.
+- **Snapshots:** a stripped full snapshot (no coordinator state or learner
+  moments) is built lazily, only for bootstrap and for learners whose base
+  predates the retained change history (`retained_versions`, default 1024;
+  HTTP 410 triggers the fallback).
+- **Endpoints:** `GET /v1/kb?after=VERSION` (snapshot), `POST /v1/kb/changes`,
+  `POST /v1/kb/updates`; `status` reports `kb_version`. Uploads are capped by
+  `max_kb_update_bytes` (256 MiB).
 
-Known limits: snapshots are full-bank transfers (an incremental row changelog
-is a future optimization for very large banks), and outer momentum is applied
-only to rows touched in a merge.
+Known limit: outer momentum is applied only to rows touched in a merge.
 
 Its goal is useful multi-GPU pretraining with no GPU-to-GPU
 interconnect. The design follows [Decoupled DiLoCo](https://arxiv.org/abs/2604.21428):
