@@ -528,6 +528,7 @@ class GroupActionTape:
     effort: int = 6
     event_log_probs: tuple[float, ...] = ()
     renderer_seeds: tuple[int, ...] = ()
+    pack_fingerprints: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.version != GROUP_TAPE_VERSION:
@@ -549,6 +550,12 @@ class GroupActionTape:
             )
         ):
             raise ValueError("Renderer noise seeds must match group identities")
+        if self.pack_fingerprints and (
+            len(self.pack_fingerprints) != n
+            or any(not isinstance(fingerprint, str) or not fingerprint
+                   for fingerprint in self.pack_fingerprints)
+        ):
+            raise ValueError("Grouped tape pack identities must cover every event")
         if not math.isfinite(self.behavior_log_prob):
             raise ValueError("Behavior log probability must be finite")
         if self.effort not in EFFORTS:
@@ -585,6 +592,7 @@ class GroupActionTape:
             effort=self.effort,
             event_log_probs=self.event_log_probs,
             renderer_seeds=self.renderer_seeds,
+            pack_fingerprints=self.pack_fingerprints,
             payloads=[base64.b64encode(b).decode("ascii") for b in self.payloads],
             emitted_ids=self.emitted_ids,
             valid=self.valid,
@@ -612,6 +620,7 @@ class GroupActionTape:
             effort=int(value["effort"]),
             event_log_probs=tuple(map(float, value["event_log_probs"])),
             renderer_seeds=tuple(value.get("renderer_seeds", ())),
+            pack_fingerprints=tuple(value.get("pack_fingerprints", ())),
             payloads=tuple(map(decode, value["payloads"])),
             emitted_ids=tuple(tuple(s) for s in value["emitted_ids"]),
             valid=tuple(value["valid"]),
@@ -748,6 +757,26 @@ class MultiTrackGenerator:
             return spec.fingerprint
         value = json.dumps(asdict(spec), sort_keys=True, separators=(",", ":")).encode()
         return "media:" + hashlib.sha256(value).hexdigest()
+
+    @staticmethod
+    def _pack_ids(generator: FacetedGenerator,
+                  plans: Sequence[ActionSpec | MediaOutputSpec]) -> tuple[str, ...]:
+        """Bind live raw actions to exact pretrained generator+decoder weights."""
+        identities = []
+        for plan in plans:
+            if isinstance(plan, ActionSpec):
+                identities.append("text")
+            elif plan.renderer == "native":
+                identities.append("native")
+            else:
+                if plan.renderer not in generator.media_realizers.pretrained:
+                    raise ValueError("Required native renderer pack is not resident")
+                module = generator.media_realizers.pretrained[plan.renderer]
+                value = getattr(module, "checkpoint_identity", "")
+                if not value:
+                    raise ValueError("Pretrained renderer requires verified lockfile identity")
+                identities.append(value)
+        return tuple(identities)
 
     @staticmethod
     def _renderer_seeds(raw: Tensor, names: Sequence[str], meridian_id: int,
@@ -1175,6 +1204,7 @@ class MultiTrackGenerator:
         if len(payloads) != len(names) or any(not isinstance(x, bytes) for x in payloads):
             raise ValueError("Every track needs a byte-exact causal control")
         plans = self._specs(specs, len(names), self.generator.config.max_capacity)
+        pack_fingerprints = self._pack_ids(self.generator, plans)
         from .media import validate_public_media_spec
         for plan in plans:
             if isinstance(plan, MediaOutputSpec):
@@ -1221,6 +1251,7 @@ class MultiTrackGenerator:
             effort=effort,
             event_log_probs=tuple(float(x) for x in event_densities[0]),
             renderer_seeds=seeds,
+            pack_fingerprints=pack_fingerprints,
             payloads=output, emitted_ids=emitted, valid=valid,
         )
         core.routing_aux_loss(clear=True)
@@ -1241,6 +1272,13 @@ class MultiTrackGenerator:
             raise ValueError("Group replay codec identity mismatch")
         plans = self._specs(specs, len(tape.tracks), self.generator.config.max_capacity)
         modality_names = tuple("text" if isinstance(x, ActionSpec) else x.modality for x in plans)
+        expected_pack_ids = self._pack_ids(self.generator, plans)
+        # Legacy text/native tapes did not have donor identities. Never allow
+        # such a tape to silently replay with new pretrained weights.
+        if tape.pack_fingerprints and tape.pack_fingerprints != expected_pack_ids:
+            raise ValueError("Grouped tape pretrained pack identity mismatch")
+        if not tape.pack_fingerprints and any(x not in ("text", "native") for x in expected_pack_ids):
+            raise ValueError("Legacy group tape cannot certify a pretrained renderer")
         if (tuple(self._spec_id(x) for x in plans) != tape.spec_fingerprints
                 or modality_names != tape.modalities):
             raise ValueError("Grouped tape output specifications differ")

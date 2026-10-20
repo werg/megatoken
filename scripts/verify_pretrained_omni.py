@@ -24,7 +24,7 @@ def _device(name: str) -> torch.device:
     return device
 
 
-def probe(manifest: str, *, device: str, packs: tuple[str, ...]) -> dict:
+def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool = False,\n          image_size: int = 1024, video_height: int = 704,\n          video_width: int = 1280, video_frames: int = 81, steps: int = 16) -> dict:
     base, items = read_locked_manifest(manifest)
     result = {}
     torch_device = _device(device)
@@ -60,6 +60,43 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...]) -> dict:
         student.train()
         contract = check_pretrained_student(name, student, raw, latent)
         student.eval()
+        # Objective gradients are not sufficient to certify a generator. The
+        # optional expensive native free rollout starts from RNG, not gold U.
+        # Only its physical contract is checked; intelligibility/quality still
+        # requires separate task-based evaluation after adapter training.
+        generated = {"status": "not_run"}
+        if rollout:
+            with torch.inference_mode():
+                rng = torch.Generator(device=torch_device).manual_seed(78117)
+                if name == "pocket":
+                    output = student.realize(
+                        raw, max_frames=16, steps=steps, generator=rng,
+                    )
+                    expected_rank = 2
+                elif name == "sana":
+                    output = student.realize(
+                        raw, height=image_size, width=image_size, steps=steps,
+                        generator=rng,
+                    )
+                    expected_rank = 4
+                else:
+                    output = student.realize(
+                        raw, height=video_height, width=video_width,
+                        frames=video_frames, steps=steps, generator=rng,
+                    )
+                    expected_rank = 5
+                if not isinstance(output, torch.Tensor):
+                    raise ValueError("Donor rollout must materialize as a Torch tensor")
+                if output.ndim != expected_rank or not output.is_floating_point() or not torch.isfinite(output).all():
+                    raise ValueError("Full donor rollout returned invalid media")
+                if output.shape[0] != raw.shape[0]:
+                    raise ValueError("Donor rollout changed the selected event batch")
+                generated = {
+                    "status": "physical_contract_pass",
+                    "shape": list(output.shape),
+                    "min": float(output.min()),
+                    "max": float(output.max()),
+                }
         result[name] = {
             "latent_shape": contract.latent_shape,
             "finite_native_loss": contract.loss,
@@ -67,6 +104,7 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...]) -> dict:
             "frozen_codec_parameters": contract.frozen_parameters,
             "sample_rate": sample_rate,
             "weights_revision": item["revision"],
+            "free_rollout": generated,
         }
     return result
 
@@ -78,8 +116,20 @@ def main():
     parser.add_argument("--packs", nargs="+", choices=("pocket", "sana", "sana_video"),
                         default=["pocket", "sana", "sana_video"])
     parser.add_argument("--output", default="")
+    parser.add_argument("--rollout", action="store_true",
+                        help="Actually generate raw-facets-conditioned speech/image/video")
+    parser.add_argument("--image-size", type=int, default=1024)
+    parser.add_argument("--video-height", type=int, default=704)
+    parser.add_argument("--video-width", type=int, default=1280)
+    parser.add_argument("--video-frames", type=int, default=81)
+    parser.add_argument("--steps", type=int, default=16)
     args = parser.parse_args()
-    report = probe(args.manifest, device=args.device, packs=tuple(args.packs))
+    report = probe(
+        args.manifest, device=args.device, packs=tuple(args.packs),
+        rollout=args.rollout, image_size=args.image_size,
+        video_height=args.video_height, video_width=args.video_width,
+        video_frames=args.video_frames, steps=args.steps,
+    )
     value = json.dumps(report, indent=2, sort_keys=True)
     if args.output:
         from pathlib import Path

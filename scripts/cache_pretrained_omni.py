@@ -21,7 +21,8 @@ def main():
     p.add_argument("--root",required=True)
     p.add_argument("--input",required=True,help="Local .npy waveform or preprocessed ViT input .pt")
     p.add_argument("--mode",required=True,choices=("whistle","pocket","minicpm"))
-    p.add_argument("--model",required=True,help="Pinned local checkpoint/export")
+    p.add_argument("--model",help="Optional explicit path; must match the pinned pack lock")
+    p.add_argument("--manifest",required=True,help="Complete SHA256 pack lock")
     p.add_argument("--extractor",required=True)
     p.add_argument("--width",type=int,default=0)
     p.add_argument("--sample-rate",type=int,default=0)
@@ -29,6 +30,20 @@ def main():
     p.add_argument("--available-samples",type=int,default=None)
     p.add_argument("--output",required=True)
     a=p.parse_args()
+    from megatoken.omni.loader import read_locked_manifest
+    base, packs = read_locked_manifest(a.manifest)
+    pack_name = {"whistle": "whistle", "pocket": "pocket", "minicpm": "minicpm"}[a.mode]
+    if pack_name not in packs:
+        raise ValueError(f"Perceptual donor {pack_name} absent from lockfile")
+    item = packs[pack_name]
+    reference = {"whistle": item.get("weights"), "pocket": item.get("config"),
+                 "minicpm": item.get("snapshot")}[a.mode]
+    if not reference:
+        raise ValueError("Pinned perceptual donor has no checkpoint location")
+    model_path = (base / reference).resolve()
+    if a.model and Path(a.model).resolve() != model_path:
+        raise ValueError("Extraction model cannot differ from verified pack lock")
+    a.model = str(model_path)
     store=TensorAssetStore(a.root)
     if a.mode=="whistle":
         encoder=WhistleFeatures(a.model,feature_width=a.width,extractor=a.extractor)

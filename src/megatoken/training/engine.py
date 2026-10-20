@@ -9,6 +9,7 @@ an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import math
 import os
 import signal
@@ -606,16 +607,22 @@ def train(
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
         model = build_model(model_config, codec, device=context.device, precision=config.precision)
+        pretrained_pack_fingerprint = ""
         if config.pretrained_packs is not None:
             from megatoken.omni.loader import install_pretrained_packs
             install_pretrained_packs(
                 model, config.pretrained_packs, device=context.device,
                 dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
             )
+            pretrained_pack_fingerprint = hashlib.sha256(
+                Path(config.pretrained_packs).read_bytes()
+            ).hexdigest()
         payload = None
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
             _resume_compatible(payload["train_config"], config, phase_transition)
+            if payload.get("pretrained_pack_fingerprint", "") != pretrained_pack_fingerprint:
+                raise ValueError("Checkpoint pretrained pack lock differs from current run")
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
             if payload["model_config"] != model_config.to_dict():
@@ -775,6 +782,7 @@ def train(
                         "model_config": model_config.to_dict(),
                         "train_config": asdict(config),
                         "codec_fingerprint": codec.fingerprint,
+                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
                         "chunking": chunking_identity,
                         "rank_state": rank_state,
                         "global_step": global_step,
@@ -787,6 +795,7 @@ def train(
                         "phase_consumed": consumed,
                         "dataset_fingerprint": stream.fingerprint,
                         "codec_fingerprint": codec.fingerprint,
+                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),

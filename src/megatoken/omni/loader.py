@@ -110,6 +110,14 @@ def install_pretrained_packs(model, manifest: str, *, device, dtype=torch.bfloat
                 modality="image" if name == "sana" else "video",
                 facet_width=model.config.facet_dim, torch_dtype=dtype,
             )
+        # A live group tape binds to all exact verified decoder/generator files.
+        # This digest survives pack unload/reload and does not depend on order.
+        student.checkpoint_identity = hashlib.sha256(
+            json.dumps(
+                {"revision": item["revision"], "files": item["files"]},
+                sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         student = student.to(device)
         student.eval()
         resident.register_pretrained(name, student)
