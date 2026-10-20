@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import random
-from collections import defaultdict
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
 from itertools import islice
@@ -29,25 +28,6 @@ def _validate_topology(
 class EpisodeWindow:
     episode: Episode
     window: TrainingWindow
-
-    @property
-    def signature(self) -> tuple[Any, ...]:
-        # Same timestep ownership, not same content or routes. Batching never
-        # chooses expert assignments and does not alter episode histories.
-        return (
-            len(self.window.prefix),
-            tuple(
-                (
-                    entry.record.role,
-                    entry.record.policy_mask,
-                    entry.record.part_index,
-                    entry.record.part_count,
-                    entry.record.action_id is not None,
-                    entry.record.result_of is not None,
-                )
-                for entry in self.window.records
-            ),
-        )
 
 
 class WindowStream:
@@ -268,17 +248,6 @@ class IndependentWindowStream(WindowStream):
         if value.get("independent") is not True:
             raise ValueError("Cannot resume synchronized data cursor in independent mode")
         return super()._validate_state_dict(value)
-
-
-def compatible_batches(windows: list[EpisodeWindow], batch_size: int) -> list[list[EpisodeWindow]]:
-    buckets: dict[tuple[Any, ...], list[EpisodeWindow]] = defaultdict(list)
-    for window in windows:
-        buckets[window.signature].append(window)
-    return [
-        items[start : start + batch_size]
-        for items in buckets.values()
-        for start in range(0, len(items), batch_size)
-    ]
 
 
 class MixtureWindowStream:

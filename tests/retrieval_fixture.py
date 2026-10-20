@@ -225,9 +225,13 @@ def write_retrieval_artifacts(
     }
 
 
-def prepare_dataset(root: Path, episodes: list[Episode]) -> Path:
+def prepare_dataset(root: Path, episodes: list[Episode], *, heldout: bool = False) -> Path:
+    """Prepared byte-codec episodes, entirely in the train or the validation split."""
     codec = ByteCodec.byte_fallback()
-    store = DedupStore(root / "spool.sqlite", DedupConfig(train_fraction=1, validation_fraction=0))
+    store = DedupStore(
+        root / "spool.sqlite",
+        DedupConfig(train_fraction=0 if heldout else 1, validation_fraction=1 if heldout else 0),
+    )
     try:
         with store.transaction():
             for episode in episodes:
@@ -402,7 +406,7 @@ def live_kb_train_config(
 
 
 def retrieval_aux(config: TrainConfig, *, supervised: bool = True) -> tuple:
-    """The 6-tuple ``forward_batch`` takes as ``retrieval_aux``, built as ``train()`` does.
+    """The 6-tuple ``forward_meridian_batch`` takes as ``retrieval_aux``, built as ``train()`` does.
 
     ``supervised=True`` loads the config's real query/document sidecars (use with the
     fixture episodes). ``supervised=False`` keeps the pinned recipe but carries no query

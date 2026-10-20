@@ -233,36 +233,52 @@ def _evaluate(args):
     import torch
 
     from megatoken.data import PreparedDataset
-    from megatoken.loading import build_model, load_codec
-    from megatoken.model.config import ModelConfig
+    from megatoken.loading import load_trained
     from megatoken.runtime import seed_everything
-    from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.config import TrainConfig
     from megatoken.training.evaluation import evaluate_records
 
-    payload, _ = load_checkpoint(args.checkpoint)
-    model_config = ModelConfig.from_dict(payload["model_config"])
-    codec_path = args.codec or payload["train_config"]["codec"]
-    codec = load_codec(codec_path, vocab_size=model_config.vocab_size)
-    if codec.fingerprint != payload["codec_fingerprint"]:
-        raise ValueError("Evaluation codec differs from the checkpoint")
     device = torch.device(
         ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     )
-    model = build_model(
-        model_config, codec, device=device, precision=payload["train_config"]["precision"]
-    )
-    model.load_state_dict(payload["model"], strict=True)
-    model.core.set_model_version(payload["global_step"])
+    trained = load_trained(args.checkpoint, device=device, codec_path=args.codec)
     seed_everything(args.seed)
     config = TrainConfig.from_dict(
-        {**payload["train_config"], "eval_episodes": args.episodes, "effort": args.effort}
+        {**trained.payload["train_config"], "eval_episodes": args.episodes, "effort": args.effort}
     )
     dataset = PreparedDataset(args.dataset or config.dataset, split=args.split)
     try:
-        return evaluate_records(model, dataset, codec, config, device)
+        return evaluate_records(trained.model, dataset, trained.codec, config, device)
     finally:
         dataset.close()
+
+
+def _gates(args):
+    from megatoken.training.gates import GateThresholds, bootstrap_gates
+
+    return bootstrap_gates(
+        checkpoint=args.checkpoint,
+        dataset=args.dataset,
+        query_sidecar=args.queries,
+        document_sidecar=args.documents,
+        recipe_path=args.recipe,
+        bank_path=args.bank,
+        output=args.output,
+        centroids=args.centroids,
+        nprobe=args.nprobe,
+        max_episodes=args.episodes,
+        thresholds=GateThresholds(
+            max_lexical_ce=args.max_lexical_ce,
+            max_terminal_ce=args.max_terminal_ce,
+            min_document_cosine=args.min_document_cosine,
+            min_query_cosine=args.min_query_cosine,
+            min_recall_ratio=args.min_recall_ratio,
+            min_index_recall=args.min_index_recall,
+            recall_k=args.recall_k,
+        ),
+        device=args.device,
+        mark_ready=args.mark_ready,
+    )
 
 
 def _benchmark(args):
@@ -499,6 +515,36 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--effort", type=int, choices=(1, 2, 3, 6), default=6)
     item.add_argument("--seed", type=int, default=17)
     item.set_defaults(func=_evaluate)
+    item = commands.add_parser(
+        "gates", help="Measure held-out retrieval-memory bootstrap gates and write evidence"
+    )
+    item.add_argument("--checkpoint", required=True)
+    item.add_argument("--dataset", required=True, help="Held-out prepared dataset")
+    item.add_argument("--queries", required=True, help="Held-out query sidecar")
+    item.add_argument("--documents", required=True, help="Held-out document sidecar")
+    item.add_argument("--recipe", required=True, help="coherence_embedding recipe")
+    item.add_argument("--bank", required=True, help="Source catalog bank")
+    item.add_argument("--output", required=True, help="Evidence directory")
+    item.add_argument("--centroids", help="Pinned IVF centroids for index recall")
+    item.add_argument("--nprobe", type=int, default=8)
+    item.add_argument("--episodes", type=int, default=1000)
+    item.add_argument("--device", default="cuda")
+    from megatoken.training.gates import GateThresholds
+
+    defaults = GateThresholds()
+    item.add_argument("--max-lexical-ce", type=float, default=defaults.max_lexical_ce)
+    item.add_argument("--max-terminal-ce", type=float, default=defaults.max_terminal_ce)
+    item.add_argument("--min-document-cosine", type=float, default=defaults.min_document_cosine)
+    item.add_argument("--min-query-cosine", type=float, default=defaults.min_query_cosine)
+    item.add_argument("--min-recall-ratio", type=float, default=defaults.min_recall_ratio)
+    item.add_argument("--min-index-recall", type=float, default=defaults.min_index_recall)
+    item.add_argument("--recall-k", type=int, default=defaults.recall_k)
+    item.add_argument(
+        "--mark-ready",
+        action="store_true",
+        help="Record measured readiness on the bank and write the warm-up receipt if all pass",
+    )
+    item.set_defaults(func=_gates)
     item = commands.add_parser(
         "benchmark", help="Measure real end-to-end work, memory, and dispatch"
     )

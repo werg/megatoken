@@ -26,22 +26,56 @@ class ExactIndex:
         limit: int,
         excluded: set[int] | None = None,
     ) -> SearchBatch:
+        (result,) = self.search_many(
+            [query],
+            collection=collection,
+            scope=scope,
+            visibility=visibility,
+            limit=limit,
+            excluded=excluded,
+        )
+        return result
+
+    def search_many(
+        self,
+        queries,
+        *,
+        collection: Collection,
+        scope: str,
+        visibility: Visibility,
+        limit: int,
+        excluded: set[int] | None = None,
+    ) -> list[SearchBatch]:
+        """One eligibility scan and one FP64 score matrix for every query."""
         if limit < 0:
             raise ValueError("Candidate count cannot be negative")
-        q = unit_finite(query, dimension=self.store.space.dimension)
+        dimension = self.store.space.dimension
+        q = np.stack([unit_finite(x, dimension=dimension) for x in queries]).astype(np.float64)
         blocked = excluded or set()
-        hits = []
-        evaluated = 0
-        for row in self.store.scan(collection, scope):
-            if not row.active or row.id in blocked or not visibility.permits(row.footprint):
-                continue
-            score = float(np.dot(q.astype(np.float64), row.key.astype(np.float64)))
-            evaluated += 1
-            hits.append(Hit(row, score))
-        hits.sort(key=lambda x: (-x.similarity, x.record.id))
-        return SearchBatch(
-            tuple(hits[:limit]), max(0, limit - len(hits)), evaluated, self.store.revisions()
-        )
+        rows = [
+            row
+            for row in self.store.scan(collection, scope)
+            if row.active and row.id not in blocked and visibility.permits(row.footprint)
+        ]
+        revisions = self.store.revisions()
+        if not rows:
+            return [SearchBatch((), limit, 0, revisions) for _ in range(len(q))]
+        keys = np.stack([row.key for row in rows]).astype(np.float64)
+        ids = np.asarray([row.id for row in rows])
+        scores = q @ keys.T
+        results = []
+        for score in scores:
+            # Rank by similarity, ties broken by stable record ID.
+            order = np.lexsort((ids, -score))[:limit]
+            results.append(
+                SearchBatch(
+                    tuple(Hit(rows[i], float(score[i])) for i in order),
+                    max(0, limit - len(rows)),
+                    len(rows),
+                    revisions,
+                )
+            )
+        return results
 
 
 @dataclass

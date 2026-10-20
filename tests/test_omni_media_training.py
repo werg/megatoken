@@ -17,8 +17,9 @@ from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, encode_record
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
-from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
+from megatoken.training.engine import batch_counters, prepare_batches
 from megatoken.training.losses import LossLedger
+from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
 
 
@@ -160,7 +161,7 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, external, mode
     )
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
     model.core.set_model_version(0)
-    forward_batch(
+    forward_meridian_batch(
         model,
         batch,
         ledger,
@@ -239,7 +240,7 @@ def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
     assert batch.counts["visual_prediction"] == 1
     assert batch.counts["lexical"] == len(b"bright")
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(
+    forward_meridian_batch(
         model,
         batch,
         ledger,
@@ -366,7 +367,7 @@ def test_video_training_is_one_32_facet_megatoken(tmp_path):
     assert batch.counts["visual_prediction"] == 1
     assert batch_counters([batch]).video_frames == 2
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(
+    forward_meridian_batch(
         model,
         batch,
         ledger,
@@ -413,7 +414,7 @@ def test_generated_pretrained_vision_features_train_e_in_recurrent_mode(tmp_path
     window = next(iter_windows(ep, ByteCodec.byte_fallback()))
     (batch,) = prepare_batches(model, [EpisodeWindow(ep, window)], config)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(
+    forward_meridian_batch(
         model,
         batch,
         ledger,

@@ -228,6 +228,17 @@ def prepare_batches(
     return result
 
 
+def window_config(config: TrainConfig) -> WindowConfig:
+    """Optimizer window boundaries shared by training and held-out evaluation."""
+    return WindowConfig(
+        max_window_tokens=config.max_history_tokens,
+        max_decisions=config.scored_decisions,
+        max_records=config.max_window_records,
+        respect_dependencies=config.phase == "LC",
+        max_dependency_tokens=config.max_history_tokens,
+    )
+
+
 def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     result = Counters()
     for batch in batches:
@@ -294,25 +305,6 @@ def _stage_bank(source: Path, target: Path) -> None:
         writer.close()
         reader.close()
     os.replace(staging, target)
-
-
-def forward_batch(
-    model: Any,
-    batch: MeridianPreparedBatch,
-    ledger: LossLedger,
-    config: TrainConfig,
-    device: torch.device,
-    model_version: int,
-    retrieval_aux: Any,
-) -> dict[str, float | torch.Tensor]:
-    if not isinstance(batch, MeridianPreparedBatch) or retrieval_aux is None:
-        raise ValueError(
-            "The legacy trainer is deleted; native meridians, retrieval sidecars "
-            "and a pinned semantic recipe are required"
-        )
-    return forward_meridian_batch(
-        model, batch, ledger, config, device, model_version, retrieval_aux
-    )
 
 
 def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transition: bool) -> None:
@@ -713,13 +705,7 @@ def train(
             # Contextual codec auxiliaries use frozen C/R with E gradients only.
             # Independent clipping prevents their norm scaling the main update.
             optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
-        windows_config = WindowConfig(
-            max_window_tokens=config.max_history_tokens,
-            max_decisions=config.scored_decisions,
-            max_records=config.max_window_records,
-            respect_dependencies=config.phase == "LC",
-            max_dependency_tokens=config.max_history_tokens,
-        )
+        windows_config = window_config(config)
         dataset = PreparedDataset(config.dataset)
         if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
             raise ValueError("Prepared dataset uses a different codec")
@@ -1062,7 +1048,7 @@ def train(
             model.core.dispatch_metrics(reset=True)
             step_diagnostics: dict[str, float | torch.Tensor] = {}
             for batch in batches:
-                diagnostics_batch = forward_batch(
+                diagnostics_batch = forward_meridian_batch(
                     model,
                     batch,
                     ledger,

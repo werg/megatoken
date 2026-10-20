@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -622,6 +622,14 @@ def _preceding_native(
     return state, count
 
 
+@dataclass
+class RetrievalProbe:
+    """Student semantic vectors produced by a forward, keyed by (episode, event)."""
+
+    queries: dict[tuple[str, str], torch.Tensor] = field(default_factory=dict)
+    documents: dict[tuple[str, str], torch.Tensor] = field(default_factory=dict)
+
+
 def forward_meridian_batch(
     model: Any,
     batch: MeridianPreparedBatch,
@@ -630,10 +638,16 @@ def forward_meridian_batch(
     device: torch.device,
     model_version: int,
     retrieval_aux,
+    *,
+    differentiate: bool = True,
+    probe: RetrievalProbe | None = None,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
     No second optimizer, stream cursor, history, or parameter owner is created.
+    Held-out evaluation runs the identical forward with ``differentiate=False``
+    (under ``torch.no_grad``); ``probe`` collects the realized query and
+    document vectors.
     """
     from megatoken.training.engine import episode_control_payload
 
@@ -793,6 +807,10 @@ def forward_meridian_batch(
                 # Unit normalization must hold even for sidecar exporters
                 # that retain unnormalized raw teacher magnitudes.
                 teacher = F.normalize(teacher, dim=-1)
+                if probe is not None:
+                    probe.queries[(annotation.episode_id, annotation.event_id)] = (
+                        predicted.detach()[0].float().cpu()
+                    )
                 similarity = (predicted * teacher).sum(-1)
                 retrieval_losses.append(
                     recipe.loss_weights.get("embedding", 0.0)
@@ -893,6 +911,10 @@ def forward_meridian_batch(
                     source_raw[:, index],
                     EmbeddingSpec(recipe.space.fingerprint, "document", recipe.space.dimension),
                 )
+                if probe is not None:
+                    probe.documents[(item.episode_id, item.event_id)] = (
+                        output.detach()[0].float().cpu()
+                    )
                 distance = (1 - (output * target).sum(-1)).sum()
                 retrieval_losses.append(
                     recipe.loss_weights.get("document_embedding", 0.0) * distance / global_docs
@@ -910,6 +932,6 @@ def forward_meridian_batch(
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
                 modalities=step.modalities,
             )
-    if losses or retrieval_losses:
+    if differentiate and (losses or retrieval_losses):
         torch.stack([*losses, *retrieval_losses]).sum().backward()
     return metrics

@@ -33,8 +33,9 @@ from megatoken.model.native_latents import (
 )
 from megatoken.model.relations import RelationProjection, SelectedRelation
 from megatoken.training.concordance_recipe import load_concordance_recipe
-from megatoken.training.engine import forward_batch, prepare_batches
+from megatoken.training.engine import prepare_batches
 from megatoken.training.losses import LossLedger
+from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
 
 
@@ -318,7 +319,7 @@ def test_native_codec_target_enters_existing_grouped_loss_ledger(tmp_path):
     assert batch.counts["relation_semantic"] == 1
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
     model.core.set_model_version(0)
-    forward_batch(
+    forward_meridian_batch(
         model,
         batch,
         ledger,

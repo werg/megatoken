@@ -23,18 +23,16 @@ from __future__ import annotations
 
 import argparse
 import base64
-import glob
 import json
 import random
 import shutil
+from collections.abc import Callable
 from dataclasses import asdict
 from hashlib import sha256
 from pathlib import Path
 
 import numpy as np
 
-HOTPOT = "~/.cache/huggingface/hub/datasets--hotpotqa--hotpot_qa/snapshots/*/distractor"
-MUSIQUE = "~/.cache/huggingface/hub/datasets--dgslibisey--MuSiQue/snapshots/*"
 TEACHER = "google/embeddinggemma-2"
 TEACHER_REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"
 QUERY_PROMPT = "task: question answering | query: "
@@ -66,10 +64,13 @@ def _clip(text: str, limit: int) -> str:
     return cut[: cut.rfind(" ")] if " " in cut else cut
 
 
-def load_hotpot(split: str) -> list[dict]:
+def load_hotpot(root: Path, split: str) -> list[dict]:
+    """HotpotQA distractor parquet shards (``hotpotqa/hotpot_qa`` ``distractor/``)."""
     import pyarrow.parquet as pq
 
-    files = sorted(glob.glob(str(Path(HOTPOT).expanduser() / f"{split}-*.parquet")))
+    files = sorted(root.glob(f"{split}-*.parquet"))
+    if not files:
+        raise FileNotFoundError(f"No HotpotQA {split} shards under {root}")
     questions = []
     for file in files:
         for row in pq.read_table(file).to_pylist():
@@ -103,8 +104,9 @@ def load_hotpot(split: str) -> list[dict]:
     return questions
 
 
-def load_musique(split: str) -> list[dict]:
-    path = glob.glob(str(Path(MUSIQUE).expanduser() / f"musique_ans_v1.0_{split}.jsonl"))[0]
+def load_musique(root: Path, split: str) -> list[dict]:
+    """MuSiQue-Ans JSONL (``dgslibisey/MuSiQue``)."""
+    path = root / f"musique_ans_v1.0_{split}.jsonl"
     questions = []
     for line in open(path):
         row = json.loads(line)
@@ -155,7 +157,7 @@ class Teacher:
         self.model.eval()
         self.device = device
 
-    def encode(self, texts: list[str], *, batch_tokens: int = 65536) -> np.ndarray:
+    def encode(self, texts: list[str], *, batch_tokens: int = 32768) -> np.ndarray:
         torch = self.torch
         lengths = [len(t) for t in texts]
         order = sorted(range(len(texts)), key=lambda i: lengths[i])
@@ -182,6 +184,27 @@ class Teacher:
         return out
 
 
+def encode_resumable(
+    teacher: Callable[[], Teacher],
+    texts: list[str],
+    directory: Path,
+    *,
+    chunk: int = 16384,
+) -> np.ndarray:
+    """Encode in fixed chunks, each published atomically; reruns skip finished chunks."""
+    directory.mkdir(parents=True, exist_ok=True)
+    parts = []
+    for index, start in enumerate(range(0, len(texts), chunk)):
+        path = directory / f"{index:05d}.npy"
+        if not path.exists():
+            staging = directory / f".{index:05d}.npy"
+            np.save(staging, teacher().encode(texts[start : start + chunk]))
+            staging.replace(path)
+            print(f"{directory.name}: {min(start + chunk, len(texts))}/{len(texts)}", flush=True)
+        parts.append(np.load(path))
+    return np.concatenate(parts) if parts else np.zeros((0, 768), dtype=np.float32)
+
+
 def build(args: argparse.Namespace) -> dict:
     from megatoken.data import DedupConfig, DedupStore, Episode, Lineage, PhysicalRecord
     from megatoken.data.document_embeddings import (
@@ -201,10 +224,10 @@ def build(args: argparse.Namespace) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(args.seed)
     splits = {
-        "train": select(load_hotpot("train"), args.hotpot_train, rng)
-        + select(load_musique("train"), args.musique_train, rng),
-        "heldout": select(load_hotpot("validation"), args.hotpot_heldout, rng)
-        + select(load_musique("dev"), args.musique_heldout, rng),
+        "train": select(load_hotpot(args.hotpot, "train"), args.hotpot_train, rng)
+        + select(load_musique(args.musique, "train"), args.musique_train, rng),
+        "heldout": select(load_hotpot(args.hotpot, "validation"), args.hotpot_heldout, rng)
+        + select(load_musique(args.musique, "dev"), args.musique_heldout, rng),
     }
     print({k: len(v) for k, v in splits.items()}, flush=True)
 
@@ -241,25 +264,40 @@ def build(args: argparse.Namespace) -> dict:
     # ---- teacher vectors ----
     teacher_dir = out / "teacher"
     teacher_dir.mkdir(exist_ok=True)
-    doc_file, query_file = teacher_dir / "documents.npy", teacher_dir / "queries.npy"
     queries = [q for split in splits.values() for q in split]
-    if not doc_file.exists() or not query_file.exists():
-        teacher = Teacher(args.teacher)
-        doc_texts = []
-        for cid in content_ids:
-            title, _, body = paragraphs[cid]["payload"].decode().partition("\n")
-            doc_texts.append(DOCUMENT_PROMPT.format(title=title) + body)
-        np.save(doc_file, teacher.encode(doc_texts))
-        np.save(query_file, teacher.encode([QUERY_PROMPT + q["question"] for q in queries]))
-        (teacher_dir / "ids.json").write_text(
-            json.dumps({"documents": content_ids, "queries": [q["qid"] for q in queries]})
-        )
-        del teacher
-    doc_vectors = dict(zip(content_ids, np.load(doc_file), strict=True))
-    query_vectors = dict(zip([q["qid"] for q in queries], np.load(query_file), strict=True))
-    ids = json.loads((teacher_dir / "ids.json").read_text())
-    if ids["documents"] != content_ids or ids["queries"] != [q["qid"] for q in queries]:
+    selection = {"documents": content_ids, "queries": [q["qid"] for q in queries]}
+    manifest = teacher_dir / "ids.json"
+    if manifest.exists() and json.loads(manifest.read_text()) != selection:
         raise ValueError("Cached teacher vectors belong to a different selection")
+    manifest.write_text(json.dumps(selection))
+    loaded: list[Teacher] = []
+
+    def teacher() -> Teacher:
+        if not loaded:
+            loaded.append(Teacher(args.teacher))
+        return loaded[0]
+
+    doc_texts = []
+    for cid in content_ids:
+        title, _, body = paragraphs[cid]["payload"].decode().partition("\n")
+        doc_texts.append(DOCUMENT_PROMPT.format(title=title) + body)
+    doc_vectors = dict(
+        zip(
+            content_ids,
+            encode_resumable(teacher, doc_texts, teacher_dir / "documents"),
+            strict=True,
+        )
+    )
+    query_vectors = dict(
+        zip(
+            selection["queries"],
+            encode_resumable(
+                teacher, [QUERY_PROMPT + q["question"] for q in queries], teacher_dir / "queries"
+            ),
+            strict=True,
+        )
+    )
+    loaded.clear()
 
     # ---- recipes ----
     space = {
@@ -494,6 +532,8 @@ def build(args: argparse.Namespace) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--output", required=True)
+    parser.add_argument("--hotpot", required=True, type=Path, help="HotpotQA distractor/ dir")
+    parser.add_argument("--musique", required=True, type=Path, help="MuSiQue-Ans JSONL dir")
     parser.add_argument("--teacher", required=True, help="Local embeddinggemma-2 snapshot")
     parser.add_argument("--codec", required=True, help="Pinned Ling codec directory")
     parser.add_argument("--pilot-recipe", default="configs/retrieval-memory-pilot.json")

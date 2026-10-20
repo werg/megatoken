@@ -10,9 +10,9 @@ from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
 from megatoken.model.multitrack import MultiTrackGenerator
-from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
+from megatoken.training.engine import batch_counters, prepare_batches
 from megatoken.training.losses import LossLedger
-from megatoken.training.meridians import MeridianPreparedBatch
+from megatoken.training.meridians import MeridianPreparedBatch, forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
 
 
@@ -111,7 +111,7 @@ def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch, tmp_pa
 
     monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", watch)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    metrics = forward_batch(
+    metrics = forward_meridian_batch(
         model,
         batch,
         ledger,
@@ -241,7 +241,7 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
 
     monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", capture)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(
+    forward_meridian_batch(
         model,
         batch,
         ledger,

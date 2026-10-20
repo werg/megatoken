@@ -11,8 +11,9 @@ from megatoken.data import WindowConfig, iter_windows
 from megatoken.generation import ByteCodec
 from megatoken.loading import build_model, load_model_config
 from megatoken.model import ModelConfig
-from megatoken.training.engine import forward_batch, prepare_batches
+from megatoken.training.engine import prepare_batches
 from megatoken.training.losses import LossLedger
+from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.stream import EpisodeWindow
 
@@ -61,7 +62,7 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
         encoder_ids = {id(parameter) for parameter in model.core.encoder_parameters()}
         torch.manual_seed(639)
         ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-        forward_batch(model, batch, ledger, config, torch.device("cpu"), 0, aux)
+        forward_meridian_batch(model, batch, ledger, config, torch.device("cpu"), 0, aux)
         ledger.finish()
         gradients.append(
             {

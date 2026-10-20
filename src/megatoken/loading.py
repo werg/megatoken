@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -77,6 +78,37 @@ def build_model(
 
         load_native_packs(model, native_pack_manifest)
     return model.to(device=device, dtype=torch.bfloat16 if precision == "bf16" else torch.float32)
+
+
+@dataclass(frozen=True)
+class TrainedModel:
+    model: Any
+    codec: ByteCodec
+    payload: dict[str, Any]
+    metadata: dict[str, Any]
+
+
+def load_trained(
+    checkpoint: str | Path,
+    *,
+    device: torch.device | str = "cpu",
+    codec_path: str | Path | None = None,
+) -> TrainedModel:
+    """Rebuild a committed training checkpoint's model with its exact codec."""
+    from megatoken.model.config import ModelConfig
+    from megatoken.training.checkpoint import load_checkpoint
+
+    payload, metadata = load_checkpoint(checkpoint)
+    config = ModelConfig.from_dict(payload["model_config"])
+    codec = load_codec(codec_path or payload["train_config"]["codec"], vocab_size=config.vocab_size)
+    if codec.fingerprint != payload["codec_fingerprint"]:
+        raise ValueError("Codec does not match the trained checkpoint")
+    model = build_model(
+        config, codec, device=device, precision=payload["train_config"]["precision"]
+    )
+    model.load_state_dict(payload["model"], strict=True)
+    model.core.set_model_version(payload["global_step"])
+    return TrainedModel(model, codec, payload, metadata)
 
 
 def parameter_report(model: torch.nn.Module) -> dict[str, Any]:
