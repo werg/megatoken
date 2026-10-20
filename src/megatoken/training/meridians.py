@@ -428,19 +428,9 @@ def forward_meridian_batch(
                 plan.resolve(store, device) if isinstance(plan, MediaPlan) else plan
                 for plan in step.plans
             )
-            result = multi.supervised_meridian(
-                state, tracks=step.tracks, plans=resolved,
-                control_payloads=(payload,) * len(step.tracks),
-                effort=batch.effort,
-                teacher_forced_action=teacher_forced,
-            )
-            state = result.state
-            losses.append(ledger.backward_loss(result.losses))
             if retrieval_aux is not None:
-                from megatoken.generation.embedding import EmbeddingSpec
-
                 examples, recipe, global_count = retrieval_aux
-                for index, entry in enumerate(step.records):
+                for entry in step.records:
                     annotation = examples.get((
                         batch.windows[0].episode.episode_id, entry.record.record_id,
                     ))
@@ -448,17 +438,24 @@ def forward_meridian_batch(
                         continue
                     if annotation.query.meridian != step.meridian_id:
                         raise ValueError("Query sidecar meridian identity differs")
-                    if result.selected_raw is None or global_count <= 0:
-                        raise RuntimeError("Query target requires native selected raw action")
+                    if global_count <= 0:
+                        raise RuntimeError("Retrieval query supervision requires global events")
                     teacher = torch.tensor(
                         annotation.teacher_target, device=device, dtype=torch.float32
                     )[None]
-                    realizer = model.embedding_realizer
-                    predicted = realizer(
-                        result.selected_raw[:, index],
-                        EmbeddingSpec(recipe.space.fingerprint, "query",
-                                      recipe.space.dimension),
+                    # Sample P on a dedicated retrieval track, with the
+                    # PRE-ANSWER causal state and explicit request/purpose/space.
+                    # Do not mislabel answer-event raw facets as query actions.
+                    predicted, unchanged, selected = multi.retrieve_embedding(
+                        state,
+                        main_request=annotation.request_content(),
+                        purpose=annotation.query.purpose,
+                        space_fingerprint=recipe.space.fingerprint,
+                        effort=batch.effort,
+                        commit=False,
                     )
+                    if unchanged is not state or selected.shape[1] != 1:
+                        raise RuntimeError("Bootstrap query unexpectedly mutated native history")
                     # The teacher is a coordinate target, never P input.
                     # Unit normalization must hold even for sidecar exporters
                     # that retain unnormalized raw teacher magnitudes.
@@ -475,6 +472,14 @@ def forward_meridian_batch(
                     metrics["retrieval_embedding_count"] = (
                         metrics.get("retrieval_embedding_count", 0) + 1
                     )
+            result = multi.supervised_meridian(
+                state, tracks=step.tracks, plans=resolved,
+                control_payloads=(payload,) * len(step.tracks),
+                effort=batch.effort,
+                teacher_forced_action=teacher_forced,
+            )
+            state = result.state
+            losses.append(ledger.backward_loss(result.losses))
             metrics["grouped_supervised_meridians"] += 1
             metrics["grouped_selected_events"] += len(step.tracks)
             for name, value in result.metrics.items():
