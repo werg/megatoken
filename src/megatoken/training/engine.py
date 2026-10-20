@@ -586,7 +586,9 @@ def train(
                 if context.is_primary:
                     try:
                         carried = (
-                            resolve_checkpoint(resume) / "kb.sqlite" if payload is not None else None
+                            resolve_checkpoint(resume) / "kb.sqlite"
+                            if payload is not None
+                            else None
                         )
                         if carried is not None and carried.is_file():
                             _stage_bank(carried, bank_path)

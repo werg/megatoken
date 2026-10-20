@@ -75,13 +75,17 @@ class MemoryAdapters(nn.Module):
         self.families = nn.ModuleDict(
             {name: LowRankFamily(width, experts, rank) for name in MODULES}
         )
-        self.controllers = nn.ModuleDict({
-            name: ExpertController(
-                value_dim=value_dim, experts=experts,
-                max_tracks=max_tracks, max_stage=max_stage,
-            )
-            for name in MODULES
-        })
+        self.controllers = nn.ModuleDict(
+            {
+                name: ExpertController(
+                    value_dim=value_dim,
+                    experts=experts,
+                    max_tracks=max_tracks,
+                    max_stage=max_stage,
+                )
+                for name in MODULES
+            }
+        )
 
     def module_parameters(self, module: str):
         """Factors and expert controller owned by exactly one of C, P or R."""
