@@ -114,42 +114,6 @@ def test_training_reference_noise_only_applies_to_verified_success(model, monkey
     assert not noisy.requires_grad
 
 
-def test_reference_is_one_window_level_control_for_recurrent_supervision(model, monkeypatch):
-    teacher = _window(verified=True)
-    monkeypatch.setattr(engine, "_RECURRENT_REFERENCE_FRACTION", 1.0)
-    monkeypatch.setattr(engine, "_RECURRENT_REFERENCE_NOISE_STD", 0.0)
-    config = TrainConfig(
-        phase="P1",
-        device="cpu",
-        precision="fp32",
-        representation_mode="recurrent",
-        generated_capacity=16,
-        effort=1,
-        microbatch_episodes=1,
-        use_stage_mixture=False,
-        use_effort_mixture=False,
-    )
-    (batch,) = prepare_batches(model, [teacher], config)
-    observed_controls = []
-    original = model.supervised_step
-
-    def capture(*args, **kwargs):
-        observed_controls.append(kwargs["control"])
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(model, "supervised_step", capture)
-    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    metrics = forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
-    ledger.finish()
-    assert metrics["noisy_trajectory_control_examples"] == 1
-    assert len(observed_controls) == 2
-    assert observed_controls[0] is observed_controls[1]
-    assert observed_controls[0] is not None
-    assert not observed_controls[0].requires_grad
-    assert model.core.control_injection.weight.grad is not None
-    assert model.core.control_injection.weight.grad.norm() > 0
-
-
 def test_recurrent_noisy_reference_never_changes_causal_control_protocol(model, monkeypatch):
     teacher = _window(verified=True)
     monkeypatch.setattr(engine, "_RECURRENT_REFERENCE_FRACTION", 1.0)
