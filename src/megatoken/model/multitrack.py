@@ -601,6 +601,7 @@ class GroupActionTape:
     modalities: tuple[str, ...] = ()
     effort: int = 6
     event_log_probs: tuple[float, ...] = ()
+    memory_snapshot_id: str = ""
 
     def __post_init__(self) -> None:
         if self.version != GROUP_TAPE_VERSION:
@@ -650,6 +651,7 @@ class GroupActionTape:
             behavior_log_prob=self.behavior_log_prob,
             effort=self.effort,
             event_log_probs=self.event_log_probs,
+            memory_snapshot_id=self.memory_snapshot_id,
             payloads=[base64.b64encode(b).decode("ascii") for b in self.payloads],
             emitted_ids=self.emitted_ids,
             valid=self.valid,
@@ -676,6 +678,7 @@ class GroupActionTape:
             behavior_log_prob=float(value["behavior_log_prob"]),
             effort=int(value["effort"]),
             event_log_probs=tuple(map(float, value["event_log_probs"])),
+            memory_snapshot_id=value.get("memory_snapshot_id", ""),
             payloads=tuple(map(decode, value["payloads"])),
             emitted_ids=tuple(tuple(s) for s in value["emitted_ids"]),
             valid=tuple(value["valid"]),
@@ -1233,6 +1236,7 @@ class MultiTrackGenerator:
             behavior_log_prob=float(density),
             effort=effort,
             event_log_probs=tuple(float(x) for x in event_densities[0]),
+            memory_snapshot_id="" if memory_snapshot is None else memory_snapshot.identity,
             payloads=output, emitted_ids=emitted, valid=valid,
         )
         core.routing_aux_loss(clear=True)
@@ -1299,9 +1303,13 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         encoded = self._controls(tape.controls, state.device)
+        memory_snapshot = self.tracks.materialize_memory(state)
+        snapshot_id = "" if memory_snapshot is None else memory_snapshot.identity
+        if tape.memory_snapshot_id != snapshot_id:
+            raise ValueError("Historical KB materialization differs from recorded action")
         mean = self.tracks.predict_group(
             state, tracks=tape.tracks, control=encoded, effort=effort,
-            modalities=tape.modalities
+            modalities=tape.modalities, memory_snapshot=memory_snapshot,
         )
         raw = tape.raw(state.device)
         if tuple(raw.shape[1:]) != tuple(mean.shape[1:]):
@@ -1320,9 +1328,12 @@ class MultiTrackGenerator:
             atol=atol, rtol=rtol,
         ):
             raise ValueError("Grouped policy density replay mismatch")
-        output, emitted, valid, media = self._realize(raw, plans, encoded)
+        output, emitted, valid, media = self._realize(
+            raw, plans, encoded, memory_snapshot=memory_snapshot,
+            track_ids=self.tracks._track_indices(state, tape.tracks)[0],
+        )
         committed = self.tracks.advance_group(
-            state, raw, tracks=tape.tracks,
+            state, raw, tracks=tape.tracks, memory_snapshot=memory_snapshot,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
             modalities=tape.modalities,
         )
@@ -1330,6 +1341,41 @@ class MultiTrackGenerator:
             raise ValueError("Grouped realization replay mismatch")
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)
+
+    def score_recorded_group(
+        self, state: MultiTrackState, tape: GroupActionTape,
+        *, effort: int | None = None,
+    ) -> tuple[Tensor, MultiTrackState]:
+        """Differentiable Gaussian score of immutable selected raw actions.
+
+        Required for native outcome/experience credit. Pinned KB controls and
+        causal replay remain in the computation; deterministic source events
+        are not falsely treated as sampled policy actions.
+        """
+        self.tracks._validate(state)
+        if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
+            raise ValueError("Policy score requires the original native causal meridian")
+        if tape.codec_fingerprint != self.generator.codec.fingerprint:
+            raise ValueError("Recorded policy codec differs")
+        if effort is not None and effort != tape.effort:
+            raise ValueError("Recorded policy effort differs")
+        snapshot = self.tracks.materialize_memory(state)
+        snapshot_id = "" if snapshot is None else snapshot.identity
+        if tape.memory_snapshot_id != snapshot_id:
+            raise ValueError("Policy score cannot use refreshed historical KB controls")
+        encoded = self._controls(tape.controls, state.device)
+        predicted = self.tracks.predict_group(
+            state, tracks=tape.tracks, control=encoded, effort=tape.effort,
+            modalities=tape.modalities, memory_snapshot=snapshot,
+        )
+        selected = tape.raw(state.device).detach()
+        log_prob = self.generator.facet_distribution(predicted).log_prob(selected).sum()
+        next_state = self.tracks.advance_group(
+            state, selected, tracks=tape.tracks,
+            role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
+            modalities=tape.modalities, memory_snapshot=snapshot,
+        )
+        return log_prob, next_state
 
     def generate_text_group(
         self, state: MultiTrackState, *, tracks: Sequence[str],
