@@ -475,7 +475,8 @@ def forward_meridian_batch(
                         for metric, count in (
                             ("kb_source_candidates", selected_bank.source_hits),
                             ("kb_memory_candidates", selected_bank.memory_hits),
-                            ("kb_admitted_groups", selected_bank.memory_groups),\n                            ("kb_source_value_examples", selected_bank.source_value_examples),
+                            ("kb_admitted_groups", selected_bank.memory_groups),
+                            ("kb_source_value_examples", selected_bank.source_value_examples),
                         ):
                             metrics[metric] = metrics.get(metric, 0) + count
                     # The teacher is a coordinate target, never P input.
