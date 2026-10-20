@@ -118,6 +118,47 @@ class TensorAsset:
 
 
 @dataclass(frozen=True, slots=True)
+class OutputGeometry:
+    """Requested/predicted or teacher-only physical bounds, never semantic content.
+
+    Codec latent dimensions are not necessarily an invertible record of
+    displayed frames/crops. Store the actual output dimensions explicitly.
+    """
+
+    modality: Modal
+    sample_count: int = 0
+    sample_rate: int = 0
+    frames: int = 1
+    height: int = 0
+    width: int = 0
+    fps_num: int = 0
+    fps_den: int = 1
+    provenance: Literal["requested", "predicted", "teacher_only"] = "teacher_only"
+
+    def __post_init__(self) -> None:
+        if self.modality == "audio":
+            if (not 1 <= self.sample_count <= 24000 * 60
+                    or self.sample_rate not in (16000, 24000)):
+                raise ValueError("Audio output geometry needs a native sample count/rate")
+            if self.height or self.width or self.fps_num:
+                raise ValueError("Audio output cannot contain video geometry")
+        elif self.modality in ("image", "video"):
+            if not (8 <= self.height <= 2048 and 8 <= self.width <= 2048
+                    and 1 <= self.frames <= 193):
+                raise ValueError("Visual output geometry is missing or excessive")
+            if self.modality == "image" and (self.frames != 1 or self.fps_num):
+                raise ValueError("Still image output cannot have a frame clock")
+            if self.modality == "video" and self.fps_num <= 0:
+                raise ValueError("Video output requires its physical frame rate")
+            if self.sample_count or self.sample_rate:
+                raise ValueError("Video/image output cannot contain audio sample clock")
+        else:
+            raise ValueError("Unknown output geometry modality")
+        if self.fps_den <= 0:
+            raise ValueError("Invalid output frame-rate denominator")
+
+
+@dataclass(frozen=True, slots=True)
 class MediaRecord:
     """Text-independent, auditable local input and optional output target."""
 
@@ -126,8 +167,14 @@ class MediaRecord:
     target: TensorAsset | None = None
     version: int = MEDIA_RECORD_VERSION
     source_views: tuple[TensorAsset, ...] = ()
+    output_geometry: OutputGeometry | None = None
 
     def __post_init__(self) -> None:
+        if self.output_geometry is not None:
+            if self.version != MEDIA_RECORD_VERSION or self.output_geometry.modality != self.modality:
+                raise ValueError("Output geometry requires a matching v2 media record")
+            if self.target is None:
+                raise ValueError("Physical output geometry cannot be attached to observation alone")
         if self.version not in (1, MEDIA_RECORD_VERSION):
             raise ValueError("Unsupported media reference version")
         if self.version == 1 and (self.source_views or (self.target is not None and self.target.kind == "codec_latents")):
@@ -143,6 +190,8 @@ class MediaRecord:
 
     def to_bytes(self) -> bytes:
         data = asdict(self)
+        if self.output_geometry is None:
+            data.pop("output_geometry")
         if self.version == 1:
             data.pop("source_views")
             for field in ("source", "target"):
@@ -157,10 +206,9 @@ class MediaRecord:
         if not isinstance(payload, bytes) or len(payload) > 16384:
             raise ValueError("Media descriptor must be bounded canonical JSON bytes")
         value = strict_json_loads(payload)
-        if not isinstance(value, dict) or set(value) not in (
-            {"modality", "source", "target", "version"},
-            {"modality", "source", "target", "version", "source_views"},
-        ):
+        required = {"modality", "source", "target", "version"}
+        optional = {"source_views", "output_geometry"}
+        if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
             raise ValueError("Media record has incomplete or unknown fields")
         if canonical_json(value) != payload:
             raise ValueError("Media descriptor must have canonical serialization")
@@ -177,6 +225,10 @@ class MediaRecord:
             ),
             version=value["version"],
             source_views=tuple(TensorAsset.from_dict(v) for v in value.get("source_views", ())),
+            output_geometry=(
+                None if value.get("output_geometry") is None
+                else OutputGeometry(**value["output_geometry"])
+            ),
         )
 
 

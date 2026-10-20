@@ -1,6 +1,6 @@
 """Versioned edit trajectories and atomic raw replay identity."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
 
@@ -33,7 +33,7 @@ class EditTrajectory:
             raise ValueError("Cross-family edit contamination")
         self.versions.append(version)
     def replay_identity(self):
-        return sha256(json.dumps([v.__dict__ for v in self.versions],sort_keys=True).encode()).hexdigest()
+        return sha256(json.dumps([asdict(v) for v in self.versions],sort_keys=True).encode()).hexdigest()
 
 def event_seed(session_id, meridian_id, track_id, revision, renderer_id):
     raw=json.dumps((session_id,meridian_id,track_id,revision,renderer_id),

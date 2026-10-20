@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from megatoken.data.media_assets import MediaRecord, TensorAssetStore
+from megatoken.data.media_assets import MediaRecord, OutputGeometry, TensorAsset, TensorAssetStore
 from megatoken.omni.loader import read_locked_manifest
 
 
@@ -37,7 +37,7 @@ def cache_codec(
     *, manifest: str, mode: str, source_file: str, root: str,
     extractor: str, sample_rate: int = 0, fps_num: int = 0,
     fps_den: int = 1, artifact_version: str = "",
-    source_family: str = "",
+    source_family: str = "", source_asset_json: str | None = None,
 ):
     base, packs = read_locked_manifest(manifest)
     if mode not in ("pocket", "sana", "sana_video") or mode not in packs:
@@ -102,13 +102,27 @@ def cache_codec(
                 valid_count = latent.shape[0]
                 latent = latent.cpu().float().numpy()
     store = TensorAssetStore(root)
-    input_ref = store.put(
-        array, modality=modality, kind="raw", sample_rate=sample_rate,
-        fps_num=fps_num, fps_den=fps_den,
-        valid_count=array.shape[0],
-        normalization="mono-fp32" if modality == "audio" else "rgb01-fp32",
-        artifact_version=artifact_version, source_family=source_family,
-    )
+    if source_asset_json:
+        source_descriptor = json.loads(Path(source_asset_json).read_text(encoding="utf-8"))
+        if isinstance(source_descriptor, dict) and "asset" in source_descriptor:
+            source_descriptor = source_descriptor["asset"]
+        input_ref = TensorAsset.from_dict(source_descriptor)
+        if (input_ref.modality != modality or input_ref.kind == "raw"
+                or input_ref.source_family != source_family):
+            raise ValueError(
+                "Cached input feature must belong to the same source family and modality"
+            )
+        # This lets 720p, long sequences use small immutable perception
+        # features while codec targets remain matched to full original media.
+        store.load(input_ref)
+    else:
+        input_ref = store.put(
+            array, modality=modality, kind="raw", sample_rate=sample_rate,
+            fps_num=fps_num, fps_den=fps_den,
+            valid_count=array.shape[0],
+            normalization="mono-fp32" if modality == "audio" else "rgb01-fp32",
+            artifact_version=artifact_version, source_family=source_family,
+        )
     target_ref = store.put(
         latent, modality=modality, kind="codec_latents", extractor=extractor,
         sample_rate=sample_rate, fps_num=fps_num, fps_den=fps_den,
@@ -119,9 +133,24 @@ def cache_codec(
     )
     # This descriptor represents a supervised event, not an observed decoder
     # bypass. Target latents never enter prospective P or R from source features.
+    geometry = (
+        OutputGeometry(
+            modality="audio", sample_count=int(array.shape[0]),
+            sample_rate=sample_rate, provenance="teacher_only",
+        )
+        if modality == "audio" else
+        OutputGeometry(
+            modality=modality,
+            frames=int(array.shape[0]) if modality == "video" else 1,
+            height=int(array.shape[-2]), width=int(array.shape[-1]),
+            fps_num=fps_num if modality == "video" else 0,
+            fps_den=fps_den, provenance="teacher_only",
+        )
+    )
     return MediaRecord(
         modality=modality, source=input_ref, target=target_ref,
         source_views=(target_ref,) if mode == "pocket" else (),
+        output_geometry=geometry,
     )
 
 
@@ -138,6 +167,8 @@ def main():
     p.add_argument("--artifact-version", required=True)
     p.add_argument("--source-family", required=True)
     p.add_argument("--output", required=True)
+    p.add_argument("--source-feature-json", default=None,
+                   help="Pinned cached E input feature asset; omit to store native raw source")
     args = p.parse_args()
     reference = cache_codec(
         manifest=args.manifest, mode=args.mode, source_file=args.input,
@@ -145,6 +176,7 @@ def main():
         sample_rate=args.sample_rate, fps_num=args.fps_num,
         fps_den=args.fps_den, artifact_version=args.artifact_version,
         source_family=args.source_family,
+        source_asset_json=args.source_feature_json,
     )
     Path(args.output).write_bytes(reference.to_bytes() + b"\n")
 

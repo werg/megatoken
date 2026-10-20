@@ -36,9 +36,15 @@ class PocketFacetsStudent(nn.Module):
 
     def __init__(self, pocket_model: Any, facet_width: int = 512):
         super().__init__()
-        self.pocket = pocket_model
+        # TTSModel is itself an nn.Module holding FlowLM/Mimi. Keep its
+        # sampling metadata without re-registering those same parameters
+        # under two names (which duplicates checkpoint tensors).
+        object.__setattr__(self, "pocket", pocket_model)
         self.flow_lm = pocket_model.flow_lm
         self.mimi = pocket_model.mimi
+        # Original token conditioning is teacher-only. The native student
+        # never calls it and does not retain its large tokenizer embedding.
+        self.flow_lm.conditioner = None
         self.facet_width = facet_width
         self.prefix = nn.Sequential(nn.LayerNorm(facet_width),
                                     nn.Linear(facet_width, self.flow_lm.dim))
@@ -222,6 +228,10 @@ class SanaFacetsStudent(nn.Module):
             raise ValueError("Sana supports still image or video")
         self.modality = modality
         self.facet_width = facet_width
+        # The full T5/Gemma text encoder is teacher-only. Facets-only native
+        # generation supplies precomputed embeddings in its place.
+        pipeline.text_encoder = None
+        pipeline.tokenizer = None
         self.pipe = pipeline
         channels = int(pipeline.transformer.config.caption_channels)
         self.condition = nn.Sequential(nn.LayerNorm(facet_width),

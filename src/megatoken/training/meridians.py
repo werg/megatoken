@@ -228,42 +228,65 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
             raise ValueError("Pinned media feature revision/width differs from model")
     target = reference.target
     pretrained = target.kind == "codec_latents"
-    renderer = ("pocket" if modality == "audio" else "sana" if modality == "image"
-                else "sana_video") if pretrained else "native"
+    renderer = (
+        "pocket" if modality == "audio" else
+        "sana" if modality == "image" else "sana_video"
+    ) if pretrained else "native"
+    geometry = reference.output_geometry
+    if pretrained and geometry is None and source.kind != "raw":
+        raise ValueError(
+            "Codec latent targets with cached feature inputs require actual "
+            "displayed output geometry, not guessed codec compression ratios"
+        )
+    if geometry is not None and geometry.modality != modality:
+        raise ValueError("Declared media geometry disagrees with generated modality")
+    provenance = geometry.provenance if geometry is not None else (
+        "teacher_only" if pretrained else "requested"
+    )
+
     if modality == "audio":
-        sample_rate = (24000 if pretrained else target.sample_rate)
-        if pretrained:
-            # Pocket-Mimi exact frame size is asserted by the resident pack.
-            sample_count = int((target.valid_count or target.shape[0]) * 1920)
+        if geometry is not None:
+            sample_count, sample_rate = geometry.sample_count, geometry.sample_rate
+        elif pretrained:
+            if source.sample_rate != 24000:
+                raise ValueError("Pocket codec target needs declared native 24k audio geometry")
+            sample_count, sample_rate = source.shape[0], source.sample_rate
         else:
-            sample_count = target.shape[0]
+            sample_count, sample_rate = target.shape[0], target.sample_rate
         spec = MediaOutputSpec(
             "audio", sample_count=sample_count, sample_rate=sample_rate,
             renderer=renderer, latent_shape=target.shape if pretrained else (),
-            shape_provenance="teacher_only" if pretrained else "requested",
+            shape_provenance=provenance,
         )
     elif modality == "image":
-        height, width = (target.shape[-2], target.shape[-1]) if not pretrained else (
-            target.shape[-2] * 32, target.shape[-1] * 32
-        )
+        if geometry is not None:
+            height, width = geometry.height, geometry.width
+        elif pretrained:
+            height, width = source.shape[-2:]
+        else:
+            height, width = target.shape[-2:]
         spec = MediaOutputSpec(
             "image", height=height, width=width, renderer=renderer,
             latent_shape=target.shape if pretrained else (),
-            shape_provenance="teacher_only" if pretrained else "requested",
+            shape_provenance=provenance,
         )
     else:
-        frames, height, width = (
-            (target.shape[0], target.shape[-2], target.shape[-1]) if not pretrained
-            else (min(193, max(1, (target.shape[0] - 1) * 8 + 1)),
-                  target.shape[-2] * 32, target.shape[-1] * 32)
-        )
+        if geometry is not None:
+            frames, height, width = geometry.frames, geometry.height, geometry.width
+            fps_num, fps_den = geometry.fps_num, geometry.fps_den
+        elif pretrained:
+            frames, height, width = source.shape[0], *source.shape[-2:]
+            fps_num, fps_den = source.fps_num, source.fps_den
+        else:
+            frames, height, width = target.shape[0], *target.shape[-2:]
+            fps_num, fps_den = target.fps_num, target.fps_den
         spec = MediaOutputSpec(
             "video", frames=frames, height=height, width=width,
             renderer=renderer,
             latent_shape=((target.shape[1], target.shape[0], *target.shape[-2:])
                           if pretrained else ()),
-            shape_provenance="teacher_only" if pretrained else "requested",
-            fps_num=target.fps_num, fps_den=target.fps_den,
+            shape_provenance=provenance,
+            fps_num=fps_num, fps_den=fps_den,
         )
     return MediaPlan(
         reference, spec, config.representation_training,
