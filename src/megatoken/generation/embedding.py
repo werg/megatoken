@@ -48,8 +48,10 @@ class EmbeddingRealizer(nn.Module):
             raise ValueError("Embedding dimension and pinned semantic space disagree")
         # No C, state.final, teacher or source-token alignment is accessed.
         role = 0 if spec.role == "query" else 1
-        facets = self.norm(raw.float() + self.facet_codes[None].float())
-        slot = self.role_slot[role].float()
+        # Compute in the module's own dtype (bf16 models keep bf16 parameters).
+        dtype = self.address.weight.dtype
+        facets = self.norm(raw.to(dtype) + self.facet_codes[None].to(dtype))
+        slot = self.role_slot[role].to(dtype)
         score = (self.address(facets) * slot[None, None]).sum(-1) / math.sqrt(self.width)
         pooled = torch.sum(score.softmax(-1)[..., None] * self.payload(facets), dim=1)
         projection = self.query if role == 0 else self.document

@@ -10,26 +10,24 @@ import urllib.request
 
 import torch
 
-from megatoken.data import prepare_sources, write_demo_source
+from megatoken.data import PreparedDataset
 from megatoken.generation.codec import ByteCodec
 from megatoken.io import content_hash
 from megatoken.loading import build_model, load_model_config
 from megatoken.runtime import seed_everything
 from megatoken.training.checkpoint import load_checkpoint
-from megatoken.training.config import DecoupledConfig, TrainConfig
+from megatoken.training.config import DecoupledConfig
 from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.diloco_server import initialize_coordinator, serve_coordinator
 from megatoken.training.engine import train
 from megatoken.training.schedule import PHASES
 
+from retrieval_fixture import retrieval_train_config
+
 
 def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
     torch.set_num_threads(1)
     codec = ByteCodec.byte_fallback()
-    source = write_demo_source(tmp_path / "source.jsonl", count=24, max_record_bytes=128)
-    dataset = prepare_sources([source], tmp_path / "data", codec)
-    dataset_fingerprint = content_hash(dataset.manifest)
-    dataset.close()
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -47,29 +45,15 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
         timeout_seconds=30,
         max_offline_steps=20,
     )
-    config = TrainConfig(
-        dataset=str(tmp_path / "data"),
+    config = retrieval_train_config(
+        tmp_path,
         output=str(tmp_path / "runs"),
-        model="tiny",
-        codec="byte",
-        device="cpu",
-        precision="fp32",
-        max_steps=1,
-        microbatch_episodes=2,
-        accumulate_scored=80,
-        accumulate_ingested=1000,
-        max_accumulation_windows=2,
-        generated_capacity=128,
-        max_history_tokens=1024,
-        max_record_bytes=512,
         checkpoint_every=1,
-        eval_every=0,
-        gradient_checkpointing=False,
-        use_stage_mixture=False,
-        use_effort_mixture=False,
         inner_optimizer="muon",
         decoupled=settings,
     )
+    with PreparedDataset(config.dataset) as prepared:
+        dataset_fingerprint = content_hash(prepared.manifest)
     seed_everything(config.seed, config.deterministic)
     model_config = load_model_config(
         config.model,

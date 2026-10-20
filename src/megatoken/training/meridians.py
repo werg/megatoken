@@ -438,7 +438,7 @@ def forward_meridian_batch(
             )
             if retrieval_aux is None:
                 raise RuntimeError("Retrieval pretraining supervision is mandatory")
-            examples, recipe, global_count, bank_owner = retrieval_aux
+            examples, recipe, global_count, bank_owner = retrieval_aux[:4]
             for entry in step.records:
                 annotation = examples.get((
                     batch.windows[0].episode.episode_id, entry.record.record_id,
