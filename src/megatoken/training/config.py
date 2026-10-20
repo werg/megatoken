@@ -139,7 +139,11 @@ class TrainConfig:
             raise ValueError("A live KB requires retrieval supervision sidecars")
         if self.retrieval_bank and not self.retrieval_gate_receipt:
             raise ValueError("Live KB phases require audited phase gate receipts")
-        if not 0 <= self.retrieval_kv_dropout <= 1 or not (\n            0 <= self.retrieval_lora_dropout <= 1\n        ):\n            raise ValueError("Retrieval KV and LoRA dropout must be valid probabilities")\n        if self.retrieval_sparse_lr <= 0 or self.retrieval_growth_every < 1 or (
+        if not 0 <= self.retrieval_kv_dropout <= 1 or not (
+            0 <= self.retrieval_lora_dropout <= 1
+        ):
+            raise ValueError("Retrieval KV and LoRA dropout must be valid probabilities")
+        if self.retrieval_sparse_lr <= 0 or self.retrieval_growth_every < 1 or (
             self.retrieval_growth_budget < 0
         ):
             raise ValueError("Invalid bounded retrieval sparse LR/growth settings")
