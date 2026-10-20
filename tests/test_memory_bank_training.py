@@ -186,3 +186,49 @@ def test_detached_actual_source_bytes_train_query_and_stored_source_key(tmp_path
         )
     finally:
         bank.close()
+
+
+def test_supported_pair_growth_deduplicates_repeated_source_windows(tmp_path):
+    import json
+    from megatoken.memory.contracts import Collection
+
+    config, bank, owner, annotation = _fixture(tmp_path)
+    try:
+        second = SourceRange(
+            "source-b", "v1", 0, 20, "sha-b", "team",
+            available_at=0, family="family-b",
+        )
+        bank.insert_source(
+            scope="team", footprint=Footprint((second,)),
+            content_id="source-b/0", asset_ref="source-b.asset",
+            key=np.array([0., 1.] + [0.] * 6),
+        )
+        bank.insert_memory(
+            scope="team", footprint=Footprint((second,)),
+            assignment="source-b/0",
+            key=np.array([0., 1.] + [0.] * 6),
+            value=np.ones(16) * 0.1, birth_step=0,
+        )
+        first = bank.scan(Collection.SOURCE, "team")[0].footprint
+        support = (
+            ("window-one", first),
+            ("window-duplicate", first),
+            ("window-two", Footprint((second,))),
+        )
+        for window_id, footprint in support:
+            bank.db.execute(
+                """INSERT INTO source_windows
+                   (window_id,scope,footprint,source_ids) VALUES (?,?,?,?)""",
+                (
+                    window_id, "team", footprint.to_json(),
+                    json.dumps(["source-a/0", "source-b/0"]),
+                ),
+            )
+        grown = owner.grow_at_barrier(scopes=("team",), step=2, budget=0)
+        assert grown == 0
+        assert owner.pairs_created == 1
+        assert len(bank.relations("team")) == 1
+        owner.grow_at_barrier(scopes=("team",), step=3, budget=0)
+        assert len(bank.relations("team")) == 1
+    finally:
+        bank.close()
