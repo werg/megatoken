@@ -12,8 +12,9 @@ from megatoken.inference import export_served
 from megatoken.loading import build_model, load_model_config
 from megatoken.runtime import capture_rng
 from megatoken.training.checkpoint import load_checkpoint, save_checkpoint
-from megatoken.training.config import TrainConfig
 from megatoken.training.optimizer import MasterAdamW
+
+from retrieval_fixture import retrieval_train_config
 
 
 def test_offline_engram_extract_install_checkpoint_bake_and_export(tmp_path):
@@ -36,7 +37,7 @@ def test_offline_engram_extract_install_checkpoint_bake_and_export(tmp_path):
     table.lookup(torch.arange(256)).float().sum().backward()
     optimizer.step()
     optimizer.zero_grad()
-    train_config = TrainConfig(engram_import=str(asset))
+    train_config = retrieval_train_config(tmp_path / "cfg", engram_import=str(asset))
     source = save_checkpoint(
         tmp_path / "input",
         "before",

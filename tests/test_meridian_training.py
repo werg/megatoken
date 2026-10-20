@@ -9,11 +9,12 @@ from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
 from megatoken.model.multitrack import MultiTrackGenerator
-from megatoken.training.config import TrainConfig
 from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import MeridianPreparedBatch
 from megatoken.training.stream import EpisodeWindow
+
+from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 
 
 def fixture_episode():
@@ -34,16 +35,17 @@ def fixture_episode():
                    tracks=tracks, meridians=meridians)
 
 
-def train_config(mode):
-    return TrainConfig(
-        phase="B0" if mode == "bootstrap" else "P1", representation_mode=mode,
-        model="tiny", device="cpu", precision="fp32", generated_capacity=16,
-        max_record_bytes=128, effort=1, use_stage_mixture=False,
-        use_effort_mixture=False, gradient_checkpointing=False,
+def train_config(root, mode):
+    return retrieval_train_config(
+        root, phase="B0" if mode == "bootstrap" else "P1", representation_mode=mode,
     )
 
 
-def grouped_batch(model, mode):
+def tiny_model():
+    return build_model(ModelConfig.tiny(**MODEL_OVERRIDES), ByteCodec.byte_fallback())
+
+
+def grouped_batch(model, config):
     episode = fixture_episode()
     windows = list(iter_windows(
         episode, ByteCodec.byte_fallback(),
@@ -51,7 +53,7 @@ def grouped_batch(model, mode):
     ))
     assert len(windows) == 1
     batch, = prepare_batches(
-        model, [EpisodeWindow(episode, windows[0])], train_config(mode),
+        model, [EpisodeWindow(episode, windows[0])], config,
     )
     assert isinstance(batch, MeridianPreparedBatch)
     return batch
@@ -67,11 +69,12 @@ def test_meridians_are_indivisible_window_groups():
 
 
 @pytest.mark.parametrize("mode", ("bootstrap", "recurrent"))
-def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch):
+def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch, tmp_path):
     torch.set_num_threads(1)
     torch.manual_seed(27)
-    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
-    batch = grouped_batch(model, mode)
+    model = tiny_model()
+    config = train_config(tmp_path, mode)
+    batch = grouped_batch(model, config)
     assert len(batch.steps) == 3 and not batch.steps[0].generated
     assert len(batch.steps[1].plans) == 2 and len(batch.steps[2].plans) == 1
     assert batch.counts["lexical"] == len(b"onetwothree")
@@ -90,9 +93,11 @@ def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch):
         return result
 
     monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", watch)
-    config = train_config(mode)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    metrics = forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    metrics = forward_batch(
+        model, batch, ledger, config, torch.device("cpu"), 0,
+        retrieval_aux(config, supervised=False),
+    )
     ledger.finish()
     assert metrics["grouped_supervised_meridians"] == 2
     assert metrics["grouped_selected_events"] == 3
@@ -103,7 +108,7 @@ def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch):
     assert batch_counters([batch]).P == 2 * len(b"onetwothree")
 
 
-def test_media_payload_is_not_silently_trained_as_text():
+def test_media_payload_is_not_silently_trained_as_text(tmp_path):
     from dataclasses import replace
 
     ep = fixture_episode()
@@ -113,11 +118,11 @@ def test_media_payload_is_not_silently_trained_as_text():
             TrackEvent("b", "b", "text", 0, "user"),
         )), *ep.meridians[1:],
     ))
-    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    model = tiny_model()
     window = next(iter_windows(changed, ByteCodec.byte_fallback()))
-    with pytest.raises(ValueError, match="pinned media asset"):
+    with pytest.raises(ValueError, match="pinned canonical media asset"):
         prepare_batches(
-            model, [EpisodeWindow(changed, window)], train_config("bootstrap"),
+            model, [EpisodeWindow(changed, window)], train_config(tmp_path, "bootstrap"),
         )
 
 def test_grouped_episode_runs_in_existing_training_checkpoint_loop(tmp_path):
@@ -138,7 +143,7 @@ def test_grouped_episode_runs_in_existing_training_checkpoint_loop(tmp_path):
     assert payload["global_step"] == 1
 
 
-def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeypatch):
+def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeypatch, tmp_path):
     from dataclasses import replace
 
     from megatoken.data.schema import LogicalAction, digest_bytes
@@ -167,13 +172,14 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
         original, records=records, tracks=tracks, meridians=meridians,
         actions=(action,),
     )
-    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    model = tiny_model()
+    config = train_config(tmp_path, "recurrent")
     window = next(iter_windows(
         episode, ByteCodec.byte_fallback(),
         WindowConfig(max_records=8, max_decisions=4),
     ))
     batch, = prepare_batches(
-        model, [EpisodeWindow(episode, window)], train_config("recurrent"),
+        model, [EpisodeWindow(episode, window)], config,
     )
     selected = []
     original_step = MultiTrackGenerator.supervised_meridian
@@ -183,9 +189,11 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
         return selected[-1][1]
 
     monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", capture)
-    config = train_config("recurrent")
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+    forward_batch(
+        model, batch, ledger, config, torch.device("cpu"), 0,
+        retrieval_aux(config, supervised=False),
+    )
     ledger.finish()
     assert len(selected) == 1 and selected[0][0]
     encoded = []
