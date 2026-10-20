@@ -17,15 +17,19 @@ from megatoken.memory.base import Record
 from megatoken.memory.contracts import Collection
 from megatoken.memory.retrieval import Interval
 from megatoken.tensors import byte_tensor
+from megatoken.io import sha256_file
+from hashlib import sha256
 
 
 class NativeSourceFeatures:
     def __init__(self, model, assets_root: str | Path, *,
-                 max_chunk_bytes: int = 16384):
+                 max_chunk_bytes: int = 16384, strict_hash: bool = False):
         root = Path(assets_root).resolve()
         if not root.is_dir() or max_chunk_bytes < 1:
             raise ValueError("RAG value training requires a pinned source asset directory")
         self.root, self.model, self.max_chunk_bytes = root, model, max_chunk_bytes
+        self.strict_hash = strict_hash
+        self._verified_assets: dict[tuple[str, str], bool] = {}
         self._features: dict[tuple[int, int], Tensor] = {}
 
     def read_interval(self, row: Record, interval: Interval) -> bytes:
@@ -46,6 +50,20 @@ class NativeSourceFeatures:
             content = stream.read(interval.end - interval.start)
         if len(content) != interval.end - interval.start:
             raise ValueError("Original source evidence is truncated")
+        if self.strict_hash:
+            digest = span.content_hash
+            if len(digest) != 64 or any(x not in "0123456789abcdef" for x in digest):
+                raise ValueError("Training source ranges require pinned SHA256 content digests")
+            identity = (str(path), digest)
+            if identity not in self._verified_assets:
+                # Catalog contracts may identify either the full immutable
+                # source version or the exact chunk. Accept precisely those
+                # two declared bytes, never a different stale source revision.
+                whole = sha256_file(path)
+                local = sha256(content).hexdigest()
+                if digest not in {whole, local}:
+                    raise ValueError("Original source bytes differ from pinned source hash")
+                self._verified_assets[identity] = True
         return content
 
     @torch.no_grad()
@@ -72,3 +90,4 @@ class NativeSourceFeatures:
         # E itself is trainable in the main optimizer. Cached features are
         # version-local and cannot be used as authoritative values afterwards.
         self._features.clear()
+        self._verified_assets.clear()
