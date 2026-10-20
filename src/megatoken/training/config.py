@@ -108,6 +108,7 @@ class TrainConfig:
     # Required at EVERY phase; coherence bootstrap starts with no free KB rows.
     # Omission is a configuration error, never a legacy training switch.
     retrieval_sidecar: str = ""
+    retrieval_document_sidecar: str = ""
     retrieval_memory_recipe: str = ""
     retrieval_bank: str | None = None  # required for live warmup/free KB updates
     retrieval_source_assets_root: str | None = None
@@ -136,11 +137,13 @@ class TrainConfig:
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
             raise ValueError("decoupled must be a settings object or mapping")
-        if not self.retrieval_sidecar or not self.retrieval_memory_recipe:
-            raise ValueError("Every training invocation requires retrieval_sidecar and "
-                             "retrieval_memory_recipe; the legacy trainer was removed")
-        if (self.retrieval_sidecar.startswith("PIN_") or
-                self.retrieval_memory_recipe.startswith("PIN_")):
+        if not (self.retrieval_sidecar and self.retrieval_document_sidecar
+                and self.retrieval_memory_recipe):
+            raise ValueError("Every training invocation requires query and document "
+                             "embedding sidecars and the pinned retrieval-memory recipe")
+        if (self.retrieval_sidecar.startswith("PIN_")
+                or self.retrieval_document_sidecar.startswith("PIN_")
+                or self.retrieval_memory_recipe.startswith("PIN_")):
             raise ValueError("Pin actual retrieval preparation artifacts before training")
         if self.decoupled is not None:
             raise ValueError("Asynchronous DiLoCo cannot own the mandatory synchronized "

@@ -30,6 +30,7 @@ effort: 6
 eval_every: 0
 checkpoint_every: 100
 retrieval_sidecar: PIN_VERIFIED_CAUSAL_RETRIEVAL_SIDECAR_JSONL
+retrieval_document_sidecar: PIN_TEACHER_DOCUMENT_EMBEDDINGS_JSONL
 retrieval_memory_recipe: PIN_PHASE_MATCHED_RECIPE_JSON
 router_balance_mode: global
 router_replay_assignments: 262144

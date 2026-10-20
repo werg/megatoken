@@ -80,7 +80,7 @@ def write_document_sidecar(path: str | Path,
             raise ValueError("One original source event has duplicate document teacher labels")
         identities.add(key)
         rows.append(json.dumps(entry.to_dict(), sort_keys=True, separators=(",", ":")))
-    payload = ("\\n".join(rows) + ("\\n" if rows else "")).encode("utf-8")
+    payload = ("\n".join(rows) + ("\n" if rows else "")).encode("utf-8")
     path.write_bytes(payload)
     manifest = {
         "format": "megatoken-document-embedding-v1",
@@ -88,7 +88,7 @@ def write_document_sidecar(path: str | Path,
         "sha256": sha256(payload).hexdigest(),
     }
     path.with_suffix(path.suffix + ".manifest.json").write_text(
-        json.dumps(manifest, sort_keys=True) + "\\n"
+        json.dumps(manifest, sort_keys=True) + "\n"
     )
     return manifest
 

@@ -319,6 +319,7 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "gradient_checkpointing",
             "representation_mode",
             "retrieval_sidecar",
+            "retrieval_document_sidecar",
             "retrieval_memory_recipe",
             "retrieval_bank",
             "retrieval_source_assets_root",
@@ -403,6 +404,7 @@ def train(
         }
         model_config = load_model_config(config.model, **overrides)
         from megatoken.data.retrieval import read_sidecar
+        from megatoken.data.document_embeddings import read_document_sidecar
         from megatoken.memory.recipe import RetrievalRecipe
 
         retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
@@ -447,8 +449,19 @@ def train(
             example.request_content()
             retrieval_examples[identity] = example
         if not retrieval_examples:
-            raise ValueError("A mandatory retrieval training sidecar cannot be empty")
+            raise ValueError("A mandatory retrieval query training sidecar cannot be empty")
+        document_examples = {}
+        for item in read_document_sidecar(config.retrieval_document_sidecar):
+            identity = (item.episode_id, item.event_id)
+            if identity in document_examples:
+                raise ValueError("Duplicate document teacher assignment")
+            if len(item.teacher_target) != retrieval_recipe.space.dimension:
+                raise ValueError("Document teacher uses a different semantic-space dimension")
+            document_examples[identity] = item
+        if not document_examples:
+            raise ValueError("Document-role E/R distillation requires prepared original chunks")
         retrieval_sidecar_sha = sha256_file(Path(config.retrieval_sidecar))
+        document_sidecar_sha = sha256_file(Path(config.retrieval_document_sidecar))
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
@@ -459,6 +472,7 @@ def train(
             _resume_compatible(payload["train_config"], config, phase_transition)
             if not phase_transition and (
                 payload.get("retrieval_sidecar_sha256", "") != retrieval_sidecar_sha
+                or payload.get("retrieval_document_sha256", "") != document_sidecar_sha
                 or payload.get("retrieval_recipe_fingerprint", "") != (
                     retrieval_recipe.fingerprint
                 )
@@ -700,6 +714,7 @@ def train(
                         "train_config": asdict(config),
                         "codec_fingerprint": codec.fingerprint,
                         "retrieval_sidecar_sha256": retrieval_sidecar_sha,
+                        "retrieval_document_sha256": document_sidecar_sha,
                         "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
                         "chunking": chunking_identity,
                         "rank_state": rank_state,
@@ -783,6 +798,15 @@ def train(
             retrieval_denom = context.sum_counts(
                 {"retrieval_queries": retrieval_local}
             )["retrieval_queries"]
+            doc_local = sum(
+                (b.windows[0].episode.episode_id, r.record.record_id)
+                in document_examples
+                for b in batches
+                for step in b.steps if not step.generated for r in step.records
+            )
+            document_denom = context.sum_counts(
+                {"document_chunks": doc_local}
+            )["document_chunks"]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -811,7 +835,8 @@ def train(
                 diagnostics_batch = forward_batch(
                     model, batch, ledger, config, context.device, global_step,
                     retrieval_aux=(
-                        retrieval_examples, retrieval_recipe, retrieval_denom, bank_owner
+                        retrieval_examples, retrieval_recipe, retrieval_denom, bank_owner,
+                        document_examples, document_denom,
                     ),
                 )
                 for key, value in diagnostics_batch.items():
