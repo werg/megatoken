@@ -25,7 +25,7 @@ from megatoken.controls import build_control_payload, encode_controls
 from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
-from megatoken.io import content_hash, write_json
+from megatoken.io import content_hash, sha256_file, write_json
 from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
@@ -540,6 +540,18 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "deterministic",
             "gradient_checkpointing",
             "representation_mode",
+            "retrieval_sidecar",
+            "retrieval_memory_recipe",
+            "retrieval_bank",
+            "retrieval_source_assets_root",
+            "retrieval_gate_receipt",
+            "retrieval_sparse_lr",
+            "retrieval_growth_every",
+            "retrieval_growth_budget",
+            "retrieval_kv_dropout",
+            "retrieval_lora_dropout",
+            "router_balance_mode",
+            "router_replay_assignments",
         )
     for key in critical:
         if old.get(key) != current.get(key):
@@ -655,6 +667,10 @@ def train(
                 # turn the retrieval realizer into an answer embedding head.
                 example.request_content()
                 retrieval_examples[identity] = example
+        retrieval_sidecar_sha = (
+            sha256_file(Path(config.retrieval_sidecar))
+            if retrieval_recipe is not None else ""
+        )
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
@@ -663,6 +679,13 @@ def train(
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
             _resume_compatible(payload["train_config"], config, phase_transition)
+            if not phase_transition and (
+                payload.get("retrieval_sidecar_sha256", "") != retrieval_sidecar_sha
+                or payload.get("retrieval_recipe_fingerprint", "") != (
+                    retrieval_recipe.fingerprint if retrieval_recipe is not None else ""
+                )
+            ):
+                raise ValueError("Exact resume changed retrieval supervision or recipe identity")
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
             if payload["model_config"] != model_config.to_dict():
@@ -878,6 +901,10 @@ def train(
                         "model_config": model_config.to_dict(),
                         "train_config": asdict(config),
                         "codec_fingerprint": codec.fingerprint,
+                        "retrieval_sidecar_sha256": retrieval_sidecar_sha,
+                        "retrieval_recipe_fingerprint": (
+                            retrieval_recipe.fingerprint if retrieval_recipe is not None else ""
+                        ),
                         "chunking": chunking_identity,
                         "rank_state": rank_state,
                         "global_step": global_step,
