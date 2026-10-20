@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
+from torch.nn import functional as F
 
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
@@ -458,6 +459,10 @@ def forward_meridian_batch(
                         EmbeddingSpec(recipe.space.fingerprint, "query",
                                       recipe.space.dimension),
                     )
+                    # The teacher is a coordinate target, never P input.
+                    # Unit normalization must hold even for sidecar exporters
+                    # that retain unnormalized raw teacher magnitudes.
+                    teacher = F.normalize(teacher, dim=-1)
                     similarity = (predicted * teacher).sum(-1)
                     retrieval_losses.append(
                         recipe.loss_weights["embedding"] *
