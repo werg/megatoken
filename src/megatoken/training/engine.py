@@ -722,6 +722,9 @@ def train(
                 bank.close()
                 raise
         context.broadcast_model(model)
+        if bank_owner is not None:
+            from megatoken.training.bank import assert_shared_bank_snapshot
+            assert_shared_bank_snapshot(bank_owner, context)
         phase = dataclasses.replace(
             PHASES[config.phase],
             budget=config.budget or PHASES[config.phase].budget,
@@ -1041,6 +1044,7 @@ def train(
                         raise RuntimeError(f"Memory growth transaction failed: {failures}")
                     context.barrier()
                     step_metrics["memory_grown"] = grown
+                assert_shared_bank_snapshot(bank_owner, context)
             updates_this_run += 1
             consumed += getattr(global_work, phase.meter)
             counters.add(global_work)
