@@ -66,6 +66,13 @@ def read_locked_manifest(filename: str):
             for asset in snapshot.rglob("*"):
                 if asset.is_symlink() or (asset.is_file() and asset.resolve() not in verified):
                     raise ValueError(f"Unhashed or symlinked snapshot asset: {asset}")
+        if name == "minicpm_export":
+            from .perception import verify_minicpm_export
+
+            receipt = verify_minicpm_export(str(snapshot))
+            parent = packs.get("minicpm")
+            if parent is not None and receipt["source_revision"] != parent["revision"]:
+                raise ValueError("Extracted MiniCPM tower revision differs from parent VLM")
         if name == "pocket":
             import yaml
             config_file = (path.parent / item["config"]).resolve()

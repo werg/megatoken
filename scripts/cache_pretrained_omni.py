@@ -32,9 +32,11 @@ def main():
     a=p.parse_args()
     from megatoken.omni.loader import read_locked_manifest
     base, packs = read_locked_manifest(a.manifest)
-    pack_name = {"whistle": "whistle", "pocket": "pocket", "minicpm": "minicpm"}[a.mode]
+    pack_name = {"whistle": "whistle", "pocket": "pocket", "minicpm": "minicpm_export"}[a.mode]
     if pack_name not in packs:
-        raise ValueError(f"Perceptual donor {pack_name} absent from lockfile")
+        raise ValueError(
+            f"Missing {pack_name} from pinned lockfile; export MiniCPM tower+merger first"
+        )
     item = packs[pack_name]
     reference = {"whistle": item.get("weights"), "pocket": item.get("config"),
                  "minicpm": item.get("snapshot")}[a.mode]

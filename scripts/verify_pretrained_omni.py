@@ -78,7 +78,7 @@ def probe(manifest: str, *, device: str, packs: tuple[str, ...], rollout: bool =
                         raw, height=image_size, width=image_size, steps=steps,
                         generator=rng,
                     )
-                    expected_rank = 4
+                    expected_rank = 5
                 else:
                     output = student.realize(
                         raw, height=video_height, width=video_width,

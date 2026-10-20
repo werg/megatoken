@@ -375,4 +375,14 @@ class SanaFacetsStudent(nn.Module):
                       use_resolution_binning=False)
         if self.modality == "video":
             kwargs["frames"] = spec["frames"]
-        return self.pipe(**kwargs)[0]
+        output = self.pipe(**kwargs)[0]
+        if not isinstance(output, Tensor):
+            raise ValueError("Sana donor must provide decoded tensor media")
+        if self.modality == "image":
+            if output.ndim != 4 or output.shape[1] != 3:
+                raise ValueError("Sana RGB image must be [B,3,H,W]")
+            # Model-native stills share the [B,frames,RGB,H,W] convention.
+            output = output[:, None]
+        elif output.ndim != 5 or output.shape[2] != 3:
+            raise ValueError("SANA-Video decoded clip must be [B,frames,RGB,H,W]")
+        return output

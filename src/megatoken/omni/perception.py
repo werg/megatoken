@@ -102,6 +102,33 @@ class PocketAcousticFeatures:
                                               dtype=torch.bool), seconds,self.extractor)
 
 
+def verify_minicpm_export(directory: str) -> dict:
+    """Check trained tower/merger bytes and the original exported revision."""
+    import hashlib
+    import json
+    import re
+
+    root = Path(directory).resolve()
+    receipt = root / "export_receipt.json"
+    if not receipt.is_file():
+        raise FileNotFoundError("MiniCPM export requires a pinned source receipt")
+    value = json.loads(receipt.read_text(encoding="utf-8"))
+    if (value.get("schema_version") != 1
+            or not re.fullmatch(r"[0-9a-f]{40}", value.get("source_revision", ""))):
+        raise ValueError("Invalid pinned MiniCPM export revision")
+    expected = value.get("sha256")
+    names = {"vision_tower.safetensors", "merger.safetensors", "config.json"}
+    if not isinstance(expected, dict) or set(expected) != names:
+        raise ValueError("Visual export must include exact tower, merger and config")
+    for name in names:
+        artifact = root / name
+        if not artifact.is_file() or artifact.is_symlink():
+            raise ValueError("Missing or symlinked pretrained visual export")
+        if hashlib.sha256(artifact.read_bytes()).hexdigest() != expected[name]:
+            raise ValueError("MiniCPM extracted parameter SHA256 mismatch")
+    return value
+
+
 class MiniCPMVisualFeatures(nn.Module):
     """Standalone exported MiniCPM vision tower AND trained merger (no LLM)."""
 
@@ -116,6 +143,7 @@ class MiniCPMVisualFeatures(nn.Module):
 
     @classmethod
     def from_local_export(cls, directory: str, *, extractor: str):
+        verify_minicpm_export(directory)
         from transformers import MiniCPMV4_7Config
         from transformers.models.minicpmv4_7.modeling_minicpmv4_7 import (
             MiniCPMV4_7VisionModel, MiniCPMV4_7Merger,
