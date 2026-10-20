@@ -110,6 +110,8 @@ class TrainConfig:
     retrieval_bank: str | None = None  # required for live warmup/free KB updates
     retrieval_gate_receipt: str | None = None
     retrieval_sparse_lr: float = 1e-3
+    retrieval_kv_dropout: float = 0.1
+    retrieval_lora_dropout: float = 0.1
     retrieval_growth_every: int = 100
     retrieval_growth_budget: int = 32
     router_balance_mode: str = "local"  # global uses optimizer-step replay
@@ -134,7 +136,7 @@ class TrainConfig:
             raise ValueError("A live KB requires retrieval supervision sidecars")
         if self.retrieval_bank and not self.retrieval_gate_receipt:
             raise ValueError("Live KB phases require audited phase gate receipts")
-        if self.retrieval_sparse_lr <= 0 or self.retrieval_growth_every < 1 or (
+        if not 0 <= self.retrieval_kv_dropout <= 1 or not (\n            0 <= self.retrieval_lora_dropout <= 1\n        ):\n            raise ValueError("Retrieval KV and LoRA dropout must be valid probabilities")\n        if self.retrieval_sparse_lr <= 0 or self.retrieval_growth_every < 1 or (
             self.retrieval_growth_budget < 0
         ):
             raise ValueError("Invalid bounded retrieval sparse LR/growth settings")
