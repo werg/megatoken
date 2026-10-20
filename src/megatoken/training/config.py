@@ -100,6 +100,9 @@ class TrainConfig:
     budget_meter: str = "auto"
     accumulate_events: int = 32
     media_root: str | None = None
+    # Immutable local checkpoint manifest. Donors are loaded before optimizer enumeration.
+    pretrained_packs: str | None = None
+    omni_recipe: str | None = None
     deterministic: bool = False
     require_blackwell: bool = False
     grad_clip: float = 1.0
@@ -139,6 +142,12 @@ class TrainConfig:
             raise ValueError(
                 "Event-budget media training needs eval_every=0 until media evaluation is installed"
             )
+        if self.omni_recipe is not None and not self.omni_recipe:
+            raise ValueError("Omni recipe path must be nonempty")
+        if self.omni_recipe is not None and self.budget_meter != "G":
+            raise ValueError("Concordant media tasks require an explicit G event budget")
+        if self.pretrained_packs is not None and not self.pretrained_packs:
+            raise ValueError("Pretrained pack manifest path must be nonempty")
         if self.media_root is not None and not self.media_root:
             raise ValueError("Media asset root must be a nonempty path")
         positive = (

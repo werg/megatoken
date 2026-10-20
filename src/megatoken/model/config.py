@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 ARCHITECTURE_VERSION = 8
@@ -32,6 +32,9 @@ class ModelConfig:
     vision_feature_dim: int = 0
     audio_feature_id: str = ""
     vision_feature_id: str = ""
+    # Exact identities and widths for optional acoustic/codec/detail views.
+    media_feature_views: dict[str, int] = field(default_factory=dict)
+    media_view_dropout: float = 0.0
     byte_dim: int = 8
     source_stride: int = 8
     ngram_dim: int = 16
@@ -127,6 +130,16 @@ class ModelConfig:
                 raise ValueError(
                     "External feature projectors require a positive width and pinned ID"
                 )
+        if (not isinstance(self.media_feature_views, dict)
+                or any(not isinstance(k, str) or len(k) < 12
+                       or type(v) is not int or v <= 0
+                       for k, v in self.media_feature_views.items())):
+            raise ValueError("Auxiliary view names require pinned identities and widths")
+        if (not isinstance(self.media_view_dropout, (float, int))
+                or isinstance(self.media_view_dropout, bool)
+                or not math.isfinite(self.media_view_dropout)
+                or not 0 <= self.media_view_dropout < 1):
+            raise ValueError("Media view dropout must lie in [0, 1)")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
 
@@ -163,6 +176,7 @@ class ModelConfig:
             self.vision_feature_dim,
             self.audio_feature_id,
             self.vision_feature_id,
+            tuple(sorted(self.media_feature_views.items())),
         )
 
     @classmethod

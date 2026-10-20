@@ -21,6 +21,7 @@ DEFAULT_LOSS_WEIGHTS = {
     "placement": 0.25,
     "terminal": 0.1,
     "facet_prediction": 0.1,
+    "relation": 0.025,
     "encoder_alignment": 1.0,
     "router_balance": 0.005,
     "router_z": 1e-4,

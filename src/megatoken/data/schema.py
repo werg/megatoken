@@ -213,6 +213,8 @@ class TrackEvent:
     alignment_id: str | None = None
     media_span: MediaSpan | None = None
     asset_sha256: str | None = None
+    request: str = ""
+    request_revision: int = 0
 
     def __post_init__(self) -> None:
         if not self.record_id or not self.track_id or self.meridian_id < 0:
@@ -221,6 +223,8 @@ class TrackEvent:
             raise ValueError("Unknown event modality")
         if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
             raise ValueError("Unknown track event role")
+        if not isinstance(self.request, str) or not isinstance(self.request_revision, int) or self.request_revision < 0:
+            raise ValueError("Event request and revision must be well-formed")
         if self.asset_sha256 is not None and (
             len(self.asset_sha256) != 64
             or any(c not in "0123456789abcdef" for c in self.asset_sha256)
@@ -270,6 +274,9 @@ class PhysicalRecord:
     result_of: str | None = None
     execution_id: str | None = None
     media_type: str = "text/plain; charset=utf-8"
+    artifact_version: str = ""
+    base_artifact_version: str = ""
+    edit_continuation: str = ""
     auxiliary_observation_loss: bool = False
     chunk_boundary: str | None = None
     chunking_fingerprint: str | None = None
@@ -292,6 +299,10 @@ class PhysicalRecord:
             raise ValueError(f"Unknown provenance: {self.provenance}")
         if not self.record_id or not isinstance(self.payload, bytes):
             raise TypeError("Records need an identity and immutable payload bytes")
+        if self.edit_continuation not in ("", "recorded", "student"):
+            raise ValueError("Edit continuations must identify actual recorded/student source")
+        if self.base_artifact_version and not self.artifact_version:
+            raise ValueError("An edited record needs its new artifact version")
         if self.turn_index < 0 or not 0 <= self.part_index < self.part_count:
             raise ValueError("Invalid turn/physical part index")
         if (self.chunk_boundary is None) != (self.chunking_fingerprint is None):
@@ -348,6 +359,26 @@ class Dependency:
 
 
 @dataclass(frozen=True, slots=True)
+class EpisodeRelation:
+    """Out-of-band supervision, never model-visible evidence."""
+    kind: str
+    left: str
+    right: str
+    weight: float = 1.0
+
+    def __post_init__(self):
+        kinds = {
+            "same_spoken_content", "translation_of", "describes",
+            "synchronized_with", "first_frame_of", "last_frame_of",
+            "edit_of", "preserves",
+        }
+        if (self.kind not in kinds or not self.left or not self.right
+                or self.left == self.right or not math.isfinite(self.weight)
+                or not 0 < self.weight <= 10):
+            raise ValueError("Relation requires a bounded pair of distinct artifacts")
+
+
+@dataclass(frozen=True, slots=True)
 class Episode:
     episode_id: str
     records: tuple[PhysicalRecord, ...]
@@ -364,6 +395,7 @@ class Episode:
     reference_origin: str | None = None
     tracks: tuple[TrackSpec, ...] = ()
     meridians: tuple[Meridian, ...] = ()
+    omni_relations: tuple[EpisodeRelation, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.episode_id or not self.records or not isinstance(self.records, tuple):
@@ -433,6 +465,10 @@ class Episode:
                 ):
                     raise ValueError("A logical action must execute exactly once")
                 result_logical[record.result_of] = logical
+        logical_ids = {record.logical_id for record in self.records}
+        if any(relation.left not in logical_ids or relation.right not in logical_ids
+               for relation in self.omni_relations):
+            raise ValueError("Omnimodal relation references a missing source artifact")
         if self.records[-1].part_index + 1 != self.records[-1].part_count:
             raise ValueError("Incomplete final logical record")
         for action in self.actions:
@@ -559,6 +595,9 @@ class Episode:
             for action in obj.get("actions", ())
         )
         obj["dependencies"] = tuple(Dependency(**dep) for dep in obj.get("dependencies", ()))
+        obj["omni_relations"] = tuple(
+            EpisodeRelation(**relation) for relation in obj.get("omni_relations", ())
+        )
         obj["tracks"] = tuple(TrackSpec(**spec) for spec in obj.get("tracks", ()))
         obj["meridians"] = tuple(
             Meridian(
