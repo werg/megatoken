@@ -93,6 +93,45 @@ class MemoryMaterialization:
         return (self.semantics * self.strengths[..., None]).sum(1) / total.clamp_min(1e-8)
 
 
+def independently_drop_memory(
+    snapshot: MemoryMaterialization | None, *,
+    kv_rate: float, lora_rate: float,
+) -> MemoryMaterialization | None:
+    """Independent exact-null interventions on ONE already frozen native snapshot.
+
+    The same draw is shared by the transaction's P/C and explicit R control.
+    Neither intervention changes raw/frontier history, nor introduces a new
+    learned group decay multiplier. This is training-only and bounded.
+    """
+    if not 0 <= kv_rate <= 1 or not 0 <= lora_rate <= 1:
+        raise ValueError("Memory intervention probabilities must be in [0, 1]")
+    if snapshot is None or (kv_rate == 0 and lora_rate == 0):
+        return snapshot
+    device = snapshot.strengths.device
+    drop_kv = kv_rate == 1 or (
+        kv_rate > 0 and bool(torch.rand((), device=device) < kv_rate)
+    )
+    drop_lora = lora_rate == 1 or (
+        lora_rate > 0 and bool(torch.rand((), device=device) < lora_rate)
+    )
+    if not drop_kv and not drop_lora:
+        return snapshot
+    features = snapshot.features
+    if drop_kv:
+        features = AttentionFeatures(
+            features.keys, features.values,
+            torch.zeros_like(features.mask), features.track_ids,
+            torch.zeros_like(features.log_strength),
+        )
+    strengths = (
+        torch.zeros_like(snapshot.strengths) if drop_lora else snapshot.strengths
+    )
+    return MemoryMaterialization(
+        features, snapshot.semantics, strengths,
+        f"{snapshot.identity}/kvdrop:{int(drop_kv)}/loradrop:{int(drop_lora)}",
+    )
+
+
 @dataclass(frozen=True)
 class KBContext:
     """External complete-facet context. Never appended to native raw/final/history."""
