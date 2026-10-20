@@ -475,7 +475,6 @@ def forward_meridian_batch(
                     purpose=annotation.query.purpose,
                     space_fingerprint=recipe.space.fingerprint,
                     effort=batch.effort,
-                    commit=True,
                 )
                 if selected.shape[1] != 1:
                     raise RuntimeError("Retrieval R must use one selected raw P event")

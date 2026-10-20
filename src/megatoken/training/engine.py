@@ -411,6 +411,16 @@ def train(
         retrieval_examples = {}
         if retrieval_recipe.model.to_dict() != model_config.to_dict():
             raise ValueError("Training model differs from pinned recipe geometry")
+        phase_stages = {
+            "coherence_embedding": {"B0", "P1"},
+            "progressive_warmup": {"M1"},
+            "free_kb_pretraining": {"M2", "LC", "S", "D"},
+        }
+        if config.phase not in phase_stages.get(retrieval_recipe.phase, set()):
+            raise ValueError(
+                f"Native training stage {config.phase} is not in the mandatory "
+                f"{retrieval_recipe.phase} retrieval-memory curriculum"
+            )
         if (
             retrieval_recipe.space.teacher_revision.startswith("PIN_")
             or retrieval_recipe.growth.partition_id.startswith("PIN_")

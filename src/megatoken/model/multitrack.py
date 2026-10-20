@@ -1302,7 +1302,6 @@ class MultiTrackGenerator:
         self, state: MultiTrackState, *, main_request: bytes, purpose: str,
         space_fingerprint: str, effort: int = 6,
         generator: torch.Generator | None = None,
-        commit: bool = True,
     ) -> tuple[Tensor, MultiTrackState, Tensor]:
         """A single causal P query event; R reads its SELECTED raw action.
 
@@ -1328,12 +1327,7 @@ class MultiTrackGenerator:
         vector = realizer(
             selected[:, 0], EmbeddingSpec(space_fingerprint, "query", realizer.dimension)
         )
-        # A bootstrap query-purpose objective may supervise this selected
-        # P->R event without committing a speculative query to the teacher-
-        # forced answer stream. Serving always commits; deterministic replay
-        # must later account for the real query's native meridian.
-        if not commit:
-            return vector, state, selected
+        # Every selected query is a native committed action, including B0.
         updated = self.tracks.advance_group(
             state, selected, tracks=names,
             role_ids=torch.full(
