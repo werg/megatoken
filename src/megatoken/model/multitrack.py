@@ -555,6 +555,8 @@ class GroupActionTape:
     event_log_probs: tuple[float, ...] = ()
     renderer_seeds: tuple[int, ...] = ()
     pack_fingerprints: tuple[str, ...] = ()
+    media_hashes: tuple[str, ...] = ()
+    media_sizes: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         if self.version != GROUP_TAPE_VERSION:
@@ -582,6 +584,18 @@ class GroupActionTape:
                    for fingerprint in self.pack_fingerprints)
         ):
             raise ValueError("Grouped tape pack identities must cover every event")
+        if self.media_hashes or self.media_sizes:
+            if len(self.media_hashes) != n or len(self.media_sizes) != n:
+                raise ValueError("Compact media receipts must cover every selected peer")
+            for payload, digest, size in zip(
+                self.payloads, self.media_hashes, self.media_sizes, strict=True
+            ):
+                if digest:
+                    if (len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)
+                            or payload or type(size) is not int or size <= 0):
+                        raise ValueError("Invalid content-addressed rendered media identity")
+                elif size != len(payload):
+                    raise ValueError("Embedded output length differs from its receipt")
         if not math.isfinite(self.behavior_log_prob):
             raise ValueError("Behavior log probability must be finite")
         if self.effort not in EFFORTS:
@@ -619,6 +633,8 @@ class GroupActionTape:
             event_log_probs=self.event_log_probs,
             renderer_seeds=self.renderer_seeds,
             pack_fingerprints=self.pack_fingerprints,
+            media_hashes=self.media_hashes,
+            media_sizes=self.media_sizes,
             payloads=[base64.b64encode(b).decode("ascii") for b in self.payloads],
             emitted_ids=self.emitted_ids,
             valid=self.valid,
@@ -647,6 +663,8 @@ class GroupActionTape:
             event_log_probs=tuple(map(float, value["event_log_probs"])),
             renderer_seeds=tuple(value.get("renderer_seeds", ())),
             pack_fingerprints=tuple(value.get("pack_fingerprints", ())),
+            media_hashes=tuple(value.get("media_hashes", ())),
+            media_sizes=tuple(value.get("media_sizes", ())),
             payloads=tuple(map(decode, value["payloads"])),
             emitted_ids=tuple(tuple(s) for s in value["emitted_ids"]),
             valid=tuple(value["valid"]),
@@ -1223,6 +1241,7 @@ class MultiTrackGenerator:
         specs: Sequence[ActionSpec | MediaOutputSpec] | None = None,
         controls: Sequence[bytes] | None = None, effort: int = 6,
         generator: torch.Generator | None = None,
+        output_store=None,
     ) -> GroupGeneration:
         self.tracks._validate(state)
         if state.batch_size != 1:
@@ -1254,6 +1273,21 @@ class MultiTrackGenerator:
             tuple(self._spec_id(spec) for spec in plans),
         )
         output, emitted, valid, media = self._realize(raw, plans, encoded, seeds)
+        tape_output = list(output)
+        media_hashes: tuple[str, ...] = ()
+        media_sizes: tuple[int, ...] = ()
+        if output_store is not None:
+            digests, lengths = [], []
+            for index, (spec, payload) in enumerate(zip(plans, output, strict=True)):
+                if isinstance(spec, MediaOutputSpec):
+                    receipt = output_store.put(payload)
+                    tape_output[index] = b""
+                    digests.append(receipt.sha256)
+                    lengths.append(receipt.byte_count)
+                else:
+                    digests.append("")
+                    lengths.append(len(payload))
+            media_hashes, media_sizes = tuple(digests), tuple(lengths)
         committed = self.tracks.advance_group(
             state, raw, tracks=names,
             role_ids=torch.tensor([roles], device=state.device, dtype=torch.long),
@@ -1280,7 +1314,9 @@ class MultiTrackGenerator:
             event_log_probs=tuple(float(x) for x in event_densities[0]),
             renderer_seeds=seeds,
             pack_fingerprints=pack_fingerprints,
-            payloads=output, emitted_ids=emitted, valid=valid,
+            media_hashes=media_hashes,
+            media_sizes=media_sizes,
+            payloads=tuple(tape_output), emitted_ids=emitted, valid=valid,
         )
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)
@@ -1347,7 +1383,18 @@ class MultiTrackGenerator:
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
             modalities=tape.modalities,
         )
-        if (output != tape.payloads or emitted != tape.emitted_ids or valid != tape.valid):
+        if emitted != tape.emitted_ids or valid != tape.valid:
+            raise ValueError("Grouped realization replay mismatch")
+        if tape.media_hashes:
+            for got, embedded, digest, size in zip(
+                output, tape.payloads, tape.media_hashes, tape.media_sizes, strict=True
+            ):
+                if digest:
+                    if len(got) != size or hashlib.sha256(got).hexdigest() != digest:
+                        raise ValueError("Content-addressed rendered media replay mismatch")
+                elif got != embedded:
+                    raise ValueError("Embedded text or media replay mismatch")
+        elif output != tape.payloads:
             raise ValueError("Grouped realization replay mismatch")
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)

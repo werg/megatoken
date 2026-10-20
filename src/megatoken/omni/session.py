@@ -41,11 +41,12 @@ class PublishedGroup:
 class OmniSession:
     """One session with copy-on-write candidates, committed inputs and outputs."""
 
-    def __init__(self, multi: MultiTrackGenerator, initial: MultiTrackState):
+    def __init__(self, multi: MultiTrackGenerator, initial: MultiTrackState, *, output_store=None):
         multi.tracks._validate(initial)
         if initial.batch_size != 1:
             raise ValueError("OmniSession requires one independent causal episode")
         self.multi = multi
+        self.output_store = output_store
         self.initial = initial
         self.state = initial
         self.pending: PendingGroup | None = None
@@ -82,10 +83,13 @@ class OmniSession:
         if self.pending is not None:
             raise ValueError("Reject or accept existing candidate before proposing another")
         controls = effective_event_payloads(session_payload, tracks, requests)
-        result = self.multi.generate_group(
-            self.state, tracks=tracks, specs=specs, controls=controls,
+        kwargs = dict(
+            tracks=tracks, specs=specs, controls=controls,
             effort=effort, generator=generator,
         )
+        if self.output_store is not None:
+            kwargs["output_store"] = self.output_store
+        result = self.multi.generate_group(self.state, **kwargs)
         digest = sha256(result.tape.to_json().encode("utf-8")).hexdigest()
         candidate = PendingGroup(self.epoch, result, tuple(specs), digest)
         self.pending = candidate
@@ -128,10 +132,43 @@ class OmniSession:
             raise ValueError("Delivery progress must be nonnegative bytes")
         cursor = published.delivery_cursors[track] + byte_count
         index = published.tape.tracks.index(track)
-        if cursor > len(published.tape.payloads[index]):
+        total = (
+            published.tape.media_sizes[index]
+            if getattr(published.tape, "media_sizes", ())
+            else len(published.tape.payloads[index])
+        )
+        if cursor > total:
             raise ValueError("Transport cursor exceeds immutable rendered artifact")
         published.delivery_cursors[track] = cursor
         return cursor
+
+    def delivered_bytes(
+        self, meridian_id: int, track: str, *, start: int = 0,
+        count: int | None = None,
+    ) -> bytes:
+        """Read only bytes already released, verifying their immutable digest."""
+        published = self.published[meridian_id]
+        if track not in published.delivery_cursors:
+            raise ValueError("Unknown published track")
+        end = published.delivery_cursors[track] if count is None else start + count
+        if (type(start) is not int or start < 0 or type(end) is not int
+                or end < start or end > published.delivery_cursors[track]):
+            raise ValueError("Transport cannot read beyond already delivered bytes")
+        index = published.tape.tracks.index(track)
+        if getattr(published.tape, "media_hashes", ()) and published.tape.media_hashes[index]:
+            if self.output_store is None:
+                raise ValueError("Content-addressed output needs its immutable asset store")
+            from megatoken.omni.render_store import RenderReceipt
+
+            payload = self.output_store.get(
+                RenderReceipt(
+                    published.tape.media_hashes[index],
+                    published.tape.media_sizes[index],
+                )
+            )
+        else:
+            payload = published.tape.payloads[index]
+        return payload[start:end]
 
     def interrupt(self, meridian_id: int, track: str, reason: str) -> None:
         """Physical output already delivered cannot be erased by speculation."""
