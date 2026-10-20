@@ -374,6 +374,7 @@ def forward_meridian_batch(
     config: Any,
     device: torch.device,
     model_version: int,
+    retrieval_aux=None,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
@@ -389,6 +390,7 @@ def forward_meridian_batch(
         raise ValueError("Meridian trainer received a stale model version")
     payload = episode_control_payload(batch.windows[0].episode)
     losses = []
+    retrieval_losses = []
     metrics: dict[str, float | torch.Tensor] = {
         "grouped_training_windows": 1,
         "grouped_supervised_meridians": 0,
@@ -433,6 +435,41 @@ def forward_meridian_batch(
             )
             state = result.state
             losses.append(ledger.backward_loss(result.losses))
+            if retrieval_aux is not None:
+                from megatoken.generation.embedding import EmbeddingSpec
+
+                examples, recipe, global_count = retrieval_aux
+                for index, entry in enumerate(step.records):
+                    annotation = examples.get((
+                        batch.windows[0].episode.episode_id, entry.record.record_id,
+                    ))
+                    if annotation is None:
+                        continue
+                    if annotation.query.meridian != step.meridian_id:
+                        raise ValueError("Query sidecar meridian identity differs")
+                    if result.selected_raw is None or global_count <= 0:
+                        raise RuntimeError("Query target requires native selected raw action")
+                    teacher = torch.tensor(
+                        annotation.teacher_target, device=device, dtype=torch.float32
+                    )[None]
+                    realizer = model.embedding_realizer
+                    predicted = realizer(
+                        result.selected_raw[:, index],
+                        EmbeddingSpec(recipe.space.fingerprint, "query",
+                                      recipe.space.dimension),
+                    )
+                    similarity = (predicted * teacher).sum(-1)
+                    retrieval_losses.append(
+                        recipe.loss_weights["embedding"] *
+                        (1 - similarity).sum() / global_count
+                    )
+                    metrics["retrieval_embedding_sum"] = (
+                        metrics.get("retrieval_embedding_sum", 0.0)
+                        + (1 - similarity.detach()).sum()
+                    )
+                    metrics["retrieval_embedding_count"] = (
+                        metrics.get("retrieval_embedding_count", 0) + 1
+                    )
             metrics["grouped_supervised_meridians"] += 1
             metrics["grouped_selected_events"] += len(step.tracks)
             for name, value in result.metrics.items():
@@ -449,6 +486,6 @@ def forward_meridian_batch(
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
                 modalities=step.modalities,
             )
-    if losses:
-        torch.stack(losses).sum().backward()
+    if losses or retrieval_losses:
+        torch.stack([*losses, *retrieval_losses]).sum().backward()
     return metrics

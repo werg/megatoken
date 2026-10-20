@@ -105,6 +105,8 @@ class TrainConfig:
     grad_clip: float = 1.0
     weight_decay: float = 0.1
     inner_optimizer: str = "adamw"
+    retrieval_sidecar: str | None = None
+    retrieval_memory_recipe: str | None = None
     router_balance_mode: str = "local"  # global uses optimizer-step replay
     router_replay_assignments: int = 262144
     decoupled: DecoupledConfig | None = None
@@ -121,6 +123,12 @@ class TrainConfig:
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
             raise ValueError("decoupled must be a settings object or mapping")
+        if bool(self.retrieval_sidecar) != bool(self.retrieval_memory_recipe):
+            raise ValueError("Retrieval sidecars require a pinned memory recipe")
+        if self.retrieval_sidecar and self.router_balance_mode != "global":
+            raise ValueError("Retrieval training requires globally replayed router balance")
+        if self.retrieval_sidecar and self.budget_meter != "G":
+            raise ValueError("Retrieval sidecars require grouped meridian training")
         if self.router_balance_mode not in {"local", "global"}:
             raise ValueError("Router balance mode must be local or global")
         if self.router_replay_assignments < 1:

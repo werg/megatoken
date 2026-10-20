@@ -411,9 +411,14 @@ def forward_batch(
     config: TrainConfig,
     device: torch.device,
     model_version: int,
+    retrieval_aux=None,
 ) -> dict[str, float | torch.Tensor]:
     if isinstance(batch, MeridianPreparedBatch):
-        return forward_meridian_batch(model, batch, ledger, config, device, model_version)
+        return forward_meridian_batch(
+            model, batch, ledger, config, device, model_version, retrieval_aux
+        )
+    if retrieval_aux is not None:
+        raise ValueError("Retrieval sidecars require native meridian episodes")
     state = model.core.initial_state(len(batch.windows), device=device, model_version=model_version)
     with torch.no_grad():
         for offset in range(len(batch.windows[0].window.prefix)):
@@ -602,6 +607,33 @@ def train(
             "checkpoint_stages": config.gradient_checkpointing,
         }
         model_config = load_model_config(config.model, **overrides)
+        retrieval_recipe = None
+        retrieval_examples = {}
+        if config.retrieval_sidecar:
+            from megatoken.data.retrieval import read_sidecar
+            from megatoken.memory.recipe import RetrievalRecipe
+
+            retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
+            if retrieval_recipe.model.to_dict() != model_config.to_dict():
+                raise ValueError("Training model differs from pinned recipe geometry")
+            if (
+                retrieval_recipe.space.teacher_revision.startswith("PIN_")
+                or retrieval_recipe.growth.partition_id.startswith("PIN_")
+            ):
+                raise ValueError("Pin teacher and data partition before training")
+            if retrieval_recipe.phase != "coherence_embedding":
+                raise ValueError("Free-bank phases require the bank-aware step owner")
+            for example in read_sidecar(config.retrieval_sidecar):
+                identity = (example.episode_id, example.event_id)
+                if identity in retrieval_examples:
+                    raise ValueError("Duplicate retrieval event identity")
+                if example.query.space_fingerprint != retrieval_recipe.space.fingerprint:
+                    raise ValueError("Sidecar semantic space differs from recipe")
+                if example.teacher_target is None or (
+                    len(example.teacher_target) != retrieval_recipe.space.dimension
+                ):
+                    raise ValueError("Teacher query target is missing or wrong width")
+                retrieval_examples[identity] = example
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
@@ -832,6 +864,17 @@ def train(
                 key: sum(batch.counts[key] for batch in batches) for key in DEFAULT_LOSS_WEIGHTS
             }
             global_counts = context.sum_counts(local_counts)
+            retrieval_denom = 0
+            if retrieval_recipe is not None:
+                retrieval_local = sum(
+                    (b.windows[0].episode.episode_id, r.record.record_id)
+                    in retrieval_examples
+                    for b in batches if isinstance(b, MeridianPreparedBatch)
+                    for step in b.steps if step.generated for r in step.records
+                )
+                retrieval_denom = context.sum_counts(
+                    {"retrieval_queries": retrieval_local}
+                )["retrieval_queries"]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -861,7 +904,10 @@ def train(
             step_diagnostics: dict[str, float | torch.Tensor] = {}
             for batch in batches:
                 diagnostics_batch = forward_batch(
-                    model, batch, ledger, config, context.device, global_step
+                    model, batch, ledger, config, context.device, global_step,
+                    retrieval_aux=None if retrieval_recipe is None else (
+                        retrieval_examples, retrieval_recipe, retrieval_denom
+                    ),
                 )
                 for key, value in diagnostics_batch.items():
                     step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
