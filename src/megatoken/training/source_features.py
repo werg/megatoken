@@ -15,6 +15,7 @@ from torch.nn import functional as F
 
 from megatoken.memory.base import Record
 from megatoken.memory.contracts import Collection
+from megatoken.memory.retrieval import Interval
 from megatoken.tensors import byte_tensor
 
 
@@ -27,6 +28,26 @@ class NativeSourceFeatures:
         self.root, self.model, self.max_chunk_bytes = root, model, max_chunk_bytes
         self._features: dict[tuple[int, int], Tensor] = {}
 
+    def read_interval(self, row: Record, interval: Interval) -> bytes:
+        """Fetch only reserved original source coordinates and verify identity."""
+        span = row.evidence_span
+        if row.collection is not Collection.SOURCE or span is None or (
+            interval.content_id != span.source_id or interval.version != span.version
+            or not span.start <= interval.start < interval.end <= span.end
+        ):
+            raise ValueError("Source obligation differs from original versioned byte interval")
+        if interval.end - interval.start > self.max_chunk_bytes:
+            raise ValueError("Source evidence exceeds bounded byte budget")
+        path = (self.root / row.asset_ref).resolve()
+        if not path.is_relative_to(self.root) or not path.is_file():
+            raise ValueError("Source evidence path is absent or escapes immutable assets")
+        with path.open("rb") as stream:
+            stream.seek(interval.start)
+            content = stream.read(interval.end - interval.start)
+        if len(content) != interval.end - interval.start:
+            raise ValueError("Original source evidence is truncated")
+        return content
+
     @torch.no_grad()
     def get(self, row: Record) -> Tensor:
         if row.collection is not Collection.SOURCE or row.evidence_span is None:
@@ -35,16 +56,9 @@ class NativeSourceFeatures:
         if identity in self._features:
             return self._features[identity]
         interval = row.evidence_span
-        if interval.end - interval.start > self.max_chunk_bytes:
-            raise ValueError("Source feature window exceeds configured byte budget")
-        path = (self.root / row.asset_ref).resolve()
-        if not path.is_relative_to(self.root) or not path.is_file():
-            raise ValueError("Source evidence path is absent or escapes immutable assets")
-        with path.open("rb") as stream:
-            stream.seek(interval.start)
-            content = stream.read(interval.end - interval.start)
-        if len(content) != interval.end - interval.start:
-            raise ValueError("Source evidence bytes differ from the committed interval")
+        content = self.read_interval(
+            row, Interval(interval.source_id, interval.version, interval.start, interval.end),
+        )
         device = self.model.core.initial_facets.device
         bytes_tensor, lengths = byte_tensor([content], device)
         raw = self.model.core.encode_chunk(bytes_tensor, lengths)
