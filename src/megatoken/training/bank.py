@@ -366,3 +366,37 @@ def synchronize_query_demand(owner: BankTrainingOwner, distributed: Any) -> int:
     owner.pending_demand.clear()
     distributed.barrier()
     return written
+
+
+def assert_shared_bank_snapshot(owner: BankTrainingOwner, distributed: Any) -> None:
+    """Fail closed if different ranks observe different canonical SQLite states.
+
+    A process-local DB copy on a different node would otherwise silently
+    diverge after rank-zero sparse updates. Use a single shared filesystem or
+    an explicit snapshot synchronization backend; never assume paths shared by
+    spelling are shared by storage identity.
+    """
+    from dataclasses import asdict
+
+    state = owner.bank.db.execute(
+        """SELECT COUNT(*),COALESCE(SUM(updates),0),COALESCE(SUM(step),0)
+           FROM optimizer_rows"""
+    ).fetchone()
+    records = owner.bank.db.execute(
+        """SELECT collection,COUNT(*),COALESCE(SUM(key_revision),0),
+                  COALESCE(SUM(payload_revision),0) FROM records
+           GROUP BY collection ORDER BY collection"""
+    ).fetchall()
+    receipt = {
+        "database_id": owner.bank.database_id,
+        "semantic_space": owner.recipe.space.fingerprint,
+        "revisions": asdict(owner.bank.revisions()),
+        "moments": tuple(int(x) for x in state),
+        "records": tuple(tuple(row) for row in records),
+    }
+    snapshots = distributed.all_gather_object(receipt)
+    if any(current != snapshots[0] for current in snapshots[1:]):
+        raise RuntimeError(
+            "Free-KB ranks observe different SQLite snapshots; configure a "
+            "shared canonical KB, not independent node-local copies"
+        )
