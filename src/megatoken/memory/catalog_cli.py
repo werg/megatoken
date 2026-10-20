@@ -40,6 +40,7 @@ def build_source_catalog(
         working = Path(tmp) / "working.sqlite"
         seen: set[tuple[str, str]] = set()
         bytes_verified: dict[Path, str] = {}
+        source_windows: dict[str, dict] = {}
         rows = 0
         with SQLiteKB(working, recipe.space, value_dim=recipe.model.semantic_value_dim) as bank:
             with bank.transaction():
@@ -83,6 +84,34 @@ def build_source_catalog(
                         evidence_span=evidence,
                     )
                     rows += 1
+                    # Independent source-window support is supplied by the
+                    # prepared corpus, never inferred from duplicate ANN hits
+                    # or the semantic proximity of random free values.
+                    windows = entry.get("source_windows", [])
+                    if not isinstance(windows, list) or len(set(windows)) != len(windows):
+                        raise ValueError("Source windows require distinct stable IDs")
+                    for window_id in windows:
+                        if not isinstance(window_id, str) or not window_id:
+                            raise ValueError("Source window identity must be nonempty")
+                        owner = source_windows.setdefault(window_id, {
+                            "scope": scope, "chunks": set(),
+                            "ranges": set(),
+                        })
+                        if owner["scope"] != scope:
+                            raise ValueError("One source window cannot cross visibility scopes")
+                        owner["chunks"].add(entry["content_id"])
+                        owner["ranges"].update(footprint.ranges)
+                for window_id, window in sorted(source_windows.items()):
+                    support = Footprint(tuple(sorted(window["ranges"])))
+                    bank.db.execute(
+                        """INSERT INTO source_windows
+                           (window_id,scope,footprint,source_ids)
+                           VALUES (?,?,?,?)""",
+                        (
+                            window_id, window["scope"], support.to_json(),
+                            json.dumps(sorted(window["chunks"])),
+                        ),
+                    )
                 # Never auto-open the allocator without measured generator
                 # coherence and query/document embedding acceptance receipts.
                 bank.put_growth_state("readiness", {
@@ -103,6 +132,7 @@ def build_source_catalog(
             "source_manifest_sha256": sha256(catalog.read_bytes()).hexdigest(),
             "catalog_sha256": sha256_file(final),
             "database_id": db_id, "sources": rows,
+            "independent_source_windows": len(source_windows),
             "verified_original_assets": len(bytes_verified),
             "revisions": revisions,
             "ready_for_free_allocation": False,
