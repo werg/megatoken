@@ -7,10 +7,7 @@ the model's MasterAdamW optimizer or duplicate neural optimizer moments.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
-from hashlib import sha256
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -20,7 +17,7 @@ from torch import Tensor
 from megatoken.data.retrieval import RetrievalExample
 from megatoken.memory.context import admit_kb
 from megatoken.memory.contracts import Collection, Visibility
-from megatoken.memory.growth import CatalogChunk, GrowthAllocator, GrowthPolicy
+from megatoken.memory.growth import CatalogChunk, GrowthAllocator
 from megatoken.memory.index import ExactIndex
 from megatoken.memory.optimizer import RowID, SparseRowAdam
 from megatoken.memory.reader import selected_evidence
@@ -212,28 +209,35 @@ def synchronize_sparse_rows(owner: BankTrainingOwner, distributed: Any, *,
         local[key] = values.tolist()
     gathered = distributed.all_gather_object(local)
     changed = 0
+    error = None
     if distributed.is_primary:
-        combined: dict[tuple[str, str, int, str, str], np.ndarray] = {}
-        for rank_values in gathered:
-            for key, values in rank_values.items():
-                v = np.asarray(values, dtype=np.float32)
-                if key in combined:
-                    if combined[key].shape != v.shape:
-                        raise RuntimeError("Sparse gradient row geometry differs by rank")
-                    combined[key] += v
-                else:
-                    combined[key] = v.copy()
-        # Select unseen rows from the same local canonical bank BEFORE any
-        # update; repeated IDs coalesce to one leaf and one set of moments.
-        for key, grad in sorted(combined.items()):
-            identity = RowID(Collection(key[0]), key[1], key[2], key[3], key[4])
-            leaf = owner.sparse.select(identity)
-            if leaf.numel() != grad.size or not np.isfinite(grad).all():
-                raise ValueError("Aggregated sparse gradient shape/nonfiniteness")
-            leaf.grad = torch.from_numpy(grad.copy()).reshape_as(leaf)
-        changed = owner.sparse.step(step=optimizer_step, max_norm=max_norm)
+        try:
+            combined: dict[tuple[str, str, int, str, str], np.ndarray] = {}
+            for rank_values in gathered:
+                for key, values in rank_values.items():
+                    v = np.asarray(values, dtype=np.float32)
+                    if key in combined:
+                        if combined[key].shape != v.shape:
+                            raise RuntimeError("Sparse gradient row geometry differs by rank")
+                        combined[key] += v
+                    else:
+                        combined[key] = v.copy()
+            # One transaction writes every touched sparse field and its moments.
+            for key, grad in sorted(combined.items()):
+                identity = RowID(Collection(key[0]), key[1], key[2], key[3], key[4])
+                leaf = owner.sparse.select(identity)
+                if leaf.numel() != grad.size or not np.isfinite(grad).all():
+                    raise ValueError("Aggregated sparse gradient shape/nonfiniteness")
+                leaf.grad = torch.from_numpy(grad.copy()).reshape_as(leaf)
+            changed = owner.sparse.step(step=optimizer_step, max_norm=max_norm)
+        except BaseException as exc:
+            error = f"{type(exc).__name__}: {exc}"
     else:
         owner.sparse.leaves.clear()
         owner.sparse._selected_revisions.clear()
+    # All ranks receive publication failure instead of hanging in a barrier.
+    failures = distributed.all_gather_object(error)
+    if any(x is not None for x in failures):
+        raise RuntimeError(f"Sparse KB publication failed on primary: {failures}")
     distributed.barrier()
     return changed
