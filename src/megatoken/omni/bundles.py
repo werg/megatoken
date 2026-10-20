@@ -98,6 +98,7 @@ class TaskView:
     task_version: str = "v1"
     content_plan: str | None = None
     event_revisions: Mapping[str, int] = field(default_factory=dict)
+    reference_event_ids: tuple[str, ...] = ()
     def __post_init__(self):
         if self.family not in FAMILIES or not self.outputs or set(self.inputs) & set(self.outputs):
             raise ValueError("Invalid causal task partitions")
@@ -109,6 +110,10 @@ class TaskView:
             raise ValueError("The committed content plan must be separately generated")
         if any(not self.requests.get(x) for x in names):
             raise ValueError("Every task track needs an interpretation or output prompt")
+        if any(ref not in self.inputs for ref in self.reference_event_ids):
+            raise ValueError(
+                "Voice/style references must be available observed inputs, never peer targets"
+            )
         if self.revision < 0 or any(
             track not in names or type(revision) is not int or revision < 0
             for track, revision in self.event_revisions.items()

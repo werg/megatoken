@@ -72,6 +72,16 @@ class OmniSession:
         return self.state
 
     @torch.no_grad()
+    def observe_reference(self, store, reference, record, *, track: str):
+        """Resolve and commit a real voice/style/visual input before selection."""
+        from megatoken.omni.references import resolve_reference
+
+        resolved = resolve_reference(
+            store, reference, record, track=track, device=self.state.device,
+        )
+        return self.observe((resolved.event,))
+
+    @torch.no_grad()
     def propose(
         self, *, tracks: tuple[str, ...], specs: tuple[Any, ...],
         session_payload: bytes = b"",
