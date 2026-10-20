@@ -1,59 +1,53 @@
-# Retrieval / semantic-memory implementation status
+# Retrieval-memory implementation ledger
 
-**Branch:** `feat/retrieval-semantic-memory` ([draft PR #18](https://github.com/werg/megatoken/pull/18)).  
-**Specification:** [retrieval-memory-plan.md](retrieval-memory-plan.md).  
-**Donor reference:** `werg/hindsight-kb@450164784589b2576256b8b0ba3d2ccc89af992d`.  
-**Status:** **NOT production-training-ready**. This is an honest engineering ledger, not acceptance evidence.
+**Branch:** `feat/retrieval-semantic-memory` · [PR #18](https://github.com/werg/megatoken/pull/18) · **Status:** draft, not quality/production accepted.  
+**Specification:** [retrieval-memory-plan.md](retrieval-memory-plan.md) · **Audited donor:** `werg/hindsight-kb@450164784589b2576256b8b0ba3d2ccc89af992d`.
 
-## Implemented foundation
+This document reports implementation, not test results. No teacher weights were downloaded, no corpus was prepared, and no real GPU training or quality evaluation was executed.
 
-- Semantic-space identity, complete source ranges/visibility and checksummed event sidecars.
-- SQLite source/memory bank, transactional source-version invalidation, typed revisions, exact/IVF selection, incremental MaxSim, deferred coverage, point/pair growth and optimizer-row storage.
-- Embedding realizer directly over selected native raw facets. The training query now comes from a query-purpose P draw, with an exact hashed request that must occur in the previously committed episode prefix; it no longer mislabels an answer megatoken as a query.
-- Full-facet semantic KV projection, native KB segment, per-transaction snapshots, independently controlled C/P/R LoRA modules.
-- Global routing balance replay, replayed selected-row source/memory loss helpers and sparse-row Adam with atomic pre-step freshness validation.
-- Density-first repeated allocation with separate source-supported tail exploration, idempotent source-version tombstones and dependent relation/index invalidation.
-- Frozen-coordinate post-pretraining SourceWriter/RelationWriter, suffix/full physical attention views and per-assignment distillation; frozen downstream readers preserve autograd to writer outputs.
-- Immutable checksum/policy/assignment-pinned safetensors writer shards and a phase-gated distillation command:
-  `megatoken-memory-writer --recipe <recipe.json> --gate-receipt <gate.json> --dataset <writer-dataset.json> --output <new-output-directory> --epochs 1`.
-  The command **does not** claim to execute the behavioral continuation or cross-source training callbacks.
+## Implemented reference path
 
-## Non-negotiable remaining code gates
+- **Source/key contracts:** typed source and memory collections, full versioned source and query footprints, role-asymmetric learned embedding R, explicit hashed causal request payloads, eligible-before-retrieval candidate masking, source-snapshot sidecar checks, stable assignment and split identities.
+- **Native memory:** one full-F-facet learned KV projector in the native attention geometry, separate bounded KB segment with exact-null log/mask gates, native meridian anchor/decay, same semantic mixture controlling independent C/P/R LoRA experts across tracks.
+- **Indexed storage:** transactional SQLite bank, source/memory keys and independently optimized memory values, relation payloads and ordered dependence logits, typed per-row optimizer moments, stable IDs, source retirement and cascade, durable version tombstones, coverage and scheduling receipts, exact and IVF references and disk-backed SQLite-IVF with bounded key streaming. Learned key and IVF posting updates commit together with moments. Pretraining fails closed if an excessively large source bank lacks a pinned IVF index.
+- **Progressive growth:** catalog-supported dense-demand allocation with reserved exploration; global deduplicated query-demand publication at the optimizer barrier; original source-window records, allocation-independent pair support counts, persistent endpoint degree caps and eligibility/retirement checks. Growth never initializes free semantic values before coherence/embedding readiness.
+- **Production grouped training:** the existing `training/engine.py` now supports `progressive_warmup` and `free_kb_pretraining`, after validating their receipt/recipe and opening the authoritative bank. Each scheduled event samples and commits a real P-query, R reads exactly those selected raw facets, selected live source/memory keys feed bilateral loss and full native KV/pair/LoRA, and MaxSim reserves only novel exact source intervals. Permitted RAG bytes become ordinary E/C document observations in their own native meridians before the original scored response. The source-value objective reads detached, verified original E features. Independent KV and LoRA dropout applies once per transaction. These added meridians must be reflected in the prepared sidecar's **actual native clock**, not guessed from physical record offsets.
+- **Distributed ownership/checkpoints:** all ranks contribute selected-row gradients using SUM under true global denominators; rank zero publishes sparse rows, moments, demand and bounded growth. Shared-bank identity/generations and row ownership are checked after barriers. One model checkpoint directory atomically stages model/optimizer state and canonical SQLite snapshot with hash and model-step identities; exact resume rejects changed recipe, source sidecar contents or DB identity/revisions.
+- **Runtime/replay:** query boundary stages scheduling and KB admission before publishing a session revision. Query receipts retain exact selected FP32 raw facets and vector, request hash, model/score identities and source/memory candidate IDs. The native query replay scorer returns a differentiable Gaussian policy log-density, with deterministic full-KV state reconstruction. Source admissions record durable byte-range and physical source hashes; source aliases share injected coverage.
+- **Writers:** separately registered contextual source and relation writers, no raw-facet/source-token correspondence assumption, physical suffix/full source views, strict j>=i+2 noninterference, explicit point/pair assignment and directional targets. Frozen reader parameters retain autograd *through* their native P/C/R computation in local source and pair behavior callbacks. Distillation writer shards have immutable SHA and layout/snapshot pins. Full-target reproduction builds a fresh, shadow-published bank containing regenerated canonical source RAG keys and point/pair semantic values, never the final optimized free-bank rows.
+- **Preparation/index utilities:** bounded hash-verified source catalog import (`megatoken-memory-catalog`), deterministic spherical centroid fitting (`megatoken-memory-centroids`), typed IVF publication (`megatoken-memory-index`), versioned recipe inspection (`megatoken-memory`), frozen-writer target fitting (`megatoken-memory-writer`) and complete source+KB shadow authoring (`megatoken-memory-reproduce`).
 
-1. **Native bank-aware production training owner.** `training/engine.py` still deliberately rejects memory-recipe phases after `coherence_embedding`. Wire selected source/memory key/value leaves, learned pair fields, KB admission and independent KV/LoRA dropout into forward grouped-meridian training. Gradient-normalize across true global denominators; synchronize sparse touched rows across ranks, and combine model/bank publication, growth and checkpoints at a coherent step barrier. No source-free memory allocation.
-2. **Native chronological training/replay.** Causally scheduled query requests, delayed source responses, committed ordered RAG bytes, durable coverage/deferred queue revisions and admitted KB position/LoRA snapshots must survive grouped training tapes, replay, checkpoint resume and serving. The bootstrap query is currently a *noncommitting shadow action*, as intended for embedding distillation; this is not full native retrieval-policy replay.
-3. **Local bilateral retrieval and corpus-key objectives.** Drive live selected source/memory key leaves from value/usefulness targets and actual native continuation, including missing-answer labels. Document-key distillation, exact frozen source feature targets, optimized final keys and full contextual writer targets still require production connection and audited data.
-4. **Writer behavioral phases.** Use `training.hindsight.fit_source_writer_epoch` and `fit_relation_writer_epoch` with explicit frozen-reader behavior callbacks. Implement the j>=i+2 continuation objective and later cross-source transfer over actual source trajectories, then full-target point/pair reconstruction in the accepted final learned space. The CLI only executes supervised frozen-target distillation and marks `behavioral_continuation_verified=false`.
-5. **Data production / teacher pilot.** The checked-in pilot recipe has intentional `PIN_...` placeholders for teacher weights and source partition. Compare/pin a teacher, prepare actual causal query/document targets, source byte spans/lineage, independent relation windows, negative examples and immutable writer shards. Do not fabricate gate receipts.
-6. **Release validation.** Run the full Python 3.11/3.12 suites, Ruff, distributed uneven-rank router and sparse-optimizer parity, replay and snapshot recovery, GPU native KV/LoRA numerical tests, and held-out retrieval/continuation uplift experiments. GitHub Actions currently reports failed CPU/i18n jobs without step logs, so the test suite cannot be claimed green from that signal.
+## Preparation and execution sequence
 
-## Training and artifact order
+1. Pin actual teacher revision, role-specific query/document formatting, embedding dimension, permitted contextual footprints, immutable corpus partition/source bytes and a matching v8 model geometry in a real copy of `configs/retrieval-memory-pilot.json`. The checked-in `PIN_*` strings are intentional and reject a live run.
+2. Produce chronological native meridian episodes, exact request-byte sidecars and teacher targets. Sidecar `source_snapshot` must match the canonical source catalog's SHA256, and its query meridian must include prior native query and RAG admissions. Keep future optimizer labels out of query controls and causal document footprints.
+3. Import catalog: `megatoken-memory-catalog --recipe R.json --catalog C.jsonl --assets-root ORIGINALS --output kb.sqlite`. The importer verifies original asset SHA256, complete context and source-window lineage. Its readiness gates remain false until measured acceptance.
+4. Compute/pin centroids after source keys exist: `megatoken-memory-centroids --recipe R.json --bank kb.sqlite --cells 256 --output centroids.npy`. Publish their exact SHA256: `megatoken-memory-index --recipe R.json --bank kb.sqlite --centroids centroids.npy --sha256 ACTUAL_SHA256`. Use those same centroids and hash in training.
+5. Establish generation coherence and useful causal-query / source-document embedding alignment; store evidence and mark real readiness in the bank. After the gate receipt, use [the free-KB training example](../configs/train/retrieval-free-kb.example.yaml) with exact artifact paths. Run synchronous grouped native training; memory rows/growth retain optimizer moments and checkpoint identity. Do not run DiLoCo asynchronous copies of the canonical KB.
+6. Freeze an accepted pretraining model/query/materializer + learned free bank, prepare original source-slot and relation-target shards, then fit permitted local writer, cross-source writer and full-context source/pair reproduction objectives. The `megatoken-memory-writer` CLI currently implements *frozen-target distillation only*. Native behavioral fitting is implemented as explicit `training.hindsight_native.native_source_continuation` and `native_pair_continuation` callbacks and must be supplied prepared original trajectories by its caller.
+7. Reproduce a complete fresh source+point+pair KB from frozen writer outputs using `megatoken-memory-reproduce`. Its assignment manifest must cover every expected original source, point and pair before publication. Compare held-out retrieval, downstream usefulness, null interventions, serving latency and budget use against matched baselines.
 
-1. Run `python -m megatoken.memory.recipe configs/retrieval-memory-pilot.json` to inspect the prototype's declared phase and pinned geometry. Fill genuine teacher revision/data partition fields only when known.
-2. Complete coherence and both causal-query/chunk embedding bootstrap quality gates. Produce independently auditable gate evidence; a manifest string by itself is not a measured pass.
-3. After implementing the bank-aware owner, run progressive free-bank warm-up and full pretraining, preserving optimized point/pair rows and moments across growth barriers.
-4. Freeze and snapshot the accepted trained P/R/query model, semantic materializers and bank. Only then switch to the writer phases with the *same* optimized semantic space and pinned original assignments.
-5. Prepare safetensors writer shards from actual frozen native E source blocks; every shard needs a SHA256, complete source-footprint identity and original assignment digest. A JSON writer dataset declares:
-   `schema=megatoken-writer-dataset-v1`, `kind=source|pair`, `recipe_fingerprint`, `semantic_space_fingerprint`, `model_checkpoint_id`, `free_bank_sha256`, `source_context_policy`, `mode=suffix|full`, explicit `layout` and `shards`. Source tensors include `encoded,valid_blocks,slots,key,value,strength,lifetime_logit,distance,valid`; pair shards contain both ordered dependence targets and source-writer member features.
-6. Fit permitted suffix, cross-source and full-context/pair writers; run frozen-reader continuation objectives and shadow bank reproduction. Assert output correspondence, no answer leakage, exact key/index/graph identity, no optimized leaf needed at serving, and quality improvements on unseen sources.
+## Unverified or incomplete acceptance gates
 
-## Focused gates added on this branch
+The above is **not** proof that the plan is ready for unsupervised production execution. The following remain release blockers:
+
+1. **Run validation on an available runner.** The repository is private and the connected GitHub interface cannot execute pytest or Ruff here. GitHub Actions CPU 3.11, CPU 3.12 and i18n jobs report failures without execution-step logs. The newly added unit/integration gates are committed but not claimed green; GPU and distributed numerical tests have not been executed.
+2. **Bootstrap embedding curriculum:** causal P-query alignment is connected. Production E-document/chunk embedding supervision for contextual teacher targets still needs a complete permitted source-view input path and measured alignment; source-key teacher initialization and offline asset readers alone do not supply it.
+3. **Delayed training and end-to-end replay:** serving has delayed source reservations and exact coverage receipts, and the native query-action policy is replayable. The grouped trainer currently injects already-eligible source obligations immediately within its window. Replay of full delayed query/source/KB/LoRA intervention schedules across multiple optimizer windows and deterministic source-failure retries remains an end-to-end gate.
+4. **Writers:** the frozen native continuation callbacks and target-only writer CLI are separate. A versioned prepared-trajectory reader/launcher invoking those callbacks across local, cross-source and full-context phases, matched optimized learned-space regeneration and behavioral acceptance against unseen sources still need execution/integration.
+5. **Curriculum quality/efficiency:** anti-copy lexical recurrence scheduling, measured hard-negative/no-answer task mix, stable query-demand coverage, full relation behavior, global router specialized-vs-balanced utility, multi-rank sparse gradient equality, GPU RoPE/cache/resource budgets and source index recall must be evaluated. No training gains, retrieval recall, or new-source uptake are asserted.
+6. **Cross-system update atomicity:** model and KB snapshots are *checkpoint-publication atomic*, and SQLite row/posting/moment updates are atomic within the DB. Neural `MasterAdamW.step()` and the later SQLite sparse publication cannot be one ACID database transaction; failures abort the run without checkpoint publication and require restoring the last jointly committed snapshot. A deliberately tested recovery controller would strengthen this.
+7. **Later experience learning:** verified-trial memory writing and reward-fitting beyond the pinned native-query policy scorer are not connected to the production pipeline. They must remain disabled until supervised new-source release gates are satisfied.
+
+## Focused regression commands
 
 ```bash
-python -m pytest -q \
-  tests/test_memory_foundations.py \
-  tests/test_memory_causal_sidecar.py \
-  tests/test_memory_writer_causality.py \
-  tests/test_memory_support_supervision.py \
-  tests/test_memory_sparse_atomicity.py \
-  tests/test_memory_router_global.py \
-  tests/test_memory_query_policy.py \
-  tests/test_memory_hindsight_training.py \
-  tests/test_memory_writer_artifacts.py
-ruff check src/megatoken/memory src/megatoken/training src/megatoken/data/retrieval.py \
-  tests/test_memory_*.py
-ruff format --check src/megatoken/memory src/megatoken/training \
-  tests/test_memory_*.py
+python -m pytest -q tests/test_memory_*.py
+ruff check src tests scripts
+ruff format --check src tests scripts
+python -m pytest -q
 ```
 
-The commands are **validation requirements**, not a claim they passed. No corpus was generated, no teacher weights were downloaded, no GPU training ran, and no model quality result was established.
+Run Python 3.11 and 3.12, uneven-rank distributed and Blackwell mixed-precision suites, cold/warm checkpoint replay, source-delete/insertion/index stress and empirical held-out retrieval/continuation evaluation. Preserve failing receipts rather than marking a phase gate successful on code coverage alone.
+
+**Do not merge or launch main training until these acceptance gates pass.**
