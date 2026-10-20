@@ -57,7 +57,7 @@ def training_identity(config: Any) -> str:
         "scored_decisions", "max_record_bytes", "effort", "use_stage_mixture",
         "use_effort_mixture", "loss_weights", "grad_clip", "weight_decay",
         "inner_optimizer", "gradient_checkpointing", "budget_meter", "accumulate_events",
-        "router_balance_mode", "router_replay_assignments", "retrieval_kv_dropout",
+        "router_balance_mode", "retrieval_kv_dropout",
         "retrieval_lora_dropout",
     )
     identity: dict[str, Any] = {name: getattr(config, name) for name in fields}
