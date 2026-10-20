@@ -1009,10 +1009,14 @@ def train(
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)
-            if bank_owner is not None and bank_owner.source_features is not None:\n                bank_owner.source_features.invalidate_after_step()\n            optimizer_seconds = time.perf_counter() - optimizer_started
+            if bank_owner is not None and bank_owner.source_features is not None:
+                bank_owner.source_features.invalidate_after_step()
+            optimizer_seconds = time.perf_counter() - optimizer_started
             global_step += 1
             if bank_owner is not None:
-                from megatoken.training.bank import (\n                    synchronize_query_demand, synchronize_sparse_rows,\n                )
+                from megatoken.training.bank import (
+                    synchronize_query_demand, synchronize_sparse_rows,
+                )
 
                 step_metrics["memory_sparse_updated"] = synchronize_sparse_rows(
                     bank_owner, context, optimizer_step=global_step,
