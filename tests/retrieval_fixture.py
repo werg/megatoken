@@ -74,13 +74,16 @@ def _range(episode: Episode, name: str) -> SourceRange:
     )
 
 
-def write_retrieval_artifacts(root: Path, episodes: list[Episode], *, seed: int = 0) -> dict:
+def write_retrieval_artifacts(
+    root: Path, episodes: list[Episode], *, seed: int = 0,
+    phase: str = "coherence_embedding", source_snapshot: str = "snapshot-1",
+) -> dict:
     """Write recipe, query sidecar and document sidecar under ``root``."""
     root.mkdir(parents=True, exist_ok=True)
     model_config = load_model_config("tiny", **MODEL_OVERRIDES)
     recipe = {
         "schema": "megatoken-retrieval-recipe-v1",
-        "phase": "coherence_embedding",
+        "phase": phase,
         "space": SPACE,
         "model": model_config.to_dict(),
         "growth": {
@@ -107,12 +110,12 @@ def write_retrieval_artifacts(root: Path, episodes: list[Episode], *, seed: int 
             episode_id=episode.episode_id, event_id="answer",
             query=QueryBoundary(
                 "answer", 1, "rag", "request", sha256(request).hexdigest(),
-                space_fp, "snapshot-1", 1,
+                space_fp, source_snapshot, 1,
             ),
             query_teacher_inputs=footprint, document_key_context=support,
             optimization_supervision=support, payload_support=support,
             positive_content_ids=(doc_range.source_id,), support_weights=(1.0,),
-            annotations_complete=True, source_snapshot="snapshot-1",
+            annotations_complete=True, source_snapshot=source_snapshot,
             split_family=f"family-{i}", teacher_target=tuple(_vector(i + seed)),
             main_request_b64=base64.b64encode(request).decode(),
         ))
@@ -162,6 +165,82 @@ def retrieval_train_config(root: Path, *, episodes: int = 4, **overrides) -> Tra
         generated_capacity=16, max_history_tokens=256, max_record_bytes=128,
         checkpoint_every=0, eval_every=0, effort=1, gradient_checkpointing=False,
         use_stage_mixture=False, use_effort_mixture=False, budget=64, **artifacts,
+    )
+    values.update(overrides)
+    return TrainConfig(**values)
+
+
+def live_kb_train_config(
+    root: Path, *, phase: str = "M1", episodes: int = 4, **overrides,
+) -> TrainConfig:
+    """A valid live free-KB TrainConfig (progressive_warmup/M1 or free_kb_pretraining/M2).
+
+    Builds original source assets, a catalog-imported bank whose source rows are keyed
+    by the document teacher vectors (so every fixture query can retrieve its document),
+    measured-readiness state, a passing phase gate receipt and a matching live recipe.
+    """
+    from dataclasses import asdict
+
+    from megatoken.io import sha256_file
+    from megatoken.memory.catalog_cli import build_source_catalog
+    from megatoken.memory.recipe import PHASE_REQUIREMENTS, RetrievalRecipe, open_bank_for_recipe
+
+    root = Path(root)
+    recipe_phase = {"M1": "progressive_warmup", "M2": "free_kb_pretraining"}[phase]
+    items = [make_episode(i) for i in range(episodes)]
+    dataset = prepare_dataset(root, items)
+    live = root / "live"
+    assets = live / "assets"
+    assets.mkdir(parents=True)
+    boot = write_retrieval_artifacts(live / "bootstrap", items)
+    bootstrap_recipe = RetrievalRecipe.load(boot["retrieval_memory_recipe"])
+    entries = []
+    for i, episode in enumerate(items):
+        payload = next(r.payload for r in episode.records if r.record_id == "doc")
+        (assets / f"doc-{i}.bin").write_bytes(payload)
+        span = _range(episode, "doc")
+        key = _vector(i + 5, 1.0)
+        norm = sum(x * x for x in key) ** 0.5
+        entries.append({
+            "semantic_space_fingerprint": bootstrap_recipe.space.fingerprint,
+            "scope": SCOPE, "content_id": span.source_id,
+            "asset_ref": f"doc-{i}.bin", "asset_sha256": sha256(payload).hexdigest(),
+            "footprint": [asdict(span)], "evidence_span": asdict(span),
+            "key": [x / norm for x in key],
+            "source_windows": [f"window-{i}-a", f"window-{i}-b"],
+        })
+    catalog = live / "catalog.jsonl"
+    catalog.write_text("".join(json.dumps(e) + "\n" for e in entries))
+    bank = live / "kb.sqlite"
+    build_source_catalog(bootstrap_recipe, catalog=catalog, assets_root=assets, output=bank)
+    artifacts = write_retrieval_artifacts(
+        live / "retrieval", items, phase=recipe_phase,
+        source_snapshot=sha256_file(catalog),
+    )
+    recipe = RetrievalRecipe.load(artifacts["retrieval_memory_recipe"])
+    with open_bank_for_recipe(recipe, bank) as opened:
+        opened.put_growth_state("readiness", {
+            "coherence": True, "embeddings": True,
+            "space": recipe.space.fingerprint, "recipe": bootstrap_recipe.fingerprint,
+        })
+    needed = PHASE_REQUIREMENTS[recipe_phase]
+    receipt = live / "gate.json"
+    receipt.write_text(json.dumps({
+        "phase": recipe_phase, "evidence": {g: f"evidence/{g}.json" for g in needed},
+        "model_snapshot": "e2e-model", "kb_snapshot": "e2e-kb",
+        "corpus_manifest": "e2e-corpus", "successful": list(needed),
+    }))
+    values = dict(
+        phase=phase, dataset=str(dataset), output=str(root / "run"), model="tiny",
+        model_overrides=dict(MODEL_OVERRIDES), codec="byte", device="cpu",
+        precision="fp32", max_steps=2, microbatch_episodes=2,
+        accumulate_scored=1, accumulate_ingested=1000, max_accumulation_windows=2,
+        generated_capacity=16, max_history_tokens=256, max_record_bytes=128,
+        checkpoint_every=0, eval_every=0, effort=1, gradient_checkpointing=False,
+        use_stage_mixture=False, use_effort_mixture=False, budget=64,
+        retrieval_bank=str(bank), retrieval_gate_receipt=str(receipt),
+        retrieval_source_assets_root=str(assets), retrieval_growth_every=1,
+        retrieval_growth_budget=2, **artifacts,
     )
     values.update(overrides)
     return TrainConfig(**values)
