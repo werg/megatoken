@@ -98,7 +98,7 @@ class PocketFacetsStudent(nn.Module):
             raise ValueError("Pocket target must contain continuous Mimi latents")
         return (target - self.flow_lm.emb_mean) / self.flow_lm.emb_std.clamp_min(1e-6)
 
-    def native_loss(self, raw: Tensor, mimi_latents: Tensor, *, valid_frames=None,
+    def native_loss(self, raw: Tensor, mimi_latents: Tensor, *, valid_mask=None,
                     generator: torch.Generator | None = None):
         """Donor flow-head loss with scheduled, matched teacher acoustic prefixes.
 
@@ -153,7 +153,7 @@ class PocketFacetsStudent(nn.Module):
             error=0.75*diag+0.25*distill
         else:
             raise ValueError("Unsupported Pocket flow objective: use LSD or OT")
-        return flow_matching_loss(error.sqrt(), torch.zeros_like(error), valid_frames)
+        return flow_matching_loss(error.sqrt(), torch.zeros_like(error), valid_mask)
 
     def latent(self, raw: Tensor, *, max_frames: int, steps: int = 16,
                generator: torch.Generator | None = None):
