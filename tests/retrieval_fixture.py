@@ -244,3 +244,23 @@ def live_kb_train_config(
     )
     values.update(overrides)
     return TrainConfig(**values)
+
+
+def retrieval_aux(config: TrainConfig, *, supervised: bool = True) -> tuple:
+    """The 6-tuple ``forward_batch`` takes as ``retrieval_aux``, built as ``train()`` does.
+
+    ``supervised=True`` loads the config's real query/document sidecars (use with the
+    fixture episodes). ``supervised=False`` keeps the pinned recipe but carries no query
+    or document annotations, for tests of grouped/media mechanics on custom episodes.
+    """
+    from megatoken.data.document_embeddings import read_document_sidecar
+    from megatoken.data.retrieval import read_sidecar
+    from megatoken.memory.recipe import RetrievalRecipe
+
+    recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
+    if not supervised:
+        return {}, recipe, 1, None, {}, 1
+    queries = {(e.episode_id, e.event_id): e for e in read_sidecar(config.retrieval_sidecar)}
+    documents = {(d.episode_id, d.event_id): d
+                 for d in read_document_sidecar(config.retrieval_document_sidecar)}
+    return queries, recipe, len(queries), None, documents, len(documents)
