@@ -7,6 +7,7 @@ import torch
 from torch import Tensor
 
 from .contracts import Collection
+from .disk_ivf import SQLiteDiskIVF
 from .sqlite import SQLiteKB
 
 
@@ -28,10 +29,14 @@ class SparseRowAdam:
     """
 
     def __init__(self, bank: SQLiteKB, *, lr: float = 1e-3, beta1: float = 0.9,
-                 beta2: float = 0.999, eps: float = 1e-8, weight_decay: float = 0):
+                 beta2: float = 0.999, eps: float = 1e-8, weight_decay: float = 0,
+                 index: SQLiteDiskIVF | None = None):
         if lr <= 0 or not (0 < beta1 < 1 and 0 < beta2 < 1) or eps <= 0:
             raise ValueError("Invalid sparse Adam hyperparameters")
+        if index is not None and index.store is not bank:
+            raise ValueError("Sparse postings must share the canonical SQLite transaction")
         self.bank, self.lr, self.beta1, self.beta2 = bank, lr, beta1, beta2
+        self.index = index
         self.eps, self.weight_decay = eps, weight_decay
         self.leaves: dict[RowID, Tensor] = {}
         self._selected_revisions: dict[tuple[Collection, str, int], tuple[int, ...]] = {}
@@ -107,9 +112,17 @@ class SparseRowAdam:
                 target = leaf.detach() * (1 - self.lr * self.weight_decay) - self.lr * delta
                 values = target.cpu().numpy()
                 if identity.kind == "record":
-                    self.bank.update_record(identity.collection, identity.id,
-                                            **{identity.field: values if values.size > 1
-                                               else float(values[0])})
+                    replacement = values if values.size > 1 else float(values[0])
+                    index_update = {}
+                    if self.index is not None and identity.field == "key":
+                        index_update = {
+                            "posting_cell": self.index.cell(values),
+                            "centroids_revision": self.index.identity.centroid_sha256,
+                        }
+                    self.bank.update_record(
+                        identity.collection, identity.id,
+                        **{identity.field: replacement}, **index_update,
+                    )
                 else:
                     self.bank.update_relation(identity.id,
                                               **{identity.field: values if values.size > 1
