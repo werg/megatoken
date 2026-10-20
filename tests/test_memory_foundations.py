@@ -157,6 +157,46 @@ def test_exact_and_ivf_filter_before_truncation(tmp_path):
         assert ivf.ids == (allowed,) and ivf.shortfall == 1
 
 
+
+def test_maxsim_deduplicates_byte_coverage_across_chunk_aliases(tmp_path):
+    from megatoken.memory.base import Hit
+
+    with SQLiteKB(tmp_path / "aliases.sqlite", space(), value_dim=16) as kb:
+        a = kb.insert_source(
+            scope="team", footprint=support("physical-document"),
+            content_id="original/chunk-a", asset_ref="document-v1",
+            key=np.ones(8),
+        )
+        b = kb.insert_source(
+            scope="team", footprint=support("physical-document"),
+            content_id="alias/chunk-b", asset_ref="document-v1",
+            key=np.ones(8),
+        )
+        first = kb.get(Collection.SOURCE, a)
+        second = kb.get(Collection.SOURCE, b)
+        receipt = QueryBoundary(
+            "retrieval-1", 0, "source", "main", "request",
+            space().fingerprint, "scoring-epoch-1", 4,
+        )
+        coverage = RetrievalSession()
+        obligations = coverage.incremental(
+            [Hit(first, 0.8), Hit(second, 0.81)],
+            boundary=receipt, threshold=0.5,
+        )
+        assert len(obligations) == 1
+        assert obligations[0].interval.content_id == "physical-document"
+        picked = coverage.reserve(
+            max_bytes=128, max_events=4, now=1, request_id="read",
+        )
+        assert len(picked) == 1
+        coverage.commit(
+            picked[0].interval, request_id="read", receipt="native-meridian-1",
+        )
+        assert not coverage.incremental(
+            [Hit(second, 0.95)], boundary=receipt, threshold=0.5,
+        )
+
+
 def test_incremental_coverage_deferred_retries_and_score_epoch(tmp_path):
     from megatoken.memory.base import Hit
     with SQLiteKB(tmp_path / "kb.sqlite", space(), value_dim=16) as kb:
