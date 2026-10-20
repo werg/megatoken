@@ -87,6 +87,7 @@ def test_selected_query_then_actual_source_bytes_advance_native_clock(tmp_path):
         coverage = RetrievalSession()
         result = owner.read(
             query_state, embedding, annotation, global_count=1,
+            clock=annotation.query.meridian,
             multi=multi, coverage=coverage,
         )
         assert result.source_hits == 1

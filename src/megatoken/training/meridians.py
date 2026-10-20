@@ -604,6 +604,14 @@ def forward_meridian_batch(
     event_by_record = {
         event.record_id: event for meridian in episode.meridians for event in meridian.events
     }
+    # The causal clock counts recorded (external) meridians only. Query and RAG
+    # meridians the trainer inserts advance the native positional counter, not
+    # this clock, so sidecar availability never depends on live retrieval
+    # results or on how much prefix a window replays. Serving uses the same
+    # clock (TrackSession.causal_clock).
+    causal_clock = {
+        meridian.meridian_id: index for index, meridian in enumerate(episode.meridians)
+    }
     losses = []
     retrieval_losses = []
     if retrieval_aux[3] is not None:
@@ -666,10 +674,11 @@ def forward_meridian_batch(
                 ))
                 if annotation is None:
                     continue
-                if annotation.query.meridian != int(state.meridians_seen[0]):
+                clock = causal_clock[step.meridian_id]
+                if annotation.query.meridian != clock:
                     raise ValueError(
-                        "Query sidecar must include EVERY preceding real query/RAG "
-                        "meridian, including coherence bootstrap, in its native clock"
+                        "Query sidecar meridian must be the causal clock: the index of "
+                        "the answering meridian among the episode's recorded meridians"
                     )
                 if global_count <= 0:
                     raise RuntimeError("Retrieval query supervision requires global events")
@@ -707,7 +716,7 @@ def forward_meridian_batch(
                 if bank_owner is not None:
                     selected_bank = bank_owner.read(
                         queried, predicted, annotation,
-                        global_count=global_count,
+                        global_count=global_count, clock=clock,
                         multi=multi, coverage=source_coverage,
                     )
                     state = selected_bank.state
@@ -790,7 +799,7 @@ def forward_meridian_batch(
                     raise ValueError("Document R targets must attach to real original-source events")
                 item.validate_event(
                     payload=step.records[index].payload,
-                    clock=int(state.meridians_seen[0]),
+                    clock=causal_clock[step.meridian_id],
                 )
                 if global_docs < 1:
                     raise RuntimeError("Document teacher has no globally planned loss count")

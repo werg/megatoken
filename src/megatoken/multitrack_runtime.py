@@ -50,6 +50,13 @@ class TrackSession:
     delivered: dict[str, Delivery] = field(default_factory=dict)
     events: list[tuple[int, tuple[str, ...]]] = field(default_factory=list)
     retrieval_receipts: list[dict] = field(default_factory=list)
+    # Query and retrieved-source meridians inserted by the retrieval runtime.
+    internal_meridians: int = 0
+
+    @property
+    def causal_clock(self) -> int:
+        """External meridians committed: availability/deadline time, shared with training."""
+        return int(self.state.meridians_seen.min()) - self.internal_meridians
 
 
 class MultiTrackRuntime:

@@ -119,3 +119,33 @@ def test_failed_search_does_not_publish_query_or_kb_session_state(tmp_path):
         assert session.revision == 0
         assert not session.retrieval_receipts
         assert not retrieval.ledger(session).maxima
+
+
+def test_serving_causal_clock_excludes_inserted_query_meridians(tmp_path):
+    from megatoken.model.multitrack import ObservedEvent
+
+    generator = _generator()
+    runtime = MultiTrackRuntime(generator)
+    session = runtime.open()
+    space = SemanticSpace(
+        "space", "v1", "teacher", "pinned", 8, "doc", "query", "context",
+    )
+    with SQLiteKB(tmp_path / "bank.sqlite", space, value_dim=16) as bank:
+        retrieval = NativeRetrieval(
+            generator, runtime, RetrievalService(ExactIndex(bank)),
+            space, RetrievalPolicy(),
+        )
+        runtime.observe(session, (ObservedEvent("user", "text", b"hello"),))
+        assert session.causal_clock == 1
+        for request_id in ("request-1", "request-2"):
+            retrieval.boundary(
+                session, request=b"search", purpose="source",
+                visibility=Visibility("team", 1), request_id=request_id, effort=1,
+            )
+        first, second = session.retrieval_receipts
+        # Queries advance the native positional counter only.
+        assert (first["meridian"], first["native_meridian"]) == (1, 1)
+        assert (second["meridian"], second["native_meridian"]) == (1, 2)
+        assert session.internal_meridians == 2 and session.causal_clock == 1
+        runtime.observe(session, (ObservedEvent("user", "text", b"again"),))
+        assert session.causal_clock == 2

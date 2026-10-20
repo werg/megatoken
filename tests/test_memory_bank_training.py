@@ -99,7 +99,7 @@ def test_live_source_and_memory_leaves_train_through_actual_native_kv(tmp_path):
         tracks = MultiTrackCore(FacetedCore(config))
         state = tracks.initial_state(1)
         query = torch.tensor([[0.8, 0.6] + [0.] * 6], requires_grad=True)
-        read = owner.read(state, query, annotation, global_count=1)
+        read = owner.read(state, query, annotation, global_count=1, clock=annotation.query.meridian)
         assert read.source_hits == read.memory_hits == read.memory_groups == 1
         assert read.state.history.slots == state.history.slots == 0
         assert torch.equal(read.state.meridians_seen, state.meridians_seen)
@@ -128,7 +128,7 @@ def test_future_source_is_never_selected_by_delivery_deadline(tmp_path):
         tracks = MultiTrackCore(FacetedCore(config))
         state = tracks.initial_state(1)
         query = torch.tensor([[1.] + [0.] * 7], requires_grad=True)
-        read = owner.read(state, query, annotation, global_count=1)
+        read = owner.read(state, query, annotation, global_count=1, clock=annotation.query.meridian)
         assert read.source_hits == read.memory_hits == read.memory_groups == 0
     finally:
         bank.close()
@@ -139,10 +139,10 @@ def test_demand_is_deduplicated_only_at_primary_barrier(tmp_path):
     try:
         state = MultiTrackCore(FacetedCore(config)).initial_state(1)
         query = torch.tensor([[1.] + [0.] * 7])
-        owner.read(state, query, annotation, global_count=1)
+        owner.read(state, query, annotation, global_count=1, clock=annotation.query.meridian)
         assert bank.db.execute("SELECT count(*) FROM demand_events").fetchone()[0] == 0
         assert synchronize_query_demand(owner, _OneRank()) == 1
-        owner.read(state, query, annotation, global_count=1)
+        owner.read(state, query, annotation, global_count=1, clock=annotation.query.meridian)
         assert synchronize_query_demand(owner, _OneRank()) == 0
         assert bank.db.execute("SELECT count(*) FROM demand_events").fetchone()[0] == 1
     finally:
@@ -171,7 +171,7 @@ def test_detached_actual_source_bytes_train_query_and_stored_source_key(tmp_path
         )
         query = torch.tensor([[0.8, 0.6] + [0.] * 6], requires_grad=True)
         state = MultiTrackCore(model.core).initial_state(1)
-        outcome = trained.read(state, query, annotation, global_count=1)
+        outcome = trained.read(state, query, annotation, global_count=1, clock=annotation.query.meridian)
         assert outcome.source_value_examples == 1
         outcome.loss.backward()
         assert query.grad is not None and query.grad.abs().sum() > 0

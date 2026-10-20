@@ -110,7 +110,7 @@ class BankTrainingOwner:
         return numerator if valid_count else query.sum() * 0
 
     def read(self, state: Any, query: Tensor, annotation: RetrievalExample,
-             *, global_count: int, multi: MultiTrackGenerator | None = None,
+             *, global_count: int, clock: int, multi: MultiTrackGenerator | None = None,
              coverage: RetrievalSession | None = None) -> ReadResult:
         if query.shape != (1, self.recipe.space.dimension) or global_count < 1:
             raise ValueError("Training KB read requires one query and global event count")
@@ -128,16 +128,11 @@ class BankTrainingOwner:
                 )
         scope = annotation.query_teacher_inputs.ranges[0].scope
         # Deadline is a delivery limit, not permission to see future evidence.
-        # Selected inputs must be available at the actual native boundary.
-        committed = int(state.meridians_seen[0])
-        if annotation.query.meridian > committed:
-            raise ValueError("KB query cannot see a future native meridian")
-        if multi is not None and committed != annotation.query.meridian + 1:
-            raise ValueError(
-                "Training retrieval requires a committed P query immediately "
-                "after its recorded native boundary"
-            )
-        visibility = Visibility(scope, min(annotation.query.meridian, committed))
+        # Availability is judged on the causal clock (recorded meridians only),
+        # never the native counter that includes inserted query/RAG meridians.
+        if annotation.query.meridian != clock:
+            raise ValueError("KB query boundary differs from its causal clock")
+        visibility = Visibility(scope, clock)
         q = query.detach().float().cpu().numpy()[0]
         source_hits = self.index.search(
             q, collection=Collection.SOURCE, scope=scope,
@@ -231,7 +226,7 @@ class BankTrainingOwner:
             reserved = coverage.reserve(
                 max_bytes=self.recipe.max_source_bytes,
                 max_events=min(4, self.recipe.max_selected_source),
-                now=annotation.query.meridian,
+                now=clock,
                 request_id=f"{annotation.episode_id}/{annotation.event_id}",
             )
             for obligation in reserved:

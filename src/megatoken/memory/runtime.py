@@ -92,7 +92,8 @@ class NativeRetrieval:
                  enable_memory: bool = True) -> BoundaryResult:
         if not request_id or not isinstance(request, bytes):
             raise ValueError("A retrieval boundary requires an immutable request identity")
-        clock = int(session.state.meridians_seen.min())
+        clock = session.causal_clock
+        native = int(session.state.meridians_seen.min())
         if visibility.committed_cursor > clock:
             raise ValueError("Future sources cannot be made available to a past query")
         vector, next_state, _raw = self.generator.retrieve_embedding(
@@ -167,8 +168,9 @@ class NativeRetrieval:
                 for group in groups:
                     next_state = admit_kb(next_state, group)
         # Complete all serialization/validation work BEFORE session commit.
+        # Replay is positional: the tape pins the NATIVE meridian it starts from.
         tape = QueryActionReceipt.capture(
-            event_id=request_id, meridian=clock,
+            event_id=request_id, meridian=native,
             model_version=self.generator.generator.core.model_version,
             request=request, purpose=purpose,
             space_fingerprint=self.space.fingerprint,
@@ -178,7 +180,8 @@ class NativeRetrieval:
         query_receipt = {
             "kind": "query", "event_id": request_id,
             "action": tape.to_dict(),
-            "meridian": clock, "request_hash": receipt.request_hash,
+            "meridian": clock, "native_meridian": native,
+            "request_hash": receipt.request_hash,
             "snapshot_id": receipt.snapshot_id,
             "query_vector_sha256": sha256(
                 query.astype("<f4", copy=False).tobytes()
@@ -192,6 +195,7 @@ class NativeRetrieval:
         # Publish the entire causal transaction only after every step succeeds.
         self.sessions[id(session)] = scheduling
         session.state = next_state
+        session.internal_meridians += 1
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, ("__retrieval_query__",)))
@@ -207,7 +211,7 @@ class NativeRetrieval:
         return self.ledger(session).reserve(
             max_bytes=self.policy.max_source_bytes,
             max_events=self.policy.max_source_events,
-            now=int(session.state.meridians_seen.min()),
+            now=session.causal_clock,
             request_id=request_id,
         )
 
@@ -240,7 +244,7 @@ class NativeRetrieval:
             data = fetch(row, interval)
             if not isinstance(data, bytes) or len(data) != interval.end - interval.start:
                 raise ValueError("A source asset must return the exact versioned byte slice")
-            if obligation.deadline < int(session.state.meridians_seen.min()):
+            if obligation.deadline < session.causal_clock:
                 ledger.release(interval, request_id)
                 return False
             # E/C is a real selected observation. Construct successor off-state
@@ -257,6 +261,7 @@ class NativeRetrieval:
             )
             ledger.commit(interval, request_id=request_id, receipt=receipt)
             session.state = candidate
+            session.internal_meridians += 1
             session.revision += 1
             session.pending = None
             session.events.append((session.revision, ("retrieved_source",)))
