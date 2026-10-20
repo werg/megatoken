@@ -23,7 +23,7 @@ class ExactIndex:
         hits = []
         evaluated = 0
         for row in self.store.scan(collection, scope):
-            if row.id in blocked or not visibility.permits(row.footprint):
+            if not row.active or row.id in blocked or not visibility.permits(row.footprint):
                 continue
             score = float(np.dot(q.astype(np.float64), row.key.astype(np.float64)))
             evaluated += 1

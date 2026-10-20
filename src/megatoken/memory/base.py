@@ -25,6 +25,7 @@ class Record:
     birth_step: int = 0
     group: str = ""
     source_assignment: str = ""
+    active: bool = True
 
     def __post_init__(self) -> None:
         if self.id < 1 or self.collection is Collection.SOURCE and (

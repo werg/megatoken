@@ -193,7 +193,7 @@ class NativeRetrieval:
             return False
         try:
             row = self.service.backend.store.get(Collection.SOURCE, obligation.record_id)
-            if not visibility.permits(row.footprint):
+            if not row.active or not visibility.permits(row.footprint):
                 ledger.release(interval, request_id)
                 return False
             data = fetch(row, interval)

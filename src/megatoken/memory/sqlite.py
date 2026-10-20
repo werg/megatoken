@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS records (
     strength REAL NOT NULL, lifetime_logit REAL NOT NULL,
     birth_step INTEGER NOT NULL DEFAULT 0,
     group_id TEXT NOT NULL DEFAULT '', assignment TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1,
     key_revision INTEGER NOT NULL DEFAULT 1, payload_revision INTEGER NOT NULL DEFAULT 1,
     UNIQUE(collection, scope, content_id, assignment)
 );
@@ -62,8 +63,17 @@ CREATE TABLE IF NOT EXISTS relations (
     prior REAL NOT NULL, value BLOB NOT NULL, dependence BLOB NOT NULL,
     footprint TEXT NOT NULL, strength REAL NOT NULL, lifetime_logit REAL NOT NULL,
     payload_revision INTEGER NOT NULL DEFAULT 1,
+    active INTEGER NOT NULL DEFAULT 1,
     UNIQUE(left_id, right_id)
 );
+CREATE TABLE IF NOT EXISTS source_range_refs (
+    collection TEXT NOT NULL, entity_kind TEXT NOT NULL,
+    entity_id INTEGER NOT NULL, source_id TEXT NOT NULL, source_version TEXT NOT NULL,
+    byte_start INTEGER NOT NULL, byte_end INTEGER NOT NULL,
+    PRIMARY KEY (collection, entity_kind, entity_id, source_id,
+                 source_version, byte_start, byte_end)
+);
+CREATE INDEX IF NOT EXISTS range_reverse ON source_range_refs(source_id,source_version);
 CREATE TABLE IF NOT EXISTS source_windows (
     window_id TEXT PRIMARY KEY, scope TEXT NOT NULL,
     footprint TEXT NOT NULL, source_ids TEXT NOT NULL
@@ -200,7 +210,7 @@ class SQLiteKB:
             row["payload_revision"], row["content_id"], row["asset_ref"],
             None if row["value"] is None else _unpack(row["value"], self.value_dim),
             row["strength"], row["lifetime_logit"], row["birth_step"],
-            row["group_id"], row["assignment"],
+            row["group_id"], row["assignment"], bool(row["active"]),
         )
 
     def scan(self, collection: Collection, scope: str) -> tuple[Record, ...]:
@@ -247,8 +257,46 @@ class SQLiteKB:
                 (collection.value, scope, k, v, footprint.to_json(), content_id, asset_ref,
                  strength, lifetime_logit, birth_step, group, assignment),
             )
+            record_id = int(cursor.lastrowid)
+            self._footprint_refs(collection.value, "record", record_id, footprint)
             self._bump("key", "policy", *(("payload", "growth") if value is not None else ()))
-            return int(cursor.lastrowid)
+            return record_id
+
+    def _footprint_refs(self, collection: str, kind: str, identity: int,
+                        footprint: Footprint) -> None:
+        self.db.executemany(
+            """INSERT INTO source_range_refs VALUES (?,?,?,?,?,?,?)""",
+            [
+                (collection, kind, identity, r.source_id, r.version, r.start, r.end)
+                for r in footprint.ranges
+            ],
+        )
+
+    def tombstone_source_version(self, source_id: str, version: str) -> dict[str, int]:
+        """Revoke every context-dependent source, free point and relation atomically."""
+        if not source_id or not version:
+            raise ValueError("Source invalidation requires both source and version")
+        with self.transaction():
+            rows = self.db.execute(
+                """SELECT DISTINCT collection,entity_kind,entity_id
+                   FROM source_range_refs WHERE source_id=? AND source_version=?""",
+                (source_id, version),
+            ).fetchall()
+            counts = {"source": 0, "memory": 0, "relation": 0}
+            for row in rows:
+                if row["entity_kind"] == "record":
+                    self.db.execute(
+                        "UPDATE records SET active=0 WHERE id=?", (row["entity_id"],)
+                    )
+                    counts[row["collection"]] += 1
+                else:
+                    self.db.execute(
+                        "UPDATE relations SET active=0 WHERE id=?", (row["entity_id"],)
+                    )
+                    counts["relation"] += 1
+            if rows:
+                self._bump("policy", "graph")
+            return counts
 
     def insert_source(self, *, scope: str, footprint: Footprint, key,
                       content_id: str, asset_ref: str) -> int:
@@ -339,13 +387,17 @@ class SQLiteKB:
                 (a, b, scope, prior, _vector(value, self.value_dim),
                  _vector(dependence_logits, 2), footprint.to_json(), strength, lifetime_logit),
             )
+            relation_id = int(result.lastrowid)
+            self._footprint_refs(Collection.MEMORY.value, "relation", relation_id, footprint)
             self._bump("graph", "payload", "growth")
-            return int(result.lastrowid)
+            return relation_id
 
     def relations(self, scope: str) -> tuple[Relation, ...]:
         with self._lock:
-            rows = self.db.execute("SELECT * FROM relations WHERE scope=? ORDER BY id",
-                                   (scope,)).fetchall()
+            rows = self.db.execute(
+                "SELECT * FROM relations WHERE scope=? AND active=1 ORDER BY id",
+                (scope,),
+            ).fetchall()
         return tuple(Relation(
             row["id"], row["left_id"], row["right_id"], row["scope"], row["prior"],
             _unpack(row["value"], self.value_dim),

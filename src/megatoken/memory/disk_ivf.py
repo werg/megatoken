@@ -152,7 +152,7 @@ class SQLiteDiskIVF:
                         if entry["id"] in blocked:
                             continue
                         row = self.store._record(entry)
-                        if not visibility.permits(row.footprint):
+                        if not row.active or not visibility.permits(row.footprint):
                             continue
                         score = float(np.dot(q.astype(np.float64), row.key.astype(np.float64)))
                         hits.append(Hit(row, score))
