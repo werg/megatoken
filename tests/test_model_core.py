@@ -457,19 +457,21 @@ def test_owner_groups_are_disjoint_complete_and_allow_fixed_decoder_latent_rl():
         list(core.central_parameters()),
         list(core.predictor_parameters()),
         list(core.realizer_parameters()),
+        list(core.control_parameters()),
     ]
     owners = [parameter for group in groups for parameter in group]
     assert len({id(parameter) for parameter in owners}) == len(owners)
     assert {id(parameter) for parameter in owners} == {
         id(parameter) for parameter in core.parameters()
     }
-    for group in (groups[0], groups[1], groups[3]):
+    for group in (groups[0], groups[1], groups[3], groups[4]):
         for parameter in group:
             parameter.requires_grad_(False)
     state = core.observe(torch.randint(256, (1, 51)), core.initial_state(1))
     core.predict_facets(state).square().mean().backward()
     assert all(
-        parameter.grad is None for group in (groups[0], groups[1], groups[3]) for parameter in group
+        parameter.grad is None
+        for group in (groups[0], groups[1], groups[3], groups[4]) for parameter in group
     )
     assert core.remix.channels.down.weight.grad.norm() > 0
     assert core.stages[0].attention.query.weight.grad.norm() > 0

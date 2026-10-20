@@ -555,22 +555,44 @@ class FacetedGenerator(nn.Module):
                 decision += 1
         return state, tuple(log_probs)
 
+    def parameter_owners(self) -> dict[str, tuple[nn.Parameter, ...]]:
+        """Disjoint owner groups (E, C, P, R) covering every parameter exactly once."""
+        groups = {
+            "E": (self.core.encoder_parameters(),),
+            "C": (self.core.central_parameters(),),
+            "P": (
+                self.core.predictor_parameters(),
+                self.facet_distribution.parameters(),
+                self.relations.parameters(),
+            ),
+            "R": (
+                self.decoder.parameters(),
+                self.media_realizers.parameters(),
+                self.embedding_realizer.parameters(),
+                self.core.control_parameters(),
+                self.core.realizer_parameters(),
+            ),
+        }
+        owners: dict[str, tuple[nn.Parameter, ...]] = {}
+        claimed: dict[int, str] = {}
+        for owner, sources in groups.items():
+            members = []
+            for parameter in chain.from_iterable(sources):
+                previous = claimed.setdefault(id(parameter), owner)
+                if previous != owner:
+                    raise RuntimeError(f"Parameter is owned by both {previous} and {owner}")
+                if previous == owner and all(parameter is not m for m in members):
+                    members.append(parameter)
+            owners[owner] = tuple(members)
+        missing = [n for n, p in self.named_parameters() if id(p) not in claimed]
+        if missing:
+            raise RuntimeError(f"Parameters without an owner: {missing[:5]}")
+        return owners
+
     def deterministic_decoder_parameters(self):
-        """Owners of E, causal C/KV and direct R/U, including shared weights once."""
-        seen = set()
-        for parameter in chain(
-            self.decoder.parameters(),
-            self.media_realizers.parameters(),
-            # Media realizers consume the shared public-control encoder directly.
-            # Latent-only RL must freeze it along with the deterministic map.
-            self.core.control_encoder.parameters(),
-            self.core.encoder_parameters(),
-            self.core.central_parameters(),
-            self.core.realizer_parameters(),
-        ):
-            if id(parameter) not in seen:
-                seen.add(id(parameter))
-                yield parameter
+        """E, C (with the shared memory controller) and R: the fixed latent-RL action map."""
+        owners = self.parameter_owners()
+        yield from chain(owners["E"], owners["C"], owners["R"])
 
     def freeze_decoder_for_rl(self) -> tuple[str, ...]:
         frozen = {id(parameter) for parameter in self.deterministic_decoder_parameters()}
