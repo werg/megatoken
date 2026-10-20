@@ -499,6 +499,11 @@ def forward_meridian_batch(
                 control_payloads=(payload,) * len(step.tracks),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
+                memory_dropout=(
+                    (config.retrieval_kv_dropout, config.retrieval_lora_dropout)
+                    if retrieval_aux is not None and retrieval_aux[3] is not None
+                    else (0., 0.)
+                ),
             )
             state = result.state
             losses.append(ledger.backward_loss(result.losses))
