@@ -6,7 +6,7 @@ import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-ARCHITECTURE_VERSION = 8
+ARCHITECTURE_VERSION = 9
 
 
 @dataclass(frozen=True)
@@ -71,7 +71,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: direct realization requires version 8; "
+                "Incompatible architecture version: native retrieval-memory requires version 9; "
                 "earlier facet checkpoints cannot be loaded as this architecture"
             )
         positive = (
@@ -234,7 +234,7 @@ class ModelConfig:
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=8; "
+                "Saved model configuration must explicitly declare architecture_version=9; "
                 "earlier checkpoints are intentionally unsupported"
             )
         unknown = set(values) - {field.name for field in fields(cls)}

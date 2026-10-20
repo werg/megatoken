@@ -1,6 +1,6 @@
 # Megatoken — required retrieval-memory training
 
-**Breaking architecture migration.** Native retrieval + semantic memory is the **only supported training architecture**. There is no disabled, optional, ungrouped or pre-retrieval training route. Model creation always registers the semantic embedding realizer, the full-native-facet memory K/V projector and independent all-track LoRA controllers, even while the canonical semantic-memory bank is initially empty.
+**Breaking architecture migration.** Version 9 native retrieval + semantic memory is the **only supported training architecture**. There is no disabled, optional, ungrouped or pre-retrieval training route. Model creation always registers the semantic embedding realizer, the full-native-facet memory K/V projector and independent all-track LoRA controllers, even while the canonical semantic-memory bank is initially empty.
 
 This project is a software prototype, not a pretrained model. Training quality, performance and release fitness have **not** been established. See the [implementation and validation ledger](docs/retrieval-memory-implementation-status.md).
 
