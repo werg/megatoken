@@ -7,7 +7,7 @@ from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.multitrack import MultiTrackGenerator
 
 
-def test_query_embedding_training_uses_native_p_draw_without_committing_answer_history():
+def test_query_embedding_training_commits_selected_p_draw_without_answer_leakage():
     torch.manual_seed(5)
     model = FacetedGenerator(
         FacetedCore(ModelConfig.tiny(
@@ -17,13 +17,15 @@ def test_query_embedding_training_uses_native_p_draw_without_committing_answer_h
     multi = MultiTrackGenerator(model)
     state = multi.tracks.initial_state(1)
     generator = torch.Generator().manual_seed(19)
-    query, same, raw = multi.retrieve_embedding(
+    query, updated, raw = multi.retrieve_embedding(
         state, main_request=b"Which project change fixed the bug?",
         purpose="source_retrieval", space_fingerprint="pinned-space-v1",
-        effort=1, generator=generator, commit=False,
+        effort=1, generator=generator,
     )
-    assert same is state
+    assert updated is not state
     assert state.history.slots == 0
+    assert updated.history.slots == model.config.n_facets
+    assert updated.meridians_seen.item() == state.meridians_seen.item() + 1
     assert query.shape == (1, 8)
     assert raw.shape == (
         1, 1, model.config.n_facets, model.config.facet_dim,
@@ -37,12 +39,12 @@ def test_query_embedding_training_uses_native_p_draw_without_committing_answer_h
         for p in model.core.predictor_parameters()
     )
     with torch.no_grad():
-        served, updated, served_raw = multi.retrieve_embedding(
+        served, replayed, served_raw = multi.retrieve_embedding(
             state, main_request=b"Which project change fixed the bug?",
             purpose="source_retrieval", space_fingerprint="pinned-space-v1",
-            effort=1, generator=torch.Generator().manual_seed(19), commit=True,
+            effort=1, generator=torch.Generator().manual_seed(19),
         )
     torch.testing.assert_close(served, query.detach(), atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(served_raw, raw.detach(), atol=1e-5, rtol=1e-5)
-    assert updated.history.slots > state.history.slots
-    assert updated.meridians_seen.item() == state.meridians_seen.item() + 1
+    assert replayed.history.slots == updated.history.slots
+    assert replayed.meridians_seen.item() == updated.meridians_seen.item()
