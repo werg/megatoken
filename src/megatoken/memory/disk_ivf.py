@@ -48,7 +48,7 @@ class SQLiteDiskIVF:
 
     def rebuild(self, *, scope: str, collection: Collection) -> int:
         """One all-key rebuild only at declared centroid/scope drift barriers."""
-        rows = self.store.scan(collection, scope)
+        rows = tuple(row for row in self.store.scan(collection, scope) if row.active)
         with self.store.transaction():
             for i in range(0, len(rows), self.batch_size):
                 batch = rows[i:i+self.batch_size]
@@ -89,7 +89,7 @@ class SQLiteDiskIVF:
             """SELECT COUNT(*) FROM records r LEFT JOIN postings p ON
                r.id=p.record_id AND p.collection=r.collection AND
                p.centroids_revision=? AND p.key_revision=r.key_revision
-               WHERE r.collection=? AND r.scope=? AND p.record_id IS NULL""",
+               WHERE r.collection=? AND r.scope=? AND r.active=1 AND p.record_id IS NULL""",
             (self.identity.centroid_sha256, collection.value, row.scope),
         ).fetchone()[0]
         if existing == 0:
@@ -114,7 +114,7 @@ class SQLiteDiskIVF:
             """SELECT EXISTS(SELECT 1 FROM records r LEFT JOIN postings p
                ON r.id=p.record_id AND p.collection=r.collection AND
                   p.centroids_revision=? AND p.key_revision=r.key_revision
-               WHERE r.collection=? AND r.scope=? AND p.record_id IS NULL)""",
+               WHERE r.collection=? AND r.scope=? AND r.active=1 AND p.record_id IS NULL)""",
             (self.identity.centroid_sha256, collection.value, scope),
         ).fetchone()[0]
         if gap:
