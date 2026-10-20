@@ -310,7 +310,9 @@ class BankTrainingOwner:
                     (scope,),
                 ).fetchall():
                     footprint = Footprint.from_json(item["footprint"])
-                    if not Visibility(scope, cursor).permits(footprint):
+                    if not Visibility(scope, cursor).permits(footprint) or (
+                        self.bank.footprint_revoked(footprint)
+                    ):
                         continue
                     signature = sha256(footprint.to_json().encode()).hexdigest()
                     if signature in seen_support:
