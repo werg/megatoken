@@ -92,6 +92,47 @@ def test_sqlite_rollback_reopen_generations_moments_and_snapshot(tmp_path):
             snapshot.update_record(Collection.MEMORY, m, value=np.zeros(16))
 
 
+
+def test_source_version_tombstone_cascades_and_is_idempotent(tmp_path):
+    with SQLiteKB(tmp_path / "revocation.sqlite", space(), value_dim=16) as kb:
+        old = kb.insert_memory(
+            scope="team", footprint=support("retired"), assignment="retired",
+            key=np.ones(8), value=np.zeros(16), birth_step=0,
+        )
+        still_valid = kb.insert_memory(
+            scope="team", footprint=support("unrelated"), assignment="unrelated",
+            key=np.arange(1, 9), value=np.zeros(16), birth_step=0,
+        )
+        # Deliberately omit retired context from the pair support to emulate a
+        # prior incomplete relation schema. Endpoint retirement still revokes.
+        kb.insert_relation(
+            scope="team", left=old, right=still_valid, prior=0.5,
+            value=np.zeros(16), dependence_logits=(-2., -2.),
+            footprint=support("unrelated"),
+        )
+        kb.update_record(
+            Collection.MEMORY, old, posting_cell=0,
+            centroids_revision="pinned-centroids",
+        )
+        assert kb.db.execute(
+            "SELECT count(*) FROM postings WHERE record_id=?", (old,)
+        ).fetchone()[0] == 1
+        previous = kb.revisions().index
+        retired = kb.tombstone_source_version("retired", "version1")
+        assert retired == {"source": 0, "memory": 1, "relation": 1}
+        assert kb.revisions().index > previous
+        assert not kb.relations("team")
+        assert [r.id for r in kb.scan(Collection.MEMORY, "team")] == [still_valid]
+        assert kb.db.execute(
+            "SELECT count(*) FROM postings WHERE record_id=?", (old,)
+        ).fetchone()[0] == 0
+        epoch = kb.revisions()
+        assert kb.tombstone_source_version("retired", "version1") == {
+            "source": 0, "memory": 0, "relation": 0,
+        }
+        assert kb.revisions() == epoch
+
+
 def test_exact_and_ivf_filter_before_truncation(tmp_path):
     with SQLiteKB(tmp_path / "kb.sqlite", space(), value_dim=16) as kb:
         allowed = kb.insert_source(
