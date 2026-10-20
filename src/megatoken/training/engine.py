@@ -272,6 +272,23 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     return result
 
 
+def _stage_bank(source: Path, target: Path) -> None:
+    """Consistent SQLite copy (WAL/journal aware), atomically published."""
+    import sqlite3
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.with_name(target.name + ".staging")
+    staging.unlink(missing_ok=True)
+    reader = sqlite3.connect(f"file:{source.resolve().as_posix()}?mode=ro", uri=True)
+    writer = sqlite3.connect(staging)
+    try:
+        reader.backup(writer)
+    finally:
+        writer.close()
+        reader.close()
+    os.replace(staging, target)
+
+
 def forward_batch(
     model: Any,
     batch: MeridianPreparedBatch,
@@ -559,8 +576,34 @@ def train(
                     from megatoken.training.diloco_client import fetch_kb_snapshot
 
                     kb_version = fetch_kb_snapshot(config.decoupled, bank_path)
-            elif not bank_path.is_file():
-                raise FileNotFoundError("Live KB must be source-populated before training")
+            else:
+                # The configured bank is an immutable input. Each run trains its own
+                # copy: exact resume and phase transitions continue the checkpoint's
+                # jointly trained bank, and only the first live phase starts from
+                # retrieval_bank. Aborted runs can never corrupt an input bank.
+                bank_path = output / "kb.sqlite"
+                error = None
+                if context.is_primary:
+                    try:
+                        carried = (
+                            resolve_checkpoint(resume) / "kb.sqlite" if payload is not None else None
+                        )
+                        if carried is not None and carried.is_file():
+                            _stage_bank(carried, bank_path)
+                        elif payload is not None and not phase_transition:
+                            raise FileNotFoundError("Exact resume checkpoint lacks its KB snapshot")
+                        elif not Path(config.retrieval_bank).is_file():
+                            raise FileNotFoundError(
+                                "Live KB must be source-populated before training"
+                            )
+                        else:
+                            _stage_bank(Path(config.retrieval_bank), bank_path)
+                    except BaseException as exc:
+                        error = f"{type(exc).__name__}: {exc}"
+                failures = context.all_gather_object(error)
+                if any(failures):
+                    raise RuntimeError(f"Run KB staging failed: {failures}")
+                context.barrier()
             bank = open_bank_for_recipe(retrieval_recipe, bank_path)
             try:
                 ready = bank.growth_state("readiness", {})

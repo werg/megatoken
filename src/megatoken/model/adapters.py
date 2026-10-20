@@ -45,6 +45,7 @@ class ExpertController(nn.Module):
 
     def forward(self, semantics: Tensor, tracks: Tensor, stage: int) -> Tensor:
         preference = self.track_preference(tracks) + self.stage_preference.weight[stage] + self.bias
+        semantics = semantics.to(self.router.weight.dtype)
         return self.router(self.semantic_norm(semantics))[:, None, :] + preference
 
 

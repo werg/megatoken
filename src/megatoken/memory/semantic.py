@@ -49,8 +49,10 @@ class MemoryKVProjector(nn.Module):
             or (slot_codes.shape != (self.facets, self.to_facets.out_features))
         ):
             raise ValueError("Memory projector requires full native facet geometry")
-        features = self.to_facets(self.value_norm(semantic.float()))
-        features = features[:, None] + slot_codes.float()[None] + self.kb_descriptor
+        # Compute in the registered parameter dtype (BF16 models, FP32 references).
+        dtype = self.to_facets.weight.dtype
+        features = self.to_facets(self.value_norm(semantic.to(dtype)))
+        features = features[:, None] + slot_codes.to(dtype)[None] + self.kb_descriptor
         kv = self.to_kv(F.silu(self.facet_norm(features)))
         kv = kv.reshape(semantic.shape[0], self.facets, 2, self.kv_heads, self.head_dim)
         key, value = kv.unbind(2)

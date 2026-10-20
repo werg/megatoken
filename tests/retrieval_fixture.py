@@ -29,6 +29,8 @@ from megatoken.training.config import TrainConfig
 SEMANTIC_DIM = 16
 SEMANTIC_VALUE_DIM = 8
 SCOPE = "e2e-scope"
+# Model preset for every artifact; scripts may switch it (e.g. "32x512") for GPU runs.
+MODEL = "tiny"
 MODEL_OVERRIDES = {
     "semantic_dim": SEMANTIC_DIM,
     "semantic_value_dim": SEMANTIC_VALUE_DIM,
@@ -136,7 +138,7 @@ def write_retrieval_artifacts(
 
     ``doc``/``request``/``answer`` name the episode records they annotate."""
     root.mkdir(parents=True, exist_ok=True)
-    model_config = load_model_config("tiny", **MODEL_OVERRIDES)
+    model_config = load_model_config(MODEL, **MODEL_OVERRIDES)
     recipe = {
         "schema": "megatoken-retrieval-recipe-v1",
         "phase": phase,
@@ -253,7 +255,7 @@ def retrieval_train_config(root: Path, *, episodes: int = 4, **overrides) -> Tra
         phase="B0",
         dataset=str(dataset),
         output=str(root / "run"),
-        model="tiny",
+        model=MODEL,
         model_overrides=dict(MODEL_OVERRIDES),
         codec="byte",
         device="cpu",
@@ -368,7 +370,7 @@ def live_kb_train_config(
         phase=phase,
         dataset=str(dataset),
         output=str(root / "run"),
-        model="tiny",
+        model=MODEL,
         model_overrides=dict(MODEL_OVERRIDES),
         codec="byte",
         device="cpu",

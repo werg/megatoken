@@ -109,7 +109,11 @@ def test_synchronous_live_kb_train_updates_rows_and_resumes(tmp_path, phase, rec
     # Step 1 grew memory rows; step 2 trained them: values and moments moved.
     step1 = next(p for p in checkpoint.parent.iterdir() if "000000001" in p.name)
     mid, moments_mid, _ = _rows(step1 / "kb.sqlite", recipe)
-    live, moments_live, demand_live = _rows(config.retrieval_bank, recipe)
+    run_bank = Path(config.output) / "kb.sqlite"
+    live, moments_live, demand_live = _rows(run_bank, recipe)
+    # The configured bank is an immutable input; the run trains its own copy.
+    untouched, moments_input, demand_input = _rows(config.retrieval_bank, recipe)
+    assert untouched.keys() == initial.keys() and moments_input == demand_input == 0
     snap, _, _ = _rows(checkpoint / "kb.sqlite", recipe)
     assert demand_live > 0 and moments_live > 0
     assert len(mid) > len(initial) and set(mid) <= set(live)
@@ -118,7 +122,7 @@ def test_synchronous_live_kb_train_updates_rows_and_resumes(tmp_path, phase, rec
     # Exact resume continues from the published snapshot and keeps training rows.
     resumed = train(dataclasses.replace(config, max_steps=1), resume=first["checkpoint"])
     assert resumed["global_step"] == 3
-    after, _, _ = _rows(config.retrieval_bank, recipe)
+    after, _, _ = _rows(run_bank, recipe)
     assert _changed(live, after) > 0
 
 
