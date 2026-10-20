@@ -84,6 +84,14 @@ class WriterDataset:
         return cls(**obj)
 
 
+def file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _shard_tensors(root: Path, ref: WriterShard) -> dict[str, Tensor]:
     from safetensors.torch import load_file
 
@@ -92,7 +100,7 @@ def _shard_tensors(root: Path, ref: WriterShard) -> dict[str, Tensor]:
     # source train/eval trees via absolute or traversing references.
     if not path.is_relative_to(root.resolve()) or not path.is_file():
         raise ValueError("Writer shard must exist inside the manifest directory")
-    if sha256(path.read_bytes()).hexdigest() != ref.sha256:
+    if file_sha256(path) != ref.sha256:
         raise RuntimeError(f"Writer shard checksum differs: {ref.path}")
     result = load_file(str(path), device="cpu")
     if not result or any(not bool(torch.isfinite(t).all()) for t in result.values()
