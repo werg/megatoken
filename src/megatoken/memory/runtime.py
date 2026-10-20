@@ -80,7 +80,7 @@ class NativeRetrieval:
         return {
             row.id for row in records
             if row.evidence_span is not None and not subtract(
-                Interval(row.content_id, row.evidence_span.version,
+                Interval(row.evidence_span.source_id, row.evidence_span.version,
                          row.evidence_span.start, row.evidence_span.end), covered,
             )
         }
@@ -148,7 +148,7 @@ class NativeRetrieval:
                     for row in store.scan(Collection.SOURCE, visibility.scope)
                     if row.active
                     and row.evidence_span is not None
-                    and (row.content_id, row.evidence_span.version) in covered
+                    and (row.evidence_span.source_id, row.evidence_span.version) in covered
                     for span in row.footprint.ranges
                 })
                 device = session.state.device
@@ -230,7 +230,7 @@ class NativeRetrieval:
                 return False
             span = row.evidence_span
             if (
-                row.content_id != interval.content_id or span is None
+                span is None or span.source_id != interval.content_id
                 or span.version != interval.version
                 or interval.start < span.start or interval.end > span.end
             ):
