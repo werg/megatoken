@@ -81,96 +81,8 @@ def _train(args):
         )
         if getattr(args, name) is not None
     }
-    config = (
-        TrainConfig.load(args.config, **overrides)
-        if args.config
-        else TrainConfig.from_dict(overrides)
-    )
+    config = TrainConfig.load(args.config, **overrides)
     return train(config, resume=args.resume, phase_transition=args.phase_transition)
-
-
-def _diloco_initialize(args):
-    """Create immutable coordinator bootstrap from the exact train architecture."""
-    import torch
-
-    from megatoken.data import PreparedDataset
-    from megatoken.loading import build_model, load_codec, load_model_config
-    from megatoken.runtime import seed_everything
-    from megatoken.training.checkpoint import load_checkpoint
-    from megatoken.training.config import TrainConfig
-    from megatoken.training.diloco_protocol import training_identity
-    from megatoken.io import content_hash
-    from megatoken.training.diloco_server import initialize_coordinator
-    from megatoken.training.schedule import PHASES
-
-    config = TrainConfig.load(args.config)
-    if config.decoupled is None:
-        raise ValueError("Set decoupled settings in the training config before initializing")
-    seed_everything(config.seed, config.deterministic)
-    overrides = {
-        **config.model_overrides,
-        "expert_backend": config.expert_backend,
-        "checkpoint_stages": config.gradient_checkpointing,
-    }
-    model_config = load_model_config(config.model, **overrides)
-    codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
-    model = build_model(model_config, codec, device=torch.device("cpu"), precision=config.precision)
-    weights = None
-    if args.resume:
-        payload, _ = load_checkpoint(args.resume, map_location="cpu")
-        if payload["model_config"] != model_config.to_dict():
-            raise ValueError("Bootstrap checkpoint model architecture changed")
-        if payload["codec_fingerprint"] != codec.fingerprint:
-            raise ValueError("Bootstrap checkpoint codec differs")
-        model.load_state_dict(payload["model"], strict=True)
-        weights = payload["optimizer"]["master_weights"]
-    elif config.engram_import:
-        from megatoken.assets import install_engram_asset
-
-        install_engram_asset(model, config.engram_import)
-    masters = {
-        name: (weights[name] if weights is not None else parameter).detach().cpu().float()
-        for name, parameter in model.named_parameters()
-        if parameter.requires_grad
-    }
-    with PreparedDataset(config.dataset) as prepared:
-        dataset_fingerprint = content_hash(prepared.manifest)
-    return initialize_coordinator(
-        args.root,
-        run_id=config.decoupled.run_id,
-        model_state=model.state_dict(),
-        masters=masters,
-        model_config=model_config.to_dict(),
-        codec_fingerprint=codec.fingerprint,
-        train_identity=training_identity(config),
-        dataset_fingerprint=dataset_fingerprint,
-        workers=config.decoupled.workers,
-        min_quorum=args.quorum,
-        fragment_bytes=args.fragment_mib * 1024 * 1024,
-        outer_lr=args.outer_lr,
-        outer_momentum=args.outer_momentum,
-        grace_seconds=args.grace_seconds,
-        max_staleness=args.max_staleness,
-        token_budget=config.budget or PHASES[config.phase].budget,
-    )
-
-
-def _diloco_serve(args):
-    import os
-
-    from megatoken.training.diloco_server import serve_coordinator
-
-    serve_coordinator(
-        args.root, args.host, args.port,
-        token=os.environ.get("MEGATOKEN_DILOCO_TOKEN", ""),
-    )
-
-
-def _diloco_export(args):
-    from megatoken.training.config import TrainConfig
-    from megatoken.training.diloco_export import export_coordinator
-
-    return export_coordinator(args.root, args.output, TrainConfig.load(args.config))
 
 
 def _pipeline(args):
@@ -270,29 +182,6 @@ def _benchmark(args):
     )
 
 
-def _rl(args):
-    from megatoken.training.rl import RLConfig, train_rl
-
-    base = read_mapping(args.config) if args.config else {}
-    names = {key for key in RLConfig.__dataclass_fields__}
-    unknown = set(base) - names
-    if unknown:
-        raise ValueError(f"Unknown RL settings: {sorted(unknown)}")
-    for name in names:
-        value = getattr(args, name, None)
-        if value is not None:
-            base[name] = value
-    path = Path(args.tasks)
-    tasks = (
-        json.loads(path.read_text())
-        if path.suffix == ".json"
-        else [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    )
-    if not isinstance(tasks, list) or any(not isinstance(task, dict) for task in tasks):
-        raise ValueError("RL tasks must be a JSON array or JSONL objects")
-    return train_rl(RLConfig(**base), tasks)
-
-
 def _export(args):
     from megatoken.inference import export_served
 
@@ -369,12 +258,6 @@ def _serve_multitrack(args):
     )
 
 
-def _smoke(args):
-    from megatoken.smoke import run_smoke
-
-    return run_smoke(args.output, device=args.device, precision=args.precision)
-
-
 def _engram_extract(args):
     from megatoken.assets import extract_engram
 
@@ -438,7 +321,7 @@ def parser() -> argparse.ArgumentParser:
     item = commands.add_parser(
         "train", help="Run one supervised stage, under torchrun when distributed"
     )
-    item.add_argument("--config")
+    item.add_argument("--config", required=True)
     for name in (
         "phase",
         "model",
@@ -462,31 +345,6 @@ def parser() -> argparse.ArgumentParser:
         help="Preserve optimizer state, reset the new phase's data cursor and counters",
     )
     item.set_defaults(func=_train)
-    group = commands.add_parser(
-        "diloco", help="Initialize or serve a resilient asynchronous DiLoCo coordinator"
-    )
-    sub = group.add_subparsers(dest="diloco_command", required=True)
-    initial = sub.add_parser("init", help="Initialize persistent global weights and fragments")
-    initial.add_argument("--config", required=True)
-    initial.add_argument("--root", required=True)
-    initial.add_argument("--resume", help="Warm-start global weights from an earlier checkpoint")
-    initial.add_argument("--quorum", type=int, default=4)
-    initial.add_argument("--fragment-mib", type=int, default=64)
-    initial.add_argument("--outer-lr", type=float, default=0.7)
-    initial.add_argument("--outer-momentum", type=float, default=0.9)
-    initial.add_argument("--grace-seconds", type=float, default=8.0)
-    initial.add_argument("--max-staleness", type=int, default=2)
-    initial.set_defaults(func=_diloco_initialize)
-    serving = sub.add_parser("serve", help="Start the persistent authenticated HTTP syncer")
-    serving.add_argument("--root", required=True)
-    serving.add_argument("--host", default="127.0.0.1")
-    serving.add_argument("--port", type=int, default=8823)
-    serving.set_defaults(func=_diloco_serve)
-    exporting = sub.add_parser("export", help="Export a stopped syncer's global model for evaluation")
-    exporting.add_argument("--root", required=True)
-    exporting.add_argument("--output", required=True)
-    exporting.add_argument("--config", required=True)
-    exporting.set_defaults(func=_diloco_export)
     item = commands.add_parser(
         "pipeline", help="Run complete supervised phases in order; pause when a phase is incomplete"
     )
@@ -532,26 +390,6 @@ def parser() -> argparse.ArgumentParser:
     for name in ("backward", "profile", "core-only"):
         item.add_argument("--" + name, action="store_true")
     item.set_defaults(func=_benchmark)
-    item = commands.add_parser("rl", help="Collect and replay fresh executed policy episodes")
-    item.add_argument("--config")
-    item.add_argument("--tasks", required=True)
-    for name in ("checkpoint", "output", "environment", "codec", "device"):
-        item.add_argument("--" + name)
-    for name in (
-        "task-seeds",
-        "rollouts-per-seed",
-        "max-steps-per-episode",
-        "max-updates",
-        "max-task-groups",
-        "max-latent-coordinates",
-        "max-total-episodes",
-        "capacity",
-        "seed",
-        "checkpoint-every",
-    ):
-        item.add_argument("--" + name, type=int)
-    item.add_argument("--require-blackwell", action=argparse.BooleanOptionalAction, default=None)
-    item.set_defaults(func=_rl)
     item = commands.add_parser("export", help="Create a checksummed served-only safetensors bundle")
     item.add_argument("--checkpoint", required=True)
     item.add_argument("--output", required=True)
@@ -599,13 +437,6 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--compile", action="store_true")
     item.add_argument("--max-sessions", type=int, default=32)
     item.set_defaults(func=_serve_multitrack)
-    item = commands.add_parser(
-        "smoke", help="Run offline preparation, all stages, executed RL, export, and generation"
-    )
-    item.add_argument("--output", default="runs/smoke")
-    item.add_argument("--device", default="cpu")
-    item.add_argument("--precision", choices=("fp32", "bf16"), default="fp32")
-    item.set_defaults(func=_smoke)
     item = commands.add_parser(
         "engram", help="Optional offline native-table initialization and exact baking"
     )
