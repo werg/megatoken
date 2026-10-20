@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from megatoken.model.config import ARCHITECTURE_VERSION, ModelConfig
+from megatoken.io import sha256_file
 
 from .contracts import SemanticSpace
 from .growth import GrowthPolicy
@@ -166,13 +167,12 @@ def checkpoint_bank(
     if optimizer_step < 0 or not model_checkpoint_id or not query_model_snapshot:
         raise ValueError("Checkpoint requires coordinated model, query and KB identities")
     location = bank.backup(checkpoint_file)
-    payload = location.read_bytes()
     info = {
         "schema": "megatoken-memory-checkpoint-v1",
         "recipe": recipe.fingerprint,
         "space": recipe.space.fingerprint,
         "kb_database_id": bank.database_id,
-        "kb_sha256": sha256(payload).hexdigest(),
+        "kb_sha256": sha256_file(location),
         "kb_file": location.name,
         "model_checkpoint_id": model_checkpoint_id,
         "query_model_snapshot": query_model_snapshot,
@@ -194,7 +194,7 @@ def validate_checkpoint(recipe: RetrievalRecipe, path: str | Path, *,
         info["recipe"] != recipe.fingerprint or
         info["space"] != recipe.space.fingerprint or
         info["model_checkpoint_id"] != model_checkpoint_id or
-        sha256(path.read_bytes()).hexdigest() != info["kb_sha256"]
+        sha256_file(path) != info["kb_sha256"]
     ):
         raise RuntimeError("Model/KB snapshot content or identity is incompatible")
     with open_bank_for_recipe(recipe, path, readonly=True) as bank:
