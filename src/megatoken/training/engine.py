@@ -580,6 +580,7 @@ def train(
     logger = JsonlLogger(output / "metrics.jsonl", context.is_primary)
     diloco = None
     optimizer = None
+    bank_owner = None
     dataset = stream = None
     old_handlers = {}
     stop_requested = False
@@ -622,7 +623,22 @@ def train(
             ):
                 raise ValueError("Pin teacher and data partition before training")
             if retrieval_recipe.phase != "coherence_embedding":
-                raise ValueError("Free-bank phases require the bank-aware step owner")
+                if retrieval_recipe.phase not in {
+                    "progressive_warmup", "free_kb_pretraining",
+                } or not config.retrieval_bank or not config.retrieval_gate_receipt:
+                    raise ValueError("Live free-KB phases require a bank and phase gate")
+                if config.decoupled is not None:
+                    raise ValueError("Free-KB training requires synchronous sparse-row ownership")
+                from megatoken.memory.recipe import GateReceipt, validate_gate
+                gate = json.loads(Path(config.retrieval_gate_receipt).read_text())
+                receipt = GateReceipt(**{
+                    **gate, "successful": tuple(gate["successful"])
+                })
+                if receipt.phase != retrieval_recipe.phase:
+                    raise ValueError("Retrieval phase gate must match training phase")
+                validate_gate(retrieval_recipe, receipt)
+            elif config.retrieval_bank:
+                raise ValueError("Coherence embedding bootstrap must not train free-KB rows")
             for example in read_sidecar(config.retrieval_sidecar):
                 identity = (example.episode_id, example.event_id)
                 if identity in retrieval_examples:
@@ -657,6 +673,35 @@ def train(
             from megatoken.assets import install_engram_asset
 
             install_engram_asset(model, config.engram_import)
+        if retrieval_recipe is not None and config.retrieval_bank:
+            from megatoken.memory.recipe import open_bank_for_recipe, validate_checkpoint
+            from megatoken.training.bank import BankTrainingOwner
+            from megatoken.io import sha256_file
+
+            if not Path(config.retrieval_bank).is_file():
+                raise FileNotFoundError("Live KB must be source-populated before training")
+            bank = open_bank_for_recipe(retrieval_recipe, config.retrieval_bank)
+            try:
+                ready = bank.growth_state("readiness", {})
+                if not (ready.get("coherence") and ready.get("embeddings")):
+                    raise RuntimeError("Free-KB training requires verified coherence/embedding readiness")
+                if payload is not None and not phase_transition:
+                    snapshot = resolve_checkpoint(resume) / "kb.sqlite"
+                    validate_checkpoint(
+                        retrieval_recipe, snapshot,
+                        model_checkpoint_id=resolve_checkpoint(resume).name,
+                    )
+                    if sha256_file(Path(config.retrieval_bank)) != sha256_file(snapshot):
+                        raise RuntimeError(
+                            "Live bank differs from exact-resume KB snapshot; restore it explicitly"
+                        )
+                bank_owner = BankTrainingOwner(
+                    bank, retrieval_recipe, device=context.device,
+                    sparse_lr=config.retrieval_sparse_lr,
+                )
+            except BaseException:
+                bank.close()
+                raise
         context.broadcast_model(model)
         phase = dataclasses.replace(
             PHASES[config.phase],
@@ -910,7 +955,7 @@ def train(
                 diagnostics_batch = forward_batch(
                     model, batch, ledger, config, context.device, global_step,
                     retrieval_aux=None if retrieval_recipe is None else (
-                        retrieval_examples, retrieval_recipe, retrieval_denom
+                        retrieval_examples, retrieval_recipe, retrieval_denom, bank_owner
                     ),
                 )
                 for key, value in diagnostics_batch.items():
@@ -1071,4 +1116,6 @@ def train(
             stream.close()
         if dataset is not None:
             dataset.close()
+        if bank_owner is not None:
+            bank_owner.bank.close()
         context.close()
