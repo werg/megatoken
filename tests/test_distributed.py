@@ -15,14 +15,14 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch import nn
 
-from megatoken.data import prepare_sources, write_demo_source
-from megatoken.generation.codec import ByteCodec
 from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.config import TrainConfig
 from megatoken.training.distributed import DistributedContext
 from megatoken.training.engine import train
 from megatoken.training.losses import LossLedger
 from megatoken.training.optimizer import MasterAdamW
+
+from retrieval_fixture import retrieval_train_config
 
 
 def _start_group(rank: int, rendezvous: str) -> DistributedContext:
@@ -173,7 +173,7 @@ def _engine_worker(rank: int, rendezvous: str, config_dict: dict, output_path: s
         first = train(config)
         resumed = train(config, resume=first["checkpoint"])
         transitioned = train(
-            replace(config, phase="S", budget=1, output=config.output + "-s"),
+            replace(config, phase="P1", budget=1, output=config.output + "-p1"),
             resume=resumed["checkpoint"],
             phase_transition=True,
         )
@@ -213,30 +213,9 @@ def test_two_rank_variable_mask_gradient_and_master_update_matches_combined_batc
 )
 def test_two_rank_full_engine_checkpoint_resume_and_phase_transition(tmp_path):
     torch.set_num_threads(1)
-    source = write_demo_source(tmp_path / "source.jsonl", count=24, max_record_bytes=128)
-    dataset = prepare_sources([source], tmp_path / "data", ByteCodec.byte_fallback())
-    dataset.close()
-    config = TrainConfig(
-        dataset=str(tmp_path / "data"),
-        output=str(tmp_path / "run"),
-        model="tiny",
-        codec="byte",
-        device="cpu",
-        precision="fp32",
-        microbatch_episodes=1,
-        max_steps=1,
-        accumulate_scored=1,
-        accumulate_ingested=1000,
-        max_accumulation_windows=1,
-        generated_capacity=128,
-        max_history_tokens=1024,
-        max_record_bytes=512,
-        checkpoint_every=0,
-        eval_every=0,
-        gradient_checkpointing=True,
-        effort=1,
-        use_stage_mixture=False,
-        use_effort_mixture=False,
+    config = retrieval_train_config(
+        tmp_path, microbatch_episodes=1, accumulate_scored=1,
+        max_accumulation_windows=1, gradient_checkpointing=True,
     )
     mp.spawn(
         _engine_worker,

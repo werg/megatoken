@@ -121,40 +121,22 @@ def test_media_payload_is_not_silently_trained_as_text():
         )
 
 def test_grouped_episode_runs_in_existing_training_checkpoint_loop(tmp_path):
-    from dataclasses import replace
-
-    from megatoken.data import DedupConfig, DedupStore
-    from megatoken.data.storage import export_prepared
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.engine import train
 
+    from retrieval_fixture import retrieval_train_config
+
     torch.set_num_threads(1)
-    codec = ByteCodec.byte_fallback()
-    store = DedupStore(
-        tmp_path / "spool.sqlite", DedupConfig(train_fraction=1, validation_fraction=0),
-    )
-    try:
-        with store.transaction():
-            store.add(fixture_episode(), codec)
-        store.freeze()
-        dataset = tmp_path / "data"
-        export_prepared(
-            store, dataset, codec=codec, source_receipts=[],
-            pipeline_fingerprint="meridian-integration-v1",
-        )
-    finally:
-        store.close()
-    config = replace(
-        train_config("recurrent"),
-        dataset=str(dataset), output=str(tmp_path / "run"),
-        max_steps=1, max_accumulation_windows=1, microbatch_episodes=1,
-        accumulate_scored=1, checkpoint_every=0, eval_every=0,
+    config = retrieval_train_config(
+        tmp_path, phase="P1", representation_mode="recurrent",
+        microbatch_episodes=1, max_accumulation_windows=1,
     )
     outcome = train(config)
     payload, _ = load_checkpoint(outcome["checkpoint"])
     assert outcome["global_step"] == 1
     assert outcome["counters"]["P"] > 0
     assert payload["global_step"] == 1
+
 
 def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeypatch):
     from dataclasses import replace
