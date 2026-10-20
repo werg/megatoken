@@ -7,7 +7,7 @@ the model's MasterAdamW optimizer or duplicate neural optimizer moments.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -22,8 +22,11 @@ from megatoken.memory.growth import CatalogChunk, GrowthAllocator
 from megatoken.memory.index import ExactIndex
 from megatoken.memory.optimizer import RowID, SparseRowAdam
 from megatoken.memory.reader import selected_evidence
+from megatoken.memory.retrieval import RetrievalSession
 from megatoken.memory.recipe import RetrievalRecipe
 from megatoken.memory.sqlite import SQLiteKB
+from megatoken.model.core import ROLE_IDS
+from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.training.memory import (
     LocalMemoryWindow, LocalRetrievalTarget, annotated_ranking_loss,
 )
@@ -47,6 +50,8 @@ class ReadResult:
     memory_hits: int
     memory_groups: int
     source_value_examples: int = 0
+    source_committed: int = 0
+    source_bytes: int = 0
 
 
 class BankTrainingOwner:
@@ -96,7 +101,8 @@ class BankTrainingOwner:
         return numerator if valid_count else query.sum() * 0
 
     def read(self, state: Any, query: Tensor, annotation: RetrievalExample,
-             *, global_count: int) -> ReadResult:
+             *, global_count: int, multi: MultiTrackGenerator | None = None,
+             coverage: RetrievalSession | None = None) -> ReadResult:
         if query.shape != (1, self.recipe.space.dimension) or global_count < 1:
             raise ValueError("Training KB read requires one query and global event count")
         if annotation.query.space_fingerprint != self.recipe.space.fingerprint:
@@ -107,6 +113,11 @@ class BankTrainingOwner:
         committed = int(state.meridians_seen[0])
         if annotation.query.meridian > committed:
             raise ValueError("KB query cannot see a future native meridian")
+        if multi is not None and committed != annotation.query.meridian + 1:
+            raise ValueError(
+                "Training retrieval requires a committed P query immediately "
+                "after its recorded native boundary"
+            )
         visibility = Visibility(scope, min(annotation.query.meridian, committed))
         q = query.detach().float().cpu().numpy()[0]
         source_hits = self.index.search(
@@ -181,13 +192,64 @@ class BankTrainingOwner:
                 region, annotation.split_family, annotation.query.meridian,
             ))
             self.query_demand += 1
+        committed_sources = 0
+        committed_bytes = 0
+        if multi is not None:
+            if coverage is None or self.source_features is None:
+                raise RuntimeError(
+                    "Native RAG training requires a per-episode MaxSim ledger "
+                    "and immutable source byte reader"
+                )
+            epochs = self.bank.revisions()
+            scoring_epoch = epochs.scoring_identity(
+                f"native-p-r:{state.model_version}", self.recipe.space,
+            )
+            boundary = replace(annotation.query, snapshot_id=scoring_epoch)
+            coverage.incremental(
+                list(source_hits.hits), boundary=boundary,
+                threshold=float(self.recipe.extra_rules.get("source_threshold", 0.35)),
+            )
+            reserved = coverage.reserve(
+                max_bytes=self.recipe.max_source_bytes,
+                max_events=min(4, self.recipe.max_selected_source),
+                now=annotation.query.meridian,
+                request_id=f"{annotation.episode_id}/{annotation.event_id}",
+            )
+            for obligation in reserved:
+                row = self.bank.get(Collection.SOURCE, obligation.record_id)
+                if not row.active or not visibility.permits(row.footprint):
+                    coverage.release(
+                        obligation.interval, f"{annotation.episode_id}/{annotation.event_id}",
+                    )
+                    raise ValueError("Source became ineligible before native RAG admission")
+                data = self.source_features.read_interval(row, obligation.interval)
+                state = multi.tracks.observe_group(
+                    state,
+                    (ObservedEvent(
+                        "retrieved_source", "text", data,
+                        role_id=ROLE_IDS["document"],
+                    ),),
+                    encoder_grad=False,
+                )
+                coverage.commit(
+                    obligation.interval,
+                    request_id=f"{annotation.episode_id}/{annotation.event_id}",
+                    receipt=(
+                        f"native-rag:{annotation.episode_id}/{annotation.event_id}:"
+                        f"{obligation.interval.content_id}:{obligation.interval.version}:"
+                        f"{obligation.interval.start}:{obligation.interval.end}"
+                    ),
+                )
+                committed_sources += 1
+                committed_bytes += len(data)
         self.reads += 1
         scale = self.recipe.loss_weights.get("query_ranking", 0.)
         loss = (scale * (s_loss + m_loss) + (
             self.recipe.loss_weights.get("source_value", 0.) * source_value
         )) / global_count
         return ReadResult(
-            state, loss, len(s_ids), len(m_ids), groups_count, source_value_examples,
+            state, loss, len(s_ids), len(m_ids), groups_count,
+            source_value_examples, committed_sources, committed_bytes,
         )
 
     def catalog(self, scope: str) -> list[CatalogChunk]:
