@@ -239,25 +239,42 @@ def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[s
             ).hexdigest(),
         }
         record(entry)
-        started = time.time()
-        sandbox.wait(timeout=start_timeout)
-        record(
-            {"event": "running", "sandbox_id": sandbox.sandbox_id, "seconds": time.time() - started}
-        )
-        inbox = f"{WORK}/.cloud/inbox"
-        for source, digest in [(archive, code["sha256"]), *pushed]:
-            sandbox.write_file_streaming(
-                f"{inbox}/{digest}", _chunks(source), timeout_seconds=7200
-            ).result()
-        inputs = {
-            "code": code,
-            "inputs": [
-                {key: item[key] for key in ("path", "sha256", "url") if key in item}
-                for item in job.get("inputs", [])
-            ],
-        }
-        sandbox.write_file(f"{WORK}/.cloud/inputs.json", json.dumps(inputs).encode()).result()
-        sandbox.write_file(f"{WORK}/.cloud/inputs-ready", b"").result()
+        # Waiting in "creating" is not billed, but a sandbox the controller gave up
+        # on must never start later and idle billed while it waits for inputs.
+        try:
+            started = time.time()
+            sandbox.wait(timeout=start_timeout)
+            record(
+                {
+                    "event": "running",
+                    "sandbox_id": sandbox.sandbox_id,
+                    "seconds": time.time() - started,
+                }
+            )
+            inbox = f"{WORK}/.cloud/inbox"
+            for source, digest in [(archive, code["sha256"]), *pushed]:
+                sandbox.write_file_streaming(
+                    f"{inbox}/{digest}", _chunks(source), timeout_seconds=7200
+                ).result()
+            inputs = {
+                "code": code,
+                "inputs": [
+                    {key: item[key] for key in ("path", "sha256", "url") if key in item}
+                    for item in job.get("inputs", [])
+                ],
+            }
+            sandbox.write_file(f"{WORK}/.cloud/inputs.json", json.dumps(inputs).encode()).result()
+            sandbox.write_file(f"{WORK}/.cloud/inputs-ready", b"").result()
+        except BaseException as error:
+            sandbox.stop(graceful_shutdown_seconds=10, missing_ok=True).result()
+            record(
+                {
+                    "event": "stop",
+                    "sandbox_id": sandbox.sandbox_id,
+                    "reason": f"launch failed: {type(error).__name__}: {error}"[:400],
+                }
+            )
+            raise
         record(
             {"event": "inputs_pushed", "sandbox_id": sandbox.sandbox_id, "files": len(pushed) + 1}
         )
@@ -319,6 +336,12 @@ def main(argv: list[str] | None = None) -> int:
     item = commands.add_parser("launch")
     item.add_argument("job", type=Path)
     item.add_argument("--repo", type=Path, default=Path.cwd())
+    item.add_argument(
+        "--start-timeout-hours",
+        type=float,
+        default=1.5,
+        help="How long to wait for GPU capacity before stopping the sandbox",
+    )
     item = commands.add_parser("collect")
     item.add_argument("sandbox_id")
     item.add_argument("--dest", type=Path, required=True)
@@ -333,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     load_credentials()
     if args.command == "launch":
-        result: Any = launch(args.job, args.repo)
+        result: Any = launch(args.job, args.repo, start_timeout=args.start_timeout_hours * 3600)
     elif args.command == "collect":
         result = collect(args.sandbox_id, args.dest)
     elif args.command == "logs":
