@@ -825,6 +825,20 @@ def train(
         last_saved = global_step if resume and not phase_transition else -1
         updates_this_run = 0
 
+        def memory_attachment(stage: Path, name: str) -> dict[str, Any]:
+            if bank_owner is None:
+                return {}
+            from megatoken.memory.recipe import checkpoint_bank
+            growth = bank_owner.bank.growth_state("last_growth", {})
+            manifest = checkpoint_bank(
+                retrieval_recipe, bank_owner.bank,
+                checkpoint_file=stage / "kb.sqlite",
+                model_checkpoint_id=name, optimizer_step=global_step,
+                growth_cursor=content_hash(growth),
+                query_model_snapshot=f"native-p-r:{global_step}:{model_config.routing_version}",
+            )
+            return {"memory_checkpoint": manifest}
+
         def checkpoint(label: str, pinned: bool = False) -> str:
             nonlocal last_saved
             rank_state = context.all_gather_object(
@@ -860,6 +874,7 @@ def train(
                     },
                     pinned=pinned,
                     keep=config.keep_checkpoints,
+                    attachments=lambda stage: memory_attachment(stage, name),
                 )
             context.barrier()
             if checkpoint_store is not None:
@@ -977,6 +992,33 @@ def train(
             step_metrics = optimizer.step(config.grad_clip)
             optimizer_seconds = time.perf_counter() - optimizer_started
             global_step += 1
+            if bank_owner is not None:
+                from megatoken.training.bank import synchronize_sparse_rows
+
+                step_metrics["memory_sparse_updated"] = synchronize_sparse_rows(
+                    bank_owner, context, optimizer_step=global_step,
+                    max_norm=config.grad_clip,
+                )
+                if global_step % config.retrieval_growth_every == 0:
+                    error = None
+                    grown = 0
+                    if context.is_primary:
+                        try:
+                            scopes = tuple(sorted({
+                                a.query_teacher_inputs.ranges[0].scope
+                                for a in retrieval_examples.values()
+                            }))
+                            grown = bank_owner.grow_at_barrier(
+                                scopes=scopes, step=global_step,
+                                budget=config.retrieval_growth_budget,
+                            )
+                        except BaseException as exc:
+                            error = f"{type(exc).__name__}: {exc}"
+                    failures = context.all_gather_object(error)
+                    if any(failures):
+                        raise RuntimeError(f"Memory growth transaction failed: {failures}")
+                    context.barrier()
+                    step_metrics["memory_grown"] = grown
             updates_this_run += 1
             consumed += getattr(global_work, phase.meter)
             counters.add(global_work)
