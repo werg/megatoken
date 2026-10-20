@@ -1,5 +1,6 @@
 """Native bank-aware grouped training and canonical sparse publication regressions."""
 from hashlib import sha256
+from dataclasses import replace
 
 import numpy as np
 import torch
@@ -144,5 +145,44 @@ def test_demand_is_deduplicated_only_at_primary_barrier(tmp_path):
         owner.read(state, query, annotation, global_count=1)
         assert synchronize_query_demand(owner, _OneRank()) == 0
         assert bank.db.execute("SELECT count(*) FROM demand_events").fetchone()[0] == 1
+    finally:
+        bank.close()
+
+
+def test_detached_actual_source_bytes_train_query_and_stored_source_key(tmp_path):
+    from megatoken.generation.codec import ByteCodec
+    from megatoken.generation.policy import FacetedGenerator
+    from megatoken.training.source_features import NativeSourceFeatures
+
+    config, bank, owner, annotation = _fixture(tmp_path)
+    try:
+        roots = tmp_path / "assets"
+        roots.mkdir()
+        (roots / "source-asset").write_bytes(b"ABCDEFGHIJKLMNOPQRST")
+        model = FacetedGenerator(FacetedCore(config), ByteCodec.byte_fallback())
+        features = NativeSourceFeatures(model, roots, max_chunk_bytes=20)
+        weights = dict(owner.recipe.loss_weights)
+        weights["query_ranking"] = 0.
+        weights["source_value"] = 1.
+        recipe = replace(owner.recipe, loss_weights=weights)
+        trained = BankTrainingOwner(
+            bank, recipe, device=torch.device("cpu"),
+            source_features=features,
+        )
+        query = torch.tensor([[0.8, 0.6] + [0.] * 6], requires_grad=True)
+        state = MultiTrackCore(model.core).initial_state(1)
+        outcome = trained.read(state, query, annotation, global_count=1)
+        assert outcome.source_value_examples == 1
+        outcome.loss.backward()
+        assert query.grad is not None and query.grad.abs().sum() > 0
+        assert any(
+            row.collection is Collection.SOURCE and
+            row.field == "key" and leaf.grad is not None and leaf.grad.abs().sum() > 0
+            for row, leaf in trained.sparse.leaves.items()
+        )
+        assert not any(
+            parameter.grad is not None
+            for parameter in model.core.encoder_parameters()
+        )
     finally:
         bank.close()
