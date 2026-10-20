@@ -34,6 +34,7 @@ class SparseRowAdam:
         self.bank, self.lr, self.beta1, self.beta2 = bank, lr, beta1, beta2
         self.eps, self.weight_decay = eps, weight_decay
         self.leaves: dict[RowID, Tensor] = {}
+        self._selected_revisions: dict[tuple[Collection, str, int], tuple[int, ...]] = {}
 
     def select(self, identity: RowID) -> Tensor:
         if identity not in self.leaves:
@@ -52,6 +53,12 @@ class SparseRowAdam:
                 raise ValueError("Unsupported sparse row kind")
             if identity.field not in fields or fields[identity.field] is None:
                 raise KeyError(identity)
+            row = (identity.collection, identity.kind, identity.id)
+            revision = ((record.key_revision, record.payload_revision)
+                        if identity.kind == "record" else (record.payload_revision,))
+            if row in self._selected_revisions and self._selected_revisions[row] != revision:
+                raise RuntimeError("KB row changed during a selected training window")
+            self._selected_revisions[row] = revision
             self.leaves[identity] = torch.tensor(
                 fields[identity.field], dtype=torch.float32, requires_grad=True
             )
@@ -62,6 +69,16 @@ class SparseRowAdam:
             raise ValueError("Invalid sparse clipping threshold")
         updated = 0
         with self.bank.transaction():
+            # Check all selected owners at one barrier BEFORE writing any row.
+            # Per-field compare-and-swap during sequential updates would reject
+            # our own updates to another field of the same record.
+            for (collection, kind, entity_id), selected in self._selected_revisions.items():
+                record = (self.bank.get(collection, entity_id) if kind == "record"
+                          else self.bank.get_relation(entity_id))
+                current = ((record.key_revision, record.payload_revision)
+                           if kind == "record" else (record.payload_revision,))
+                if selected != current:
+                    raise RuntimeError("Stale selected KB row at sparse optimizer barrier")
             for identity, leaf in self.leaves.items():
                 if leaf.grad is None:
                     continue
@@ -77,6 +94,8 @@ class SparseRowAdam:
                 if prior is None:
                     m, v, n = torch.zeros_like(grad), torch.zeros_like(grad), 0
                 else:
+                    if prior[3] >= step:
+                        raise RuntimeError("Sparse KB optimizer step is not strictly increasing")
                     m, v, n = (torch.from_numpy(prior[0]).reshape_as(grad),
                                torch.from_numpy(prior[1]).reshape_as(grad), prior[2])
                 n += 1
@@ -102,4 +121,5 @@ class SparseRowAdam:
                 )
                 updated += 1
         self.leaves.clear()
+        self._selected_revisions.clear()
         return updated
