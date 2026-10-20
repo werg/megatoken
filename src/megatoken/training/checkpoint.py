@@ -7,7 +7,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import torch
 
@@ -24,6 +24,7 @@ def save_checkpoint(
     *,
     pinned: bool = False,
     keep: int = 3,
+    attachments: Callable[[Path], dict[str, Any]] | None = None,
 ) -> Path:
     root = Path(root)
     if not name or Path(name).name != name or name.startswith("."):
@@ -39,8 +40,14 @@ def save_checkpoint(
             torch.save({**payload, "format_version": FORMAT_VERSION}, handle)
             handle.flush()
             os.fsync(handle.fileno())
+        # Stage externally owned snapshots alongside the neural optimizer BEFORE
+        # publication, so latest.json can never point to half a neural/KB pair.
+        extra = attachments(temporary) if attachments is not None else {}
+        if set(extra).intersection(metadata):
+            raise ValueError("Checkpoint attachment metadata conflicts with existing keys")
         complete = {
             **metadata,
+            **extra,
             "format_version": FORMAT_VERSION,
             "state_sha256": sha256_file(weights),
             "pinned": pinned,
@@ -91,6 +98,13 @@ def load_checkpoint(
     state_path = directory / "state.pt"
     if sha256_file(state_path) != metadata["state_sha256"]:
         raise ValueError(f"Checkpoint payload checksum mismatch at {directory}")
+    kb = metadata.get("memory_checkpoint")
+    if kb is not None:
+        memory_path = directory / kb["kb_file"]
+        if memory_path.name != kb["kb_file"] or (
+            not memory_path.is_file() or sha256_file(memory_path) != kb["kb_sha256"]
+        ):
+            raise ValueError("Checkpoint memory artifact missing or checksum mismatch")
     payload = torch.load(state_path, map_location=map_location, weights_only=True)
     if payload.get("format_version") != FORMAT_VERSION:
         raise ValueError("Unsupported payload format")
