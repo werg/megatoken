@@ -295,19 +295,39 @@ class SQLiteKB:
                 (source_id, version),
             ).fetchall()
             counts = {"source": 0, "memory": 0, "relation": 0}
+            revoked_records: set[int] = set()
             for row in rows:
+                identity = int(row["entity_id"])
                 if row["entity_kind"] == "record":
-                    self.db.execute(
-                        "UPDATE records SET active=0 WHERE id=?", (row["entity_id"],)
-                    )
-                    counts[row["collection"]] += 1
+                    changed = self.db.execute(
+                        "UPDATE records SET active=0 WHERE id=? AND active=1",
+                        (identity,),
+                    ).rowcount
+                    counts[row["collection"]] += changed
+                    if changed:
+                        revoked_records.add(identity)
+                        # IVF must never retain a live-looking posting for a
+                        # retired key, even if a stale candidate cache survives.
+                        self.db.execute(
+                            "DELETE FROM postings WHERE record_id=?", (identity,)
+                        )
                 else:
-                    self.db.execute(
-                        "UPDATE relations SET active=0 WHERE id=?", (row["entity_id"],)
-                    )
-                    counts["relation"] += 1
-            if rows:
-                self._bump("policy", "graph")
+                    counts["relation"] += self.db.execute(
+                        "UPDATE relations SET active=0 WHERE id=? AND active=1",
+                        (identity,),
+                    ).rowcount
+            # A relation is invalid whenever either member is retired, even
+            # if its own source-window footprint omitted a member's contextual
+            # source (older schema/partial migration). Preserve the tombstoned
+            # row for audit; never offer it to an active graph reader.
+            if revoked_records:
+                counts["relation"] += self.db.execute(
+                    """UPDATE relations SET active=0 WHERE active=1 AND
+                    (left_id IN (SELECT id FROM records WHERE active=0) OR
+                     right_id IN (SELECT id FROM records WHERE active=0))"""
+                ).rowcount
+            if any(counts.values()):
+                self._bump("policy", "graph", "index")
             return counts
 
     def insert_source(self, *, scope: str, footprint: Footprint, key,
