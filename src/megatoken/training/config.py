@@ -145,9 +145,13 @@ class TrainConfig:
                 or self.retrieval_document_sidecar.startswith("PIN_")
                 or self.retrieval_memory_recipe.startswith("PIN_")):
             raise ValueError("Pin actual retrieval preparation artifacts before training")
-        if self.decoupled is not None:
-            raise ValueError("Asynchronous DiLoCo cannot own the mandatory synchronized "
-                             "model/KB training transaction")
+        # DiLoCo is the target training methodology. Neural parameters (including
+        # E/C/P/R, KV projector and LoRA experts) synchronize through the existing
+        # fragment protocol; the free-KB rows do not yet have a coordinator-owned
+        # row-sync protocol, so live-bank phases remain gated until it exists.
+        if self.decoupled is not None and self.retrieval_bank:
+            raise ValueError("DiLoCo free-KB training needs the coordinator KB row-sync "
+                             "protocol (tracked in retrieval-memory-implementation-status)")
         if self.retrieval_source_assets_root and not self.retrieval_bank:
             raise ValueError("RAG source-feature assets require a live canonical KB")
         if bool(self.retrieval_ivf_centroids) != bool(self.retrieval_ivf_sha256):

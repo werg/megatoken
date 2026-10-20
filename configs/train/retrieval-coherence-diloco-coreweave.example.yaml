@@ -1,0 +1,63 @@
+# Target methodology: DiLoCo decoupled learners for the mandatory coherence +
+# query-embedding phase (no freely allocated KB rows yet). Neural parameters,
+# including E/C/P/R, the native KV projector and memory LoRA experts, synchronize
+# through the coordinator. Live free-KB phases stay gated until the coordinator
+# KB row-sync protocol exists (see docs/retrieval-memory-implementation-status.md).
+# All PIN_* artifact identities must be filled in after original data preparation;
+# every worker must see byte-identical sidecars and recipe (checked by train identity).
+phase: P1
+output: /work/runs/retrieval-coherence-diloco
+model: 32x512
+model_overrides:
+  semantic_dim: 1024
+  semantic_value_dim: 256
+  max_kb_positions: 4
+  memory_lora_experts: 4
+  memory_lora_rank: 8
+  memory_lora_topk: 2
+dataset: PIN_PREPARED_CAUSAL_MERIDIAN_EPISODES
+codec: PIN_RAW_CODEC_DIRECTORY
+device: cuda
+precision: bf16
+require_blackwell: true
+expert_backend: triton
+representation_mode: recurrent
+budget_meter: G
+budget: 1000000
+accumulate_events: 64
+microbatch_episodes: 1
+max_accumulation_windows: 64
+max_history_tokens: 4096
+max_window_records: 16
+max_record_bytes: 16384
+generated_capacity: 512
+scored_decisions: 4
+effort: 6
+eval_every: 0
+checkpoint_every: 100
+retrieval_sidecar: PIN_VERIFIED_CAUSAL_RETRIEVAL_SIDECAR_JSONL
+retrieval_document_sidecar: PIN_TEACHER_DOCUMENT_EMBEDDINGS_JSONL
+retrieval_memory_recipe: PIN_PHASE_MATCHED_RECIPE_JSON
+router_balance_mode: global
+router_replay_assignments: 262144
+gradient_checkpointing: true
+compile: false
+use_stage_mixture: false
+use_effort_mixture: false
+
+# Each of 8 CoreWeave GPU sandboxes executes one independent learner.
+# MEGATOKEN_WORKER_ID (0..7) comes from the sandbox launcher.
+inner_optimizer: muon
+decoupled:
+  run_id: PIN_RUN_ID
+  coordinator_url: https://REPLACE-WITH-COORDINATOR-HOST
+  workers: 8
+  local_steps: 256
+  poll_steps: 4
+  heartbeat_steps: 8
+  io_workers: 4
+  timeout_seconds: 120
+  max_offline_steps: 2048
+  wire_dtype: bf16
+  # Strongly recommended: CoreWeave AI Object Storage / compatible S3.
+  # checkpoint_s3: s3://YOUR-BUCKET/megatoken-checkpoints

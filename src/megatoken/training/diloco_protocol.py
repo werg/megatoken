@@ -56,9 +56,19 @@ def training_identity(config: Any) -> str:
         "max_accumulation_windows", "max_history_tokens", "max_window_records",
         "scored_decisions", "max_record_bytes", "effort", "use_stage_mixture",
         "use_effort_mixture", "loss_weights", "grad_clip", "weight_decay",
-        "inner_optimizer", "gradient_checkpointing",
+        "inner_optimizer", "gradient_checkpointing", "budget_meter", "accumulate_events",
+        "router_balance_mode", "router_replay_assignments", "retrieval_kv_dropout",
+        "retrieval_lora_dropout",
     )
-    return content_hash({name: getattr(config, name) for name in fields})
+    identity: dict[str, Any] = {name: getattr(config, name) for name in fields}
+    # Retrieval supervision is identified by content, not by per-sandbox paths.
+    from megatoken.io import sha256_file
+    from megatoken.memory.recipe import RetrievalRecipe
+
+    identity["retrieval_recipe"] = RetrievalRecipe.load(config.retrieval_memory_recipe).fingerprint
+    identity["retrieval_sidecar"] = sha256_file(Path(config.retrieval_sidecar))
+    identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
+    return content_hash(identity)
 
 
 def parameter_identity(masters: Mapping[str, torch.Tensor]) -> str:

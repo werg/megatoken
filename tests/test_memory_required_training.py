@@ -43,8 +43,12 @@ def test_required_training_assets_cannot_be_switched_off():
         config(router_balance_mode="local")
     with pytest.raises(ValueError, match="grouped megatoken"):
         config(budget_meter="auto")
-    with pytest.raises(ValueError, match="Asynchronous DiLoCo"):
-        config(decoupled={"coordinator_url": "http://example.invalid", "run_id": "old"})
+    decoupled = {"coordinator_url": "https://example.invalid", "run_id": "run"}
+    # DiLoCo is the target methodology: allowed without a live bank, gated with one.
+    assert config(decoupled=decoupled).decoupled.run_id == "run"
+    with pytest.raises(ValueError, match="KB row-sync"):
+        config(decoupled=decoupled, retrieval_bank="kb.sqlite",
+               retrieval_gate_receipt="gate.json")
     assert config().router_balance_mode == "global"
     assert config().budget_meter == "G"
 
@@ -80,8 +84,11 @@ def test_public_legacy_training_commands_are_absent():
         action for action in parser()._actions
         if isinstance(action, argparse._SubParsersAction)
     )
-    for previous in ("diloco", "rl", "smoke"):
+    for previous in ("rl", "smoke"):
         assert previous not in command_action.choices
+    diloco = command_action.choices["diloco"]
+    sub = next(a for a in diloco._actions if isinstance(a, argparse._SubParsersAction))
+    assert set(sub.choices) == {"init", "serve", "export"}
     train = command_action.choices["train"]
     config_action = next(
         action for action in train._actions

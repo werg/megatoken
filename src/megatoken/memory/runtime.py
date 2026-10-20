@@ -16,7 +16,8 @@ import torch
 from megatoken.memory.base import Record, SearchBatch
 from megatoken.memory.context import admit_kb
 from megatoken.memory.contracts import Collection, QueryBoundary, SemanticSpace, Visibility
-from megatoken.memory.bilateral import FrozenMemoryFields, selected_joint_groups\nfrom megatoken.memory.sqlite import SQLiteKB
+from megatoken.memory.bilateral import FrozenMemoryFields, selected_joint_groups
+from megatoken.memory.sqlite import SQLiteKB
 from megatoken.memory.replay import QueryActionReceipt
 from megatoken.memory.retrieval import (
     Interval, RetrievalService, RetrievalSession, SourceObligation, subtract,

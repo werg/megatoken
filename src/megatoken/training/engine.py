@@ -432,7 +432,8 @@ def train(
             } or not config.retrieval_bank or not config.retrieval_gate_receipt:
                 raise ValueError("Live free-KB phases require a bank and phase gate")
             if config.decoupled is not None:
-                raise ValueError("Free-KB training requires synchronous sparse-row ownership")
+                raise ValueError("DiLoCo free-KB training needs the coordinator KB "
+                                 "row-sync protocol")
             from megatoken.memory.recipe import GateReceipt, validate_gate
             gate = json.loads(Path(config.retrieval_gate_receipt).read_text())
             receipt = GateReceipt(**{

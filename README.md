@@ -52,7 +52,9 @@ NPROC_PER_NODE=8 scripts/launch.sh configs/train/retrieval-free-kb.example.yaml 
 
 These two phases additionally require the authoritative prepared SQLite KB, source assets, pinned IVF centroids, signed-off readiness/holdout gate receipts and a synchronized neural+KB checkpoint. Query-density growth cannot begin before generator-coherence and query/chunk embedding gates pass. Development/release holdouts, source-family ancestry, sparse updates and index freshness must be verified.
 
-There is **no** `configs/train/b0.yaml`, implicit launcher default, `megatoken smoke` or asynchronous DiLoCo training path. The old stand-alone `megatoken rl` training command is also retired until the native retrieval-memory experience/writer acceptance gates are implemented.
+There is **no** `configs/train/b0.yaml`, implicit launcher default or `megatoken smoke`.
+
+**DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` and `scripts/coreweave_diloco.py` run decoupled learners over the same mandatory retrieval architecture ([configs/train/retrieval-coherence-diloco-coreweave.example.yaml](configs/train/retrieval-coherence-diloco-coreweave.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). The coherence + embedding phase runs decoupled today; live free-KB phases are gated until the coordinator KB row-sync protocol lands. The old stand-alone `megatoken rl` training command is also retired until the native retrieval-memory experience/writer acceptance gates are implemented.
 
 ## Storage and writer utilities
 

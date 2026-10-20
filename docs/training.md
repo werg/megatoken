@@ -1,4 +1,6 @@
-> **BREAKING MIGRATION NOTICE:** This document retains historical v8 training/background details. Its old `configs/train/*.yaml` stage commands and any optional-memory instructions are **not supported**. Only the phase-gated retrieval-memory curriculum described in [README.md](../README.md) and [retrieval-memory-implementation-status.md](retrieval-memory-implementation-status.md) may launch training.\n\n# Training and operations
+> **BREAKING MIGRATION NOTICE:** This document retains historical v8 training/background details. Its old `configs/train/*.yaml` stage commands and any optional-memory instructions are **not supported**. Only the phase-gated retrieval-memory curriculum described in [README.md](../README.md) and [retrieval-memory-implementation-status.md](retrieval-memory-implementation-status.md) may launch training.
+
+# Training and operations
 
 > **Implementation boundary (v8):** The stages described below still support
 > legacy one-event episodes; the new grouped `MultiTrackGenerator`
