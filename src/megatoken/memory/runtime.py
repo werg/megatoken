@@ -17,6 +17,7 @@ from megatoken.memory.base import Record, SearchBatch
 from megatoken.memory.context import admit_kb
 from megatoken.memory.contracts import Collection, QueryBoundary, SemanticSpace, Visibility
 from megatoken.memory.reader import build_memory_groups
+from megatoken.memory.replay import QueryActionReceipt
 from megatoken.memory.retrieval import (
     Interval, RetrievalService, RetrievalSession, SourceObligation, subtract,
 )
@@ -172,8 +173,17 @@ class NativeRetrieval:
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, ("__retrieval_query__",)))
+        tape = QueryActionReceipt.capture(
+            event_id=request_id, meridian=clock,
+            model_version=self.generator.generator.core.model_version,
+            request=request, purpose=purpose,
+            space_fingerprint=self.space.fingerprint,
+            selected=_raw, vector=vector, effort=effort,
+            snapshot_id=receipt.snapshot_id,
+        )
         session.retrieval_receipts.append({
             "kind": "query", "event_id": request_id,
+            "action": tape.to_dict(),
             "meridian": clock, "request_hash": receipt.request_hash,
             "snapshot_id": receipt.snapshot_id,
             "query_vector_sha256": sha256(
