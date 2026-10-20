@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import base64
+import binascii
 from hashlib import sha256
 import json
 import math
@@ -25,6 +27,7 @@ class RetrievalExample:
     source_snapshot: str
     split_family: str
     teacher_target: tuple[float, ...] | None = None
+    main_request_b64: str | None = None
 
     def __post_init__(self) -> None:
         if not self.episode_id or self.event_id != self.query.event_id:
@@ -48,6 +51,8 @@ class RetrievalExample:
             eligibility.permits(self.payload_support)
         ):
             raise ValueError("Retrieved source context/support is not causally eligible")
+        if self.main_request_b64 is not None:
+            self.request_content()
         if len(self.positive_content_ids) != len(self.support_weights):
             raise ValueError("Annotation IDs and weights must correspond")
         if len(set(self.positive_content_ids)) != len(self.positive_content_ids):
@@ -61,6 +66,18 @@ class RetrievalExample:
                 not math.isfinite(x) for x in self.teacher_target
             ) or not 1e-12 < math.sqrt(sum(x * x for x in self.teacher_target)) < float("inf"):
                 raise ValueError("Teacher query vector must be finite and nonzero")
+
+    def request_content(self) -> bytes:
+        """Bytes of the explicit, causally visible main request; never teacher input."""
+        if self.main_request_b64 is None:
+            raise ValueError("Retrieval query training requires pinned main-request bytes")
+        try:
+            encoded = base64.b64decode(self.main_request_b64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Invalid base64 main-request payload") from exc
+        if not encoded or sha256(encoded).hexdigest() != self.query.request_hash:
+            raise ValueError("Main request does not match the causal request hash")
+        return encoded
 
     def to_dict(self) -> dict:
         return {
