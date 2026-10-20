@@ -44,11 +44,10 @@ def test_required_training_assets_cannot_be_switched_off():
     with pytest.raises(ValueError, match="grouped megatoken"):
         config(budget_meter="auto")
     decoupled = {"coordinator_url": "https://example.invalid", "run_id": "run"}
-    # DiLoCo is the target methodology: allowed without a live bank, gated with one.
+    # DiLoCo is the target methodology for every phase, including live free KB.
     assert config(decoupled=decoupled).decoupled.run_id == "run"
-    with pytest.raises(ValueError, match="KB row-sync"):
-        config(decoupled=decoupled, retrieval_bank="kb.sqlite",
-               retrieval_gate_receipt="gate.json")
+    assert config(decoupled=decoupled, retrieval_bank="kb.sqlite",
+                  retrieval_gate_receipt="gate.json").retrieval_bank == "kb.sqlite"
     assert config().router_balance_mode == "global"
     assert config().budget_meter == "G"
 

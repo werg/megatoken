@@ -131,6 +131,23 @@ def _diloco_initialize(args):
     }
     with PreparedDataset(config.dataset) as prepared:
         dataset_fingerprint = content_hash(prepared.manifest)
+    kb = None
+    if config.retrieval_bank:
+        from megatoken.data.retrieval import read_sidecar
+
+        # The coordinator owns the canonical free KB and all row growth.
+        kb = {
+            "recipe_path": config.retrieval_memory_recipe,
+            "bank_path": config.retrieval_bank,
+            "centroids_path": config.retrieval_ivf_centroids,
+            "centroids_sha256": config.retrieval_ivf_sha256,
+            "nprobe": config.retrieval_ivf_nprobe,
+            "scopes": tuple(sorted({
+                example.query_teacher_inputs.ranges[0].scope
+                for example in read_sidecar(config.retrieval_sidecar)
+            })),
+            "growth_budget": config.retrieval_growth_budget,
+        }
     return initialize_coordinator(
         args.root,
         run_id=config.decoupled.run_id,
@@ -148,6 +165,7 @@ def _diloco_initialize(args):
         grace_seconds=args.grace_seconds,
         max_staleness=args.max_staleness,
         token_budget=config.budget or PHASES[config.phase].budget,
+        kb=kb,
     )
 
 

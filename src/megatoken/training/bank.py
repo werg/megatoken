@@ -273,72 +273,93 @@ class BankTrainingOwner:
 
     def catalog(self, scope: str) -> list[CatalogChunk]:
         """Source records are the allocation catalog, never model outputs."""
-        catalog = []
-        for row in self.bank.scan(Collection.SOURCE, scope):
-            if not row.active:
-                continue
-            catalog.append(CatalogChunk(
-                content_id=row.content_id, key=row.key, scope=row.scope,
-                region=semantic_region(row.key), footprint=row.footprint,
-                family=row.footprint.ranges[0].family or row.content_id,
-                group=row.group,
-            ))
-        return catalog
+        return bank_catalog(self.bank, scope)
 
     def grow_at_barrier(self, *, scopes: tuple[str, ...],
                         step: int, budget: int) -> int:
         """Only after one completed, globally synchronized optimizer step."""
-        if budget < 0:
-            raise ValueError("Growth must have a nonnegative, bounded budget")
-        from megatoken.memory.contracts import Visibility
-        n = 0
-        for scope in sorted(set(scopes)):
-            # Historical prepared training provenance stays eligible here;
-            # serving never uses this permissive barrier visibility.
-            rows = self.catalog(scope)
-            if not rows:
-                continue
-            cursor = max(r.available_at for c in rows for r in c.footprint.ranges)
-            n += len(self.growth.grow(
-                rows, visibility=Visibility(scope, cursor), step=step,
-                budget=max(0, budget - n),
-            ))
-            if self.recipe.growth.max_pairs:
-                # Distinct source support windows are durable catalog records
-                # with explicit full-context lineage. Identical source
-                # footprints cannot multiply correlation support by aliasing
-                # window IDs or repeating a source family in the corpus.
-                seen_support: set[str] = set()
-                windows: dict[str, tuple[str, ...]] = {}
-                for item in self.bank.db.execute(
-                    """SELECT window_id,footprint,source_ids FROM source_windows
-                       WHERE scope=? ORDER BY window_id""",
-                    (scope,),
-                ).fetchall():
-                    footprint = Footprint.from_json(item["footprint"])
-                    if not Visibility(scope, cursor).permits(footprint) or (
-                        self.bank.footprint_revoked(footprint)
-                    ):
-                        continue
-                    signature = sha256(footprint.to_json().encode()).hexdigest()
-                    if signature in seen_support:
-                        continue
-                    seen_support.add(signature)
-                    windows[item["window_id"]] = tuple(json.loads(item["source_ids"]))
-                if windows:
-                    self.pairs_created += len(self.growth.admit_pairs(
-                        windows, scope=scope,
-                        visibility=Visibility(scope, cursor),
-                    ))
-            if self.ivf is not None:
-                # The growth barrier is the ONLY time newly allocated
-                # keyspaces need a bulk posting refresh. Selected key updates
-                # patch their own postings atomically in SparseRowAdam.
-                for collection in (Collection.SOURCE, Collection.MEMORY):
-                    self.ivf.rebuild(scope=scope, collection=collection)
-            if n >= budget:
-                break
-        return n
+        grown, pairs = grow_bank(
+            self.bank, self.recipe, self.growth, self.ivf,
+            scopes=scopes, step=step, budget=budget,
+        )
+        self.pairs_created += pairs
+        return grown
+
+
+def bank_catalog(bank: SQLiteKB, scope: str) -> list[CatalogChunk]:
+    """Source records are the allocation catalog, never model outputs."""
+    catalog = []
+    for row in bank.scan(Collection.SOURCE, scope):
+        if not row.active:
+            continue
+        catalog.append(CatalogChunk(
+            content_id=row.content_id, key=row.key, scope=row.scope,
+            region=semantic_region(row.key), footprint=row.footprint,
+            family=row.footprint.ranges[0].family or row.content_id,
+            group=row.group,
+        ))
+    return catalog
+
+
+def grow_bank(bank: SQLiteKB, recipe: RetrievalRecipe, growth: GrowthAllocator,
+              ivf: SQLiteDiskIVF | None, *, scopes: tuple[str, ...],
+              step: int, budget: int) -> tuple[int, int]:
+    """Bounded point/pair growth on the single authoritative bank writer.
+
+    Used by the synchronous rank-zero barrier and by the DiLoCo coordinator,
+    which owns row allocation for decoupled learners. Returns (points, pairs).
+    """
+    if budget < 0:
+        raise ValueError("Growth must have a nonnegative, bounded budget")
+    n = 0
+    pairs = 0
+    for scope in sorted(set(scopes)):
+        # Historical prepared training provenance stays eligible here;
+        # serving never uses this permissive barrier visibility.
+        rows = bank_catalog(bank, scope)
+        if not rows:
+            continue
+        cursor = max(r.available_at for c in rows for r in c.footprint.ranges)
+        n += len(growth.grow(
+            rows, visibility=Visibility(scope, cursor), step=step,
+            budget=max(0, budget - n),
+        ))
+        if recipe.growth.max_pairs:
+            # Distinct source support windows are durable catalog records
+            # with explicit full-context lineage. Identical source
+            # footprints cannot multiply correlation support by aliasing
+            # window IDs or repeating a source family in the corpus.
+            seen_support: set[str] = set()
+            windows: dict[str, tuple[str, ...]] = {}
+            for item in bank.db.execute(
+                """SELECT window_id,footprint,source_ids FROM source_windows
+                   WHERE scope=? ORDER BY window_id""",
+                (scope,),
+            ).fetchall():
+                footprint = Footprint.from_json(item["footprint"])
+                if not Visibility(scope, cursor).permits(footprint) or (
+                    bank.footprint_revoked(footprint)
+                ):
+                    continue
+                signature = sha256(footprint.to_json().encode()).hexdigest()
+                if signature in seen_support:
+                    continue
+                seen_support.add(signature)
+                windows[item["window_id"]] = tuple(json.loads(item["source_ids"]))
+            if windows:
+                pairs += len(growth.admit_pairs(
+                    windows, scope=scope,
+                    visibility=Visibility(scope, cursor),
+                ))
+        if ivf is not None:
+            # The growth barrier is the ONLY time newly allocated
+            # keyspaces need a bulk posting refresh. Selected key updates
+            # patch their own postings atomically in SparseRowAdam.
+            for collection in (Collection.SOURCE, Collection.MEMORY):
+                ivf.rebuild(scope=scope, collection=collection)
+        if n >= budget:
+            break
+    return n, pairs
 
 
 def synchronize_sparse_rows(owner: BankTrainingOwner, distributed: Any, *,

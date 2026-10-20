@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import shutil
 import signal
 import time
 from dataclasses import asdict
@@ -30,9 +31,9 @@ from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
 from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
-from megatoken.training.distributed import DistributedContext
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
+from megatoken.training.distributed import DistributedContext
 from megatoken.training.history import NativeHistory
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import (
@@ -51,8 +52,8 @@ from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.schedule import PHASES
 from megatoken.training.stream import (
     EpisodeWindow,
-    MixtureWindowStream,
     IndependentWindowStream,
+    MixtureWindowStream,
     WindowStream,
 )
 
@@ -376,6 +377,8 @@ def train(
     diloco = None
     optimizer = None
     bank_owner = None
+    kb_sync = None
+    kb_version = None
     dataset = stream = None
     old_handlers = {}
     stop_requested = False
@@ -403,8 +406,8 @@ def train(
             "checkpoint_stages": config.gradient_checkpointing,
         }
         model_config = load_model_config(config.model, **overrides)
-        from megatoken.data.retrieval import read_sidecar
         from megatoken.data.document_embeddings import read_document_sidecar
+        from megatoken.data.retrieval import read_sidecar
         from megatoken.memory.recipe import RetrievalRecipe
 
         retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
@@ -437,9 +440,6 @@ def train(
                 "progressive_warmup", "free_kb_pretraining",
             } or not config.retrieval_bank or not config.retrieval_gate_receipt:
                 raise ValueError("Live free-KB phases require a bank and phase gate")
-            if config.decoupled is not None:
-                raise ValueError("DiLoCo free-KB training needs the coordinator KB "
-                                 "row-sync protocol")
             from megatoken.memory.recipe import GateReceipt, validate_gate
             gate = json.loads(Path(config.retrieval_gate_receipt).read_text())
             receipt = GateReceipt(**{
@@ -510,9 +510,23 @@ def train(
             from megatoken.memory.recipe import open_bank_for_recipe, validate_checkpoint
             from megatoken.training.bank import BankTrainingOwner
 
-            if not Path(config.retrieval_bank).is_file():
+            bank_path = Path(config.retrieval_bank)
+            if config.decoupled is not None:
+                # Decoupled learners train a local copy of the coordinator's
+                # canonical bank; the coordinator alone allocates rows.
+                bank_path = output / "diloco" / "kb.sqlite"
+                bank_path.parent.mkdir(parents=True, exist_ok=True)
+                if payload is not None:
+                    restored = bank_path.with_name(bank_path.name + ".restore")
+                    shutil.copyfile(resolve_checkpoint(resume) / "kb.sqlite", restored)
+                    os.replace(restored, bank_path)
+                else:
+                    from megatoken.training.diloco_client import fetch_kb_snapshot
+
+                    kb_version = fetch_kb_snapshot(config.decoupled, bank_path)
+            elif not bank_path.is_file():
                 raise FileNotFoundError("Live KB must be source-populated before training")
-            bank = open_bank_for_recipe(retrieval_recipe, config.retrieval_bank)
+            bank = open_bank_for_recipe(retrieval_recipe, bank_path)
             try:
                 ready = bank.growth_state("readiness", {})
                 if not (ready.get("coherence") and ready.get("embeddings")):
@@ -565,12 +579,16 @@ def train(
                         "Large training corpora require pinned disk-IVF centroids "
                         "instead of unbounded exact-source scans"
                     )
-                bank_owner = BankTrainingOwner(
-                    bank, retrieval_recipe, device=context.device,
-                    sparse_lr=config.retrieval_sparse_lr,
-                    source_features=source_features, centroids=centroids,
-                    nprobe=config.retrieval_ivf_nprobe,
-                )
+
+                def make_bank_owner(opened):
+                    return BankTrainingOwner(
+                        opened, retrieval_recipe, device=context.device,
+                        sparse_lr=config.retrieval_sparse_lr,
+                        source_features=source_features, centroids=centroids,
+                        nprobe=config.retrieval_ivf_nprobe,
+                    )
+
+                bank_owner = make_bank_owner(bank)
             except BaseException:
                 bank.close()
                 raise
@@ -649,6 +667,22 @@ def train(
                 train_identity=training_identity(config),
                 dataset_fingerprint=content_hash(dataset.manifest),
             )
+            if bank_owner is not None:
+                from megatoken.training.diloco_kb import KBSync
+
+                kb_settings = diloco.manifest.get("kb") or {}
+                if (
+                    kb_settings.get("database_id") != bank_owner.bank.database_id
+                    or kb_settings.get("recipe_fingerprint") != retrieval_recipe.fingerprint
+                    or kb_settings.get("centroids_sha256") != config.retrieval_ivf_sha256
+                ):
+                    raise ValueError("Learner KB, recipe or IVF identity differs from syncer")
+                kb_sync = KBSync(
+                    version=kb_version if kb_version is not None else 0,
+                    wire_dtype=config.decoupled.wire_dtype,
+                    local_steps=config.decoupled.local_steps,
+                )
+                diloco.attach_kb(kb_sync)
             if payload is None:
                 diloco.bootstrap(model, optimizer)
         global_step = 0
@@ -878,19 +912,27 @@ def train(
             global_step += 1
             if bank_owner is not None:
                 from megatoken.training.bank import (
-                    synchronize_query_demand, synchronize_sparse_rows,
+                    synchronize_query_demand,
+                    synchronize_sparse_rows,
                 )
 
+                if kb_sync is not None:
+                    kb_sync.capture(bank_owner.sparse.leaves)
                 step_metrics["memory_sparse_updated"] = synchronize_sparse_rows(
                     bank_owner, context, optimizer_step=global_step,
                     max_norm=config.grad_clip,
                 )
-                # Growth allocates from published demand; publish every step so
-                # pending demand never accumulates unbounded between growth barriers.
-                step_metrics["memory_demand_published"] = synchronize_query_demand(
-                    bank_owner, context,
-                )
-                if global_step % config.retrieval_growth_every == 0:
+                if kb_sync is not None:
+                    # The DiLoCo coordinator records demand and owns all growth.
+                    kb_sync.add_demand(list(bank_owner.pending_demand))
+                    bank_owner.pending_demand.clear()
+                else:
+                    # Growth allocates from published demand; publish every step so
+                    # pending demand never accumulates between growth barriers.
+                    step_metrics["memory_demand_published"] = synchronize_query_demand(
+                        bank_owner, context,
+                    )
+                if kb_sync is None and global_step % config.retrieval_growth_every == 0:
                     error = None
                     grown = 0
                     if context.is_primary:
@@ -916,11 +958,23 @@ def train(
             counters.add(global_work)
             diloco_metrics = (
                 diloco.after_step(
-                    optimizer, steps=global_step, tokens=getattr(global_work, phase.meter)
+                    optimizer, steps=global_step, tokens=getattr(global_work, phase.meter),
+                    bank=None if bank_owner is None else bank_owner.bank,
                 )
                 if diloco is not None
                 else {}
             )
+            snapshot = diloco_metrics.pop("kb_snapshot", None)
+            if snapshot is not None:
+                from megatoken.memory.recipe import open_bank_for_recipe
+                from megatoken.training.diloco_kb import install_snapshot
+
+                # Between optimizer steps: no selected leaves or open transactions.
+                version, downloaded = snapshot
+                bank_owner.bank.close()
+                install_snapshot(downloaded, bank_path)
+                bank_owner = make_bank_owner(open_bank_for_recipe(retrieval_recipe, bank_path))
+                kb_sync.installed(version)
             model.core.set_model_version(global_step)
             local_sums = ledger.sums
             merged_sums = context.all_gather_object(local_sums)
