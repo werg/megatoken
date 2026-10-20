@@ -151,7 +151,7 @@ class RetrievalSession:
                 part = row.evidence_span
                 if part is None:
                     raise ValueError("Literal source lookup lacks an original byte span")
-                whole = Interval(row.content_id, part.version, part.start, part.end)
+                whole = Interval(part.source_id, part.version, part.start, part.end)
                 taken = self.injected + list(self.reserved) + list(self.qualified)
                 for missing in subtract(whole, taken):
                     if missing not in self.qualified:
