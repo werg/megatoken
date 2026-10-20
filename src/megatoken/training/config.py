@@ -66,7 +66,7 @@ class DecoupledConfig:
 @dataclass(frozen=True)
 class TrainConfig:
     phase: str = "B0"
-    model: str = "tiny"
+    model: str = "32x512"
     dataset: str = "artifacts/demo"
     output: str = "runs/bootstrap"
     codec: str = "byte"
@@ -87,7 +87,7 @@ class TrainConfig:
     effort: int = 6
     checkpoint_every: int = 100
     keep_checkpoints: int = 3
-    eval_every: int = 100
+    eval_every: int = 0
     eval_episodes: int = 16
     log_every: int = 1
     gradient_checkpointing: bool = True
@@ -97,7 +97,7 @@ class TrainConfig:
     representation_mode: str = "auto"
     # G counts physical megatoken events; use only with an explicit event budget.
     # FP32 media assets live under the prepared dataset root by default.
-    budget_meter: str = "auto"
+    budget_meter: str = "G"
     accumulate_events: int = 32
     media_root: str | None = None
     deterministic: bool = False
@@ -105,8 +105,10 @@ class TrainConfig:
     grad_clip: float = 1.0
     weight_decay: float = 0.1
     inner_optimizer: str = "adamw"
-    retrieval_sidecar: str | None = None
-    retrieval_memory_recipe: str | None = None
+    # Required at EVERY phase; coherence bootstrap starts with no free KB rows.
+    # Omission is a configuration error, never a legacy training switch.
+    retrieval_sidecar: str = ""
+    retrieval_memory_recipe: str = ""
     retrieval_bank: str | None = None  # required for live warmup/free KB updates
     retrieval_source_assets_root: str | None = None
     retrieval_ivf_centroids: str | None = None
@@ -118,15 +120,15 @@ class TrainConfig:
     retrieval_lora_dropout: float = 0.1
     retrieval_growth_every: int = 100
     retrieval_growth_budget: int = 32
-    router_balance_mode: str = "local"  # global uses optimizer-step replay
+    router_balance_mode: str = "global"
     router_replay_assignments: int = 262144
     decoupled: DecoupledConfig | None = None
     loss_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LOSS_WEIGHTS))
     model_overrides: dict[str, Any] = field(default_factory=dict)
     allow_byte_codec: bool = False
     allow_unverified_data: bool = False
-    use_stage_mixture: bool = True
-    use_effort_mixture: bool = True
+    use_stage_mixture: bool = False
+    use_effort_mixture: bool = False
     engram_import: str | None = None
 
     def __post_init__(self) -> None:
@@ -134,8 +136,15 @@ class TrainConfig:
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
             raise ValueError("decoupled must be a settings object or mapping")
-        if bool(self.retrieval_sidecar) != bool(self.retrieval_memory_recipe):
-            raise ValueError("Retrieval sidecars require a pinned memory recipe")
+        if not self.retrieval_sidecar or not self.retrieval_memory_recipe:
+            raise ValueError("Every training invocation requires retrieval_sidecar and "
+                             "retrieval_memory_recipe; the legacy trainer was removed")
+        if (self.retrieval_sidecar.startswith("PIN_") or
+                self.retrieval_memory_recipe.startswith("PIN_")):
+            raise ValueError("Pin actual retrieval preparation artifacts before training")
+        if self.decoupled is not None:
+            raise ValueError("Asynchronous DiLoCo cannot own the mandatory synchronized "
+                             "model/KB training transaction")
         if self.retrieval_source_assets_root and not self.retrieval_bank:
             raise ValueError("RAG source-feature assets require a live canonical KB")
         if bool(self.retrieval_ivf_centroids) != bool(self.retrieval_ivf_sha256):
@@ -154,12 +163,11 @@ class TrainConfig:
             self.retrieval_growth_budget < 0
         ):
             raise ValueError("Invalid bounded retrieval sparse LR/growth settings")
-        if self.retrieval_sidecar and self.router_balance_mode != "global":
-            raise ValueError("Retrieval training requires globally replayed router balance")
-        if self.retrieval_sidecar and self.budget_meter != "G":
-            raise ValueError("Retrieval sidecars require grouped meridian training")
-        if self.router_balance_mode not in {"local", "global"}:
-            raise ValueError("Router balance mode must be local or global")
+        if self.router_balance_mode != "global":
+            raise ValueError("The local router fairness objective is removed; "
+                             "all training uses optimizer-step global router replay")
+        if self.budget_meter != "G":
+            raise ValueError("Training only supports causal grouped megatoken meridians")
         if self.router_replay_assignments < 1:
             raise ValueError("Router replay must have positive bounded capacity")
         if self.inner_optimizer not in {"adamw", "muon"}:
@@ -174,8 +182,6 @@ class TrainConfig:
             raise ValueError("expert_backend must be auto, torch, or triton")
         if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
-        if self.budget_meter not in {"auto", "G"}:
-            raise ValueError("budget_meter must be auto or G (megatoken events)")
         if self.budget_meter == "G" and self.budget is None:
             raise ValueError("A media/mixed event budget requires an explicit budget")
         if self.budget_meter == "G" and self.eval_every:
