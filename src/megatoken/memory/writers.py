@@ -49,6 +49,7 @@ class SourceWriter(nn.Module):
             raise ValueError("Writer head count must divide hidden width")
         self.facets = facets
         self.max_blocks = max_blocks
+        self.heads = heads
         self.norm = nn.LayerNorm(facet_dim)
         self.facet_pool = nn.Linear(facet_dim, hidden)
         self.facet_gate = nn.Linear(facet_dim, 1, bias=False)
@@ -89,18 +90,25 @@ class SourceWriter(nn.Module):
             allowed = allowed | (fallback[:, None] & (k == q))
         else:
             allowed = torch.ones(count, count, device=x.device, dtype=torch.bool)
-        # No unmasked temporal state exists outside the explicitly declared pass.
-        mask = ~allowed
         effective = valid_blocks.detach().bool()
+        if not bool(effective.any(-1).all()):
+            raise ValueError("Writer requires at least one available source block")
+        # Build a per-example physical mask. When a query has no permitted
+        # suffix, route it to a valid fallback solely to prevent all-masked
+        # NaNs. Such output slots are never scored or written.
+        physical = allowed[None] & effective[:, None, :]
+        original_valid = physical.any(-1)
+        fallback = F.one_hot(
+            effective.long().argmax(-1), num_classes=count
+        ).bool()[:, None, :]
+        physical = physical | ((~original_valid)[:, :, None] & fallback)
+        mask = (~physical).repeat_interleave(self.heads, dim=0)
         attention = self.self_attention(
             x, x, x, attn_mask=mask, key_padding_mask=~effective,
             need_weights=False,
         )[0]
         result = self.norm_output(x + attention + self.feed(x + attention))
-        valid = effective
-        if mode == "suffix":
-            valid = effective & (torch.arange(count, device=x.device)[None] +
-                                 local_gap < count)
+        valid = effective & original_valid
         return WriterOutput(
             F.normalize(self.key(result), dim=-1),
             self.value(result),

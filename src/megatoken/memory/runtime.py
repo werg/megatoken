@@ -63,6 +63,8 @@ class NativeRetrieval:
             raise ValueError("Model embedding R and KB learned semantic space disagree")
         if generator.generator.core.memory_projector is None:
             raise ValueError("Native K/V projection must be enabled for learned memory")
+        if service.backend.store.space.fingerprint != space.fingerprint:
+            raise ValueError("Retriever index and model query target use different spaces")
         self.generator, self.runtime = generator, runtime
         self.service, self.space, self.policy = service, space, policy
         self.sessions: dict[int, RetrievalSession] = {}
@@ -102,7 +104,7 @@ class NativeRetrieval:
         query = vector.detach().float().cpu().numpy()[0]
         revisions = self.service.backend.store.revisions()
         query_model = f"model-v{self.generator.generator.core.model_version}"
-        epoch = revisions.scoring_identity(query_model, self.space)
+        epoch = f"{revisions.scoring_identity(query_model, self.space)}:{revisions.policy}"
         receipt = QueryBoundary(
             event_id=request_id, meridian=clock, purpose=purpose,
             originating_track="__retrieval_query__",

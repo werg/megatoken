@@ -199,7 +199,24 @@ class KBContext:
         track_ids = torch.full((batch, keys.shape[2]), -2, device=age.device, dtype=torch.long)
         identity_payload = [
             (g.group_id, g.revision, g.anchor,
-             [(x.identity, x.version, x.admitted_at) for x in g.constituents])
+             [
+                 (
+                     x.identity, x.version, x.admitted_at,
+                     hashlib.sha256(
+                         x.semantic.detach().float().cpu().contiguous().numpy().tobytes()
+                     ).hexdigest(),
+                     hashlib.sha256(
+                         x.coefficient.detach().float().cpu().contiguous().numpy().tobytes()
+                     ).hexdigest(),
+                     hashlib.sha256(
+                         x.lifetime_logit.detach().float().cpu().contiguous().numpy().tobytes()
+                     ).hexdigest(),
+                     None if x.valid is None else hashlib.sha256(
+                         x.valid.detach().cpu().contiguous().numpy().tobytes()
+                     ).hexdigest(),
+                 )
+                 for x in g.constituents
+             ])
             for g in self.groups
         ]
         fingerprint = hashlib.sha256(json.dumps(

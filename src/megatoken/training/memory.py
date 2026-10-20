@@ -102,7 +102,6 @@ class LocalMemoryWindow:
         versions: Sequence[str], threshold: float = 0.25,
         max_groups: int = 4,
     ):
-        rows = self.sparse.bank
         batch = query.shape[0]
         keys = torch.stack([
             self.field(Collection.MEMORY, "record", i, "key") for i in ids

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from .semantic import AdmittedGroup, KBContext
+from .semantic import AdmittedGroup
 
 
 def admit_kb(state, group: AdmittedGroup):

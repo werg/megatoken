@@ -4,13 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import json
-import math
 
 import numpy as np
-import torch
-from torch import Tensor
 
-from .contracts import Collection, Footprint, SemanticSpace
+from .contracts import Footprint, SemanticSpace
 from .sqlite import SQLiteKB
 
 

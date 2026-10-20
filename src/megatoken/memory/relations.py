@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import math
 from typing import Mapping
 
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 
 
 @dataclass(frozen=True)
