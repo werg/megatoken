@@ -41,6 +41,8 @@ class MemoryAdapters(nn.Module):
         )
         self.semantic_norm = nn.LayerNorm(value_dim)
         self.controller = nn.Linear(value_dim, experts, bias=False)
+        # Rows 0..max_tracks-1 are user tracks; row max_tracks is the reserved
+        # retrieval-query track; the final row is overflow slack.
         self.track_preference = nn.Embedding(max_tracks + 2, experts)
         self.stage_preference = nn.Embedding(max_stage + 1, experts)
         self.module_preference = nn.Parameter(torch.zeros(3, experts))

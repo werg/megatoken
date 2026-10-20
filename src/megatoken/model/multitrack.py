@@ -40,6 +40,7 @@ from megatoken.memory.semantic import (
 from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
+from .config import RETRIEVAL_QUERY_TRACK
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .media import MediaOutputSpec, MediaTrainTarget
 from .relations import SelectedRelation
@@ -213,7 +214,8 @@ class MultiTrackCore:
             raise ValueError("Frontier modality metadata must match selected events")
         if (len(state.track_registry) > core.config.max_tracks
                 or len(set(state.track_registry)) != len(state.track_registry)
-                or any(name not in state.track_registry for name in state.frontier_tracks)):
+                or any(name not in state.track_registry and name != RETRIEVAL_QUERY_TRACK
+                    for name in state.frontier_tracks)):
             raise ValueError("Track registry is inconsistent with the shared context")
         if state.frontier_roles.shape != state.raw.shape[:2]:
             raise ValueError("Frontier role metadata has the wrong shape")
@@ -248,6 +250,10 @@ class MultiTrackCore:
         registry = list(state.track_registry)
         indices = []
         for name in names:
+            if name == RETRIEVAL_QUERY_TRACK:
+                # Dedicated reserved slot: user tracks may fill all max_tracks.
+                indices.append(self.core.config.reserved_query_track_index)
+                continue
             if name not in registry:
                 if len(registry) >= self.core.config.max_tracks:
                     raise ValueError("Too many tracks for configured session capacity")
@@ -1515,7 +1521,7 @@ class MultiTrackGenerator:
         realizer = self.generator.embedding_realizer
         if realizer is None or not space_fingerprint or not purpose or not main_request:
             raise ValueError("An enabled embedding R and explicit causal request are required")
-        names = ("__retrieval_query__",)
+        names = (RETRIEVAL_QUERY_TRACK,)
         payload = retrieval_control_payload(
             main_request=main_request, purpose=purpose,
             space_fingerprint=space_fingerprint,
