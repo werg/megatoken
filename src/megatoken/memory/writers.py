@@ -79,10 +79,18 @@ class SourceWriter(nn.Module):
         slots = self.norm(encoded.float())
         facets = self.facet_gate(slots).squeeze(-1).softmax(-1)
         pooled = (self.facet_pool(slots) * facets[..., None]).sum(-2)
+        # Suffix query positions must not contain the current (or earlier)
+        # source content: only the attention VALUES are allowed to supply it.
+        # A residual from pooled[i] here would leak source block i into the
+        # writer target even when the attention mask starts at i + local_gap.
         x = pooled + self.block_address[:count]
+        queries = (self.block_address[:count].unsqueeze(0).expand(batch, -1, -1)
+                   if mode == "suffix" else x)
         q = torch.arange(count, device=x.device)[:, None]
         k = torch.arange(count, device=x.device)[None, :]
         if mode == "suffix":
+            if local_gap < 1:
+                raise ValueError("Suffix source writer requires a strictly positive gap")
             allowed = k >= q + local_gap
             # Invalid suffix queries use their own keys solely to avoid NaN;
             # they cannot become writer assignments because valid=False.
@@ -104,10 +112,13 @@ class SourceWriter(nn.Module):
         physical = physical | ((~original_valid)[:, :, None] & fallback)
         mask = (~physical).repeat_interleave(self.heads, dim=0)
         attention = self.self_attention(
-            x, x, x, attn_mask=mask, key_padding_mask=~effective,
+            queries, x, x, attn_mask=mask, key_padding_mask=~effective,
             need_weights=False,
         )[0]
-        result = self.norm_output(x + attention + self.feed(x + attention))
+        # In suffix mode, the residual also contains only the position query.
+        # Invalid fallback positions are masked from all writer losses/outputs.
+        representation = queries + attention
+        result = self.norm_output(representation + self.feed(representation))
         valid = effective & original_valid
         return WriterOutput(
             F.normalize(self.key(result), dim=-1),
