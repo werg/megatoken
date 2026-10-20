@@ -50,6 +50,12 @@ def fit_pinned_dataset(
         raise RuntimeError("Source writer cannot train before free-memory pretraining")
     if dataset.kind == "pair" and recipe.phase != "corpus_reproduction":
         raise RuntimeError("Pair reproduction requires the post-pretraining corpus phase")
+    if recipe.phase in {"local_source_writer", "cross_source_writer"} and (
+        dataset.mode != "suffix" or dataset.kind != "source"
+    ):
+        raise RuntimeError("Local/cross-source writers require the physical suffix view")
+    if recipe.phase == "corpus_reproduction" and dataset.mode != "full":
+        raise RuntimeError("Corpus reproduction must use complete permitted source footprints")
     if (
         dataset.recipe_fingerprint != recipe.fingerprint
         or dataset.semantic_space_fingerprint != recipe.space.fingerprint
