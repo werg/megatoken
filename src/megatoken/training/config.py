@@ -107,6 +107,11 @@ class TrainConfig:
     inner_optimizer: str = "adamw"
     retrieval_sidecar: str | None = None
     retrieval_memory_recipe: str | None = None
+    retrieval_bank: str | None = None  # required for live warmup/free KB updates
+    retrieval_gate_receipt: str | None = None
+    retrieval_sparse_lr: float = 1e-3
+    retrieval_growth_every: int = 100
+    retrieval_growth_budget: int = 32
     router_balance_mode: str = "local"  # global uses optimizer-step replay
     router_replay_assignments: int = 262144
     decoupled: DecoupledConfig | None = None
@@ -125,6 +130,14 @@ class TrainConfig:
             raise ValueError("decoupled must be a settings object or mapping")
         if bool(self.retrieval_sidecar) != bool(self.retrieval_memory_recipe):
             raise ValueError("Retrieval sidecars require a pinned memory recipe")
+        if self.retrieval_bank and not self.retrieval_sidecar:
+            raise ValueError("A live KB requires retrieval supervision sidecars")
+        if self.retrieval_bank and not self.retrieval_gate_receipt:
+            raise ValueError("Live KB phases require audited phase gate receipts")
+        if self.retrieval_sparse_lr <= 0 or self.retrieval_growth_every < 1 or (
+            self.retrieval_growth_budget < 0
+        ):
+            raise ValueError("Invalid bounded retrieval sparse LR/growth settings")
         if self.retrieval_sidecar and self.router_balance_mode != "global":
             raise ValueError("Retrieval training requires globally replayed router balance")
         if self.retrieval_sidecar and self.budget_meter != "G":
