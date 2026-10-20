@@ -108,6 +108,7 @@ class TrainConfig:
     retrieval_sidecar: str | None = None
     retrieval_memory_recipe: str | None = None
     retrieval_bank: str | None = None  # required for live warmup/free KB updates
+    retrieval_source_assets_root: str | None = None
     retrieval_gate_receipt: str | None = None
     retrieval_sparse_lr: float = 1e-3
     retrieval_kv_dropout: float = 0.1
@@ -132,6 +133,8 @@ class TrainConfig:
             raise ValueError("decoupled must be a settings object or mapping")
         if bool(self.retrieval_sidecar) != bool(self.retrieval_memory_recipe):
             raise ValueError("Retrieval sidecars require a pinned memory recipe")
+        if self.retrieval_source_assets_root and not self.retrieval_bank:
+            raise ValueError("RAG source-feature assets require a live canonical KB")
         if self.retrieval_bank and not self.retrieval_sidecar:
             raise ValueError("A live KB requires retrieval supervision sidecars")
         if self.retrieval_bank and not self.retrieval_gate_receipt:
