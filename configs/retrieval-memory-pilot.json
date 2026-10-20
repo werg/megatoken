@@ -1,0 +1,58 @@
+{
+  "schema": "megatoken-retrieval-recipe-v1",
+  "phase": "coherence_embedding",
+  "space": {
+    "name": "pplx-pilot-shared-semantic-space",
+    "revision": "pilot-v1",
+    "teacher": "pplx-reference-embedding",
+    "teacher_revision": "PIN_ACTUAL_TEACHER_WEIGHT_DIGEST_AT_DATA_PREP",
+    "dimension": 256,
+    "document_recipe": "native-E-ordered-source-chunk-with-permitted-context-v1",
+    "query_recipe": "native-P-selected-raw-request-purpose-space-v1",
+    "context_recipe": "complete-source-footprint-and-availability-v1",
+    "normalized": true
+  },
+  "model": {
+    "architecture_version": 8,
+    "semantic_dim": 256,
+    "semantic_value_dim": 256,
+    "max_kb_positions": 4,
+    "memory_lora_experts": 4,
+    "memory_lora_rank": 8,
+    "memory_lora_topk": 2
+  },
+  "growth": {
+    "value_dim": 256,
+    "seed": 12345,
+    "dense_fraction": 0.75,
+    "max_points": 100000,
+    "max_pairs": 30000,
+    "min_pair_windows": 2,
+    "max_neighbors": 16,
+    "partition_id": "PIN_DATA_PARTITION_DIGEST_AT_DATA_PREP"
+  },
+  "router_balance_mode": "global",
+  "max_selected_source": 32,
+  "max_selected_memory": 32,
+  "max_source_bytes": 16384,
+  "max_kb_positions": 4,
+  "max_readout_groups": 4,
+  "loss_weights": {
+    "native": 1.0,
+    "embedding": 1.0,
+    "query_ranking": 0.25,
+    "source_value": 0.1,
+    "key_anchor": 0.01,
+    "null": 0.1,
+    "memory_regularity": 0.001,
+    "global_router_balance": 0.005
+  },
+  "extra_rules": {
+    "pretrain_free_writer": "disabled",
+    "memory_allocation": "only after coherence,embedding_alignment,query_alignment",
+    "memory_null": "exact-zero",
+    "pair_support": "two-distinct-eligible-independent-units",
+    "rl_materialization": "frozen-p-only-until-replay-agreement",
+    "checkpoints": "atomic-bank-snapshot-and-native-model-id"
+  }
+}
