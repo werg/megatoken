@@ -200,7 +200,10 @@ class PocketFacetsStudent(nn.Module):
         state = init_states(self.mimi, native_latents.shape[0],
                             native_latents.shape[1] + 16)
         with torch.no_grad():
-            return self.mimi.decode_from_latent(native_latents, state)
+            waveform = self.mimi.decode_from_latent(native_latents, state)
+            if waveform.ndim != 3 or waveform.shape[1] != 1:
+                raise ValueError("Pocket Mimi must decode mono waveform [B,1,samples]")
+            return waveform[:, 0]
 
     def realize(self, raw: Tensor, *, max_frames: int, steps=16, generator=None):
         return self.decode(self.latent(raw, max_frames=max_frames, steps=steps, generator=generator))

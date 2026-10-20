@@ -67,6 +67,16 @@ class MediaOutputSpec:
             raise ValueError("Media output must be audio, image or video")
 
 
+def validate_public_media_spec(spec: MediaOutputSpec) -> None:
+    """A free P/R action cannot borrow future target duration or latent shape."""
+    if spec.shape_provenance == "teacher_only":
+        raise ValueError("Teacher-only output geometry is not available to free generation")
+    if spec.latent_shape:
+        raise ValueError("Public media generation cannot read target codec geometry")
+    if spec.modality == "audio" and spec.renderer == "pocket" and spec.sample_rate != 24000:
+        raise ValueError("Pocket must render its matching 24 kHz codec")
+
+
 @dataclass(frozen=True)
 class MediaTrainTarget:
     """A resolved event, independent of the training dataset storage layout."""
@@ -432,9 +442,22 @@ class MediaRealizers(nn.Module):
                 raise ValueError("Pretrained generator is not resident")
             student = self.pretrained[spec.renderer]
             if spec.renderer == "pocket":
-                return student.realize(context.facets, max_frames=max(1, round(
-                    spec.sample_count * student.frame_rate / spec.sample_rate
-                )), steps=spec.steps, generator=generator)
+                if spec.sample_rate != student.sample_rate:
+                    raise ValueError("Pocket output spec must use the exact Mimi native rate")
+                from math import ceil
+
+                frames = max(1, ceil(spec.sample_count / student.sample_rate * student.frame_rate))
+                output = student.realize(
+                    context.facets, max_frames=frames, steps=spec.steps,
+                    generator=generator,
+                )
+                if output.ndim != 2:
+                    raise ValueError("Pocket realization must be [B, mono samples]")
+                # Renderer EOS may shorten speech; pad deterministically, never
+                # interpolate to a target-derived duration or shift its pitch.
+                if output.shape[1] < spec.sample_count:
+                    output = F.pad(output, (0, spec.sample_count - output.shape[1]))
+                return output[:, :spec.sample_count]
             return student.realize(
                 context.facets, height=spec.height, width=spec.width,
                 frames=spec.frames, steps=spec.steps, generator=generator,

@@ -1175,6 +1175,10 @@ class MultiTrackGenerator:
         if len(payloads) != len(names) or any(not isinstance(x, bytes) for x in payloads):
             raise ValueError("Every track needs a byte-exact causal control")
         plans = self._specs(specs, len(names), self.generator.config.max_capacity)
+        from .media import validate_public_media_spec
+        for plan in plans:
+            if isinstance(plan, MediaOutputSpec):
+                validate_public_media_spec(plan)
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         encoded = self._controls(payloads, state.device)
