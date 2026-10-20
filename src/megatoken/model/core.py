@@ -854,10 +854,17 @@ class FacetedCore(nn.Module):
         """
         previous = self._routing_losses
         self._routing_losses = []
+        # Auxiliary branches also stay out of the global router-balance replay.
+        routers = (self.p_router, self.u_router)
+        recorders = [router.balance_recorder for router in routers]
+        for router in routers:
+            router.balance_recorder = None
         try:
             yield
         finally:
             self._routing_losses = previous
+            for router, recorder in zip(routers, recorders, strict=True):
+                router.balance_recorder = recorder
 
     def reset_state(
         self,

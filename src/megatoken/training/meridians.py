@@ -506,7 +506,7 @@ def forward_meridian_batch(
                 teacher = F.normalize(teacher, dim=-1)
                 similarity = (predicted * teacher).sum(-1)
                 retrieval_losses.append(
-                    recipe.loss_weights["embedding"] *
+                    recipe.loss_weights.get("embedding", 0.) *
                     (1 - similarity).sum() / global_count
                 )
                 metrics["retrieval_embedding_sum"] = (
@@ -573,7 +573,7 @@ def forward_meridian_batch(
                 )
                 distance = (1 - (output * target).sum(-1)).sum()
                 retrieval_losses.append(
-                    recipe.loss_weights["document_embedding"] *
+                    recipe.loss_weights.get("document_embedding", 0.) *
                     distance / global_docs
                 )
                 metrics["retrieval_document_embedding_sum"] = (
