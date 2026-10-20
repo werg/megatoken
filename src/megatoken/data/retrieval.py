@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
+import math
 from pathlib import Path
 
 from megatoken.memory.contracts import Footprint, QueryBoundary
@@ -28,12 +29,21 @@ class RetrievalExample:
     def __post_init__(self) -> None:
         if not self.episode_id or self.event_id != self.query.event_id:
             raise ValueError("Stable event IDs must match query receipts")
+        if not self.source_snapshot or not self.split_family:
+            raise ValueError("Retrieval supervision requires a pinned source snapshot/split")
         if len(self.positive_content_ids) != len(self.support_weights):
             raise ValueError("Annotation IDs and weights must correspond")
-        if any(x < 0 for x in self.support_weights):
+        if len(set(self.positive_content_ids)) != len(self.positive_content_ids):
+            raise ValueError("Duplicate useful-source annotation IDs are ambiguous")
+        if any(not math.isfinite(x) or x < 0 for x in self.support_weights):
             raise ValueError("Support weights must be nonnegative")
         if self.positive_content_ids and sum(self.support_weights) <= 0:
             raise ValueError("Annotated support requires positive target mass")
+        if self.teacher_target is not None:
+            if not self.teacher_target or any(
+                not math.isfinite(x) for x in self.teacher_target
+            ) or math.sqrt(sum(x * x for x in self.teacher_target)) <= 1e-12:
+                raise ValueError("Teacher query vector must be finite and nonzero")
 
     def to_dict(self) -> dict:
         return {
