@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from megatoken.memory.base import Record, SearchBatch
+from megatoken.memory.context import admit_kb
 from megatoken.memory.contracts import Collection, QueryBoundary, SemanticSpace, Visibility
 from megatoken.memory.reader import build_memory_groups
 from megatoken.memory.retrieval import (
@@ -97,9 +98,10 @@ class NativeRetrieval:
             space_fingerprint=self.space.fingerprint, effort=effort,
             generator=generator,
         )
-        session.state = next_state
-        session.revision += 1
-        session.pending = None
+        # Stage native query and scheduling state until BOTH collections,
+        # source qualification, and compatible KV admission succeed. A
+        # backend failure must not consume the session's query meridian.
+        scheduling = self.ledger(session).fork()
         query = vector.detach().float().cpu().numpy()[0]
         revisions = self.service.backend.store.revisions()
         query_model = f"model-v{self.generator.generator.core.model_version}"
@@ -119,7 +121,7 @@ class NativeRetrieval:
         )
         if source.revisions != memory.revisions:
             raise RuntimeError("Source and semantic candidates came from incompatible KB views")
-        queued = self.ledger(session).incremental(
+        queued = scheduling.incremental(
             list(source.hits), boundary=receipt,
             threshold=self.policy.source_threshold,
         )
@@ -158,12 +160,31 @@ class NativeRetrieval:
                         groups=[r.group or f"point:{r.id}" for r in chosen],
                         versions=[f"payload-v{r.payload_revision}" for r in chosen],
                         eligible=torch.ones(1, len(chosen), dtype=torch.bool, device=device),
-                        anchor=int(session.state.meridians_seen.min()),
+                        anchor=int(next_state.meridians_seen.min()),
                         threshold=self.policy.memory_threshold,
                         max_groups=self.policy.max_compat_groups,
                     )
                 for group in groups:
-                    self.runtime.admit_memory(session, group)
+                    next_state = admit_kb(next_state, group)
+        # Publish the entire causal transaction only after all steps succeed.
+        self.sessions[id(session)] = scheduling
+        session.state = next_state
+        session.revision += 1
+        session.pending = None
+        session.events.append((session.revision, ("__retrieval_query__",)))
+        session.retrieval_receipts.append({
+            "kind": "query", "event_id": request_id,
+            "meridian": clock, "request_hash": receipt.request_hash,
+            "snapshot_id": receipt.snapshot_id,
+            "query_vector_sha256": sha256(
+                query.astype("<f4", copy=False).tobytes()
+            ).hexdigest(),
+            "selected_raw_sha256": sha256(
+                _raw.detach().float().cpu().contiguous().numpy().tobytes()
+            ).hexdigest(),
+            "source_ids": list(source.ids), "memory_ids": list(memory.ids),
+            "coverage": scheduling.to_dict(),
+        })
         return BoundaryResult(
             receipt, query, source, memory, tuple(queued),
             tuple(group.group_id for group in groups),
