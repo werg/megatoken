@@ -103,7 +103,7 @@ def _validate_feature_identity(config, modality: str, asset) -> None:
     """Accept both legacy single feature bridges and pinned additional views."""
     if asset.kind not in {"features", "codec_latents"}:
         raise ValueError("An input feature must be a pinned frozen view")
-    chosen = config.media_feature_views.get(asset.extractor)
+    chosen = getattr(config, "media_feature_views", {}).get(asset.extractor)
     if chosen is None:
         expected_id, chosen = (
             (config.audio_feature_id, config.audio_feature_dim)
