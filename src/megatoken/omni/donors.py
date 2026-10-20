@@ -117,9 +117,10 @@ class PocketFacetsStudent(nn.Module):
         embedded = torch.where(torch.isnan(teacher_prefix),
                                self.flow_lm.bos_emb, teacher_prefix)
         seq = torch.cat((condition, self.flow_lm.input_linear(embedded)), dim=1)
-        hidden = self.flow_lm.out_norm(
-            self.flow_lm.transformer(seq, model_state=None)
-        )[:, -frames:].float()
+        hidden = self.flow_lm.transformer(seq, model_state=None)
+        if self.flow_lm.out_norm is not None:
+            hidden = self.flow_lm.out_norm(hidden)
+        hidden = hidden[:, -frames:].float()
         flow_type = self.flow_lm.flow_type
         noise = torch.randn(clean.shape, device=clean.device,
                             dtype=clean.dtype, generator=generator).float()
