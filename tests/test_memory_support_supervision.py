@@ -52,3 +52,17 @@ def test_visible_useful_source_keeps_bilateral_gradients():
     source.backward()
     assert query.grad is not None and query.grad.abs().sum() > 0
     assert key.grad is not None and key.grad.abs().sum() > 0
+
+
+def test_empty_selected_evidence_is_a_valid_explicit_null():
+    scores = selected_evidence(
+        torch.tensor([[1., 0.]]), torch.empty(1, 0, 2),
+    )
+    assert scores.weights.shape == (1, 0)
+    torch.testing.assert_close(scores.null_weight, torch.ones(1))
+    loss, n = local_source_value_loss(
+        scores, torch.empty(1, 0, 3),
+        positive=torch.empty(1, 0, dtype=torch.bool),
+        complete_annotations=torch.ones(1, dtype=torch.bool),
+    )
+    assert n == 1 and loss.item() == 0
