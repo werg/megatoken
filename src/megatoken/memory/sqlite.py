@@ -18,7 +18,7 @@ import uuid
 import numpy as np
 
 from .base import Record, Relation
-from .contracts import Collection, Footprint, Revisions, SemanticSpace, unit_finite
+from .contracts import Collection, Footprint, Revisions, SemanticSpace, SourceRange, unit_finite
 
 
 def _vector(value, count: int) -> bytes:
@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS records (
     strength REAL NOT NULL, lifetime_logit REAL NOT NULL,
     birth_step INTEGER NOT NULL DEFAULT 0,
     group_id TEXT NOT NULL DEFAULT '', assignment TEXT NOT NULL DEFAULT '',
+    source_span TEXT NOT NULL DEFAULT '',
     active INTEGER NOT NULL DEFAULT 1,
     key_revision INTEGER NOT NULL DEFAULT 1, payload_revision INTEGER NOT NULL DEFAULT 1,
     UNIQUE(collection, scope, content_id, assignment)
@@ -210,6 +211,10 @@ class SQLiteKB:
             None if row["value"] is None else _unpack(row["value"], self.value_dim),
             row["strength"], row["lifetime_logit"], row["birth_step"],
             row["group_id"], row["assignment"], bool(row["active"]),
+            None if not row["source_span"] else SourceRange(**{
+                **json.loads(row["source_span"]),
+                "ancestors": tuple(json.loads(row["source_span"]).get("ancestors", ())),
+            }),
         )
 
     def scan(self, collection: Collection, scope: str) -> tuple[Record, ...]:
@@ -233,7 +238,8 @@ class SQLiteKB:
     def _insert(self, collection: Collection, scope: str, footprint: Footprint, key,
                 *, value=None, content_id: str = "", asset_ref: str = "",
                 strength: float = 1, lifetime_logit: float = -10, birth_step: int = 0,
-                group: str = "", assignment: str = "") -> int:
+                group: str = "", assignment: str = "",
+                evidence_span: SourceRange | None = None) -> int:
         if not scope or any(r.scope != scope for r in footprint.ranges):
             raise ValueError("Every support range must belong to the record scope")
         if not all(math.isfinite(x) for x in (strength, lifetime_logit)) or strength < 0:
@@ -243,6 +249,12 @@ class SQLiteKB:
         if collection is Collection.SOURCE:
             if not content_id or not asset_ref or value is not None:
                 raise ValueError("A source key requires immutable content identity/ref")
+            if evidence_span is None:
+                if len(footprint.ranges) != 1:
+                    raise ValueError("Contextual source keys require an explicit byte evidence span")
+                evidence_span = footprint.ranges[0]
+            if evidence_span not in footprint.ranges:
+                raise ValueError("Delivered source span must belong to full key provenance")
         elif value is None or not assignment:
             raise ValueError("A free memory point needs value and stable source assignment")
         k = unit_finite(key, dimension=self.space.dimension).tobytes()
@@ -251,10 +263,11 @@ class SQLiteKB:
             cursor = self.db.execute(
                 """INSERT INTO records
                 (collection,scope,key,value,footprint,content_id,asset_ref,strength,
-                 lifetime_logit,birth_step,group_id,assignment)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 lifetime_logit,birth_step,group_id,assignment,source_span)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (collection.value, scope, k, v, footprint.to_json(), content_id, asset_ref,
-                 strength, lifetime_logit, birth_step, group, assignment),
+                 strength, lifetime_logit, birth_step, group, assignment,
+                 "" if evidence_span is None else json.dumps(asdict(evidence_span), sort_keys=True)),
             )
             record_id = int(cursor.lastrowid)
             self._footprint_refs(collection.value, "record", record_id, footprint)
@@ -298,9 +311,11 @@ class SQLiteKB:
             return counts
 
     def insert_source(self, *, scope: str, footprint: Footprint, key,
-                      content_id: str, asset_ref: str) -> int:
+                      content_id: str, asset_ref: str,
+                      evidence_span: SourceRange | None = None) -> int:
         return self._insert(Collection.SOURCE, scope, footprint, key,
-                            content_id=content_id, asset_ref=asset_ref)
+                            content_id=content_id, asset_ref=asset_ref,
+                            evidence_span=evidence_span)
 
     def insert_memory(self, *, scope: str, footprint: Footprint, key, value,
                       assignment: str, birth_step: int, group: str = "",

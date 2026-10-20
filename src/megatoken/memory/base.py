@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol, Sequence
 import numpy as np
 
-from .contracts import Collection, Footprint, Revisions, SemanticSpace, Visibility
+from .contracts import Collection, Footprint, Revisions, SemanticSpace, SourceRange, Visibility
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,7 @@ class Record:
     group: str = ""
     source_assignment: str = ""
     active: bool = True
+    evidence_span: SourceRange | None = None
 
     def __post_init__(self) -> None:
         if self.id < 1 or self.collection is Collection.SOURCE and (

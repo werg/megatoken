@@ -87,17 +87,19 @@ class RetrievalSession:
                 self.maxima[row.id] = max(self.maxima.get(row.id, -1.0), hit.similarity)
                 if hit.similarity < threshold:
                     continue
-                for part in row.footprint.ranges:
-                    whole = Interval(row.content_id, part.version, part.start, part.end)
-                    taken = self.injected + list(self.reserved) + list(self.qualified)
-                    for missing in subtract(whole, taken):
-                        if missing not in self.qualified:
-                            obligation = SourceObligation(
-                                missing, row.id, hit.similarity, boundary.event_id,
-                                self.scoring_epoch, boundary.deadline
-                            )
-                            self.qualified[missing] = obligation
-                            new.append(obligation)
+                part = row.evidence_span
+                if part is None:
+                    raise ValueError("Literal source lookup lacks an original byte span")
+                whole = Interval(row.content_id, part.version, part.start, part.end)
+                taken = self.injected + list(self.reserved) + list(self.qualified)
+                for missing in subtract(whole, taken):
+                    if missing not in self.qualified:
+                        obligation = SourceObligation(
+                            missing, row.id, hit.similarity, boundary.event_id,
+                            self.scoring_epoch, boundary.deadline
+                        )
+                        self.qualified[missing] = obligation
+                        new.append(obligation)
             return new
 
     def reserve(self, *, max_bytes: int, max_events: int, now: int,

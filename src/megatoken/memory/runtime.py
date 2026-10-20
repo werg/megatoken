@@ -76,11 +76,10 @@ class NativeRetrieval:
         covered = self.ledger(session).injected
         records = self.service.backend.store.scan(Collection.SOURCE, visibility.scope)
         return {
-            row.id for row in records if row.footprint.ranges and all(
-                not subtract(
-                    Interval(row.content_id, part.version, part.start, part.end), covered
-                )
-                for part in row.footprint.ranges
+            row.id for row in records
+            if row.evidence_span is not None and not subtract(
+                Interval(row.content_id, row.evidence_span.version,
+                         row.evidence_span.start, row.evidence_span.end), covered,
             )
         }
 

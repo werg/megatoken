@@ -421,6 +421,11 @@ class MultiTrackCore:
                 external_kb=None if memory_snapshot is None else memory_snapshot.features,
                 memory_snapshot=memory_snapshot,
                 memory_adapters=self.core.memory_adapters,
+                track_ids=(None if memory_snapshot is None else torch.zeros(
+                    state.batch_size, 1, dtype=torch.long, device=state.device
+                )),
+                history_track_ids=(None if memory_snapshot is None else
+                    state.history_tracks.repeat_interleave(self.core.config.n_facets, dim=1)),
             )
             return self.core.remix(final)
         return self.core.remix(state.final.mean(dim=1))
