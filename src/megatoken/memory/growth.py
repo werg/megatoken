@@ -103,21 +103,41 @@ class GrowthAllocator:
             by_region.setdefault(chunk.region, []).append(chunk)
         for values in by_region.values():
             values.sort(key=lambda x: x.content_id)
-        ordered_regions = sorted(by_region, key=lambda r:
-                                 (-counts.get(r, 0) / (1 + allocated.get(r, 0)), r))
         quota = min(budget, max(0, self.policy.max_points - len(existing)))
         main_quota = min(quota, max(1, math.ceil(quota * self.policy.dense_fraction))) if quota else 0
-        selected = []
-        # Dense phase uses demand/allocated capacity, then tail/exploration gets
-        # distinct unseen regions rather than zero-support inventions.
-        for region in ordered_regions:
-            if len(selected) >= main_quota:
+        selected: list[CatalogChunk] = []
+        added: dict[str, int] = {}
+        # Re-rank after EVERY choice. Otherwise one record per region wins the
+        # density pass and the remaining budget devolves into lexical ordering,
+        # regardless of where unmet query demand is concentrated.
+        for _ in range(main_quota):
+            live = [region for region, chunks in by_region.items() if chunks]
+            if not live:
                 break
-            if by_region[region]:
-                selected.append(by_region[region].pop(0))
-        remaining = sorted((c for items in by_region.values() for c in items),
-                           key=lambda c: (allocated.get(c.region, 0), c.region, c.content_id))
-        selected.extend(remaining[:quota-len(selected)])
+            region = min(
+                live,
+                key=lambda name: (
+                    -counts.get(name, 0) / (1 + allocated.get(name, 0) + added.get(name, 0)),
+                    name,
+                ),
+            )
+            selected.append(by_region[region].pop(0))
+            added[region] = added.get(region, 0) + 1
+        # An independently budgeted exploration tail samples real permitted
+        # catalog chunks from the least represented regions, never synthetic
+        # source-less records. It is not a graph bonus or RAG coverage signal.
+        for _ in range(quota - len(selected)):
+            live = [region for region, chunks in by_region.items() if chunks]
+            if not live:
+                break
+            region = min(
+                live,
+                key=lambda name: (
+                    allocated.get(name, 0) + added.get(name, 0), name,
+                ),
+            )
+            selected.append(by_region[region].pop(0))
+            added[region] = added.get(region, 0) + 1
         with self.store.transaction():
             results = []
             for c in selected:
