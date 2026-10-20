@@ -12,9 +12,14 @@ from typing import Callable, Sequence
 
 import torch
 from torch import Tensor
+from torch.nn import functional as F
 
 from megatoken.memory.context import admit_kb
 from megatoken.memory.semantic import AdmittedGroup, Constituent
+from megatoken.memory.reader import selected_evidence
+from megatoken.memory.relations import pair_evidence
+from megatoken.memory.writers import PairWriterOutput
+from megatoken.training.hindsight import PairWriterBatch
 from megatoken.memory.writers import WriterOutput
 from megatoken.model.multitrack import MultiTrackGenerator, MultiTrackState
 from megatoken.training.hindsight import SourceWriterBatch
@@ -137,6 +142,145 @@ def native_source_continuation(
                         state, raw, tracks=event.tracks,
                         role_ids=torch.tensor(
                             [event.roles], device=state.device, dtype=torch.long,
+                        ),
+                    )
+        return total, count
+
+    return evaluate
+
+@dataclass(frozen=True)
+class PairWriterContinuation:
+    batch_index: int
+    scope: str
+    identity: str
+    query: Tensor
+    source_meridian: int
+    initial_state: MultiTrackState
+    events: tuple[ContinuationMeridian, ...]
+    prior: float = 1.0
+    left_support: float = 0.0
+    right_support: float = 0.0
+    left_checked: bool = False
+    right_checked: bool = False
+    distinct_support: bool = False
+
+    def __post_init__(self):
+        if (
+            self.batch_index < 0 or not self.scope or not self.identity
+            or self.query.ndim != 1 or not 0 <= self.prior <= 1
+            or not 0 <= self.left_support <= 1
+            or not 0 <= self.right_support <= 1
+        ):
+            raise ValueError("Native pair writer requires bounded independent context support")
+        if self.initial_state.batch_size != 1:
+            raise ValueError("Native pair continuation requires an independent episode")
+        clock = int(self.initial_state.meridians_seen[0])
+        if clock < self.source_meridian:
+            raise ValueError("Pair cannot be used before its source is admitted")
+        for event in self.events:
+            if event.meridian != clock:
+                raise ValueError("Pair writer trajectory must preserve the native clock")
+            if event.plans is not None and clock < self.source_meridian + 2:
+                raise ValueError("Pair writer may score only j >= i+2 continuation")
+            clock += 1
+
+
+def native_pair_continuation(
+    generator: MultiTrackGenerator,
+    trajectories: Sequence[PairWriterContinuation],
+) -> Callable[[PairWriterOutput, PairWriterBatch], tuple[Tensor, int]]:
+    """Pair-dependence gradients flow through native KV + all-track LoRA.
+
+    Query/endpoint source features are frozen inputs. No future answer is passed
+    to pair writer; a pair does not activate without an independent support
+    witness even when the statistical prior is high.
+    """
+    targets = tuple(trajectories)
+
+    def evaluate(
+        predicted: PairWriterOutput, batch: PairWriterBatch,
+    ) -> tuple[Tensor, int]:
+        total = predicted.value.sum() * 0
+        count = 0
+        for target in targets:
+            i = target.batch_index
+            if i >= predicted.value.shape[0] or not bool(batch.valid[i]):
+                continue
+            state = target.initial_state
+            dim = batch.left_key.shape[1]
+            if target.query.shape != (dim,):
+                raise ValueError("Pair native query differs from frozen semantic space")
+            device = state.device
+            query = target.query.detach().float().to(device)[None]
+            key = torch.stack((
+                batch.left_key[i].detach(), batch.right_key[i].detach(),
+            ))[None].to(device)
+            scores = selected_evidence(query, key)
+            point = scores.coefficient[0]
+            pair = pair_evidence(
+                point,
+                left=torch.tensor([0], device=device),
+                right=torch.tensor([1], device=device),
+                dependence_logits=predicted.dependence_logits[i:i+1],
+                prior=torch.tensor([target.prior], device=device),
+                pair_strength=predicted.strength[i:i+1],
+                left_partner=torch.tensor([target.right_support], device=device),
+                right_partner=torch.tensor([target.left_support], device=device),
+                left_checked=torch.tensor([target.left_checked], device=device),
+                right_checked=torch.tensor([target.right_checked], device=device),
+                distinct_support=torch.tensor([target.distinct_support], device=device),
+            )
+            clock = int(state.meridians_seen[0])
+            constituents = (
+                Constituent(
+                    identity=f"{target.identity}:left",
+                    semantic=batch.left_value[i:i+1].detach().to(device),
+                    coefficient=pair.point[0:1],
+                    lifetime_logit=predicted.lifetime_logit[i:i+1].detach(),
+                    admitted_at=clock, version="pinned-point-left",
+                ),
+                Constituent(
+                    identity=f"{target.identity}:right",
+                    semantic=batch.right_value[i:i+1].detach().to(device),
+                    coefficient=pair.point[1:2],
+                    lifetime_logit=predicted.lifetime_logit[i:i+1].detach(),
+                    admitted_at=clock, version="pinned-point-right",
+                ),
+                Constituent(
+                    identity=f"{target.identity}:pair",
+                    semantic=predicted.value[i:i+1],
+                    coefficient=pair.pair,
+                    lifetime_logit=predicted.lifetime_logit[i:i+1],
+                    admitted_at=clock, version="learned-pair",
+                    valid=torch.tensor([target.distinct_support], device=device),
+                ),
+            )
+            state = admit_kb(state, AdmittedGroup(
+                group_id=f"{target.scope}/{target.identity}",
+                constituents=constituents, anchor=clock,
+                revision="post-pretraining-pair-v1",
+                compatible_group=target.scope,
+            ))
+            for event in target.events:
+                if event.meridian != int(state.meridians_seen[0]):
+                    raise RuntimeError("Pair native state deviated from committed chronology")
+                if event.raw is None:
+                    step = generator.supervised_meridian(
+                        state, tracks=event.tracks, plans=event.plans,
+                        control_payloads=event.controls or ((b"",) * len(event.tracks)),
+                        effort=event.effort,
+                        teacher_forced_action=event.teacher_forced_action,
+                        memory_dropout=(0., 0.),
+                    )
+                    total = total + step.loss
+                    state = step.state
+                    count += len(event.tracks)
+                else:
+                    state = generator.tracks.advance_group(
+                        state, event.raw.detach().to(device),
+                        tracks=event.tracks,
+                        role_ids=torch.tensor(
+                            [event.roles], device=device, dtype=torch.long,
                         ),
                     )
         return total, count
