@@ -784,6 +784,18 @@ class _GroupedTeacherReadout(nn.Module):
         )
 
 
+def retrieval_control_payload(*, main_request: bytes, purpose: str,
+                              space_fingerprint: str) -> bytes:
+    """Exactly the same causal P conditioning in serving, training and replay."""
+    if not isinstance(main_request, bytes) or not main_request or not purpose or not space_fingerprint:
+        raise ValueError("Retrieval controls require nonempty request/purpose/space")
+    return (
+        b"<main_request>\\n" + main_request +
+        b"\\n<retrieval_purpose>\\n" + purpose.encode("utf-8") +
+        b"\\n<semantic_space>\\n" + space_fingerprint.encode("ascii")
+    )
+
+
 class MultiTrackGenerator:
     """One shared P/C/Gaussian, with modality-specific deterministic realization."""
 
@@ -1297,10 +1309,9 @@ class MultiTrackGenerator:
         if realizer is None or not space_fingerprint or not purpose or not main_request:
             raise ValueError("An enabled embedding R and explicit causal request are required")
         names = ("__retrieval_query__",)
-        payload = (
-            b"<main_request>\\n" + main_request +
-            b"\\n<retrieval_purpose>\\n" + purpose.encode("utf-8") +
-            b"\\n<semantic_space>\\n" + space_fingerprint.encode("ascii")
+        payload = retrieval_control_payload(
+            main_request=main_request, purpose=purpose,
+            space_fingerprint=space_fingerprint,
         )
         encoded = self._controls((payload,), state.device)
         snapshot = self.tracks.materialize_memory(state)
