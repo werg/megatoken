@@ -286,6 +286,11 @@ def write_rollout(handle: Any, rollout: Rollout, model_version: int) -> None:
 
 
 def train_rl(config: RLConfig, tasks: list[dict[str, Any]]) -> dict[str, Any]:
+    raise RuntimeError(
+        "Standalone outcome RL is retired. The sole training architecture is "
+        "causal retrieval-memory; later experience policy fitting requires "
+        "the accepted native grouped KB/control replay and source writers."
+    )
     if len(tasks) < config.task_seeds:
         raise ValueError("Not enough distinct task seeds for requested RL run")
     identities = [str(task.get("task_id", "")) for task in tasks[: config.task_seeds]]
