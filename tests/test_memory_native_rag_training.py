@@ -51,6 +51,11 @@ def test_selected_query_then_actual_source_bytes_advance_native_clock(tmp_path):
             content_id="source-a/chunk0", asset_ref="original.bin",
             key=np.array([1.] + [0.] * 7),
         )
+        bank.put_growth_state("source_catalog", {
+            "snapshot": "corpus-snapshot",
+            "space": space.fingerprint,
+            "partition_id": recipe.growth.partition_id,
+        })
         feature_reader = NativeSourceFeatures(
             model, source_root, max_chunk_bytes=128,
         )
