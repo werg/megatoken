@@ -147,14 +147,15 @@ def fit_source_writer_epoch(
             loss = settings.distillation_weight * _normalized_loss(
                 d_sum, d_count, "assignment distillation",
             )
-            counted = d_count
+            # Count supervised examples once, only for objectives that train.
+            counted = d_count if settings.distillation_weight else 0
             if settings.behavior_weight:
                 assert behavior is not None
                 b_sum, b_count = behavior(prediction, batch)
                 loss = loss + settings.behavior_weight * _normalized_loss(
                     b_sum, b_count, "frozen-reader behavior",
                 )
-                counted += b_count
+                counted = max(counted, b_count)
             # No-update windows are legal; they cannot fabricate examples.
             if counted == 0:
                 continue
@@ -198,14 +199,15 @@ def fit_relation_writer_epoch(
             loss = settings.distillation_weight * _normalized_loss(
                 d_sum, d_count, "pair distillation",
             )
-            counted = d_count
+            # Count supervised examples once, only for objectives that train.
+            counted = d_count if settings.distillation_weight else 0
             if settings.behavior_weight:
                 assert behavior is not None
                 b_sum, b_count = behavior(prediction, batch)
                 loss = loss + settings.behavior_weight * _normalized_loss(
                     b_sum, b_count, "frozen pair-reader behavior",
                 )
-                counted += b_count
+                counted = max(counted, b_count)
             if counted == 0:
                 continue
             _update(writer, optimizer, loss, grad_clip=settings.grad_clip)

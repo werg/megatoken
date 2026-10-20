@@ -16,7 +16,8 @@ def _writer():
     ).eval()
 
 
-@pytest.mark.parametrize("changed", [0, 1, 2])
+# With local_gap=2, slot 0 may read block 2 onward; blocks 0 and 1 are forbidden.
+@pytest.mark.parametrize("changed", [0, 1])
 def test_suffix_writer_ignores_current_and_prefix_content(changed):
     model = _writer()
     original = torch.randn(1, 6, 4, 8)

@@ -221,10 +221,14 @@ class SQLiteKB:
             }),
         )
 
-    def scan(self, collection: Collection, scope: str) -> tuple[Record, ...]:
+    def scan(
+        self, collection: Collection, scope: str, *, include_inactive: bool = False
+    ) -> tuple[Record, ...]:
+        """Active rows only; retired rows are visible solely to audit callers."""
         with self._lock:
             rows = self.db.execute(
-                "SELECT * FROM records WHERE collection=? AND scope=? ORDER BY id",
+                "SELECT * FROM records WHERE collection=? AND scope=?"
+                + ("" if include_inactive else " AND active=1") + " ORDER BY id",
                 (collection.value, scope),
             ).fetchall()
             return tuple(self._record(row) for row in rows)
@@ -480,7 +484,7 @@ class SQLiteKB:
             _unpack(row["value"], self.value_dim),
             tuple(float(x) for x in _unpack(row["dependence"], 2)),
             Footprint.from_json(row["footprint"]), row["strength"], row["lifetime_logit"],
-            row["payload_revision"],
+            row["payload_revision"], bool(row["active"]),
         )
 
     def update_relation(self, relation_id: int, *, value=None, dependence_logits=None,

@@ -5,12 +5,24 @@ from dataclasses import dataclass, replace
 import hashlib
 import json
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from megatoken.model.attention import AttentionFeatures, temporal_rope
 from .contracts import NativeKVLayout
+
+if TYPE_CHECKING:
+    from megatoken.model.attention import AttentionFeatures
+
+
+def _attention():
+    # megatoken.model imports this module from core.py; resolve lazily so that
+    # importing megatoken.memory first does not hit a partially initialized cycle.
+    from megatoken.model import attention
+
+    return attention
 
 
 class MemoryKVProjector(nn.Module):
@@ -118,7 +130,7 @@ def independently_drop_memory(
         return snapshot
     features = snapshot.features
     if drop_kv:
-        features = AttentionFeatures(
+        features = _attention().AttentionFeatures(
             features.keys, features.values,
             torch.zeros_like(features.mask), features.track_ids,
             torch.zeros_like(features.log_strength),
@@ -211,7 +223,7 @@ class KBContext:
             gate = mass / (self.null_mass + mass)
             k, v = projector(aggregate, slot_codes)
             anchor = torch.full((batch,), group.anchor, device=age.device, dtype=age.dtype)
-            k = temporal_rope(k, anchor)
+            k = _attention().temporal_rope(k, anchor)
             all_keys.append(k.to(dtype))
             all_values.append(v.to(dtype))
             mask = (gate > 0)[:, None].expand(batch, self.layout.facets)
@@ -263,6 +275,6 @@ class KBContext:
              age.detach().cpu().tolist()], sort_keys=True
         ).encode()).hexdigest()
         return MemoryMaterialization(
-            AttentionFeatures(keys, vals, mask, track_ids, log_strength),
+            _attention().AttentionFeatures(keys, vals, mask, track_ids, log_strength),
             latent, gates, fingerprint,
         )

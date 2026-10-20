@@ -879,6 +879,11 @@ def train(
                     bank_owner, context, optimizer_step=global_step,
                     max_norm=config.grad_clip,
                 )
+                # Growth allocates from published demand; publish every step so
+                # pending demand never accumulates unbounded between growth barriers.
+                step_metrics["memory_demand_published"] = synchronize_query_demand(
+                    bank_owner, context,
+                )
                 if global_step % config.retrieval_growth_every == 0:
                     error = None
                     grown = 0

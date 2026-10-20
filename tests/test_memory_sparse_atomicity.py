@@ -27,7 +27,7 @@ def _bank(path):
     bank = SQLiteKB(path, _space(), value_dim=6)
     row = bank.insert_memory(
         scope="scope", footprint=_footprint(),
-        assignment="source/0", key=np.ones(8), value=np.zeros(6),
+        assignment="source/0", key=np.ones(8), value=np.zeros(6), birth_step=0,
     )
     return bank, row
 
@@ -67,6 +67,27 @@ def test_selected_sparse_row_rejects_concurrent_mutation_without_partial_commit(
             sparse.step(step=1)
         after = bank.get(Collection.MEMORY, row)
         np.testing.assert_array_equal(after.key, prior.key)
+        assert bank.moments(
+            collection=Collection.MEMORY, kind="record",
+            entity_id=row, field="key", layout_generation="v1",
+        ) is None
+        # A rejected barrier must not poison later steps with the stale leaf.
+        sparse.select(keyid).sum().backward()
+        assert sparse.step(step=1) == 1
+    finally:
+        bank.close()
+
+
+def test_sparse_step_rejects_row_retired_after_selection(tmp_path):
+    bank, row = _bank(tmp_path / "bank.sqlite")
+    try:
+        sparse = SparseRowAdam(bank)
+        keyid = RowID(Collection.MEMORY, "record", row, "key", "v1")
+        sparse.select(keyid).sum().backward()
+        bank.tombstone_source_version("source", "v1")
+        assert not bank.get(Collection.MEMORY, row).active
+        with pytest.raises(RuntimeError, match="Stale selected KB row"):
+            sparse.step(step=1)
         assert bank.moments(
             collection=Collection.MEMORY, kind="record",
             entity_id=row, field="key", layout_generation="v1",

@@ -51,6 +51,7 @@ class Relation:
     strength: float = 1.0
     lifetime_logit: float = -10.0
     payload_revision: int = 0
+    active: bool = True
 
     def __post_init__(self) -> None:
         if not (0 <= self.prior <= 1) or self.left >= self.right or self.left < 1:

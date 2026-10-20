@@ -92,10 +92,6 @@ class SourceWriter(nn.Module):
             if local_gap < 1:
                 raise ValueError("Suffix source writer requires a strictly positive gap")
             allowed = k >= q + local_gap
-            # Invalid suffix queries use their own keys solely to avoid NaN;
-            # they cannot become writer assignments because valid=False.
-            fallback = ~allowed.any(-1)
-            allowed = allowed | (fallback[:, None] & (k == q))
         else:
             allowed = torch.ones(count, count, device=x.device, dtype=torch.bool)
         effective = valid_blocks.detach().bool()
