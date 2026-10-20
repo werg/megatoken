@@ -298,20 +298,51 @@ class SanaFacetsStudent(nn.Module):
         student condition reads Z only, and the target cannot enter prior/C.
         """
         embeddings, mask = self._embeddings(raw)
-        config = self.pipe.scheduler.config
-        prediction_type = getattr(config, "prediction_type", "epsilon")
-        if prediction_type not in ("epsilon", "v_prediction", "sample"):
-            raise ValueError("Unknown donor diffusion target parameterization")
+        scheduler = self.pipe.scheduler
+        config = scheduler.config
         if getattr(config, "num_train_timesteps", 0) <= 0:
             raise ValueError("Sana scheduler has no declared training clock")
         b = target_latents.shape[0]
-        timestep = torch.randint(
-            0, int(config.num_train_timesteps), (b,),
-            device=target_latents.device, generator=generator
-        )
         noise = torch.randn(target_latents.shape, dtype=target_latents.dtype,
                             device=target_latents.device, generator=generator)
-        noisy = self.pipe.scheduler.add_noise(target_latents, noise, timestep)
+        if hasattr(scheduler, "scale_noise"):
+            # Sana's FlowMatchEulerDiscreteScheduler predicts the transport
+            # direction from clean latents to noise. It has no DDPM add_noise
+            # or get_velocity interface. Draw from its *actual shifted*
+            # schedule rather than replacing it with uniform timesteps.
+            schedule = scheduler.timesteps
+            if schedule.numel() == 0 or scheduler.sigmas.numel() < schedule.numel():
+                raise ValueError("Flow scheduler has no initialized noise schedule")
+            indices = torch.randint(
+                0, schedule.numel(), (b,), device=target_latents.device,
+                generator=generator,
+            )
+            timestep = schedule.to(target_latents.device)[indices]
+            sigma = scheduler.sigmas.to(
+                device=target_latents.device, dtype=target_latents.dtype
+            )[indices]
+            while sigma.ndim < target_latents.ndim:
+                sigma = sigma.unsqueeze(-1)
+            noisy = sigma * noise + (1.0 - sigma) * target_latents
+            target = (noise - target_latents).float()
+            prediction_type = "flow"
+        elif hasattr(scheduler, "add_noise"):
+            timestep = torch.randint(
+                0, int(config.num_train_timesteps), (b,),
+                device=target_latents.device, generator=generator,
+            )
+            prediction_type = getattr(config, "prediction_type", "epsilon")
+            if prediction_type not in ("epsilon", "v_prediction", "sample"):
+                raise ValueError("Unknown donor diffusion prediction type")
+            noisy = scheduler.add_noise(target_latents, noise, timestep)
+            if prediction_type == "epsilon":
+                target = noise.float()
+            elif prediction_type == "sample":
+                target = target_latents.float()
+            else:
+                target = scheduler.get_velocity(target_latents, noise, timestep).float()
+        else:
+            raise ValueError("No supported donor noise/flow scheduler")
         argument_time = timestep
         if self.modality == "image":
             argument_time = timestep * self.transformer.config.timestep_scale
@@ -324,12 +355,6 @@ class SanaFacetsStudent(nn.Module):
         )[0].float()
         if output.shape[1] == target_latents.shape[1] * 2:
             output = output.chunk(2, dim=1)[0]
-        if prediction_type == "epsilon":
-            target = noise.float()
-        elif prediction_type == "sample":
-            target = target_latents.float()
-        else:
-            target = self.pipe.scheduler.get_velocity(target_latents, noise, timestep).float()
         return flow_matching_loss(output, target, valid_mask)
 
     def realize(self, raw: Tensor, **spec):
