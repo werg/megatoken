@@ -26,6 +26,7 @@ i18n = ["PyICU>=2.16,<3"]
 [project.scripts]
 megatoken = "megatoken.cli:main"
 megatoken-memory = "megatoken.memory.recipe:main"
+megatoken-memory-writer = "megatoken.training.writer_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/megatoken"]
