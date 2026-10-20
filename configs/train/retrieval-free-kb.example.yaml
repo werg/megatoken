@@ -1,7 +1,7 @@
-# Reference configuration: live free-KB grouped-meridian pretraining.
-# Replace all PIN_* paths/identities with data-preparation outputs.
-# This file intentionally does NOT start a run without those dependencies.
-phase: M1
+# Mandatory live source-RAG + progressive free-bank training.
+# Inference ablations may disable a reader; there is no legacy train path.
+phase: M2
+output: runs/retrieval-free-kb
 model: 32x512
 model_overrides:
   semantic_dim: 256
@@ -10,16 +10,15 @@ model_overrides:
   memory_lora_experts: 4
   memory_lora_rank: 8
   memory_lora_topk: 2
-dataset: PIN_PREPARED_EPISODE_DATASET
+dataset: PIN_PREPARED_CAUSAL_MERIDIAN_EPISODES
 codec: PIN_RAW_CODEC_DIRECTORY
-output: runs/retrieval-free-kb
 device: auto
 precision: bf16
 require_blackwell: true
 expert_backend: auto
-representation_mode: recurrent
+representation_mode: auto
 budget_meter: G
-budget: 100000
+budget: 1000000
 accumulate_events: 64
 microbatch_episodes: 1
 max_accumulation_windows: 64
@@ -31,22 +30,22 @@ scored_decisions: 4
 effort: 6
 eval_every: 0
 checkpoint_every: 100
-retrieval_sidecar: PIN_VERIFIED_CAUSAL_QUERY_SIDECAR_JSONL
-retrieval_memory_recipe: PIN_FREE_KB_RECIPE_JSON
-retrieval_bank: PIN_CANONICAL_SQLITE_KB_SHARED_ACROSS_RANKS
-retrieval_ivf_centroids: PIN_TRAINED_SEMANTIC_CENTROIDS_NPY
-retrieval_ivf_sha256: PIN_ACTUAL_CENTROID_FILE_SHA256
-retrieval_ivf_nprobe: 8
-retrieval_source_assets_root: PIN_IMMUTABLE_VERIFIED_ORIGINAL_SOURCE_ASSETS
-retrieval_gate_receipt: PIN_ACCEPTED_FREE_KB_PHASE_GATE_JSON
-retrieval_sparse_lr: 0.001
-retrieval_growth_every: 100
-retrieval_growth_budget: 32
-retrieval_kv_dropout: 0.1
-retrieval_lora_dropout: 0.1
+retrieval_sidecar: PIN_VERIFIED_CAUSAL_RETRIEVAL_SIDECAR_JSONL
+retrieval_memory_recipe: PIN_PHASE_MATCHED_RECIPE_JSON
 router_balance_mode: global
 router_replay_assignments: 262144
 gradient_checkpointing: true
 compile: false
 use_stage_mixture: false
 use_effort_mixture: false
+retrieval_bank: PIN_CANONICAL_SOURCE_MEMORY_SQLITE_SHARED_ACROSS_RANKS
+retrieval_ivf_centroids: PIN_TRAINED_SEMANTIC_CENTROIDS_NPY
+retrieval_ivf_sha256: PIN_ACTUAL_CENTROID_FILE_SHA256
+retrieval_ivf_nprobe: 8
+retrieval_source_assets_root: PIN_IMMUTABLE_VERIFIED_ORIGINAL_SOURCE_ASSETS
+retrieval_gate_receipt: PIN_ACCEPTED_PHASE_GATE_JSON
+retrieval_sparse_lr: 0.001
+retrieval_growth_every: 100
+retrieval_growth_budget: 32
+retrieval_kv_dropout: 0.1
+retrieval_lora_dropout: 0.1
