@@ -165,12 +165,7 @@ class NativeRetrieval:
                     )
                 for group in groups:
                     next_state = admit_kb(next_state, group)
-        # Publish the entire causal transaction only after all steps succeed.
-        self.sessions[id(session)] = scheduling
-        session.state = next_state
-        session.revision += 1
-        session.pending = None
-        session.events.append((session.revision, ("__retrieval_query__",)))
+        # Complete all serialization/validation work BEFORE session commit.
         tape = QueryActionReceipt.capture(
             event_id=request_id, meridian=clock,
             model_version=self.generator.generator.core.model_version,
@@ -179,7 +174,7 @@ class NativeRetrieval:
             selected=_raw, vector=vector, effort=effort,
             snapshot_id=receipt.snapshot_id,
         )
-        session.retrieval_receipts.append({
+        query_receipt = {
             "kind": "query", "event_id": request_id,
             "action": tape.to_dict(),
             "meridian": clock, "request_hash": receipt.request_hash,
@@ -192,7 +187,14 @@ class NativeRetrieval:
             ).hexdigest(),
             "source_ids": list(source.ids), "memory_ids": list(memory.ids),
             "coverage": scheduling.to_dict(),
-        })
+        }
+        # Publish the entire causal transaction only after every step succeeds.
+        self.sessions[id(session)] = scheduling
+        session.state = next_state
+        session.revision += 1
+        session.pending = None
+        session.events.append((session.revision, ("__retrieval_query__",)))
+        session.retrieval_receipts.append(query_receipt)
         return BoundaryResult(
             receipt, query, source, memory, tuple(queued),
             tuple(group.group_id for group in groups),
