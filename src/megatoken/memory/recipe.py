@@ -1,7 +1,7 @@
 """Strict retrieval-memory curriculum, phase gate, and coherent KB artifact manifests."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field
 from hashlib import sha256
 import argparse
 import json
