@@ -1,0 +1,42 @@
+{
+ "schema": "megatoken.cloud-job/1",
+ "id": "qa-p1",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "resources": {
+  "cpu": "16",
+  "memory": "96Gi",
+  "gpu": 1
+ },
+ "lifetime_hours": 24,
+ "scratch": "200Gi",
+ "pip": [
+  "pyarrow"
+ ],
+ "push_dirs": [
+  {
+   "source": "/home/werg/megatoken-runs/cloud/qa-corpus/out/corpus/datasets/rc-train",
+   "path": "out/corpus/datasets/rc-train"
+  },
+  {
+   "source": "/home/werg/megatoken-runs/cloud/qa-corpus/out/corpus/datasets/rc-heldout",
+   "path": "out/corpus/datasets/rc-heldout"
+  },
+  {
+   "source": "/home/werg/megatoken-runs/cloud/qa-corpus/out/corpus/recipes",
+   "path": "out/corpus/recipes"
+  },
+  {
+   "source": "/home/werg/megatoken-runs/cloud/qa-corpus/out/corpus/kb",
+   "path": "out/corpus/kb"
+  }
+ ],
+ "command": [
+  "bash",
+  "-c",
+  "set -e; megatoken codec --output /work/inputs/codec; megatoken train --config configs/train/qa-pilot-p1.yaml; megatoken gates --checkpoint /work/out/p1/checkpoints/latest.json --dataset /work/out/corpus/datasets/rc-heldout/data --queries /work/out/corpus/datasets/rc-heldout/queries.jsonl --documents /work/out/corpus/datasets/rc-heldout/documents.jsonl --recipe /work/out/corpus/recipes/coherence_embedding.json --bank /work/out/corpus/kb/catalog.sqlite --centroids /work/out/corpus/kb/centroids.npy --output /work/out/gates-p1"
+ ],
+ "outputs": [
+  "out/p1",
+  "out/gates-p1"
+ ]
+}

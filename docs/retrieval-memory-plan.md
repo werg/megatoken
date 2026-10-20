@@ -60,13 +60,7 @@ Warm the embedding realizer on E-encoded explicit queries with teacher query tar
 
 After pretraining, adapt source-key generation to the **optimized learned space** as part of corpus reproduction. Reuse the canonical document/key realizer over permitted native source representations, such as `R_embedding(E(source), role="document")`, alongside the new memory writer's key/value outputs. Its initial semantic distillation belongs in bootstrap; reproducing freely adapted final keys is a later target. An isolated E(chunk) cannot reproduce a target requiring unavailable neighbors, so preserve complete source/context footprints. Teacher-only keys remain declared initialization or an evaluated fallback.
 
-Select one teacher space before bulk indexing, after a small comparison:
-
-| Candidate, checked 2026-10-19 | Role and interface |
-| --- | --- |
-| [Perplexity `pplx-embed-v2-context-9b-preview`](https://huggingface.co/perplexity-ai/pplx-embed-v2-context-9b-preview) | Preferred contextual-chunk pilot: one vector per chunk; distinct `encode_queries` and document `encode`; 2048 dimensions or the trained 1024-dimensional truncation. Pin weights and preprocessing because preview revisions may break compatibility. |
-| [Perplexity contextual v1](https://docs.perplexity.ai/docs/embeddings/contextualized-embeddings) | Established hosted alternative: ordered document chunks with `pplx-embed-context-v1-4b`; its documented query recipe uses the same contextual model with `[[query]]`. |
-| [EmbeddingGemma 2](https://ai.google.dev/gemma/docs/embeddinggemma/model_card_2) | Smaller local comparison and a route to multimodal retrieval; use its distinct query-task and document formats. |
+**Selected teacher space (2026-10-20):** [EmbeddingGemma 2](https://huggingface.co/google/embeddinggemma-2) at revision `914f7f89`, 768 dimensions, chunks encoded **in isolation** (no contextual chunk encoding), pinned in [configs/retrieval-memory-pilot.json](../configs/retrieval-memory-pilot.json). Documents use `title: {title} | text: {text}` and queries `task: question answering | query: {q}`, mean-pooled and L2-normalized. The contextual Perplexity `pplx-embed-v2-context-9b-preview` was the earlier preference; at 33.6 GB of FP32 weights it was rejected for the pilot. A contextual or late-interaction teacher can still be evaluated later as a separate space; never mix spaces.
 
 Normalize vectors consistently and pin the model, dimension, query/document formatting and chunk context policy. Pin weight revisions for local teachers; for hosted teachers, retain returned vectors with model identifiers, request settings and input hashes. Do not mix unrelated embedding spaces. The newer [Perplexity late-interaction family](https://huggingface.co/perplexity-ai/pplx-embed-v2-late-9b) produces multiple token vectors; it can be evaluated separately as a ranking teacher without making the first index multi-vector.
 

@@ -33,8 +33,6 @@ from pathlib import Path
 
 import numpy as np
 
-TEACHER = "google/embeddinggemma-2"
-TEACHER_REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"
 QUERY_PROMPT = "task: question answering | query: "
 DOCUMENT_PROMPT = "title: {title} | text: "
 SCOPE = "wiki-qa"
@@ -300,22 +298,13 @@ def build(args: argparse.Namespace) -> dict:
     loaded.clear()
 
     # ---- recipes ----
-    space = {
-        "name": "embeddinggemma2-768-isolated-chunk",
-        "revision": "pilot-v1",
-        "teacher": TEACHER,
-        "teacher_revision": TEACHER_REVISION,
-        "dimension": 768,
-        "document_recipe": "embeddinggemma2 'title: {title} | text: {text}' mean-pool l2 bf16",
-        "query_recipe": "embeddinggemma2 'task: question answering | query: {q}' mean-pool l2 bf16",
-        "context_recipe": "isolated-chunk-v1",
-        "normalized": True,
-    }
+    pilot = json.loads(Path(args.pilot_recipe).read_text())
+    # The pilot recipe pins the teacher space; the prompts above implement its recipes.
+    space = pilot["space"]
     space_fp = SemanticSpace(**space).fingerprint
     partition = sha256(
         json.dumps({k: [q["qid"] for q in v] for k, v in splits.items()}).encode()
     ).hexdigest()
-    pilot = json.loads(Path(args.pilot_recipe).read_text())
     model_config = load_model_config(args.model, **json.loads(args.model_overrides))
     recipes = {}
     for phase in ("coherence_embedding", "progressive_warmup", "free_kb_pretraining"):
@@ -538,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--codec", required=True, help="Pinned Ling codec directory")
     parser.add_argument("--pilot-recipe", default="configs/retrieval-memory-pilot.json")
     parser.add_argument("--model", default="32x512")
-    parser.add_argument("--model-overrides", default='{"semantic_dim": 768}')
+    parser.add_argument("--model-overrides", default="{}")
     parser.add_argument("--hotpot-train", type=int, default=20000)
     parser.add_argument("--musique-train", type=int, default=5000)
     parser.add_argument("--hotpot-heldout", type=int, default=1000)

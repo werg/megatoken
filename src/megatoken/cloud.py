@@ -100,6 +100,11 @@ def validate(job: dict[str, Any]) -> dict[str, Any]:
             raise CloudError(f"Input path must be relative to {WORK}: {item}")
         if len(item.get("sha256", "")) != 64 or bool(item.get("url")) == bool(item.get("source")):
             raise CloudError(f"Input needs sha256 and exactly one of url/source: {item['path']}")
+    for item in job.get("push_dirs", []):
+        if Path(item.get("path", "")).is_absolute() or ".." in Path(item.get("path", "")).parts:
+            raise CloudError(f"push_dirs path must be relative to {WORK}: {item}")
+        if not item.get("source"):
+            raise CloudError(f"push_dirs entry lacks a local source: {item}")
     for output in job["outputs"]:
         if Path(output).is_absolute() or ".." in Path(output).parts:
             raise CloudError(f"Output must be relative to {WORK}: {output}")
@@ -192,20 +197,47 @@ def _chunks(path: Path):
         yield from iter(lambda: stream.read(CHUNK), b"")
 
 
+def expand_push_dirs(job: dict[str, Any]) -> list[dict[str, str]]:
+    """Every file under each ``push_dirs`` source, as a sha256-pinned pushed input."""
+    items = []
+    for entry in job.get("push_dirs", []):
+        root = Path(entry["source"]).expanduser()
+        if not root.is_dir():
+            raise CloudError(f"push_dirs source is not a directory: {root}")
+        for path in sorted(p for p in root.rglob("*") if p.is_file()):
+            items.append(
+                {
+                    "path": str(Path(entry["path"]) / path.relative_to(root)),
+                    "source": str(path),
+                    "sha256": sha256_file(path),
+                }
+            )
+    return items
+
+
 def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[str, Any]:
     job = validate(json.loads(job_path.read_text()))
+    job["inputs"] = [*job.get("inputs", []), *expand_push_dirs(job)]
     with tempfile.TemporaryDirectory() as temporary:
         archive = Path(temporary) / "code.tar.gz"
         code = code_snapshot(repo, archive)
         pushed = []
-        for item in job.get("inputs", []):
+        for item in job["inputs"]:
             if item.get("source"):
                 source = Path(item["source"]).expanduser()
                 if sha256_file(source) != item["sha256"]:
                     raise CloudError(f"{source} does not match its declared sha256")
                 pushed.append((source, item["sha256"]))
         sandbox = _create(job)
-        entry = {"event": "launched", "sandbox_id": sandbox.sandbox_id, "job": job["id"], **code}
+        entry = {
+            "event": "launched",
+            "sandbox_id": sandbox.sandbox_id,
+            "job": job["id"],
+            **code,
+            "inputs_sha256": hashlib.sha256(
+                json.dumps(job["inputs"], sort_keys=True).encode()
+            ).hexdigest(),
+        }
         record(entry)
         started = time.time()
         sandbox.wait(timeout=start_timeout)

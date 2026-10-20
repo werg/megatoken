@@ -4,7 +4,7 @@ phase: B0
 output: runs/retrieval-coherence
 model: 32x512
 model_overrides:
-  semantic_dim: 1024
+  semantic_dim: 768
   semantic_value_dim: 256
   max_kb_positions: 4
   memory_lora_experts: 4

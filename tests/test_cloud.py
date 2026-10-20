@@ -76,3 +76,16 @@ def test_shared_credential_files_are_refused(tmp_path):
     secrets.chmod(0o644)
     with pytest.raises(cloud.CloudError, match="chmod 600"):
         cloud.load_credentials(secrets)
+
+
+def test_push_dirs_expand_to_pinned_inputs(tmp_path):
+    (tmp_path / "corpus" / "sub").mkdir(parents=True)
+    (tmp_path / "corpus" / "sub" / "a.txt").write_text("a")
+    job = cloud.validate(
+        _job(inputs=[], push_dirs=[{"source": str(tmp_path / "corpus"), "path": "out/corpus"}])
+    )
+    (item,) = cloud.expand_push_dirs(job)
+    assert item["path"] == "out/corpus/sub/a.txt"
+    assert item["sha256"] == cloud.sha256_file(tmp_path / "corpus" / "sub" / "a.txt")
+    with pytest.raises(cloud.CloudError):
+        cloud.validate(_job(push_dirs=[{"source": "x", "path": "/abs"}]))

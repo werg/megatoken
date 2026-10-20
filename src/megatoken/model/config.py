@@ -73,7 +73,7 @@ class ModelConfig:
     checkpoint_stages: bool = False
     # Mandatory v8 retrieval-memory geometry. Coherence bootstrap starts with
     # an empty bank, never a model without the retrieval architecture.
-    semantic_dim: int = 1024
+    semantic_dim: int = 768
     semantic_value_dim: int = 256
     max_kb_positions: int = 4
     memory_lora_experts: int = 4
