@@ -77,3 +77,17 @@ def test_scored_assignment_does_not_silently_clamp_to_wrong_source():
     )
     with pytest.raises(ValueError, match="missing output slot"):
         writer_distillation(output, bad)
+
+
+def test_suffix_writer_has_no_gradient_to_forbidden_prefix():
+    model = _writer()
+    encoded = torch.randn(1, 6, 4, 8, requires_grad=True)
+    output = model(
+        encoded, mode="suffix",
+        valid_blocks=torch.ones(1, 6, dtype=torch.bool),
+        local_gap=2,
+    )
+    output.value[:, 0].square().sum().backward()
+    assert encoded.grad is not None
+    assert torch.count_nonzero(encoded.grad[:, :2]) == 0
+    assert torch.count_nonzero(encoded.grad[:, 2:]) > 0
