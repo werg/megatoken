@@ -49,7 +49,9 @@ class RetrievalExample:
             raise ValueError("Query, evidence and label footprints must share one scope")
         if not Visibility(scope, self.query.meridian).permits(self.query_teacher_inputs):
             raise ValueError("Query teacher sees future or invalid prefix evidence")
-        eligibility = Visibility(scope, self.query.deadline)
+        # Serving searches only sources with available_at <= committed cursor <=
+        # meridian; the delivery deadline only bounds arrival, not eligibility.
+        eligibility = Visibility(scope, self.query.meridian)
         if not eligibility.permits(self.document_key_context) or not (
             eligibility.permits(self.payload_support)
         ):
