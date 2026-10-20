@@ -98,15 +98,19 @@ def local_source_value_loss(
     estimate = (scores.weights[..., None] * values).sum(1)
     residual = 0.5 * (estimate - targets).square().sum(-1)
     supported = positives.any(-1)
+    # A labeled positive that ANN failed to select, or that visibility masked,
+    # is NOT a no-answer example. Only an explicitly complete, truly empty
+    # support set is eligible for null supervision.
+    explicit_null = complete_annotations.detach().bool() & ~positive.detach().bool().any(-1)
     # Do not fabricate negatives for completely unannotated retrieval events.
     supported_loss = residual - supported_mass_scale * (
         scores.weights.masked_fill(~positives, 0).sum(-1).clamp_min(1e-8).log()
     )
     null_loss = -null_scale * scores.null_weight.clamp_min(1e-8).log()
     selected = torch.where(supported, supported_loss,
-                           torch.where(complete_annotations, null_loss,
+                           torch.where(explicit_null, null_loss,
                                        torch.zeros_like(null_loss)))
-    valid_examples = supported | complete_annotations
+    valid_examples = supported | explicit_null
     return selected[valid_examples].sum(), int(valid_examples.sum())
 
 
