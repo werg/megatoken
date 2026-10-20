@@ -45,7 +45,7 @@ def _fixture(tmp_path, *, early=True):
         growth=GrowthPolicy(value_dim=16, seed=9, max_points=10, max_pairs=5),
         loss_weights={
             "embedding": 1., "query_ranking": 0.5,
-            "source_value": 0.1,
+            "source_value": 0.,
         },
         phase="progressive_warmup",
         max_selected_source=2,
