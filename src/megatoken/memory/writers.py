@@ -192,8 +192,13 @@ def writer_distillation(
     if distance_temperature <= 0 or min(value_weight, gate_weight, lifetime_weight) < 0:
         raise ValueError("Writer target weights and temperature must be nonnegative")
     n, a = targets.slots.shape
-    indices = targets.slots.clamp(0, predicted.key.shape[1] - 1)
     valid = targets.valid.detach().bool()
+    # Masked padding may use sentinel IDs, but scored assignments must always
+    # identify an actual writer output slot. Clamping a live out-of-range ID
+    # silently trains the wrong source and violates assignment provenance.
+    if bool(((targets.slots < 0) | (targets.slots >= predicted.key.shape[1]))[valid].any()):
+        raise ValueError("Scored writer assignment references a missing output slot")
+    indices = targets.slots.clamp(0, predicted.key.shape[1] - 1)
     valid = valid & predicted.valid.gather(1, indices)
     batch = torch.arange(n, device=indices.device)[:, None]
     key = predicted.key[batch, indices]
