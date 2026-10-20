@@ -68,6 +68,7 @@ def fit_pinned_dataset(
         or layout["value_dim"] != recipe.model.semantic_value_dim
     ):
         raise ValueError("Prepared writer dimensions differ from canonical KB geometry")
+    torch.manual_seed(seed)
     if dataset.kind == "source":
         if (
             layout["facets"] != recipe.model.n_facets
@@ -84,7 +85,6 @@ def fit_pinned_dataset(
             key_dim=layout["semantic_dim"], value_dim=layout["value_dim"],
             statistics_dim=layout["statistics_dim"], hidden=hidden,
         ).to(device)
-    torch.manual_seed(seed)
     optimizer = torch.optim.AdamW(writer.parameters(), lr=lr, weight_decay=0.)
     settings = WriterFitSettings(learning_rate=lr, distillation_weight=1.)
     metrics = []
