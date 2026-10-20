@@ -167,6 +167,60 @@ def encode_controls(
     encoded = core.encode_control(values, lengths=lengths, encoder_grad=encoder_grad)
     return encoded.masked_fill(lengths.eq(0)[:, None], 0)
 
+def effective_event_payloads(
+    session_payload: bytes,
+    tracks: Sequence[str],
+    requests: Sequence[tuple[str, int]],
+) -> tuple[bytes, ...]:
+    """Bind an event-local revision without revealing later requests.
+
+    A request only affects its own event. This framing is byte-exact and shared
+    by the trainer and a caller preparing controls for select_group/replay.
+    """
+    if len(tracks) != len(requests) or len(set(tracks)) != len(tracks):
+        raise ValueError("Each unique track requires one effective request")
+    if not isinstance(session_payload, bytes):
+        raise TypeError("Session control must be bytes")
+    result = []
+    for track, (instruction, revision) in zip(tracks, requests, strict=True):
+        if not track or not isinstance(instruction, str) or type(revision) is not int or revision < 0:
+            raise ValueError("Invalid effective event request")
+        suffix = json.dumps(
+            {"track_id": track, "request": instruction, "revision": revision},
+            sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+        ).encode("utf-8")
+        result.append(session_payload + b"\n<event_request>\n" + suffix)
+    return tuple(result)
+
+def causal_step_payloads(episode, meridian_id: int, base: bytes,
+                         tracks: Sequence[str],
+                         requests: Sequence[tuple[str, int]]) -> tuple[bytes, ...]:
+    """Only preceding published interpretation/request revisions are visible.
+
+    This is shared by the grouped trainer and the offline serving task adapter.
+    A later edit request, even on the same reusable track, is not an initial
+    global control. Peer output targets and verification metadata are excluded.
+    """
+    if not isinstance(base, bytes):
+        raise TypeError("Base session control must be bytes")
+    available = [
+        {
+            "meridian": m.meridian_id,
+            "track": e.track_id,
+            "modality": e.modality,
+            "request": e.request,
+            "revision": e.request_revision,
+        }
+        for m in episode.meridians if m.meridian_id < meridian_id
+        for e in m.events if e.request
+    ]
+    if available:
+        framed = json.dumps(available, sort_keys=True, ensure_ascii=False,
+                            separators=(",", ":")).encode("utf-8")
+        base += b"\\n<available_requests>\\n" + framed
+    return effective_event_payloads(base, tracks, requests)
+
+
 
 # The same resolver is used by dataset compilation, grouped training and
 # serving. An input's descriptor is publicly available once its meridian is

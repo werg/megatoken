@@ -505,6 +505,12 @@ class FacetedCore(nn.Module):
             self, modality, features, extractor=extractor
         )
 
+    def encode_media_views(
+        self, modality: str, views: tuple[tuple[str, Tensor, Tensor], ...]
+    ) -> Tensor:
+        """Fuse only causally visible pinned input views before canonical E."""
+        return self.media_stems.encode_views(self, modality, views)
+
     def encode_control(
         self,
         byte_ids: Tensor,

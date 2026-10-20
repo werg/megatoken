@@ -100,6 +100,9 @@ class TrainConfig:
     budget_meter: str = "auto"
     accumulate_events: int = 32
     media_root: str | None = None
+    # Immutable local checkpoint manifest. Donors are loaded before optimizer enumeration.
+    pretrained_packs: str | None = None
+    omni_recipe: str | None = None
     native_pack_manifest: str | None = None
     concordance_recipe: str | None = None
     max_media_events_per_window: int = 5
@@ -142,15 +145,16 @@ class TrainConfig:
             raise ValueError(
                 "Event-budget media training needs eval_every=0 until media evaluation is installed"
             )
+        if self.omni_recipe is not None and not self.omni_recipe:
+            raise ValueError("Omni recipe path must be nonempty")
+        if self.omni_recipe is not None and self.budget_meter != "G":
+            raise ValueError("Concordant media tasks require an explicit G event budget")
+        if self.pretrained_packs is not None and not self.pretrained_packs:
+            raise ValueError("Pretrained pack manifest path must be nonempty")
         if self.media_root is not None and not self.media_root:
             raise ValueError("Media asset root must be a nonempty path")
-        if self.native_pack_manifest is not None and not self.native_pack_manifest:
-            raise ValueError("Pretrained pack registry path must be nonempty")
-        if self.concordance_recipe is not None and not self.concordance_recipe:
-            raise ValueError("Concordance task mixture path must be nonempty")
         positive = (
             "microbatch_episodes",
-            "max_media_events_per_window",
             "accumulate_events",
             "accumulate_scored",
             "accumulate_ingested",

@@ -9,6 +9,7 @@ an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import math
 import os
 import signal
@@ -613,14 +614,26 @@ def train(
             model_config, codec, device=context.device, precision=config.precision,
             native_pack_manifest=config.native_pack_manifest,
         )
+        pretrained_pack_fingerprint = ""
+        if config.pretrained_packs is not None:
+            from megatoken.omni.loader import install_pretrained_packs
+            install_pretrained_packs(
+                model, config.pretrained_packs, device=context.device,
+                dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
+            )
+            pretrained_pack_fingerprint = hashlib.sha256(
+                Path(config.pretrained_packs).read_bytes()
+            ).hexdigest()
         payload = None
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
             _resume_compatible(payload["train_config"], config, phase_transition)
+            if payload.get("pretrained_pack_fingerprint", "") != pretrained_pack_fingerprint:
+                raise ValueError("Checkpoint pretrained pack lock differs from current run")
+            if payload.get("native_pack_fingerprint") != native_pack_fingerprint:
+                raise ValueError("Checkpoint pinned native pack registry changed since checkpoint")
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
-            if payload.get("native_pack_fingerprint") != native_pack_fingerprint:
-                raise ValueError("Pretrained native pack registry changed since checkpoint")
             if payload["model_config"] != model_config.to_dict():
                 raise ValueError("Checkpoint model configuration differs")
             # Dynamic temporary imports must be restored before optimizer owner
@@ -664,14 +677,25 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        concordance_recipe = (
-            load_concordance_recipe(config.concordance_recipe)
-            if config.concordance_recipe else None
-        )
-        if concordance_recipe is not None and phase.meter != "G":
-            raise ValueError("Concordance tasks must use event-based G training budgets")
-        if config.use_stage_mixture or concordance_recipe is not None:
-            recipe = stage_recipe(config.phase) if concordance_recipe is None else concordance_recipe
+        if config.omni_recipe is not None and config.concordance_recipe is not None:
+            raise ValueError("Select one of omni_recipe and concordance_recipe per run")
+        if config.omni_recipe is not None:
+            from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
+            stream = OmniWindowStream(
+                config.dataset, codec, windows_config,
+                load_omni_recipe(config.omni_recipe), "G",
+                seed=config.seed, rank=data_rank, world_size=data_world,
+                reduce_counts=context.sum_counts,
+                independent=config.decoupled is not None,
+            )
+        elif config.use_stage_mixture or config.concordance_recipe is not None:
+            if config.concordance_recipe is not None and phase.meter != "G":
+                raise ValueError("Concordance tasks must use event-based G training budgets")
+            recipe = (
+                load_concordance_recipe(config.concordance_recipe)
+                if config.concordance_recipe is not None
+                else stage_recipe(config.phase)
+            )
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
@@ -775,6 +799,7 @@ def train(
                         "model_config": model_config.to_dict(),
                         "train_config": asdict(config),
                         "codec_fingerprint": codec.fingerprint,
+                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
                         "native_pack_fingerprint": native_pack_fingerprint,
                         "chunking": chunking_identity,
                         "rank_state": rank_state,
@@ -788,6 +813,7 @@ def train(
                         "phase_consumed": consumed,
                         "dataset_fingerprint": stream.fingerprint,
                         "codec_fingerprint": codec.fingerprint,
+                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
                         "native_pack_fingerprint": native_pack_fingerprint,
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
@@ -856,11 +882,6 @@ def train(
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
             weights = dict(config.loss_weights)
-            if concordance_recipe is not None:
-                # Reconstruction/distillation are auxiliaries, not extra mixture rows.
-                for name in ("reconstruction", "audio_reconstruction",
-                             "visual_reconstruction", "encoder_alignment"):
-                    weights[name] *= concordance_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
             learning_rate = phase.learning_rate(
