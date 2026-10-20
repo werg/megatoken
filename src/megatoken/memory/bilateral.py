@@ -150,15 +150,29 @@ def selected_joint_groups(
             ).reshape(())
         )
         priors.append(edge.prior)
-        # left_partner is PREVIOUS causal support for right, and vice versa.
-        prior_right = _causal_support(ordered[ri], support_units)
-        prior_left = _causal_support(ordered[li], support_units)
+        # Pair activation requires two INDEPENDENT previously committed
+        # support units, one grounded in each endpoint's FULL footprint.
+        # One source window repeated as two query hits must never manufacture
+        # a correlation, even if it supports both endpoint candidates.
+        left_origins = {
+            part.source_id for part in ordered[li].footprint.ranges
+            if part.source_id in support_units
+        }
+        right_origins = {
+            part.source_id for part in ordered[ri].footprint.ranges
+            if part.source_id in support_units
+        }
+        independent = any(
+            a != b for a in left_origins for b in right_origins
+        )
+        # Ordered dependence[0] governs the left point's need for right
+        # support; dependence[1] governs right's need for left support.
+        prior_right = float(bool(right_origins))
+        prior_left = float(bool(left_origins))
         left_partner.append(prior_right)
         right_partner.append(prior_left)
-        # A fully checked absent endpoint may penalize the point only if the
-        # caller has explicitly audited the whole eligible context.
         checked.append(float(pair_context_complete))
-        distinct.append(float(bool(prior_right or prior_left)))
+        distinct.append(float(independent))
     point_coeff = scores.coefficient[0]
     pair_coeff = query.new_empty(0)
     if valid_pairs:
