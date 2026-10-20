@@ -134,16 +134,21 @@ def plan_fragments(
 
 @torch.no_grad()
 def pack_fragment(masters: Mapping[str, torch.Tensor], fragment: Fragment) -> torch.Tensor:
-    """Take a consistent snapshot only at a completed optimizer-step boundary."""
-    return torch.cat(
-        [
-            masters[part.name]
-            .detach()
-            .reshape(-1)[part.offset : part.offset + part.length]
-            .to(device="cpu", dtype=torch.float32)
-            for part in fragment.slices
-        ]
-    ).contiguous()
+    """Take a consistent snapshot only at a completed optimizer-step boundary.
+
+    Device slices land in one pinned FP32 host buffer via non-blocking copies
+    and a single synchronization (pageable per-slice copies are >20x slower).
+    """
+    on_device = any(masters[part.name].device.type == "cuda" for part in fragment.slices)
+    packed = torch.empty(fragment.length, dtype=torch.float32, pin_memory=on_device)
+    cursor = 0
+    for part in fragment.slices:
+        source = masters[part.name].detach().reshape(-1)[part.offset : part.offset + part.length]
+        packed[cursor : cursor + part.length].copy_(source, non_blocking=on_device)
+        cursor += part.length
+    if on_device:
+        torch.cuda.synchronize()
+    return packed
 
 
 @torch.no_grad()

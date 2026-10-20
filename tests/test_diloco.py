@@ -261,3 +261,21 @@ def test_global_install_carries_local_progress_made_while_the_round_is_in_flight
         assert not worker._install(0, (4, merged), optimizer)
     finally:
         optimizer.close()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="pinned fragment packing needs CUDA")
+def test_device_fragment_packing_matches_host_values():
+    masters = {
+        "a": torch.arange(12, dtype=torch.bfloat16, device="cuda").reshape(3, 4),
+        "b": torch.linspace(-1, 1, 7, device="cuda"),
+    }
+    (fragment,) = plan_fragments(masters, target_bytes=1 << 20)
+    packed = pack_fragment(masters, fragment)
+    assert packed.dtype == torch.float32 and packed.is_pinned()
+    expected = torch.cat(
+        [
+            masters[p.name].float().reshape(-1)[p.offset : p.offset + p.length].cpu()
+            for p in fragment.slices
+        ]
+    )
+    torch.testing.assert_close(packed, expected, rtol=0, atol=0)

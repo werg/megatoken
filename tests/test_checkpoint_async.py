@@ -34,6 +34,17 @@ def test_snapshot_is_private_and_keeps_shared_storage_shared():
     assert snapshot["optimizer"]["moments"][0].tolist() == [2.0 * i for i in range(6)]
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="pinned device snapshot needs CUDA")
+def test_device_snapshot_is_pinned_private_and_keeps_sharing():
+    weight = torch.arange(6, dtype=torch.float32, device="cuda")
+    snapshot = snapshot_to_cpu({"a": weight, "b": weight, "c": weight[2:]})
+    weight.add_(100)
+    assert snapshot["a"].device.type == "cpu" and snapshot["a"].is_pinned()
+    assert snapshot["a"] is snapshot["b"]
+    assert snapshot["a"].tolist() == list(range(6))
+    assert snapshot["c"].tolist() == [2.0, 3.0, 4.0, 5.0]
+
+
 def test_writer_overlaps_the_caller_and_publishes_atomically(tmp_path):
     root = tmp_path / "checkpoints"
     release = threading.Event()
