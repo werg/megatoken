@@ -26,7 +26,7 @@ i18n = ["PyICU>=2.16,<3"]
 # Media preparation and training: the EmbeddingGemma2 teacher and its processor
 # (images via Pillow/torchvision, audio via librosa, video via torchcodec) and
 # the resident realizers (Pocket TTS for speech, diffusers for Sana/Sana-Video).
-media = ["transformers>=5.20,<6", "Pillow>=11,<13", "torchvision>=0.25,<0.30", "librosa>=0.10,<1", "torchcodec>=0.10,<0.15", "pocket-tts>=4.0.1,<5", "diffusers>=0.38,<1"]
+media = ["transformers>=5.20,<6", "Pillow>=11,<13", "torchvision>=0.25,<0.30", "librosa>=0.10,<1", "torchcodec>=0.12,<1", "pocket-tts>=4.0.1,<5", "diffusers>=0.38,<1"]
 
 [project.scripts]
 megatoken = "megatoken.cli:main"
