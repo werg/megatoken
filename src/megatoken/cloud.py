@@ -5,7 +5,15 @@ lifetime, inputs (public URLs or local files, each pinned by sha256), the
 command, and the output directories. ``launch`` starts the sandbox with
 ``cloud_bootstrap.sh`` as its main process, then streams a git snapshot of a
 *clean, committed* working tree plus the local inputs into it. ``collect`` pulls
-the outputs once the job finishes and verifies each file's sha256.
+the outputs once the job finishes and verifies each file's sha256; every
+collect includes the job log (``.cloud/job-final.log``).
+
+A job may serve one HTTPS port (``serve_port``) behind the sandbox's create-only
+share token, which the launcher keeps locally (mode 600). With ``serve_outputs``
+a finished job serves its outputs read-only to other sandboxes, whose inputs
+name it as ``peer``: data is built once in the cloud and fanned out at
+datacenter speed (workstation uploads are uplink-bound). ``megatoken.cloud_diloco``
+runs a DiLoCo phase on these primitives.
 
   python -m megatoken.cloud launch JOB.json [--repo .]   start + push; prints the sandbox id
   python -m megatoken.cloud collect SANDBOX_ID --dest DIR pull and verify outputs, then release
