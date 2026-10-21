@@ -360,6 +360,8 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "embeddinggemma2_warmup",
             "embeddinggemma2_media_workers",
             "embeddinggemma2_text_sidecar",
+            "embeddinggemma2_text_recipe",
+            "embeddinggemma2_media_recipe",
             "embeddinggemma2_text_weight",
         )
     for key in critical:
@@ -739,7 +741,12 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        if config.omni_recipe is not None and config.concordance_recipe is not None:
+        active_omni_recipe = (
+            config.embeddinggemma2_media_recipe if config.embeddinggemma2_lane == "media"
+            else config.embeddinggemma2_text_recipe if config.embeddinggemma2_lane == "text"
+            else config.omni_recipe
+        )
+        if active_omni_recipe is not None and config.concordance_recipe is not None:
             raise ValueError("Select one of omni_recipe and concordance_recipe per run")
         concordance_recipe = (
             load_concordance_recipe(config.concordance_recipe)
@@ -748,14 +755,14 @@ def train(
         )
         if concordance_recipe is not None and phase.meter != "G":
             raise ValueError("Concordance tasks must use event-based G training budgets")
-        if config.omni_recipe is not None:
+        if active_omni_recipe is not None:
             from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
 
             stream = OmniWindowStream(
                 config.dataset,
                 codec,
                 windows_config,
-                load_omni_recipe(config.omni_recipe),
+                load_omni_recipe(active_omni_recipe),
                 "G",
                 seed=config.seed,
                 rank=data_rank,

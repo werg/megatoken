@@ -1,0 +1,4 @@
+# Native text E/C/P/R bootstrap, with extra frozen-teacher same-text anchors.
+omni_recipe_version: concordant-v1
+task_weights:
+  embeddinggemma2_text_pretraining: 1.0

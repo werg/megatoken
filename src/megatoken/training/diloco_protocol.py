@@ -95,6 +95,9 @@ def training_identity(config: Any) -> str:
     identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
     if config.embeddinggemma2_text_sidecar:
         identity["embeddinggemma2_text_sidecar"] = sha256_file(Path(config.embeddinggemma2_text_sidecar))
+    if config.embeddinggemma2_warmup:
+        identity["embeddinggemma2_text_recipe"] = sha256_file(Path(config.embeddinggemma2_text_recipe))
+        identity["embeddinggemma2_media_recipe"] = sha256_file(Path(config.embeddinggemma2_media_recipe))
     return content_hash(identity)
 
 

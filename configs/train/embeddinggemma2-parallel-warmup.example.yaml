@@ -1,0 +1,47 @@
+# Shared config on ALL workers. Worker IDs 0-1: native text; 2-3: frozen
+# EmbeddingGemma2 hidden-state -> raw E -> R reconstruction. Same DiLoCo
+# parameter/master identity, different lane gradients and data streams.
+# Replace all PIN_* with validated, immutable artifacts (including the SHA).
+phase: B0
+model: 32x512
+model_overrides:
+  embeddinggemma2_hidden_dim: 512
+  embeddinggemma2_hidden_id: "embeddinggemma2:PIN_40_HEX_REVISION:language_model.embedding_projection:input:chat-template-v1"
+dataset: PIN_PREPARED_OMNI_EPISODES_WITH_IDENTITY_TASK_FAMILIES
+output: runs/embeddinggemma2-warmup
+codec: PIN_TRAINED_BYTE_CODEC
+device: cuda
+precision: bf16
+representation_mode: bootstrap
+budget_meter: G
+budget: 100000
+accumulate_events: 32
+microbatch_episodes: 1
+max_accumulation_windows: 128
+max_window_records: 16
+scored_decisions: 4
+generated_capacity: 512
+max_record_bytes: 16384
+embeddinggemma2_warmup: true
+embeddinggemma2_media_workers: [2, 3]
+embeddinggemma2_text_recipe: configs/omni/embeddinggemma2-text-warmup.yaml
+embeddinggemma2_media_recipe: configs/omni/embeddinggemma2-media-warmup.yaml
+embeddinggemma2_text_sidecar: PIN_SAME_SOURCE_TEXT_HIDDEN_DESCRIPTORS_JSONL
+embeddinggemma2_text_weight: 0.1
+pretrained_packs: PIN_CHECKSUMMED_POCKET_SANA_SANA_VIDEO_PACK_MANIFEST
+media_root: PIN_PREPARED_MEDIA_AND_TEXT_HIDDEN_ASSETS
+retrieval_sidecar: PIN_QUERY_RETRIEVAL_TEACHER_SIDECAR
+retrieval_document_sidecar: PIN_DOCUMENT_RETRIEVAL_TEACHER_SIDECAR
+retrieval_memory_recipe: PIN_B0_RETRIEVAL_MEMORY_RECIPE
+eval_every: 0
+decoupled:
+  run_id: PIN_UNIFIED_WARMUP_RUN_ID
+  coordinator_url: https://PIN_COORDINATOR
+  workers: 4
+  local_steps: 128
+  poll_steps: 4
+  heartbeat_steps: 8
+  io_workers: 4
+  timeout_seconds: 120
+  max_offline_steps: 512
+  wire_dtype: bf16

@@ -108,6 +108,8 @@ class TrainConfig:
     embeddinggemma2_warmup: bool = False
     embeddinggemma2_media_workers: tuple[int, ...] = ()
     embeddinggemma2_text_sidecar: str | None = None
+    embeddinggemma2_text_recipe: str | None = None
+    embeddinggemma2_media_recipe: str | None = None
     embeddinggemma2_text_weight: float = 0.1
     native_pack_manifest: str | None = None
     concordance_recipe: str | None = None
@@ -211,6 +213,10 @@ class TrainConfig:
                 "Event-budget media training needs eval_every=0 until media evaluation is installed"
             )
         if self.embeddinggemma2_warmup:
+            if not self.embeddinggemma2_text_recipe or not self.embeddinggemma2_media_recipe:
+                raise ValueError("Pin both worker-family recipes for parallel warmup")
+            if self.omni_recipe is not None:
+                raise ValueError("Warmup selects its lane-specific omni recipe automatically")
             if not self.embeddinggemma2_media_workers:
                 raise ValueError("Warmup needs at least one explicit media worker ID")
             count = self.decoupled.workers if self.decoupled is not None else 1
@@ -224,7 +230,10 @@ class TrainConfig:
                 raise ValueError("Text warmup requires a pinned text hidden-state alignment sidecar")
             if self.concordance_recipe is not None:
                 raise ValueError("Concordance editing follows, not precedes, frozen warmup")
-        elif self.embeddinggemma2_media_workers or self.embeddinggemma2_text_sidecar:
+        elif (
+            self.embeddinggemma2_media_workers or self.embeddinggemma2_text_sidecar
+            or self.embeddinggemma2_text_recipe or self.embeddinggemma2_media_recipe
+        ):
             raise ValueError("Teacher warmup settings need embeddinggemma2_warmup=true")
         if not 0 < self.embeddinggemma2_text_weight <= 1:
             raise ValueError("Teacher text alignment weight must be in (0,1]")
