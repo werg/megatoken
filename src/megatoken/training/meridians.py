@@ -247,7 +247,7 @@ def _validate_media_source(model: Any, reference: MediaRecord, modality: str) ->
     additional donor views must not silently bypass the EmbeddingGemma2 bridge.
     """
     source = reference.source
-    if model.config.embeddinggemma2_hidden_dim:
+    if getattr(model.config, "embeddinggemma2_hidden_dim", 0):
         if (
             source.kind != "features"
             or source.extractor != model.config.embeddinggemma2_hidden_id
