@@ -3,7 +3,7 @@
 # main process is `bash bootstrap.sh <job command...>`, so its stdout/stderr are the sandbox logs).
 #
 #   1. wait for the controller's pushed inputs ($CW/inputs-ready): the code snapshot, inputs.json and any
-#      pushed files, all named by sha256 in $CW/inbox;
+#      pushed files, uploaded as $CW/inbox/<sha256>.NNNN parts;
 #   2. verify and unpack the code snapshot at $REPO, `pip install -e` it plus the job's extra requirements;
 #   3. materialize every input (pushed or public URL) at its declared path, verifying sha256;
 #   4. run the job in $REPO, forwarding SIGTERM so trainers write their final state;
@@ -41,18 +41,30 @@ def digest(path):
             h.update(block)
     return h.hexdigest()
 
-code = cw / "inbox" / spec["code"]["sha256"]
-if digest(code) != spec["code"]["sha256"]:
-    raise SystemExit("code snapshot checksum mismatch")
+def pushed(sha):
+    """Join the controller's inbox/<sha>.NNNN parts once; None if nothing was pushed."""
+    joined = cw / "inbox" / sha
+    parts = sorted((cw / "inbox").glob(f"{sha}.[0-9][0-9][0-9][0-9]"))
+    if parts:
+        with open(joined, "wb") as out:
+            for part in parts:
+                with open(part, "rb") as f:
+                    shutil.copyfileobj(f, out, 1 << 22)
+                part.unlink()
+    return joined if joined.exists() else None
+
+code = pushed(spec["code"]["sha256"])
+if code is None or digest(code) != spec["code"]["sha256"]:
+    raise SystemExit("code snapshot missing or checksum mismatch")
 with tarfile.open(code) as tar:
     tar.extractall(repo, filter="data")
 for item in spec["inputs"]:
     target = work / item["path"]
     target.parent.mkdir(parents=True, exist_ok=True)
-    pushed = cw / "inbox" / item["sha256"]
     staging = target.with_name(f".{target.name}.partial")
-    if pushed.exists():
-        shutil.move(pushed, staging)
+    source = pushed(item["sha256"])
+    if source is not None:
+        shutil.copyfile(source, staging)  # identical inputs share one pushed file
     else:
         with urllib.request.urlopen(item["url"], timeout=600) as response, open(staging, "wb") as out:
             shutil.copyfileobj(response, out, 1 << 22)
@@ -60,6 +72,7 @@ for item in spec["inputs"]:
         raise SystemExit(f"{item['path']}: checksum mismatch")
     staging.replace(target)
     print(json.dumps({"bootstrap": "input", "path": item["path"]}), flush=True)
+shutil.rmtree(cw / "inbox")
 PY
 log inputs-verified
 

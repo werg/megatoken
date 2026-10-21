@@ -42,6 +42,8 @@ ENV_FILE = Path(
 )
 STATE = Path(os.environ.get("MEGATOKEN_CW_STATE", Path.home() / ".local/state/megatoken/cloud"))
 CHUNK = 8 << 20
+# Gateway streams are cut after ~25 s, so every transfer moves bounded parts.
+PART_BYTES = 32 << 20
 CREATE_ATTEMPTS = 6
 
 
@@ -198,9 +200,22 @@ def _create(job: dict[str, Any]):
     raise AssertionError("unreachable")
 
 
-def _chunks(path: Path):
-    with path.open("rb") as stream:
-        yield from iter(lambda: stream.read(CHUNK), b"")
+def _push(sandbox, source: Path, digest: str, *, attempts: int = 4) -> None:
+    """Upload ``source`` as ``inbox/<digest>.NNNN`` parts; the bootstrap joins and verifies them."""
+    from cwsandbox.exceptions import SandboxError
+
+    size = source.stat().st_size
+    with source.open("rb") as stream:
+        for index in range(max(1, -(-size // PART_BYTES))):
+            block = stream.read(PART_BYTES)
+            for attempt in range(1, attempts + 1):
+                try:
+                    sandbox.write_file(f"{WORK}/.cloud/inbox/{digest}.{index:04d}", block).result()
+                    break
+                except SandboxError as error:
+                    if attempt == attempts:
+                        raise CloudError(f"{source}: part {index}: {error}") from error
+                    time.sleep(10 * attempt)
 
 
 def expand_push_dirs(job: dict[str, Any]) -> list[dict[str, str]]:
@@ -257,11 +272,8 @@ def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[s
                     "seconds": time.time() - started,
                 }
             )
-            inbox = f"{WORK}/.cloud/inbox"
-            for source, digest in [(archive, code["sha256"]), *pushed]:
-                sandbox.write_file_streaming(
-                    f"{inbox}/{digest}", _chunks(source), timeout_seconds=7200
-                ).result()
+            for digest, source in {code["sha256"]: archive, **{d: s for s, d in pushed}}.items():
+                _push(sandbox, source, digest)
             inputs = {
                 "code": code,
                 "inputs": [
@@ -291,9 +303,6 @@ def _attach(sandbox_id: str):
     from cwsandbox import Sandbox
 
     return Sandbox.from_id(sandbox_id, auth=_auth(), data_plane_mode="gateway").result()
-
-
-PART_BYTES = 32 << 20
 
 
 def _stream(sandbox, remote: str, size: int, out, *, attempts: int = 4) -> None:

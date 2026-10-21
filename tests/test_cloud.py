@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -98,17 +100,7 @@ def test_scratch_volume_only_when_requested():
 
 
 def test_pull_splits_large_outputs_and_retries_dropped_parts(tmp_path, monkeypatch):
-    import sys
-    import types
-
-    class SandboxError(Exception):
-        pass
-
-    exceptions = types.ModuleType("cwsandbox.exceptions")
-    exceptions.SandboxError = SandboxError
-    monkeypatch.setitem(sys.modules, "cwsandbox", types.ModuleType("cwsandbox"))
-    monkeypatch.setitem(sys.modules, "cwsandbox.exceptions", exceptions)
-    monkeypatch.setattr(cloud.time, "sleep", lambda _: None)
+    SandboxError = _stub_cwsandbox(monkeypatch)
     monkeypatch.setattr(cloud, "PART_BYTES", 400)
     payload = bytes(range(256)) * 4  # 1024 bytes -> parts of 400, 400, 224
     source = tmp_path / "payload"
@@ -155,3 +147,86 @@ def test_pull_splits_large_outputs_and_retries_dropped_parts(tmp_path, monkeypat
     assert [path[-4:] for path in reads] == ["0000", "0001", "0001", "0002"]
     assert sorted(removed) == sorted(files)
     assert not target.with_name(".file.bin.partial").exists()
+
+
+def _stub_cwsandbox(monkeypatch):
+    import sys
+    import types
+
+    class SandboxError(Exception):
+        pass
+
+    exceptions = types.ModuleType("cwsandbox.exceptions")
+    exceptions.SandboxError = SandboxError
+    monkeypatch.setitem(sys.modules, "cwsandbox", types.ModuleType("cwsandbox"))
+    monkeypatch.setitem(sys.modules, "cwsandbox.exceptions", exceptions)
+    monkeypatch.setattr(cloud.time, "sleep", lambda _: None)
+    return SandboxError
+
+
+def test_push_uploads_retried_parts_that_the_bootstrap_joins(tmp_path, monkeypatch):
+    import hashlib
+    import os
+    import re
+    import tarfile
+
+    error = _stub_cwsandbox(monkeypatch)
+    monkeypatch.setattr(cloud, "PART_BYTES", 300)
+    work = tmp_path / "work"
+    inbox = work / ".cloud" / "inbox"
+    inbox.mkdir(parents=True)
+    writes = []
+
+    class Done:
+        def result(self):
+            return None
+
+    class Sandbox:
+        def write_file(self, path, data):
+            writes.append(path)
+            if len(writes) == 2:
+                raise error("dropped")
+            (inbox / path.rsplit("/", 1)[1]).write_bytes(data)
+            return Done()
+
+    monkeypatch.setattr(cloud, "WORK", str(work))
+    payload = os.urandom(1000)
+    big = tmp_path / "big.bin"
+    big.write_bytes(payload)
+    empty = tmp_path / "empty.bin"
+    empty.write_bytes(b"")
+    code_dir = tmp_path / "code"
+    code_dir.mkdir()
+    (code_dir / "a.py").write_text("x = 1\n")
+    archive = tmp_path / "code.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(code_dir / "a.py", arcname="a.py")
+    digests = {
+        path: hashlib.sha256(path.read_bytes()).hexdigest() for path in (big, empty, archive)
+    }
+    for path, digest in digests.items():
+        cloud._push(Sandbox(), path, digest)
+    assert sorted(p.name for p in inbox.iterdir() if p.name.startswith(digests[big])) == [
+        f"{digests[big]}.{i:04d}" for i in range(4)
+    ]
+    spec = {
+        "code": {"sha256": digests[archive]},
+        "inputs": [
+            {"path": "inputs/big.bin", "sha256": digests[big]},
+            {"path": "inputs/copy.bin", "sha256": digests[big]},
+            {"path": "inputs/empty.bin", "sha256": digests[empty]},
+        ],
+    }
+    (work / ".cloud" / "inputs.json").write_text(json.dumps(spec))
+    script = Path(cloud.__file__).with_name("cloud_bootstrap.sh").read_text()
+    materialize = re.search(r"python3 - <<'PY' \|\| die inputs\n(.*?)\nPY\n", script, re.S)[1]
+    subprocess.run(
+        [sys.executable, "-c", materialize],
+        env={**os.environ, "MEGATOKEN_CW_WORK": str(work)},
+        check=True,
+    )
+    assert (work / "inputs" / "big.bin").read_bytes() == payload
+    assert (work / "inputs" / "copy.bin").read_bytes() == payload
+    assert (work / "inputs" / "empty.bin").read_bytes() == b""
+    assert (work / "megatoken" / "a.py").read_text() == "x = 1\n"
+    assert not inbox.exists()
