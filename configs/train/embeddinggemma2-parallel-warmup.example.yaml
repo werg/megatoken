@@ -28,6 +28,10 @@ embeddinggemma2_text_recipe: configs/omni/embeddinggemma2-text-warmup.yaml
 embeddinggemma2_media_recipe: configs/omni/embeddinggemma2-media-warmup.yaml
 embeddinggemma2_text_sidecar: PIN_SAME_SOURCE_TEXT_HIDDEN_DESCRIPTORS_JSONL
 embeddinggemma2_text_weight: 0.1
+# Required for codec-latent identity targets: install frozen decoders and
+# trainable facet-conditioning projections before optimizer enumeration.
+native_pack_manifest: PIN_CHECKSUMMED_NATIVE_CODEC_AND_GENERATOR_PACKS
+# Optional additional pretrained donor heads; keep only if explicitly used.
 pretrained_packs: PIN_CHECKSUMMED_POCKET_SANA_SANA_VIDEO_PACK_MANIFEST
 media_root: PIN_PREPARED_MEDIA_AND_TEXT_HIDDEN_ASSETS
 retrieval_sidecar: PIN_QUERY_RETRIEVAL_TEACHER_SIDECAR

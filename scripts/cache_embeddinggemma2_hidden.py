@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from megatoken.data.media_assets import TensorAssetStore
@@ -57,7 +58,8 @@ def main():
     path = input_path.resolve()
     if not path.is_file():
         parser.error("Input must be a regular local file, not a symlink")
-    source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as stream:
+        source_sha = hashlib.file_digest(stream, "sha256").hexdigest()
     if args.modality == "document":
         if path.suffix.lower() == ".pdf":
             try:
@@ -87,6 +89,20 @@ def main():
         source = path.read_text(encoding="utf-8")
     else:
         source = str(path)
+    if args.modality in {"text", "document"} and not source.strip():
+        parser.error("Empty text/document source has no useful teacher evidence")
+    if args.identity_target_sha256:
+        if args.modality not in {"audio", "image", "video"} or not re.fullmatch(
+            r"[0-9a-f]{64}", args.identity_target_sha256
+        ):
+            parser.error("Identity target needs a media asset SHA256")
+        target_path = Path(args.asset_root) / "media" / f"{args.identity_target_sha256}.f32le"
+        if not target_path.is_file() or target_path.is_symlink():
+            parser.error("Identity reconstruction requires a staged original target asset")
+        with target_path.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if digest != args.identity_target_sha256:
+            parser.error("Staged identity target asset failed its SHA256 verification")
     if args.modality == "audio" and args.sample_rate not in (16000, 24000):
         parser.error("Audio feature assets require an explicit 16000 or 24000 Hz source clock")
     if args.modality != "audio" and args.sample_rate:
@@ -106,11 +122,6 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     if args.modality in {"audio", "image", "video"}:
         store = TensorAssetStore(args.asset_root)
-        if args.identity_target_sha256:
-            import re
-
-            if not re.fullmatch(r"[0-9a-f]{64}", args.identity_target_sha256):
-                parser.error("Identity reconstruction target needs a valid asset SHA256")
         asset = store.put(
             features,
             modality=args.modality,

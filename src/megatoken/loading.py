@@ -103,9 +103,36 @@ def load_trained(
     codec = load_codec(codec_path or payload["train_config"]["codec"], vocab_size=config.vocab_size)
     if codec.fingerprint != payload["codec_fingerprint"]:
         raise ValueError("Codec does not match the trained checkpoint")
+    # Install the same pinned media modules before strict state restoration.
+    # Otherwise projector/conditioner keys in multimodal checkpoints are lost,
+    # and serving can accidentally fall back to untrained native debug heads.
+    train_config = payload["train_config"]
+    native_manifest = train_config.get("native_pack_manifest")
+    pretrained_manifest = train_config.get("pretrained_packs")
+    for label, manifest, fingerprint in (
+        ("native", native_manifest, "native_pack_fingerprint"),
+        ("pretrained", pretrained_manifest, "pretrained_pack_fingerprint"),
+    ):
+        if manifest and sha256_file(manifest) != payload.get(fingerprint):
+            raise ValueError(f"Checkpoint {label} pack manifest checksum differs")
     model = build_model(
-        config, codec, device=device, precision=payload["train_config"]["precision"]
+        config,
+        codec,
+        device=device,
+        precision=train_config["precision"],
+        native_pack_manifest=native_manifest,
     )
+    if pretrained_manifest:
+        import torch
+
+        from megatoken.omni.loader import install_pretrained_packs
+
+        install_pretrained_packs(
+            model,
+            pretrained_manifest,
+            device=device,
+            dtype=torch.bfloat16 if train_config["precision"] == "bf16" else torch.float32,
+        )
     model.load_state_dict(payload["model"], strict=True)
     model.core.set_model_version(payload["global_step"])
     return TrainedModel(model, codec, payload, metadata)

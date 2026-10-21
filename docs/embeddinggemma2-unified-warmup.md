@@ -81,6 +81,12 @@ Free serving must have the same pinned teacher/extractor at its boundary.
   facet-conditioner/projector weights. Support reconstruction for the
   declared native output geometry, timebase, target masks, and codec latent
   masks. Keep media errors normalized **per event**, not per sample/patch.
+  The example recipes must set `native_pack_manifest` to install codec-latent
+  generator/decoder packs before optimizer master enumeration. This is distinct
+  from `pretrained_packs` (optional donor realization heads); the latter alone
+  cannot satisfy `MediaRealizers.loss_native`. Serving and evaluation re-install
+  the checksum-matched packs before strict checkpoint loading. Do not silently
+  use native PCM/pixel debug heads in place of pinned codec conditioning.
 
 ### Offline preparation
 
@@ -100,8 +106,9 @@ python scripts/cache_embeddinggemma2_hidden.py \
 # Repeat for audio and video. Audio needs --sample-rate 16000|24000,
 # and video needs its actual --fps-num and --fps-den.
 # For text and document, OMIT identity-target-sha256. Cache one exact original
-# text chunk per text record; concatenate the resulting JSON descriptors as
-# JSONL for --embeddinggemma2_text_sidecar.
+# text chunk per text record. Each output is pretty-printed JSON; convert each
+# descriptor to one compact line (e.g. jq -c . teacher/text-0001.json) before
+# collecting it in a JSONL --embeddinggemma2_text_sidecar.
 
 # JSONL pair row (target_asset is asdict(TensorAsset) from TensorAssetStore.put):
 # {"modality":"image","teacher_descriptor":"teacher/image-0001.json",

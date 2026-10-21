@@ -21,6 +21,7 @@ from megatoken.omni.embeddinggemma2_hidden import (
     EmbeddingGemma2HiddenExtractor,
     hidden_identity,
 )
+from megatoken.training.config import TrainConfig
 from megatoken.training.embeddinggemma2_text_sidecar import TextHiddenSidecar
 from megatoken.training.embeddinggemma2_warmup import (
     freeze_other_owners,
@@ -30,7 +31,6 @@ from megatoken.training.embeddinggemma2_warmup import (
     warmup_parameter_names,
 )
 from megatoken.training.meridians import MediaPlan, _media_plan, _validate_media_source
-from megatoken.training.config import TrainConfig
 from megatoken.training.optimizer import MasterAdamW
 
 IDENTITY = hidden_identity("d" * 40)
@@ -307,8 +307,12 @@ def test_identity_episode_attests_observed_features_not_future_target(tmp_path):
     )
     episode = make_identity_episode(
         store,
-        {"modality": "audio", "teacher_descriptor": "teacher.json",
-         "target_asset": asdict(target), "family_id": "one-source"},
+        {
+            "modality": "audio",
+            "teacher_descriptor": "teacher.json",
+            "target_asset": asdict(target),
+            "family_id": "one-source",
+        },
         source_path=tmp_path / "pairs.jsonl",
         index=1,
     )
@@ -327,27 +331,80 @@ def test_joint_training_can_retain_text_alignment_without_warmup_lanes():
     }
     with pytest.raises(ValueError, match="512d"):
         TrainConfig.from_dict(common)
-    config = TrainConfig.from_dict({
-        **common,
-        "model_overrides": {
-            "embeddinggemma2_hidden_dim": 512,
-            "embeddinggemma2_hidden_id": IDENTITY,
-        },
-    })
+    config = TrainConfig.from_dict(
+        {
+            **common,
+            "model_overrides": {
+                "embeddinggemma2_hidden_dim": 512,
+                "embeddinggemma2_hidden_id": IDENTITY,
+            },
+        }
+    )
     assert config.embeddinggemma2_lane == "joint"
     assert config.embeddinggemma2_text_sidecar == "text-hidden.jsonl"
 
 
 def test_parallel_warmup_requires_two_diloco_lanes():
     with pytest.raises(ValueError, match="DiLoCo"):
-        TrainConfig.from_dict({
-            "phase": "B0",
-            "budget": 8,
-            "retrieval_sidecar": "query.jsonl",
-            "retrieval_document_sidecar": "documents.jsonl",
-            "retrieval_memory_recipe": "retrieval.yaml",
-            "embeddinggemma2_warmup": True,
-            "embeddinggemma2_media_workers": [0],
-            "embeddinggemma2_text_recipe": "text.yaml",
-            "embeddinggemma2_media_recipe": "media.yaml",
-        })
+        TrainConfig.from_dict(
+            {
+                "phase": "B0",
+                "budget": 8,
+                "retrieval_sidecar": "query.jsonl",
+                "retrieval_document_sidecar": "documents.jsonl",
+                "retrieval_memory_recipe": "retrieval.yaml",
+                "embeddinggemma2_warmup": True,
+                "embeddinggemma2_media_workers": [0],
+                "embeddinggemma2_text_recipe": "text.yaml",
+                "embeddinggemma2_media_recipe": "media.yaml",
+            }
+        )
+
+
+def test_checkpoint_restore_reinstalls_pinned_native_media_pack(tmp_path, monkeypatch):
+    from megatoken import loading
+    from megatoken.training import checkpoint
+
+    manifest = tmp_path / "native-packs.json"
+    manifest.write_text("immutable native pack declaration", encoding="utf-8")
+    codec = ByteCodec.byte_fallback()
+    versions = []
+    created = []
+
+    class FakeModel:
+        def __init__(self):
+            self.core = SimpleNamespace(set_model_version=versions.append)
+
+        def load_state_dict(self, state, *, strict):
+            assert strict and state == {"weights": "saved"}
+
+    def build(config, model_codec, *, device, precision, native_pack_manifest):
+        assert model_codec.fingerprint == codec.fingerprint
+        assert precision == "fp32" and device == "cpu"
+        created.append(native_pack_manifest)
+        return FakeModel()
+
+    payload = {
+        "model_config": ModelConfig.tiny().to_dict(),
+        "train_config": {
+            "codec": "byte",
+            "precision": "fp32",
+            "native_pack_manifest": str(manifest),
+        },
+        "codec_fingerprint": codec.fingerprint,
+        "native_pack_fingerprint": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "model": {"weights": "saved"},
+        "global_step": 23,
+    }
+    monkeypatch.setattr(checkpoint, "load_checkpoint", lambda path: (payload, {}))
+    monkeypatch.setattr(loading, "build_model", build)
+
+    trained = loading.load_trained(tmp_path / "checkpoint", device="cpu")
+    assert trained.codec.fingerprint == codec.fingerprint
+    assert created == [str(manifest)]
+    assert versions == [23]
+
+    manifest.write_text("tampered pack declaration", encoding="utf-8")
+    with pytest.raises(ValueError, match="pack manifest checksum"):
+        loading.load_trained(tmp_path / "checkpoint", device="cpu")
+    assert created == [str(manifest)]
