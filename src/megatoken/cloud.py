@@ -22,6 +22,7 @@ library and ``cwsandbox`` are imported, so this runs from a slim client venv.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -292,6 +293,34 @@ def _attach(sandbox_id: str):
     return Sandbox.from_id(sandbox_id, auth=_auth(), data_plane_mode="gateway").result()
 
 
+def _pull(sandbox, item: dict[str, Any], target: Path, *, attempts: int = 4) -> None:
+    """Stream one output file into ``target``; gateway streams can drop mid-file, so retry."""
+    from cwsandbox.exceptions import SandboxError
+
+    staging = target.with_name(f".{target.name}.partial")
+    for attempt in range(1, attempts + 1):
+        try:
+            with (
+                contextlib.closing(
+                    sandbox.read_file_streaming(f"{WORK}/{item['path']}", timeout_seconds=7200)
+                ) as reader,
+                staging.open("wb") as out,
+            ):
+                for block in reader:
+                    out.write(block)
+        except SandboxError as error:
+            if attempt == attempts:
+                raise CloudError(f"{item['path']}: {error}") from error
+            time.sleep(10 * attempt)
+            continue
+        if sha256_file(staging) == item["sha256"]:
+            staging.replace(target)
+            return
+        if attempt == attempts:
+            staging.unlink()
+            raise CloudError(f"{item['path']}: pulled bytes do not match the sandbox manifest")
+
+
 def collect(sandbox_id: str, destination: Path, *, timeout: float = 30 * 86400) -> dict[str, Any]:
     """Wait for outputs-ready, pull and verify every output file, then release the sandbox."""
     sandbox = _attach(sandbox_id)
@@ -311,17 +340,10 @@ def collect(sandbox_id: str, destination: Path, *, timeout: float = 30 * 86400) 
     pulled = 0
     for item in manifest["files"]:
         target = destination / item["path"]
+        if target.is_file() and sha256_file(target) == item["sha256"]:
+            continue  # already pulled by an earlier, interrupted collect
         target.parent.mkdir(parents=True, exist_ok=True)
-        staging = target.with_name(f".{target.name}.partial")
-        with staging.open("wb") as out:
-            for block in sandbox.read_file_streaming(
-                f"{WORK}/{item['path']}", timeout_seconds=7200
-            ):
-                out.write(block)
-        if sha256_file(staging) != item["sha256"]:
-            staging.unlink()
-            raise CloudError(f"{item['path']}: pulled bytes do not match the sandbox manifest")
-        staging.replace(target)
+        _pull(sandbox, item, target)
         pulled += 1
     sandbox.write_file(f"{base}/outputs-collected", b"").result()
     entry = {

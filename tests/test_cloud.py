@@ -95,3 +95,40 @@ def test_scratch_volume_only_when_requested():
     assert "volumes" not in cloud.request(cloud.validate(_job()))
     (volume,) = cloud.request(cloud.validate(_job(scratch="50Gi")))["volumes"]
     assert volume == {"name": "work", "mount_path": cloud.WORK, "size": "50Gi"}
+
+
+def test_pull_retries_dropped_streams(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    class SandboxError(Exception):
+        pass
+
+    exceptions = types.ModuleType("cwsandbox.exceptions")
+    exceptions.SandboxError = SandboxError
+    monkeypatch.setitem(sys.modules, "cwsandbox", types.ModuleType("cwsandbox"))
+    monkeypatch.setitem(sys.modules, "cwsandbox.exceptions", exceptions)
+    monkeypatch.setattr(cloud.time, "sleep", lambda _: None)
+    payload = b"x" * 1000
+    source = tmp_path / "payload"
+    source.write_bytes(payload)
+    calls = []
+
+    class Sandbox:
+        def read_file_streaming(self, path, timeout_seconds):
+            calls.append(path)
+
+            def blocks():
+                yield payload[:400]
+                if len(calls) == 1:
+                    raise SandboxError("ended without exit status")
+                yield payload[400:]
+
+            return blocks()
+
+    target = tmp_path / "out" / "file.bin"
+    target.parent.mkdir()
+    item = {"path": "out/file.bin", "sha256": cloud.sha256_file(source)}
+    cloud._pull(Sandbox(), item, target)
+    assert target.read_bytes() == payload and len(calls) == 2
+    assert not target.with_name(".file.bin.partial").exists()
