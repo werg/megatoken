@@ -154,10 +154,11 @@ def main():
         {
             "format": "megatoken.embeddinggemma2.hidden.v1",
             "source_sha256": source_sha,
-        "teacher_input_sha256": (
-            hashlib.sha256(source.encode("utf-8")).hexdigest()
-            if args.modality in {"text", "document"} else ""
-        ),
+            "teacher_input_sha256": (
+                hashlib.sha256(source.encode("utf-8")).hexdigest()
+                if args.modality in {"text", "document"}
+                else ""
+            ),
             "identity_target_sha256": args.identity_target_sha256,
             "modality": args.modality,
             "hidden_tap": "language_model.embedding_projection:input",

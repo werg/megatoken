@@ -239,30 +239,44 @@ def _target_plan(
     )
 
 
+def _validate_media_source(model: Any, reference: MediaRecord, modality: str) -> None:
+    """One pinned teacher source in unified mode, even on observed meridians.
+
+    Validate the actual observed asset, not the future target. Legacy raw or
+    additional donor views must not silently bypass the EmbeddingGemma2 bridge.
+    """
+    source = reference.source
+    if model.config.embeddinggemma2_hidden_dim:
+        if (
+            source.kind != "features"
+            or source.extractor != model.config.embeddinggemma2_hidden_id
+            or source.shape[-1] != model.config.embeddinggemma2_hidden_dim
+            or reference.views
+            or reference.source_views
+            or reference.source_masks
+        ):
+            raise ValueError(
+                "Unified EmbeddingGemma2 input requires one pinned hidden-state "
+                "source and no legacy raw or auxiliary feature views"
+            )
+    elif source.kind == "features":
+        identity, width = (
+            (model.config.audio_feature_id, model.config.audio_feature_dim)
+            if modality == "audio"
+            else (model.config.vision_feature_id, model.config.vision_feature_dim)
+        )
+        if source.extractor != identity or source.shape[-1] != width:
+            raise ValueError("Observed media feature revision/width differs from model")
+
+
 def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) -> MediaPlan:
     reference = MediaRecord.from_bytes(entry.payload)
     if reference.modality != modality or entry.record.media_type != MEDIA_RECORD_TYPE:
         raise ValueError("Media event requires a matching canonical media descriptor")
     if reference.target is None:
         raise ValueError("Generated media events require a pinned media target")
+    _validate_media_source(model, reference, modality)
     source = reference.source
-    if source.kind == "features":
-        if model.config.embeddinggemma2_hidden_dim:
-            feature_id = model.config.embeddinggemma2_hidden_id
-            feature_width = model.config.embeddinggemma2_hidden_dim
-        else:
-            feature_id = (
-                model.config.audio_feature_id
-                if modality == "audio"
-                else model.config.vision_feature_id
-            )
-            feature_width = (
-                model.config.audio_feature_dim
-                if modality == "audio"
-                else model.config.vision_feature_dim
-            )
-        if source.extractor != feature_id or source.shape[-1] != feature_width:
-            raise ValueError("Pinned media feature revision/width differs from model")
     target = reference.target
     if target.kind == "codec_latents" and target.codec_id:
         if not target.profile or not target.geometry:
@@ -451,14 +465,7 @@ def prepare_meridian_batch(
                     event.asset_sha256 is not None and event.asset_sha256 != ref.source.sha256
                 ):
                     raise ValueError("Media event modality/source hash differs from its asset")
-                if ref.source.kind == "features":
-                    identity, width = (
-                        (model.config.audio_feature_id, model.config.audio_feature_dim)
-                        if event.modality == "audio"
-                        else (model.config.vision_feature_id, model.config.vision_feature_dim)
-                    )
-                    if ref.source.extractor != identity or ref.source.shape[-1] != width:
-                        raise ValueError("Observed media feature revision/width differs from model")
+                _validate_media_source(model, ref, event.modality)
             elif record.record.media_type == MEDIA_RECORD_TYPE or (
                 record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
             ):

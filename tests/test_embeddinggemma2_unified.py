@@ -11,7 +11,7 @@ import pytest
 import torch
 from torch import nn
 
-from megatoken.data.media_assets import MediaRecord, TensorAssetStore
+from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model.config import ModelConfig
@@ -29,7 +29,8 @@ from megatoken.training.embeddinggemma2_warmup import (
     text_hidden_alignment,
     warmup_parameter_names,
 )
-from megatoken.training.meridians import MediaPlan
+from megatoken.training.meridians import MediaPlan, _media_plan, _validate_media_source
+from megatoken.training.config import TrainConfig
 from megatoken.training.optimizer import MasterAdamW
 
 IDENTITY = hidden_identity("d" * 40)
@@ -236,3 +237,117 @@ def test_text_hidden_sidecar_rejects_substituted_bytes(tmp_path):
     (tmp_path / "teacher" / "hidden.f32le").write_bytes(b"substituted")
     with pytest.raises(ValueError, match="mutated"):
         cache.get(raw_text, torch.device("cpu"))
+
+
+def test_generated_and_observed_media_share_pinned_unified_validation(tmp_path):
+    model = _build()
+    store = TensorAssetStore(tmp_path)
+    target = store.put(np.zeros(128, dtype=np.float32), modality="audio", sample_rate=16000)
+    teacher = store.put(
+        np.ones((5, 512), dtype=np.float32),
+        modality="audio",
+        kind="features",
+        extractor=IDENTITY,
+        source_family=target.sha256,
+        sample_rate=16000,
+    )
+    reference = MediaRecord("audio", teacher, target)
+    _validate_media_source(model, reference, "audio")
+    entry = SimpleNamespace(
+        payload=reference.to_bytes(),
+        record=SimpleNamespace(media_type=MEDIA_RECORD_TYPE),
+    )
+    config = SimpleNamespace(representation_training="bootstrap")
+    plan = _media_plan(model, entry, "audio", config)
+    assert plan.reference.source.sha256 == teacher.sha256
+
+    raw = store.put(np.zeros(128, dtype=np.float32), modality="audio", sample_rate=16000)
+    with pytest.raises(ValueError, match="one pinned hidden-state"):
+        _validate_media_source(model, MediaRecord("audio", raw, target), "audio")
+    with pytest.raises(ValueError, match="one pinned hidden-state"):
+        _media_plan(
+            model,
+            SimpleNamespace(
+                payload=MediaRecord("audio", raw, target).to_bytes(),
+                record=entry.record,
+            ),
+            "audio",
+            config,
+        )
+
+
+def test_identity_episode_attests_observed_features_not_future_target(tmp_path):
+    from dataclasses import asdict
+
+    from scripts.prepare_embeddinggemma2_identity import make_identity_episode
+
+    store = TensorAssetStore(tmp_path)
+    target = store.put(np.zeros(128, dtype=np.float32), modality="audio", sample_rate=16000)
+    teacher = store.put(
+        np.ones((3, 512), dtype=np.float32),
+        modality="audio",
+        kind="features",
+        extractor=IDENTITY,
+        source_family=target.sha256,
+        sample_rate=16000,
+    )
+    (tmp_path / "teacher.json").write_text(
+        json.dumps(
+            {
+                "format": "megatoken.embeddinggemma2.hidden.v1",
+                "asset": asdict(teacher),
+                "modality": "audio",
+                "hidden_tap": "language_model.embedding_projection:input",
+                "identity_target_sha256": target.sha256,
+                "teacher_revision": "d" * 40,
+                "preprocessing_id": "chat-template-v1",
+                "valid_tokens": 3,
+            }
+        )
+    )
+    episode = make_identity_episode(
+        store,
+        {"modality": "audio", "teacher_descriptor": "teacher.json",
+         "target_asset": asdict(target), "family_id": "one-source"},
+        source_path=tmp_path / "pairs.jsonl",
+        index=1,
+    )
+    assert episode.meridians[1].events[0].asset_sha256 == teacher.sha256
+    assert episode.meridians[1].events[0].asset_sha256 != target.sha256
+
+
+def test_joint_training_can_retain_text_alignment_without_warmup_lanes():
+    common = {
+        "phase": "P1",
+        "budget": 8,
+        "retrieval_sidecar": "query.jsonl",
+        "retrieval_document_sidecar": "documents.jsonl",
+        "retrieval_memory_recipe": "retrieval.yaml",
+        "embeddinggemma2_text_sidecar": "text-hidden.jsonl",
+    }
+    with pytest.raises(ValueError, match="512d"):
+        TrainConfig.from_dict(common)
+    config = TrainConfig.from_dict({
+        **common,
+        "model_overrides": {
+            "embeddinggemma2_hidden_dim": 512,
+            "embeddinggemma2_hidden_id": IDENTITY,
+        },
+    })
+    assert config.embeddinggemma2_lane == "joint"
+    assert config.embeddinggemma2_text_sidecar == "text-hidden.jsonl"
+
+
+def test_parallel_warmup_requires_two_diloco_lanes():
+    with pytest.raises(ValueError, match="DiLoCo"):
+        TrainConfig.from_dict({
+            "phase": "B0",
+            "budget": 8,
+            "retrieval_sidecar": "query.jsonl",
+            "retrieval_document_sidecar": "documents.jsonl",
+            "retrieval_memory_recipe": "retrieval.yaml",
+            "embeddinggemma2_warmup": True,
+            "embeddinggemma2_media_workers": [0],
+            "embeddinggemma2_text_recipe": "text.yaml",
+            "embeddinggemma2_media_recipe": "media.yaml",
+        })

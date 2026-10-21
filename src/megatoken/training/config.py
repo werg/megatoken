@@ -215,20 +215,24 @@ class TrainConfig:
                 "Event-budget media training needs eval_every=0 until media evaluation is installed"
             )
         if self.embeddinggemma2_warmup:
+            if self.decoupled is None or self.decoupled.workers < 2:
+                raise ValueError(
+                    "Parallel EmbeddingGemma2 warmup requires DiLoCo text and media workers"
+                )
             if not self.embeddinggemma2_text_recipe or not self.embeddinggemma2_media_recipe:
                 raise ValueError("Pin both worker-family recipes for parallel warmup")
             if self.omni_recipe is not None:
                 raise ValueError("Warmup selects its lane-specific omni recipe automatically")
             if not self.embeddinggemma2_media_workers:
                 raise ValueError("Warmup needs at least one explicit media worker ID")
-            count = self.decoupled.workers if self.decoupled is not None else 1
+            count = self.decoupled.workers
             if len(set(self.embeddinggemma2_media_workers)) != len(
                 self.embeddinggemma2_media_workers
             ) or any(
                 type(i) is not int or not 0 <= i < count for i in self.embeddinggemma2_media_workers
             ):
                 raise ValueError("Media worker IDs must be unique members of the DiLoCo group")
-            if self.decoupled is not None and len(self.embeddinggemma2_media_workers) == count:
+            if len(self.embeddinggemma2_media_workers) == count:
                 raise ValueError("At least one DiLoCo learner must perform native text pretraining")
             if self.embeddinggemma2_text_sidecar is None and count > len(
                 self.embeddinggemma2_media_workers
@@ -240,11 +244,17 @@ class TrainConfig:
                 raise ValueError("Concordance editing follows, not precedes, frozen warmup")
         elif (
             self.embeddinggemma2_media_workers
-            or self.embeddinggemma2_text_sidecar
             or self.embeddinggemma2_text_recipe
             or self.embeddinggemma2_media_recipe
         ):
-            raise ValueError("Teacher warmup settings need embeddinggemma2_warmup=true")
+            raise ValueError("Teacher lane settings need embeddinggemma2_warmup=true")
+        # Text anchors remain active during the subsequent joint recurrent
+        # curriculum; only lane-specific scheduling ends at the phase boundary.
+        if (
+            self.embeddinggemma2_text_sidecar
+            and self.model_overrides.get("embeddinggemma2_hidden_dim") != 512
+        ):
+            raise ValueError("Text alignment requires the pinned unified 512d teacher geometry")
         if not 0 < self.embeddinggemma2_text_weight <= 1:
             raise ValueError("Teacher text alignment weight must be in (0,1]")
         if self.omni_recipe is not None and not self.omni_recipe:

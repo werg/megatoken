@@ -20,6 +20,10 @@ max_window_records: 16
 max_record_bytes: 16384
 scored_decisions: 4
 generated_capacity: 512
+# Keep the same-source native-byte E ↔ frozen teacher E anchor during
+# recurrent mixed pretraining AND editing; unlike stage A, no owners are frozen.
+embeddinggemma2_text_sidecar: PIN_SAME_SOURCE_TEXT_HIDDEN_DESCRIPTORS_JSONL
+embeddinggemma2_text_weight: 0.1
 omni_recipe: configs/omni/concordant-v1.yaml
 pretrained_packs: PIN_CHECKSUMMED_POCKET_SANA_SANA_VIDEO_PACK_MANIFEST
 media_root: PIN_PREPARED_MEDIA_AND_TEXT_HIDDEN_ASSETS

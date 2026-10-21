@@ -1143,7 +1143,7 @@ def train(
                         text_anchor_denom,
                         config.embeddinggemma2_text_weight,
                     )
-                    if config.embeddinggemma2_lane == "text"
+                    if text_hidden_sidecar is not None and not media_lane
                     else None,
                     retrieval_aux=(
                         retrieval_examples,

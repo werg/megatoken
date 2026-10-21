@@ -58,6 +58,13 @@ def make_identity_episode(store, record, *, source_path: Path, index: int):
         or features.modality != modality
         or features.source_family != target.sha256
         or descriptor.get("identity_target_sha256") != target.sha256
+        or descriptor.get("valid_tokens") != (
+            features.valid_count or features.shape[0]
+        )
+        or features.extractor != (
+            f"embeddinggemma2:{descriptor.get('teacher_revision', '')}:"
+            f"{HIDDEN_TAP}:{descriptor.get('preprocessing_id', '')}"
+        )
     ):
         raise ValueError("Identity pair must pin unpooled teacher features of the exact output")
     if target.kind == "codec_latents" and not target.codec_id:
@@ -95,7 +102,8 @@ def make_identity_episode(store, record, *, source_path: Path, index: int):
                     modality,
                     1,
                     "assistant",
-                    asset_sha256=target.sha256,
+                    # Event identity is the observed source, not the future R target.
+                    asset_sha256=features.sha256,
                 ),
             ),
         ),

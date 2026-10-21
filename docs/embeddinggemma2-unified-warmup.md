@@ -197,6 +197,13 @@ Use the same train_identity (sha of both recipe manifests/sidecars) for all.
 
 ### Stage B — anchored joint pretraining
 
+The joint recipe **retains** `embeddinggemma2_text_sidecar` and
+`embeddinggemma2_text_weight` even though `embeddinggemma2_warmup` is
+false. The sidecar continues to supervise native text E in recurrent P1;
+removing the sidecar would silently drop the same-text bridge. The joint
+optimizer owns both the unified input projection and text E again; only the
+teacher checkpoint itself remains frozen and external to the student.
+
 Once per-modality direct recon and native text gates pass, start the
 recurrent mixed training recipe with unfrozen shared E/C/P and trainable
 input/output projections. Continue **same-text representation alignment**
@@ -269,3 +276,14 @@ projection loss decreases. Establish hard phase-transition gates:
   still expected to be installed *before* enumerating optimizer
   masters. All workers must load the exact same pack manifest and
   new hidden-state projector geometry at coordinator bootstrap.
+
+### Prepared event identity and fail-closed serving
+
+In a media identity episode, the generated event's `asset_sha256` refers to
+the **observed teacher feature asset**, never the target audio/visual asset.
+The target is a supervised R output and must not become the observed causal
+state. Both generated `MediaPlan` and observed media meridians validate the
+same unified source contract: exactly one 512-wide feature view with the
+model-pinned EmbeddingGemma2 extractor identity. Raw PCM/pixels and legacy
+Whisper/vision donors are rejected rather than silently mixed with this path.
+This does not alter the native byte-exact text ingestion route.
