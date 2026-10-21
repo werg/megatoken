@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,7 @@ class Transport:
         file: Path | None = None,
         headers: dict[str, str] | None = None,
         output: Path | None = None,
-    ) -> tuple[int, Any, dict]:
+    ) -> tuple[int, Any, Message]:
         if json_body is not None and file is not None:
             raise ValueError("Cannot send JSON and a binary body simultaneously")
         body = (
@@ -88,7 +89,8 @@ class Transport:
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                response_headers = dict(response.headers)
+                # Case-insensitive: HTTP/2 gateways lowercase header names.
+                response_headers = response.headers
                 if output is not None and response.status == 200:
                     output.parent.mkdir(parents=True, exist_ok=True)
                     with output.open("wb") as handle:
@@ -121,7 +123,7 @@ class Transport:
         directory: Path,
         *,
         json_body: dict | None = None,
-    ) -> tuple[Path | None, dict]:
+    ) -> tuple[Path | None, Message]:
         fd, name = tempfile.mkstemp(dir=directory, suffix=".download")
         os.close(fd)
         target = Path(name)

@@ -279,3 +279,32 @@ def test_device_fragment_packing_matches_host_values():
         ]
     )
     torch.testing.assert_close(packed, expected, rtol=0, atol=0)
+
+
+def test_transport_reads_headers_case_insensitively_like_http2_gateways(tmp_path):
+    """An HTTPS gateway (HTTP/2) delivers lowercase header names."""
+    import http.server
+    import threading
+
+    from megatoken.training.diloco_client import Transport
+
+    class Gateway(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("x-fragment-version", "7")
+            self.send_header("content-length", "3")
+            self.end_headers()
+            self.wfile.write(b"abc")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Gateway)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        transport = Transport(f"http://127.0.0.1:{server.server_address[1]}", "t" * 32, 10)
+        status, path, headers = transport.request("GET", "/v1/fragments/0", output=tmp_path / "f")
+    finally:
+        server.shutdown()
+    assert status == 200 and path.read_bytes() == b"abc"
+    assert int(headers["X-Fragment-Version"]) == 7
