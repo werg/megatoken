@@ -151,7 +151,7 @@ class Teacher:
 
         self.torch = torch
         self.tokenizer = AutoTokenizer.from_pretrained(path)
-        self.model = AutoModel.from_pretrained(path, dtype=torch.bfloat16, device_map=device)
+        self.model = AutoModel.from_pretrained(path, dtype=torch.bfloat16).to(device)
         self.model.eval()
         self.device = device
 
