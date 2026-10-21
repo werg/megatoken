@@ -71,7 +71,7 @@ class ObservedEvent:
     source_views: tuple[tuple[str, Tensor, Tensor], ...] = ()
 
     def __post_init__(self) -> None:
-        if self.modality not in {"text", "audio", "image", "video"}:
+        if self.modality not in {"text", "audio", "image", "video", "document", "text_summary"}:
             raise ValueError("Unsupported input modality")
         if self.modality == "text" and not isinstance(self.payload, bytes):
             raise TypeError("Text events must contain bytes")
@@ -81,6 +81,8 @@ class ObservedEvent:
             raise ValueError("Unknown event role")
         if self.extractor and (self.modality == "text" or not isinstance(self.payload, Tensor)):
             raise ValueError("External features require a media tensor and pinned extractor")
+        if self.modality in {"document", "text_summary"} and not self.extractor:
+            raise ValueError("Compressed text/document must supply pinned EmbeddingGemma2 hidden states")
         if self.source_views and not self.extractor:
             raise ValueError("Multiple ordered views require a declared primary extractor")
         if self.extractor:

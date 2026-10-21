@@ -264,6 +264,10 @@ class MediaStems(nn.Module):
         self.audio = AudioStem(config)
         self.vision = VisualStem(config)
         self.view_dropout = config.media_view_dropout
+        self.unified_projection = (
+            nn.Linear(config.embeddinggemma2_hidden_dim, config.source_dim, bias=False)
+            if config.embeddinggemma2_hidden_dim else None
+        )
         self.external_audio = (
             nn.Linear(config.audio_feature_dim, config.source_dim, bias=False)
             if config.audio_feature_dim
@@ -304,6 +308,8 @@ class MediaStems(nn.Module):
         )
 
     def encode(self, core, modality: str, value: Tensor, *, sample_rate: int = AUDIO_SAMPLE_RATE):
+        if self.unified_projection is not None:
+            raise ValueError("Unified EmbeddingGemma2 mode requires pinned hidden-state features, not raw media")
         if modality == "audio":
             features = self.audio(value, sample_rate=sample_rate)
         elif modality in {"image", "video"}:
@@ -325,7 +331,11 @@ class MediaStems(nn.Module):
         Donor inference and caching happen before training. No donor backbone
         or private donor KV is registered in the recurrent Megatoken model.
         """
-        if modality == "audio":
+        if self.unified_projection is not None:
+            if modality not in {"audio", "image", "video", "document", "text_summary"}:
+                raise ValueError("Unsupported unified teacher modality")
+            adapter, identity = self.unified_projection, core.config.embeddinggemma2_hidden_id
+        elif modality == "audio":
             adapter, identity = self.external_audio, core.config.audio_feature_id
         elif modality in {"image", "video"}:
             adapter, identity = self.external_vision, core.config.vision_feature_id
@@ -355,6 +365,18 @@ class MediaStems(nn.Module):
         """Reduce all present declared views through ONE central E readout."""
         if not views:
             raise ValueError("At least one visible media view is required")
+        if self.unified_projection is not None:
+            if len(views) != 1:
+                raise ValueError("Unified EmbeddingGemma2 input is one ordered hidden-state view")
+            identity, tokens, valid = views[0]
+            if identity != core.config.embeddinggemma2_hidden_id:
+                raise ValueError("Unified teacher hidden-state identity mismatch")
+            if valid.shape != tokens.shape[:2] or valid.dtype != torch.bool or not bool(valid.any(dim=1).all()):
+                raise ValueError("Unified hidden-state mask must be nonempty and boolean")
+            if tokens.device != core.initial_facets.device:
+                raise ValueError("Unified teacher hidden states must be on the model device")
+            features = self.unified_projection(tokens.to(self.unified_projection.weight.dtype))
+            return self.encode_ordered_features(core, features, valid)
         projected, masks = [], []
         for identity, tokens, valid in views:
             if identity in self.view_adapters:
@@ -413,6 +435,13 @@ class MediaStems(nn.Module):
         """
         if not tensors or len(tensors) != len(kinds) or len(tensors) != len(extractors):
             raise ValueError("Every E view needs tensor/kind/extractor provenance")
+        if self.unified_projection is not None:
+            if len(tensors) != 1 or kinds[0] != "features":
+                raise ValueError("Unified mode accepts exactly one cached EmbeddingGemma2 hidden state")
+            mask = (masks[0] if masks else None)
+            if mask is None:
+                mask = torch.ones(tensors[0].shape[:2], dtype=torch.bool, device=tensors[0].device)
+            return self.encode_views(core, modality, ((extractors[0], tensors[0], mask),))
         if masks and len(masks) != len(tensors):
             raise ValueError("Each E view must have its own valid-coordinate mask")
         projected, valid = [], []

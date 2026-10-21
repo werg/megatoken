@@ -38,6 +38,10 @@ class ModelConfig:
     # Exact identities and widths for optional acoustic/codec/detail views.
     media_feature_views: dict[str, int] = field(default_factory=dict)
     media_view_dropout: float = 0.0
+    # One frozen EmbeddingGemma2 *internal* (pre-512-to-768-head) state contract.
+    # Zero preserves old checkpoints; new unified ingestion requires a pinned ID.
+    embeddinggemma2_hidden_dim: int = 0
+    embeddinggemma2_hidden_id: str = ""
     audio_acoustic_feature_dim: int = 0
     audio_acoustic_feature_id: str = ""
     vision_detail_feature_dim: int = 0
@@ -143,6 +147,7 @@ class ModelConfig:
             (self.audio_acoustic_feature_dim, self.audio_acoustic_feature_id),
             (self.vision_detail_feature_dim, self.vision_detail_feature_id),
             (self.vision_codec_feature_dim, self.vision_codec_feature_id),
+            (self.embeddinggemma2_hidden_dim, self.embeddinggemma2_hidden_id),
         ):
             if (
                 type(dim) is not int
@@ -227,6 +232,8 @@ class ModelConfig:
             self.vision_detail_feature_id,
             self.vision_codec_feature_dim,
             self.vision_codec_feature_id,
+            self.embeddinggemma2_hidden_dim,
+            self.embeddinggemma2_hidden_id,
         )
 
     @classmethod

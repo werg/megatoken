@@ -33,7 +33,7 @@ ROLE_IDS = ROLE_TO_ID
 RECORD_ROLES = tuple(ROLE_TO_ID)
 EFFORTS = (1, 2, 3, 6)
 P_HISTORY_READ_STAGES = (3, 6, 9, 12)
-MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "tool": 4, "evidence": 5}
+MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "tool": 4, "evidence": 5, "document": 6, "text_summary": 7}
 
 
 class PairStage(nn.Module):
@@ -537,12 +537,20 @@ class FacetedCore(nn.Module):
         return self.frontend(byte_ids, lengths)
 
     def encode_media(self, modality: str, payload: Tensor, *, sample_rate: int = 16000) -> Tensor:
-        """Audio/images/video use the existing E reduction and readout owners."""
+        """Legacy native media input, disabled when the pinned unified teacher is active."""
         return self.media_stems.encode(self, modality, payload, sample_rate=sample_rate)
 
     def encode_media_features(self, modality: str, features: Tensor, *, extractor: str) -> Tensor:
-        """Project pinned external feature tokens through the shared E hierarchy."""
+        """Project pinned frozen hidden states through the shared E hierarchy."""
         return self.media_stems.encode_external(self, modality, features, extractor=extractor)
+
+    def encode_document_hidden(
+        self, features: Tensor, *, extractor: str, valid: Tensor | None = None
+    ) -> Tensor:
+        """Optional coarse document/text-chunk route; native byte E remains available."""
+        if valid is None:
+            return self.encode_media_features("document", features, extractor=extractor)
+        return self.encode_media_views("document", ((extractor, features, valid),))
 
     def encode_media_views(
         self, modality: str, views: tuple[tuple[str, Tensor, Tensor], ...]
