@@ -162,7 +162,7 @@ class ModelConfig:
             import re
 
             if self.embeddinggemma2_hidden_dim != 512 or not re.fullmatch(
-                r"embeddinggemma2:[0-9a-f]{40}:language_model\\.embedding_projection:input:chat-template-v1",
+                r"embeddinggemma2:[0-9a-f]{40}:language_model\.embedding_projection:input:chat-template-v1",
                 self.embeddinggemma2_hidden_id,
             ):
                 raise ValueError("Unified teacher requires pinned 512d pre-embedding-projection hidden states")

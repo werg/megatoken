@@ -121,7 +121,8 @@ class EmbeddingGemma2HiddenExtractor:
         # Documents are text after auditable parsing; scanned pages must be
         # rendered separately as images. Do not pretend the model decodes PDFs.
         kind = "text" if modality == "document" else modality
-        conversation = [{"role": "user", "content": [{"type": kind, kind: source}]}]
+        content = {"type": "text", "text": source} if kind == "text" else {"type": kind, "url": source}
+        conversation = [{"role": "user", "content": [content]}]
         inputs = self.processor.apply_chat_template(
             conversation, tokenize=True, return_dict=True, return_tensors="pt"
         )
