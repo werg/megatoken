@@ -120,7 +120,7 @@ def request(job: dict[str, Any]) -> dict[str, Any]:
     if job["resources"].get("gpu"):
         resources["gpu"] = {"count": 1}
     bootstrap = (Path(__file__).with_name("cloud_bootstrap.sh")).read_text()
-    return {
+    request = {
         "container_image": job["image"],
         "resources": resources,
         "max_lifetime_seconds": int(float(job["lifetime_hours"]) * 3600),
@@ -128,7 +128,6 @@ def request(job: dict[str, Any]) -> dict[str, Any]:
         "placement_mode": "serverless",
         # Mapping form {path: content} is the one cwsandbox 1.19 accepts unambiguously.
         "mounted_files": {BOOTSTRAP: bootstrap},
-        "volumes": [{"name": "work", "mount_path": WORK, "size": job.get("scratch", "200Gi")}],
         "environment_variables": {
             "MEGATOKEN_CW_JOB": job["id"],
             "MEGATOKEN_CW_WORK": WORK,
@@ -139,6 +138,12 @@ def request(job: dict[str, Any]) -> dict[str, Any]:
         # Under W&B auth the direct data plane fails ("project not found"); the gateway works.
         "data_plane_mode": "gateway",
     }
+    if job.get("scratch"):
+        # Optional: measured 2026-10-21, GPU requests with a scratch volume sat in "creating"
+        # until reconciled away, while identical requests without one placed. The root
+        # filesystem of a GPU sandbox is node-local NVMe with terabytes free.
+        request["volumes"] = [{"name": "work", "mount_path": WORK, "size": job["scratch"]}]
+    return request
 
 
 def record(entry: dict[str, Any]) -> None:

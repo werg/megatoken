@@ -89,3 +89,9 @@ def test_push_dirs_expand_to_pinned_inputs(tmp_path):
     assert item["sha256"] == cloud.sha256_file(tmp_path / "corpus" / "sub" / "a.txt")
     with pytest.raises(cloud.CloudError):
         cloud.validate(_job(push_dirs=[{"source": "x", "path": "/abs"}]))
+
+
+def test_scratch_volume_only_when_requested():
+    assert "volumes" not in cloud.request(cloud.validate(_job()))
+    (volume,) = cloud.request(cloud.validate(_job(scratch="50Gi")))["volumes"]
+    assert volume == {"name": "work", "mount_path": cloud.WORK, "size": "50Gi"}

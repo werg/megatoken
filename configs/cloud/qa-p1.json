@@ -4,11 +4,10 @@
  "image": "nvcr.io/nvidia/pytorch:26.09-py3",
  "resources": {
   "cpu": "8",
-  "memory": "96Gi",
+  "memory": "32Gi",
   "gpu": 1
  },
  "lifetime_hours": 24,
- "scratch": "200Gi",
  "pip": [
   "pyarrow"
  ],
