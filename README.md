@@ -17,7 +17,7 @@ The same selected raw-facet representation powers ordinary E/C/P/R generation an
 
 [Architecture and acceptance specification](docs/retrieval-memory-plan.md). [Donor methodology: hindsight-kb@4501647](https://github.com/werg/hindsight-kb/tree/450164784589b2576256b8b0ba3d2ccc89af992d).
 
-**Research proposal (not implemented):** [Continuous State Transducer — search-guided knowledge redesign](docs/continuous-state-transducer-plan.md). This proposed successor is not a v9 training recipe; the supported implementation and validation status above are unchanged.
+**Research proposal (not implemented):** [Continuous State Transducer — adaptive knowledge base](docs/continuous-state-transducer-plan.md). The proposed successor learns state-dependent retrieval transitions and grows latent memory from downstream prediction improvement relative to its cost. It is not a v9 training recipe; the supported implementation and validation status above are unchanged.
 
 ## Prepare once, train only through the new recipe
 
