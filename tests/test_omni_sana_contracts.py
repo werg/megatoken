@@ -44,9 +44,30 @@ class Transformer(nn.Module):
         return (out,)
 
 
+class Config(dict):
+    """diffusers' FrozenDict: a mapping with attribute access."""
+
+    __getattr__ = dict.__getitem__
+    __setattr__ = dict.__setitem__
+
+
+def flow_config(**overrides):
+    # The shipped Sana / Sana-Video DPMSolverMultistepScheduler in its flow mode.
+    return Config(
+        {
+            "num_train_timesteps": TRAIN_STEPS,
+            "prediction_type": "flow_prediction",
+            "use_flow_sigmas": True,
+            "use_dynamic_shifting": False,
+            "flow_shift": SHIFT,
+            **overrides,
+        }
+    )
+
+
 class FlowScheduler:
     def __init__(self):
-        self.config = SimpleNamespace(num_train_timesteps=TRAIN_STEPS, shift=SHIFT)
+        self.config = flow_config()
         self.timesteps = torch.tensor([10.0, 5.0, 1.0])
         self.sigmas = torch.tensor([1.0, 0.5, 0.1, 0.0])
 
@@ -209,13 +230,18 @@ def test_padded_video_frames_do_not_contribute_to_the_loss():
 
 def test_loss_rejects_non_flow_scheduler_and_bad_shift():
     r = realizer()
-    r.pipe.scheduler.config.shift = -1.0
+    r.pipe.scheduler.config.flow_shift = -1.0
     with pytest.raises(ValueError, match="shift"):
         r.loss(raw(), torch.zeros(1, 4, 8, 8), None)
-    r = realizer()
-    r.pipe.scheduler = SimpleNamespace(config=SimpleNamespace(num_train_timesteps=10, shift=1.0))
-    with pytest.raises(ValueError, match="flow-matching"):
-        r.loss(raw(), torch.zeros(1, 4, 8, 8), None)
+    for wrong in (
+        {"prediction_type": "epsilon"},
+        {"use_flow_sigmas": False},
+        {"use_dynamic_shifting": True},
+    ):
+        r = realizer()
+        r.pipe.scheduler = SimpleNamespace(config=flow_config(**wrong))
+        with pytest.raises(ValueError, match="static-shift flow scheduler"):
+            r.loss(raw(), torch.zeros(1, 4, 8, 8), None)
 
 
 def test_image_realize_is_a_one_frame_clip_through_the_donor_pipeline():

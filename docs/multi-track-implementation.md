@@ -203,7 +203,7 @@ profile actual media E/R behavior before making quality claims.
 ## Next required engineering work
 
 The remaining path to a trained omnimodal system: verify each pack on real
-weights and an accelerator (`scripts/verify_pretrained_omni.py`); assemble
+weights and an accelerator (`scripts/verify_packs.py`); assemble
 licensed aligned multimodal data ([plan](pretrained-omnimodal-bottleneck-plan.md));
 run the bridge, joint and task phases ([media.md](media.md)); add a recurrent
 grouped objective with real recorded-action continuations; and evaluate

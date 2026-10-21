@@ -7,7 +7,7 @@ import json
 import re
 from pathlib import Path
 
-from .realizers import PocketRealizer, SanaRealizer
+from .realizers import PocketRealizer, SanaRealizer, resolve_pocket_config
 
 
 def snapshot_files(directory: Path):
@@ -93,34 +93,9 @@ def read_locked_manifest(filename: str):
                 if asset.is_symlink() or (asset.is_file() and asset.resolve() not in verified):
                     raise ValueError(f"Unhashed or symlinked snapshot asset: {asset}")
         if name == "pocket":
-            import yaml
-
-            config_file = (path.parent / item["config"]).resolve()
-            config = yaml.safe_load(config_file.read_text("utf-8"))
-            if not isinstance(config, dict):
-                raise ValueError("Pocket config must be a YAML mapping")
-
-            def walk(node, base=config_file.parent, verified=verified):
-                if isinstance(node, dict):
-                    for key, value in node.items():
-                        if key in {
-                            "weights_path",
-                            "weights_path_without_voice_cloning",
-                            "tokenizer_path",
-                        } and isinstance(value, str):
-                            if value.startswith(("hf://", "https://", "http://")):
-                                raise ValueError(f"Remote Pocket resource in {key}")
-                            resource = Path(value)
-                            if not resource.is_absolute():
-                                resource = base / resource
-                            if resource.resolve() not in verified:
-                                raise ValueError(f"Unhashed Pocket resource {key}")
-                        walk(value, base, verified)
-                elif isinstance(node, list):
-                    for value in node:
-                        walk(value, base, verified)
-
-            walk(config)
+            _, resources = resolve_pocket_config((path.parent / item["config"]).resolve())
+            if any(resource not in verified for resource in resources):
+                raise ValueError("Unhashed Pocket resource")
     return path.parent, packs
 
 

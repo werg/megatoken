@@ -363,3 +363,45 @@ def test_mismatched_flow_and_mimi_latent_widths_are_rejected():
     mimi.quantizer = SimpleNamespace(dimension=LDIM + 1)
     with pytest.raises(ValueError, match="geometry"):
         realizer(mimi=mimi)
+
+
+def test_pocket_yaml_resources_resolve_against_the_yaml_and_must_be_locked(tmp_path):
+    import hashlib
+    import json
+
+    from megatoken.omni.loader import read_locked_manifest
+    from megatoken.omni.realizers import resolve_pocket_config
+
+    pack = tmp_path / "pocket"
+    (pack / "english").mkdir(parents=True)
+    (pack / "english" / "model.safetensors").write_bytes(b"weights")
+    (pack / "english" / "tokenizer.json").write_text("{}")
+    (pack / "pocket.yaml").write_text(
+        "weights_path: english/model.safetensors\n"
+        "flow_lm:\n  lookup_table:\n    tokenizer_path: english/tokenizer.json\n"
+    )
+    mapping, resources = resolve_pocket_config(pack / "pocket.yaml")
+    assert mapping["weights_path"] == str(pack / "english" / "model.safetensors")
+    assert mapping["flow_lm"]["lookup_table"]["tokenizer_path"] == str(
+        pack / "english" / "tokenizer.json"
+    )
+    assert len(resources) == 2
+
+    def lock(names):
+        files = {
+            f"pocket/{name}": hashlib.sha256((pack / name).read_bytes()).hexdigest()
+            for name in names
+        }
+        item = {"revision": "a" * 40, "config": "pocket/pocket.yaml", "files": files}
+        path = tmp_path / "lock.json"
+        path.write_text(json.dumps({"version": 1, "packs": {"pocket": item}}))
+        return str(path)
+
+    read_locked_manifest(
+        lock(["pocket.yaml", "english/model.safetensors", "english/tokenizer.json"])
+    )
+    with pytest.raises(ValueError, match="Unhashed Pocket resource"):
+        read_locked_manifest(lock(["pocket.yaml", "english/tokenizer.json"]))
+    (pack / "pocket.yaml").write_text("weights_path: hf://kyutai/pocket-tts/model.safetensors\n")
+    with pytest.raises(ValueError, match="Remote Pocket resource"):
+        resolve_pocket_config(pack / "pocket.yaml")

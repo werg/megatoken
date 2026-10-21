@@ -101,6 +101,47 @@ class Realizer(nn.Module):
         return self.to(device)
 
 
+POCKET_RESOURCE_KEYS = frozenset(
+    {"weights_path", "weights_path_without_voice_cloning", "tokenizer_path"}
+)
+
+
+def resolve_pocket_config(config: Path) -> tuple[dict, list[Path]]:
+    """A Pocket YAML with every resource as an absolute local path, and those paths.
+
+    Relative paths are relative to the YAML's directory; remote resources are refused.
+    """
+    import yaml
+
+    if not config.is_file():
+        raise FileNotFoundError("Pocket YAML is not a local pinned file")
+    mapping = yaml.safe_load(config.read_text("utf-8"))
+    if not isinstance(mapping, dict):
+        raise ValueError("Pocket config must be a YAML mapping")
+    resources: list[Path] = []
+
+    def resolve(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in POCKET_RESOURCE_KEYS and isinstance(value, str):
+                    if value.startswith(("hf://", "https://", "http://")):
+                        raise ValueError(f"Remote Pocket resource in {key}")
+                    resource = Path(value)
+                    resource = (
+                        resource if resource.is_absolute() else config.parent / resource
+                    ).resolve()
+                    resources.append(resource)
+                    node[key] = str(resource)
+                else:
+                    resolve(value)
+        elif isinstance(node, list):
+            for value in node:
+                resolve(value)
+
+    resolve(mapping)
+    return mapping, resources
+
+
 class PocketRealizer(Realizer):
     """Pocket's pretrained FlowLM/flow net and matching Mimi, prefixed by raw Z."""
 
@@ -123,11 +164,18 @@ class PocketRealizer(Realizer):
         cls, *, config: str, checkpoint: str | None, facet_count: int, facet_width: int
     ):
         """``config`` must be the locked local Pocket YAML (no remote resources)."""
+        import tempfile
+
+        import yaml
         from pocket_tts import TTSModel
 
-        if not Path(config).is_file():
-            raise FileNotFoundError("Pocket YAML is not a local pinned file")
-        model = TTSModel.load_model(config=config, checkpoint=checkpoint, quantize=False)
+        resolved, _ = resolve_pocket_config(Path(config))
+        # pocket_tts resolves relative resource paths against the process working
+        # directory; hand it the same files the lock verified, as absolute paths.
+        with tempfile.TemporaryDirectory() as scratch:
+            local = Path(scratch) / "pocket.yaml"
+            local.write_text(yaml.safe_dump(resolved), encoding="utf-8")
+            model = TTSModel.load_model(config=str(local), checkpoint=checkpoint, quantize=False)
         return cls(model, facet_count, facet_width)
 
     @torch.no_grad()
@@ -282,8 +330,14 @@ class SanaRealizer(Realizer):
         if not Path(snapshot).is_dir():
             raise FileNotFoundError("Require a pinned local Diffusers snapshot")
         klass = SanaPipeline if modality == "image" else SanaVideoPipeline
+        # Facets replace the prompt: the Gemma-2 text encoder is never loaded,
+        # so packs need not contain it (scripts/acquire_packs.py).
         pipeline = klass.from_pretrained(
-            snapshot, torch_dtype=torch.bfloat16, local_files_only=True
+            snapshot,
+            torch_dtype=torch.bfloat16,
+            local_files_only=True,
+            text_encoder=None,
+            tokenizer=None,
         )
         expected = "AutoencoderDC" if modality == "image" else "AutoencoderKLLTX2Video"
         if type(pipeline.vae).__name__ != expected:
@@ -315,9 +369,17 @@ class SanaRealizer(Realizer):
             latents = latents.permute(0, 2, 1, 3, 4)
             mask = None if mask is None else mask.view(mask.shape[0], 1, -1, 1, 1)
         embeds, attention = self._prompt(raw)
+        # Sana and Sana-Video ship DPMSolverMultistepScheduler in its flow mode:
+        # x_sigma = (1 - sigma) x0 + sigma * noise, the model predicts noise - x0,
+        # timestep = shifted sigma * num_train_timesteps (diffusers 0.41).
         config = self.pipe.scheduler.config
-        if not hasattr(self.pipe.scheduler, "scale_noise") or config.num_train_timesteps <= 0:
-            raise ValueError("Sana realizers use their flow-matching scheduler")
+        if (
+            config.get("prediction_type") != "flow_prediction"
+            or not config.get("use_flow_sigmas")
+            or config.get("use_dynamic_shifting")
+            or config.num_train_timesteps <= 0
+        ):
+            raise ValueError("Sana realizers need their static-shift flow scheduler")
         b = latents.shape[0]
         noise = torch.randn(
             latents.shape, dtype=latents.dtype, device=latents.device, generator=generator
@@ -325,7 +387,7 @@ class SanaRealizer(Realizer):
         # Uniform continuous training time, independent of the mutable inference
         # timesteps, with the scheduler's static shift.
         sigma = torch.rand((b,), device=latents.device, generator=generator).to(latents.dtype)
-        shift = float(getattr(config, "shift", 1.0))
+        shift = float(config.flow_shift)
         if not math.isfinite(shift) or shift <= 0:
             raise ValueError("Invalid donor scheduler time shift")
         sigma = (shift * sigma) / (1.0 + (shift - 1.0) * sigma)

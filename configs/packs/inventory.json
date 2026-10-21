@@ -1,0 +1,18 @@
+{
+  "embeddinggemma2": {
+    "repository": "google/embeddinggemma-2",
+    "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b"
+  },
+  "pocket": {
+    "repository": "kyutai/pocket-tts",
+    "revision": "db04f0e653473e5c7333c69686ac92b7460b0c1d"
+  },
+  "sana": {
+    "repository": "Efficient-Large-Model/Sana_600M_1024px_diffusers",
+    "revision": "28f3af7689de15f3883d5863059a2fca0aa9b829"
+  },
+  "sana_video": {
+    "repository": "Efficient-Large-Model/SANA-Video_2B_720p_diffusers",
+    "revision": "82de0b2398cd16435d3f6621778f9e89ffa096cb"
+  }
+}

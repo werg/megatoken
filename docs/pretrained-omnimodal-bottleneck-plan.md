@@ -585,7 +585,7 @@ Selected group publication/acceptance remains atomic. Even when current R is per
 
 | Change | Repository area | Deliverable |
 | --- | --- | --- |
-| 1. Real-weight verification | `scripts/verify_pretrained_omni.py`, media.md packs | Pocket/Sana/Sana-Video round trip, objective and rollout on an accelerator |
+| 1. Real-weight verification | `scripts/verify_packs.py`, media.md packs | Pocket/Sana/Sana-Video round trip, objective and rollout on an accelerator |
 | 2. Prepared inventories | `scripts/prepare_media.py`, `prepare_media_identity.py` | Identity and text-anchor streams from rights-cleared media, immutable identities |
 | 3. Bundle/task compiler at scale | `data/concordance.py`, `scripts/compile_aligned_bundles.py` | ASR/TTS, direct joint translation, image/description, AV/endpoints, and recorded edits with explicit input/target partitions |
 | 4. Phase runs | `configs/train/media-*.example.yaml`, `configs/tasks/media-*.yaml` | Bridge, joint and task phases chained by DiLoCo coordinator exports |

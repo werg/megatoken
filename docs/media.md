@@ -66,16 +66,20 @@ tapes record it per event and replay requires the same identity.
 
 ## Packs and the lock
 
-All pretrained weights come from one locked pack manifest
-(`configs/packs/lock.example.json`): `embeddinggemma2`, `pocket`, `sana`,
-`sana_video`, each with a 40-hex revision and a SHA256 for every file.
-`scripts/lock_pretrained_omni.py` writes it from local snapshots;
-`omni.loader.read_locked_manifest` verifies every file, rejects symlinks,
-unhashed files and path escapes, and `install_realizers` builds the realizers
-before optimizer enumeration or checkpoint restore. Checkpoints store the
-manifest's `packs_fingerprint`; `load_trained` refuses a different manifest.
-`scripts/verify_pretrained_omni.py` probes real weights (codec round trip,
-objective, rollout) on an accelerator.
+All pretrained weights come from one locked pack manifest, `<root>/lock.json`,
+written by `python scripts/acquire_packs.py --root <root>` from the pinned
+[inventory](../configs/packs/inventory.json): `embeddinggemma2`, `pocket`,
+`sana`, `sana_video`, each at a 40-hex revision with a SHA256 for every file.
+Acquisition fetches only what the models load: Pocket's English model and
+tokenizer with a fully local `pocket.yaml` (the `kyutai/pocket-tts` repo is
+gated: accept its terms and set `HF_TOKEN`; its ungated sibling zeroes the Mimi
+encoder), and the Sana/Sana-Video Diffusers snapshots without their Gemma-2 text
+encoders, which facets replace. `omni.loader.read_locked_manifest` verifies
+every file, rejects symlinks, unhashed files and path escapes, and
+`install_realizers` builds the realizers before optimizer enumeration or
+checkpoint restore. Checkpoints store the manifest's `packs_fingerprint`;
+`load_trained` refuses a different manifest. `scripts/verify_packs.py` probes
+real weights (codec round trip, objective, rollout) on an accelerator.
 Install with `pip install -e '.[train,media]'`.
 
 ## Preparation
@@ -164,5 +168,5 @@ every event; replay refuses a different realizer pack or drifted output.
 ## Not established by this code
 
 No media-quality, perceptual or GPU-scale training result is implied. Real
-weight verification of each pack (`verify_pretrained_omni.py`), rights-cleared
+weight verification of each pack (`verify_packs.py`), rights-cleared
 media inventories, and measured gates per phase are prerequisites for claims.
