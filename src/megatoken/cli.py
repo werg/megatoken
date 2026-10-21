@@ -121,7 +121,9 @@ def _diloco_initialize(args):
         from megatoken.omni.loader import install_pretrained_packs
 
         install_pretrained_packs(
-            model, config.pretrained_packs, device=torch.device("cpu"),
+            model,
+            config.pretrained_packs,
+            device=torch.device("cpu"),
             dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
         )
     weights = None
