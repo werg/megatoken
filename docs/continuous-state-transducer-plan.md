@@ -1,53 +1,62 @@
-# Continuous State Transducer: a search-guided knowledge base
+# Continuous State Transducer: an adaptive knowledge base
 
-**Status:** Architecture proposal, not implemented.  
-**Date:** 21 October 2026.  
-**Based on:** [Megatoken v9 at 4d24d05](https://github.com/werg/megatoken/commit/4d24d05dbf4e55d5289e1c2d4727f854d66fddf1). See the [current retrieval design](retrieval-memory-plan.md) and [implementation status](retrieval-memory-implementation-status.md).
+**Status:** Proposed successor to Megatoken v9; not implemented.  
+**Revised:** 21 October 2026.  
+**Baseline:** [Megatoken v9](https://github.com/werg/megatoken/commit/4d24d05dbf4e55d5289e1c2d4727f854d66fddf1), the [current retrieval specification](retrieval-memory-plan.md), and its [implementation ledger](retrieval-memory-implementation-status.md).
 
-## 1. The change in one page
+## 1. The design in brief
 
-Replace the current knowledge base of learned points and pair correlations with a **continuous state transducer**: a searchable graph of transitions between positions in a learned state space.
+Replace the current semantic memory of points and pair correlations with a **continuous-state transducer**: a learned collection of local transitions. The model searches it with both a query and its current search state. Each transition supplies knowledge **and** a change in search state. Generation becomes a sequence of retrievals and useful movements through a learned space.
 
-An edge says: **when searching for this kind of information from this part of the search space, return this knowledge and move the search state in this direction.**
+The transducer is a trainable function, not a registry of verified facts. **Its knowledge grows when additional capacity improves future predictions enough to justify the memory and computation it costs.** There is no separate system for approving candidate edges, assigning semantic state anchors, or requiring a source citation for each latent parameter.
 
-Each edge stores four vectors:
+Keep the following core architecture:
 
-| Vector | Purpose |
+- Each edge has a **departure state**, **query key**, **wide knowledge value**, and **state residual**.
+- Query similarity and state similarity jointly determine the edge weights. The same weights blend both values and residuals.
+- The blended wide knowledge is projected through a mixture of experts (MoE) to one native **32-facet megatoken** and committed through the **knowledge retrieval track**, not written directly as semantic KV.
+- An initial metadata megatoken gives the model its first search context. The first retrieval happens immediately after that event; later queries use all earlier events.
+- The graph starts from clustered sequences, **transition bigrams**, and recursively repeated patterns (**motifs of motifs**), then learns its own positions and connections.
+- Train, add, split, merge, and remove edges under **one prediction-quality-versus-cost objective**.
+
+This document specifies the target behavior, a small reference algorithm, an implementable growth rule, and the tests needed to tell whether the idea works. It does **not** assert that adaptive transducer growth has already been validated for Megatoken.
+
+### The distinction that matters
+
+**Latent memory** learns reusable representations from training data. Its edges can combine evidence across many examples and need not map to documents.  
+**Literal source retrieval** returns particular bytes, passages, and citations. The existing source RAG path retains source identity, access rules, and document versions where those are needed.
+
+Do not turn document-store bookkeeping into a constraint on how latent transitions can learn.
+
+## 2. The transducer
+
+Let the current search state be \(s_t\), the model's query be \(q_t\), and edge \(i\) hold:
+
+| Vector | Role |
 | --- | --- |
-| **Departure state** | Where this transition is useful |
-| **Key** | What question or search intent activates it |
-| **Value** | What knowledge the transition returns |
-| **State update** | How the search position changes after using it |
+| \(d_i\) | Departure address: where the edge is useful |
+| \(k_i\) | Query key: what it can help retrieve |
+| \(v_i\) | Wide knowledge value: what it returns |
+| \(r_i\) | State residual: where it moves the search |
 
-The model maintains a **search agenda state** alongside its usual transformer history. It starts at a position informed by an initial metadata prefix. At every eligible step, the model asks the KB a new question. The KB blends nearby edges according to both their **key-to-query match** and **departure-state-to-current-state match**, then returns a blended value and a blended state update using **the same weights**.
+These are trainable vectors. Departure state and query key can have different widths. The state does **not** need a human-assigned label or a separately versioned semantic anchor.
 
-The wide blended value is reduced to **32 native facets** using the existing mixture-of-experts (MoE) machinery, then fed back as a new megatoken on a dedicated **knowledge retrieval track**. The normal central transformer processes it against earlier queries, retrieved knowledge and generated output. This allows the model to adapt what it learns from a retrieval rather than treating the KB answer as fixed attention cache content.
-
-**The objective is search, not correlation:** generation becomes a sequence of questions and guided moves through a fuzzy, learned graph. Source facts still need provenance, but source co-occurrence is only evidence for *proposing* an edge, not a special correlation mechanism used at query time.
-
-### What stays and what goes
-
-Keep ordinary E/C/P/R processing, the shared multitrack history, native KV caching for committed megatokens, raw-facet query generation, source provenance, exact-source RAG, indexed lookup, sparse KB optimization, and the current MoE pools.
-
-Remove the **semantic KB's** point/pair correlation scoring, learned directional pair-dependence, correlation-based attenuation, direct stored-value-to-KV projection, and KB-specific semantic LoRA control as the retrieval answer path. **Ordinary transformer KV caching stays**: the *new knowledge megatoken* writes KV through normal central processing. Existing v9 training remains the supported implementation until a new, explicitly versioned architecture passes acceptance tests.
-
-## 2. How a retrieval works
-
-Let the current agenda state be \(s_t\), the model's search query be \(q_t\), and edge \(i\) store departure \(d_i\), key \(k_i\), wide value \(v_i\), and state residual \(r_i\).
-
-For a small, causally eligible set of nearby edges, calculate:
+Normalize query and departure-address vectors in their own spaces. Start with this score:
 
 \[
-a_i=\exp\left(
-\frac{\cos(q_t,k_i)}{T_q}+
-\frac{\cos(s_t,d_i)}{T_s}+b_i
-\right),\qquad
-w_i=\frac{a_i}{a_{\varnothing}+\sum_j a_j}
+z_i=\beta_q\,\hat q_t^\top\hat k_i+
+    \beta_s\,\hat s_t^\top\hat d_i+b_i,
+\qquad \beta_q,\beta_s>0.
 \]
 
-Here \(b_i\) is a bounded learned strength/prior; \(T_q,T_s>0\) control how sharply matching works; \(a_{\varnothing}>0\) is an explicit **no useful transition** option. Scope, source version, time and full provenance are checked **before** scoring. Normalize key and departure vectors independently. In the real reader, calibrate the null score and optionally reject candidates below minimum similarity thresholds: a small ANN shortlist must not make weak matches look certain.
+Use one learned null logit \(z_\varnothing\), meaning that none of the retrieved transitions is useful:
 
-Return:
+\[
+w_i=\frac{\exp(z_i)}
+{\exp(z_\varnothing)+\sum_j\exp(z_j)}.
+\]
+
+The null option has zero knowledge and zero state residual. The two outputs are:
 
 \[
 \bar v_t=\sum_i w_i v_i,\qquad
@@ -55,137 +64,297 @@ Return:
 s_{t+1}=\operatorname{retract}(s_t+\eta\overline{\Delta s}_t).
 \]
 
-**The weights must be identical** for values and residuals. The retraction (for example, bounded norm followed by normalization) and a capped step size prevent runaway state drift. When null wins, do not inject a fake knowledge megatoken or move the state. Keep the query event and its cost visible in the record. A low-confidence mixture can instead trigger a narrower question or a new search branch.
+A retraction (such as norm clipping followed by normalization) and bounded \(\eta\) keep state movement finite. **Never use different mixture weights for knowledge and movement.** If null is selected under an inference threshold, commit neither knowledge nor a state change. Train and calibrate that threshold against unsupported queries rather than declaring every nearest neighbor useful.
 
-This simple form is the **reference algorithm**, not a proven optimum. Compare additive versus multiplicative match gates, temperatures, null calibration and per-edge uncertainty in experiments. Do not let a strong query-key match override a clearly wrong departure state, or vice versa.
+This reference rule is deliberately simple. Compare it with joint nonlinear scoring and a query-only ablation before adding complexity. Learned biases, null behavior, and state norms need calibration; the equation alone does not guarantee useful search.
 
-### Find candidates without searching the whole graph
+### One joint search index
 
-A single index on keys is not enough: the best joint match might be absent from its key-only top-k. Use a **two-index shortlist** (query-key neighbors **union** state-departure neighbors), plus a small quota for nearby directed graph edges. Check eligibility first and score that union exactly with both similarities. Measure recall against an exhaustive reference; later replace with a joint index if useful.
+For the additive score above, two separate ANN indexes are unnecessary. With fixed \(\beta_q,\beta_s\), form:
 
-Group only mutually compatible source versions and meanings in one mixture. Do not average contradictory claims into an invented third claim. When directions disagree strongly, produce separate candidate branches or ask a disambiguating query rather than letting residuals cancel invisibly. Keep the originating edge IDs and source references for attribution.
-
-## 3. Put the answer back through the transformer
-
-At each completed **ordinary** model position:
-
-1. Produce and commit a normal selected retrieval-query event through P, its embedding realizer, and C.
-2. Search the transducer using that query **and the current agenda state**.
-3. Mix values and state residuals. On a useful result, project the value to a raw \([32,D]\) block and commit it through **C on the knowledge retrieval track**.
-4. Atomically publish the corresponding agenda-state update and retrieval receipt.
-5. Continue generation. Its next query can attend to **all previous retrieval and generation history**.
-
-At production geometry, \(D=512\), so the knowledge input is **32 × 512**. It is an **observed retrieval result**, not a sampled assistant answer and not an external KV slot. A native history entry is written only if C successfully commits the result.
-
-Do **not** automatically query again just because the internal query event or its knowledge-result event was committed; that would recurse forever. Query at every eligible **ordinary generation/observation position**, with explicit caps on work in flight, repeated queries, branch depth and latency. The first retrieval is a required break; later searches may complete asynchronously and become visible only at a valid later boundary. Late results never rewrite already generated text or prior history. Parallel tracks share the same state only under an explicit deterministic commit order; independent search branches receive their own agenda states until merged deliberately.
-
-A query, its selected raw facets, candidate IDs, weights, old/new state, source eligibility, model/index versions, and knowledge result must be recorded for exact training and replay. A failed lookup must not partially advance the agenda.
-
-### Wide values, narrow output
-
-The proposal deliberately makes values **wider than the final facet width**. Mixing information in a broad space gives different aspects room to coexist before being compressed into 32 facets. Start by testing **8,192, 16,384 and 32,768** value dimensions; use 32,768 as the wide pilot, not as an unexamined permanent default.
-
-**Mix the wide values first.** Then split or adapt the mixture into 512-wide working blocks, route those blocks through the **existing U MoE expert bank**, and use 32 learned facet queries to gather the result into the native 32 × 512 block. The current U experts accept 512-wide rows; they cannot directly process a 32,768-wide row. A small input/output adapter and a bounded routing plan are therefore required. Test sharing versus a separate projection expert pool to watch for interference with text realization. The learned projection may use the query and current state as *routing context*, but must not receive future target information.
-
-This is a hypothesis about interference at the **mixture** stage, not proof that bigger values preserve more knowledge. Compare with the same parameter/storage budget at smaller widths and with a plain linear projection.
-
-## 4. Metadata first: put the first pause in the right place
-
-Prepare each training episode with a **compact, causally available metadata prefix**. Include as much useful information as is honestly known at that point: task and retrieval purpose, title/topic, source type, language, modality, time and version, relevant document/repository context, permitted scope, and the user's request. Mark missing fields explicitly. Keep source family, hashes and permissions for data integrity, but do not expose hidden benchmark answers or arbitrary internal IDs as if they were meaningful facts.
-
-Use that prefix to initialize the search state:
 \[
-s_0=\operatorname{retract}(s_{\mathrm{base}}+G_{\mathrm{meta}}(\text{visible metadata, request})).
+x_t=[\sqrt{\beta_s}\,\hat s_t;\sqrt{\beta_q}\,\hat q_t;1],
+\qquad
+y_i=[\sqrt{\beta_s}\,\hat d_i;\sqrt{\beta_q}\,\hat k_i;b_i].
 \]
 
-Encode the **first metadata megatoken** through the ordinary input/central path, then schedule the **first query and retrieval/latency break immediately after it**, before ordinary answer generation. Longer metadata can arrive through later causal events; avoid waiting to consume an entire long document before asking anything. A missing-metadata case uses a learned neutral initial state and still gets its first search opportunity.
+Then **\(x_t^\top y_i=z_i\)**. Search one maximum-inner-product index over \(y_i\), rerank its candidates with the exact score, and compare shortlist recall against exhaustive joint scoring. The augmented bias coordinate requires an inner-product-capable index; ordinary normalized-cosine indexing of the whole concatenated vector is not equivalent.
 
-Training preparation must separate **model-visible metadata** from labels used only for supervision, and reproduce the same first-boundary schedule at inference. Do not move answer-bearing future annotations into the prefix to improve apparent retrieval quality.
+The index is an acceleration structure, not the learned graph itself. Rebuild or update it when trainable addresses move. Approximate retrieval is discrete: ordinary backpropagation reaches selected edges, not unseen neighbors. Reserve a small number of exploratory candidate slots during training so an ignored region can still improve and grow.
 
-## 5. Build an initial graph efficiently
+An edge's departure state and residual define a local directed move. An explicit adjacency graph or a second hierarchy is **optional**, and should only be introduced if it measurably improves navigation or speed.
 
-Avoid starting with millions of random state positions. Prewarm the graph in stages:
+## 3. Integration with native Megatoken
 
-1. **Cluster source concepts and questions.** Reuse the existing source chunking and semantic embeddings to group related facts, search intents and evidence types. Keep distinct source versions and conflicting claims separate; preserve singleton/tail clusters.
-2. **Generate plausible search paths.** Use real multi-step question/evidence trajectories where available. Add controlled synthetic search tasks to cover missing joins, verification and backtracking. Record which paths are synthetic. Consecutive source chunks alone do **not** prove a useful search transition.
-3. **Learn state anchors and directed edges.** Give common agenda situations coarse anchor positions. For each demonstrated query step, form a departure state, a question key, a source-backed wide value and a residual aimed toward its next useful agenda state. Distill these from the path and test whether the weighted reader can actually follow it.
-4. **Count transition bigrams.** Identify frequently useful **adjacent pairs of transitions**, not merely word bigrams or pairs of neighboring documents. Common two-step sequences become candidates for better placement and training exposure.
-5. **Find patterns of patterns.** Cluster recurring longer paths and small directed subgraphs, then find recurring combinations of those motifs. Examples include *identify entity → retrieve relation → check evidence* and *propose answer → find contradiction → correct answer*. Use these higher-level patterns as navigation hints and optional shortcut-edge **proposals**, not as automatic hardwired truths.
-6. **Place and publish a small supported seed bank.** Allocate edges around the strongest anchors and high-demand routes, reserve capacity for rare paths, seed values from available source representations, and validate on held-out paths before scaling.
+Keep ordinary E/C/P/R processing, native KV for committed events, the retrieval-query track, the shared multitrack history, and the existing 512-wide U MoE expert bank. Remove the semantic KB's point/pair correlation path, directional pair scores, correlation attenuation, direct stored-value-to-KV projection, and semantic-KB-specific all-track LoRA control from the **new** retrieval architecture. The source RAG route remains separate and available.
 
-This gives three levels of useful structure: **local edges, transition bigrams, and reusable motifs of motifs**. Graph hierarchy helps propose where to search; the live query/state scoring rule remains the authority for what is retrieved. Stop adding hierarchy when it increases complexity without improving held-out path completion or latency.
+### Event sequence
 
-**Important:** state-space coordinates are learned *search* coordinates, not generic source-embedding coordinates. Source clustering is a scaffold. Anchor positions and residuals must be refined against actual model-generated queries and search trajectories. A changed state encoder requires coordinated edge reindexing; old coordinates are not silently reusable.
+At each eligible **ordinary** generation or observation position:
 
-## 6. Grow and improve edges during pretraining
+1. P generates a normal selected raw-facet retrieval query, the query realizer turns it into \(q_t\), and C commits the query event.
+2. Search the transducer with \(q_t\) and the current \(s_t\).
+3. Mix selected values and residuals with identical weights. If retrieval is useful, project \(\bar v_t\) to raw native **[32, 512]** facets and commit that megatoken through **C on the knowledge retrieval track**.
+4. Apply the paired state update when the result is committed. Continue ordinary generation, so the next query can attend to all prior retrievals and output.
 
-Collect a small, durable set of statistics for each state region and edge: eligible query demand, null results, successful transitions, downstream improvement, repeated visits/loops, competing candidates, source support, value use, age, latency and how often a rarely used edge actually gets gradient updates. Deduplicate by query event and source family so repeated data cannot manufacture demand.
+A retrieved megatoken is an **observation**, not a generated answer. Its native KV is created by the ordinary central path, never inserted directly from stored semantic vectors. The model can therefore interpret the new knowledge in the context of what it has already done.
 
-At **bounded optimizer barriers**, the single KB owner should:
+Do not trigger another search merely because a query event or a retrieval-result event was committed; this would recurse indefinitely. Cap total queries, in-flight work, branch depth, repeated queries, and latency. A failed or cancelled lookup leaves the state unchanged. Asynchronous results can appear only at a later legal event boundary; they cannot rewrite prior events. Parallel tracks either follow a deterministic state-update order or have separate search states until an explicit merge.
 
-- **Propose** edges in regions with many supported searches but poor hit or path-completion rates, using new source evidence, useful query→next-query transitions and higher-level motifs.
-- **Admit** only source-supported, causally eligible proposals with a versioned anchor, key, value, residual and initialization seed. Give new edges a modest exposure quota; do not initially let them dominate answers.
-- **Improve** selected keys, departures, values and residuals from later task outcomes; preserve existing learned edges and their optimizer moments.
-- **Merge or retire** redundant edges only after checking that source attribution, alternative paths and behavior survive. Deleting a source invalidates all dependent edges and cached results.
-- **Reindex and publish** changed addresses, graph adjacency, sparse moments and growth cursor together, then expose a coherent snapshot to learners.
+During training, retain enough selected-event information to recompute gradients: sampled raw query, realized query, selected edge IDs and weights, prior state, retrieved event, and the subsequent continuation. For a stochastic query generated by P, use the existing replayable sampled-event policy machinery where necessary; do **not** claim that gradients pass through the discrete sample or ANN candidate choice automatically. Keep replay spans bounded.
 
-The existing SQLite owner, IVF infrastructure and sparse-row optimizer are a foundation, but they need new **edge tables, state-address postings, state revisions and field layouts**. During DiLoCo training, the coordinator must allocate IDs and publish coordinate/edge changes; learners cannot independently invent incompatible graph states. A state-space re-anchoring is a versioned maintenance operation, not a quiet local optimizer update.
+### Wide value to native knowledge megatoken
 
-Source/value writers remain important after useful free-edge pretraining: freeze the learned space and edge assignments, then train a writer to reconstruct edge keys, departures, wide values and residuals **from permitted source material**. Rebuild a fresh graph and check whether it behaves like the optimized one. Otherwise the free bank may learn knowledge that cannot be loaded from new documents.
+**Blend wide values first, then reduce to the native 32 facets.** Test value widths **8,192**, **16,384**, and **32,768**; treat 32,768 as a research pilot, not a fixed production requirement.
 
-## 7. Training objectives and state-space fairness
+The existing U experts operate on 512-wide rows. They cannot consume a whole 32,768-wide vector directly. Add a small adapter that maps or splits the blended value into 512-wide working blocks. Route those blocks through the U MoE pool, then use 32 learned facet queries or an equivalent bounded readout to assemble **[32, 512]**. The current query and state can influence routing. Compare sharing U with a separate projection pool, because shared experts may interfere with ordinary text realization.
 
-Keep native generation/continuation quality as the main objective. Add small, separately measured terms for:
+Do not assume wide values are better merely because they are wider. Compare at equal total parameter count, storage, and compute with narrower or factored values and a simple linear projector. A mixture of learned vectors is **not** necessarily a literal averaging of factual claims; test whether the downstream model preserves necessary distinctions.
 
-- **Useful retrieval:** put supported transitions ahead of known distractors; treat unannotated or unsearched edges as *unknown*, not negatives.
-- **Useful movement:** move toward states whose next retrieval improves the answer; train no-op on genuine no-evidence cases and penalize aimless loops, not justified revisits.
-- **Faithful content:** compare returned knowledge against permitted source evidence and train useful subsequent generations; discourage unsupported blends.
-- **Stable geometry:** cap state steps and value norms, keep distinguishable search purposes apart, and penalize collapse of all departures into one hub.
-- **Coverage fairness:** avoid a graph that works only in a few heavily trained state regions.
+### Metadata and the first retrieval
 
-**Fairness here means coverage of the search state space, not forcing every state to receive equal traffic.** Divide the learned space into coarse regions. For each region, estimate supported query demand and useful-hit rate. Give a modest penalty when a region with real, repeated demand has poor coverage, with caps for rare/noisy regions. Keep a reserved exploration budget for underrepresented but source-supported regions. Do not use unverified absent matches as evidence that a region is bad. Also report route length and success by task/source family to detect hidden domination by popular datasets.
+Construct a short prefix from information visible at the start: the request, retrieval purpose, topic, source type, language, modality, task context, and any available date or version. Unknown fields stay unknown. Initialize:
 
-One starting objective is:
 \[
-L=L_{\mathrm{native}}+\lambda_rL_{\mathrm{retrieval}}+
-\lambda_sL_{\mathrm{state}}+\lambda_fL_{\mathrm{coverage}}+
-\lambda_gL_{\mathrm{geometry}}.
+s_0=\operatorname{retract}(s_{\mathrm{base}}+
+G_{\mathrm{meta}}(\text{available metadata and request})).
 \]
-Set the coefficients using development data, then freeze them for release comparisons. Global MoE expert-load balancing stays **separate** from state-space coverage: making experts equally busy does not prove the graph is searchable or fair.
 
-Train with metadata-only starts, real and synthetic multi-hop paths, hard lookalikes, unsupported questions, version conflicts, contradictory evidence, loops, source deletions, delayed retrieval and truly new sources. Credit is local through selected edges and the wide-value MoE projection; discrete ANN candidate IDs and external fetching are not differentiable. Use short, replayable unrolls to train multi-step state movement without keeping unbounded training graphs.
+After C processes the **first metadata megatoken**, schedule the first query and retrieval pause, before ordinary answer generation. Do not wait to finish a long document merely to begin searching. If there is no metadata, use a learned neutral initial state.
 
-## 8. Costs, risks and safeguards
+**Training targets are allowed to teach the memory after a prediction; they must not be smuggled into the input for that prediction.** This is the relevant causal boundary. Apply the same rule at inference and preserve clean held-out test data. Do not impose an artificial requirement that every trained edge can be traced to a single document.
 
-| Consequence | Required response |
+## 4. The single learning objective
+
+The core objective is **better future prediction at a reasonable cost**:
+
+\[
+J(\theta,\mathcal K)
+=
+\mathbb E_{\tau\sim\mathcal D}
+\big[L_{\mathrm{continuation}}(\tau;\theta,\mathcal K)\big]
++\lambda\,C_{\mathrm{memory}}(\mathcal K)
++\mu\,\mathbb E_\tau[C_{\mathrm{retrieval}}(\tau)].
+\]
+
+Here \(\theta\) denotes the normal model and projection parameters; \(\mathcal K\) denotes the edges; and the expectation is over training trajectories. Start with edge count or stored bytes for memory cost, and candidate scans plus retrieval/C passes for runtime cost. Establish the task distribution and loss units before tuning \(\lambda,\mu\). The cost terms should be evaluated consistently when comparing architectures.
+
+This is **complexity-penalized predictive learning**, motivated by minimum-description-length model selection. It is **not** an exact MDL code-length calculation unless actual codes and their lengths are specified. Structural changes optimize this objective at growth intervals; gradients optimize existing parameters between those intervals.
+
+The main loss is ordinary future-generation or task-continuation loss **after** the relevant retrieval. Truncated multi-step rollouts allow gradients through the state residual, later queries, and subsequent knowledge megatokens. A useful edge may improve a prediction several retrievals later even if its immediate output looks weak.
+
+Keep auxiliary terms small and only when a specific failure is observed:
+
+- **Null calibration** on unsupported queries: do not retrieve knowledge when none helps.
+- **State stability** for genuine loops, runaway norms, or repeated useless moves.
+- **Optional future-prediction probe** if the state fails to carry useful history.
+
+Do not start with separate objectives for source attribution, manually designated state regions, uniform state occupancy, or a catalogue of edge-admission conditions.
+
+### What a good state represents
+
+The state is a compact record of **which future retrievals would help**, not a position in a hand-named ontology. Histories that need the same future search behavior may share a state; histories needing different continuations should become distinguishable through training.
+
+A basic test is to hold the query fixed while changing the preceding search history. Does the state select the different transitions that improve the respective continuations? Compare against a query-only reader. If the state adds no predictive value, spreading states across a larger geometric area is not a fix.
+
+This is motivated by predictive-state representations and predictive compression, but the proposed neural state is not claimed to be a formally minimal sufficient statistic.
+
+### Coverage without artificial uniformity
+
+Do **not** make every region of state space equally busy. State coordinates are learned and carry no intrinsic uniform-density requirement. Set a meaningful training/task mixture, including rare but important situations, and measure loss by task group. Allocate memory where there is repeated **correctable error** within that mixture.
+
+A small exploration quota for poorly served and unseen query/state combinations prevents popular paths from monopolizing learning. That is sufficient for the initial fairness experiment; add a dedicated coverage loss only if controlled comparisons show a real gap that the base objective cannot address.
+
+## 5. Initialize from sequences, bigrams, and motifs of motifs
+
+Avoid millions of randomly placed edges. Use the training data to discover reusable sequential structure **without treating it as fixed truth**.
+
+1. **Get coarse symbols.** Encode and cluster chunks, search events, query intents, or other ordered observations. Retain sequence boundaries and useful coarse context. Clusters only provide an initial vocabulary.
+2. **Count transition bigrams.** Find repeated adjacent pairs of **transitions or events**, not just adjacent words. Repeated patterns suggest where the model can reuse search structure.
+3. **Compress recurrent patterns recursively.** Replace repeated sequences with reusable grammar rules, then find recurring combinations of those rules. This is the practical meaning of **motifs of motifs**. SEQUITUR is a concrete model for this kind of recursive pattern discovery.
+4. **Initialize coarse states and edges.** Embed contexts from those patterns to obtain starting departure positions. Initialize query keys from the corresponding questions or next-event representations, wide values from available content representations, and residuals toward the next initial state: \(r\approx s_{\mathrm{next}}-s_{\mathrm{departure}}\), accounting for the chosen state update scale.
+5. **Train through actual predictions.** Let gradient descent relocate, specialize, and reshape the vectors. The seed hierarchy can be discarded after initialization unless keeping it earns a measurable quality or compute benefit.
+
+Natural ordered sequences provide a starting point even without annotated successful search paths. Real or synthetic multistep tasks can improve initialization, but **do not require synthetic trajectories to justify each edge**.
+
+A frequent pattern does not prove that skipping its intermediate steps is safe. The second query may depend on what the first retrieval returns. Initially use larger motifs for sharing or initialization while preserving the steps; learn a shortcut only if it improves downstream prediction when tested.
+
+The hierarchy is therefore a **compression-based starting guess**, not a second scoring system and not a permanent graph of prescribed meanings.
+
+## 6. Grow the KB from error
+
+**One rule:** use capacity where it lowers expected future loss more than it costs. Every edge is a local component of the function \(F_{\mathcal K}(s,q)=(\bar v,\overline{\Delta s})\).
+
+### Find places that need capacity
+
+For a bounded sample of training steps, retain:
+
+\[
+(s_t,\ q_t,\ F_t,\ g_t),\qquad
+g_t=\frac{\partial L_{\mathrm{future}}}{\partial F_t},
+\qquad F_t=F_{\mathcal K}(s_t,q_t).
+\]
+
+The gradient \(g_t\) measures which change to **both knowledge and state movement** would have helped later continuation. Get it by backpropagating through short subsequent retrieval/generation windows, not by attaching only an immediate similarity label.
+
+Group nearby query/state inputs with persistently aligned corrections, and use them as locations for candidate new edges. A handful of samples from a replay buffer is enough to pilot this; a permanent region-approval database is not required.
+
+Interpret the evidence carefully:
+
+- **Many visits, little correctable error:** no growth needed.
+- **Recurring aligned error:** likely missing local capacity.
+- **Large, inconsistent error:** may be noise, ambiguity, or missing observations; do not automatically allocate an edge.
+
+Include fresh examples and exploratory candidates, because a region omitted by ANN receives no useful selected-row gradient. Do not confuse high traffic with high need.
+
+### Why the gradient points to useful new edges
+
+Write the combined output as \(F_t=(\bar v_t,\overline{\Delta s}_t)\), including the null component. Suppose an extra component with output \(u\) gets a small local mixture weight \(\epsilon h_t\):
+
+\[
+F'_t=(1-\epsilon h_t)F_t+\epsilon h_t u.
+\]
+
+To first order,
+
+\[
+\left.\frac{dL}{d\epsilon}\right|_{\epsilon=0}
+=\sum_t h_t\,g_t^\top(u-F_t).
+\]
+
+A **negative derivative** means a small contribution from that component would improve the measured continuation loss. Choose its initial location, key, value and residual to make that improvement repeat across similar steps; regularize their scale and compare with the new edge's cost.
+
+This is a **local differentiable argument** with the candidate set and surrounding trajectory held fixed. It is not a guarantee that a large change, discrete ANN insertion, or long-run recurrence will improve. Confirm candidate growth with a small held-out training/selection sample and actual reruns. Keep the final test set untouched.
+
+### Four structural operations, one decision rule
+
+| Operation | When and how |
 | --- | --- |
-| **More latency and KV work.** Each useful result runs a real C pass and adds a full native megatoken. | Measure first-result delay, queries per answer, search/transfer/projection/C costs, and total task time. At 32 × 512 with two 128-wide KV heads, a result adds **32 KiB** of BF16 native KV. Enforce budgets and asynchronous admission rules. |
-| **Large edge values are expensive.** | One million 32,768-wide BF16 values need about **65.5 GB (61 GiB)** just for value storage; trainable FP32 masters and two Adam moments may add about **393 GB**, before keys, residuals, index and backups. Test smaller/factored values, cold-value quantization and memory-tiering without silently losing trainability. |
-| **Blending can wash out or fabricate knowledge.** | Retain source IDs and uncertainty, separate incompatible versions/claims, test mixtures against individual-edge outputs and permit branch splits. |
-| **The state can drift, loop or collapse.** | Bound steps, train meaningful progress and null, reserve backtracking, log revisits and check performance on unseen routes. |
-| **Two-address retrieval can miss the best joint edge.** | Compare dual-index union recall with exact joint scoring, monitor shortlist bias and null calibration. |
-| **Growth can destabilize distributed learning.** | Use one canonical publisher, versioned state anchors, frozen search windows and atomic neural+KB checkpoint publication/recovery rules. |
-| **Metadata can leak labels.** | Audit what was knowable before the first step and preserve strict source/task-family held-out splits. |
-| **Source deletion can leave unsupported learned knowledge.** | Track complete support footprints, revoke affected edges and rematerialize from accepted writers or explicitly retrain. |
+| **Add** | A coherent residual-gradient pattern is poorly served. Initialize a new local edge near those inputs and make its contribution small at first. |
+| **Split** | One edge repeatedly receives incompatible corrections. Replace it with two initially equivalent children, perturb their keys/departures slightly, then train them to specialize. |
+| **Merge** | Two edges serve the same contexts and can be replaced by a fitted shared edge without meaningful future-loss increase. |
+| **Remove** | Ablating an edge increases loss less than the storage and retrieval work saved, after allowing a small local adjustment. |
 
-The wide-value argument, graph motif hierarchy and fairness losses are **hypotheses to test**, not established benefits.
+For the softmax reader, splitting can preserve its exact initial function: duplicate an edge's key, departure, value and residual, and halve its positive pre-softmax strength on each child (subtract \(\log 2\) from each child's bias). Their combined numerator and denominator match the parent. **Top-k candidate selection must temporarily treat the children as one group**, or the equivalence fails because the two children consume extra shortlist slots. After the split settles, they can compete separately.
 
-## 9. Implementation order and acceptance
+Do **not** merge just because two vectors are nearby or delete just because an edge is rarely visited. Use a cheap candidate screen followed by sampled continuation-loss trials. A rare edge may be essential for a rare task.
 
-| Stage | Main work and code owners | Exit test |
-| --- | --- | --- |
-| **A. Exact reference** | New transition reader and edge contract in `memory/`; tiny in-memory brute-force index | Dual similarity, identical mixture weights, exact null, bounded state updates and gradients match hand-computed cases. |
-| **B. Data and initial placement** | `data/schema.py`, `data/retrieval.py`, preparation scripts and new graph builder | Causally safe metadata starts; source-backed clustering, transition bigrams and larger motifs reproducibly produce a usable pilot graph. |
-| **C. Native integration** | `model/core.py`, `model/multitrack.py`, `memory/runtime.py`, MoE projector, runtime replay | First metadata break; at each eligible step query → retrieve → native 32-facet knowledge event → next query. No direct KB-KV admission or query recursion. |
-| **D. Training and growth** | `training/engine.py`, `training/bank.py`, sparse optimizer, index, DiLoCo and checkpoint code | Useful gradients through selected edges and projector; synchronized growth, coherent state revisions, resumed replay and fairness metrics. |
-| **E. Writer and scale** | Source-edge writer, index maintenance, serving benchmark | A fresh graph built from permitted new sources improves held-out tasks with inference weights fixed and meets a declared memory/latency budget. |
+Evaluate structural changes as approximate changes in \(J\). Apply a limited batch of the best beneficial changes, train briefly, and measure again. Hard memory limits may force replacement when no free capacity remains; choose the least harmful change under the same objective. No independent "proposal/admission" bureaucracy is needed.
 
-**Breaking migration:** bump architecture/KB/sidecar/tape identities (provisionally v10), add explicit new config fields, and reject old KB rows and replay receipts. Reuse compatible v9 E/C/P/R weights only through a tested **weight-only warm start**; do not import v9 point/pair values or their optimizer moments as edges. Training must not silently select an old v9 recipe. Retire the old direct-KV path only once the new one has implementation and acceptance receipts; leave the current README's supported training instructions intact until then.
+### A minimal operating loop
 
-### What would establish success?
+~~~text
+For each training window:
+    run query -> retrieval -> native knowledge event -> continuation
+    update model and selected edges from downstream loss
+    sample (state, query, output, future-loss gradient) into a small buffer
 
-Run matched-budget comparisons against **no KB, source RAG only, current v9 memory, query-only retrieval without state, and full state-plus-query retrieval**. Ablate metadata-first retrieval, wide-value width, MoE projection, seeded transition bigrams, higher-order motifs, continuous growth and coverage loss independently.
+At occasional safe optimizer boundaries:
+    find repeated, aligned missing corrections
+    try add/split candidates; try cheap merge/removal candidates
+    estimate continuation gain minus added memory and retrieval cost
+    apply a bounded set of beneficial changes
+    refresh the search index; resume training
+~~~
 
-Report **multi-hop task success, useful-source recall, new-source uptake, trajectory length, unnecessary revisits, null accuracy, state-region coverage, first-result latency, end-to-end time, peak RAM/VRAM, storage, and replay fidelity**. Train/evaluate across different source families and unseen paths; a small synthetic demo is a correctness check, not proof of quality.
+Start with fixed intervals and a strict limit on changed edges. Tune the interval only after showing that growth beats a fixed-size bank. If all changes fail to improve held-out continuation, **stop growing**.
 
-**Promotion gate:** the full transducer must beat the strongest budget-matched simpler baseline on held-out search/answer quality, without unacceptable ordinary-generation regressions or cost, and must work after reconstruction from new source material. Until then, this is a documented proposed redesign, not the supported architecture.
+### Continual learning and new information
+
+New training observations follow the same loop: make predictions, measure error, update existing edges, and grow if needed. Replay a modest mix of older tasks to detect and reduce forgetting. There is no mandatory source-to-edge writer or required reconstruction of the graph from individual documents.
+
+An **optional amortized initializer** may learn to create useful edge seeds directly from new data, after the free adaptive bank works. Judge it by adaptation speed, predictive quality, and memory cost. Distilling a bank into a compact writer or rebuilding it can be useful for deployment, but neither is a prerequisite for training latent knowledge.
+
+For applications with citations, permissions, time-limited documents, or deletion requirements, retain the literal-source subsystem and enforce those policies at the source-retrieval boundary. **A trained latent parameter cannot be guaranteed to forget a source simply by deleting its metadata.** True machine unlearning or isolation of restricted material is a separate requirement that must be implemented and evaluated explicitly.
+
+## 7. Practical implementation and migration
+
+This is a **breaking successor (proposed v10)**, not a change to supported v9. Do not reinterpret v9 point/pair rows as transducer edges.
+
+### Components to change
+
+| Area | Required work |
+| --- | --- |
+| **Config / model** | Add search-state size, value width, null scoring, retrieval-event limits, and a dedicated knowledge-result track. Keep native 32 × 512 geometry and ordinary E/C/P/R history. |
+| **Memory reader** | Replace point/pair correlations and group KV admission with state-plus-query joint scoring, null behavior, blended value/residual, and one joint ANN index. |
+| **Projection / central** | Add wide-to-512 adapters, MoE routing, and native 32-facet knowledge-event admission through C. Remove the semantic KB's direct KV and KB-specific LoRA answer path. |
+| **Training** | Unroll short multi-step retrieval trajectories; carry gradients through selected edges, knowledge projection, subsequent state updates, and later continuation. Handle stochastic query replay explicitly. |
+| **Growth / optimizer** | Maintain a small residual-gradient sample, score add/split/merge/remove trials, sparse parameters and optimizer state. Use fixed safe growth intervals. |
+| **Storage / distributed** | Store trainable edge fields, stable IDs, sparse optimizer moments and joint-index postings. Publish model, KB and compatible index snapshots together; one coordinator assigns structural changes during DiLoCo. |
+| **Serving** | Keep metadata-first retrieval, deterministic event order, null handling, query/latency caps, and consistent native KV cache updates. Keep literal source RAG separate. |
+
+Existing SQLite storage, IVF infrastructure, sparse-row optimizers, query replay, source RAG, and DiLoCo coordinator are useful foundations. New layouts and tests are required; the existing point/pair, direct-KV, and writer-specific contracts are **not** the new architecture. The [implementation ledger](retrieval-memory-implementation-status.md) continues to describe the current code, not this proposal.
+
+### Cost and stability
+
+At one million edges, **32,768 BF16 value dimensions alone need about 65.5 GB (61 GiB)**. A separate FP32 master plus two FP32 Adam moments add roughly **393 GB**, before keys, residuals, indexes, and backups. This makes wide-value factorization, cold-value compression, smaller pilot banks, and sparse updates important comparisons—not assumed solutions.
+
+At native 32 × 512 and two 128-wide KV heads, one new knowledge-result event adds about **32 KiB of BF16 KV**. Every such result also runs a real C pass. Measure end-to-end latency rather than only ANN lookup time.
+
+Potential failures require tests, not a growing list of admission rules:
+
+- **State collapse or loops:** inspect future-query usefulness, repeated visits, norm drift, and justified backtracking.
+- **False retrieval:** calibrate the null case and evaluate unsupported questions.
+- **Knowledge lost in projection:** compare wide mixtures, individual edge outputs, narrower values, and an ordinary projector.
+- **Bad growth:** test no-change, split equivalence, gradient agreement, selection bias, and retention after later training.
+- **Approximate index blind spots:** measure top-k joint recall and use small exploratory slots while learning.
+- **Forgetting:** evaluate old and new task mixes after growth.
+- **Distributed inconsistency:** apply structural changes at an optimizer boundary; refresh row IDs, optimizer moments and index together. Save a compatible model/KB snapshot.
+
+The data's provenance and evaluation partition remain relevant for **dataset integrity** and for literal source citations. They are not required attributes of each latent transition.
+
+## 8. Experiments and acceptance
+
+Build a small exact-search reference before optimizing indexes or distributed growth. Use known synthetic multistep problems for correctness, then real held-out tasks and fresh data for quality. Avoid evaluating candidates on the final test data.
+
+### Required correctness tests
+
+1. **Joint-score equivalence:** concatenated inner product equals separate query/state scoring, including bias; joint ANN recall is measured against exhaustive retrieval.
+2. **Mixture and null:** exactly the same weights blend knowledge and residual; null does not create a knowledge event or advance the state; normalization remains stable.
+3. **Native event path:** projected results have shape [32, 512], use C on the knowledge track, write ordinary KV, and never enter as direct semantic KV.
+4. **Causality:** metadata-only first retrieval; no future-answer input leakage; no query recursion; delayed results do not modify committed history.
+5. **Gradients:** finite-difference checks for selected-edge value/residual and state/query paths; downstream gradients reflect later retrievals. Discrete ANN choice is not reported as differentiable.
+6. **Growth:** initialization is small, a split preserves the initial softmax function under grouped top-k, beneficial changes lower sampled loss, and losing candidates do not get admitted.
+7. **Lifecycle:** sparse moments survive add/split/merge/remove, the index reflects moved addresses, distributed learners resume from one coherent snapshot, and old tasks are retested for forgetting.
+8. **State necessity:** with the query fixed, different histories can produce different useful retrievals. If a query-only model performs equally well, do not claim an advantage from stateful search.
+
+### Budget-matched comparisons
+
+Compare on equal stored bytes, retrieval operations, and training effort where possible:
+
+- **Source RAG alone.**
+- **Current v9 semantic memory.**
+- **Fixed-size transducer without growth.**
+- **Uniform/random edge growth at the same budget.**
+- **Error-driven growth without state** (query-only).
+- **Full error-driven state transducer.**
+- **With versus without recursive bigram/motif prewarming.**
+- **Different wide-value sizes and projection methods.**
+
+Report continuation/task loss, multi-hop answer success, retrieval precision and null accuracy, benefit from the search state, held-out and rare-task performance, new-data adaptation, forgetting, graph size and growth rate, useful growth per added edge, ANN recall, queries per task, end-to-end time, RAM/VRAM, disk use, and replay fidelity. Include variance across seeds and task distributions, not just a favorable demonstration.
+
+**Promotion criterion:** the full adaptive transducer must beat the strongest budget-matched simpler alternative on held-out continuation or task quality without unacceptable generation regressions, instability, or cost. If the state is unused, the initializer does not help, or growth is not worth its cost, remove those features rather than preserving them for architectural symmetry.
+
+### Order of work
+
+1. Implement exact reference scoring, state update, null handling, and native knowledge-event projection with a **fixed small bank**.
+2. Train short multistep continuations and prove that learning the state improves over query-only retrieval.
+3. Add the single concatenated-address index; verify recall, gradient behavior and replay.
+4. Add the minimal residual-gradient buffer and **add/split**; establish loss improvement at equal capacity.
+5. Add **merge/remove**, budget penalties, and forgetting checks.
+6. Compare random versus clustered/bigram/recursive-motif initialization.
+7. Add scalable storage, sparse training, DiLoCo coordination, and serving only after simpler experiments justify them.
+
+This order keeps the theoretical question visible: **can a learned search-state transition function improve future prediction, and can it allocate its own memory more efficiently than simpler alternatives?**
+
+## 9. Research basis and limits
+
+The design draws on several established ideas, **without claiming that their original guarantees automatically apply** to an ANN-retrieved recurrent Megatoken model:
+
+- **Local error-driven growth:** J. Platt, [A Resource-Allocating Network for Function Interpolation](https://doi.org/10.1162/neco.1991.3.2.213) (1991). Add local units when existing function approximation is inadequate.
+- **Function-based network growth:** Q. Liu, L. Wu and D. Wang, [Splitting Steepest Descent for Growing Neural Architectures](https://arxiv.org/abs/1910.02366) (2019). Optimize representation capacity by splitting units.
+- **Complexity versus predictive fit:** J. Rissanen, [Minimum Description Length](https://www.scholarpedia.org/article/Minimum_description_length). Our explicit memory/runtime penalty is an engineering proxy, not a derived exact code length.
+- **States defined by useful future predictions:** M. Littman, R. Sutton and S. Singh, [Predictive Representations of State](https://proceedings.neurips.cc/paper/2001/hash/1e4d36177d71bbb3558e43af9577d70e-Abstract.html) (2001).
+- **Hierarchical structure from repeated sequences:** C. Nevill-Manning and I. Witten, [Identifying Hierarchical Structure in Sequences: A Linear-Time Algorithm](https://doi.org/10.1613/jair.374) (1997). Recursive digram compression motivates the seed motifs.
+
+What remains unproven is whether residual-gradient placement works reliably with sampled queries, discrete approximate retrieval, high-dimensional wide values, and long recurrent search. The implementation and comparison plan above exists to answer precisely that question.
