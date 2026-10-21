@@ -46,6 +46,10 @@ def make_identity_episode(store, record, *, source_path: Path, index: int):
     descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
     target = TensorAsset.from_dict(record["target_asset"])
     features = TensorAsset.from_dict(descriptor["asset"])
+    expected_extractor = (
+        f"embeddinggemma2:{descriptor.get('teacher_revision', '')}:"
+        f"{HIDDEN_TAP}:{descriptor.get('preprocessing_id', '')}"
+    )
     if (
         descriptor.get("format") != "megatoken.embeddinggemma2.hidden.v1"
         or descriptor.get("modality") != modality
@@ -58,13 +62,8 @@ def make_identity_episode(store, record, *, source_path: Path, index: int):
         or features.modality != modality
         or features.source_family != target.sha256
         or descriptor.get("identity_target_sha256") != target.sha256
-        or descriptor.get("valid_tokens") != (
-            features.valid_count or features.shape[0]
-        )
-        or features.extractor != (
-            f"embeddinggemma2:{descriptor.get('teacher_revision', '')}:"
-            f"{HIDDEN_TAP}:{descriptor.get('preprocessing_id', '')}"
-        )
+        or descriptor.get("valid_tokens") != (features.valid_count or features.shape[0])
+        or features.extractor != expected_extractor
     ):
         raise ValueError("Identity pair must pin unpooled teacher features of the exact output")
     if target.kind == "codec_latents" and not target.codec_id:
