@@ -173,7 +173,7 @@ During training, a lookup with no departure within cosine 0.5 of $\hat s_t$ proc
 - $v$ is the fixed wide lift (above) of the mean 32-facet raw block of the next committed ordinary position, scaled to the bank's median value RMS. This uses the training target only to set parameters after the prediction, as §3 permits;
 - $V=0$ and small random $U$ (Frobenius norm 0.01);
 - if the widened neighbourhood found candidates, $r=0$, and the bias gives $a\approx0.25$ when the same query revisits that location;
-- if the neighbourhood was **empty**, the edge is a **jump edge**. Sample one existing edge $j$ uniformly from the bank and set $r=\hat d_j-\hat s_t$, with the bias giving $a\approx0.95$ on revisit. The admitted move lands at about $\hat d_j$, a location that has departures, so the next lookup has candidates. Sampling edges uniformly makes destinations proportional to density.
+- if the neighbourhood was **empty**, the edge is a **jump edge**. Sample one existing edge $j$ uniformly from the bank and set $r=\hat d_j-\hat s_t$, with the bias giving $a\approx0.95$ on revisit. Its move lands at about $\hat d_j$, a location that has departures, so the next lookup has candidates. Sampling edges uniformly makes destinations proportional to density.
 
 The inserted edge lies within 0.5 of that location, so one learner never inserts twice for the same place. Each learner makes at most 512 insertions per synchronization round. Jump edges count toward this cap. Beyond it, sparse and empty visits are only counted. Insertions are provisional rows in the learner's working cache, with learner-local IDs. They are trained like any resident edge and submitted at the round boundary (§7). Their bytes count in $J$, and Remove prunes those that do not earn them.
 
