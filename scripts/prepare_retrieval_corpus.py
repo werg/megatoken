@@ -272,7 +272,7 @@ def build(args: argparse.Namespace) -> dict:
 
     def teacher() -> Teacher:
         if not loaded:
-            loaded.append(Teacher(args.teacher))
+            loaded.append(Teacher(args.teacher, args.teacher_device))
         return loaded[0]
 
     doc_texts = []
@@ -524,6 +524,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hotpot", required=True, type=Path, help="HotpotQA distractor/ dir")
     parser.add_argument("--musique", required=True, type=Path, help="MuSiQue-Ans JSONL dir")
     parser.add_argument("--teacher", required=True, help="Local embeddinggemma-2 snapshot")
+    parser.add_argument(
+        "--teacher-device", default="cuda", help="cuda, or cpu (bf16 on AMX-capable hosts)"
+    )
     parser.add_argument("--codec", required=True, help="Pinned Ling codec directory")
     parser.add_argument("--pilot-recipe", default="configs/retrieval-memory-pilot.json")
     parser.add_argument("--model", default="32x512")
