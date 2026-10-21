@@ -73,7 +73,7 @@ $$
 
 Each edge applies the affine map $(I+U_iV_i^\top)s+r_i$ before renormalization. Because the move depends on the state it is applied to, transitions do not commute. Retrieving A then B lands somewhere different from B then A, and so reaches a different neighbourhood and different knowledge. This is the weighted-automaton form of a transducer, with continuous states. The location is a superposition: when several edges share weight, the next state mixes their transforms, and the next neighbourhood is whatever lies near that mixture. Edges near one another share neighbourhoods, so structure is shared rather than enumerated per path.
 
-**The weights are identical for knowledge and movement.** Keep the live state on the unit sphere. Bound $\|U_i\|_F,\|V_i\|_F\le0.5$ and $\|r_i\|\le2$. Two is the sphere's diameter, so one edge can reach any location, which a jump edge (§6) needs. Ordinary offsets start small and grow only through capped updates. Use FP32 norms, scores, softmax, weighted sums, operator products and state accumulation. Nonfinite inputs are errors, not values to hide with clamping.
+**The weights are identical for knowledge and movement.** Keep the live state on the unit sphere. Bound $\|U_i\|_F,\|V_i\|_F\le0.5$. Offsets are unbounded: renormalization keeps the state finite, and an edge's reach is whatever training makes useful. Use FP32 norms, scores, softmax, weighted sums, operator products and state accumulation. Nonfinite inputs are errors, not values to hide with clamping.
 
 Let $a=\sum_i w_i=1-w_0$, with $a=0$ for an empty neighbourhood. A null-dominated result with $a<0.1$ commits neither a knowledge event nor a state change. Serving applies exactly this rule. Start the null bias so ordinary initialized candidates have nonzero mass.
 
@@ -150,7 +150,7 @@ V_{ib}=\frac{S_{ib}+4P_{cb}}{n_i+4},\qquad
 \delta_{ib}=-\eta_f\frac{g_{ib}}{\sqrt{\max(V_{ib},10^{-12})}+10^{-8}}.
 $$
 
-Use base rates $\eta_v=10^{-3}$ for values and $\eta_f=10^{-4}$ for keys, departures, offsets, transition factors and biases, following the same pinned training schedule. Clip value-block update RMS to 1% of $\max(\operatorname{RMS}(v_{ib}),10^{-3})$. For unit addresses, take the tangent gradient, precondition it, project the update back onto the tangent plane and cap angular movement at 0.01 radians before normalization. Cap offset and per-factor update norms at 0.01, offset norm at 2, and each factor's Frobenius norm at 0.5. These are launch settings, not claimed universal optima.
+Use base rates $\eta_v=10^{-3}$ for values and $\eta_f=10^{-4}$ for keys, departures, offsets, transition factors and biases, following the same pinned training schedule. Clip value-block update RMS to 1% of $\max(\operatorname{RMS}(v_{ib}),10^{-3})$. For unit addresses, take the tangent gradient, precondition it, project the update back onto the tangent plane and cap angular movement at 0.01 radians before normalization. Cap offset and per-factor update norms at 0.01 and each factor's Frobenius norm at 0.5. These are launch settings, not claimed universal optima.
 
 ### Locality shares scale, not direction
 
