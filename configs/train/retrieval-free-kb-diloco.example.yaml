@@ -1,0 +1,65 @@
+# Target methodology for live free-KB phases: DiLoCo learners with
+# coordinator-owned KB row sync (docs/diloco-coreweave.md, "Free-KB row sync").
+# `megatoken diloco init --config THIS` copies retrieval_bank into the
+# coordinator; learners download its snapshot instead of opening retrieval_bank.
+# Fill every PIN_* with real artifacts from the preparation sequence.
+phase: M2
+output: /work/runs/retrieval-free-kb-diloco
+model: 32x512
+model_overrides:
+  semantic_dim: 768
+  semantic_value_dim: 256
+  max_kb_positions: 4
+  memory_lora_experts: 4
+  memory_lora_rank: 8
+  memory_lora_topk: 2
+dataset: PIN_PREPARED_CAUSAL_MERIDIAN_EPISODES
+codec: PIN_RAW_CODEC_DIRECTORY
+device: cuda
+precision: bf16
+require_blackwell: true
+expert_backend: triton
+representation_mode: recurrent
+budget_meter: G
+budget: 1000000
+accumulate_events: 64
+microbatch_episodes: 1
+max_accumulation_windows: 64
+max_history_tokens: 4096
+max_window_records: 16
+max_record_bytes: 16384
+generated_capacity: 512
+scored_decisions: 4
+effort: 6
+eval_every: 0
+checkpoint_every: 100
+retrieval_sidecar: PIN_VERIFIED_CAUSAL_RETRIEVAL_SIDECAR_JSONL
+retrieval_document_sidecar: PIN_TEACHER_DOCUMENT_EMBEDDINGS_JSONL
+retrieval_memory_recipe: PIN_FREE_KB_PHASE_RECIPE_JSON
+retrieval_bank: PIN_GATE_READY_SOURCE_POPULATED_KB_SQLITE
+retrieval_source_assets_root: PIN_ORIGINAL_SOURCE_ASSETS_ROOT
+retrieval_ivf_centroids: PIN_CENTROIDS_NPY
+retrieval_ivf_sha256: PIN_CENTROIDS_SHA256
+retrieval_ivf_nprobe: 8
+retrieval_gate_receipt: PIN_FREE_KB_GATE_RECEIPT_JSON
+retrieval_sparse_lr: 0.001
+retrieval_growth_budget: 32
+router_balance_mode: global
+router_replay_assignments: 262144
+gradient_checkpointing: true
+compile: false
+use_stage_mixture: false
+use_effort_mixture: false
+
+inner_optimizer: muon
+decoupled:
+  run_id: PIN_RUN_ID
+  coordinator_url: https://REPLACE-WITH-COORDINATOR-HOST
+  workers: 8
+  local_steps: 256
+  poll_steps: 4
+  heartbeat_steps: 8
+  io_workers: 4
+  timeout_seconds: 120
+  max_offline_steps: 2048
+  wire_dtype: bf16

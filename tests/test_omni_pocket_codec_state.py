@@ -1,4 +1,5 @@
 """Pocket Mimi decoder state must scale with the codec's internal frame clock."""
+
 import sys
 import types
 from types import SimpleNamespace

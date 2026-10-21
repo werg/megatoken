@@ -537,9 +537,8 @@ _PROSE_ATTRIBUTES = frozenset(
     }
 )
 
-def _markup_attributes(
-    payload: bytes, start: int, end: int
-) -> list[tuple[bytes, bytes, int, int]]:
+
+def _markup_attributes(payload: bytes, start: int, end: int) -> list[tuple[bytes, bytes, int, int]]:
     result = []
     for match in _ATTRIBUTE.finditer(payload, start, end):
         for group in (2, 3, 4):
@@ -646,13 +645,9 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
                 break
             cursor += 1
         _region(scan, index, cursor, "tag", language, source, limits)
-        attributes = (
-            _markup_attributes(payload, index + match.end(), cursor)
-            if not closing
-            else []
-        )
+        attributes = _markup_attributes(payload, index + match.end(), cursor) if not closing else []
         if not closing:
-            for attribute, value, left, right in attributes:
+            for attribute, _value, left, right in attributes:
                 if len(scan.injections) >= limits.max_injections:
                     break
                 if attribute in _PROSE_ATTRIBUTES:
@@ -667,9 +662,7 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
                     hint = "javascript"
                 else:
                     continue
-                scan.injections.append(
-                    Injection(left, right, "auto", hint, "html_attribute")
-                )
+                scan.injections.append(Injection(left, right, "auto", hint, "html_attribute"))
         if closing:
             for position in range(len(stack) - 1, -1, -1):
                 if stack[position][0] == name:
@@ -680,9 +673,7 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
             close = re.compile(rb"</" + name + rb"\s*>", re.I).search(payload, cursor)
             inner_end = close.start() if close else length
             whole_end = close.end() if close else length
-            hint = _raw_body_hint(
-                name, {attribute: value for attribute, value, _, _ in attributes}
-            )
+            hint = _raw_body_hint(name, {attribute: value for attribute, value, _, _ in attributes})
             if cursor < inner_end and len(scan.injections) < limits.max_injections:
                 scan.injections.append(
                     Injection(cursor, inner_end, "code", hint, "html_raw_content")

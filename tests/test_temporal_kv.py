@@ -21,13 +21,9 @@ def test_temporal_rope_is_relative_and_preserves_same_record_attention():
     key = torch.randn_like(query)
     current = torch.tensor([20_000_000, 45_000_000], dtype=torch.long)
     preceding = current - torch.tensor([17, 381], dtype=torch.long)
-    same_time = (
-        temporal_rope(query, current) * temporal_rope(key, current)
-    ).sum(-1)
+    same_time = (temporal_rope(query, current) * temporal_rope(key, current)).sum(-1)
     torch.testing.assert_close(same_time, (query * key).sum(-1), atol=3e-5, rtol=3e-5)
-    relative = (
-        temporal_rope(query, current) * temporal_rope(key, preceding)
-    ).sum(-1)
+    relative = (temporal_rope(query, current) * temporal_rope(key, preceding)).sum(-1)
     shift = 1_337_000
     translated = (
         temporal_rope(query, current + shift) * temporal_rope(key, preceding + shift)
@@ -58,9 +54,7 @@ def test_facet_slot_codes_address_unordered_slots_without_temporal_offsets():
 
 
 @pytest.mark.parametrize("checkpointing", [False, True])
-def test_three_temporary_writes_are_read_once_and_never_enter_cache(
-    checkpointing, monkeypatch
-):
+def test_three_temporary_writes_are_read_once_and_never_enter_cache(checkpointing, monkeypatch):
     core = FacetedCore(ModelConfig.tiny(checkpoint_stages=checkpointing))
     reads = [[] for _ in core.central.layers]
     for index, layer in enumerate(core.central.layers):
@@ -99,9 +93,7 @@ def test_predictor_reads_history_at_only_four_fixed_stages(monkeypatch):
     core = FacetedCore(ModelConfig.tiny()).eval()
     state = core.initial_state(1)
     for _ in range(3):
-        state = core.advance_raw(
-            state, torch.randn(1, core.config.n_facets, core.config.facet_dim)
-        )
+        state = core.advance_raw(state, torch.randn(1, core.config.n_facets, core.config.facet_dim))
     recorded = [[] for _ in core.stages]
     for index, stage in enumerate(core.stages):
         original = stage.attention.read
@@ -165,9 +157,9 @@ def test_old_rotated_keys_and_values_survive_until_full_chunk_eviction():
 
 def test_old_architecture_version_cannot_reuse_rotary_history_cache():
     config = ModelConfig.tiny()
-    with pytest.raises(ValueError, match="version 7"):
+    with pytest.raises(ValueError, match="requires version 9"):
         ModelConfig.tiny(architecture_version=5)
-    with pytest.raises(ValueError, match="architecture_version=7"):
+    with pytest.raises(ValueError, match="architecture_version=9"):
         ModelConfig.from_dict({**config.to_dict(), "architecture_version": 5})
     core = FacetedCore(config)
     state = core.advance_raw(core.initial_state(1), torch.randn(1, 4, 32))
@@ -177,9 +169,7 @@ def test_old_architecture_version_cannot_reuse_rotary_history_cache():
 
 def test_same_track_attention_bias_respects_identity_not_track_number():
     torch.manual_seed(55)
-    attention = AttentionRead(
-        8, query_heads=2, kv_heads=1, head_dim=4, track_relations=True
-    ).eval()
+    attention = AttentionRead(8, query_heads=2, kv_heads=1, head_dim=4, track_relations=True).eval()
     query = torch.randn(1, 2, 8)
     keys = torch.randn(1, 1, 4, 4)
     values = torch.randn_like(keys)
@@ -194,14 +184,17 @@ def test_same_track_attention_bias_respects_identity_not_track_number():
     perm = torch.tensor([1, 3, 0, 2])
     scrambled = AttentionFeatures(keys[:, :, perm], values[:, :, perm], None, tracks[:, perm])
     torch.testing.assert_close(
-        result, attention.read(query, scrambled, query_track_ids=queries),
-        atol=1e-6, rtol=1e-6,
+        result,
+        attention.read(query, scrambled, query_track_ids=queries),
+        atol=1e-6,
+        rtol=1e-6,
     )
     renamed = AttentionFeatures(keys, values, None, tracks.where(tracks == 4, 17) + 50)
     torch.testing.assert_close(
         result,
         attention.read(query, renamed, query_track_ids=queries.where(queries == 4, 17) + 50),
-        atol=1e-6, rtol=1e-6,
+        atol=1e-6,
+        rtol=1e-6,
     )
     with torch.no_grad():
         attention.same_track_bias.zero_()

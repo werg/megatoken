@@ -28,8 +28,10 @@ def test_speculative_groups_do_not_mutate_canonical_history():
     runtime.observe(session, (ObservedEvent("user", "text", b"Speak briefly"),))
     committed = session.state.history.keys.clone()
     draft = runtime.speculate(
-        session, tracks=("voice",),
-        specs=(MediaOutputSpec("audio", sample_count=128),), effort=1,
+        session,
+        tracks=("voice",),
+        specs=(MediaOutputSpec("audio", sample_count=128),),
+        effort=1,
         generator=torch.Generator().manual_seed(5),
     )
     torch.testing.assert_close(session.state.history.keys, committed)
@@ -77,10 +79,13 @@ def test_parallel_tool_result_is_not_committed_automatically():
             task.result(timeout=5)
         assert pool.collect_ready() == {"fetch-1": b"one", "fetch-2": b"two"}
         assert session.state.history.slots == 0
-        runtime.observe(session, (
-            ObservedEvent("tool-1", "text", b"one", role_id=3),
-            ObservedEvent("tool-2", "text", b"two", role_id=3),
-        ))
+        runtime.observe(
+            session,
+            (
+                ObservedEvent("tool-1", "text", b"one", role_id=3),
+                ObservedEvent("tool-2", "text", b"two", role_id=3),
+            ),
+        )
         assert session.state.meridian_sizes == (2,)
     finally:
         pool.close()
@@ -101,18 +106,33 @@ def test_jsonl_multitrack_roundtrip():
         yield json.dumps({"op": "open", "id": 1}) + "\n"
         opened = json.loads(results.getvalue().splitlines()[-1])
         sid = opened["session"]
-        yield json.dumps({
-            "op": "observe", "id": 2, "session": sid,
-            "events": [{"track":"user","modality":"text","payload_b64":"aGk="}],
-        }) + "\n"
-        yield json.dumps({
-            "op":"generate", "id":3, "session":sid, "effort":1,
-            "outputs":[
-                {"track":"reply","modality":"text","max_tokens":8},
-                {"track":"voice","modality":"audio","sample_count":64},
-            ],
-        }) + "\n"
-        yield json.dumps({"op":"status","id":4,"session":sid}) + "\n"
+        yield (
+            json.dumps(
+                {
+                    "op": "observe",
+                    "id": 2,
+                    "session": sid,
+                    "events": [{"track": "user", "modality": "text", "payload_b64": "aGk="}],
+                }
+            )
+            + "\n"
+        )
+        yield (
+            json.dumps(
+                {
+                    "op": "generate",
+                    "id": 3,
+                    "session": sid,
+                    "effort": 1,
+                    "outputs": [
+                        {"track": "reply", "modality": "text", "max_tokens": 8},
+                        {"track": "voice", "modality": "audio", "sample_count": 64},
+                    ],
+                }
+            )
+            + "\n"
+        )
+        yield json.dumps({"op": "status", "id": 4, "session": sid}) + "\n"
 
     serve_multitrack_jsonl(engine, requests(), results)
     rows = [json.loads(line) for line in results.getvalue().splitlines()]

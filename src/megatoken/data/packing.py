@@ -136,13 +136,17 @@ def iter_windows(
         while group_index < len(groups):
             left, right = groups[group_index]
             group_tokens = sum(record.tokens for record in encoded[left:right])
-            group_decisions = int(any(
-                record.P or (
-                    record.record.policy_mask
-                    and record.record.media_type == "application/vnd.megatoken.media-reference+json"
+            group_decisions = int(
+                any(
+                    record.P
+                    or (
+                        record.record.policy_mask
+                        and record.record.media_type
+                        == "application/vnd.megatoken.media-reference+json"
+                    )
+                    for record in encoded[left:right]
                 )
-                for record in encoded[left:right]
-            ))
+            )
             if (
                 end > start
                 and end > must_reach

@@ -132,8 +132,11 @@ def build_control_payload(
         from dataclasses import asdict
 
         canonical = json.dumps(
-            [asdict(x) for x in references], sort_keys=True, ensure_ascii=False,
-            separators=(",", ":"), allow_nan=False
+            [asdict(x) for x in references],
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
         ).encode("utf-8")
         payload += b"\n<assets>\n" + canonical
     if track_override is not None:
@@ -167,6 +170,7 @@ def encode_controls(
     encoded = core.encode_control(values, lengths=lengths, encoder_grad=encoder_grad)
     return encoded.masked_fill(lengths.eq(0)[:, None], 0)
 
+
 def effective_event_payloads(
     session_payload: bytes,
     tracks: Sequence[str],
@@ -183,18 +187,30 @@ def effective_event_payloads(
         raise TypeError("Session control must be bytes")
     result = []
     for track, (instruction, revision) in zip(tracks, requests, strict=True):
-        if not track or not isinstance(instruction, str) or type(revision) is not int or revision < 0:
+        if (
+            not track
+            or not isinstance(instruction, str)
+            or type(revision) is not int
+            or revision < 0
+        ):
             raise ValueError("Invalid effective event request")
         suffix = json.dumps(
             {"track_id": track, "request": instruction, "revision": revision},
-            sort_keys=True, ensure_ascii=False, separators=(",", ":"),
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
         ).encode("utf-8")
         result.append(session_payload + b"\n<event_request>\n" + suffix)
     return tuple(result)
 
-def causal_step_payloads(episode, meridian_id: int, base: bytes,
-                         tracks: Sequence[str],
-                         requests: Sequence[tuple[str, int]]) -> tuple[bytes, ...]:
+
+def causal_step_payloads(
+    episode,
+    meridian_id: int,
+    base: bytes,
+    tracks: Sequence[str],
+    requests: Sequence[tuple[str, int]],
+) -> tuple[bytes, ...]:
     """Only preceding published interpretation/request revisions are visible.
 
     This is shared by the grouped trainer and the offline serving task adapter.
@@ -211,15 +227,17 @@ def causal_step_payloads(episode, meridian_id: int, base: bytes,
             "request": e.request,
             "revision": e.request_revision,
         }
-        for m in episode.meridians if m.meridian_id < meridian_id
-        for e in m.events if e.request
+        for m in episode.meridians
+        if m.meridian_id < meridian_id
+        for e in m.events
+        if e.request
     ]
     if available:
-        framed = json.dumps(available, sort_keys=True, ensure_ascii=False,
-                            separators=(",", ":")).encode("utf-8")
+        framed = json.dumps(
+            available, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
         base += b"\\n<available_requests>\\n" + framed
     return effective_event_payloads(base, tracks, requests)
-
 
 
 # The same resolver is used by dataset compilation, grouped training and
@@ -257,7 +275,8 @@ def resolve_event_control(episode: object, event: object) -> bytes:
                 prior_track = tracks[prior.track_id]
                 available[prior.track_id] = {
                     "modality": prior.modality,
-                    "instruction": prior.instruction or prior_track.description
+                    "instruction": prior.instruction
+                    or prior_track.description
                     or _DEFAULT_EVENT_INSTRUCTIONS.get(prior.modality, ""),
                     "revision": prior.request_revision,
                 }
@@ -265,7 +284,9 @@ def resolve_event_control(episode: object, event: object) -> bytes:
         raise ValueError("Cannot condition an event on a future reference")
     settings = strict_json_loads(track.settings_json)
     settings.update(strict_json_loads(event.settings_json))
-    instruction = event.instruction or track.description or _DEFAULT_EVENT_INSTRUCTIONS[event.modality]
+    instruction = (
+        event.instruction or track.description or _DEFAULT_EVENT_INSTRUCTIONS[event.modality]
+    )
     override = {
         "track_id": event.track_id,
         "modality": event.modality,

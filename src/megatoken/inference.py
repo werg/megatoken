@@ -23,7 +23,7 @@ from megatoken.controls import build_control_payload
 from megatoken.data.chunking import ChunkingConfig, segment_bytes
 from megatoken.generation.structure import TAPE_VERSION, ActionSpec, ActionTape, Observation
 from megatoken.io import fsync_directory, sha256_file, strict_json_loads, write_json
-from megatoken.loading import build_model, load_codec, parameter_report
+from megatoken.loading import build_model, load_codec, load_trained, parameter_report
 from megatoken.model.config import ModelConfig
 from megatoken.tensors import byte_tensor
 
@@ -31,18 +31,17 @@ from megatoken.tensors import byte_tensor
 def export_served(
     checkpoint: str | Path, output: str | Path, *, codec_path: str = "byte"
 ) -> dict[str, Any]:
-    from megatoken.training.checkpoint import load_checkpoint
-
-    payload, metadata = load_checkpoint(checkpoint)
+    trained = load_trained(checkpoint, codec_path=codec_path)
+    model, codec, payload, metadata = (
+        trained.model,
+        trained.codec,
+        trained.payload,
+        trained.metadata,
+    )
     config = ModelConfig.from_dict(payload["model_config"])
-    codec = load_codec(codec_path, vocab_size=config.vocab_size)
-    if codec.fingerprint != payload["codec_fingerprint"]:
-        raise ValueError("Export codec does not match the trained checkpoint")
     chunking = ChunkingConfig.from_identity(payload["chunking"], codec)
     chunking = chunking.with_hard_limit(config.max_capacity)
     precision = payload["train_config"]["precision"]
-    model = build_model(config, codec, precision=precision)
-    model.load_state_dict(payload["model"], strict=True)
     state = model.served_state_dict()
     destination = Path(output)
     if destination.exists():

@@ -1,4 +1,5 @@
 """Media clock and optional-view dropout contracts."""
+
 from types import SimpleNamespace
 
 import numpy as np
@@ -15,21 +16,30 @@ def test_raw_24k_source_keeps_actual_rate_until_e_encoding(tmp_path):
     store = TensorAssetStore(tmp_path)
     waveform = store.put(
         np.zeros(4800, dtype=np.float32),
-        modality="audio", sample_rate=24000,
+        modality="audio",
+        sample_rate=24000,
     )
     latents = store.put(
         np.zeros((3, 32), dtype=np.float32),
-        modality="audio", kind="codec_latents",
-        extractor="pocket-mimi-pinned-v1", sample_rate=24000,
+        modality="audio",
+        kind="codec_latents",
+        extractor="pocket-mimi-pinned-v1",
+        sample_rate=24000,
     )
     spec = MediaOutputSpec(
-        "audio", renderer="pocket", sample_rate=24000,
-        sample_count=5760, latent_shape=(3, 32),
+        "audio",
+        renderer="pocket",
+        sample_rate=24000,
+        sample_count=5760,
+        latent_shape=(3, 32),
         shape_provenance="teacher_only",
     )
     plan = MediaPlan(
         MediaRecord("audio", waveform, latents),
-        spec, "bootstrap", 32, 8,
+        spec,
+        "bootstrap",
+        32,
+        8,
     )
     target = plan.resolve(store, torch.device("cpu"))
     assert target.source_sample_rate == 24000
@@ -55,14 +65,13 @@ def test_input_view_dropout_maintains_at_least_one_available_source(monkeypatch)
         initial_facets=torch.zeros(1, cfg.n_facets, cfg.facet_dim),
     )
     monkeypatch.setattr(
-        MediaStems, "encode_ordered_features",
+        MediaStems,
+        "encode_ordered_features",
         staticmethod(lambda core, features, mask=None: mask),
     )
     views = (
-        ("whistle-pinned-embed-v1", torch.ones(1, 3, 5),
-         torch.ones(1, 3, dtype=torch.bool)),
-        ("pocket-mimi-acoustic-v1", torch.ones(1, 2, 4),
-         torch.ones(1, 2, dtype=torch.bool)),
+        ("whistle-pinned-embed-v1", torch.ones(1, 3, 5), torch.ones(1, 3, dtype=torch.bool)),
+        ("pocket-mimi-acoustic-v1", torch.ones(1, 2, 4), torch.ones(1, 2, dtype=torch.bool)),
     )
     stems.train()
     torch.manual_seed(17)

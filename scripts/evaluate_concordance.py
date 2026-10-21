@@ -6,6 +6,7 @@ Each example must name its source-family split and recorded renderer sampler
 settings. Predictions may be sampled by ServingSession or other production
 harnesses; this script scores only verified tensors/strings already emitted.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,8 +16,12 @@ from pathlib import Path
 import numpy as np
 
 from megatoken.training.concordance_eval import (
-    SampledEvalLedger, audit_source_prefix, clock_sync_ms,
-    compare_endpoints, masked_reconstruction, preserved_region_error,
+    SampledEvalLedger,
+    audit_source_prefix,
+    clock_sync_ms,
+    compare_endpoints,
+    masked_reconstruction,
+    preserved_region_error,
     transcript_metrics,
 )
 
@@ -47,18 +52,27 @@ def one_case(case: dict, root: Path) -> dict[str, float]:
         clip = _tensor(case["media_prediction"], root)
         first = _tensor(case["first_endpoint"], root)
         last = _tensor(case["last_endpoint"], root)
-        metrics.update(compare_endpoints(
-            clip, first, last, displayed_indices=case.get("displayed_indices"),
-        ))
+        metrics.update(
+            compare_endpoints(
+                clip,
+                first,
+                last,
+                displayed_indices=case.get("displayed_indices"),
+            )
+        )
     if "editable_mask" in case:
         edited = _tensor(case["media_prediction"], root)
         baseline = _tensor(case["pre_edit_media"], root)
         mask = _tensor(case["editable_mask"], root)
         metrics["preserved_region_mae"] = preserved_region_error(baseline, edited, mask)
     if "audio_onsets_ms" in case:
-        metrics.update(clock_sync_ms(case["audio_onsets_ms"],
-                                      case["video_onsets_ms"],
-                                      offset_ms=case.get("av_offset_ms", 0)))
+        metrics.update(
+            clock_sync_ms(
+                case["audio_onsets_ms"],
+                case["video_onsets_ms"],
+                offset_ms=case.get("av_offset_ms", 0),
+            )
+        )
     if "available_until_ms" in case:
         audit_source_prefix(case["available_until_ms"], case["evidence_end_ms"])
         metrics["no_future_prefix_violations"] = 0.0
@@ -69,8 +83,11 @@ def one_case(case: dict, root: Path) -> dict[str, float]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--samples", required=True,
-                        help="JSONL produced by actual free rollouts, not teacher reconstructions")
+    parser.add_argument(
+        "--samples",
+        required=True,
+        help="JSONL produced by actual free rollouts, not teacher reconstructions",
+    )
     parser.add_argument("--media-root", required=True)
     parser.add_argument("--report", required=True)
     args = parser.parse_args()

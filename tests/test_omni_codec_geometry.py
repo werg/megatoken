@@ -1,11 +1,15 @@
 """Codec-target geometry is exact even without storing huge raw video frames."""
+
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from megatoken.data.media_assets import (
-    MEDIA_RECORD_TYPE, MediaRecord, OutputGeometry, TensorAssetStore,
+    MEDIA_RECORD_TYPE,
+    MediaRecord,
+    OutputGeometry,
+    TensorAssetStore,
 )
 from megatoken.training.meridians import _media_plan
 
@@ -13,19 +17,31 @@ from megatoken.training.meridians import _media_plan
 def test_large_cached_video_geometry_round_trip_and_training_spec(tmp_path):
     store = TensorAssetStore(tmp_path)
     source = store.put(
-        np.ones((16, 24), dtype=np.float32), modality="video",
-        kind="features", extractor="minicpm-pinned-16x", fps_num=24,
+        np.ones((16, 24), dtype=np.float32),
+        modality="video",
+        kind="features",
+        extractor="minicpm-pinned-16x",
+        fps_num=24,
     )
     codec = store.put(
         np.zeros((5, 32, 22, 40), dtype=np.float32),
-        modality="video", kind="codec_latents", extractor="ltx2-v2-checkpoint",
-        fps_num=24, valid_count=5,
+        modality="video",
+        kind="codec_latents",
+        extractor="ltx2-v2-checkpoint",
+        fps_num=24,
+        valid_count=5,
     )
     original = MediaRecord(
-        "video", source, codec,
+        "video",
+        source,
+        codec,
         output_geometry=OutputGeometry(
-            "video", frames=81, height=720, width=1280,
-            fps_num=24, provenance="teacher_only",
+            "video",
+            frames=81,
+            height=720,
+            width=1280,
+            fps_num=24,
+            provenance="teacher_only",
         ),
     )
     raw = original.to_bytes()
@@ -37,15 +53,12 @@ def test_large_cached_video_geometry_round_trip_and_training_spec(tmp_path):
         config=SimpleNamespace(
             vision_feature_id=source.extractor,
             vision_feature_dim=source.shape[-1],
-            n_facets=32, facet_dim=512,
+            n_facets=32,
+            facet_dim=512,
         )
     )
-    entry = SimpleNamespace(
-        payload=raw, record=SimpleNamespace(media_type=MEDIA_RECORD_TYPE)
-    )
-    plan = _media_plan(
-        model, entry, "video", SimpleNamespace(representation_training="recurrent")
-    )
+    entry = SimpleNamespace(payload=raw, record=SimpleNamespace(media_type=MEDIA_RECORD_TYPE))
+    plan = _media_plan(model, entry, "video", SimpleNamespace(representation_training="recurrent"))
     assert plan.spec.frames == 81
     assert (plan.spec.height, plan.spec.width) == (720, 1280)
     assert plan.spec.latent_shape == (32, 5, 22, 40)
@@ -55,25 +68,34 @@ def test_large_cached_video_geometry_round_trip_and_training_spec(tmp_path):
 def test_codec_features_require_actual_display_geometry(tmp_path):
     store = TensorAssetStore(tmp_path)
     source = store.put(
-        np.ones((16, 24), dtype=np.float32), modality="video",
-        kind="features", extractor="minicpm-pinned-16x", fps_num=24,
+        np.ones((16, 24), dtype=np.float32),
+        modality="video",
+        kind="features",
+        extractor="minicpm-pinned-16x",
+        fps_num=24,
     )
     codec = store.put(
         np.zeros((3, 4, 2, 2), dtype=np.float32),
-        modality="video", kind="codec_latents",
-        extractor="ltx2-native-codec", fps_num=24,
+        modality="video",
+        kind="codec_latents",
+        extractor="ltx2-native-codec",
+        fps_num=24,
     )
-    model = SimpleNamespace(config=SimpleNamespace(
-        vision_feature_id=source.extractor,
-        vision_feature_dim=source.shape[-1], n_facets=32, facet_dim=512,
-    ))
+    model = SimpleNamespace(
+        config=SimpleNamespace(
+            vision_feature_id=source.extractor,
+            vision_feature_dim=source.shape[-1],
+            n_facets=32,
+            facet_dim=512,
+        )
+    )
     payload = MediaRecord("video", source, codec).to_bytes()
-    entry = SimpleNamespace(
-        payload=payload, record=SimpleNamespace(media_type=MEDIA_RECORD_TYPE)
-    )
+    entry = SimpleNamespace(payload=payload, record=SimpleNamespace(media_type=MEDIA_RECORD_TYPE))
     with pytest.raises(ValueError, match="displayed output geometry"):
         _media_plan(
-            model, entry, "video",
+            model,
+            entry,
+            "video",
             SimpleNamespace(representation_training="bootstrap"),
         )
 

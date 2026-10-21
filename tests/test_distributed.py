@@ -13,10 +13,9 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+from retrieval_fixture import retrieval_train_config
 from torch import nn
 
-from megatoken.data import prepare_sources, write_demo_source
-from megatoken.generation.codec import ByteCodec
 from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.config import TrainConfig
 from megatoken.training.distributed import DistributedContext
@@ -34,7 +33,9 @@ def _start_group(rank: int, rendezvous: str) -> DistributedContext:
         rank=rank,
         world_size=2,
         init_method=f"file://{rendezvous}",
-        timeout=timedelta(seconds=45),
+        # Rank 1 waits in collectives while rank 0 alone writes checkpoints; leave
+        # headroom for a loaded CI host instead of failing on a slow disk.
+        timeout=timedelta(seconds=300),
     )
     return DistributedContext.initialize("cpu")
 
@@ -173,7 +174,7 @@ def _engine_worker(rank: int, rendezvous: str, config_dict: dict, output_path: s
         first = train(config)
         resumed = train(config, resume=first["checkpoint"])
         transitioned = train(
-            replace(config, phase="S", budget=1, output=config.output + "-s"),
+            replace(config, phase="P1", budget=1, output=config.output + "-p1"),
             resume=resumed["checkpoint"],
             phase_transition=True,
         )
@@ -213,30 +214,12 @@ def test_two_rank_variable_mask_gradient_and_master_update_matches_combined_batc
 )
 def test_two_rank_full_engine_checkpoint_resume_and_phase_transition(tmp_path):
     torch.set_num_threads(1)
-    source = write_demo_source(tmp_path / "source.jsonl", count=24, max_record_bytes=128)
-    dataset = prepare_sources([source], tmp_path / "data", ByteCodec.byte_fallback())
-    dataset.close()
-    config = TrainConfig(
-        dataset=str(tmp_path / "data"),
-        output=str(tmp_path / "run"),
-        model="tiny",
-        codec="byte",
-        device="cpu",
-        precision="fp32",
+    config = retrieval_train_config(
+        tmp_path,
         microbatch_episodes=1,
-        max_steps=1,
         accumulate_scored=1,
-        accumulate_ingested=1000,
         max_accumulation_windows=1,
-        generated_capacity=128,
-        max_history_tokens=1024,
-        max_record_bytes=512,
-        checkpoint_every=0,
-        eval_every=0,
         gradient_checkpointing=True,
-        effort=1,
-        use_stage_mixture=False,
-        use_effort_mixture=False,
     )
     mp.spawn(
         _engine_worker,

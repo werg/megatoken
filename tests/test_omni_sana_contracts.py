@@ -1,4 +1,5 @@
 """Checkpoint API-facing donor contracts, using shape-faithful stub components."""
+
 from types import SimpleNamespace
 
 import torch
@@ -20,8 +21,9 @@ class DummyTransformer(nn.Module):
     def dtype(self):
         return self.projection.weight.dtype
 
-    def forward(self, noisy, *, encoder_hidden_states,
-                encoder_attention_mask, timestep, return_dict):
+    def forward(
+        self, noisy, *, encoder_hidden_states, encoder_attention_mask, timestep, return_dict
+    ):
         assert encoder_hidden_states.shape[1] == 32
         assert encoder_attention_mask.all()
         assert timestep.shape == (noisy.shape[0],)
@@ -34,8 +36,8 @@ class DummyTransformer(nn.Module):
 class FlowScheduler:
     def __init__(self):
         self.config = SimpleNamespace(num_train_timesteps=10)
-        self.timesteps = torch.tensor([10., 5., 1.])
-        self.sigmas = torch.tensor([1., .5, .1, 0.])
+        self.timesteps = torch.tensor([10.0, 5.0, 1.0])
+        self.sigmas = torch.tensor([1.0, 0.5, 0.1, 0.0])
 
     def scale_noise(self, *args):
         raise AssertionError("Native flow objective must not use an extra noise path")
@@ -94,10 +96,12 @@ def test_native_flow_loss_independent_of_prior_inference_schedule():
     gen = torch.Generator().manual_seed(9031)
     first, count = student.native_loss(raw, target, generator=gen)
     # A completed free rollout changes the scheduler's inference schedule.
-    pipe.scheduler.timesteps = torch.tensor([4.])
+    pipe.scheduler.timesteps = torch.tensor([4.0])
     pipe.scheduler.sigmas = torch.tensor([0.4, 0.0])
     second, count2 = student.native_loss(
-        raw, target, generator=torch.Generator().manual_seed(9031),
+        raw,
+        target,
+        generator=torch.Generator().manual_seed(9031),
     )
     assert count.item() == count2.item()
     assert torch.allclose(first, second, rtol=0, atol=0)

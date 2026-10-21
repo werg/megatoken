@@ -36,7 +36,10 @@ def _tone(count: int, samples: int = 1024) -> np.ndarray:
 
 
 def make_episode(
-    store: TensorAssetStore, *, seed: int, index: int,
+    store: TensorAssetStore,
+    *,
+    seed: int,
+    index: int,
     variant: str = "base",
 ) -> Episode:
     rng = np.random.default_rng(seed + index * 1201)
@@ -57,25 +60,34 @@ def make_episode(
     if visual_modality == "video":
         source_image = store.put(
             np.stack((_picture(red, 0), _picture(red, 0))),
-            modality="video", fps_num=8,
+            modality="video",
+            fps_num=8,
         )
         target_image = store.put(
-            np.stack((
-                _picture(remain_red, remain_blue),
-                _picture(remain_red - 1, remain_blue + 1),
-            )),
-            modality="video", fps_num=8,
+            np.stack(
+                (
+                    _picture(remain_red, remain_blue),
+                    _picture(remain_red - 1, remain_blue + 1),
+                )
+            ),
+            modality="video",
+            fps_num=8,
         )
     else:
         source_image = store.put(_picture(red, 0), modality="image")
         target_image = store.put(
-            _picture(remain_red, remain_blue), modality="image",
+            _picture(remain_red, remain_blue),
+            modality="image",
         )
     source_audio = store.put(
-        _tone(blue), modality="audio", sample_rate=16000,
+        _tone(blue),
+        modality="audio",
+        sample_rate=16000,
     )
     target_audio = store.put(
-        _tone(remain_red + remain_blue), modality="audio", sample_rate=16000,
+        _tone(remain_red + remain_blue),
+        modality="audio",
+        sample_rate=16000,
     )
     source_visual = MediaRecord(visual_modality, source_image)
     source_acoustic = MediaRecord("audio", source_audio)
@@ -84,47 +96,78 @@ def make_episode(
     answer = f"red={remain_red};blue={remain_blue};total={remain_red + remain_blue}".encode()
 
     records = (
-        PhysicalRecord("inventory", "user",
-                       b"The camera bar shows red stock; tone pitch encodes blue stock."),
-        PhysicalRecord("shipment", "user",
-                       f"Remove {used_red} red and {used_blue} blue parts.".encode()),
-        PhysicalRecord("camera", "user", source_visual.to_bytes(),
-                       media_type=MEDIA_RECORD_TYPE),
-        PhysicalRecord("mic", "user", source_acoustic.to_bytes(),
-                       media_type=MEDIA_RECORD_TYPE),
-        PhysicalRecord("answer", "assistant", answer, turn_index=1,
-                       policy_mask=True),
-        PhysicalRecord("picture", "assistant", target_visual.to_bytes(),
-                       turn_index=1, policy_mask=True, media_type=MEDIA_RECORD_TYPE),
-        PhysicalRecord("voice", "assistant", target_acoustic.to_bytes(),
-                       turn_index=1, policy_mask=True, media_type=MEDIA_RECORD_TYPE),
+        PhysicalRecord(
+            "inventory", "user", b"The camera bar shows red stock; tone pitch encodes blue stock."
+        ),
+        PhysicalRecord(
+            "shipment", "user", f"Remove {used_red} red and {used_blue} blue parts.".encode()
+        ),
+        PhysicalRecord("camera", "user", source_visual.to_bytes(), media_type=MEDIA_RECORD_TYPE),
+        PhysicalRecord("mic", "user", source_acoustic.to_bytes(), media_type=MEDIA_RECORD_TYPE),
+        PhysicalRecord("answer", "assistant", answer, turn_index=1, policy_mask=True),
+        PhysicalRecord(
+            "picture",
+            "assistant",
+            target_visual.to_bytes(),
+            turn_index=1,
+            policy_mask=True,
+            media_type=MEDIA_RECORD_TYPE,
+        ),
+        PhysicalRecord(
+            "voice",
+            "assistant",
+            target_acoustic.to_bytes(),
+            turn_index=1,
+            policy_mask=True,
+            media_type=MEDIA_RECORD_TYPE,
+        ),
     )
-    tracks = tuple(TrackSpec(
-        name, "user" if ix < 4 else "assistant",
-    ) for ix, name in enumerate(
-        ("inventory", "shipment", "camera", "mic", "answer", "picture", "voice"),
-    ))
+    tracks = tuple(
+        TrackSpec(
+            name,
+            "user" if ix < 4 else "assistant",
+        )
+        for ix, name in enumerate(
+            ("inventory", "shipment", "camera", "mic", "answer", "picture", "voice"),
+        )
+    )
     meridians = (
-        Meridian(0, (
-            TrackEvent("inventory", "inventory", "text", 0, "user"),
-            TrackEvent("shipment", "shipment", "text", 0, "user"),
-            TrackEvent("camera", "camera", visual_modality, 0, "user",
-                       asset_sha256=source_image.sha256),
-            TrackEvent("mic", "mic", "audio", 0, "user",
-                       asset_sha256=source_audio.sha256),
-        )),
-        Meridian(1, (
-            TrackEvent("answer", "answer", "text", 1, "assistant"),
-            TrackEvent("picture", "picture", visual_modality, 1, "assistant",
-                       asset_sha256=target_image.sha256),
-            TrackEvent("voice", "voice", "audio", 1, "assistant",
-                       asset_sha256=target_audio.sha256),
-        )),
+        Meridian(
+            0,
+            (
+                TrackEvent("inventory", "inventory", "text", 0, "user"),
+                TrackEvent("shipment", "shipment", "text", 0, "user"),
+                TrackEvent(
+                    "camera", "camera", visual_modality, 0, "user", asset_sha256=source_image.sha256
+                ),
+                TrackEvent("mic", "mic", "audio", 0, "user", asset_sha256=source_audio.sha256),
+            ),
+        ),
+        Meridian(
+            1,
+            (
+                TrackEvent("answer", "answer", "text", 1, "assistant"),
+                TrackEvent(
+                    "picture",
+                    "picture",
+                    visual_modality,
+                    1,
+                    "assistant",
+                    asset_sha256=target_image.sha256,
+                ),
+                TrackEvent(
+                    "voice", "voice", "audio", 1, "assistant", asset_sha256=target_audio.sha256
+                ),
+            ),
+        ),
     )
     return Episode(
-        f"pilot-{seed}-{index}-{variant}", records,
+        f"pilot-{seed}-{index}-{variant}",
+        records,
         Lineage("omni-procedural-pilot", f"seed-{seed}", f"pilot-parent-{seed}-{index}"),
-        stream="omni_pilot", tracks=tracks, meridians=meridians,
+        stream="omni_pilot",
+        tracks=tracks,
+        meridians=meridians,
     )
 
 
@@ -134,7 +177,8 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=64)
     parser.add_argument("--seed", type=int, default=91)
     parser.add_argument(
-        "--counterfactual-variants", action="store_true",
+        "--counterfactual-variants",
+        action="store_true",
         help="For each parent, add audio-only and visual-only evidence swaps in the same split family.",
     )
     args = parser.parse_args()
@@ -161,16 +205,20 @@ def main() -> None:
                     )
         spool.freeze()
         result = export_prepared(
-            spool, root, codec=ByteCodec.byte_fallback(),
-            source_receipts=[{
-                "name": "procedural_omni_pilot",
-                "generator": "prepare_omni_pilot-v1",
-                "seed": args.seed,
-                "episodes": args.count * (3 if args.counterfactual_variants else 1),
-                "parent_families": args.count,
-                "counterfactual_variants": args.counterfactual_variants,
-                "natural_media": False,
-            }],
+            spool,
+            root,
+            codec=ByteCodec.byte_fallback(),
+            source_receipts=[
+                {
+                    "name": "procedural_omni_pilot",
+                    "generator": "prepare_omni_pilot-v1",
+                    "seed": args.seed,
+                    "episodes": args.count * (3 if args.counterfactual_variants else 1),
+                    "parent_families": args.count,
+                    "counterfactual_variants": args.counterfactual_variants,
+                    "natural_media": False,
+                }
+            ],
             pipeline_fingerprint=(
                 f"omni-pilot-v2-seed-{args.seed}-cf-{int(args.counterfactual_variants)}"
             ),

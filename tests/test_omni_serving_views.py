@@ -1,6 +1,7 @@
 """Serving/training must use the same masked frozen feature fusion through E."""
-import torch
+
 import pytest
+import torch
 
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
@@ -24,8 +25,11 @@ def test_served_audio_fuses_whistle_and_mimi_before_one_facets_readout():
     acoustic = torch.randn(1, 2, 4)
     acoustic_mask = torch.ones(1, 2, dtype=torch.bool)
     event = ObservedEvent(
-        track="audio", modality="audio", payload=primary,
-        extractor=whistle, valid_mask=primary_mask,
+        track="audio",
+        modality="audio",
+        payload=primary,
+        extractor=whistle,
+        valid_mask=primary_mask,
         source_views=((mimi, acoustic, acoustic_mask),),
     )
     with torch.no_grad():
@@ -34,9 +38,16 @@ def test_served_audio_fuses_whistle_and_mimi_before_one_facets_readout():
         changed[:, -1] = 9999.0
         repeated = core.observe_group(
             state,
-            (ObservedEvent("audio", "audio", changed, extractor=whistle,
-                           valid_mask=primary_mask,
-                           source_views=((mimi, acoustic, acoustic_mask),)),),
+            (
+                ObservedEvent(
+                    "audio",
+                    "audio",
+                    changed,
+                    extractor=whistle,
+                    valid_mask=primary_mask,
+                    source_views=((mimi, acoustic, acoustic_mask),),
+                ),
+            ),
             encoder_grad=False,
         )
     assert fused.raw.shape == (1, 1, model.config.n_facets, model.config.facet_dim)
@@ -46,12 +57,16 @@ def test_served_audio_fuses_whistle_and_mimi_before_one_facets_readout():
 def test_serving_refuses_unidentified_source_views():
     with pytest.raises(ValueError, match="primary extractor"):
         ObservedEvent(
-            "audio", "audio", torch.randn(1, 4, 6),
-            source_views=(("external", torch.randn(1, 3, 4),
-                           torch.ones(1, 3, dtype=torch.bool)),),
+            "audio",
+            "audio",
+            torch.randn(1, 4, 6),
+            source_views=(("external", torch.randn(1, 3, 4), torch.ones(1, 3, dtype=torch.bool)),),
         )
     with pytest.raises(ValueError, match="nonempty boolean"):
         ObservedEvent(
-            "audio", "audio", torch.randn(1, 4, 6), extractor="pinned-v1",
+            "audio",
+            "audio",
+            torch.randn(1, 4, 6),
+            extractor="pinned-v1",
             valid_mask=torch.zeros(1, 4, dtype=torch.bool),
         )

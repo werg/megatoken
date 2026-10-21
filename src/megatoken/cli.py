@@ -10,7 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from megatoken import __version__
-from megatoken.io import read_mapping, write_json
+from megatoken.io import write_json
 
 
 def _doctor(args):
@@ -81,11 +81,7 @@ def _train(args):
         )
         if getattr(args, name) is not None
     }
-    config = (
-        TrainConfig.load(args.config, **overrides)
-        if args.config
-        else TrainConfig.from_dict(overrides)
-    )
+    config = TrainConfig.load(args.config, **overrides)
     return train(config, resume=args.resume, phase_transition=args.phase_transition)
 
 
@@ -94,12 +90,12 @@ def _diloco_initialize(args):
     import torch
 
     from megatoken.data import PreparedDataset
+    from megatoken.io import content_hash
     from megatoken.loading import build_model, load_codec, load_model_config
     from megatoken.runtime import seed_everything
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.config import TrainConfig
     from megatoken.training.diloco_protocol import training_identity
-    from megatoken.io import content_hash
     from megatoken.training.diloco_server import initialize_coordinator
     from megatoken.training.schedule import PHASES
 
@@ -135,6 +131,27 @@ def _diloco_initialize(args):
     }
     with PreparedDataset(config.dataset) as prepared:
         dataset_fingerprint = content_hash(prepared.manifest)
+    kb = None
+    if config.retrieval_bank:
+        from megatoken.data.retrieval import read_sidecar
+
+        # The coordinator owns the canonical free KB and all row growth.
+        kb = {
+            "recipe_path": config.retrieval_memory_recipe,
+            "bank_path": config.retrieval_bank,
+            "centroids_path": config.retrieval_ivf_centroids,
+            "centroids_sha256": config.retrieval_ivf_sha256,
+            "nprobe": config.retrieval_ivf_nprobe,
+            "scopes": tuple(
+                sorted(
+                    {
+                        example.query_teacher_inputs.ranges[0].scope
+                        for example in read_sidecar(config.retrieval_sidecar)
+                    }
+                )
+            ),
+            "growth_budget": config.retrieval_growth_budget,
+        }
     return initialize_coordinator(
         args.root,
         run_id=config.decoupled.run_id,
@@ -152,6 +169,7 @@ def _diloco_initialize(args):
         grace_seconds=args.grace_seconds,
         max_staleness=args.max_staleness,
         token_budget=config.budget or PHASES[config.phase].budget,
+        kb=kb,
     )
 
 
@@ -161,7 +179,9 @@ def _diloco_serve(args):
     from megatoken.training.diloco_server import serve_coordinator
 
     serve_coordinator(
-        args.root, args.host, args.port,
+        args.root,
+        args.host,
+        args.port,
         token=os.environ.get("MEGATOKEN_DILOCO_TOKEN", ""),
     )
 
@@ -213,36 +233,52 @@ def _evaluate(args):
     import torch
 
     from megatoken.data import PreparedDataset
-    from megatoken.loading import build_model, load_codec
-    from megatoken.model.config import ModelConfig
+    from megatoken.loading import load_trained
     from megatoken.runtime import seed_everything
-    from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.config import TrainConfig
     from megatoken.training.evaluation import evaluate_records
 
-    payload, _ = load_checkpoint(args.checkpoint)
-    model_config = ModelConfig.from_dict(payload["model_config"])
-    codec_path = args.codec or payload["train_config"]["codec"]
-    codec = load_codec(codec_path, vocab_size=model_config.vocab_size)
-    if codec.fingerprint != payload["codec_fingerprint"]:
-        raise ValueError("Evaluation codec differs from the checkpoint")
     device = torch.device(
         ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     )
-    model = build_model(
-        model_config, codec, device=device, precision=payload["train_config"]["precision"]
-    )
-    model.load_state_dict(payload["model"], strict=True)
-    model.core.set_model_version(payload["global_step"])
+    trained = load_trained(args.checkpoint, device=device, codec_path=args.codec)
     seed_everything(args.seed)
     config = TrainConfig.from_dict(
-        {**payload["train_config"], "eval_episodes": args.episodes, "effort": args.effort}
+        {**trained.payload["train_config"], "eval_episodes": args.episodes, "effort": args.effort}
     )
     dataset = PreparedDataset(args.dataset or config.dataset, split=args.split)
     try:
-        return evaluate_records(model, dataset, codec, config, device)
+        return evaluate_records(trained.model, dataset, trained.codec, config, device)
     finally:
         dataset.close()
+
+
+def _gates(args):
+    from megatoken.training.gates import GateThresholds, bootstrap_gates
+
+    return bootstrap_gates(
+        checkpoint=args.checkpoint,
+        dataset=args.dataset,
+        query_sidecar=args.queries,
+        document_sidecar=args.documents,
+        recipe_path=args.recipe,
+        bank_path=args.bank,
+        output=args.output,
+        centroids=args.centroids,
+        nprobe=args.nprobe,
+        max_episodes=args.episodes,
+        thresholds=GateThresholds(
+            max_lexical_ce=args.max_lexical_ce,
+            max_terminal_ce=args.max_terminal_ce,
+            min_document_cosine=args.min_document_cosine,
+            min_query_cosine=args.min_query_cosine,
+            min_recall_ratio=args.min_recall_ratio,
+            min_index_recall=args.min_index_recall,
+            recall_k=args.recall_k,
+        ),
+        device=args.device,
+        mark_ready=args.mark_ready,
+    )
 
 
 def _benchmark(args):
@@ -268,29 +304,6 @@ def _benchmark(args):
         representation_mode=args.representation_mode,
         prediction_chunks=args.prediction_chunks,
     )
-
-
-def _rl(args):
-    from megatoken.training.rl import RLConfig, train_rl
-
-    base = read_mapping(args.config) if args.config else {}
-    names = {key for key in RLConfig.__dataclass_fields__}
-    unknown = set(base) - names
-    if unknown:
-        raise ValueError(f"Unknown RL settings: {sorted(unknown)}")
-    for name in names:
-        value = getattr(args, name, None)
-        if value is not None:
-            base[name] = value
-    path = Path(args.tasks)
-    tasks = (
-        json.loads(path.read_text())
-        if path.suffix == ".json"
-        else [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    )
-    if not isinstance(tasks, list) or any(not isinstance(task, dict) for task in tasks):
-        raise ValueError("RL tasks must be a JSON array or JSONL objects")
-    return train_rl(RLConfig(**base), tasks)
 
 
 def _export(args):
@@ -369,12 +382,6 @@ def _serve_multitrack(args):
     )
 
 
-def _smoke(args):
-    from megatoken.smoke import run_smoke
-
-    return run_smoke(args.output, device=args.device, precision=args.precision)
-
-
 def _engram_extract(args):
     from megatoken.assets import extract_engram
 
@@ -438,7 +445,7 @@ def parser() -> argparse.ArgumentParser:
     item = commands.add_parser(
         "train", help="Run one supervised stage, under torchrun when distributed"
     )
-    item.add_argument("--config")
+    item.add_argument("--config", required=True)
     for name in (
         "phase",
         "model",
@@ -482,7 +489,9 @@ def parser() -> argparse.ArgumentParser:
     serving.add_argument("--host", default="127.0.0.1")
     serving.add_argument("--port", type=int, default=8823)
     serving.set_defaults(func=_diloco_serve)
-    exporting = sub.add_parser("export", help="Export a stopped syncer's global model for evaluation")
+    exporting = sub.add_parser(
+        "export", help="Export a stopped syncer's global model for evaluation"
+    )
     exporting.add_argument("--root", required=True)
     exporting.add_argument("--output", required=True)
     exporting.add_argument("--config", required=True)
@@ -506,6 +515,36 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--effort", type=int, choices=(1, 2, 3, 6), default=6)
     item.add_argument("--seed", type=int, default=17)
     item.set_defaults(func=_evaluate)
+    item = commands.add_parser(
+        "gates", help="Measure held-out retrieval-memory bootstrap gates and write evidence"
+    )
+    item.add_argument("--checkpoint", required=True)
+    item.add_argument("--dataset", required=True, help="Held-out prepared dataset")
+    item.add_argument("--queries", required=True, help="Held-out query sidecar")
+    item.add_argument("--documents", required=True, help="Held-out document sidecar")
+    item.add_argument("--recipe", required=True, help="coherence_embedding recipe")
+    item.add_argument("--bank", required=True, help="Source catalog bank")
+    item.add_argument("--output", required=True, help="Evidence directory")
+    item.add_argument("--centroids", help="Pinned IVF centroids for index recall")
+    item.add_argument("--nprobe", type=int, default=8)
+    item.add_argument("--episodes", type=int, default=1000)
+    item.add_argument("--device", default="cuda")
+    from megatoken.training.gates import GateThresholds
+
+    defaults = GateThresholds()
+    item.add_argument("--max-lexical-ce", type=float, default=defaults.max_lexical_ce)
+    item.add_argument("--max-terminal-ce", type=float, default=defaults.max_terminal_ce)
+    item.add_argument("--min-document-cosine", type=float, default=defaults.min_document_cosine)
+    item.add_argument("--min-query-cosine", type=float, default=defaults.min_query_cosine)
+    item.add_argument("--min-recall-ratio", type=float, default=defaults.min_recall_ratio)
+    item.add_argument("--min-index-recall", type=float, default=defaults.min_index_recall)
+    item.add_argument("--recall-k", type=int, default=defaults.recall_k)
+    item.add_argument(
+        "--mark-ready",
+        action="store_true",
+        help="Record measured readiness on the bank and write the warm-up receipt if all pass",
+    )
+    item.set_defaults(func=_gates)
     item = commands.add_parser(
         "benchmark", help="Measure real end-to-end work, memory, and dispatch"
     )
@@ -532,26 +571,6 @@ def parser() -> argparse.ArgumentParser:
     for name in ("backward", "profile", "core-only"):
         item.add_argument("--" + name, action="store_true")
     item.set_defaults(func=_benchmark)
-    item = commands.add_parser("rl", help="Collect and replay fresh executed policy episodes")
-    item.add_argument("--config")
-    item.add_argument("--tasks", required=True)
-    for name in ("checkpoint", "output", "environment", "codec", "device"):
-        item.add_argument("--" + name)
-    for name in (
-        "task-seeds",
-        "rollouts-per-seed",
-        "max-steps-per-episode",
-        "max-updates",
-        "max-task-groups",
-        "max-latent-coordinates",
-        "max-total-episodes",
-        "capacity",
-        "seed",
-        "checkpoint-every",
-    ):
-        item.add_argument("--" + name, type=int)
-    item.add_argument("--require-blackwell", action=argparse.BooleanOptionalAction, default=None)
-    item.set_defaults(func=_rl)
     item = commands.add_parser("export", help="Create a checksummed served-only safetensors bundle")
     item.add_argument("--checkpoint", required=True)
     item.add_argument("--output", required=True)
@@ -599,13 +618,6 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--compile", action="store_true")
     item.add_argument("--max-sessions", type=int, default=32)
     item.set_defaults(func=_serve_multitrack)
-    item = commands.add_parser(
-        "smoke", help="Run offline preparation, all stages, executed RL, export, and generation"
-    )
-    item.add_argument("--output", default="runs/smoke")
-    item.add_argument("--device", default="cpu")
-    item.add_argument("--precision", choices=("fp32", "bf16"), default="fp32")
-    item.set_defaults(func=_smoke)
     item = commands.add_parser(
         "engram", help="Optional offline native-table initialization and exact baking"
     )

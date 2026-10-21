@@ -438,23 +438,25 @@ def test_empty_and_whitespace_only_payloads_and_offsets():
 
 
 @pytest.mark.parametrize(
-    ("locale", "text"),
+    ("locale", "text", "sentences"),
     [
-        ("th-TH", "ภาษาไทยมีการแบ่งคำและประโยค ข้อความถัดไปมีความหมาย"),
-        ("ja-JP", "これは最初の文です。次の文章を読んでください。"),
-        ("ar", "هذه جملة واضحة. وهذه جملة أخرى؟"),
-        ("hi-IN", "यह पहला वाक्य है। यह अगला वाक्य है।"),
-        ("de-DE", "Dr. Müller liest z. B. dieses Buch. Danach schreibt er weiter."),
+        # Thai separates sentences with a space, which UAX #29 never breaks on:
+        # ICU's contribution there is dictionary word segmentation.
+        ("th-TH", "ภาษาไทยมีการแบ่งคำและประโยค ข้อความถัดไปมีความหมาย", False),
+        ("ja-JP", "これは最初の文です。次の文章を読んでください。", True),
+        ("ar", "هذه جملة واضحة. وهذه جملة أخرى؟", True),
+        ("hi-IN", "यह पहला वाक्य है। यह अगला वाक्य है।", True),
+        ("de-DE", "Dr. Müller liest z. B. dieses Buch. Danach schreibt er weiter.", True),
     ],
 )
-def test_installed_icu_refines_real_multilingual_text_without_offset_drift(locale, text):
+def test_installed_icu_refines_real_multilingual_text_without_offset_drift(locale, text, sentences):
     pytest.importorskip("icu", reason="Optional ICU integration runs in the i18n CI job")
     payload = ("👩🏾‍💻 " + text + "\r\n").encode()
     result = analyze_prose(payload, start=37, locale=locale, refine=True, use_icu=True)
     safe = {37 + offset for offset in grapheme_offsets(payload)}
     assert "icu" in result.parsers
     assert not result.diagnostics
-    assert boundaries_of(result, "sentence")
+    assert bool(boundaries_of(result, "sentence")) is sentences
     assert len(boundaries_of(result, "word")) > 2
     assert all(boundary.offset in safe for boundary in result.boundaries)
     assert max(boundary.offset for boundary in result.boundaries) == 37 + len(payload)

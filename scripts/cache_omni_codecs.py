@@ -5,11 +5,11 @@ Waveforms/images/videos must already be quality-checked, normalized, aligned
 and saved as local float32 .npy arrays. No model is downloaded at invocation.
 Codec checkpoint SHA manifests are verified before any extraction.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -34,10 +34,18 @@ def _distribution_mean(encoded):
 
 
 def cache_codec(
-    *, manifest: str, mode: str, source_file: str, root: str,
-    extractor: str, sample_rate: int = 0, fps_num: int = 0,
-    fps_den: int = 1, artifact_version: str = "",
-    source_family: str = "", source_asset_json: str | None = None,
+    *,
+    manifest: str,
+    mode: str,
+    source_file: str,
+    root: str,
+    extractor: str,
+    sample_rate: int = 0,
+    fps_num: int = 0,
+    fps_den: int = 1,
+    artifact_version: str = "",
+    source_family: str = "",
+    source_asset_json: str | None = None,
 ):
     base, packs = read_locked_manifest(manifest)
     if mode not in ("pocket", "sana", "sana_video") or mode not in packs:
@@ -51,31 +59,37 @@ def cache_codec(
     expected = {"audio": 1, "image": 3, "video": 4}[modality]
     if array.ndim != expected:
         raise ValueError("Native source requires mono samples, CHW RGB or TCHW RGB")
-    if mode != "pocket" and (array.shape[-3] != 3 or np.min(array) < 0
-                                  or np.max(array) > 1):
+    if mode != "pocket" and (array.shape[-3] != 3 or np.min(array) < 0 or np.max(array) > 1):
         raise ValueError("Visual source must be normalized RGB float [0,1]")
     if mode == "pocket":
         if sample_rate != 24000:
             raise ValueError("Pocket codec only accepts explicitly resampled 24kHz mono")
         from pocket_tts import TTSModel
+
         if not packs["pocket"].get("config"):
             raise ValueError("Pocket configuration missing")
         donor = TTSModel.load_model(
             config=str(base / packs["pocket"]["config"]),
             checkpoint=str(base / packs["pocket"]["checkpoint"])
-            if packs["pocket"].get("checkpoint") else None,
+            if packs["pocket"].get("checkpoint")
+            else None,
         )
         codec = donor.mimi.eval()
         with torch.inference_mode():
-            latent = codec.encode_to_latent(
-                torch.from_numpy(array.copy())[None, None]
-            )[0].cpu().float().numpy()
+            latent = (
+                codec.encode_to_latent(torch.from_numpy(array.copy())[None, None])[0]
+                .cpu()
+                .float()
+                .numpy()
+            )
         valid_count = latent.shape[0]
     else:
         from diffusers import SanaPipeline, SanaVideoPipeline
+
         pipe_type = SanaPipeline if mode == "sana" else SanaVideoPipeline
         pipe = pipe_type.from_pretrained(
-            str(base / packs[mode]["snapshot"]), local_files_only=True,
+            str(base / packs[mode]["snapshot"]),
+            local_files_only=True,
             torch_dtype=torch.float32,
         )
         codec = pipe.vae.eval()
@@ -107,8 +121,11 @@ def cache_codec(
         if isinstance(source_descriptor, dict) and "asset" in source_descriptor:
             source_descriptor = source_descriptor["asset"]
         input_ref = TensorAsset.from_dict(source_descriptor)
-        if (input_ref.modality != modality or input_ref.kind == "raw"
-                or input_ref.source_family != source_family):
+        if (
+            input_ref.modality != modality
+            or input_ref.kind == "raw"
+            or input_ref.source_family != source_family
+        ):
             raise ValueError(
                 "Cached input feature must belong to the same source family and modality"
             )
@@ -117,38 +134,58 @@ def cache_codec(
         store.load(input_ref)
     else:
         input_ref = store.put(
-            array, modality=modality, kind="raw", sample_rate=sample_rate,
-            fps_num=fps_num, fps_den=fps_den,
+            array,
+            modality=modality,
+            kind="raw",
+            sample_rate=sample_rate,
+            fps_num=fps_num,
+            fps_den=fps_den,
             valid_count=array.shape[0],
             normalization="mono-fp32" if modality == "audio" else "rgb01-fp32",
-            artifact_version=artifact_version, source_family=source_family,
+            artifact_version=artifact_version,
+            source_family=source_family,
         )
     target_ref = store.put(
-        latent, modality=modality, kind="codec_latents", extractor=extractor,
-        sample_rate=sample_rate, fps_num=fps_num, fps_den=fps_den,
+        latent,
+        modality=modality,
+        kind="codec_latents",
+        extractor=extractor,
+        sample_rate=sample_rate,
+        fps_num=fps_num,
+        fps_den=fps_den,
         valid_count=valid_count,
-        normalization="pocket-mimi-continuous" if mode == "pocket"
-        else "sana-latent-scaled" if mode == "sana" else "ltx2-normalized",
-        artifact_version=artifact_version, source_family=source_family,
+        normalization="pocket-mimi-continuous"
+        if mode == "pocket"
+        else "sana-latent-scaled"
+        if mode == "sana"
+        else "ltx2-normalized",
+        artifact_version=artifact_version,
+        source_family=source_family,
     )
     # This descriptor represents a supervised event, not an observed decoder
     # bypass. Target latents never enter prospective P or R from source features.
     geometry = (
         OutputGeometry(
-            modality="audio", sample_count=int(array.shape[0]),
-            sample_rate=sample_rate, provenance="teacher_only",
+            modality="audio",
+            sample_count=int(array.shape[0]),
+            sample_rate=sample_rate,
+            provenance="teacher_only",
         )
-        if modality == "audio" else
-        OutputGeometry(
+        if modality == "audio"
+        else OutputGeometry(
             modality=modality,
             frames=int(array.shape[0]) if modality == "video" else 1,
-            height=int(array.shape[-2]), width=int(array.shape[-1]),
+            height=int(array.shape[-2]),
+            width=int(array.shape[-1]),
             fps_num=fps_num if modality == "video" else 0,
-            fps_den=fps_den, provenance="teacher_only",
+            fps_den=fps_den,
+            provenance="teacher_only",
         )
     )
     return MediaRecord(
-        modality=modality, source=input_ref, target=target_ref,
+        modality=modality,
+        source=input_ref,
+        target=target_ref,
         source_views=(target_ref,) if mode == "pocket" else (),
         output_geometry=geometry,
     )
@@ -167,14 +204,22 @@ def main():
     p.add_argument("--artifact-version", required=True)
     p.add_argument("--source-family", required=True)
     p.add_argument("--output", required=True)
-    p.add_argument("--source-feature-json", default=None,
-                   help="Pinned cached E input feature asset; omit to store native raw source")
+    p.add_argument(
+        "--source-feature-json",
+        default=None,
+        help="Pinned cached E input feature asset; omit to store native raw source",
+    )
     args = p.parse_args()
     reference = cache_codec(
-        manifest=args.manifest, mode=args.mode, source_file=args.input,
-        root=args.root, extractor=args.extractor,
-        sample_rate=args.sample_rate, fps_num=args.fps_num,
-        fps_den=args.fps_den, artifact_version=args.artifact_version,
+        manifest=args.manifest,
+        mode=args.mode,
+        source_file=args.input,
+        root=args.root,
+        extractor=args.extractor,
+        sample_rate=args.sample_rate,
+        fps_num=args.fps_num,
+        fps_den=args.fps_den,
+        artifact_version=args.artifact_version,
         source_family=args.source_family,
         source_asset_json=args.source_feature_json,
     )

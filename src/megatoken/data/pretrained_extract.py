@@ -4,9 +4,11 @@ Model weights are never downloaded here and this module is not imported by
 the trainer's runtime hot path. Each export is deterministic after a frozen
 source waveform, crop/resize, model directory and preprocessor revision.
 """
+
 from __future__ import annotations
 
 import hashlib
+import itertools
 from pathlib import Path
 from typing import Any
 
@@ -56,15 +58,17 @@ def extract_whistle(wave: np.ndarray, *, weights: str, expected_width: int) -> n
         raise ValueError("Whistle waveform must be finite normalized 16k PCM")
     embedder = needle.Whistle(weights=str(path.resolve()))
     # Needle's public embed() is a flattened frame-major encoder vector.
-    flat = np.asarray(embedder.embed(np.asarray(wave, dtype=np.float32)),
-                      dtype=np.float32).reshape(-1)
+    flat = np.asarray(embedder.embed(np.asarray(wave, dtype=np.float32)), dtype=np.float32).reshape(
+        -1
+    )
     if expected_width < 1 or not flat.size or flat.size % expected_width:
         raise ValueError("Whistle flattened encoder frames do not match declared width")
     return finite_features(flat.reshape(-1, expected_width), width=expected_width)
 
 
-def extract_siglip2(frames: np.ndarray, *, model_dir: str, device: str,
-                    detail: bool = False) -> np.ndarray:
+def extract_siglip2(
+    frames: np.ndarray, *, model_dir: str, device: str, detail: bool = False
+) -> np.ndarray:
     """Pinned fallback spatial features; preserves ordered per-frame patches."""
     import torch
     from PIL import Image
@@ -80,18 +84,23 @@ def extract_siglip2(frames: np.ndarray, *, model_dir: str, device: str,
     values = []
     with torch.inference_mode():
         for frame in frames:
-            image = Image.fromarray(np.uint8(np.rint(np.clip(
-                frame.transpose(1, 2, 0), 0, 1) * 255)), "RGB")
+            image = Image.fromarray(
+                np.uint8(np.rint(np.clip(frame.transpose(1, 2, 0), 0, 1) * 255)), "RGB"
+            )
             inputs = processor(images=image, return_tensors="pt")
-            inputs = {name: tensor.to(device) for name, tensor in inputs.items()
-                      if isinstance(tensor, torch.Tensor)}
+            inputs = {
+                name: tensor.to(device)
+                for name, tensor in inputs.items()
+                if isinstance(tensor, torch.Tensor)
+            }
             layer = model(**inputs).last_hidden_state
             values.append(finite_features(layer).copy())
     return finite_features(np.concatenate(values, 0))
 
 
-def extract_minicpm_v47(frames: np.ndarray, *, model_dir: str, device: str,
-                        downsample_mode: str = "16x") -> np.ndarray:
+def extract_minicpm_v47(
+    frames: np.ndarray, *, model_dir: str, device: str, downsample_mode: str = "16x"
+) -> np.ndarray:
     """Vision tower/merger only. Never call a Qwen textual decoder for E.
 
     The v4.7 public get_image_features accepts pixel_values and target_sizes.
@@ -107,19 +116,28 @@ def extract_minicpm_v47(frames: np.ndarray, *, model_dir: str, device: str,
         frames = frames[None]
     if frames.ndim != 4 or frames.shape[1] != 3:
         raise ValueError("MiniCPM observation must be [frames,3,height,width]")
-    model = AutoModelForImageTextToText.from_pretrained(
-        model_dir, local_files_only=True, trust_remote_code=False,
-    ).eval().to(device)
+    model = (
+        AutoModelForImageTextToText.from_pretrained(
+            model_dir,
+            local_files_only=True,
+            trust_remote_code=False,
+        )
+        .eval()
+        .to(device)
+    )
     if not hasattr(model, "get_image_features"):
         raise ValueError("Pinned checkpoint lacks the v4.7 native vision feature API")
     processor = AutoProcessor.from_pretrained(
-        model_dir, local_files_only=True, trust_remote_code=False,
+        model_dir,
+        local_files_only=True,
+        trust_remote_code=False,
     )
     pieces = []
     with torch.inference_mode():
         for frame in frames:
-            image = Image.fromarray(np.uint8(np.rint(np.clip(
-                frame.transpose(1, 2, 0), 0, 1) * 255)), "RGB")
+            image = Image.fromarray(
+                np.uint8(np.rint(np.clip(frame.transpose(1, 2, 0), 0, 1) * 255)), "RGB"
+            )
             inputs = processor(images=image, return_tensors="pt")
             if "pixel_values" not in inputs or "target_sizes" not in inputs:
                 raise ValueError("MiniCPM v4.7 processor must expose native image target sizes")
@@ -155,17 +173,26 @@ def extract_pocket_mimi(wave: np.ndarray, *, donor: Any) -> np.ndarray:
     return finite_features(latents)
 
 
-def sample_video_endpoints(frames: np.ndarray, *, displayed_indices: tuple[int, ...],
-                           crop_id: str, spatial_mapping: dict[str, object]):
+def sample_video_endpoints(
+    frames: np.ndarray,
+    *,
+    displayed_indices: tuple[int, ...],
+    crop_id: str,
+    spatial_mapping: dict[str, object],
+):
     """Extract actual displayed endpoints AFTER final crop/resize/time selection.
 
     The supplied tensor is the final visible target, not padded codec frames.
     Returns end frames and a frozen mapping for pixel/perceptual comparison.
     """
-    if (frames.ndim != 4 or frames.shape[1] != 3 or not displayed_indices
-            or len(displayed_indices) != len(frames)
-            or any(a >= b for a, b in zip(displayed_indices, displayed_indices[1:]))
-            or not crop_id):
+    if (
+        frames.ndim != 4
+        or frames.shape[1] != 3
+        or not displayed_indices
+        or len(displayed_indices) != len(frames)
+        or any(a >= b for a, b in itertools.pairwise(displayed_indices))
+        or not crop_id
+    ):
         raise ValueError("Video display indices/crop must match final sampled clip")
     mapping = {
         "first_displayed_index": displayed_indices[0],
@@ -178,8 +205,12 @@ def sample_video_endpoints(frames: np.ndarray, *, displayed_indices: tuple[int, 
 
 
 def pinned_export(
-    store: TensorAssetStore, record: MediaRecord, features: np.ndarray,
-    *, extractor_id: str, feature_slot: str,
+    store: TensorAssetStore,
+    record: MediaRecord,
+    features: np.ndarray,
+    *,
+    extractor_id: str,
+    feature_slot: str,
 ) -> MediaRecord:
     """Make a new immutable MediaRecord with primary or extra E views."""
     if record.source.kind not in {"raw", "features"}:
@@ -188,37 +219,78 @@ def pinned_export(
         raise ValueError("Unknown E feature-view slot")
     asset = store.put(
         finite_features(features),
-        modality=record.modality, kind="features", extractor=extractor_id,
+        modality=record.modality,
+        kind="features",
+        extractor=extractor_id,
         sample_rate=record.source.sample_rate,
-        fps_num=record.source.fps_num, fps_den=record.source.fps_den,
+        fps_num=record.source.fps_num,
+        fps_den=record.source.fps_den,
     )
     if feature_slot == "primary":
-        return MediaRecord(record.modality, asset, record.target, views=record.views,
-                           source_masks=record.source_masks, target_mask=record.target_mask)
-    return MediaRecord(record.modality, record.source, record.target,
-                       views=(*record.views, asset), target_mask=record.target_mask)
+        return MediaRecord(
+            record.modality,
+            asset,
+            record.target,
+            views=record.views,
+            source_masks=record.source_masks,
+            target_mask=record.target_mask,
+        )
+    return MediaRecord(
+        record.modality,
+        record.source,
+        record.target,
+        views=(*record.views, asset),
+        target_mask=record.target_mask,
+    )
 
 
 def record_native_codec_target(
-    store: TensorAssetStore, record: MediaRecord, value: np.ndarray,
-    *, codec_id: str, pack_id: str, preprocessing_id: str,
-    normalization_json: str, geometry: tuple[int, ...], clock_id: str,
-    start_ms: int, end_ms: int, valid_mask: np.ndarray | None = None,
+    store: TensorAssetStore,
+    record: MediaRecord,
+    value: np.ndarray,
+    *,
+    codec_id: str,
+    pack_id: str,
+    preprocessing_id: str,
+    normalization_json: str,
+    geometry: tuple[int, ...],
+    clock_id: str,
+    start_ms: int,
+    end_ms: int,
+    valid_mask: np.ndarray | None = None,
 ) -> MediaRecord:
     """No guessed native latent shape/rate; caller records all transforms."""
     source = record.source
     codec = store.put(
-        value, modality=record.modality, kind="codec_latents",
-        codec_id=codec_id, profile=pack_id, preprocessing_id=preprocessing_id,
-        normalization_json=normalization_json, geometry=geometry,
-        clock_id=clock_id, start_ms=start_ms, end_ms=end_ms,
+        value,
+        modality=record.modality,
+        kind="codec_latents",
+        codec_id=codec_id,
+        profile=pack_id,
+        preprocessing_id=preprocessing_id,
+        normalization_json=normalization_json,
+        geometry=geometry,
+        clock_id=clock_id,
+        start_ms=start_ms,
+        end_ms=end_ms,
         sample_rate=source.sample_rate,
-        fps_num=source.fps_num, fps_den=source.fps_den,
+        fps_num=source.fps_num,
+        fps_den=source.fps_den,
     )
     mask = None
     if valid_mask is not None:
-        mask = store.put_mask(valid_mask, modality=record.modality,
-                              sample_rate=source.sample_rate,
-                              fps_num=source.fps_num, fps_den=source.fps_den)
-    return MediaRecord(record.modality, source, codec, views=record.views,
-                       source_masks=record.source_masks, target_mask=mask)
+        mask = store.put_mask(
+            valid_mask,
+            modality=record.modality,
+            sample_rate=source.sample_rate,
+            fps_num=source.fps_num,
+            fps_den=source.fps_den,
+        )
+    return MediaRecord(
+        record.modality,
+        source,
+        codec,
+        views=record.views,
+        source_masks=record.source_masks,
+        target_mask=mask,
+    )

@@ -5,18 +5,16 @@ import math
 import pytest
 import torch
 
-from megatoken.generation.latents import DiagonalGaussian
-
 from megatoken.controls import ControlBundle, ControlReference, build_control_payload
 from megatoken.data.schema import MediaSpan, Meridian, TrackEvent
 from megatoken.generation.codec import ByteCodec
+from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.policy import FacetedGenerator
 from megatoken.generation.structure import ActionSpec
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import (
     GroupActionTape,
-    MultiTrackCore,
     MultiTrackGenerator,
     ObservedEvent,
 )
@@ -58,8 +56,11 @@ def test_mixed_media_generation_and_replay():
         MediaOutputSpec(modality="video", frames=2, height=16, width=16),
     )
     result = service.generate_group(
-        state, tracks=("reply", "voice", "still", "clip"),
-        specs=specifications, effort=1, generator=torch.Generator().manual_seed(13),
+        state,
+        tracks=("reply", "voice", "still", "clip"),
+        specs=specifications,
+        effort=1,
+        generator=torch.Generator().manual_seed(13),
     )
     assert result.tape.modalities == ("text", "audio", "image", "video")
     assert result.media_outputs[0] is None
@@ -71,11 +72,16 @@ def test_mixed_media_generation_and_replay():
     assert replay.tape.payloads == result.tape.payloads
     torch.testing.assert_close(replay.state.final, result.state.final)
     with pytest.raises(ValueError, match="specifications"):
-        service.replay_group(state, tape, specs=(
-            ActionSpec(max_tokens=8),
-            MediaOutputSpec("audio", sample_count=128),
-            *specifications[2:],
-        ), effort=1)
+        service.replay_group(
+            state,
+            tape,
+            specs=(
+                ActionSpec(max_tokens=8),
+                MediaOutputSpec("audio", sample_count=128),
+                *specifications[2:],
+            ),
+            effort=1,
+        )
 
 
 def test_grouped_multimodal_bootstrap_has_trainable_gradients():
@@ -140,8 +146,10 @@ def test_media_realizers_are_direct_raw_facet_functions():
         MediaOutputSpec("image", height=16, width=16),
         MediaOutputSpec("video", frames=2, height=16, width=16),
     )
+
     def forbid(*args, **kwargs):
         raise AssertionError("R must not execute the central core")
+
     original = core.central.forward
     core.central.forward = forbid
     try:
@@ -158,8 +166,11 @@ def test_media_realizers_are_direct_raw_facet_functions():
 
 def test_single_control_source_supports_structured_media_references():
     reference = ControlReference(
-        asset_id="speaker-consented-1", sha256="a" * 64, media_type="audio/wav",
-        purpose="voice", origin="external_evidence",
+        asset_id="speaker-consented-1",
+        sha256="a" * 64,
+        media_type="audio/wav",
+        purpose="voice",
+        origin="external_evidence",
     )
     control = ControlBundle(
         instructions=b"Say hello",
@@ -175,7 +186,7 @@ def test_single_control_source_supports_structured_media_references():
         seed=b"Say hello",
         settings_json='{"style":"calm","language":"en"}',
         references=(reference,),
-        track_override={"track":"speech"},
+        track_override={"track": "speech"},
     )
     with pytest.raises(ValueError, match="provenance"):
         ControlReference("x", "a" * 64, "audio/wav", "voice", "future_target")
@@ -197,19 +208,26 @@ def test_grouped_bootstrap_kl_is_normalized_once_per_latent_coordinate():
     target = torch.rand(1, 1, 3, 16, 16)
     spec = MediaOutputSpec("image", height=16, width=16)
     result = service.supervised_group(
-        state, tracks=("picture",), targets=(target,), specs=(spec,),
-        effort=1, generator=torch.Generator().manual_seed(101),
+        state,
+        tracks=("picture",),
+        targets=(target,),
+        specs=(spec,),
+        effort=1,
+        generator=torch.Generator().manual_seed(101),
     )
     with torch.no_grad():
         mean = service.tracks.predict_group(
-            state, tracks=("picture",), modalities=("image",), effort=1,
+            state,
+            tracks=("picture",),
+            modalities=("image",),
+            effort=1,
         )
         encoded = core.encode_media("image", target)[:, None]
         posterior = DiagonalGaussian(
             encoded.float(),
             torch.full_like(encoded.float(), math.log(core.config.codec_noise_std)),
         )
-        expected = posterior.kl(model.facet_distribution(mean)).mean()
+        expected = posterior.kl(model.facet_distribution(mean)).sum() / encoded.numel()
     torch.testing.assert_close(result.components["facet_kl"], expected, rtol=1e-5, atol=1e-5)
     assert float(expected) > 0
 

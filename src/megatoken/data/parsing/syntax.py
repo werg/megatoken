@@ -1075,9 +1075,7 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
         _generic_region(scan, start, stop, "comment", language, limits)
         ranges = _comment_ranges(payload, start, stop)
         if ranges and len(scan.injections) < limits.max_injections:
-            scan.injections.append(
-                Injection(start, stop, "auto", None, "lexical_comment", ranges)
-            )
+            scan.injections.append(Injection(start, stop, "auto", None, "lexical_comment", ranges))
 
     while index < maximum and scan.nodes < limits.max_nodes:
         scan.nodes += 1
@@ -1124,16 +1122,14 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
             marker = b"--"
         elif dialect in _SEMICOLON_COMMENTS and value == 59:
             marker = b";"
-        elif dialect in _PERCENT_COMMENTS and value == 37 and (
-            index == 0 or payload[index - 1] != 92
+        elif (
+            dialect in _PERCENT_COMMENTS
+            and value == 37
+            and (index == 0 or payload[index - 1] != 92)
         ):
             marker = b"%"
         elif dialect in _HASH_COMMENTS and value == 35:
-            if (
-                dialect not in _HASH_AFTER_SPACE
-                or index == 0
-                or payload[index - 1] in b" \t\r\n"
-            ):
+            if dialect not in _HASH_AFTER_SPACE or index == 0 or payload[index - 1] in b" \t\r\n":
                 marker = b"#"
         elif dialect in {"", "unknown", "code"} and line_prefix:
             if payload.startswith(b"//", index):
@@ -1248,9 +1244,7 @@ def scan_generic(payload: bytes, language: str | None, limits: ParseLimits) -> S
         elif value in {10, 13}:
             if value == 13 and index + 1 < maximum and payload[index + 1] == 10:
                 index += 1
-            result.boundaries.append(
-                Boundary(index + 1, "line", len(stack), "generic_lexical")
-            )
+            result.boundaries.append(Boundary(index + 1, "line", len(stack), "generic_lexical"))
             line_prefix = True
         if value not in {9, 10, 13, 32}:
             line_prefix = False

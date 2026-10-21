@@ -31,7 +31,11 @@ class DenseFacetBlock(nn.Module):
             raise ValueError("Temporary KV reads belong only to the central processor")
         c = config
         self.attention = AttentionRead(
-            c.facet_dim, c.query_heads, c.kv_heads, c.attention_head_dim, c.norm_eps,
+            c.facet_dim,
+            c.query_heads,
+            c.kv_heads,
+            c.attention_head_dim,
+            c.norm_eps,
             track_relations=shared_kv,
         )
         self.kv = (
@@ -61,12 +65,17 @@ class DenseFacetBlock(nn.Module):
         if self.kv is not None and projector is not None:
             raise ValueError("A local block cannot bypass its owned KV projection")
         current = projection(
-            facets, temporal_positions=temporal_positions, slot_codes=slot_codes,
+            facets,
+            temporal_positions=temporal_positions,
+            slot_codes=slot_codes,
             track_ids=query_track_ids,
         )
         attention = join_attention(current, history)
         updated = self.attention.read(
-            facets, attention, temporal_positions=temporal_positions, slot_codes=slot_codes,
+            facets,
+            attention,
+            temporal_positions=temporal_positions,
+            slot_codes=slot_codes,
             query_track_ids=query_track_ids,
         )
         facets = facets + self.residual_gates[0].sigmoid() * updated
@@ -76,8 +85,11 @@ class DenseFacetBlock(nn.Module):
             # A separate softmax/gate stops short-lived 32-slot keys from
             # competing for mass with thousands of historical KV slots.
             response = self.attention.read(
-                facets, temporary, temporal_positions=temporal_positions,
-                slot_codes=slot_codes, query_track_ids=query_track_ids,
+                facets,
+                temporary,
+                temporal_positions=temporal_positions,
+                slot_codes=slot_codes,
+                query_track_ids=query_track_ids,
             )
             facets = facets + self.temporary_gate.sigmoid() * response
         return facets + self.residual_gates[1].sigmoid() * self.ffn(self.ffn_norm(facets))

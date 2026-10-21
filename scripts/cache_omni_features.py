@@ -30,8 +30,11 @@ def _vision_features(model, processor, raw, device):
             pixels = np.clip(frame.transpose(1, 2, 0), 0, 1)
             image = Image.fromarray(np.rint(pixels * 255).astype(np.uint8), "RGB")
             arguments = processor(images=image, return_tensors="pt")
-            arguments = {key: val.to(device) for key, val in arguments.items()
-                         if isinstance(val, torch.Tensor)}
+            arguments = {
+                key: val.to(device)
+                for key, val in arguments.items()
+                if isinstance(val, torch.Tensor)
+            }
             features = model(**arguments).last_hidden_state
             if features.ndim != 3 or features.shape[0] != 1:
                 raise ValueError("Vision donor must return ordered patch features")
@@ -83,9 +86,13 @@ def main() -> None:
         raise ValueError("Donor output is not an ordered finite feature sequence")
     extractor = f"hf:{args.model}@{args.revision}"
     cached = store.put(
-        features, modality=modality, kind="features", extractor=extractor,
+        features,
+        modality=modality,
+        kind="features",
+        extractor=extractor,
         sample_rate=original.source.sample_rate,
-        fps_num=original.source.fps_num, fps_den=original.source.fps_den,
+        fps_num=original.source.fps_num,
+        fps_den=original.source.fps_den,
     )
     result = MediaRecord(modality, cached, original.target)
     path = Path(args.output)
@@ -93,12 +100,18 @@ def main() -> None:
         raise FileExistsError("Feature export must use a new immutable output path")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(result.to_bytes())
-    print(json.dumps({
-        "extractor": extractor,
-        "feature_dim": int(features.shape[-1]),
-        "feature_tokens": int(features.shape[0]),
-        "sha256": cached.sha256, "media_record": str(path),
-    }, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "extractor": extractor,
+                "feature_dim": int(features.shape[-1]),
+                "feature_tokens": int(features.shape[0]),
+                "sha256": cached.sha256,
+                "media_record": str(path),
+            },
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

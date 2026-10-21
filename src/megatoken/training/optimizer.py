@@ -291,11 +291,11 @@ class MasterAdamW:
                 continue
             for group in optimizer.param_groups:
                 group["params"] = [
-                    parameter for parameter in group["params"] if id(parameter) not in removed_masters
+                    parameter
+                    for parameter in group["params"]
+                    if id(parameter) not in removed_masters
                 ]
-            optimizer.param_groups = [
-                group for group in optimizer.param_groups if group["params"]
-            ]
+            optimizer.param_groups = [group for group in optimizer.param_groups if group["params"]]
         self.gradient_domains = {
             key: tuple(name for name in names if name in self.masters)
             for key, names in self.gradient_domains.items()

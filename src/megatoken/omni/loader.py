@@ -1,4 +1,5 @@
 """Offline, byte-pinned native donor loading for the existing model owner."""
+
 from __future__ import annotations
 
 import hashlib
@@ -18,14 +19,29 @@ def read_locked_manifest(filename: str):
     if not isinstance(value, dict) or value.get("version") != 1:
         raise ValueError("Pack manifest must declare version 1")
     packs = value.get("packs")
-    if not isinstance(packs, dict) or not packs or set(packs) - {
-        "pocket", "sana", "sana_video", "whistle", "minicpm"
-    }:
+    if (
+        not isinstance(packs, dict)
+        or not packs
+        or set(packs) - {"pocket", "sana", "sana_video", "whistle", "minicpm"}
+    ):
         raise ValueError("Supported residents: Pocket, Sana, Sana-Video")
     for name, item in packs.items():
-        if set(item) - {"snapshot", "config", "checkpoint", "weights", "files", "revision", "repository"}:
+        if set(item) - {
+            "snapshot",
+            "config",
+            "checkpoint",
+            "weights",
+            "files",
+            "revision",
+            "repository",
+        }:
             raise ValueError("Unexpected pretrained pack manifest fields")
-        if not isinstance(item.get("revision"), str) or not re.fullmatch(r"[0-9a-f]{40}", item["revision"]) or not isinstance(item.get("files"), dict) or not item["files"]:
+        if (
+            not isinstance(item.get("revision"), str)
+            or not re.fullmatch(r"[0-9a-f]{40}", item["revision"])
+            or not isinstance(item.get("files"), dict)
+            or not item["files"]
+        ):
             raise ValueError("Each pack requires a revision and file checksums")
         if name == "pocket":
             if not item.get("config"):
@@ -36,9 +52,13 @@ def read_locked_manifest(filename: str):
             raise ValueError("Whistle requires a locally pinned .cact file")
         verified = set()
         for relative, expected in item["files"].items():
-            if (not isinstance(relative,str) or Path(relative).is_absolute()
-                    or ".." in Path(relative).parts or len(expected) != 64
-                    or any(c not in "0123456789abcdef" for c in expected)):
+            if (
+                not isinstance(relative, str)
+                or Path(relative).is_absolute()
+                or ".." in Path(relative).parts
+                or len(expected) != 64
+                or any(c not in "0123456789abcdef" for c in expected)
+            ):
                 raise ValueError("Invalid relative checksum manifest entry")
             filename = (path.parent / relative).resolve()
             if not filename.is_relative_to(path.parent):
@@ -75,25 +95,32 @@ def read_locked_manifest(filename: str):
                 raise ValueError("Extracted MiniCPM tower revision differs from parent VLM")
         if name == "pocket":
             import yaml
+
             config_file = (path.parent / item["config"]).resolve()
             config = yaml.safe_load(config_file.read_text("utf-8"))
             if not isinstance(config, dict):
                 raise ValueError("Pocket config must be a YAML mapping")
-            def walk(node):
+
+            def walk(node, base=config_file.parent, verified=verified):
                 if isinstance(node, dict):
                     for key, value in node.items():
-                        if key in {"weights_path", "weights_path_without_voice_cloning", "tokenizer_path"} and isinstance(value, str):
+                        if key in {
+                            "weights_path",
+                            "weights_path_without_voice_cloning",
+                            "tokenizer_path",
+                        } and isinstance(value, str):
                             if value.startswith(("hf://", "https://", "http://")):
                                 raise ValueError(f"Remote Pocket resource in {key}")
                             resource = Path(value)
                             if not resource.is_absolute():
-                                resource = config_file.parent / resource
+                                resource = base / resource
                             if resource.resolve() not in verified:
                                 raise ValueError(f"Unhashed Pocket resource {key}")
-                        walk(value)
+                        walk(value, base, verified)
                 elif isinstance(node, list):
                     for value in node:
-                        walk(value)
+                        walk(value, base, verified)
+
             walk(config)
     return path.parent, packs
 
@@ -115,14 +142,16 @@ def install_pretrained_packs(model, manifest: str, *, device, dtype=torch.bfloat
             student = SanaFacetsStudent.from_checkpoint(
                 snapshot=str(base / item["snapshot"]),
                 modality="image" if name == "sana" else "video",
-                facet_width=model.config.facet_dim, torch_dtype=dtype,
+                facet_width=model.config.facet_dim,
+                torch_dtype=dtype,
             )
         # A live group tape binds to all exact verified decoder/generator files.
         # This digest survives pack unload/reload and does not depend on order.
         student.checkpoint_identity = hashlib.sha256(
             json.dumps(
                 {"revision": item["revision"], "files": item["files"]},
-                sort_keys=True, separators=(",", ":"),
+                sort_keys=True,
+                separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
         student = student.to(device)

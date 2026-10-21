@@ -67,7 +67,9 @@ class Transport:
         body = (
             json.dumps(json_body, sort_keys=True, allow_nan=False).encode()
             if json_body is not None
-            else file.read_bytes() if file else None
+            else file.read_bytes()
+            if file
+            else None
         )
         request = urllib.request.Request(
             self.url + path,
@@ -93,7 +95,9 @@ class Transport:
                 raw = response.read()
                 return (
                     response.status,
-                    json.loads(raw) if raw and response.headers.get_content_type() == "application/json" else raw,
+                    json.loads(raw)
+                    if raw and response.headers.get_content_type() == "application/json"
+                    else raw,
                     response_headers,
                 )
         except urllib.error.HTTPError as error:
@@ -106,12 +110,23 @@ class Transport:
             raise ValueError(f"Expected JSON coordinator response from {path}")
         return result
 
-    def fetch_file(self, path: str, directory: Path) -> tuple[Path | None, dict]:
+    def fetch_file(
+        self,
+        path: str,
+        directory: Path,
+        *,
+        json_body: dict | None = None,
+    ) -> tuple[Path | None, dict]:
         fd, name = tempfile.mkstemp(dir=directory, suffix=".download")
         os.close(fd)
         target = Path(name)
         try:
-            status, _, headers = self.request("GET", path, output=target)
+            status, _, headers = self.request(
+                "GET" if json_body is None else "POST",
+                path,
+                json_body=json_body,
+                output=target,
+            )
             if status == 204:
                 target.unlink()
                 return None, headers
@@ -121,6 +136,24 @@ class Transport:
         except BaseException:
             target.unlink(missing_ok=True)
             raise
+
+
+def fetch_kb_snapshot(settings: Any, destination: Path) -> int:
+    """Download the coordinator's canonical free-KB snapshot before training."""
+    transport = Transport(
+        settings.coordinator_url,
+        os.environ.get("MEGATOKEN_DILOCO_TOKEN", ""),
+        settings.timeout_seconds,
+        allow_http=settings.allow_private_http,
+    )
+    manifest = transport.json("GET", "/v1/manifest")
+    if manifest.get("kb") is None:
+        raise ValueError("DiLoCo coordinator was initialized without a free KB")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    path, headers = transport.fetch_file("/v1/kb", destination.parent)
+    assert path is not None
+    os.replace(path, destination)
+    return int(headers["X-KB-Version"])
 
 
 class DecoupledWorker:
@@ -163,6 +196,12 @@ class DecoupledWorker:
         self.outbox = output / "outbox"
         self.outbox.mkdir(parents=True, exist_ok=True)
         self.io = ThreadPoolExecutor(max_workers=settings.io_workers, thread_name_prefix="diloco")
+        # Heartbeats and KB sync are small and latency-sensitive: give them their
+        # own lane so bulk fragment transfers can never starve them.
+        self.control_io = ThreadPoolExecutor(max_workers=2, thread_name_prefix="diloco-control")
+        # Coordinator versions from the latest status; drives targeted fetches.
+        self.remote_versions: list[int] | None = None
+        self.remote_kb_version: int | None = None
         self.session = str(uuid.uuid4())
         self.versions = [-1] * len(self.fragments)
         self.baselines: list[torch.Tensor | None] = [None] * len(self.fragments)
@@ -183,6 +222,14 @@ class DecoupledWorker:
         self.last_progress_error = ""
         self.offline_steps = 0
         self._poll_cursor = 0
+        self.kb = None
+        self._kb_force_fetch = False
+
+    def attach_kb(self, kb: Any) -> None:
+        """Synchronize free-KB rows through the coordinator (see diloco_kb)."""
+        if self.manifest.get("kb") is None:
+            raise ValueError("DiLoCo coordinator was initialized without a free KB")
+        self.kb = kb
 
     def _lease(self) -> None:
         status = self.transport.json(
@@ -194,6 +241,11 @@ class DecoupledWorker:
         self.global_tokens = int(value["global_tokens"])
         self.merges = int(value["merges"])
         self.finished = bool(value["finished"])
+        versions = value.get("versions")
+        if isinstance(versions, list) and len(versions) == len(self.fragments):
+            self.remote_versions = [int(v) for v in versions]
+        if value.get("kb_version") is not None:
+            self.remote_kb_version = int(value["kb_version"])
 
     def bootstrap(self, model: torch.nn.Module, optimizer: Any) -> None:
         """Get identical initialization, then reconcile with latest global fragments."""
@@ -223,6 +275,10 @@ class DecoupledWorker:
         self.local_tokens = int(value["local_tokens"])
         self.pending = {int(k): dict(v, future=None) for k, v in value["pending"].items()}
         self.awaiting_global = set(value.get("awaiting_global", []))
+        if self.kb is not None:
+            if value.get("kb") is None:
+                raise ValueError("DiLoCo checkpoint lacks free-KB synchronization state")
+            self.kb.load_state_dict(value["kb"], self.outbox)
         self._lease()
         # The committed checkpoint embeds each pending upload for recovery when
         # a sandbox's ephemeral scratch volume has been discarded.
@@ -232,9 +288,13 @@ class DecoupledWorker:
                 payload = value.get("pending_payloads", {}).get(str(index))
                 if payload is None:
                     raise FileNotFoundError(f"Checkpoint lacks pending upload {index}")
-                save_tensors(filename, {"delta": payload})
+                entry["delta"] = payload
             entry["filename"] = str(filename)
             self._send_async(index)
+        if self.kb is not None and self.kb.pending is not None:
+            self.kb.pending["future"] = self.control_io.submit(
+                self._upload_kb, dict(self.kb.pending)
+            )
         self._fetch_all(optimizer)
 
     def _fetch(self, index: int, version: int) -> tuple[int, torch.Tensor] | None:
@@ -257,16 +317,28 @@ class DecoupledWorker:
             path.unlink(missing_ok=True)
 
     def _install(self, index: int, update: tuple[int, torch.Tensor] | None, optimizer: Any) -> bool:
+        """Install a newer global fragment *without discarding local progress*.
+
+        ``baselines[index]`` is the anchor that local progress is measured from:
+        the last installed global, or the upload point once a pseudo-gradient
+        was queued. Steps trained since the anchor are carried onto the new
+        global (overlapped/streaming DiLoCo), so learners never idle or waste
+        compute while a round is in flight, and the next pseudo-gradient
+        contains exactly that residual progress.
+        """
         if update is None:
             return False
         version, tensor = update
         if version <= self.versions[index]:
             return False
-        install_fragment(optimizer, self.fragments[index], tensor)
+        anchor = self.baselines[index]
+        if anchor is None:
+            values = tensor
+        else:
+            values = tensor + (pack_fragment(optimizer.masters, self.fragments[index]) - anchor)
+        install_fragment(optimizer, self.fragments[index], values)
         self.versions[index] = version
         self.baselines[index] = tensor
-        self.steps_since[index] = 0
-        self.tokens_since[index] = 0
         self.awaiting_global.discard(index)
         return True
 
@@ -278,6 +350,23 @@ class DecoupledWorker:
         _, response, _ = self.transport.request(
             "POST",
             f"/v1/updates/{index}",
+            file=self._write_outbox(entry),
+            headers={
+                "X-Worker": str(self.worker),
+                "X-Session": self.session,
+                "X-Sequence": str(entry["sequence"]),
+                "X-Base-Version": str(entry["version"]),
+                "X-Steps": str(entry["steps"]),
+                "X-Tokens": str(entry["tokens"]),
+                "Content-Type": "application/octet-stream",
+            },
+        )
+        return response
+
+    def _upload_kb(self, entry: dict) -> dict:
+        _, response, _ = self.transport.request(
+            "POST",
+            "/v1/kb/updates",
             file=Path(entry["filename"]),
             headers={
                 "X-Worker": str(self.worker),
@@ -291,9 +380,135 @@ class DecoupledWorker:
         )
         return response
 
+    def _fetch_kb(
+        self,
+        version: int,
+        trained: tuple[tuple[int, ...], tuple[int, ...]] = ((), ()),
+    ) -> tuple[int, Path, str] | None:
+        """Rows changed since ``version`` plus trained rows; snapshot as fallback."""
+        if version >= 0:
+            try:
+                path, headers = self.transport.fetch_file(
+                    "/v1/kb/changes",
+                    self.outbox,
+                    json_body={
+                        "after": version,
+                        "records": list(trained[0]),
+                        "relations": list(trained[1]),
+                    },
+                )
+                if path is None:
+                    return None
+                return int(headers["X-KB-Version"]), path, "changes"
+            except RemoteError as exc:
+                if exc.status != 410:
+                    raise
+        path, headers = self.transport.fetch_file(f"/v1/kb?after={version}", self.outbox)
+        if path is None:
+            return None
+        return int(headers["X-KB-Version"]), path, "snapshot"
+
+    def _kb_step(self, steps: int, tokens: int, bank: Any) -> tuple[int, Any]:
+        """Advance KB uploads/polls. Returns (errors, ready (version, path, kind) or None)."""
+        from megatoken.training.diloco_kb import save_kb_update
+
+        kb = self.kb
+        errors = 0
+        ready = None
+        kb.steps_since += 1
+        kb.tokens_since += tokens
+        entry = kb.pending
+        if entry is not None and entry["future"] is not None and entry["future"].done():
+            try:
+                entry["future"].result()
+                Path(entry["filename"]).unlink(missing_ok=True)
+                kb.pending = None
+                kb.awaiting_global = True
+            except RemoteError as exc:
+                if exc.status == 409 and "Stale" in str(exc):
+                    # The baseline aged out: drop it and reinstall the canonical bank.
+                    Path(entry["filename"]).unlink(missing_ok=True)
+                    kb.pending = None
+                    self._kb_force_fetch = True
+                else:
+                    errors += 1
+                    entry["future"] = None
+                    entry["retry_after"] = steps + min(64, 2 ** min(6, entry.get("attempts", 0)))
+                    entry["attempts"] = entry.get("attempts", 0) + 1
+                    self.last_progress_error = str(exc)
+            except (OSError, TimeoutError, ValueError) as exc:
+                errors += 1
+                entry["future"] = None
+                entry["retry_after"] = steps + min(64, 2 ** min(6, entry.get("attempts", 0)))
+                entry["attempts"] = entry.get("attempts", 0) + 1
+                self.last_progress_error = str(exc)
+        if (
+            kb.pending is not None
+            and kb.pending["future"] is None
+            and (steps >= kb.pending["retry_after"])
+        ):
+            kb.pending["future"] = self.control_io.submit(self._upload_kb, dict(kb.pending))
+        if kb.download is not None and kb.download.done():
+            try:
+                result = kb.download.result()
+                if result is not None and result[0] > kb.version:
+                    ready = result
+                elif result is not None:
+                    result[1].unlink(missing_ok=True)
+                self._kb_force_fetch = False
+            except (OSError, TimeoutError, ValueError, RemoteError) as exc:
+                errors += 1
+                self.last_progress_error = str(exc)
+            kb.download = None
+        if (
+            kb.steps_since >= self.settings.local_steps
+            and kb.pending is None
+            and not kb.awaiting_global
+        ):
+            rows = kb.deltas(bank)
+            if rows or kb.demand:
+                sequence = kb.sequence + 1
+                filename = self.outbox / f"kb-{sequence:09d}.safetensors"
+                save_kb_update(filename, rows, kb.demand, wire_dtype=self.settings.wire_dtype)
+                kb.sequence = sequence
+                kb.demand = []
+                kb.pending = {
+                    "filename": str(filename),
+                    "sequence": sequence,
+                    "version": kb.version,
+                    "steps": kb.steps_since,
+                    "tokens": max(1, kb.tokens_since),
+                    "future": None,
+                    "retry_after": 0,
+                }
+                kb.pending["future"] = self.control_io.submit(self._upload_kb, dict(kb.pending))
+            kb.uploaded(bank)
+        # Fetch as soon as the coordinator reports a newer canonical version;
+        # without status information fall back to periodic polling.
+        newer = (
+            self.remote_kb_version > kb.version
+            if self.remote_kb_version is not None
+            else steps % self.settings.poll_steps == 0
+        )
+        if ready is None and kb.download is None and (self._kb_force_fetch or newer):
+            kb.download = self.control_io.submit(
+                self._fetch_kb,
+                -1 if self._kb_force_fetch else kb.version,
+                kb.trained_rows(),
+            )
+        return errors, ready
+
     def _send_async(self, index: int) -> None:
         entry = self.pending[index]
         entry["future"] = self.io.submit(self._upload, index, dict(entry))
+
+    def _write_outbox(self, entry: dict) -> Path:
+        filename = Path(entry["filename"])
+        if not filename.exists():
+            staging = filename.with_suffix(".partial")
+            save_tensors(staging, {"delta": entry["delta"]})
+            os.replace(staging, filename)
+        return filename
 
     def _queue(self, index: int, optimizer: Any) -> None:
         if index in self.pending or index in self.awaiting_global or self.versions[index] < 0:
@@ -302,31 +517,49 @@ class DecoupledWorker:
             return
         baseline = self.baselines[index]
         assert baseline is not None
-        delta = baseline - pack_fragment(optimizer.masters, self.fragments[index])
+        current = pack_fragment(optimizer.masters, self.fragments[index])
+        delta = baseline - current
         if not torch.isfinite(delta).all():
             raise ValueError("Nonfinite local DiLoCo pseudogradient")
         sequence = self.sequences[index] + 1
-        filename = self.outbox / f"{index:05d}-{sequence:09d}.safetensors"
-        save_tensors(
-            filename,
-            {"delta": delta.to(
-                torch.bfloat16 if self.settings.wire_dtype == "bf16" else torch.float32
-            )},
-        )
         self.sequences[index] = sequence
         self.pending[index] = {
-            "filename": str(filename),
+            "filename": str(self.outbox / f"{index:05d}-{sequence:09d}.safetensors"),
             "sequence": sequence,
             "version": self.versions[index],
             "steps": self.steps_since[index],
             "tokens": self.tokens_since[index],
+            # Serialized by the I/O lane; the training thread never touches disk.
+            "delta": delta.to(
+                torch.bfloat16 if self.settings.wire_dtype == "bf16" else torch.float32
+            ),
             "future": None,
             "retry_after": 0,
         }
+        # Progress from here on is measured against the upload point, so the
+        # steps trained while this round is in flight survive the global install.
+        self.baselines[index] = current
+        self.steps_since[index] = 0
+        self.tokens_since[index] = 0
         self._send_async(index)
 
-    def after_step(self, optimizer: Any, *, steps: int, tokens: int) -> dict:
-        """Called *after* each complete optimizer step; never blocks on network."""
+    def after_step(
+        self,
+        optimizer: Any,
+        *,
+        steps: int,
+        tokens: int,
+        bank: Any = None,
+    ) -> dict:
+        """Called *after* each complete optimizer step; never blocks on network.
+
+        With an attached KB, ``bank`` is the learner's local SQLite bank and the
+        result's ``kb_snapshot`` is a downloaded (version, path, kind) for the
+        caller to apply between optimizer steps; kind is "changes" or "snapshot".
+        """
+        kb_errors, kb_ready = (
+            self._kb_step(steps, tokens, bank) if self.kb is not None else (0, None)
+        )
         self.local_steps = steps
         self.local_tokens += tokens
         for i in range(len(self.fragments)):
@@ -376,7 +609,12 @@ class DecoupledWorker:
                 errors += 1
                 self.last_progress_error = str(exc)
             del self.downloads[index]
-        if steps - self.last_poll_step >= self.settings.poll_steps:
+        if self.remote_versions is not None:
+            # Status-driven: fetch exactly the fragments the coordinator advanced.
+            for index, remote in enumerate(self.remote_versions):
+                if remote > self.versions[index] and index not in self.downloads:
+                    self.downloads[index] = self.io.submit(self._fetch, index, self.versions[index])
+        elif steps - self.last_poll_step >= self.settings.poll_steps:
             self.last_poll_step = steps
             for _ in range(min(self.settings.io_workers, len(self.fragments))):
                 index = self._poll_cursor % len(self.fragments)
@@ -397,7 +635,7 @@ class DecoupledWorker:
             and steps - self.last_heartbeat_step >= self.settings.heartbeat_steps
         ):
             self.last_heartbeat_step = steps
-            self.heartbeat = self.io.submit(
+            self.heartbeat = self.control_io.submit(
                 self.transport.json,
                 "POST",
                 "/v1/progress",
@@ -420,13 +658,27 @@ class DecoupledWorker:
                 and index not in self.awaiting_global
             ):
                 self._queue(index, optimizer)
+        errors += kb_errors
         if errors:
             self.offline_steps += 1
         if self.offline_steps > self.settings.max_offline_steps:
             raise RuntimeError(
                 f"DiLoCo coordinator unreachable for too many steps: {self.last_progress_error}"
             )
-        return {"updated": int(updated), "pending": len(self.pending), "merges": self.merges}
+        return {
+            "updated": int(updated),
+            "pending": len(self.pending),
+            "merges": self.merges,
+            **(
+                {
+                    "kb_version": self.kb.version,
+                    "kb_pending": int(self.kb.pending is not None),
+                    "kb_snapshot": kb_ready,
+                }
+                if self.kb is not None
+                else {}
+            ),
+        }
 
     def state_dict(self) -> dict:
         """Checkpoint baseline+cursor, not live Futures or socket objects."""
@@ -443,14 +695,19 @@ class DecoupledWorker:
             "local_steps": self.local_steps,
             "local_tokens": self.local_tokens,
             "pending": {
-                str(k): {key: value for key, value in entry.items() if key != "future"}
+                str(k): {
+                    key: value for key, value in entry.items() if key not in ("future", "delta")
+                }
                 for k, entry in self.pending.items()
             },
             "awaiting_global": sorted(self.awaiting_global),
             "pending_payloads": {
-                str(k): load_tensors(entry["filename"])["delta"]
+                str(k): (
+                    entry["delta"] if "delta" in entry else load_tensors(entry["filename"])["delta"]
+                )
                 for k, entry in self.pending.items()
             },
+            "kb": None if self.kb is None else self.kb.state_dict(),
         }
 
     def metrics(self) -> dict:
@@ -467,3 +724,11 @@ class DecoupledWorker:
 
     def close(self) -> None:
         self.io.shutdown(wait=True, cancel_futures=False)
+        self.control_io.shutdown(wait=True, cancel_futures=False)
+        if self.kb is not None and self.kb.download is not None and self.kb.download.done():
+            try:
+                result = self.kb.download.result()
+            except Exception:
+                result = None
+            if result is not None:
+                result[1].unlink(missing_ok=True)

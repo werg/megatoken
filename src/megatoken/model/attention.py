@@ -33,9 +33,7 @@ def temporal_rope(x: Tensor, positions: Tensor, *, base: float = 1_000_000.0) ->
     sine = angles.sin().float()
     paired = x.float().reshape(*x.shape[:-1], dim // 2, 2)
     left, right = paired.unbind(-1)
-    rotated = torch.stack(
-        (left * cosine - right * sine, left * sine + right * cosine), dim=-1
-    )
+    rotated = torch.stack((left * cosine - right * sine, left * sine + right * cosine), dim=-1)
     return rotated.reshape_as(x).to(dtype=x.dtype)
 
 
@@ -47,6 +45,7 @@ class AttentionFeatures:
     values: Tensor
     mask: Tensor | None = None
     track_ids: Tensor | None = None  # Per-slot categorical identity, -1 if unknown.
+    log_strength: Tensor | None = None  # [batch, slots] additive log gate.
 
 
 def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -> AttentionFeatures:
@@ -68,12 +67,27 @@ def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -
                 )
             )
         mask = torch.cat(masks, dim=1)
+    logs = None
+    if history.log_strength is not None or live.log_strength is not None:
+        logs = torch.cat(
+            tuple(
+                item.log_strength.to(live.keys.dtype)
+                if item.log_strength is not None
+                else item.keys.new_zeros(
+                    item.keys.shape[0], item.keys.shape[2], dtype=live.keys.dtype
+                )
+                for item in (history, live)
+            ),
+            dim=1,
+        )
     return AttentionFeatures(
         torch.cat((history.keys.to(live.keys.dtype), live.keys), dim=2),
         torch.cat((history.values.to(live.values.dtype), live.values), dim=2),
         mask,
-        None if live.track_ids is None or history.track_ids is None
+        None
+        if live.track_ids is None or history.track_ids is None
         else torch.cat((history.track_ids, live.track_ids), dim=1),
+        logs,
     )
 
 
@@ -121,6 +135,12 @@ class AttentionRead(nn.Module):
         if temporal_positions is not None:
             q = temporal_rope(q, temporal_positions)
         attn_mask = None if features.mask is None else features.mask[:, None, None, :]
+        if features.log_strength is not None:
+            if features.log_strength.shape != (batch, features.keys.shape[2]):
+                raise ValueError("Per-slot KB log-strength has wrong attention shape")
+            attn_mask = features.log_strength.to(q.dtype)[:, None, None, :]
+            if features.mask is not None:
+                attn_mask = attn_mask.masked_fill(~features.mask[:, None, None, :], float("-inf"))
         if self.same_track_bias is not None and (
             (query_track_ids is None) != (features.track_ids is None)
         ):
@@ -131,7 +151,8 @@ class AttentionRead(nn.Module):
             and features.track_ids is not None
         ):
             if query_track_ids.shape != (batch, count) or features.track_ids.shape != (
-                batch, features.keys.shape[2]
+                batch,
+                features.keys.shape[2],
             ):
                 raise ValueError("Attention track IDs must identify every query/key slot")
             same = query_track_ids[:, :, None] == features.track_ids[:, None, :]
@@ -139,7 +160,9 @@ class AttentionRead(nn.Module):
             bias = same[:, None].to(q.dtype) * self.same_track_bias.to(q.dtype)[None, :, None, None]
             if features.mask is not None:
                 bias = bias.masked_fill(~features.mask[:, None, None, :], float("-inf"))
-            attn_mask = bias
+            attn_mask = (
+                bias if attn_mask is None or attn_mask.dtype == torch.bool else attn_mask + bias
+            )
         result = F.scaled_dot_product_attention(
             q,
             features.keys.to(q.dtype),

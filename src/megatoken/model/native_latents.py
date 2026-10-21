@@ -5,6 +5,7 @@ conditioners, voice prompts, previous media and C/KV are not arguments.
 Pack loaders require local, hash-verified weights; training/serving never
 implicitly download checkpoints.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -35,9 +36,13 @@ class PackSpec:
     def __post_init__(self) -> None:
         if self.family not in {"pocket", "sana_image", "sana_video"}:
             raise ValueError("Only the selected pretrained native families are supported")
-        if (not self.pack_id or not self.codec_id or not self.revision
-                or len(self.weights_sha256) != 64 or
-                any(ch not in "0123456789abcdef" for ch in self.weights_sha256)):
+        if (
+            not self.pack_id
+            or not self.codec_id
+            or not self.revision
+            or len(self.weights_sha256) != 64
+            or any(ch not in "0123456789abcdef" for ch in self.weights_sha256)
+        ):
             raise ValueError("Pack needs pinned generator, exact codec and weight digest")
         if self.conditioner_width < 1 or not 1 <= self.steps <= 128:
             raise ValueError("Invalid native conditioner width or sampler steps")
@@ -78,11 +83,15 @@ class FullFacetConditioner(nn.Module):
         self.norm = nn.LayerNorm(donor_width)
 
     def forward(self, raw: Tensor) -> Tensor:
-        if (raw.ndim != 3 or raw.shape[1:] != (self.facet_count, self.width)
-                or not torch.isfinite(raw).all()):
+        if (
+            raw.ndim != 3
+            or raw.shape[1:] != (self.facet_count, self.width)
+            or not torch.isfinite(raw).all()
+        ):
             raise ValueError("Donor conditioning must consume exactly one complete raw Z")
-        return self.norm(self.to_donor(raw.to(self.to_donor.weight.dtype))
-                         + self.slot_position[None])
+        return self.norm(
+            self.to_donor(raw.to(self.to_donor.weight.dtype)) + self.slot_position[None]
+        )
 
 
 def masked_flow_mse(prediction: Tensor, target: Tensor, mask: Tensor | None) -> Tensor:
@@ -118,7 +127,9 @@ class DiffusersDenoiser(nn.Module):
         )
         if "encoder_attention_mask" in self.args:
             kwargs["encoder_attention_mask"] = torch.ones(
-                conditioning.shape[:2], device=noisy.device, dtype=torch.bool,
+                conditioning.shape[:2],
+                device=noisy.device,
+                dtype=torch.bool,
             )
         if "return_dict" in self.args:
             kwargs["return_dict"] = False
@@ -147,8 +158,7 @@ class MatchingVAEDecoder(nn.Module):
             raise ValueError("Codec scaling factor must be finite and positive")
 
     def forward(self, latents: Tensor) -> Tensor:
-        output = self.vae.decode(latents.to(self._dtype()) / self.scaling,
-                                 return_dict=False)
+        output = self.vae.decode(latents.to(self._dtype()) / self.scaling, return_dict=False)
         value = output[0] if isinstance(output, (tuple, list)) else output.sample
         if not isinstance(value, Tensor):
             raise ValueError("Matched VAE decoder returned no tensor")
@@ -166,15 +176,20 @@ class NativeLatentFlow(nn.Module):
     a dedicated bridge rather than silently accepting the wrong objective.
     """
 
-    def __init__(self, *, facet_count: int, facet_width: int, pack: PackSpec,
-                 denoiser: nn.Module, decoder: nn.Module):
+    def __init__(
+        self,
+        *,
+        facet_count: int,
+        facet_width: int,
+        pack: PackSpec,
+        denoiser: nn.Module,
+        decoder: nn.Module,
+    ):
         super().__init__()
         if pack.family not in {"sana_image", "sana_video"}:
             raise ValueError("NativeLatentFlow is only for pinned Sana families")
         self.pack_id, self.codec_id = pack.pack_id, pack.codec_id
-        self.conditioner = FullFacetConditioner(
-            facet_count, facet_width, pack.conditioner_width
-        )
+        self.conditioner = FullFacetConditioner(facet_count, facet_width, pack.conditioner_width)
         self.denoiser = denoiser
         self.decoder = decoder
         self.steps = pack.steps
@@ -207,8 +222,9 @@ class NativeLatentFlow(nn.Module):
         return masked_flow_mse(predicted, target.float() - epsilon, mask)
 
     @torch.no_grad()
-    def sample(self, raw: Tensor, spec: Any, *, noise: Tensor | None = None,
-               seed: int | None = None) -> Tensor:
+    def sample(
+        self, raw: Tensor, spec: Any, *, noise: Tensor | None = None, seed: int | None = None
+    ) -> Tensor:
         if spec.codec_id != self.codec_id or spec.pack_id != self.pack_id:
             raise ValueError("Native codec and generator must match exactly")
         if noise is None:
@@ -216,8 +232,12 @@ class NativeLatentFlow(nn.Module):
                 raise ValueError("Native free rollout requires explicit renderer randomness")
             gen = torch.Generator(device=raw.device)
             gen.manual_seed(seed)
-            noise = torch.randn((raw.shape[0], *spec.latent_shape),
-                                device=raw.device, dtype=torch.float32, generator=gen)
+            noise = torch.randn(
+                (raw.shape[0], *spec.latent_shape),
+                device=raw.device,
+                dtype=torch.float32,
+                generator=gen,
+            )
         elif noise.shape != (raw.shape[0], *spec.latent_shape):
             raise ValueError("Renderer noise does not match declared native coordinates")
         current = noise
@@ -237,17 +257,14 @@ class PocketFacetsOnly(nn.Module):
     by the student; the sole semantic prefix is the projected raw 32-facet block.
     """
 
-    def __init__(self, *, facet_count: int, facet_width: int,
-                 pack: PackSpec, donor: nn.Module):
+    def __init__(self, *, facet_count: int, facet_width: int, pack: PackSpec, donor: nn.Module):
         super().__init__()
         if pack.family != "pocket":
             raise ValueError("A Pocket student must use a Pocket checkpoint")
         self.pack_id, self.codec_id = pack.pack_id, pack.codec_id
         self.flow_lm = donor.flow_lm
         self.mimi = donor.mimi
-        self.conditioner = FullFacetConditioner(
-            facet_count, facet_width, self.flow_lm.dim
-        )
+        self.conditioner = FullFacetConditioner(facet_count, facet_width, self.flow_lm.dim)
         self.steps = pack.steps
         self._train_backbone = pack.train_backbone
         self.sample_temperature = float(getattr(donor, "temp", 1.0))
@@ -267,45 +284,46 @@ class PocketFacetsOnly(nn.Module):
     @staticmethod
     def _state(module: nn.Module, n: int, batch: int):
         from pocket_tts.modules.stateful_module import init_states
+
         return init_states(module, batch_size=batch, sequence_length=n)
 
     def _normalized(self, latent: Tensor) -> Tensor:
-        return ((latent.float() - self.flow_lm.emb_mean.float())
-                / self.flow_lm.emb_std.float().clamp_min(1e-6))
+        return (
+            latent.float() - self.flow_lm.emb_mean.float()
+        ) / self.flow_lm.emb_std.float().clamp_min(1e-6)
 
-    def flow_loss(self, raw: Tensor, target: Tensor,
-                  mask: Tensor | None = None) -> Tensor:
+    def flow_loss(self, raw: Tensor, target: Tensor, mask: Tensor | None = None) -> Tensor:
         if target.ndim != 3 or target.shape[-1] != self.flow_lm.ldim:
             raise ValueError("Pocket teacher target must be [B, acoustic_frames, 32]")
         normed = self._normalized(target)
         bos = torch.full_like(normed[:, :1], float("nan"))
         preceding = torch.cat([bos, normed[:, :-1]], 1)
         flow = self.flow_lm
-        state = self._state(flow, preceding.shape[1] + raw.shape[1] + 1,
-                            raw.shape[0])
+        state = self._state(flow, preceding.shape[1] + raw.shape[1] + 1, raw.shape[0])
         prefix = self.conditioner(raw)
         prep = torch.where(torch.isnan(preceding), flow.bos_emb, preceding)
         encoded = flow.input_linear(prep.to(flow.input_linear.weight.dtype))
         hidden = flow.backbone(encoded, prefix.to(encoded.dtype), preceding, state)
         epsilon = torch.randn_like(normed)
         t = torch.rand_like(normed[..., :1])
-        mixed = (1-t) * epsilon + t * normed
+        mixed = (1 - t) * epsilon + t * normed
         net_dtype = next(flow.flow_net.parameters()).dtype
         if flow.flow_type == "flow_matching":
-            velocity = flow.flow_net(hidden.to(net_dtype), t.to(net_dtype),
-                                     mixed.to(net_dtype))
+            velocity = flow.flow_net(hidden.to(net_dtype), t.to(net_dtype), mixed.to(net_dtype))
         elif flow.flow_type in {"lsd", "drifting"}:
             # Native continuous segment parameterization, using both s and t.
             start = torch.zeros_like(t)
-            velocity = flow.flow_net(hidden.to(net_dtype), start.to(net_dtype),
-                                     t.to(net_dtype), mixed.to(net_dtype))
+            velocity = flow.flow_net(
+                hidden.to(net_dtype), start.to(net_dtype), t.to(net_dtype), mixed.to(net_dtype)
+            )
         else:
             raise ValueError("Unrecognized Pocket flow parameterization")
         return masked_flow_mse(velocity, normed - epsilon, mask)
 
     @torch.no_grad()
-    def sample(self, raw: Tensor, spec: Any, *, noise: Tensor | None = None,
-               seed: int | None = None) -> Tensor:
+    def sample(
+        self, raw: Tensor, spec: Any, *, noise: Tensor | None = None, seed: int | None = None
+    ) -> Tensor:
         if spec.codec_id != self.codec_id or spec.pack_id != self.pack_id:
             raise ValueError("Pocket generator and Mimi decoder versions must match")
         if seed is None or noise is not None:
@@ -313,14 +331,14 @@ class PocketFacetsOnly(nn.Module):
         if raw.shape[0] != 1 or len(spec.latent_shape) != 2:
             raise ValueError("Streaming Pocket currently requires one [frames, channels] event")
         from pocket_tts.modules.stateful_module import increment_steps
+
         flow = self.flow_lm
         frames, channels = spec.latent_shape
         if channels != flow.ldim:
             raise ValueError("Pocket native codec latent width differs")
         prefix = self.conditioner(raw).to(next(flow.parameters()).dtype)
         state = self._state(flow, frames + prefix.shape[1] + 4, 1)
-        token = torch.full((1, 1, flow.ldim), float("nan"),
-                           device=raw.device, dtype=prefix.dtype)
+        token = torch.full((1, 1, flow.ldim), float("nan"), device=raw.device, dtype=prefix.dtype)
         latents = []
         cuda_devices = [raw.device.index or 0] if raw.device.type == "cuda" else []
         with torch.random.fork_rng(devices=cuda_devices):
@@ -328,9 +346,13 @@ class PocketFacetsOnly(nn.Module):
             for index in range(frames):
                 prompt = prefix if index == 0 else prefix[:, :0]
                 latent, eos = flow._sample_next_latent(
-                    token, prompt, model_state=state,
-                    sampler_decode_steps=self.steps, temp=self.sample_temperature,
-                    noise_clamp=self.noise_clamp, eos_threshold=self.eos_threshold,
+                    token,
+                    prompt,
+                    model_state=state,
+                    sampler_decode_steps=self.steps,
+                    temp=self.sample_temperature,
+                    noise_clamp=self.noise_clamp,
+                    eos_threshold=self.eos_threshold,
                 )
                 latent = latent.reshape(1, 1, channels)
                 increment_steps(flow, state, increment=1 + prompt.shape[1])
@@ -340,7 +362,7 @@ class PocketFacetsOnly(nn.Module):
         native = (samples * flow.emb_std + flow.emb_mean).to(raw.device)
         state = self._state(self.mimi, frames * 8 + 32, 1)
         result = self.mimi.decode_from_latent(native, state)
-        return result.reshape(1, -1)[..., :spec.sample_count]
+        return result.reshape(1, -1)[..., : spec.sample_count]
 
 
 def load_native_packs(model: nn.Module, manifest: str | Path) -> dict[str, dict[str, int | str]]:
@@ -365,33 +387,43 @@ def load_native_packs(model: nn.Module, manifest: str | Path) -> dict[str, dict[
             raise ValueError(f"Native pack digest mismatch for {modality}")
         if spec.family == "pocket":
             from pocket_tts import TTSModel
+
             donor = TTSModel.load_model(config=str(Path(spec.local_path) / "config.yaml"))
             if donor.sample_rate != 24000:
                 raise ValueError("Selected Pocket checkpoint is not the 24k continuous codec")
             realizer = PocketFacetsOnly(
-                facet_count=model.config.n_facets, facet_width=model.config.facet_dim,
-                pack=spec, donor=donor,
+                facet_count=model.config.n_facets,
+                facet_width=model.config.facet_dim,
+                pack=spec,
+                donor=donor,
             )
         else:
             if spec.family == "sana_image":
                 from diffusers import SanaPipeline
+
                 pipeline_class = SanaPipeline
             else:
                 from diffusers import SanaVideoPipeline
+
                 pipeline_class = SanaVideoPipeline
             pipeline = pipeline_class.from_pretrained(spec.local_path, local_files_only=True)
             realizer = NativeLatentFlow(
-                facet_count=model.config.n_facets, facet_width=model.config.facet_dim,
-                pack=spec, denoiser=DiffusersDenoiser(pipeline.transformer),
+                facet_count=model.config.n_facets,
+                facet_width=model.config.facet_dim,
+                pack=spec,
+                denoiser=DiffusersDenoiser(pipeline.transformer),
                 decoder=MatchingVAEDecoder(pipeline.vae),
             )
         realizer = realizer.to(model.core.initial_facets.device)
         model.media_realizers.install_native(modality, realizer)
         reports[modality] = {
-            "pack_id": spec.pack_id, "codec_id": spec.codec_id,
-            "frozen_parameters": sum(p.numel() for p in realizer.parameters()
-                                     if not p.requires_grad),
-            "trainable_parameters": sum(p.numel() for p in realizer.parameters()
-                                        if p.requires_grad),
+            "pack_id": spec.pack_id,
+            "codec_id": spec.codec_id,
+            "frozen_parameters": sum(
+                p.numel() for p in realizer.parameters() if not p.requires_grad
+            ),
+            "trainable_parameters": sum(
+                p.numel() for p in realizer.parameters() if p.requires_grad
+            ),
         }
     return reports

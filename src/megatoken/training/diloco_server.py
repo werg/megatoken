@@ -62,8 +62,14 @@ def initialize_coordinator(
     grace_seconds: float = 8.0,
     max_staleness: int = 2,
     token_budget: int = 0,
+    kb: dict | None = None,
+    max_kb_update_bytes: int = 256 << 20,
 ) -> dict:
-    """Initialize a new run; never silently overwrite an existing trajectory."""
+    """Initialize a new run; never silently overwrite an existing trajectory.
+
+    ``kb`` holds :func:`megatoken.training.diloco_kb.initialize_kb` keyword
+    arguments for live free-KB phases; the coordinator then owns the canonical bank.
+    """
     root = Path(root)
     if (
         not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", run_id)
@@ -72,6 +78,7 @@ def initialize_coordinator(
         or not 0 <= max_staleness <= 32
         or token_budget < 0
         or not (0 < outer_lr <= 4 and 0 <= outer_momentum < 1)
+        or max_kb_update_bytes < 1024
     ):
         raise ValueError("Invalid DiLoCo coordinator configuration")
     if root.exists() and any(root.iterdir()):
@@ -95,9 +102,15 @@ def initialize_coordinator(
         "dataset_fingerprint": dataset_fingerprint,
         "parameter_identity": parameter_identity(masters),
         "fragments": [item.to_dict() for item in fragments],
+        "kb": None,
+        "max_kb_update_bytes": max_kb_update_bytes,
     }
-    manifest["fingerprint"] = content_hash(manifest)
     try:
+        if kb is not None:
+            from megatoken.training.diloco_kb import initialize_kb
+
+            manifest["kb"] = initialize_kb(root, **kb)
+        manifest["fingerprint"] = content_hash(manifest)
         with atomic_binary_writer(root / "bootstrap.pt") as handle:
             torch.save({"model": {k: v.detach().cpu() for k, v in model_state.items()}}, handle)
         for fragment in fragments:
@@ -134,6 +147,20 @@ class Coordinator:
         self.progress = strict_json_loads((self.root / "progress.json").read_bytes())
         self.lock = threading.RLock()
         self.quorum_since: dict[int, float] = {}
+        self.kb = None
+        if self.manifest.get("kb") is not None:
+            from megatoken.training.diloco_kb import KBCoordinator
+
+            self.kb = KBCoordinator(
+                self.root,
+                self.manifest["kb"],
+                outer_lr=self.manifest["outer_lr"],
+                outer_momentum=self.manifest["outer_momentum"],
+                max_staleness=self.manifest["max_staleness"],
+                min_quorum=self.manifest["min_quorum"],
+                workers=self.manifest["workers"],
+                grace_seconds=self.manifest["grace_seconds"],
+            )
         self._sync_public()
         # A queued quorum surviving a restart gets an immediate opportunity to merge.
         self.tick()
@@ -161,7 +188,8 @@ class Coordinator:
                 if not public.exists() or int(_metadata(public)["version"]) != version:
                     theta = load_tensors(self._path(index))["theta"]
                     save_tensors(
-                        public, {"theta": theta},
+                        public,
+                        {"theta": theta},
                         metadata={"version": str(version)},
                     )
 
@@ -180,11 +208,7 @@ class Coordinator:
             ):
                 raise ValueError("Invalid worker ID or session UUID")
             previous = self.progress["leases"].get(str(worker))
-            if (
-                previous
-                and previous["expires"] > time.time()
-                and previous["session"] != session
-            ):
+            if previous and previous["expires"] > time.time() and previous["session"] != session:
                 raise Conflict("Worker ID already leased by a live session")
             self.progress["leases"][str(worker)] = {
                 "session": session,
@@ -221,6 +245,7 @@ class Coordinator:
                 ),
                 "merges": self.progress["merges"],
                 "versions": [self._version(f.index) for f in self.fragments],
+                "kb_version": None if self.kb is None else self.kb.version(),
                 "live_workers": sum(
                     x["expires"] >= time.time() for x in self.progress["leases"].values()
                 ),
@@ -246,10 +271,14 @@ class Coordinator:
             self._lease_valid(worker, session)
             self._path(index)  # Reject an unknown fragment before touching queued files.
             if (
-                type(sequence) is not int or sequence < 1
-                or type(base_version) is not int or base_version < 0
-                or type(steps) is not int or steps <= 0
-                or type(tokens) is not int or tokens <= 0
+                type(sequence) is not int
+                or sequence < 1
+                or type(base_version) is not int
+                or base_version < 0
+                or type(steps) is not int
+                or steps <= 0
+                or type(tokens) is not int
+                or tokens <= 0
             ):
                 raise ValueError("Invalid update metadata")
             fragment = self.fragments[index]
@@ -336,11 +365,13 @@ class Coordinator:
         # Atomic fragment publication includes last_seq. This is the commit
         # record; replayed queued proposals will be discarded on restart.
         save_tensors(
-            path, {"theta": theta, "momentum": momentum},
+            path,
+            {"theta": theta, "momentum": momentum},
             metadata={"version": str(version + 1), "last_seq": json.dumps(last_seq)},
         )
         save_tensors(
-            self._published(index), {"theta": theta},
+            self._published(index),
+            {"theta": theta},
             metadata={"version": str(version + 1)},
         )
         for file, _, _ in proposals:
@@ -348,10 +379,36 @@ class Coordinator:
         self.progress["merges"] += 1
         self._write_progress()
 
+    def submit_kb(
+        self,
+        worker: int,
+        session: str,
+        sequence: int,
+        base_version: int,
+        steps: int,
+        tokens: int,
+        incoming: Path,
+    ) -> dict:
+        with self.lock:
+            self._lease_valid(worker, session)
+            if self.kb is None:
+                raise ValueError("This coordinator run does not own a free KB")
+            return self.kb.submit(
+                worker,
+                sequence,
+                base_version,
+                steps,
+                tokens,
+                incoming,
+                Conflict,
+            )
+
     def tick(self) -> None:
         with self.lock:
             for fragment in self.fragments:
                 self._try_merge(fragment.index)
+            if self.kb is not None:
+                self.kb.try_merge()
 
 
 def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> None:
@@ -382,7 +439,12 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
             self.end_headers()
             self.wfile.write(body)
 
-        def _stream_file(self, file, version: int | None = None) -> None:
+        def _stream_file(
+            self,
+            file,
+            version: int | None = None,
+            header: str = "X-Fragment-Version",
+        ) -> None:
             with file:
                 size = os.fstat(file.fileno()).st_size
                 self.send_response(200)
@@ -390,7 +452,7 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                 self.send_header("Content-Length", str(size))
                 self.send_header("Cache-Control", "no-store")
                 if version is not None:
-                    self.send_header("X-Fragment-Version", str(version))
+                    self.send_header(header, str(version))
                 self.end_headers()
                 for chunk in iter(lambda: file.read(4 << 20), b""):
                     self.wfile.write(chunk)
@@ -398,14 +460,47 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
         def _file(self, path: Path) -> None:
             self._stream_file(path.open("rb"))
 
-        def _read_json(self) -> dict:
+        def _read_json(self, maximum: int = 65536) -> dict:
             size = int(self.headers.get("Content-Length", "0"))
-            if not 0 < size <= 65536:
+            if not 0 < size <= maximum:
                 raise ValueError("Invalid JSON payload size")
             result = strict_json_loads(self.rfile.read(size))
             if not isinstance(result, dict):
                 raise ValueError("Expected a JSON object")
             return result
+
+        def _update_headers(self) -> tuple[int, str, int, int, int, int]:
+            return (
+                int(self.headers["X-Worker"]),
+                str(self.headers["X-Session"]),
+                int(self.headers["X-Sequence"]),
+                int(self.headers["X-Base-Version"]),
+                int(self.headers["X-Steps"]),
+                int(self.headers["X-Tokens"]),
+            )
+
+        def _receive(self, maximum: int) -> Path:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= maximum:
+                raise ValueError("Oversized or empty update")
+            tempdir = coordinator.root / "incoming"
+            tempdir.mkdir(exist_ok=True)
+            fd, filename = tempfile.mkstemp(dir=tempdir, suffix=".safetensors")
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    remaining = length
+                    while remaining:
+                        block = self.rfile.read(min(4 << 20, remaining))
+                        if not block:
+                            raise ValueError("Truncated update upload")
+                        handle.write(block)
+                        remaining -= len(block)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except BaseException:
+                Path(filename).unlink(missing_ok=True)
+                raise
+            return Path(filename)
 
         def do_GET(self) -> None:
             if not self._auth():
@@ -418,6 +513,19 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                     self._json(200, coordinator.status())
                 elif parsed.path == "/v1/bootstrap":
                     self._file(coordinator.root / "bootstrap.pt")
+                elif parsed.path == "/v1/kb":
+                    if coordinator.kb is None:
+                        raise ValueError("This coordinator run does not own a free KB")
+                    with coordinator.lock:
+                        version, path = coordinator.kb.published()
+                        unchanged = parse_qs(parsed.query).get("after") == [str(version)]
+                        file = None if unchanged else path.open("rb")
+                    if unchanged:
+                        self.send_response(204)
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                    else:
+                        self._stream_file(file, version, header="X-KB-Version")
                 elif re.fullmatch(r"/v1/fragments/[0-9]+", parsed.path):
                     index = int(parsed.path.rsplit("/", 1)[-1])
                     with coordinator.lock:
@@ -459,36 +567,56 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                 elif re.fullmatch(r"/v1/updates/[0-9]+", parsed.path):
                     index = int(parsed.path.rsplit("/", 1)[-1])
                     coordinator._path(index)
-                    maximum = coordinator.fragments[index].length * 4 + 8192
-                    length = int(self.headers.get("Content-Length", "0"))
-                    if not 0 < length <= maximum:
-                        raise ValueError("Oversized or empty fragment update")
-                    tempdir = coordinator.root / "incoming"
-                    tempdir.mkdir(exist_ok=True)
-                    fd, filename = tempfile.mkstemp(dir=tempdir, suffix=".safetensors")
+                    filename = self._receive(coordinator.fragments[index].length * 4 + 8192)
                     try:
-                        with os.fdopen(fd, "wb") as handle:
-                            remaining = length
-                            while remaining:
-                                block = self.rfile.read(min(4 << 20, remaining))
-                                if not block:
-                                    raise ValueError("Truncated fragment upload")
-                                handle.write(block)
-                                remaining -= len(block)
-                            handle.flush()
-                            os.fsync(handle.fileno())
-                        result = coordinator.submit(
-                            index,
-                            int(self.headers["X-Worker"]),
-                            str(self.headers["X-Session"]),
-                            int(self.headers["X-Sequence"]),
-                            int(self.headers["X-Base-Version"]),
-                            int(self.headers["X-Steps"]),
-                            int(self.headers["X-Tokens"]),
-                            Path(filename),
-                        )
+                        result = coordinator.submit(index, *self._update_headers(), filename)
                     finally:
-                        Path(filename).unlink(missing_ok=True)
+                        filename.unlink(missing_ok=True)
+                elif parsed.path == "/v1/kb/changes":
+                    # POST: the body lists the learner's locally trained row IDs.
+                    if coordinator.kb is None:
+                        raise ValueError("This coordinator run does not own a free KB")
+                    from megatoken.training.diloco_kb import KBChangesExpired
+
+                    value = self._read_json(16 << 20)
+                    exports = coordinator.root / "kb" / "exports"
+                    exports.mkdir(exist_ok=True)
+                    fd, name = tempfile.mkstemp(dir=exports, suffix=".sqlite")
+                    os.close(fd)
+                    target = Path(name)
+                    try:
+                        with coordinator.lock:
+                            try:
+                                version = coordinator.kb.export_changes(
+                                    int(value["after"]),
+                                    target,
+                                    records=tuple(value.get("records", ())),
+                                    relations=tuple(value.get("relations", ())),
+                                )
+                            except KBChangesExpired as exc:
+                                self._json(410, {"error": str(exc)})
+                                return
+                        if version is None:
+                            self.send_response(204)
+                            self.send_header("Content-Length", "0")
+                            self.end_headers()
+                        else:
+                            self._stream_file(
+                                target.open("rb"),
+                                version,
+                                header="X-KB-Version",
+                            )
+                    finally:
+                        target.unlink(missing_ok=True)
+                    return
+                elif parsed.path == "/v1/kb/updates":
+                    filename = self._receive(
+                        coordinator.manifest.get("max_kb_update_bytes", 256 << 20)
+                    )
+                    try:
+                        result = coordinator.submit_kb(*self._update_headers(), filename)
+                    finally:
+                        filename.unlink(missing_ok=True)
                 else:
                     self._json(404, {"error": "Unknown endpoint"})
                     return

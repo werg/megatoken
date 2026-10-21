@@ -10,9 +10,10 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import torch
 from safetensors.torch import load_file, save_file
@@ -50,15 +51,46 @@ class Fragment:
 def training_identity(config: Any) -> str:
     """Objective identity excludes local paths, worker IDs and logging cadence."""
     fields = (
-        "phase", "model", "codec", "precision", "seed", "model_overrides",
-        "expert_backend", "representation_mode", "generated_capacity",
-        "microbatch_episodes", "accumulate_scored", "accumulate_ingested",
-        "max_accumulation_windows", "max_history_tokens", "max_window_records",
-        "scored_decisions", "max_record_bytes", "effort", "use_stage_mixture",
-        "use_effort_mixture", "loss_weights", "grad_clip", "weight_decay",
-        "inner_optimizer", "gradient_checkpointing",
+        "phase",
+        "model",
+        "codec",
+        "precision",
+        "seed",
+        "model_overrides",
+        "expert_backend",
+        "representation_mode",
+        "generated_capacity",
+        "microbatch_episodes",
+        "accumulate_scored",
+        "accumulate_ingested",
+        "max_accumulation_windows",
+        "max_history_tokens",
+        "max_window_records",
+        "scored_decisions",
+        "max_record_bytes",
+        "effort",
+        "use_stage_mixture",
+        "use_effort_mixture",
+        "loss_weights",
+        "grad_clip",
+        "weight_decay",
+        "inner_optimizer",
+        "gradient_checkpointing",
+        "budget_meter",
+        "accumulate_events",
+        "router_balance_mode",
+        "retrieval_kv_dropout",
+        "retrieval_lora_dropout",
     )
-    return content_hash({name: getattr(config, name) for name in fields})
+    identity: dict[str, Any] = {name: getattr(config, name) for name in fields}
+    # Retrieval supervision is identified by content, not by per-sandbox paths.
+    from megatoken.io import sha256_file
+    from megatoken.memory.recipe import RetrievalRecipe
+
+    identity["retrieval_recipe"] = RetrievalRecipe.load(config.retrieval_memory_recipe).fingerprint
+    identity["retrieval_sidecar"] = sha256_file(Path(config.retrieval_sidecar))
+    identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
+    return content_hash(identity)
 
 
 def parameter_identity(masters: Mapping[str, torch.Tensor]) -> str:
@@ -102,15 +134,21 @@ def plan_fragments(
 
 @torch.no_grad()
 def pack_fragment(masters: Mapping[str, torch.Tensor], fragment: Fragment) -> torch.Tensor:
-    """Take a consistent snapshot only at a completed optimizer-step boundary."""
-    return torch.cat(
-        [
-            masters[part.name].detach().reshape(-1)[
-                part.offset : part.offset + part.length
-            ].to(device="cpu", dtype=torch.float32)
-            for part in fragment.slices
-        ]
-    ).contiguous()
+    """Take a consistent snapshot only at a completed optimizer-step boundary.
+
+    Device slices land in one pinned FP32 host buffer via non-blocking copies
+    and a single synchronization (pageable per-slice copies are >20x slower).
+    """
+    on_device = any(masters[part.name].device.type == "cuda" for part in fragment.slices)
+    packed = torch.empty(fragment.length, dtype=torch.float32, pin_memory=on_device)
+    cursor = 0
+    for part in fragment.slices:
+        source = masters[part.name].detach().reshape(-1)[part.offset : part.offset + part.length]
+        packed[cursor : cursor + part.length].copy_(source, non_blocking=on_device)
+        cursor += part.length
+    if on_device:
+        torch.cuda.synchronize()
+    return packed
 
 
 @torch.no_grad()
@@ -147,18 +185,21 @@ def merge_pseudogradients(
     """
     if not deltas or not (len(deltas) == len(tokens) == len(steps) == len(staleness)):
         raise ValueError("Malformed outer gradient quorum")
-    if any(t <= 0 or s <= 0 or age < 0 for t, s, age in zip(tokens, steps, staleness)):
+    if any(t <= 0 or s <= 0 or age < 0 for t, s, age in zip(tokens, steps, staleness, strict=True)):
         raise ValueError("Outer gradients require positive counts and nonnegative age")
     if any(d.shape != deltas[0].shape or not torch.isfinite(d).all() for d in deltas):
         raise ValueError("Invalid outer gradient tensor")
     weights = [
         (float(t) * (float(t) / float(s))) / (1.0 + float(age))
-        for t, s, age in zip(tokens, steps, staleness)
+        for t, s, age in zip(tokens, steps, staleness, strict=True)
     ]
     if any(not math.isfinite(value) or value <= 0 for value in weights):
         raise ValueError("Invalid merge weight")
     total = sum(weights)
-    return sum((d.float() * (w / total) for d, w in zip(deltas, weights)), torch.zeros_like(deltas[0], dtype=torch.float32))
+    return sum(
+        (d.float() * (w / total) for d, w in zip(deltas, weights, strict=True)),
+        torch.zeros_like(deltas[0], dtype=torch.float32),
+    )
 
 
 def outer_nesterov(

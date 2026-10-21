@@ -3,11 +3,15 @@
 Run after loading exact donor checkpoints and before the first optimizer step.
 Tests contracts and gradients without acquiring data or changing weights.
 """
+
 from __future__ import annotations
+
 from dataclasses import dataclass
+
 import torch
 
 REQUIRED_FACETS = 32
+
 
 @dataclass(frozen=True)
 class ProbeResult:
@@ -16,6 +20,7 @@ class ProbeResult:
     loss: float
     trainable_parameters: int
     frozen_parameters: int
+
 
 def check_pretrained_student(name, student, raw_facets, target_latents, *, valid_mask=None):
     """Check flow objective, facets-only conditioning, and donor codec freeze."""
@@ -39,10 +44,14 @@ def check_pretrained_student(name, student, raw_facets, target_latents, *, valid
     grads = torch.autograd.grad(numerator / count, trainable, allow_unused=True)
     if not any(grad is not None and grad.abs().sum() > 0 for grad in grads):
         raise ValueError("Facets-only adapter receives no native objective gradient")
-    return ProbeResult(name, tuple(target_latents.shape),
+    return ProbeResult(
+        name,
+        tuple(target_latents.shape),
         float((numerator / count).detach().cpu()),
         sum(p.numel() for p in trainable),
-        sum(p.numel() for p in codec.parameters()))
+        sum(p.numel() for p in codec.parameters()),
+    )
+
 
 @torch.no_grad()
 def assert_content_only_invariance(renderer, raw, spec, *, seeded_noise=None):

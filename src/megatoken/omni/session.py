@@ -5,6 +5,7 @@ predictor/realizers, NOT a second scheduler, semantic model or transport token.
 One selected group is published to C once; unaccepted candidates never become
 history. Delivery cursors record physical bytes, not central megatokens.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -17,7 +18,10 @@ from megatoken.controls import effective_event_payloads
 
 if TYPE_CHECKING:
     from megatoken.model.multitrack import (
-        GroupActionTape, GroupGeneration, MultiTrackGenerator, MultiTrackState,
+        GroupActionTape,
+        GroupGeneration,
+        MultiTrackGenerator,
+        MultiTrackState,
         ObservedEvent,
     )
 
@@ -65,14 +69,19 @@ class OmniSession:
             raise ValueError("Observation must contain real causal events")
         self.invalidate()
         self.state = self.multi.tracks.observe_group(
-            self.state, events, encoder_grad=False,
+            self.state,
+            events,
+            encoder_grad=False,
         )
         self.history.append(("observation", tuple(events)))
         return self.state
 
     @torch.no_grad()
     def propose(
-        self, *, tracks: tuple[str, ...], specs: tuple[Any, ...],
+        self,
+        *,
+        tracks: tuple[str, ...],
+        specs: tuple[Any, ...],
         session_payload: bytes = b"",
         requests: tuple[tuple[str, int], ...],
         effort: int = 6,
@@ -83,8 +92,12 @@ class OmniSession:
             raise ValueError("Reject or accept existing candidate before proposing another")
         controls = effective_event_payloads(session_payload, tracks, requests)
         result = self.multi.generate_group(
-            self.state, tracks=tracks, specs=specs, controls=controls,
-            effort=effort, generator=generator,
+            self.state,
+            tracks=tracks,
+            specs=specs,
+            controls=controls,
+            effort=effort,
+            generator=generator,
         )
         digest = sha256(result.tape.to_json().encode("utf-8")).hexdigest()
         candidate = PendingGroup(self.epoch, result, tuple(specs), digest)
@@ -97,8 +110,11 @@ class OmniSession:
         self.invalidate()
 
     def _candidate(self, candidate_id: str) -> PendingGroup:
-        if (self.pending is None or self.pending.epoch != self.epoch
-                or self.pending.candidate_id != candidate_id):
+        if (
+            self.pending is None
+            or self.pending.epoch != self.epoch
+            or self.pending.candidate_id != candidate_id
+        ):
             raise ValueError("Speculative group is stale, rejected or superseded")
         return self.pending
 
@@ -110,7 +126,9 @@ class OmniSession:
         if mid in self.published:
             raise ValueError("The meridian has already been accepted")
         published = PublishedGroup(
-            tape, candidate.specs, {name: 0 for name in tape.tracks},
+            tape,
+            candidate.specs,
+            {name: 0 for name in tape.tracks},
         )
         self.state = candidate.generation.state
         self.published[mid] = published
@@ -149,11 +167,16 @@ class OmniSession:
         for kind, item in self.history:
             if kind == "observation":
                 state = self.multi.tracks.observe_group(
-                    state, item, encoder_grad=False,
+                    state,
+                    item,
+                    encoder_grad=False,
                 )
             else:
                 replayed = self.multi.replay_group(
-                    state, item.tape, specs=item.specs, effort=item.tape.effort,
+                    state,
+                    item.tape,
+                    specs=item.specs,
+                    effort=item.tape.effort,
                 )
                 state = replayed.state
         return state

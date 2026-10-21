@@ -1,382 +1,79 @@
-# Megatoken
+# Megatoken — required retrieval-memory training
 
-> **v8 direct-realization refactor in progress.** Grouped text, audio, image, and video training
-> now share the existing stage engine through checksummed media references and
-> modality-specific loss denominators. An opt-in event budget counts megatokens,
-> not codec frames or fictitious media text tokens. See
-> [the media pilot and frozen-feature recipe](docs/omni-media-pipeline.md).
-> The shared multi-track core now has grouped
-> meridian processing, modality-aware prediction, full-resolution joint KV,
-> native audio/visual adapters, distinct media realizers, typed controls,
-> group tapes/replay, a grouped bootstrap objective, and a JSONL group server.
-> Media encoders/realizers are **untrained neural baselines**. This is neither a
-> pretrained omnimodal model nor evidence of high-fidelity speech/video quality.
-> A new v8 training and evaluation run is required. See
-> [the v7 plan](docs/multi-track-plan.md) and
-> [implementation status](docs/multi-track-implementation.md), and the
-> [proposed omnimodal architecture, donor components and multi-track training curriculum](docs/omnimodal-architecture-and-training.md).
->
-> **Strict native formats:** v8 changes R parameters and cached state geometry.
-> Earlier model weights and v7 action/group tapes cannot be loaded. Retrain,
-> re-export and regenerate tapes; the prepared dataset schema remains version 3.
+**Breaking architecture migration.** Version 9 native retrieval + semantic memory is the **only supported training architecture**. There is no disabled, optional, ungrouped or pre-retrieval training route. Model creation always registers the semantic embedding realizer, the full-native-facet memory K/V projector and independent all-track LoRA controllers, even while the canonical semantic-memory bank is initially empty.
 
+This project is a software prototype, not a pretrained model. Training quality, performance and release fitness have **not** been established. See the [implementation and validation ledger](docs/retrieval-memory-implementation-status.md).
 
-The proposed [retrieval and correction memory architecture](docs/retrieval-memory-plan.md)
-adds source RAG on a retrieval track, free correction-KB pretraining, and subsequent
-hindsight/corpus writer training.
+## One architecture
 
-A from-scratch model and training system built around **32 recurrent facets**.
-Byte ingestion and next-chunk prediction produce the same raw input format. Each
-selected raw block feeds **the realizer directly**, while a separate central
-processing pass writes KV and final features for the **next predictor**. The next predictor remixes those processed features and builds a new
-32-facet prediction through twelve residual attention and expert stages.
+The same selected raw-facet representation powers ordinary E/C/P/R generation and learned retrieval:
 
-The production preset is `32x512`; `32x256` is the smaller width, with the same
-architecture. All permanent weights are shared with serving; there are no separate
-training-only model heads. The default is native random initialization. Optional
-offline n-gram initialization can be baked into the native table before export.
-[The parameter census and validation report](docs/validation.md) count the actual
-implementation with the pinned production codec.
+1. **Causal query event:** Condition P on the main request, retrieval purpose and pinned semantic-space identity. Sample its normal raw Gaussian event, realize one typed normalized embedding with asymmetric query/document R, then commit the selected raw event through C.
+2. **Literal evidence:** Retrieve eligible source chunks with incremental MaxSim, deduplicate the original source byte intervals, and admit only successfully fetched/committed bytes through native E/C on reusable source tracks. Source content and original lineage remain immutable.
+3. **Semantic memory:** In a source-supported, progressively grown free memory bank, jointly learn queries, point/source keys, pair dependence, semantic values, strength and lifetime. Mix compatible point/pair semantic values **before** projecting each active group into the complete native F-facet K/V geometry. Admit them directly to a separate bounded KB context segment, not to the native raw frontier.
+4. **C/P/R control:** Use the same admitted semantic mixture for independently parameterized sparse LoRA experts across every track. C, P and R share one transaction snapshot; grouped native meridian clocks advance only when real events commit. Null KB strength must remove the position from attention normalization.
+5. **Training:** Learn useful retrieval jointly with continuation, detached original-source feature-value supervision, teacher-aligned query/document R, query-demand-driven allocation and optimizer-step-global router balance. Preserve exact complete-footprint causal eligibility, sparse row moments and coherent neural/KB snapshot identities.
+6. **Writer handoff:** Only *after* useful free-bank pretraining, freeze the accepted learned coordinates and fit permitted source/pair writers. Fully reconstruct a fresh source+point+pair KB from the immutable original sources, never by quietly continuing with optimized free values. Experience writing comes afterward.
 
-The repository includes data preparation, executed teacher/student collection, all eight
-training stages, exact resume, serving, CPU tests, and Blackwell validation commands.
-It contains an offline integration corpus and no pretrained model or acquired production
-corpus. Model quality and GPU throughput require measurement on the training hardware.
+[Architecture and acceptance specification](docs/retrieval-memory-plan.md). [Donor methodology: hindsight-kb@4501647](https://github.com/werg/hindsight-kb/tree/450164784589b2576256b8b0ba3d2ccc89af992d).
 
-## The model contract
+## Prepare once, train only through the new recipe
 
-| Setting | Production default |
-|---|---|
-| Input and predicted chunk representation | 32 facets × 512 coordinates |
-| Ingestion | Byte/ngram hierarchy, then 2 dense facet refinement blocks |
-| Shared central processor | 4 dense residual attention blocks; final C features cached for P |
-| Prediction transition | Learned slot/channel remix of final central features, with no identity shortcut |
-| Predictor after remix | 12 residual attention and sparse expert stages |
-| Policy randomness | One Gaussian draw in the completed 32-facet space |
-| Realizer input | Canonical raw facets only (the shared E/P boundary) |
-| Decoder | Deterministic structure, length, copying, and full-vocabulary argmax |
-| Semantic packing target / soft / hard limit | 512 / 768 / 1,024 reference codec tokens |
-| Maximum realizer output positions | 1,024, including fixed syntax |
-| Attention | 4 query heads and 2 KV heads, each 128 coordinates wide |
-| Historical KV | Exactly 32 full-resolution slots per retained megatoken, at every age |
-| History bound | 1,024 full chunks; 32 MiB of BF16 KV per 32x512 episode |
-
-One generated step is `predict → sample → realize(raw)`, independently of
-`C(raw) → history/KV`, which is committed for the **next** prediction.
-Realization does not read C or causal history, so its loss cannot require
-an extra C pass. Public controls enter prediction; explicit media output
-controls and text schema/copy inputs remain realization inputs.
-
-There is no carry writer, reconciliation, carry position allocation, posterior
-network, or decoder repair loop. Generated bytes are not re-encoded to replace a
-selected input. Invalid decoded actions also advance the raw facet state; validity
-controls whether an action may be executed.
-
-B0 jointly trains noisy ingestion-to-realizer reconstruction, causal Gaussian
-prediction toward the detached ingestion distribution, and direct realization
-from predicted facets. Teacher forcing selects the encoded target for the next
-iteration. Later stages retain live sampled facets through recurrent towers.
-Ingestion learns through direct noisy E → R reconstruction with R/U frozen
-during recurrent training, plus optional following of genuine
-native facet/byte pairs. This prevents the encoder objective from pulling the
-recurrent representation toward an unrelated observed target. See
-[the architecture](docs/architecture.md), [training objectives](docs/training.md),
-and [the direct-realization decision](docs/decisions/0007-direct-realization.md).
-
-Public seed/reference bytes and tool schemas use one causal control path in training,
-serving, collection, and density replay. Version-8 action tapes retain their source
-control bytes and exact raw draws. Checkpoints, tapes, and derived state caches are
-versioned together; earlier architectural assets are intentionally unsupported.
-
-## Run the complete offline path
-
-Python 3.11 or 3.12 is supported. The CPU reference uses PyTorch 2.10.0.
+Python 3.11/3.12 and the tested native PyTorch runtime are expected. Model defaults use a 1,024-dimensional learned address geometry (the teacher's trained truncation), a separate 256-dimensional semantic value space, and four bounded complete-KV groups; the actual chosen teacher, output dimension, native model checkpoint geometry and reproducible preprocessing must agree in the phase recipe. A deliberate zero-evidence *ablation* is allowed inside this architecture, but does not reinstate a legacy trainer.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
 python -m pip install -e '.[train,data,dev]'
-
 megatoken doctor
-pytest -q
-megatoken smoke --output runs/first-smoke
+python -m pytest -q tests/test_memory_*.py
+
+# Create prepared native-meridian episodes and hash-verified retrieval sidecars.
+# Pin the real teacher weights, original source hashes and learned-space roles.
+megatoken-memory configs/retrieval-memory-pilot.json
 ```
 
-`smoke` prepares independent fixture episodes, runs B0 → P1 → M1 → M2 → LC → S → D,
-preserves FP32 optimizer state through the transitions, runs fresh executed outcome RL,
-exports the model, and generates from that bundle. It uses a tiny model with an explicit
-256-byte test codec. The fixture proves software operation; it is not a task benchmark.
-Use a new output directory for each complete smoke run.
+The checked-in recipe and stage configurations deliberately use `PIN_*` placeholders: they **cannot** start training until preparation outputs exist and match. This is safer than silently running on demo data or ungrounded vectors.
 
-For a short supervised run:
+The sole supervised training command is:
 
 ```bash
-megatoken demo --output artifacts/demo.jsonl --count 32
-megatoken prepare \
-  --demo artifacts/demo.jsonl \
-  --output artifacts/demo \
-  --codec byte \
-  --max-record-tokens 128
-megatoken train --config configs/train/smoke.yaml
+NPROC_PER_NODE=8 scripts/launch.sh configs/train/retrieval-coherence.example.yaml
 ```
 
-## First Blackwell launch
+Provide a filled-in, immutable copy of that config. It must name the checksummed causal query sidecar, phase-matched retrieval recipe, prepared episode dataset, codec, original-source snapshot and model geometry. The trainer rejects ungrouped episodes, missing teacher main-request bytes, incompatible learned spaces and old checkpoints.
 
-The Dockerfile uses NVIDIA's `26.09-py3` PyTorch image and preserves its framework build.
-The release documents CUDA 13.4.1 and PyTorch 2.14.0a0. Supply an immutable validated
-image digest through `BASE_IMAGE` for a pinned deployment. See the
-[NVIDIA release notes](https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/rel-26-09.html)
-and [Blackwell runbook](docs/blackwell.md).
+Continue in order with **phase receipts**:
 
 ```bash
-mkdir -p artifacts runs
-docker build -t megatoken:train .
-docker run \
-  --rm \
-  --gpus all \
-  --ipc=host \
-  --mount type=bind,source="$PWD/artifacts",target=/workspace/megatoken/artifacts \
-  --mount type=bind,source="$PWD/runs",target=/workspace/megatoken/runs \
-  -it megatoken:train bash
-
-# Inside the container:
-megatoken doctor --require-blackwell
-megatoken codec --output artifacts/codec
-megatoken inspect --model 32x512 --codec artifacts/codec --owners
-python scripts/validate_blackwell.py --output runs/hardware-gate --codec artifacts/codec
+NPROC_PER_NODE=8 scripts/launch.sh configs/train/retrieval-warmup.example.yaml \
+  --resume runs/retrieval-coherence/checkpoints --phase-transition
+NPROC_PER_NODE=8 scripts/launch.sh configs/train/retrieval-free-kb.example.yaml \
+  --resume runs/retrieval-warmup/checkpoints --phase-transition
 ```
 
-The codec command downloads only pinned tokenizer metadata, verifies its SHA256, removes
-normalization and special-token interpretation, and records the resulting raw codec
-identity. The mapping comes from
-[`inclusionAI/Ling-3.0-tiny` at an immutable revision](https://huggingface.co/inclusionAI/Ling-3.0-tiny/tree/9a98e35fe1c9ee255f78dd64771c7ae15a799481).
-The output allocation has 157,184 rows, of which 156,891 are legal free lexical pieces.
-Special rows, padded rows, and merges that would emit masked rows are excluded.
+These two phases additionally require the authoritative prepared SQLite KB, source assets, pinned IVF centroids, signed-off readiness/holdout gate receipts and a synchronized neural+KB checkpoint. Query-density growth cannot begin before generator-coherence and query/chunk embedding gates pass. Development/release holdouts, source-family ancestry, sparse updates and index freshness must be verified.
 
-Prepare a bootstrap runtime pilot with the production chunk policy:
+There is **no** `configs/train/b0.yaml`, implicit launcher default or `megatoken smoke`.
+
+**DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` and `scripts/coreweave_diloco.py` run decoupled learners over the same mandatory retrieval architecture ([configs/train/retrieval-coherence-diloco-coreweave.example.yaml](configs/train/retrieval-coherence-diloco-coreweave.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). Every phase runs decoupled: neural parameters sync as fragments, and in live free-KB phases the coordinator owns the canonical bank and merges learners' sparse row updates ([configs/train/retrieval-free-kb-diloco.example.yaml](configs/train/retrieval-free-kb-diloco.example.yaml)). The old stand-alone `megatoken rl` training command is also retired until the native retrieval-memory experience/writer acceptance gates are implemented.
+
+## Storage and writer utilities
+
+After preparing immutable source chunks and their support identities, use:
 
 ```bash
-megatoken demo --output artifacts/bootstrap.jsonl --count 10000
-megatoken prepare \
-  --demo artifacts/bootstrap.jsonl \
-  --codec artifacts/codec \
-  --chunk-target-tokens 512 \
-  --chunk-soft-max-tokens 768 \
-  --max-record-tokens 1024 \
-  --output artifacts/prepared
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml --max-steps 100
+megatoken-memory-catalog --help
+megatoken-memory-centroids --help
+megatoken-memory-index --help
+megatoken-memory-writer --help
+megatoken-memory-reproduce --help
 ```
 
-Prepare real phase streams before starting a budgeted run. The fixture pilot establishes
-runtime operation. `--max-steps` limits additional updates in that invocation; it does not
-mark a phase complete. Resume with the same configuration:
+These are infrastructure commands, not substitutes for the native curriculum. Writer checkpoints have pinned model/free-bank/space identities, and fresh source+point+pair shadow banks are accepted only when all original assignment and causal support checks pass.
 
-```bash
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml --resume runs/b0/checkpoints
-```
+See [the preparation/order/status ledger](docs/retrieval-memory-implementation-status.md) for exact artifact dependencies, release blockers, empirical evaluation requirements, known gaps and reproducible validation commands. For hardware-specific setup, see [Blackwell](docs/blackwell.md); prior stand-alone B0/P1/M1/M2 experiments in historical documents are no longer supported launch instructions.
 
-The production CUDA configs select Triton grouped dispatch after the required Blackwell numerical gate. An explicit Triton grouped
-expert backend includes forward/backward parity gates. After the hardware gate succeeds,
-benchmark it in a separately named experiment:
+## Validation contract
 
-```bash
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml \
-  --output runs/b0-triton \
-  --expert-backend triton \
-  --compile
-```
+A merge/production launch requires: complete CPU and Python-version tests, GPU/native attention gradient and RoPE parity, true multi-rank sparse/global-router equivalence, checkpoint corruption/recovery, full delayed retrieval replay, locality/visibility/negative support checks, teacher source-document and causal-query alignment, valid fresh source/pair writer reproduction, no-memory regressions and new-source task uptake. Passing structural tests does not assert these learned-quality results.
 
-Exact resume checks the architecture, codec, chunk policy, objective, precision, backend,
-rank topology, and data cursor. Multi-node torchrun and Slurm commands are in the runbook.
-The old matrix recurrence backend has been removed.
-
-## Data preparation and collection
-
-[The data runbook](docs/data.md) covers source adapters, semantic chunking, actual task
-execution, family lineage, acceptance, frozen splits, and source acquisition. Preparation
-uses streaming readers with external SQLite indexing and deduplication. It preserves
-original bytes and reference token boundaries, including binary payloads and Unicode.
-
-Chunks target **512 reference tokens**, with a **768-token soft limit**, a
-1,024-token hard limit, and a 16 KiB byte limit. Chat framing establishes the
-latency boundaries first: user messages and tool results always remain separate
-events, even when very short. Recursive parsing then follows content through
-Markdown fences, source code, strings, comments, HTML, templates, and prose.
-The offline parser pack supplies 173 grammar bindings; unknown languages use an
-explicit generic fallback. Multilingual prose starts at paragraphs and refines
-oversized spans using Unicode sentence/word rules and optional locale analysis.
-
-A bounded planner considers the remaining source and penalizes excessive movement
-through the parse tree. Headings, decorators, and signatures stay attached to their
-own content; spare capacity alone is not a reason to borrow the next introduction.
-All cuts retain original byte ranges and canonical reference IDs. Native generated
-IDs and facet tapes remain immutable. The
-[parser runbook](docs/chunking.md) explains configuration, coverage, diagnostics,
-and the extension API.
-
-Preparation sets parser faults, exhausted budgets, severe syntax failure, and
-ambiguous chat framing aside in a durable review queue. Agents claim and export
-exact samples, amend the shared parser, add regression coverage, and run verified
-replay under the new parser identity. Successful repair requires rebuilding a new
-prepared artifact from the same pinned sources; existing shards stay frozen.
-
-`configs/data/sources.v13.json` is a pinned publisher acquisition template for 19 strata.
-Its historical filename does not select an old model architecture. Supply an approved
-source manifest with the required parent joins and field mappings:
-
-```bash
-megatoken prepare \
-  --sources configs/data/sources.approved.json \
-  --codec artifacts/codec \
-  --chunk-target-tokens 512 \
-  --chunk-soft-max-tokens 768 \
-  --max-record-tokens 1024 \
-  --output artifacts/production
-```
-
-Inspect the installed parsers and the preparation review queue:
-
-```bash
-megatoken chunks coverage --output artifacts/parser-coverage.json
-megatoken chunks inspect --input README.md --codec artifacts/codec \
-  --output artifacts/readme-chunks.json
-megatoken chunks review list --queue artifacts/production/preparation.sqlite
-megatoken chunks review export --queue artifacts/production/preparation.sqlite \
-  --output work/parser-review
-```
-
-Prepared outputs are immutable. Set each phase's `dataset` to the intended directory.
-Every positive-weight stream must exist; missing streams fail instead of silently
-changing the recipe. Distributed streams synchronize episode blocks and mixture
-exposure, with explicit idle slots when ranks have unequal work.
-
-The collector calls a configured OpenAI-compatible teacher endpoint and executes actions
-through the fixture or an isolated HTTP environment. It journals actual observations,
-action identities, state leases, usage, rejected attempts, and independent verification.
-Student-state collection uses a frozen served bundle and preserves its raw native draws,
-including invalid and empty-output events, before obtaining fresh teacher corrections.
-See `megatoken collect --help` and the data runbook.
-
-## Training stages
-
-Budgets, streams, and effort probabilities live once in
-[`src/megatoken/data/stages.json`](src/megatoken/data/stages.json). Shared code handles
-all supervised phases; each configuration selects its representation objective.
-
-| Stage | Purpose | Default ceiling | Representation mode |
-|---|---|---:|---|
-| B0 | Byte reconstruction, next-facet alignment, structure and copying | 250M I | Bootstrap |
-| P1 | Broad document, code, synthetic, chat, and trajectory pretraining | 400B D | Recurrent |
-| M1 | Connected repositories, issues, PRs, logs, and retention replay | 60B D | Recurrent |
-| M2 | Verified trajectories and grounded artifacts | 40B D | Recurrent |
-| LC | Differentiable long writer-to-reader dependencies | 20B D | Recurrent |
-| S | Successful actions, recovery, exact instructions, and replay | 2B P | Recurrent |
-| D | Executed frozen-student corrections and successful replay | 1B P | Recurrent |
-| R | Fresh-policy outcome RL over raw facet actions | 32B Z; 200K episodes | Fixed ingestion, central processor, and realizer |
-
-D counts newly selected transcript tokens. I adds no-loss prefix reconstruction. P counts
-actual supervised free lexical positions: prediction and reconstruction each count in
-both bootstrap and recurrent training. Z counts stochastic facet coordinates
-for outcome RL, whose lexical P is zero. These ceilings are configurable experiment
-budgets, not an assertion that useful training inventory has already been acquired.
-
-Transitioning preserves model weights and FP32 optimizer moments, resetting the phase's
-data cursor and meters:
-
-```bash
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/p1.yaml \
-  --resume runs/b0/checkpoints \
-  --phase-transition
-
-torchrun \
-  --standalone \
-  --nproc-per-node=8 \
-  -m megatoken pipeline \
-  --configs \
-  configs/train/b0.yaml \
-  configs/train/p1.yaml \
-  configs/train/m1.yaml \
-  configs/train/m2.yaml \
-  configs/train/lc.yaml \
-  configs/train/s.yaml \
-  configs/train/d.yaml
-```
-
-The pipeline stops when a phase is interrupted or reaches its update limit before its
-budget; it does not advance an unfinished phase. A pipeline resume recognizes the
-checkpoint's phase. For RL, provide distinct task IDs and an execution service:
-
-```bash
-megatoken rl \
-  --checkpoint runs/d/checkpoints \
-  --codec artifacts/codec \
-  --tasks configs/tasks/rl.jsonl \
-  --environment https://your-isolated-environment.example \
-  --output runs/r \
-  --task-seeds 10000 \
-  --rollouts-per-seed 4 \
-  --require-blackwell
-```
-
-RL freezes the byte encoder, central processor and its history projections, and every
-deterministic realizer owner, preserving their FP32 masters and Adam moments. The
-predictor, its control encoder, remix, and Gaussian scale remain trainable. It rebuilds state from actual observations and raw tapes,
-checks same-weight density replay, and uses same-task leave-one-out advantages. Equal
-reward groups skip the optimizer entirely. See [training operations](docs/training.md).
-
-## Evaluate, measure, and serve
-
-```bash
-megatoken evaluate \
-  --checkpoint runs/s/checkpoints \
-  --codec artifacts/codec \
-  --dataset artifacts/production \
-  --episodes 128
-megatoken \
-  --json-output runs/training-benchmark.json benchmark \
-  --model 32x512 \
-  --codec artifacts/codec \
-  --device cuda \
-  --precision bf16 \
-  --backward \
-  --representation-mode recurrent \
-  --prediction-chunks 4 \
-  --batch 8 \
-  --capacity 256 \
-  --steps 20
-
-megatoken export --checkpoint runs/d/checkpoints --codec artifacts/codec --output artifacts/served
-megatoken generate --model artifacts/served --prompt 'Explain the next step.' --max-tokens 256
-megatoken serve --model artifacts/served
-```
-
-The JSONL API supports independent `open`, `observe`, `generate`, `status`, and `close`
-sessions. Exact output bytes are base64 alongside emitted IDs and the complete action
-tape. Real tool observations return through `observe`; the server does not execute
-model-produced commands on the host. `observe_physical` preserves prepared boundaries.
-
-Evaluation follows the checkpoint's representation mode and reports causal lexical CE,
-encoder reconstruction, native-pair alignment when such pairs exist, generated
-exactness, validity, and confidence intervals. Arbitrary-byte validity is not a tool-task success score. The
-benchmarks measure actual end-to-end work, including reconstruction, towers, backward,
-and optimizer time; inference requests are currently served serially within that harness.
-
-## Development
-
-```bash
-ruff check src tests scripts
-ruff format --check src tests scripts
-pytest -q
-python -m build
-```
-
-CPU CI runs lint, tests, package builds, and CLI checks. The manual hardware workflow
-uses a provisioned Blackwell runner, builds the actual container, runs CUDA parity and
-replay, and saves measurements. GPU tests skip explicitly when no GPU is present.
-[The validation report](docs/validation.md) distinguishes executed checks from hardware
-and learned-quality gates still requiring a training run.
-
-Keep source adapters behind the shared `Episode` contract, environments behind the
-`Environment` protocol, and objectives over the shared generator and optimizer. Model,
-codec, semantic chunking, parameter ownership, and replay logic each have one implementation.
+The development PR stays **draft until verified**, but the architecture is not optional.

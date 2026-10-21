@@ -4,32 +4,58 @@ A bundle is immutable storage and supervision; neither its hidden annotations
 nor target payloads are prompts. Compiled views use the existing learner.
 No modality is invented when an approved asset/annotation is missing.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Mapping
 
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord
 from megatoken.data.schema import (
-    Dependency, Episode, Lineage, Meridian, PhysicalRecord, Supervision,
-    TrackEvent, TrackSpec, stable_id, canonical_json,
+    Dependency,
+    Episode,
+    Lineage,
+    Meridian,
+    PhysicalRecord,
+    Supervision,
+    TrackEvent,
+    TrackSpec,
+    canonical_json,
+    stable_id,
 )
 
 COMPILER_VERSION = "concordance-v1"
-RELATION_KINDS = frozenset({
-    "same_spoken_content", "translation_of", "describes",
-    "synchronized_with", "first_frame_of", "last_frame_of",
-    "edit_of", "preserves",
-})
-TASK_FAMILIES = frozenset({
-    "transcription", "verbalization", "speech_translation",
-    "image_description", "image_creation", "av_understanding",
-    "av_creation", "endpoints", "endpoint_conditioned_video",
-    "speech_counterfactual", "image_edit", "speech_edit", "av_edit",
-    "cross_track_evidence",
-})
+RELATION_KINDS = frozenset(
+    {
+        "same_spoken_content",
+        "translation_of",
+        "describes",
+        "synchronized_with",
+        "first_frame_of",
+        "last_frame_of",
+        "edit_of",
+        "preserves",
+    }
+)
+TASK_FAMILIES = frozenset(
+    {
+        "transcription",
+        "verbalization",
+        "speech_translation",
+        "image_description",
+        "image_creation",
+        "av_understanding",
+        "av_creation",
+        "endpoints",
+        "endpoint_conditioned_video",
+        "speech_counterfactual",
+        "image_edit",
+        "speech_edit",
+        "av_edit",
+        "cross_track_evidence",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +66,7 @@ class BundleArtifact:
     only immutable references to original/frozen features and codec targets.
     A version parent must be present in this same source family.
     """
+
     artifact_id: str
     label: str
     modality: str
@@ -72,9 +99,15 @@ class BundleArtifact:
         if generated and self.media.target is None:
             raise ValueError(f"Generated media artifact {self.artifact_id} lacks native target")
         # Observed records must not expose the target asset's identity.
-        record = self.media if generated else MediaRecord(
-            self.modality, self.media.source, views=self.media.views,
-            source_masks=self.media.source_masks,
+        record = (
+            self.media
+            if generated
+            else MediaRecord(
+                self.modality,
+                self.media.source,
+                views=self.media.views,
+                source_masks=self.media.source_masks,
+            )
         )
         return record.to_bytes(), MEDIA_RECORD_TYPE
 
@@ -130,6 +163,7 @@ class AlignedBundle:
 @dataclass(frozen=True, slots=True)
 class EventRequest:
     """An observation or a generated event with one effective prompt revision."""
+
     artifact_id: str
     track_id: str
     instruction: str
@@ -152,6 +186,7 @@ class EventRequest:
 @dataclass(frozen=True, slots=True)
 class TaskGroup:
     events: tuple[EventRequest, ...]
+
     def __post_init__(self) -> None:
         if not self.events or len({e.track_id for e in self.events}) != len(self.events):
             raise ValueError("Task group must have unique event tracks")
@@ -231,9 +266,13 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
             if event.available_until_ms is not None:
                 if event.generated or artifact.media is None:
                     raise ValueError("Source-prefix cutoff applies only to observed media")
-                if (artifact.source_end_ms is None
-                        or artifact.source_end_ms > event.available_until_ms):
-                    raise ValueError("Frozen encoder view extends beyond the available source prefix")
+                if (
+                    artifact.source_end_ms is None
+                    or artifact.source_end_ms > event.available_until_ms
+                ):
+                    raise ValueError(
+                        "Frozen encoder view extends beyond the available source prefix"
+                    )
             missing = set(event.reference_artifact_ids) - set(seen_artifacts)
             if missing:
                 raise ValueError("Future/same-meridian references cannot be model inputs")
@@ -243,51 +282,72 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
                 if artifact.parent_id not in seen_artifacts:
                     raise ValueError("Edited target's exact base version must precede the edit")
             record_id = stable_id(
-                "bundle-record", bundle.bundle_id, view.view_id, str(index),
-                event.track_id, event.artifact_id,
+                "bundle-record",
+                bundle.bundle_id,
+                view.view_id,
+                str(index),
+                event.track_id,
+                event.artifact_id,
             )[:32]
             payload, media_type = artifact.record_bytes(generated=current_generated)
             record = PhysicalRecord(
-                record_id, "assistant" if current_generated else "user", payload,
-                turn_index=index, policy_mask=current_generated,
-                provenance=artifact.provenance, media_type=media_type,
+                record_id,
+                "assistant" if current_generated else "user",
+                payload,
+                turn_index=index,
+                policy_mask=current_generated,
+                provenance=artifact.provenance,
+                media_type=media_type,
             )
             records.append(record)
             if event.track_id not in tracks:
                 tracks[event.track_id] = TrackSpec(
-                    event.track_id, record.role, artifact.modality,
+                    event.track_id,
+                    record.role,
+                    artifact.modality,
                     description=event.instruction,
                 )
-            entries.append(TrackEvent(
-                record_id, event.track_id, artifact.modality, index, record.role,
-                alignment_id=event.alignment_id,
-                asset_sha256=artifact.media.source.sha256 if artifact.media else None,
-                instruction=event.instruction, request_revision=event.revision,
-                settings_json=event.settings_json,
-                reference_event_ids=tuple(
-                    seen_artifacts[key] for key in event.reference_artifact_ids
-                ),
-            ))
+            entries.append(
+                TrackEvent(
+                    record_id,
+                    event.track_id,
+                    artifact.modality,
+                    index,
+                    record.role,
+                    alignment_id=event.alignment_id,
+                    asset_sha256=artifact.media.source.sha256 if artifact.media else None,
+                    instruction=event.instruction,
+                    request_revision=event.revision,
+                    settings_json=event.settings_json,
+                    reference_event_ids=tuple(
+                        seen_artifacts[key] for key in event.reference_artifact_ids
+                    ),
+                )
+            )
             if current_generated:
                 output_records[event.artifact_id] = record_id
             if current_generated and artifact.parent_id:
                 deps.append(Dependency(seen_artifacts[artifact.parent_id], record_id, "edit"))
         groups.append(Meridian(index, tuple(entries)))
-        seen_artifacts.update({e.artifact_id: event.record_id for e, event in zip(item.events, entries)})
+        seen_artifacts.update(
+            {e.artifact_id: event.record_id for e, event in zip(item.events, entries, strict=True)}
+        )
     if not any(e.generated for g in view.groups for e in g.events):
         raise ValueError("A training task must contain supervised output events")
     relation_rows = []
     for relation in view.relations:
         if relation.left not in seen_artifacts or relation.right not in seen_artifacts:
             raise ValueError("A relation cannot name withheld or absent artifacts")
-        if (relation.left not in output_records and relation.right not in output_records):
+        if relation.left not in output_records and relation.right not in output_records:
             raise ValueError("A supervised relation must involve a generated output")
-        relation_rows.append({
-            "kind": relation.kind,
-            "left": seen_artifacts[relation.left],
-            "right": seen_artifacts[relation.right],
-            "annotation": json.loads(relation.annotation_json),
-        })
+        relation_rows.append(
+            {
+                "kind": relation.kind,
+                "left": seen_artifacts[relation.left],
+                "right": seen_artifacts[relation.right],
+                "annotation": json.loads(relation.annotation_json),
+            }
+        )
     annotations = {
         "compiler_version": view.compiler_version,
         "source_family": bundle.lineage.family_id,
@@ -302,18 +362,23 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
         "available_artifacts": [
             e.artifact_id for g in view.groups for e in g.events if not e.generated
         ],
-        "target_artifacts": [
-            e.artifact_id for g in view.groups for e in g.events if e.generated
-        ],
+        "target_artifacts": [e.artifact_id for g in view.groups for e in g.events if e.generated],
         "verification": json.loads(view.verification_json),
     }
     lineage = Lineage(
         source_id=bundle.lineage.source_id,
         revision=bundle.lineage.revision,
         family_id=bundle.lineage.family_id,
-        ancestor_ids=tuple(sorted(set((
-            *bundle.lineage.ancestor_ids, bundle.bundle_id,
-        )))),
+        ancestor_ids=tuple(
+            sorted(
+                set(
+                    (
+                        *bundle.lineage.ancestor_ids,
+                        bundle.bundle_id,
+                    )
+                )
+            )
+        ),
         repository=bundle.lineage.repository,
         task_id=view.family + ":" + view.view_id,
         parent_episode_id=bundle.lineage.parent_episode_id,
@@ -324,15 +389,17 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
         frozen_split=bundle.lineage.frozen_split,
     )
     return Episode(
-        episode_id=stable_id("compiled-episode", bundle.bundle_id, view.view_id,
-                             COMPILER_VERSION),
-        records=tuple(records), lineage=lineage, stream=view.family,
+        episode_id=stable_id("compiled-episode", bundle.bundle_id, view.view_id, COMPILER_VERSION),
+        records=tuple(records),
+        lineage=lineage,
+        stream=view.family,
         supervision=Supervision(
             verification=bundle.verification_tier,
             annotations_json=canonical_json(annotations),
         ),
         dependencies=tuple(deps),
-        tracks=tuple(tracks.values()), meridians=tuple(groups),
+        tracks=tuple(tracks.values()),
+        meridians=tuple(groups),
         control_seed=view.shared_instruction.encode("utf-8"),
     )
 
@@ -349,86 +416,220 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
     def has(*roles: str) -> bool:
         return all(role in labels for role in roles)
 
-    def add(family: str, name: str, events: tuple[TaskGroup, ...],
-            relations: tuple[Relation, ...] = ()) -> None:
+    def add(
+        family: str, name: str, events: tuple[TaskGroup, ...], relations: tuple[Relation, ...] = ()
+    ) -> None:
         result.append(TaskView(name, family, events, relations))
 
     if has("source_speech", "verbatim_transcript"):
-        add("transcription", "direct-asr", (
-            group(observed(labels["source_speech"], "source_speech",
-                           "Listen to the available source speech; transcribe it verbatim.")),
-            group(generated(labels["verbatim_transcript"], "source_transcript",
-                            "Transcribe exactly what was spoken, preserving names and numbers.")),
-        ), (Relation("same_spoken_content", labels["source_speech"], labels["verbatim_transcript"]),))
+        add(
+            "transcription",
+            "direct-asr",
+            (
+                group(
+                    observed(
+                        labels["source_speech"],
+                        "source_speech",
+                        "Listen to the available source speech; transcribe it verbatim.",
+                    )
+                ),
+                group(
+                    generated(
+                        labels["verbatim_transcript"],
+                        "source_transcript",
+                        "Transcribe exactly what was spoken, preserving names and numbers.",
+                    )
+                ),
+            ),
+            (
+                Relation(
+                    "same_spoken_content", labels["source_speech"], labels["verbatim_transcript"]
+                ),
+            ),
+        )
     if has("written_text", "speech"):
-        peers = [generated(labels["speech"], "speech",
-                           "Speak the given text using the requested language and voice.")]
+        peers = [
+            generated(
+                labels["speech"],
+                "speech",
+                "Speak the given text using the requested language and voice.",
+            )
+        ]
         if has("spoken_form"):
-            peers.insert(0, generated(labels["spoken_form"], "spoken_form",
-                                      "Render the normalized spoken wording of the supplied text."))
-        inputs = [observed(labels["written_text"], "written_text",
-                           "Read this text exactly, observing spoken normalization.")]
+            peers.insert(
+                0,
+                generated(
+                    labels["spoken_form"],
+                    "spoken_form",
+                    "Render the normalized spoken wording of the supplied text.",
+                ),
+            )
+        inputs = [
+            observed(
+                labels["written_text"],
+                "written_text",
+                "Read this text exactly, observing spoken normalization.",
+            )
+        ]
         if has("voice_reference"):
-            inputs.append(observed(labels["voice_reference"], "voice_reference",
-                                   "Use this available speaker sample for voice identity."))
-        add("verbalization", "joint-tts", (group(*inputs), group(*peers)), (
-            Relation("same_spoken_content", labels["written_text"], labels["speech"]),
-        ))
+            inputs.append(
+                observed(
+                    labels["voice_reference"],
+                    "voice_reference",
+                    "Use this available speaker sample for voice identity.",
+                )
+            )
+        add(
+            "verbalization",
+            "joint-tts",
+            (group(*inputs), group(*peers)),
+            (Relation("same_spoken_content", labels["written_text"], labels["speech"]),),
+        )
     if has("source_speech", "translated_text", "translated_speech"):
         peers = [
-            generated(labels["translated_text"], "translation",
-                      "Translate the source speech accurately into the requested language."),
-            generated(labels["translated_speech"], "translated_speech",
-                      "Speak the translation; preserve names and numbers without reading peer text."),
+            generated(
+                labels["translated_text"],
+                "translation",
+                "Translate the source speech accurately into the requested language.",
+            ),
+            generated(
+                labels["translated_speech"],
+                "translated_speech",
+                "Speak the translation; preserve names and numbers without reading peer text.",
+            ),
         ]
         if has("verbatim_transcript"):
-            peers.insert(0, generated(labels["verbatim_transcript"], "source_transcript",
-                                      "Transcribe the available source speech verbatim."))
-        add("speech_translation", "direct-joint-translation", (
-            group(observed(labels["source_speech"], "source_speech",
-                           "Listen to the source-language speech; only the supplied prefix is available.")),
-            group(*peers),
-        ), (
-            Relation("translation_of", labels["translated_text"], labels["source_speech"]),
-            Relation("same_spoken_content", labels["translated_text"], labels["translated_speech"]),
-        ))
+            peers.insert(
+                0,
+                generated(
+                    labels["verbatim_transcript"],
+                    "source_transcript",
+                    "Transcribe the available source speech verbatim.",
+                ),
+            )
+        add(
+            "speech_translation",
+            "direct-joint-translation",
+            (
+                group(
+                    observed(
+                        labels["source_speech"],
+                        "source_speech",
+                        "Listen to the source-language speech; only the supplied prefix is available.",
+                    )
+                ),
+                group(*peers),
+            ),
+            (
+                Relation("translation_of", labels["translated_text"], labels["source_speech"]),
+                Relation(
+                    "same_spoken_content", labels["translated_text"], labels["translated_speech"]
+                ),
+            ),
+        )
     if has("image", "display_caption"):
-        add("image_description", "grounded-image-description", (
-            group(observed(labels["image"], "image", "Inspect the supplied visual content.")),
-            group(generated(labels["display_caption"], "caption",
-                            "Describe visible objects, attributes, counts and spatial relations.")),
-        ), (Relation("describes", labels["display_caption"], labels["image"]),))
+        add(
+            "image_description",
+            "grounded-image-description",
+            (
+                group(observed(labels["image"], "image", "Inspect the supplied visual content.")),
+                group(
+                    generated(
+                        labels["display_caption"],
+                        "caption",
+                        "Describe visible objects, attributes, counts and spatial relations.",
+                    )
+                ),
+            ),
+            (Relation("describes", labels["display_caption"], labels["image"]),),
+        )
     if has("creation_request", "image", "display_caption"):
-        add("image_creation", "joint-image-caption", (
-            group(observed(labels["creation_request"], "request",
-                           "Choose image content from the creation request.")),
-            group(generated(labels["image"], "image_out", "Generate the requested image."),
-                  generated(labels["display_caption"], "caption",
-                            "Describe the selected generated scene, not a hidden gold image.")),
-        ), (Relation("describes", labels["display_caption"], labels["image"]),))
+        add(
+            "image_creation",
+            "joint-image-caption",
+            (
+                group(
+                    observed(
+                        labels["creation_request"],
+                        "request",
+                        "Choose image content from the creation request.",
+                    )
+                ),
+                group(
+                    generated(labels["image"], "image_out", "Generate the requested image."),
+                    generated(
+                        labels["display_caption"],
+                        "caption",
+                        "Describe the selected generated scene, not a hidden gold image.",
+                    ),
+                ),
+            ),
+            (Relation("describes", labels["display_caption"], labels["image"]),),
+        )
     if has("video", "source_audio", "display_caption"):
-        outputs = [generated(labels["display_caption"], "caption",
-                             "Describe visible actions and their actual order.")]
+        outputs = [
+            generated(
+                labels["display_caption"],
+                "caption",
+                "Describe visible actions and their actual order.",
+            )
+        ]
         if has("verbatim_transcript"):
-            outputs.append(generated(labels["verbatim_transcript"], "transcript",
-                                     "Transcribe spoken words, not visual scene descriptions."))
+            outputs.append(
+                generated(
+                    labels["verbatim_transcript"],
+                    "transcript",
+                    "Transcribe spoken words, not visual scene descriptions.",
+                )
+            )
         if has("audio_event_description"):
-            outputs.append(generated(labels["audio_event_description"], "audio_events",
-                                     "Describe audible sound events, not subtitles."))
-        add("av_understanding", "av-understanding", (
-            group(observed(labels["video"], "source_video", "Observe the available video."),
-                  observed(labels["source_audio"], "source_audio",
-                           "Listen to the synchronized source sound.")),
-            group(*outputs),
-        ), (Relation("describes", labels["display_caption"], labels["video"]),))
+            outputs.append(
+                generated(
+                    labels["audio_event_description"],
+                    "audio_events",
+                    "Describe audible sound events, not subtitles.",
+                )
+            )
+        add(
+            "av_understanding",
+            "av-understanding",
+            (
+                group(
+                    observed(labels["video"], "source_video", "Observe the available video."),
+                    observed(
+                        labels["source_audio"],
+                        "source_audio",
+                        "Listen to the synchronized source sound.",
+                    ),
+                ),
+                group(*outputs),
+            ),
+            (Relation("describes", labels["display_caption"], labels["video"]),),
+        )
     if has("creation_request", "video", "soundtrack", "display_caption"):
-        prefix = [group(observed(labels["creation_request"], "request",
-                                 "Create synchronized audiovisual content."))]
+        prefix = [
+            group(
+                observed(
+                    labels["creation_request"],
+                    "request",
+                    "Create synchronized audiovisual content.",
+                )
+            )
+        ]
         if has("content_plan"):
-            prefix.append(group(generated(labels["content_plan"], "content_plan",
-                                          "Choose a coherent scene, timing, speakers and events.")))
+            prefix.append(
+                group(
+                    generated(
+                        labels["content_plan"],
+                        "content_plan",
+                        "Choose a coherent scene, timing, speakers and events.",
+                    )
+                )
+            )
         peers = [
-            generated(labels["display_caption"], "caption", "Describe the chosen scene and event order."),
+            generated(
+                labels["display_caption"], "caption", "Describe the chosen scene and event order."
+            ),
             generated(labels["video"], "video_out", "Realize the selected scene and motion."),
             generated(labels["soundtrack"], "soundtrack", "Produce synchronized sound events."),
         ]
@@ -437,59 +638,120 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
             Relation("synchronized_with", labels["soundtrack"], labels["video"]),
         ]
         if has("first_frame"):
-            peers.append(generated(labels["first_frame"], "first_frame",
-                                   "Generate the independently predicted first visible frame."))
+            peers.append(
+                generated(
+                    labels["first_frame"],
+                    "first_frame",
+                    "Generate the independently predicted first visible frame.",
+                )
+            )
             relations.append(Relation("first_frame_of", labels["first_frame"], labels["video"]))
         if has("last_frame"):
-            peers.append(generated(labels["last_frame"], "last_frame",
-                                   "Generate the independently predicted final visible frame."))
+            peers.append(
+                generated(
+                    labels["last_frame"],
+                    "last_frame",
+                    "Generate the independently predicted final visible frame.",
+                )
+            )
             relations.append(Relation("last_frame_of", labels["last_frame"], labels["video"]))
         add("av_creation", "joint-av", (*prefix, group(*peers)), tuple(relations))
     if has("first_frame", "last_frame", "video", "creation_request"):
-        add("endpoint_conditioned_video", "endpoints-input", (
-            group(observed(labels["first_frame"], "start_frame",
-                           "Use this genuinely supplied starting frame."),
-                  observed(labels["last_frame"], "end_frame",
-                           "Use this genuinely supplied ending frame."),
-                  observed(labels["creation_request"], "request", "Interpolate the requested motion.")),
-            group(generated(labels["video"], "video_out",
-                            "Produce motion constrained by both observed endpoint frames.")),
-        ), (
-            Relation("first_frame_of", labels["first_frame"], labels["video"]),
-            Relation("last_frame_of", labels["last_frame"], labels["video"]),
-        ))
-    if has("written_text", "voice_reference_a", "voice_reference_b",
-           "speech_variant_a", "speech_variant_b"):
-        add("speech_counterfactual", "voice-ab-variants", (
-            group(observed(labels["written_text"], "written_text",
-                           "Read the exact shared source sentence."),
-                  observed(labels["voice_reference_a"], "voice_ref_a",
-                           "Available sample for voice identity A."),
-                  observed(labels["voice_reference_b"], "voice_ref_b",
-                           "Available sample for voice identity B.")),
-            group(generated(labels["speech_variant_a"], "variant_a",
-                            "Speak the text in voice A; no text or source-voice changes.",
-                            revision=1,
-                            reference_artifact_ids=(labels["voice_reference_a"],)),
-                  generated(labels["speech_variant_b"], "variant_b",
-                            "Speak the same text in voice B; only speaker identity changes.",
-                            revision=1,
-                            reference_artifact_ids=(labels["voice_reference_b"],))),
-        ), (
-            Relation("same_spoken_content", labels["speech_variant_a"],
-                     labels["speech_variant_b"]),
-            Relation("same_spoken_content", labels["written_text"],
-                     labels["speech_variant_a"]),
-            Relation("same_spoken_content", labels["written_text"],
-                     labels["speech_variant_b"]),
-        ))
+        add(
+            "endpoint_conditioned_video",
+            "endpoints-input",
+            (
+                group(
+                    observed(
+                        labels["first_frame"],
+                        "start_frame",
+                        "Use this genuinely supplied starting frame.",
+                    ),
+                    observed(
+                        labels["last_frame"],
+                        "end_frame",
+                        "Use this genuinely supplied ending frame.",
+                    ),
+                    observed(
+                        labels["creation_request"], "request", "Interpolate the requested motion."
+                    ),
+                ),
+                group(
+                    generated(
+                        labels["video"],
+                        "video_out",
+                        "Produce motion constrained by both observed endpoint frames.",
+                    )
+                ),
+            ),
+            (
+                Relation("first_frame_of", labels["first_frame"], labels["video"]),
+                Relation("last_frame_of", labels["last_frame"], labels["video"]),
+            ),
+        )
+    if has(
+        "written_text",
+        "voice_reference_a",
+        "voice_reference_b",
+        "speech_variant_a",
+        "speech_variant_b",
+    ):
+        add(
+            "speech_counterfactual",
+            "voice-ab-variants",
+            (
+                group(
+                    observed(
+                        labels["written_text"],
+                        "written_text",
+                        "Read the exact shared source sentence.",
+                    ),
+                    observed(
+                        labels["voice_reference_a"],
+                        "voice_ref_a",
+                        "Available sample for voice identity A.",
+                    ),
+                    observed(
+                        labels["voice_reference_b"],
+                        "voice_ref_b",
+                        "Available sample for voice identity B.",
+                    ),
+                ),
+                group(
+                    generated(
+                        labels["speech_variant_a"],
+                        "variant_a",
+                        "Speak the text in voice A; no text or source-voice changes.",
+                        revision=1,
+                        reference_artifact_ids=(labels["voice_reference_a"],),
+                    ),
+                    generated(
+                        labels["speech_variant_b"],
+                        "variant_b",
+                        "Speak the same text in voice B; only speaker identity changes.",
+                        revision=1,
+                        reference_artifact_ids=(labels["voice_reference_b"],),
+                    ),
+                ),
+            ),
+            (
+                Relation(
+                    "same_spoken_content", labels["speech_variant_a"], labels["speech_variant_b"]
+                ),
+                Relation("same_spoken_content", labels["written_text"], labels["speech_variant_a"]),
+                Relation("same_spoken_content", labels["written_text"], labels["speech_variant_b"]),
+            ),
+        )
     for family, prefix, modality in (
         ("image_edit", "image", "image"),
         ("speech_edit", "speech", "audio"),
         ("av_edit", "av", "video"),
     ):
-        base, target, instruction = (f"original_{prefix}",
-                                     f"edited_{prefix}", f"{prefix}_edit_instruction")
+        base, target, instruction = (
+            f"original_{prefix}",
+            f"edited_{prefix}",
+            f"{prefix}_edit_instruction",
+        )
         if has(base, target, instruction):
             original = bundle.by_id(labels[base])
             edited = bundle.by_id(labels[target])
@@ -497,37 +759,79 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
                 raise ValueError(f"{family} labels have invalid modality")
             if edited.parent_id != original.artifact_id:
                 raise ValueError(f"{family} target must name its exact input version")
-            add(family, f"verified-{prefix}-edit", (
-                group(observed(labels[base], "original", "Observe the original media version."),
-                      observed(labels[instruction], "edit_instruction",
-                               "Apply only the verified requested semantic change.")),
-                group(generated(labels[target], "edited",
-                                "Render the edited version with unchanged regions preserved.",
-                                revision=1,
-                                reference_artifact_ids=(labels[base],))),
-            ), (Relation("edit_of", labels[target], labels[base]),
-                Relation("preserves", labels[target], labels[base])))
+            add(
+                family,
+                f"verified-{prefix}-edit",
+                (
+                    group(
+                        observed(labels[base], "original", "Observe the original media version."),
+                        observed(
+                            labels[instruction],
+                            "edit_instruction",
+                            "Apply only the verified requested semantic change.",
+                        ),
+                    ),
+                    group(
+                        generated(
+                            labels[target],
+                            "edited",
+                            "Render the edited version with unchanged regions preserved.",
+                            revision=1,
+                            reference_artifact_ids=(labels[base],),
+                        )
+                    ),
+                ),
+                (
+                    Relation("edit_of", labels[target], labels[base]),
+                    Relation("preserves", labels[target], labels[base]),
+                ),
+            )
     if has("audio_evidence", "video_evidence", "text_evidence", "grounded_answer"):
-        add("cross_track_evidence", "joint-evidence-grounding", (
-            group(observed(labels["audio_evidence"], "audio_evidence",
-                           "Listen to the available auditory evidence."),
-                  observed(labels["video_evidence"], "video_evidence",
-                           "Inspect the available visual evidence."),
-                  observed(labels["text_evidence"], "text_evidence",
-                           "Read the available written evidence.")),
-            group(generated(labels["grounded_answer"], "grounded_answer",
-                            "Answer using corroborated sources; do not hallucinate missing facts.")),
-        ), (
-            Relation("describes", labels["grounded_answer"], labels["video_evidence"]),
-            Relation("same_spoken_content", labels["grounded_answer"],
-                     labels["text_evidence"]),
-        ))
+        add(
+            "cross_track_evidence",
+            "joint-evidence-grounding",
+            (
+                group(
+                    observed(
+                        labels["audio_evidence"],
+                        "audio_evidence",
+                        "Listen to the available auditory evidence.",
+                    ),
+                    observed(
+                        labels["video_evidence"],
+                        "video_evidence",
+                        "Inspect the available visual evidence.",
+                    ),
+                    observed(
+                        labels["text_evidence"],
+                        "text_evidence",
+                        "Read the available written evidence.",
+                    ),
+                ),
+                group(
+                    generated(
+                        labels["grounded_answer"],
+                        "grounded_answer",
+                        "Answer using corroborated sources; do not hallucinate missing facts.",
+                    )
+                ),
+            ),
+            (
+                Relation("describes", labels["grounded_answer"], labels["video_evidence"]),
+                Relation("same_spoken_content", labels["grounded_answer"], labels["text_evidence"]),
+            ),
+        )
     return tuple(result)
 
 
 def edit_task_view(
-    *, family: str, view_id: str, original: str, instruction: str,
-    edited: str, version: int = 1,
+    *,
+    family: str,
+    view_id: str,
+    original: str,
+    instruction: str,
+    edited: str,
+    version: int = 1,
     optional_peers: tuple[tuple[str, str], ...] = (),
     preserves_json: str = "{}",
 ) -> TaskView:
@@ -540,9 +844,15 @@ def edit_task_view(
     """
     if family not in {"image_edit", "speech_edit", "av_edit"} or version < 1:
         raise ValueError("Unknown editing task family/revision")
-    output = [generated(edited, "edited_media",
-                        "Apply the requested edit, preserving all unaffected content.",
-                        revision=version, reference_artifact_ids=(original,))]
+    output = [
+        generated(
+            edited,
+            "edited_media",
+            "Apply the requested edit, preserving all unaffected content.",
+            revision=version,
+            reference_artifact_ids=(original,),
+        )
+    ]
     relations = [
         Relation("edit_of", edited, original),
         Relation("preserves", edited, original, preserves_json),
@@ -550,24 +860,36 @@ def edit_task_view(
     for identifier, modality in optional_peers:
         if modality not in {"text", "audio", "image", "video"}:
             raise ValueError("Unknown edited peer modality")
-        output.append(generated(
-            identifier, "edited_" + modality,
-            "Update only this related output track to agree with the requested edit.",
-            revision=version, reference_artifact_ids=(original,),
-        ))
-        relations.append(Relation("describes" if modality == "text" else
-                                  "synchronized_with", identifier, edited))
-    return TaskView(view_id, family, (
-        group(observed(original, "original",
-                       "Observe this exact media version as the edit baseline."),
-              observed(instruction, "instruction", "Read the verified edit request.")),
-        group(*output),
-    ), tuple(relations))
+        output.append(
+            generated(
+                identifier,
+                "edited_" + modality,
+                "Update only this related output track to agree with the requested edit.",
+                revision=version,
+                reference_artifact_ids=(original,),
+            )
+        )
+        relations.append(
+            Relation("describes" if modality == "text" else "synchronized_with", identifier, edited)
+        )
+    return TaskView(
+        view_id,
+        family,
+        (
+            group(
+                observed(
+                    original, "original", "Observe this exact media version as the edit baseline."
+                ),
+                observed(instruction, "instruction", "Read the verified edit request."),
+            ),
+            group(*output),
+        ),
+        tuple(relations),
+    )
 
 
 def manifest_fingerprint(bundle: AlignedBundle, views: tuple[TaskView, ...]) -> str:
     """Stable manifest digest binds exact task family, source split and versions."""
-    from dataclasses import asdict
     # Bundle may contain bytes; encode without a lossy implicit string conversion.
     h = hashlib.sha256(COMPILER_VERSION.encode())
     h.update(bundle.bundle_id.encode())

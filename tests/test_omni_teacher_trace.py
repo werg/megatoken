@@ -1,5 +1,4 @@
 """Predecoder acoustic trace is exact and never feeds a transcript into native R."""
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -9,11 +8,11 @@ from megatoken.omni.teacher import capture_pocket_teacher
 
 class FakeFlow:
     ldim = 3
-    emb_mean = torch.tensor([1., 2., 3.])
-    emb_std = torch.tensor([2., 2., 2.])
+    emb_mean = torch.tensor([1.0, 2.0, 3.0])
+    emb_std = torch.tensor([2.0, 2.0, 2.0])
 
     def _sample_next_latent(self, *args, **kwargs):
-        return torch.tensor([[.5, 1., 1.5]]), torch.tensor([[False]])
+        return torch.tensor([[0.5, 1.0, 1.5]]), torch.tensor([[False]])
 
 
 class FakeTeacher:
@@ -34,12 +33,13 @@ def test_teacher_emits_exact_native_predecoder_coordinates():
     teacher = FakeTeacher()
     original = teacher.flow_lm._sample_next_latent
     recorded = capture_pocket_teacher(
-        teacher, voice_state="approved separate reference",
+        teacher,
+        voice_state="approved separate reference",
         spoken_text="The blue truck turns left.",
     )
     assert recorded.waveform.shape == (1, 3840)
     assert recorded.normalized_latents.shape == (2, 3)
-    assert torch.equal(recorded.mimi_latents[0], torch.tensor([2., 4., 6.]))
+    assert torch.equal(recorded.mimi_latents[0], torch.tensor([2.0, 4.0, 6.0]))
     assert recorded.eos_flags == (False, False)
     assert teacher.observed_text == "The blue truck turns left."
     assert teacher.flow_lm._sample_next_latent == original
@@ -48,12 +48,15 @@ def test_teacher_emits_exact_native_predecoder_coordinates():
 def test_teacher_cleans_capture_on_generator_failure():
     teacher = FakeTeacher()
     original = teacher.flow_lm._sample_next_latent
+
     def fail(*args, **kwargs):
         raise RuntimeError("teacher interrupted")
+
     teacher.generate_audio = fail
     with pytest.raises(RuntimeError, match="interrupted"):
         capture_pocket_teacher(
-            teacher, voice_state="approved separate reference",
+            teacher,
+            voice_state="approved separate reference",
             spoken_text="Hello",
         )
     assert teacher.flow_lm._sample_next_latent == original

@@ -66,7 +66,7 @@ class DecoupledConfig:
 @dataclass(frozen=True)
 class TrainConfig:
     phase: str = "B0"
-    model: str = "tiny"
+    model: str = "32x512"
     dataset: str = "artifacts/demo"
     output: str = "runs/bootstrap"
     codec: str = "byte"
@@ -87,7 +87,7 @@ class TrainConfig:
     effort: int = 6
     checkpoint_every: int = 100
     keep_checkpoints: int = 3
-    eval_every: int = 100
+    eval_every: int = 0
     eval_episodes: int = 16
     log_every: int = 1
     gradient_checkpointing: bool = True
@@ -97,7 +97,7 @@ class TrainConfig:
     representation_mode: str = "auto"
     # G counts physical megatoken events; use only with an explicit event budget.
     # FP32 media assets live under the prepared dataset root by default.
-    budget_meter: str = "auto"
+    budget_meter: str = "G"
     accumulate_events: int = 32
     media_root: str | None = None
     # Immutable local checkpoint manifest. Donors are loaded before optimizer enumeration.
@@ -111,13 +111,30 @@ class TrainConfig:
     grad_clip: float = 1.0
     weight_decay: float = 0.1
     inner_optimizer: str = "adamw"
+    # Required at EVERY phase; coherence bootstrap starts with no free KB rows.
+    # Omission is a configuration error, never a legacy training switch.
+    retrieval_sidecar: str = ""
+    retrieval_document_sidecar: str = ""
+    retrieval_memory_recipe: str = ""
+    retrieval_bank: str | None = None  # required for live warmup/free KB updates
+    retrieval_source_assets_root: str | None = None
+    retrieval_ivf_centroids: str | None = None
+    retrieval_ivf_sha256: str | None = None
+    retrieval_ivf_nprobe: int = 8
+    retrieval_gate_receipt: str | None = None
+    retrieval_sparse_lr: float = 1e-3
+    retrieval_kv_dropout: float = 0.1
+    retrieval_lora_dropout: float = 0.1
+    retrieval_growth_every: int = 100
+    retrieval_growth_budget: int = 32
+    router_balance_mode: str = "global"
     decoupled: DecoupledConfig | None = None
     loss_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LOSS_WEIGHTS))
     model_overrides: dict[str, Any] = field(default_factory=dict)
     allow_byte_codec: bool = False
     allow_unverified_data: bool = False
-    use_stage_mixture: bool = True
-    use_effort_mixture: bool = True
+    use_stage_mixture: bool = False
+    use_effort_mixture: bool = False
     engram_import: str | None = None
 
     def __post_init__(self) -> None:
@@ -125,6 +142,48 @@ class TrainConfig:
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
             raise ValueError("decoupled must be a settings object or mapping")
+        if not (
+            self.retrieval_sidecar
+            and self.retrieval_document_sidecar
+            and self.retrieval_memory_recipe
+        ):
+            raise ValueError(
+                "Every training invocation requires query and document "
+                "embedding sidecars and the pinned retrieval-memory recipe"
+            )
+        if (
+            self.retrieval_sidecar.startswith("PIN_")
+            or self.retrieval_document_sidecar.startswith("PIN_")
+            or self.retrieval_memory_recipe.startswith("PIN_")
+        ):
+            raise ValueError("Pin actual retrieval preparation artifacts before training")
+        # DiLoCo is the target training methodology for every phase: neural
+        # parameters sync as fragments and free-KB rows through diloco_kb.
+        if self.retrieval_source_assets_root and not self.retrieval_bank:
+            raise ValueError("RAG source-feature assets require a live canonical KB")
+        if bool(self.retrieval_ivf_centroids) != bool(self.retrieval_ivf_sha256):
+            raise ValueError("Learned IVF must pin both centroid path and SHA256")
+        if self.retrieval_ivf_nprobe < 1:
+            raise ValueError("IVF nprobe must be a positive integer")
+        if self.retrieval_bank and not self.retrieval_sidecar:
+            raise ValueError("A live KB requires retrieval supervision sidecars")
+        if self.retrieval_bank and not self.retrieval_gate_receipt:
+            raise ValueError("Live KB phases require audited phase gate receipts")
+        if not 0 <= self.retrieval_kv_dropout <= 1 or not (0 <= self.retrieval_lora_dropout <= 1):
+            raise ValueError("Retrieval KV and LoRA dropout must be valid probabilities")
+        if (
+            self.retrieval_sparse_lr <= 0
+            or self.retrieval_growth_every < 1
+            or (self.retrieval_growth_budget < 0)
+        ):
+            raise ValueError("Invalid bounded retrieval sparse LR/growth settings")
+        if self.router_balance_mode != "global":
+            raise ValueError(
+                "The local router fairness objective is removed; "
+                "all training uses optimizer-step global router replay"
+            )
+        if self.budget_meter != "G":
+            raise ValueError("Training only supports causal grouped megatoken meridians")
         if self.inner_optimizer not in {"adamw", "muon"}:
             raise ValueError("inner_optimizer must be adamw or muon")
         if self.phase not in PHASES:
@@ -137,8 +196,6 @@ class TrainConfig:
             raise ValueError("expert_backend must be auto, torch, or triton")
         if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
-        if self.budget_meter not in {"auto", "G"}:
-            raise ValueError("budget_meter must be auto or G (megatoken events)")
         if self.budget_meter == "G" and self.budget is None:
             raise ValueError("A media/mixed event budget requires an explicit budget")
         if self.budget_meter == "G" and self.eval_every:

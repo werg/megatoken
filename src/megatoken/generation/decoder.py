@@ -11,6 +11,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from megatoken.contracts import DECODER_LOSSES
 from megatoken.model.layers import position_features
 
 from .distributions import TiedVocabulary
@@ -18,8 +19,6 @@ from .feasibility import wire_overhead_tokens, wire_witness_tokens
 from .realizer import ParallelRealizer
 from .structure import ActionSpec, Decision, FieldSpec
 from .targets import PreparedAction, PreparedTargets, planned_fields, source_ids, workspace_capacity
-
-DECODER_LOSSES = ("lexical", "structure", "binding", "placement", "terminal")
 
 
 @dataclass(frozen=True)
@@ -160,7 +159,10 @@ class DeterministicDecoder(nn.Module):
 
     @staticmethod
     def logits(header: Tensor, codes: nn.Embedding) -> Tensor:
-        return F.linear(header, codes.weight) / math.sqrt(header.shape[-1])
+        # Header states are GRU-bounded and codes start near unit norm, so logits
+        # already begin small. An extra 1/sqrt(width) temperature capped them near
+        # one and left structure/terminal heads stuck at chance in real training.
+        return F.linear(header, codes.weight)
 
     def condition(self, header, codes, value):
         if not isinstance(value, Tensor):

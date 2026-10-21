@@ -28,7 +28,9 @@ def stage(uri: str, destination: str | Path) -> int:
     root.mkdir(parents=True, exist_ok=True)
     client = boto3.client("s3", endpoint_url=os.environ.get("AWS_ENDPOINT_URL_S3"))
     count = 0
-    for page in client.get_paginator("list_objects_v2").paginate(Bucket=parts.netloc, Prefix=prefix):
+    for page in client.get_paginator("list_objects_v2").paginate(
+        Bucket=parts.netloc, Prefix=prefix
+    ):
         for entry in page.get("Contents", []):
             key = entry["Key"]
             if key.endswith("/"):

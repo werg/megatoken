@@ -17,7 +17,6 @@ from megatoken.data.parsing.engine import parse_content
 from megatoken.data.parsing.syntax import scan_generic
 from megatoken.data.parsing.types import ParseLimits
 
-
 LIMITS = ParseLimits(isolate_native=False)
 
 
@@ -31,7 +30,7 @@ LIMITS = ParseLimits(isolate_native=False)
             b"#[derive(Clone)]\nfn f<'a>(x: &'a str) { /* a /* nested */ b */ }",
             [b"/* a /* nested */ b */"],
         ),
-        ("c", b'#include <stdio.h>\rint x=1; // comment\r', [b"// comment"]),
+        ("c", b"#include <stdio.h>\rint x=1; // comment\r", [b"// comment"]),
         ("csharp", b"#nullable enable\nvar i = 2; // note", [b"// note"]),
         ("javascript", b'const x = "https://host/#a"; x--; // note\rnext();', [b"// note"]),
         ("python", b"x=1# comment\ry=2", [b"# comment"]),
@@ -43,7 +42,7 @@ LIMITS = ParseLimits(isolate_native=False)
             b"let item = 1 (* outer (* inner *) end *) + 2",
             [b"(* outer (* inner *) end *)"],
         ),
-        ("clojure", b'(def x 1) ; comment\r(def y 2)', [b"; comment"]),
+        ("clojure", b"(def x 1) ; comment\r(def y 2)", [b"; comment"]),
         ("latex", b"\\% escaped\n\\section{A} % comment\n", [b"% comment"]),
         (
             "unknown",
@@ -106,8 +105,7 @@ def test_unfinished_comments_and_raw_strings_report_bounded_recovery(language, s
     scan = scan_generic(source, language, LIMITS)
     scan.result.validate(len(source))
     assert any(
-        d.code in {"unterminated_comment", "unterminated_literal"}
-        for d in scan.result.diagnostics
+        d.code in {"unterminated_comment", "unterminated_literal"} for d in scan.result.diagnostics
     )
     assert all(0 <= item.start <= item.end <= len(source) for item in scan.result.regions)
 
@@ -158,7 +156,7 @@ def test_markup_recovery_obeys_tiny_injection_limit():
     source = (
         b'<div title="First"><p alt="Second">Body</p>'
         b'<script type="text/javascript">third()</script>'
-        b'<!-- fourth --><![CDATA[fifth]]></div>'
+        b"<!-- fourth --><![CDATA[fifth]]></div>"
     )
     limits = replace(LIMITS, max_injections=1)
     scan = scan_markup_fallback(source, "html", limits)

@@ -53,6 +53,16 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
             cursor += part.length
     for name, value in params.items():
         snapshot[name] = value.to(snapshot[name].dtype)
+    from megatoken.io import sha256_file
+    from megatoken.memory.recipe import RetrievalRecipe
+
+    retrieval = {
+        "retrieval_sidecar_sha256": sha256_file(Path(config.retrieval_sidecar)),
+        "retrieval_document_sha256": sha256_file(Path(config.retrieval_document_sidecar)),
+        "retrieval_recipe_fingerprint": RetrievalRecipe.load(
+            config.retrieval_memory_recipe
+        ).fingerprint,
+    }
     name = f"outer-{max(versions):09d}-{int(time.time())}"
     directory = save_checkpoint(
         output,
@@ -62,6 +72,7 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
             "model_config": manifest["model_config"],
             "train_config": asdict(config),
             "codec_fingerprint": manifest["codec_fingerprint"],
+            **retrieval,
             "export_only": True,
             "outer_fragment_versions": versions,
             "global_step": max(versions),

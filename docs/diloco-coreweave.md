@@ -1,7 +1,60 @@
 # Decoupled DiLoCo on eight CoreWeave GPU sandboxes
 
-This is an **independent-worker** alternative to the existing, unchanged torchrun
-DDP trainer. Its goal is useful multi-GPU pretraining with no GPU-to-GPU
+DiLoCo is the **target training methodology** for megatoken. It runs the same
+mandatory retrieval-memory architecture as the torchrun trainer: every learner
+loads the identical pinned recipe and query/document sidecars, and the coordinator
+rejects any worker whose sidecar or recipe content differs. All neural parameters
+(E/C/P/R, native KB KV projector, memory LoRA experts) synchronize as fragments.
+
+**Phase coverage:** every phase. The coherence + embedding phase (`B0`/`P1`)
+has no live bank and syncs only fragments. For live free-KB phases (`M1`+), set
+`retrieval_bank` in the config before `megatoken diloco init`; the coordinator
+copies that gate-ready bank and becomes its single owner (see below and
+[configs/train/retrieval-free-kb-diloco.example.yaml](../configs/train/retrieval-free-kb-diloco.example.yaml)).
+
+### Free-KB row sync
+
+Free-KB rows are sparse, dynamically allocated SQLite records, so they use
+their own protocol (`megatoken.training.diloco_kb`) next to fragments:
+
+- **Ownership:** the coordinator holds `kb/canonical.sqlite` and alone grows
+  rows and assigns IDs. Learners never grow locally; they forward query demand.
+- **Learners:** each downloads the published snapshot to
+  `<output>/worker-NN/diloco/kb.sqlite`, trains it with local sparse Adam, and
+  every `local_steps` uploads `baseline - current` for each touched row field
+  (baseline = the row's anchor: its last installed canonical value, or the
+  value it was last uploaded at) plus its demand.
+- **Merge:** per row field, contributions from the learners that touched it
+  are weighted like fragments and applied with per-row outer Nesterov momentum.
+  Rows retired on the canonical bank are skipped. Demand is recorded, growth
+  runs (`retrieval_growth_budget` per merge), and rows, version and the
+  per-worker sequence ledger commit in one SQLite transaction.
+- **Staleness/duplicates:** bases older than `max_staleness` get HTTP 409 and
+  the learner reinstalls; replayed sequences are idempotent.
+- **Overlapped rounds:** learners never pause for a round. Installing a newer
+  canonical version (rows or fragments) carries over the progress trained
+  since the anchor: `new = global + (current - anchor)`. The steps run while a
+  round was in flight are kept and become exactly the next upload, so nothing
+  is double-counted or discarded. For rows, only rows the change set actually
+  replaced get the residual re-applied.
+- **Incremental pulls:** triggers on the canonical bank log every changed
+  primary key under the version being produced. Whenever the coordinator
+  reports a newer version, a learner POSTs its base version and the row IDs it trained; the
+  coordinator returns only rows changed since that base plus those trained rows
+  (with postings and `meta`). The learner upserts them in one transaction, which
+  leaves its synchronized tables identical to the canonical bank while keeping
+  its own sparse Adam moments. Transfer cost scales with the merge, not the bank.
+- **Snapshots:** a stripped full snapshot (no coordinator state or learner
+  moments) is built lazily, only for bootstrap and for learners whose base
+  predates the retained change history (`retained_versions`, default 1024;
+  HTTP 410 triggers the fallback).
+- **Endpoints:** `GET /v1/kb?after=VERSION` (snapshot), `POST /v1/kb/changes`,
+  `POST /v1/kb/updates`; `status` reports `kb_version`. Uploads are capped by
+  `max_kb_update_bytes` (256 MiB).
+
+Known limit: outer momentum is applied only to rows touched in a merge.
+
+Its goal is useful multi-GPU pretraining with no GPU-to-GPU
 interconnect. The design follows [Decoupled DiLoCo](https://arxiv.org/abs/2604.21428):
 each learner runs local steps, partitions its trainable FP32 weights into
 independent fragments, and sends pseudo-gradients to a persistent coordinator.
@@ -35,7 +88,7 @@ proprietary orchestration infrastructure or its adaptive performance controller.
 
 ## Configure
 
-Edit `configs/train/p1-diloco-coreweave.yaml`:
+Edit `configs/train/retrieval-coherence-diloco-coreweave.example.yaml`:
 
 - `decoupled.run_id`: unique immutable run ID. Never reuse for a changed
   objective, dataset, or experimental restart.
@@ -82,13 +135,13 @@ coordinator host, then:
 export MEGATOKEN_DILOCO_TOKEN="$(cat /secure/path/diloco-token)"
 # Stage codec + prepared data at /work/artifacts before initializing.
 megatoken diloco init \
-  --config configs/train/p1-diloco-coreweave.yaml \
-  --root /persistent/megatoken/diloco-p1 \
+  --config configs/train/retrieval-coherence-diloco-coreweave.example.yaml \
+  --root /persistent/megatoken/diloco-coherence \
   --quorum 4 --fragment-mib 64 \
   --outer-lr 0.7 --outer-momentum 0.9 \
   --max-staleness 2 --grace-seconds 8
 
-megatoken diloco serve --root /persistent/megatoken/diloco-p1 \
+megatoken diloco serve --root /persistent/megatoken/diloco-coherence \
   --host 127.0.0.1 --port 8823
 ```
 
@@ -133,7 +186,7 @@ export FORGE_API_KEY='...'
 # Optional: export FORGE_TEAM='your-team'
 python scripts/coreweave_diloco.py \
   --image registry.example/megatoken@sha256:YOUR_IMAGE_DIGEST \
-  --config configs/train/p1-diloco-coreweave.yaml \
+  --config configs/train/retrieval-coherence-diloco-coreweave.example.yaml \
   --workers 8 --cpu 8 --memory 32Gi --scratch 80Gi \
   --lifetime-seconds 86400 \
   --data-s3 s3://YOUR-BUCKET/megatoken-input \
@@ -166,7 +219,13 @@ before a *different* worker session may reuse the slot.
 - Worker checkpoints preserve the model, hybrid optimizer, exact data cursor,
   RNG, local counters, fragment baseline tensors, versions, pending
   submissions, and the actual pending delta payloads. S3 latest pointers are
-  published only after data/metadata objects are uploaded.
+  published only after every checkpoint file (weights, metadata and, for
+  free-KB phases, the learner's `kb.sqlite` and its manifest) is uploaded.
+  Restores verify each file's checksum before publishing locally.
+- Periodic checkpoints are snapshotted to host memory at the step boundary and
+  written and uploaded on a background lane while training continues (one in
+  flight at a time). Phase/run-end and interrupt checkpoints are durable
+  before the trainer returns.
 - On a replacement sandbox, the trainer restores its last committed S3
   checkpoint automatically when `checkpoint_s3` is configured and
   `--resume` is omitted. Explicit `--resume` selects a local checkpoint.
@@ -194,8 +253,8 @@ coherent **offline** snapshot, stop the coordinator service first and run:
 
 ```bash
 megatoken diloco export \
-  --config configs/train/p1-diloco-coreweave.yaml \
-  --root /persistent/megatoken/diloco-p1 \
+  --config configs/train/retrieval-coherence-diloco-coreweave.example.yaml \
+  --root /persistent/megatoken/diloco-coherence \
   --output /persistent/megatoken/exports
 megatoken evaluate \
   --checkpoint /persistent/megatoken/exports/latest.json \

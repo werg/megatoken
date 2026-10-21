@@ -1,3 +1,5 @@
+> **BREAKING MIGRATION NOTICE:** This document retains historical v8 training/background details. Its old `configs/train/*.yaml` stage commands and any optional-memory instructions are **not supported**. Only the phase-gated retrieval-memory curriculum described in [README.md](../README.md) and [retrieval-memory-implementation-status.md](retrieval-memory-implementation-status.md) may launch training.
+
 # Blackwell execution and measurement
 
 The implementation starts with resident BF16 weights, FP32 optimizer masters and

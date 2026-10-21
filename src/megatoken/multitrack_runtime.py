@@ -7,13 +7,15 @@ without disturbing the committed session. Delivery is an irreversible ledger.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Callable, Sequence
 
 import torch
 
 from megatoken.generation.structure import ActionSpec
+from megatoken.memory.context import admit_kb, evict_kb
+from megatoken.memory.semantic import AdmittedGroup
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import (
     GroupGeneration,
@@ -47,6 +49,14 @@ class TrackSession:
     pending: PendingGroup | None = None
     delivered: dict[str, Delivery] = field(default_factory=dict)
     events: list[tuple[int, tuple[str, ...]]] = field(default_factory=list)
+    retrieval_receipts: list[dict] = field(default_factory=list)
+    # Query and retrieved-source meridians inserted by the retrieval runtime.
+    internal_meridians: int = 0
+
+    @property
+    def causal_clock(self) -> int:
+        """External meridians committed: availability/deadline time, shared with training."""
+        return int(self.state.meridians_seen.min()) - self.internal_meridians
 
 
 class MultiTrackRuntime:
@@ -58,9 +68,7 @@ class MultiTrackRuntime:
     def open(self) -> TrackSession:
         return TrackSession(self.generator.tracks.initial_state(1))
 
-    def observe(
-        self, session: TrackSession, events: Sequence[ObservedEvent]
-    ) -> MultiTrackState:
+    def observe(self, session: TrackSession, events: Sequence[ObservedEvent]) -> MultiTrackState:
         """Only already available inputs may become shared causal observations."""
         ready = tuple(events)
         if not ready:
@@ -71,6 +79,23 @@ class MultiTrackRuntime:
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, tuple(x.track for x in ready)))
+        return session.state
+
+    def admit_memory(self, session: TrackSession, group: AdmittedGroup) -> MultiTrackState:
+        """Direct KB admission invalidates speculation, not the native event clock."""
+        updated = admit_kb(session.state, group)
+        if updated is not session.state:
+            session.state = updated
+            session.revision += 1
+            session.pending = None
+        return session.state
+
+    def evict_memory(self, session: TrackSession, group_id: str) -> MultiTrackState:
+        updated = evict_kb(session.state, group_id)
+        if updated is not session.state:
+            session.state = updated
+            session.revision += 1
+            session.pending = None
         return session.state
 
     def speculate(
@@ -85,8 +110,12 @@ class MultiTrackRuntime:
     ) -> PendingGroup:
         """Produce a candidate without committing raw state, KV or output."""
         result = self.generator.generate_group(
-            session.state, tracks=tracks, specs=specs,
-            controls=controls, effort=effort, generator=generator,
+            session.state,
+            tracks=tracks,
+            specs=specs,
+            controls=controls,
+            effort=effort,
+            generator=generator,
         )
         branch = PendingGroup(session.revision, result)
         session.pending = branch
@@ -118,8 +147,12 @@ class MultiTrackRuntime:
         return self.accept(
             session,
             self.speculate(
-                session, tracks=tracks, specs=specs,
-                controls=controls, effort=effort, generator=generator,
+                session,
+                tracks=tracks,
+                specs=specs,
+                controls=controls,
+                effort=effort,
+                generator=generator,
             ),
         )
 
@@ -128,7 +161,10 @@ class MultiTrackRuntime:
 
     @staticmethod
     def record_delivery(
-        session: TrackSession, event_id: str, transmitted_bytes: int, *,
+        session: TrackSession,
+        event_id: str,
+        transmitted_bytes: int,
+        *,
         complete: bool,
     ) -> None:
         if not event_id or transmitted_bytes < 0:

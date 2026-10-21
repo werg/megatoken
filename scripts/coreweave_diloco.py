@@ -29,8 +29,12 @@ class WorkerResult:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--image", required=True, help="Registry image containing code, model and data")
-    parser.add_argument("--config", default="configs/train/p1-diloco-coreweave.yaml")
+    parser.add_argument(
+        "--image", required=True, help="Registry image containing code, model and data"
+    )
+    parser.add_argument(
+        "--config", default="configs/train/retrieval-coherence-diloco-coreweave.example.yaml"
+    )
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--cpu", default="8")
     parser.add_argument("--memory", default="32Gi")
@@ -40,7 +44,9 @@ def main() -> int:
     parser.add_argument("--s3-region", help="CoreWeave object-storage region, if required")
     parser.add_argument("--lifetime-seconds", type=int, default=86400)
     parser.add_argument(
-        "--secret", action="append", default=["MEGATOKEN_DILOCO_TOKEN"],
+        "--secret",
+        action="append",
+        default=["MEGATOKEN_DILOCO_TOKEN"],
         help="Forge Secret Manager name to inject (repeat for AWS credentials)",
     )
     parser.add_argument(
@@ -70,9 +76,7 @@ def main() -> int:
             container_image=args.image,
             resources={"cpu": args.cpu, "memory": args.memory, "gpu": 1},
             volumes=[
-                ScratchVolumeOptions(
-                    name="learner-work", mount_path="/work", size=args.scratch
-                )
+                ScratchVolumeOptions(name="learner-work", mount_path="/work", size=args.scratch)
             ],
             secrets=secrets,
             environment_variables={
@@ -87,17 +91,21 @@ def main() -> int:
             print(f"worker {worker}: GPU {check.stdout.strip()}", flush=True)
             if args.data_s3:
                 staged = sandbox.exec(
-                    ["python", "scripts/stage_coreweave_data.py",
-                     "--s3", args.data_s3, "--destination", "/work/artifacts"],
+                    [
+                        "python",
+                        "scripts/stage_coreweave_data.py",
+                        "--s3",
+                        args.data_s3,
+                        "--destination",
+                        "/work/artifacts",
+                    ],
                     timeout_seconds=max(120, args.lifetime_seconds // 3),
                 ).result()
                 print(f"worker {worker}: {staged.stdout.strip()}", flush=True)
             command = ["megatoken", "train", "--config", args.config]
             if args.resume_template:
                 command += ["--resume", args.resume_template.format(worker=worker)]
-            result = sandbox.exec(
-                command, timeout_seconds=args.lifetime_seconds - 60
-            ).result()
+            result = sandbox.exec(command, timeout_seconds=args.lifetime_seconds - 60).result()
             return WorkerResult(
                 worker=worker,
                 exit_code=getattr(result, "exit_code", getattr(result, "returncode", 0)),
@@ -112,8 +120,7 @@ def main() -> int:
             try:
                 result = future.result()
                 print(
-                    f"worker {result.worker}: exit={result.exit_code}\n"
-                    f"{result.stdout[-8000:]}",
+                    f"worker {result.worker}: exit={result.exit_code}\n{result.stdout[-8000:]}",
                     flush=True,
                 )
                 if result.stderr:

@@ -15,7 +15,9 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 
 from megatoken.contracts import ROLE_TO_ID
+from megatoken.memory.semantic import MemoryKVProjector
 
+from .adapters import MemoryAdapters
 from .attention import AttentionFeatures, AttentionRead, KVProjection, join_attention
 from .blocks import DenseFacetBlock
 from .config import ModelConfig
@@ -115,9 +117,7 @@ class CentralProcessor(nn.Module):
         )
         self.memory = KVProjection(c.facet_dim, c.kv_heads, c.attention_head_dim, c.norm_eps)
         self.layers = nn.ModuleList(
-            DenseFacetBlock(
-                c, c.central_hidden, shared_kv=True, temporary_read=index > 0
-            )
+            DenseFacetBlock(c, c.central_hidden, shared_kv=True, temporary_read=index > 0)
             for index in range(c.central_layers)
         )
         self.layer_codes = nn.Parameter(torch.empty(c.central_layers, c.facet_dim))
@@ -145,6 +145,9 @@ class CentralProcessor(nn.Module):
         track_ids: Tensor | None = None,
         modality_ids: Tensor | None = None,
         history_track_ids: Tensor | None = None,
+        external_kb: AttentionFeatures | None = None,
+        memory_snapshot=None,
+        memory_adapters: MemoryAdapters | None = None,
     ) -> Tensor:
         # A meridian may contain several complete 32-facet megatokens.  The
         # original one-event shape remains exactly the same, so singleton
@@ -165,11 +168,12 @@ class CentralProcessor(nn.Module):
         facets = facets + role_features + addresses.to(facets.dtype)[None]
         if track_ids is not None and track_ids.shape != (raw.shape[0], events):
             raise ValueError("Track IDs must identify every event in the meridian")
-        live_tracks = None if track_ids is None else track_ids.repeat_interleave(
-            self.config.n_facets, dim=1
+        live_tracks = (
+            None if track_ids is None else track_ids.repeat_interleave(self.config.n_facets, dim=1)
         )
         if history_track_ids is not None and history_track_ids.shape != (
-            raw.shape[0], history.slots
+            raw.shape[0],
+            history.slots,
         ):
             raise ValueError("Historical track IDs must identify every retained facet")
         if modality_ids is not None:
@@ -180,6 +184,8 @@ class CentralProcessor(nn.Module):
             )
             facets = facets + modality_features
         projected = AttentionFeatures(history.keys, history.values, history.mask, history_track_ids)
+        if external_kb is not None:
+            projected = join_attention(external_kb, projected)
         temporary = None
         for index, layer in enumerate(self.layers):
             facets = facets + self.layer_codes[index]
@@ -215,11 +221,21 @@ class CentralProcessor(nn.Module):
                     slot_codes=addresses,
                     query_track_ids=live_tracks,
                 )
+            if memory_adapters is not None and memory_snapshot is not None:
+                facets = memory_adapters.apply(
+                    facets,
+                    module="c",
+                    stage=index + 1,
+                    track_ids=live_tracks,
+                    snapshot=memory_snapshot,
+                )
             # Stage i publishes only a short-lived, position-rotated KV for i+1.
             # Neither these projections nor their tensors enter KVHistory.
             if index < len(self.temporary_memories):
                 temporary = projector(
-                    facets, temporal_positions=positions, slot_codes=addresses,
+                    facets,
+                    temporal_positions=positions,
+                    slot_codes=addresses,
                     track_ids=live_tracks,
                 )
         return facets
@@ -250,7 +266,9 @@ class CentralProcessor(nn.Module):
             mask = torch.cat(
                 (
                     history.mask,
-                    torch.ones(final.shape[0], final.shape[1], dtype=torch.bool, device=final.device),
+                    torch.ones(
+                        final.shape[0], final.shape[1], dtype=torch.bool, device=final.device
+                    ),
                 ),
                 dim=1,
             )[:, -max_slots:]
@@ -296,6 +314,23 @@ class FacetedCore(nn.Module):
         self.lexical_gate = nn.Parameter(torch.tensor(-2.0))
         for name, tensor in self._pair_topology().items():
             self.register_buffer(name, tensor, persistent=False)
+        self.memory_projector = MemoryKVProjector(
+            c.semantic_value_dim,
+            c.facet_dim,
+            c.kv_heads,
+            c.attention_head_dim,
+            c.n_facets,
+        )
+        self.memory_adapters = MemoryAdapters(
+            width=c.facet_dim,
+            value_dim=c.semantic_value_dim,
+            experts=c.memory_lora_experts,
+            rank=c.memory_lora_rank,
+            topk=c.memory_lora_topk,
+            max_tracks=c.max_tracks,
+            max_stage=max(c.central_layers, c.prediction_layers) + 1,
+        )
+        self.memory_seed = nn.Linear(c.semantic_value_dim, c.facet_dim, bias=False)
         self._routing_losses: list[tuple[Tensor, Tensor]] = []
 
     def encoder_parameters(self) -> Iterator[nn.Parameter]:
@@ -304,30 +339,42 @@ class FacetedCore(nn.Module):
         yield from self.media_stems.parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
-        """C and its memory owners, frozen with E/R for a fixed latent-RL action map."""
+        """C, the KV projector, the C adapter family and the shared memory controller.
+
+        The controller is shared by C, P and R selections; it is pinned with C
+        so a latent-only RL update cannot move the fixed C/R materialization map.
+        """
         yield self.initial_facets
         yield from self.central.parameters()
+        yield from self.memory_projector.parameters()
+        yield from self.memory_adapters.module_parameters("c")
 
     def predictor_parameters(self) -> Iterator[nn.Parameter]:
-        """All P owners, including control encoding; excludes E, C/memory, and U."""
+        """All P owners incl. its memory seed and adapter family; excludes E, C, R/U."""
         yield self.stage_codes
         for module in (
-            self.control_encoder,
             self.control_injection,
             self.effort_embedding,
             self.remix,
             self.p_bank,
             self.stages,
             self.p_router,
+            self.memory_seed,
         ):
             yield from module.parameters()
+        yield from self.memory_adapters.module_parameters("p")
+
+    def control_parameters(self) -> Iterator[nn.Parameter]:
+        """Public-control encoder read by P and by every media realizer (R side)."""
+        yield from self.control_encoder.parameters()
 
     def realizer_parameters(self) -> Iterator[nn.Parameter]:
-        """Core-owned U decoder parameters; C has a separate explicit freeze group."""
+        """Core-owned U decoder parameters and the R adapter family."""
         yield self.u_gate
         yield self.lexical_gate
         for module in (self.u_bank, self.u_always, self.u_router, self.u_norm, self.lexical_norm):
             yield from module.parameters()
+        yield from self.memory_adapters.module_parameters("r")
 
     def compile_kernels(self, mode: str = "default") -> None:
         """Compile tensor operators without hiding state transitions or cache writes."""
@@ -489,21 +536,13 @@ class FacetedCore(nn.Module):
         """History-, role-, and control-independent hierarchical E(bytes)."""
         return self.frontend(byte_ids, lengths)
 
-    def encode_media(
-        self, modality: str, payload: Tensor, *, sample_rate: int = 16000
-    ) -> Tensor:
+    def encode_media(self, modality: str, payload: Tensor, *, sample_rate: int = 16000) -> Tensor:
         """Audio/images/video use the existing E reduction and readout owners."""
-        return self.media_stems.encode(
-            self, modality, payload, sample_rate=sample_rate
-        )
+        return self.media_stems.encode(self, modality, payload, sample_rate=sample_rate)
 
-    def encode_media_features(
-        self, modality: str, features: Tensor, *, extractor: str
-    ) -> Tensor:
+    def encode_media_features(self, modality: str, features: Tensor, *, extractor: str) -> Tensor:
         """Project pinned external feature tokens through the shared E hierarchy."""
-        return self.media_stems.encode_external(
-            self, modality, features, extractor=extractor
-        )
+        return self.media_stems.encode_external(self, modality, features, extractor=extractor)
 
     def encode_media_views(
         self, modality: str, views: tuple[tuple[str, Tensor, Tensor], ...]
@@ -694,14 +733,11 @@ class FacetedCore(nn.Module):
         # cancels out of Q·K. Avoid unnecessary rotations at eight P sites.
         reads_history = stage in P_HISTORY_READ_STAGES
         time = positions if reads_history else None
-        live = self.central.memory(
-            facets, temporal_positions=time, slot_codes=addresses
-        )
+        live = self.central.memory(facets, temporal_positions=time, slot_codes=addresses)
         # Every P stage mixes live facets. Exactly four fixed stages also query
         # old committed records; prediction never writes a new KV representation.
         historical = (
-            AttentionFeatures(history.keys, history.values, history.mask)
-            if reads_history else None
+            AttentionFeatures(history.keys, history.values, history.mask) if reads_history else None
         )
         projected = join_attention(live, historical)
         facets = facets + wrapper.attention_gate.sigmoid() * wrapper.attention.read(
@@ -740,6 +776,7 @@ class FacetedCore(nn.Module):
         history: KVHistory,
         positions: Tensor,
     ) -> Tensor:
+        self.p_router.record_executed(route)
         start = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
             self.p_bank.record_routes(
@@ -785,6 +822,7 @@ class FacetedCore(nn.Module):
             eligible_limit=eligible,
             allow_exploration=False,
         )
+        self.u_router.record_executed(route)
         self.u_bank.record_routes(
             route.expert_ids, route.eligible, gradient_enabled=torch.is_grad_enabled()
         )
@@ -829,10 +867,17 @@ class FacetedCore(nn.Module):
         """
         previous = self._routing_losses
         self._routing_losses = []
+        # Auxiliary branches also stay out of the global router-balance replay.
+        routers = (self.p_router, self.u_router)
+        recorders = [router.balance_recorder for router in routers]
+        for router in routers:
+            router.balance_recorder = None
         try:
             yield
         finally:
             self._routing_losses = previous
+            for router, recorder in zip(routers, recorders, strict=True):
+                router.balance_recorder = recorder
 
     def reset_state(
         self,

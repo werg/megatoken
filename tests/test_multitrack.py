@@ -36,9 +36,7 @@ def test_singleton_matches_original_core_and_predictor():
 
     raw = _selected(core, ("user",))[:, 0]
     old = core.advance_raw(old_initial, raw, role_ids=torch.tensor([3]))
-    new = multi.advance_group(
-        initial, raw[:, None], tracks=("user",), role_ids=torch.tensor([[3]])
-    )
+    new = multi.advance_group(initial, raw[:, None], tracks=("user",), role_ids=torch.tensor([[3]]))
     torch.testing.assert_close(new.raw[:, 0], old.facets)
     torch.testing.assert_close(new.final[:, 0], old.final, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(new.history.keys, old.history.keys, atol=1e-5, rtol=1e-5)
@@ -46,7 +44,8 @@ def test_singleton_matches_original_core_and_predictor():
     torch.testing.assert_close(
         multi.predict_group(new, tracks=("assistant",), effort=1)[:, 0],
         core.predict_facets(old, effort=1),
-        atol=1e-5, rtol=1e-5,
+        atol=1e-5,
+        rtol=1e-5,
     )
 
 
@@ -78,14 +77,10 @@ def test_eviction_drops_whole_meridians():
         first, _selected(core, ("tool",)), tracks=("tool",), role_ids=_roles((1,))
     )
     assert one.meridian_sizes == (2, 1)
-    second = multi.advance_group(
-        one, _selected(core, pair), tracks=pair, role_ids=_roles(pair)
-    )
+    second = multi.advance_group(one, _selected(core, pair), tracks=pair, role_ids=_roles(pair))
     assert second.meridian_sizes == (1, 2)
     assert second.history.slots == 3 * core.config.n_facets
-    third = multi.advance_group(
-        second, _selected(core, pair), tracks=pair, role_ids=_roles(pair)
-    )
+    third = multi.advance_group(second, _selected(core, pair), tracks=pair, role_ids=_roles(pair))
     assert third.meridian_sizes == (2,)
     assert third.history.slots == 2 * core.config.n_facets
 
@@ -95,17 +90,22 @@ def test_invalid_identity_and_group_geometry():
     state = multi.initial_state(1)
     with pytest.raises(ValueError, match="unique"):
         multi.advance_group(
-            state, _selected(core, ("a", "b")), tracks=("same", "same"),
+            state,
+            _selected(core, ("a", "b")),
+            tracks=("same", "same"),
             role_ids=_roles((1, 2)),
         )
     with pytest.raises(ValueError, match="roles|role"):
         multi.advance_group(
-            state, _selected(core, ("a", "b")), tracks=("a", "b"),
+            state,
+            _selected(core, ("a", "b")),
+            tracks=("a", "b"),
             role_ids=torch.tensor([3]),
         )
     with pytest.raises(ValueError, match="control"):
         multi.predict_group(
-            state, tracks=("a", "b"),
+            state,
+            tracks=("a", "b"),
             control=torch.randn(1, 3, core.config.control_dim),
         )
 
@@ -124,12 +124,13 @@ def test_grouped_generation_tape_and_exact_replay():
     core, multi = _tiny()
     model = FacetedGenerator(core, ByteCodec.byte_fallback())
     serving = MultiTrackGenerator(model)
-    state = multi.observe_text_group(
-        multi.initial_state(1), (b"Say hi",), tracks=("user",)
-    )
+    state = multi.observe_text_group(multi.initial_state(1), (b"Say hi",), tracks=("user",))
     specs = (ActionSpec(max_tokens=8), ActionSpec(max_tokens=8))
     sample = serving.generate_text_group(
-        state, tracks=("answer", "caption"), specs=specs, effort=1,
+        state,
+        tracks=("answer", "caption"),
+        specs=specs,
+        effort=1,
         generator=torch.Generator().manual_seed(5),
     )
     tape = GroupActionTape.from_json(sample.tape.to_json())
@@ -147,6 +148,7 @@ def test_grouped_generation_tape_and_exact_replay():
         serving.replay_text_group(state, tape, specs=specs, effort=3)
     tampered = GroupActionTape.to_json(tape)
     import json
+
     corrupted = json.loads(tampered)
     corrupted["event_log_probs"][0] += 4
     with pytest.raises(ValueError, match="does not sum"):
@@ -212,8 +214,10 @@ def test_track_registration_order_does_not_change_joint_causal_geometry():
 def test_every_member_of_a_meridian_has_the_same_rope_time():
     core, multi = _tiny()
     first = multi.advance_group(
-        multi.initial_state(1), _selected(core, ("mic", "camera")),
-        tracks=("mic", "camera"), role_ids=_roles((1, 2)),
+        multi.initial_state(1),
+        _selected(core, ("mic", "camera")),
+        tracks=("mic", "camera"),
+        role_ids=_roles((1, 2)),
     )
     expected = core.central.memory(
         first.final.flatten(1, 2),
@@ -230,12 +234,16 @@ def test_every_member_of_a_meridian_has_the_same_rope_time():
         slot_codes=core.central.slot_codes(),
     )
     torch.testing.assert_close(
-        second.history.keys[:, :, -core.config.n_facets:],
-        expected_next.keys, atol=0, rtol=0,
+        second.history.keys[:, :, -core.config.n_facets :],
+        expected_next.keys,
+        atol=0,
+        rtol=0,
     )
     torch.testing.assert_close(
-        second.history.keys[:, :, :2 * core.config.n_facets],
-        first.history.keys, atol=0, rtol=0,
+        second.history.keys[:, :, : 2 * core.config.n_facets],
+        first.history.keys,
+        atol=0,
+        rtol=0,
     )
 
 
@@ -249,9 +257,7 @@ def test_oversized_meridian_fails_before_central_compute(monkeypatch):
     monkeypatch.setattr(core.central, "forward", forbidden)
     names = ("a", "b", "c")
     with pytest.raises(ValueError, match="historical event capacity"):
-        multi.advance_group(
-            initial, _selected(core, names), tracks=names, role_ids=_roles(names)
-        )
+        multi.advance_group(initial, _selected(core, names), tracks=names, role_ids=_roles(names))
 
 
 def test_group_gaussian_noise_tracks_identity_not_physical_order():
@@ -278,3 +284,21 @@ def test_group_tape_rejects_ambiguous_json_keys_and_nonstandard_constants():
         )
     with pytest.raises(ValueError, match="nonstandard JSON constant"):
         GroupActionTape.from_json('{"version":"fmt-multitrack-facets-v8","nonce":NaN}')
+
+
+def test_retrieval_query_track_is_reserved_outside_user_capacity():
+    from megatoken.model.config import RETRIEVAL_QUERY_TRACK
+
+    core, multi = _tiny()
+    cap = core.config.max_tracks
+    users = tuple(f"t{i}" for i in range(cap))
+    state = multi.initial_state(1)
+    ids, registry = multi._track_indices(state, users)
+    assert registry == users and ids[0].tolist() == list(range(cap))
+    state = state.__class__(**{**state.__dict__, "track_registry": registry})
+    q_ids, q_registry = multi._track_indices(state, (RETRIEVAL_QUERY_TRACK,))
+    assert q_registry == users  # query does not consume a user slot
+    assert q_ids[0, 0].item() == core.config.reserved_query_track_index == cap
+    assert cap < core.memory_adapters.controllers["p"].track_preference.num_embeddings
+    with pytest.raises(ValueError, match="Too many tracks"):
+        multi._track_indices(state, ("one_too_many",))

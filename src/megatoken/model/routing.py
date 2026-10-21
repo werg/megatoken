@@ -20,6 +20,8 @@ class RowRoute:
     palette_probabilities: Tensor
     balance_loss: Tensor
     stabilization_loss: Tensor
+    router_context: Tensor | None = None
+    router_stage: int = 0
 
     def prefix(self, rows: int) -> RowRoute:
         if rows > self.expert_ids.shape[1]:
@@ -31,6 +33,8 @@ class RowRoute:
             self.palette_probabilities,
             self.balance_loss,
             self.stabilization_loss,
+            self.router_context,
+            self.router_stage,
         )
 
 
@@ -93,6 +97,18 @@ class EpochRouter(nn.Module):
         self.row_codes = nn.Parameter(torch.empty(experts, router_dim))
         nn.init.normal_(self.palette_codes, std=0.02)
         nn.init.normal_(self.row_codes, std=0.02)
+        self.balance_recorder = None
+
+    def balance_probabilities(self, context: Tensor, stage: int) -> Tensor:
+        """Replay only the full-bank palette soft probabilities; no dispatch."""
+        feature = self.context_projection(self.norm(context.detach())).float()
+        descriptor = position_features(1, self.router_dim, feature.device, offset=stage)[0]
+        logits = F.linear(feature + descriptor, self.palette_codes.float())
+        return (logits / math.sqrt(self.router_dim)).softmax(-1)
+
+    def record_executed(self, route: RowRoute) -> None:
+        if self.balance_recorder is not None:
+            self.balance_recorder.capture(self, route)
 
     def route(
         self,
@@ -153,7 +169,16 @@ class EpochRouter(nn.Module):
         stabilization = (
             palette_logits.logsumexp(-1).square().mean() + row_logits.logsumexp(-1).square().mean()
         )
-        return RowRoute(ids, confidence, eligible, palette_probability, balance, stabilization)
+        return RowRoute(
+            ids,
+            confidence,
+            eligible,
+            palette_probability,
+            balance,
+            stabilization,
+            context.detach() if self.balance_recorder is not None else None,
+            stage,
+        )
 
     def compile(
         self,

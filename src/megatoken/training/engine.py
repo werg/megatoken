@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
-import math
+import json
 import os
+import shutil
 import signal
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -25,23 +26,24 @@ from megatoken.controls import build_control_payload, encode_controls
 from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
-from megatoken.io import content_hash, write_json, sha256_file
+from megatoken.io import content_hash, sha256_file, write_json
 from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
-from megatoken.tool_schema import (
-    compile_tool_spec,
-    matching_schema,
-    recent_copy_sources,
-    supervised_bindings,
+from megatoken.training.checkpoint import (
+    CheckpointWriter,
+    commit_checkpoint,
+    load_checkpoint,
+    resolve_checkpoint,
+    snapshot_to_cpu,
+    stage_checkpoint,
 )
-from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
-from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.concordance_recipe import load_concordance_recipe
-from megatoken.training.distributed import DistributedContext
+from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
-from megatoken.training.history import NativeHistory, replay_raw_tape
+from megatoken.training.distributed import DistributedContext
+from megatoken.training.history import NativeHistory
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import (
     MeridianPreparedBatch,
@@ -59,20 +61,10 @@ from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.schedule import PHASES
 from megatoken.training.stream import (
     EpisodeWindow,
-    MixtureWindowStream,
     IndependentWindowStream,
+    MixtureWindowStream,
     WindowStream,
-    compatible_batches,
 )
-
-
-@dataclass
-class PreparedBatch:
-    windows: list[EpisodeWindow]
-    targets: dict[int, Any]
-    counts: dict[str, int]
-    effort: int = 6
-    native_history: NativeHistory | None = None
 
 
 def ingest_records(
@@ -194,151 +186,60 @@ def make_training_control(
 
 def prepare_batches(
     model: Any, windows: list[EpisodeWindow], config: TrainConfig
-) -> list[PreparedBatch]:
-    result = []
-    raw_windows, action_windows, meridian_windows = [], [], []
-    native_histories: dict[int, NativeHistory] = {}
+) -> list[MeridianPreparedBatch]:
+    """Only native grouped-meridian episodes are valid training examples.
+
+    Earlier ungrouped/action fallback batching is removed, rather than silently
+    applying a different loss/history schedule without retrieval-memory.
+    """
+    result: list[MeridianPreparedBatch] = []
+    histories: dict[int, NativeHistory] = {}
+    verified_streams = {
+        "verified_trajectories",
+        "verified_successful_multiturn",
+        "tested_artifacts",
+        "successful_replay",
+        "long_verified_dependencies",
+    }
     for item in windows:
-        if id(item.episode) not in native_histories:
-            native_histories[id(item.episode)] = NativeHistory.from_episode(item.episode, model)
+        episode = item.episode
+        if not episode.meridians:
+            raise ValueError(
+                "Training requires causal native meridians and retrieval sidecar; "
+                "reprepare this old ungrouped episode"
+            )
         if any(
             len(record.payload) > config.max_record_bytes
             for record in (*item.window.prefix, *item.window.records)
         ):
-            raise ValueError(
-                "A physical record exceeds max_record_bytes; prepare at the configured byte limit"
-            )
-        verified_streams = {
-            "verified_trajectories",
-            "verified_successful_multiturn",
-            "tested_artifacts",
-            "successful_replay",
-            "long_verified_dependencies",
-        }
+            raise ValueError("A native record exceeds the configured original-byte limit")
         if (
             not config.allow_unverified_data
-            and item.episode.stream in verified_streams
-            and not item.episode.supervision.verified_success
+            and episode.stream in verified_streams
+            and not episode.supervision.verified_success
         ):
-            raise ValueError(
-                f"Stream {item.episode.stream} requires independent success verification"
-            )
-        if item.episode.stream == "long_verified_dependencies" and not item.episode.dependencies:
-            raise ValueError(
-                "Long dependency data requires explicit causal writer/reader annotations"
-            )
-        if item.episode.meridians:
-            meridian_windows.append(item)
-        elif native_histories[id(item.episode)].has_events or (
-            item.episode.tools_json != "[]"
-            and any(record.record.action_id for record in item.window.records)
-        ):
-            action_windows.append(item)
-        else:
-            raw_windows.append(item)
-    batches = compatible_batches(raw_windows, config.microbatch_episodes) + [
-        [item] for item in action_windows
-    ]
-    for batch in batches:
-        targets = {}
-        counts = dict.fromkeys(DEFAULT_LOSS_WEIGHTS, 0)
-        for offset in range(len(batch[0].window.records)):
-            records = [item.window.records[offset] for item in batch]
-            if not any(record.record.policy_mask for record in records):
-                continue
-            if not all(record.record.policy_mask for record in records):
-                raise ValueError("Incompatible record ownership in a supervised microbatch")
-            largest = max(len(record.token_ids) for record in records)
-            if largest > config.generated_capacity:
-                raise ValueError(
-                    f"Target has {largest} codec positions, exceeding generated_capacity="
-                    f"{config.generated_capacity}; prepare smaller physical records or "
-                    "explicitly raise the trained capacity"
-                )
-            capacity = min(
-                config.generated_capacity, max(1, 2 ** math.ceil(math.log2(max(1, largest))))
-            )
-            plan = None
-            native_tapes = [
-                native_histories[id(item.episode)].paired_tape(item.window.start + offset)
-                for item in batch
-            ]
-            if (
-                len(batch) == 1
-                and batch[0].episode.tools_json != "[]"
-                and records[0].record.action_id
-                and records[0].record.part_count == 1
-            ):
-                item, record = batch[0], records[0]
-                spec = compile_tool_spec(
-                    item.episode.tools_json,
-                    config.generated_capacity,
-                    wire_formats=("canonical", "openai", "anthropic"),
-                )
-                earlier = [
-                    entry.payload for entry in (*item.window.prefix, *item.window.records[:offset])
-                ]
-                spec = dataclasses.replace(spec, copy_sources=recent_copy_sources(earlier))
-                schema_index = matching_schema(spec, record.payload)
-                if schema_index is not None:
-                    bindings = supervised_bindings(spec, schema_index, record.payload)
-                    for layout in range(len(spec.schemas[schema_index].orders)):
-                        options = {
-                            "spec": spec,
-                            "schema_index": schema_index,
-                            "bindings": bindings,
-                            "layout": layout,
-                            "representation_mode": config.representation_training,
-                        }
-                        candidate = model.prepare_action_target(record.payload, **options)
-                        # Preserve immutable original history. Serialization
-                        # variants not represented by a public schema use raw CE.
-                        if candidate.payload == record.payload:
-                            # Native pairs must match the exact selected wire
-                            # layout. Do not validate against rejected candidate
-                            # serializations encountered while searching it.
-                            plan = (
-                                model.prepare_action_target(
-                                    record.payload, **options, native_tape=native_tapes[0]
-                                )
-                                if native_tapes[0] is not None
-                                else candidate
-                            )
-                            break
-            if plan is None:
-                plan = model.prepare_target(
-                    [record.token_ids for record in records],
-                    free_mask=[record.free_mask for record in records],
-                    capacity=capacity,
-                    terminal=[
-                        record.record.part_index + 1 == record.record.part_count
-                        for record in records
-                    ],
-                    representation_mode=config.representation_training,
-                    native_tapes=native_tapes,
-                )
-            targets[offset] = plan
-            for name, count in plan.denominators.items():
-                counts[name] += count
-        effort = config.effort
-        if config.use_effort_mixture:
-            mixture = stage_recipe(config.phase).effort_mix
-            choices = sorted(mixture)
-            effort = choices[
-                int(torch.multinomial(torch.tensor([mixture[key] for key in choices]), 1))
-            ]
-        native = native_histories[id(batch[0].episode)]
-        result.append(
-            PreparedBatch(batch, targets, counts, effort, native if native.has_events else None)
-        )
-    for item in meridian_windows:
-        result.append(
-            prepare_meridian_batch(model, item, native_histories[id(item.episode)], config)
-        )
+            raise ValueError("Training stream requires independent verified success")
+        if episode.stream == "long_verified_dependencies" and not episode.dependencies:
+            raise ValueError("Long dependency stream requires causal source relationships")
+        identity = id(episode)
+        if identity not in histories:
+            histories[identity] = NativeHistory.from_episode(episode, model)
+        result.append(prepare_meridian_batch(model, item, histories[identity], config))
     return result
 
 
-def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Counters:
+def window_config(config: TrainConfig) -> WindowConfig:
+    """Optimizer window boundaries shared by training and held-out evaluation."""
+    return WindowConfig(
+        max_window_tokens=config.max_history_tokens,
+        max_decisions=config.scored_decisions,
+        max_records=config.max_window_records,
+        respect_dependencies=config.phase == "LC",
+        max_dependency_tokens=config.max_history_tokens,
+    )
+
+
+def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     result = Counters()
     for batch in batches:
         for item in batch.windows:
@@ -360,145 +261,50 @@ def batch_counters(batches: list[PreparedBatch | MeridianPreparedBatch]) -> Coun
                     writer_reader_windows=int(bool(window.writer_reader_pairs)),
                 )
             )
-        if isinstance(batch, MeridianPreparedBatch):
-            for step in batch.steps:
-                for modality, record in zip(step.modalities, step.records, strict=True):
-                    if modality not in {"audio", "image", "video"}:
-                        continue
-                    reference = MediaRecord.from_bytes(record.payload)
-                    result.media_events += 1
-                    asset = reference.target or reference.source
-                    if modality == "audio" and asset.kind == "raw":
-                        result.audio_samples += asset.shape[0]
-                    elif modality == "video" and asset.kind == "raw":
-                        result.video_frames += asset.shape[0]
-                    elif modality == "image":
-                        result.image_events += 1
-            result.P += sum(
-                plan.scored_positions for step in batch.steps for plan in step.plans
-            )
-            result.facet_encodes += sum(len(step.plans) for step in batch.steps)
-            if batch.native_history.has_events:
-                for step in (*batch.prefix, *batch.steps):
-                    for cursor in step.offsets:
-                        result.raw_facet_replays += len(
-                            batch.native_history.events_for_record(
-                                cursor, include_record=False,
-                            )
-                        ) + int(batch.native_history.paired_tape(cursor) is not None)
-            if any(episode_control_payload(item.episode) for item in batch.windows):
-                result.control_encodes += sum(len(step.plans) for step in batch.steps)
-            continue
-        result.P += sum(plan.scored_positions for plan in batch.targets.values())
-        result.facet_encodes += sum(len(batch.windows) for _ in batch.targets)
-        if batch.native_history is not None:
-            window = batch.windows[0].window
-            for cursor in range(window.end):
-                events = batch.native_history.events_for_record(
-                    cursor,
-                    include_record=(
-                        cursor < window.start or cursor - window.start not in batch.targets
-                    ),
-                )
-                result.raw_facet_replays += len(events)
+        for step in batch.steps:
+            for modality, record in zip(step.modalities, step.records, strict=True):
+                if modality not in {"audio", "image", "video"}:
+                    continue
+                reference = MediaRecord.from_bytes(record.payload)
+                result.media_events += 1
+                asset = reference.target or reference.source
+                if modality == "audio" and asset.kind == "raw":
+                    result.audio_samples += asset.shape[0]
+                elif modality == "video" and asset.kind == "raw":
+                    result.video_frames += asset.shape[0]
+                elif modality == "image":
+                    result.image_events += 1
+        result.P += sum(plan.scored_positions for step in batch.steps for plan in step.plans)
+        result.facet_encodes += sum(len(step.plans) for step in batch.steps)
+        if batch.native_history.has_events:
+            for step in (*batch.prefix, *batch.steps):
+                for cursor in step.offsets:
+                    result.raw_facet_replays += len(
+                        batch.native_history.events_for_record(
+                            cursor,
+                            include_record=False,
+                        )
+                    ) + int(batch.native_history.paired_tape(cursor) is not None)
         if any(episode_control_payload(item.episode) for item in batch.windows):
-            result.control_encodes += len(batch.windows)
+            result.control_encodes += sum(len(step.plans) for step in batch.steps)
     return result
 
 
-def forward_batch(
-    model: Any,
-    batch: PreparedBatch | MeridianPreparedBatch,
-    ledger: LossLedger,
-    config: TrainConfig,
-    device: torch.device,
-    model_version: int,
-) -> dict[str, float | torch.Tensor]:
-    if isinstance(batch, MeridianPreparedBatch):
-        return forward_meridian_batch(model, batch, ledger, config, device, model_version)
-    state = model.core.initial_state(len(batch.windows), device=device, model_version=model_version)
-    with torch.no_grad():
-        for offset in range(len(batch.windows[0].window.prefix)):
-            if batch.native_history is not None:
-                for tape in batch.native_history.events_for_record(offset, include_record=True):
-                    state = replay_raw_tape(model, state, tape)
-                if batch.native_history.has_generated_record(offset):
-                    continue
-            state = ingest_records(
-                model, state, [item.window.prefix[offset] for item in batch.windows], device
-            )
-    control, teacher_control_examples = make_training_control(
-        model, batch.windows, device, recurrent=config.representation_training == "recurrent"
-    )
-    losses = []
-    metrics: dict[str, float | torch.Tensor] = {
-        "noisy_trajectory_control_examples": teacher_control_examples,
-    }
-    for offset in range(len(batch.windows[0].window.records)):
-        records = [item.window.records[offset] for item in batch.windows]
-        cursor = batch.windows[0].window.start + offset
-        if batch.native_history is not None:
-            for tape in batch.native_history.events_for_record(
-                cursor, include_record=offset not in batch.targets
-            ):
-                state = replay_raw_tape(model, state, tape)
-        if offset in batch.targets:
-            roles = torch.tensor(
-                [ROLE_TO_ID[record.record.role] for record in records], device=device
-            )
-            plan = batch.targets[offset]
-            # The recorded tool result is only causally compatible with its
-            # recorded action. Preserve that action's native raw tape when
-            # available, otherwise teacher-force E(recorded action) solely for
-            # the *successor* state. The sampled prior branch still receives
-            # its own ordinary lexical supervision.
-            teacher_forced_action = any(
-                (action_id := item.window.records[offset].record.action_id) is not None
-                and any(
-                    future.result_of == action_id for future in item.episode.records[cursor + 1 :]
-                )
-                for item in batch.windows
-            )
-            if hasattr(plan, "spec"):
-                step = model.supervised_action(
-                    state,
-                    plan=plan,
-                    effort=batch.effort,
-                    control=control,
-                    teacher_forced_action=teacher_forced_action,
-                )
-            else:
-                step = model.supervised_step(
-                    state,
-                    plan=plan,
-                    effort=batch.effort,
-                    control=control,
-                    role_ids=roles,
-                    teacher_forced_action=teacher_forced_action,
-                )
-            state = step.state
-            losses.append(ledger.backward_loss(step.losses))
-            for key, value in step.metrics.items():
-                if isinstance(value, (float, int, torch.Tensor)):
-                    metrics[key] = metrics.get(key, 0.0) + (
-                        value.detach() if isinstance(value, torch.Tensor) else value
-                    )
-        else:
-            if batch.native_history is not None and batch.native_history.has_generated_record(
-                cursor
-            ):
-                continue
-            state = ingest_records(
-                model,
-                state,
-                records,
-                device,
-                encoder_grad=config.representation_training == "bootstrap",
-            )
-    if losses:
-        torch.stack(losses).sum().backward()
-    # Retain graph only inside this differentiable writer-to-reader window.
-    return metrics
+def _stage_bank(source: Path, target: Path) -> None:
+    """Consistent SQLite copy (WAL/journal aware), atomically published."""
+    import sqlite3
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.with_name(target.name + ".staging")
+    staging.unlink(missing_ok=True)
+    reader = sqlite3.connect(f"file:{source.resolve().as_posix()}?mode=ro", uri=True)
+    writer = sqlite3.connect(staging)
+    try:
+        reader.backup(writer)
+    finally:
+        writer.close()
+        reader.close()
+    os.replace(staging, target)
 
 
 def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transition: bool) -> None:
@@ -536,6 +342,21 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "deterministic",
             "gradient_checkpointing",
             "representation_mode",
+            "retrieval_sidecar",
+            "retrieval_document_sidecar",
+            "retrieval_memory_recipe",
+            "retrieval_bank",
+            "retrieval_source_assets_root",
+            "retrieval_ivf_centroids",
+            "retrieval_ivf_sha256",
+            "retrieval_ivf_nprobe",
+            "retrieval_gate_receipt",
+            "retrieval_sparse_lr",
+            "retrieval_growth_every",
+            "retrieval_growth_budget",
+            "retrieval_kv_dropout",
+            "retrieval_lora_dropout",
+            "router_balance_mode",
         )
     for key in critical:
         if old.get(key) != current.get(key):
@@ -556,7 +377,9 @@ def train(
         int(os.environ.get("WORLD_SIZE", "1")) != 1
         or (torch.distributed.is_available() and torch.distributed.is_initialized())
     ):
-        raise ValueError("Decoupled learners require one independent process per sandbox, not torchrun")
+        raise ValueError(
+            "Decoupled learners require one independent process per sandbox, not torchrun"
+        )
     context = DistributedContext.initialize(config.device)
     output = Path(config.output)
     if config.decoupled is not None:
@@ -576,7 +399,11 @@ def train(
                 resume = str(restored)
     logger = JsonlLogger(output / "metrics.jsonl", context.is_primary)
     diloco = None
+    checkpoint_writer = None
     optimizer = None
+    bank_owner = None
+    kb_sync = None
+    kb_version = None
     dataset = stream = None
     old_handlers = {}
     stop_requested = False
@@ -604,6 +431,82 @@ def train(
             "checkpoint_stages": config.gradient_checkpointing,
         }
         model_config = load_model_config(config.model, **overrides)
+        from megatoken.data.document_embeddings import read_document_sidecar
+        from megatoken.data.retrieval import read_sidecar
+        from megatoken.memory.recipe import RetrievalRecipe
+
+        retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
+        retrieval_examples = {}
+        # Activation checkpointing and the expert kernel are runtime choices,
+        # not pinned geometry.
+        runtime_only = ("checkpoint_stages", "expert_backend")
+        if {k: v for k, v in retrieval_recipe.model.to_dict().items() if k not in runtime_only} != {
+            k: v for k, v in model_config.to_dict().items() if k not in runtime_only
+        }:
+            raise ValueError("Training model differs from pinned recipe geometry")
+        phase_stages = {
+            "coherence_embedding": {"B0", "P1"},
+            "progressive_warmup": {"M1"},
+            "free_kb_pretraining": {"M2", "LC", "S", "D"},
+        }
+        if config.phase not in phase_stages.get(retrieval_recipe.phase, set()):
+            raise ValueError(
+                f"Native training stage {config.phase} is not in the mandatory "
+                f"{retrieval_recipe.phase} retrieval-memory curriculum"
+            )
+        if retrieval_recipe.space.teacher_revision.startswith(
+            "PIN_"
+        ) or retrieval_recipe.growth.partition_id.startswith("PIN_"):
+            raise ValueError("Pin teacher and data partition before training")
+        if retrieval_recipe.phase != "coherence_embedding":
+            if (
+                retrieval_recipe.phase
+                not in {
+                    "progressive_warmup",
+                    "free_kb_pretraining",
+                }
+                or not config.retrieval_bank
+                or not config.retrieval_gate_receipt
+            ):
+                raise ValueError("Live free-KB phases require a bank and phase gate")
+            from megatoken.memory.recipe import GateReceipt, validate_gate
+
+            gate = json.loads(Path(config.retrieval_gate_receipt).read_text())
+            receipt = GateReceipt(**{**gate, "successful": tuple(gate["successful"])})
+            if receipt.phase != retrieval_recipe.phase:
+                raise ValueError("Retrieval phase gate must match training phase")
+            validate_gate(retrieval_recipe, receipt)
+        elif config.retrieval_bank:
+            raise ValueError("Coherence embedding bootstrap must not train free-KB rows")
+        for example in read_sidecar(config.retrieval_sidecar):
+            identity = (example.episode_id, example.event_id)
+            if identity in retrieval_examples:
+                raise ValueError("Duplicate retrieval event identity")
+            if example.query.space_fingerprint != retrieval_recipe.space.fingerprint:
+                raise ValueError("Sidecar semantic space differs from recipe")
+            if example.teacher_target is None or (
+                len(example.teacher_target) != retrieval_recipe.space.dimension
+            ):
+                raise ValueError("Teacher query target is missing or wrong width")
+            # Reject legacy sidecars that contain a teacher query target
+            # but no causal main request. Training on answer facets would
+            # turn the retrieval realizer into an answer embedding head.
+            example.request_content()
+            retrieval_examples[identity] = example
+        if not retrieval_examples:
+            raise ValueError("A mandatory retrieval query training sidecar cannot be empty")
+        document_examples = {}
+        for item in read_document_sidecar(config.retrieval_document_sidecar):
+            identity = (item.episode_id, item.event_id)
+            if identity in document_examples:
+                raise ValueError("Duplicate document teacher assignment")
+            if len(item.teacher_target) != retrieval_recipe.space.dimension:
+                raise ValueError("Document teacher uses a different semantic-space dimension")
+            document_examples[identity] = item
+        if not document_examples:
+            raise ValueError("Document-role E/R distillation requires prepared original chunks")
+        retrieval_sidecar_sha = sha256_file(Path(config.retrieval_sidecar))
+        document_sidecar_sha = sha256_file(Path(config.retrieval_document_sidecar))
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
@@ -611,14 +514,20 @@ def train(
             sha256_file(config.native_pack_manifest) if config.native_pack_manifest else None
         )
         model = build_model(
-            model_config, codec, device=context.device, precision=config.precision,
+            model_config,
+            codec,
+            device=context.device,
+            precision=config.precision,
             native_pack_manifest=config.native_pack_manifest,
         )
         pretrained_pack_fingerprint = ""
         if config.pretrained_packs is not None:
             from megatoken.omni.loader import install_pretrained_packs
+
             install_pretrained_packs(
-                model, config.pretrained_packs, device=context.device,
+                model,
+                config.pretrained_packs,
+                device=context.device,
                 dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
             )
             pretrained_pack_fingerprint = hashlib.sha256(
@@ -628,6 +537,12 @@ def train(
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
             _resume_compatible(payload["train_config"], config, phase_transition)
+            if not phase_transition and (
+                payload.get("retrieval_sidecar_sha256", "") != retrieval_sidecar_sha
+                or payload.get("retrieval_document_sha256", "") != document_sidecar_sha
+                or payload.get("retrieval_recipe_fingerprint", "") != (retrieval_recipe.fingerprint)
+            ):
+                raise ValueError("Exact resume changed retrieval supervision or recipe identity")
             if payload.get("pretrained_pack_fingerprint", "") != pretrained_pack_fingerprint:
                 raise ValueError("Checkpoint pretrained pack lock differs from current run")
             if payload.get("native_pack_fingerprint") != native_pack_fingerprint:
@@ -643,27 +558,154 @@ def train(
             from megatoken.assets import install_engram_asset
 
             install_engram_asset(model, config.engram_import)
+        if config.retrieval_bank:
+            from megatoken.memory.recipe import open_bank_for_recipe, validate_checkpoint
+            from megatoken.training.bank import BankTrainingOwner
+
+            bank_path = Path(config.retrieval_bank)
+            if config.decoupled is not None:
+                # Decoupled learners train a local copy of the coordinator's
+                # canonical bank; the coordinator alone allocates rows.
+                bank_path = output / "diloco" / "kb.sqlite"
+                bank_path.parent.mkdir(parents=True, exist_ok=True)
+                if payload is not None:
+                    restored = bank_path.with_name(bank_path.name + ".restore")
+                    shutil.copyfile(resolve_checkpoint(resume) / "kb.sqlite", restored)
+                    os.replace(restored, bank_path)
+                else:
+                    from megatoken.training.diloco_client import fetch_kb_snapshot
+
+                    kb_version = fetch_kb_snapshot(config.decoupled, bank_path)
+            else:
+                # The configured bank is an immutable input. Each run trains its own
+                # copy: exact resume and phase transitions continue the checkpoint's
+                # jointly trained bank, and only the first live phase starts from
+                # retrieval_bank. Aborted runs can never corrupt an input bank.
+                bank_path = output / "kb.sqlite"
+                error = None
+                if context.is_primary:
+                    try:
+                        carried = (
+                            resolve_checkpoint(resume) / "kb.sqlite"
+                            if payload is not None
+                            else None
+                        )
+                        if carried is not None and carried.is_file():
+                            _stage_bank(carried, bank_path)
+                        elif payload is not None and not phase_transition:
+                            raise FileNotFoundError("Exact resume checkpoint lacks its KB snapshot")
+                        elif not Path(config.retrieval_bank).is_file():
+                            raise FileNotFoundError(
+                                "Live KB must be source-populated before training"
+                            )
+                        else:
+                            _stage_bank(Path(config.retrieval_bank), bank_path)
+                    except BaseException as exc:
+                        error = f"{type(exc).__name__}: {exc}"
+                failures = context.all_gather_object(error)
+                if any(failures):
+                    raise RuntimeError(f"Run KB staging failed: {failures}")
+                context.barrier()
+            bank = open_bank_for_recipe(retrieval_recipe, bank_path)
+            try:
+                ready = bank.growth_state("readiness", {})
+                if not (ready.get("coherence") and ready.get("embeddings")):
+                    raise RuntimeError(
+                        "Free-KB training requires verified coherence/embedding readiness"
+                    )
+                if payload is not None and not phase_transition:
+                    snapshot = resolve_checkpoint(resume) / "kb.sqlite"
+                    validate_checkpoint(
+                        retrieval_recipe,
+                        snapshot,
+                        model_checkpoint_id=resolve_checkpoint(resume).name,
+                    )
+                    with open_bank_for_recipe(
+                        retrieval_recipe,
+                        snapshot,
+                        readonly=True,
+                    ) as pinned:
+                        if (
+                            bank.database_id != pinned.database_id
+                            or bank.revisions() != pinned.revisions()
+                        ):
+                            raise RuntimeError(
+                                "Live KB revisions differ from exact-resume snapshot; "
+                                "restore the matching SQLite snapshot explicitly"
+                            )
+                if not config.retrieval_source_assets_root:
+                    raise ValueError(
+                        "Native free-KB pretraining requires pinned original source "
+                        "assets to ingest RAG evidence through E/C"
+                    )
+                from megatoken.training.source_features import NativeSourceFeatures
+
+                source_features = NativeSourceFeatures(
+                    model,
+                    config.retrieval_source_assets_root,
+                    max_chunk_bytes=retrieval_recipe.max_source_bytes,
+                    strict_hash=True,
+                )
+                centroids = None
+                if config.retrieval_ivf_centroids:
+                    if (
+                        sha256_file(Path(config.retrieval_ivf_centroids))
+                        != config.retrieval_ivf_sha256
+                    ):
+                        raise ValueError("Learned IVF centroid artifact SHA256 mismatch")
+                    import numpy as np
+
+                    centroids = np.load(
+                        config.retrieval_ivf_centroids,
+                        allow_pickle=False,
+                    )
+                elif (
+                    bank.db.execute(
+                        "SELECT COUNT(*) FROM records WHERE collection='source' AND active=1"
+                    ).fetchone()[0]
+                    > 10000
+                ):
+                    raise ValueError(
+                        "Large training corpora require pinned disk-IVF centroids "
+                        "instead of unbounded exact-source scans"
+                    )
+
+                def make_bank_owner(opened):
+                    return BankTrainingOwner(
+                        opened,
+                        retrieval_recipe,
+                        device=context.device,
+                        sparse_lr=config.retrieval_sparse_lr,
+                        source_features=source_features,
+                        centroids=centroids,
+                        nprobe=config.retrieval_ivf_nprobe,
+                    )
+
+                bank_owner = make_bank_owner(bank)
+            except BaseException:
+                bank.close()
+                raise
         context.broadcast_model(model)
+        if bank_owner is not None:
+            from megatoken.training.bank import assert_shared_bank_snapshot
+
+            assert_shared_bank_snapshot(bank_owner, context)
         phase = dataclasses.replace(
             PHASES[config.phase],
             budget=config.budget or PHASES[config.phase].budget,
             meter="G" if config.budget_meter == "G" else PHASES[config.phase].meter,
         )
         optimizer = MasterAdamW(
-            model, phase.learning_rate(0), config.weight_decay,
+            model,
+            phase.learning_rate(0),
+            config.weight_decay,
             inner_optimizer=config.inner_optimizer,
         )
         if config.representation_training == "recurrent":
             # Contextual codec auxiliaries use frozen C/R with E gradients only.
             # Independent clipping prevents their norm scaling the main update.
             optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
-        windows_config = WindowConfig(
-            max_window_tokens=config.max_history_tokens,
-            max_decisions=config.scored_decisions,
-            max_records=config.max_window_records,
-            respect_dependencies=config.phase == "LC",
-            max_dependency_tokens=config.max_history_tokens,
-        )
+        windows_config = window_config(config)
         dataset = PreparedDataset(config.dataset)
         if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
             raise ValueError("Prepared dataset uses a different codec")
@@ -681,21 +723,30 @@ def train(
             raise ValueError("Select one of omni_recipe and concordance_recipe per run")
         concordance_recipe = (
             load_concordance_recipe(config.concordance_recipe)
-            if config.concordance_recipe is not None else None
+            if config.concordance_recipe is not None
+            else None
         )
         if concordance_recipe is not None and phase.meter != "G":
             raise ValueError("Concordance tasks must use event-based G training budgets")
         if config.omni_recipe is not None:
             from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
+
             stream = OmniWindowStream(
-                config.dataset, codec, windows_config,
-                load_omni_recipe(config.omni_recipe), "G",
-                seed=config.seed, rank=data_rank, world_size=data_world,
+                config.dataset,
+                codec,
+                windows_config,
+                load_omni_recipe(config.omni_recipe),
+                "G",
+                seed=config.seed,
+                rank=data_rank,
+                world_size=data_world,
                 reduce_counts=context.sum_counts,
                 independent=config.decoupled is not None,
             )
         elif config.use_stage_mixture or concordance_recipe is not None:
-            recipe = concordance_recipe if concordance_recipe is not None else stage_recipe(config.phase)
+            recipe = (
+                concordance_recipe if concordance_recipe is not None else stage_recipe(config.phase)
+            )
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
@@ -711,13 +762,21 @@ def train(
         else:
             stream = (
                 IndependentWindowStream(
-                    dataset, codec, windows_config, seed=config.seed,
-                    rank=data_rank, world_size=data_world,
+                    dataset,
+                    codec,
+                    windows_config,
+                    seed=config.seed,
+                    rank=data_rank,
+                    world_size=data_world,
                 )
                 if config.decoupled is not None
                 else WindowStream(
-                    dataset, codec, windows_config, seed=config.seed,
-                    rank=context.rank, world_size=context.world_size,
+                    dataset,
+                    codec,
+                    windows_config,
+                    seed=config.seed,
+                    rank=context.rank,
+                    world_size=context.world_size,
                     reduce_counts=context.sum_counts,
                 )
             )
@@ -732,6 +791,22 @@ def train(
                 train_identity=training_identity(config),
                 dataset_fingerprint=content_hash(dataset.manifest),
             )
+            if bank_owner is not None:
+                from megatoken.training.diloco_kb import KBSync
+
+                kb_settings = diloco.manifest.get("kb") or {}
+                if (
+                    kb_settings.get("database_id") != bank_owner.bank.database_id
+                    or kb_settings.get("recipe_fingerprint") != retrieval_recipe.fingerprint
+                    or kb_settings.get("centroids_sha256") != config.retrieval_ivf_sha256
+                ):
+                    raise ValueError("Learner KB, recipe or IVF identity differs from syncer")
+                kb_sync = KBSync(
+                    version=kb_version if kb_version is not None else 0,
+                    wire_dtype=config.decoupled.wire_dtype,
+                    local_steps=config.decoupled.local_steps,
+                )
+                diloco.attach_kb(kb_sync)
             if payload is None:
                 diloco.bootstrap(model, optimizer)
         global_step = 0
@@ -782,32 +857,63 @@ def train(
         last_saved = global_step if resume and not phase_transition else -1
         updates_this_run = 0
 
+        checkpoint_writer = CheckpointWriter()
+
+        def memory_attachment(stage: Path, name: str) -> dict[str, Any]:
+            if bank_owner is None:
+                return {}
+            from megatoken.memory.recipe import checkpoint_bank
+
+            growth = bank_owner.bank.growth_state("last_growth", {})
+            manifest = checkpoint_bank(
+                retrieval_recipe,
+                bank_owner.bank,
+                checkpoint_file=stage / "kb.sqlite",
+                model_checkpoint_id=name,
+                optimizer_step=global_step,
+                growth_cursor=content_hash(growth),
+                query_model_snapshot=f"native-p-r:{global_step}:{model_config.routing_version}",
+            )
+            return {"memory_checkpoint": manifest}
+
         def checkpoint(label: str, pinned: bool = False) -> str:
+            """Snapshot at the step boundary; periodic writes overlap training.
+
+            Pinned (phase/run boundary, interrupt) checkpoints are durable on return.
+            """
             nonlocal last_saved
             rank_state = context.all_gather_object(
                 {"cursor": stream.state_dict(), "rng": capture_rng()}
             )
             name = f"{phase.name}-{global_step:09d}-{label}"
             if context.is_primary:
-                save_checkpoint(
-                    output / "checkpoints",
-                    name,
-                    {
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        **({"diloco": diloco.state_dict()} if diloco is not None else {}),
-                        "model_config": model_config.to_dict(),
-                        "train_config": asdict(config),
-                        "codec_fingerprint": codec.fingerprint,
-                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
-                        "native_pack_fingerprint": native_pack_fingerprint,
-                        "chunking": chunking_identity,
-                        "rank_state": rank_state,
-                        "global_step": global_step,
-                        "phase_consumed": consumed,
-                        "counters": asdict(counters),
-                    },
-                    {
+                # Bound host memory to one in-flight snapshot.
+                checkpoint_writer.wait()
+                root = output / "checkpoints"
+                staged = stage_checkpoint(root, name)
+                try:
+                    extra = memory_attachment(staged, name)
+                    payload = snapshot_to_cpu(
+                        {
+                            "model": model.state_dict(),
+                            "optimizer": optimizer.state_dict(),
+                            **({"diloco": diloco.state_dict()} if diloco is not None else {}),
+                            "model_config": model_config.to_dict(),
+                            "train_config": asdict(config),
+                            "codec_fingerprint": codec.fingerprint,
+                            "retrieval_sidecar_sha256": retrieval_sidecar_sha,
+                            "retrieval_document_sha256": document_sidecar_sha,
+                            "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
+                            "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
+                            "native_pack_fingerprint": native_pack_fingerprint,
+                            "chunking": chunking_identity,
+                            "rank_state": rank_state,
+                            "global_step": global_step,
+                            "phase_consumed": consumed,
+                            "counters": asdict(counters),
+                        }
+                    )
+                    metadata = {
                         "global_step": global_step,
                         "phase": phase.name,
                         "phase_consumed": consumed,
@@ -818,13 +924,29 @@ def train(
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
-                    },
-                    pinned=pinned,
-                    keep=config.keep_checkpoints,
-                )
+                    }
+                except BaseException:
+                    shutil.rmtree(staged, ignore_errors=True)
+                    raise
+
+                def write() -> None:
+                    commit_checkpoint(
+                        root,
+                        name,
+                        staged,
+                        payload,
+                        metadata,
+                        extra=extra,
+                        pinned=pinned,
+                        keep=config.keep_checkpoints,
+                    )
+                    if checkpoint_store is not None:
+                        checkpoint_store.upload(root / name)
+
+                checkpoint_writer.submit(write)
+                if pinned:
+                    checkpoint_writer.wait()
             context.barrier()
-            if checkpoint_store is not None:
-                checkpoint_store.upload(output / "checkpoints" / name)
             last_saved = global_step
             return str(output / "checkpoints" / name)
 
@@ -875,6 +997,25 @@ def train(
                 key: sum(batch.counts[key] for batch in batches) for key in DEFAULT_LOSS_WEIGHTS
             }
             global_counts = context.sum_counts(local_counts)
+            retrieval_local = sum(
+                (b.windows[0].episode.episode_id, r.record.record_id) in retrieval_examples
+                for b in batches
+                if isinstance(b, MeridianPreparedBatch)
+                for step in b.steps
+                if step.generated
+                for r in step.records
+            )
+            retrieval_denom = context.sum_counts({"retrieval_queries": retrieval_local})[
+                "retrieval_queries"
+            ]
+            doc_local = sum(
+                (b.windows[0].episode.episode_id, r.record.record_id) in document_examples
+                for b in batches
+                for step in b.steps
+                if not step.generated
+                for r in step.records
+            )
+            document_denom = context.sum_counts({"document_chunks": doc_local})["document_chunks"]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -882,13 +1023,24 @@ def train(
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
             weights = dict(config.loss_weights)
+            # The old per-operation router loss has been replaced.
+            weights["router_balance"] = 0.0
             if concordance_recipe is not None:
                 # Reconstruction and distillation are auxiliaries, not extra mixture rows.
-                for name in ("reconstruction", "audio_reconstruction",
-                             "visual_reconstruction", "encoder_alignment"):
+                for name in (
+                    "reconstruction",
+                    "audio_reconstruction",
+                    "visual_reconstruction",
+                    "encoder_alignment",
+                ):
                     weights[name] *= concordance_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
+            from megatoken.training.router_balance import RouterBalanceWindow
+
+            router_replay = RouterBalanceWindow()
+            model.core.p_router.balance_recorder = router_replay
+            model.core.u_router.balance_recorder = router_replay
             learning_rate = phase.learning_rate(
                 diloco.global_tokens if diloco is not None else consumed
             )
@@ -896,27 +1048,129 @@ def train(
             model.core.dispatch_metrics(reset=True)
             step_diagnostics: dict[str, float | torch.Tensor] = {}
             for batch in batches:
-                diagnostics_batch = forward_batch(
-                    model, batch, ledger, config, context.device, global_step
+                diagnostics_batch = forward_meridian_batch(
+                    model,
+                    batch,
+                    ledger,
+                    config,
+                    context.device,
+                    global_step,
+                    retrieval_aux=(
+                        retrieval_examples,
+                        retrieval_recipe,
+                        retrieval_denom,
+                        bank_owner,
+                        document_examples,
+                        document_denom,
+                    ),
                 )
                 for key, value in diagnostics_batch.items():
                     step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
             ledger.finish()
+            if router_replay is not None:
+                # All ranks participate, including workers with zero eligible
+                # assignments. The model's version remains fixed until step().
+                step_diagnostics.update(
+                    router_replay.backward(
+                        context,
+                        routers={"p": model.core.p_router, "u": model.core.u_router},
+                        coefficient=config.loss_weights["router_balance"],
+                    )
+                )
+                model.core.p_router.balance_recorder = None
+                model.core.u_router.balance_recorder = None
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)
+            if bank_owner is not None and bank_owner.source_features is not None:
+                bank_owner.source_features.invalidate_after_step()
             optimizer_seconds = time.perf_counter() - optimizer_started
             global_step += 1
+            if bank_owner is not None:
+                from megatoken.training.bank import (
+                    synchronize_query_demand,
+                    synchronize_sparse_rows,
+                )
+
+                if kb_sync is not None:
+                    kb_sync.capture(bank_owner.sparse.leaves)
+                step_metrics["memory_sparse_updated"] = synchronize_sparse_rows(
+                    bank_owner,
+                    context,
+                    optimizer_step=global_step,
+                    max_norm=config.grad_clip,
+                )
+                if kb_sync is not None:
+                    # The DiLoCo coordinator records demand and owns all growth.
+                    kb_sync.add_demand(list(bank_owner.pending_demand))
+                    bank_owner.pending_demand.clear()
+                else:
+                    # Growth allocates from published demand; publish every step so
+                    # pending demand never accumulates between growth barriers.
+                    step_metrics["memory_demand_published"] = synchronize_query_demand(
+                        bank_owner,
+                        context,
+                    )
+                if kb_sync is None and global_step % config.retrieval_growth_every == 0:
+                    error = None
+                    grown = 0
+                    if context.is_primary:
+                        try:
+                            scopes = tuple(
+                                sorted(
+                                    {
+                                        a.query_teacher_inputs.ranges[0].scope
+                                        for a in retrieval_examples.values()
+                                    }
+                                )
+                            )
+                            grown = bank_owner.grow_at_barrier(
+                                scopes=scopes,
+                                step=global_step,
+                                budget=config.retrieval_growth_budget,
+                            )
+                        except BaseException as exc:
+                            error = f"{type(exc).__name__}: {exc}"
+                    failures = context.all_gather_object(error)
+                    if any(failures):
+                        raise RuntimeError(f"Memory growth transaction failed: {failures}")
+                    context.barrier()
+                    step_metrics["memory_grown"] = grown
+                assert_shared_bank_snapshot(bank_owner, context)
             updates_this_run += 1
             consumed += getattr(global_work, phase.meter)
             counters.add(global_work)
             diloco_metrics = (
                 diloco.after_step(
-                    optimizer, steps=global_step, tokens=getattr(global_work, phase.meter)
+                    optimizer,
+                    steps=global_step,
+                    tokens=getattr(global_work, phase.meter),
+                    bank=None if bank_owner is None else bank_owner.bank,
                 )
                 if diloco is not None
                 else {}
             )
+            snapshot = diloco_metrics.pop("kb_snapshot", None)
+            if snapshot is not None:
+                from megatoken.memory.recipe import open_bank_for_recipe
+                from megatoken.training.diloco_kb import apply_changes, install_snapshot
+
+                # Between optimizer steps: no selected leaves or open transactions.
+                version, downloaded, kind = snapshot
+                residuals = kb_sync.residuals(bank_owner.bank)
+                overwritten = None
+                if kind == "changes":
+                    try:
+                        applied, overwritten = apply_changes(bank_owner.bank, downloaded)
+                    finally:
+                        downloaded.unlink(missing_ok=True)
+                    if applied != version:
+                        raise RuntimeError("KB change set version differs from its header")
+                else:
+                    bank_owner.bank.close()
+                    install_snapshot(downloaded, bank_path)
+                    bank_owner = make_bank_owner(open_bank_for_recipe(retrieval_recipe, bank_path))
+                kb_sync.installed(version, bank_owner.bank, residuals, overwritten, bank_owner.ivf)
             model.core.set_model_version(global_step)
             local_sums = ledger.sums
             merged_sums = context.all_gather_object(local_sums)
@@ -1028,9 +1282,7 @@ def train(
             "global_step": global_step,
             "phase": phase.name,
             "phase_consumed": consumed,
-            "complete": consumed >= phase.budget or (
-                diloco is not None and diloco.finished
-            ),
+            "complete": consumed >= phase.budget or (diloco is not None and diloco.finished),
             "checkpoint": last_checkpoint,
             "counters": asdict(counters),
         }
@@ -1039,6 +1291,9 @@ def train(
     finally:
         for signum, handler in old_handlers.items():
             signal.signal(signum, handler)
+        if checkpoint_writer is not None:
+            # A periodic write still in flight must land before the run returns.
+            checkpoint_writer.close()
         if diloco is not None:
             diloco.close()
         if optimizer is not None:
@@ -1047,4 +1302,6 @@ def train(
             stream.close()
         if dataset is not None:
             dataset.close()
+        if bank_owner is not None:
+            bank_owner.bank.close()
         context.close()

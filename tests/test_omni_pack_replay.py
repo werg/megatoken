@@ -1,4 +1,5 @@
 """Raw group tapes bind to exact, verified renderer/codec weight identities."""
+
 from types import SimpleNamespace
 
 import numpy as np
@@ -38,9 +39,7 @@ def test_renderer_pack_identity_survives_tape_json():
     assert replayed.raw_f32 == original.raw_f32
     assert replayed.renderer_seeds == original.renderer_seeds
     with pytest.raises(ValueError, match="pack identities"):
-        GroupActionTape(
-            **{**original.__dict__, "pack_fingerprints": ("image", "extra")}
-        )
+        GroupActionTape(**{**original.__dict__, "pack_fingerprints": ("image", "extra")})
 
 
 def test_realizer_requires_pinned_checkpoint_identity():

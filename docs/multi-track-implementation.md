@@ -1,3 +1,5 @@
+> **BREAKING MIGRATION NOTICE:** This document retains historical v8 training/background details. Its old `configs/train/*.yaml` stage commands and any optional-memory instructions are **not supported**. Only the phase-gated retrieval-memory curriculum described in [README.md](../README.md) and [retrieval-memory-implementation-status.md](retrieval-memory-implementation-status.md) may launch training.
+
 # Multi-track implementation status (v8 R; v7 foundation)
 
 **Date:** 2026-10-19. **Branch:** `feat/multitrack-foundation-20261019`.

@@ -1,4 +1,5 @@
 """Decoded peer evaluation never invents unavailable modalities/verifiers."""
+
 import numpy as np
 import pytest
 
@@ -39,7 +40,9 @@ def test_speech_agreement_uses_actual_audio_not_hidden_teacher():
     assert "sampled_speech_text_wer" not in missing.measured
     assert missing.unmeasured and "speech_recognizer_required" in missing.unmeasured[0]
     measured = score_sampled_relations(
-        pairs, events, speech_recognizer=lambda audio: "hello world",
+        pairs,
+        events,
+        speech_recognizer=lambda audio: "hello world",
     )
     assert measured.measured["sampled_speech_text_wer"]["score"] == 0.0
 
@@ -55,7 +58,8 @@ def test_edit_preservation_only_outside_requested_change():
         "edited": SampledEvent("edited", "image", new, changed_region=mask),
     }
     result = score_sampled_relations(
-        (Relation("preserves", "edited", "base"),), sampled,
+        (Relation("preserves", "edited", "base"),),
+        sampled,
     )
     assert result.measured["edit_unchanged_rmse"]["score"] == 0.0
     with pytest.raises(ValueError, match="sampled outputs"):

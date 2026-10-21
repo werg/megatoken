@@ -4,6 +4,7 @@ The teacher may consume transcript and an approved separate voice reference.
 Only its produced *continuous native Mimi* latents are cached as supervision.
 The resulting metadata must never be reclassified as a P prompt.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,10 +23,12 @@ class PocketTeacherTrace:
     def __post_init__(self):
         if self.waveform.ndim != 2 or self.waveform.shape[0] != 1:
             raise ValueError("Teacher waveform must be [1, native mono samples]")
-        if (self.normalized_latents.ndim != 2
-                or self.mimi_latents.shape != self.normalized_latents.shape
-                or self.normalized_latents.shape[0] < 1
-                or len(self.eos_flags) != self.mimi_latents.shape[0]):
+        if (
+            self.normalized_latents.ndim != 2
+            or self.mimi_latents.shape != self.normalized_latents.shape
+            or self.normalized_latents.shape[0] < 1
+            or len(self.eos_flags) != self.mimi_latents.shape[0]
+        ):
             raise ValueError("Teacher trace must contain an aligned acoustic sequence")
         if not bool(torch.isfinite(self.waveform).all()) or not bool(
             torch.isfinite(self.mimi_latents).all()
@@ -59,7 +62,9 @@ def capture_pocket_teacher(donor, *, voice_state, spoken_text: str) -> PocketTea
     flow._sample_next_latent = record
     try:
         raw_audio = donor.generate_audio(
-            voice_state, spoken_text, copy_state=True,
+            voice_state,
+            spoken_text,
+            copy_state=True,
         )
     finally:
         flow._sample_next_latent = original
@@ -76,6 +81,7 @@ def capture_pocket_teacher(donor, *, voice_state, spoken_text: str) -> PocketTea
     decoder = normalized * flow.emb_std.float() + flow.emb_mean.float()
     return PocketTeacherTrace(
         waveform.detach().float().cpu().contiguous(),
-        normalized.cpu().contiguous(), decoder.cpu().contiguous(),
+        normalized.cpu().contiguous(),
+        decoder.cpu().contiguous(),
         tuple(eos_bits),
     )

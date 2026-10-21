@@ -29,3 +29,6 @@ DEFAULT_LOSS_WEIGHTS = {
     "router_z": 1e-4,
 }
 LOSS_NAMES = tuple(DEFAULT_LOSS_WEIGHTS)
+# Losses produced by the deterministic action decoder (a leaf constant, so the
+# decoder and model packages need not import each other).
+DECODER_LOSSES = ("lexical", "structure", "binding", "placement", "terminal")

@@ -9,7 +9,6 @@ import torch
 from test_generation_policy import invalid_materialization_spec
 
 from megatoken.contracts import ROLE_TO_ID
-from megatoken.data import WindowConfig, iter_windows
 from megatoken.data.collection import TeacherRequest
 from megatoken.data.schema import Episode, Lineage, PhysicalRecord, Supervision, canonical_json
 from megatoken.data.student import ModelTeacher
@@ -118,7 +117,7 @@ def assert_same_context(actual, expected):
     assert torch.equal(actual.facets, expected.facets)
     for name in ("records_seen", "last_record_ids", "role_ids", "episode_ids"):
         assert torch.equal(getattr(actual, name), getattr(expected, name))
-    for name in ("early", "final"):
+    for name in ("final",):
         left, right = getattr(actual, name), getattr(expected, name)
         assert (left is None) == (right is None)
         if left is not None:
@@ -431,60 +430,13 @@ def integration_config():
         use_effort_mixture=False,
         microbatch_episodes=2,
         eval_episodes=1,
+        # The evaluator reads none of the retrieval artifacts; the config only
+        # has to satisfy the every-invocation validation.
+        retrieval_sidecar="unused-query-sidecar.jsonl",
+        retrieval_document_sidecar="unused-document-sidecar.jsonl",
+        retrieval_memory_recipe="unused-recipe.json",
+        budget=64,
     )
-
-
-def test_training_window_native_prefix_and_target_boundaries_use_the_actual_raw_history(
-    model, collected, monkeypatch
-):
-    from megatoken.training.engine import batch_counters, forward_batch, prepare_batches
-    from megatoken.training.losses import LossLedger
-    from megatoken.training.stream import EpisodeWindow
-
-    cases = integration_episodes(model, collected)
-    windows = [
-        EpisodeWindow(
-            episode,
-            next(
-                window
-                for window in iter_windows(episode, model.codec, WindowConfig(max_records=1))
-                if window.start == cursor
-            ),
-        )
-        for episode, cursor, _ in cases
-    ]
-    config = integration_config()
-    batches = prepare_batches(model, windows, config)
-    assert len(batches) == 2 and all(len(batch.windows) == 1 for batch in batches)
-    assert all(batch.native_history is not None for batch in batches)
-    # Shared reset IDs cannot alias distinct episodes' native metadata.
-    assert batches[0].native_history is not batches[1].native_history
-    trace = capture_core_calls(model, monkeypatch)
-    for batch, (_, cursor, expected) in zip(batches, cases, strict=True):
-        model.zero_grad(set_to_none=True)
-        trace.encoded.clear()
-        trace.predictions.clear()
-        trace.native_controls.clear()
-        ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-        metrics = forward_batch(model, batch, ledger, config, torch.device("cpu"), 0)
-        ledger.finish()
-        assert len(trace.predictions) == 1
-        actual, control = trace.predictions[0]
-        assert_same_context(actual, expected)
-        assert (
-            control is not None
-        )  # Only the new supervised prediction uses current public control.
-        assert all(value is None for value in trace.native_controls)
-        if cursor == 3:
-            assert collected.action.payload not in trace.encoded
-        else:
-            # The target is encoded once for its following-encoder objective,
-            # after prediction; its saved future raw facets were never installed.
-            assert trace.encoded.count(collected.action.payload) == 1
-            assert not torch.equal(actual.facets, torch.zeros_like(actual.facets))
-        counters = batch_counters([batch])
-        assert counters.raw_facet_replays == (2 if cursor == 1 else 4)
-        assert metrics["scored_positions"] == counters.P == batch.targets[0].scored_positions
 
 
 def test_evaluation_replays_native_prefix_and_excludes_native_target_facets(

@@ -27,7 +27,9 @@ class CheckpointStore:
         try:
             import boto3
         except ImportError as exc:
-            raise ImportError("Install megatoken[coreweave] for durable checkpoint storage") from exc
+            raise ImportError(
+                "Install megatoken[coreweave] for durable checkpoint storage"
+            ) from exc
         self.bucket = parsed.netloc
         self.prefix = "/".join(
             x for x in (parsed.path.strip("/"), run_id, f"worker-{worker_id:02d}") if x
@@ -39,22 +41,30 @@ class CheckpointStore:
         return f"{self.prefix}/{name}"
 
     def upload(self, checkpoint: str | Path) -> dict:
+        """Upload every checkpoint file (weights, KB snapshot, manifests), then the pointer."""
         path = Path(checkpoint)
         meta = path / "metadata.json"
-        state = path / "state.pt"
         metadata = json.loads(meta.read_text())
         if metadata["checkpoint_name"] != path.name:
             raise ValueError("Checkpoint directory and metadata differ")
-        state_sha = sha256_file(state)
-        if state_sha != metadata["state_sha256"]:
+        if sha256_file(path / "state.pt") != metadata["state_sha256"]:
             raise ValueError("Refusing to upload corrupted checkpoint")
-        meta_sha = sha256_file(meta)
-        for file in (state, meta):
-            self.s3.upload_file(str(file), self.bucket, self._key(f"{path.name}/{file.name}"))
+        memory = metadata.get("memory_checkpoint")
+        if memory is not None and sha256_file(path / memory["kb_file"]) != memory["kb_sha256"]:
+            raise ValueError("Refusing to upload a corrupted KB snapshot")
+        files = {
+            file.name: sha256_file(file)
+            for file in sorted(path.iterdir())
+            if file.is_file() and file.name != "metadata.json"
+        }
+        files["metadata.json"] = sha256_file(meta)
+        for name in files:
+            self.s3.upload_file(str(path / name), self.bucket, self._key(f"{path.name}/{name}"))
         pointer = {
             "checkpoint": path.name,
-            "state_sha256": state_sha,
-            "metadata_sha256": meta_sha,
+            "files": files,
+            "state_sha256": files["state.pt"],
+            "metadata_sha256": files["metadata.json"],
             "global_step": metadata["global_step"],
         }
         # S3 put is atomic: missing/broken snapshots are never advertised.
@@ -81,25 +91,29 @@ class CheckpointStore:
         name = pointer["checkpoint"]
         if not isinstance(name, str) or not name or Path(name).name != name:
             raise ValueError("Invalid remote checkpoint pointer")
+        files = pointer["files"]
+        if not isinstance(files, dict) or any(
+            not isinstance(f, str) or not f or Path(f).name != f or f.startswith(".") for f in files
+        ):
+            raise ValueError("Invalid remote checkpoint file list")
+        if not {"state.pt", "metadata.json"} <= set(files):
+            raise ValueError("Remote checkpoint lacks weights or metadata")
         root = Path(checkpoints)
         root.mkdir(parents=True, exist_ok=True)
         destination = root / name
         if destination.exists():
-            if sha256_file(destination / "state.pt") != pointer["state_sha256"]:
-                raise ValueError("Local checkpoint conflicts with remote checkpoint name")
-            if sha256_file(destination / "metadata.json") != pointer["metadata_sha256"]:
-                raise ValueError("Local checkpoint metadata differs from remote")
+            for filename, digest in files.items():
+                if sha256_file(destination / filename) != digest:
+                    raise ValueError(f"Local checkpoint {filename} conflicts with remote")
         else:
             staging = Path(tempfile.mkdtemp(prefix=".download-", dir=root))
             try:
-                for filename in ("state.pt", "metadata.json"):
+                for filename, digest in files.items():
                     self.s3.download_file(
                         self.bucket, self._key(f"{name}/{filename}"), str(staging / filename)
                     )
-                if sha256_file(staging / "state.pt") != pointer["state_sha256"]:
-                    raise ValueError("Remote checkpoint state checksum mismatch")
-                if sha256_file(staging / "metadata.json") != pointer["metadata_sha256"]:
-                    raise ValueError("Remote checkpoint metadata checksum mismatch")
+                    if sha256_file(staging / filename) != digest:
+                        raise ValueError(f"Remote checkpoint {filename} checksum mismatch")
                 fsync_directory(staging)
                 os.rename(staging, destination)
                 fsync_directory(root)
