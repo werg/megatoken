@@ -79,9 +79,8 @@ def training_identity(config: Any) -> str:
         "budget_meter",
         "accumulate_events",
         "router_balance_mode",
-        "embeddinggemma2_warmup",
-        "embeddinggemma2_media_workers",
-        "embeddinggemma2_text_weight",
+        "trainable",
+        "text_anchor_weight",
         "retrieval_kv_dropout",
         "retrieval_lora_dropout",
     )
@@ -93,21 +92,10 @@ def training_identity(config: Any) -> str:
     identity["retrieval_recipe"] = RetrievalRecipe.load(config.retrieval_memory_recipe).fingerprint
     identity["retrieval_sidecar"] = sha256_file(Path(config.retrieval_sidecar))
     identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
-    if config.pretrained_packs:
-        identity["pretrained_packs"] = sha256_file(Path(config.pretrained_packs))
-    if config.native_pack_manifest:
-        identity["native_pack_manifest"] = sha256_file(Path(config.native_pack_manifest))
-    if config.embeddinggemma2_text_sidecar:
-        identity["embeddinggemma2_text_sidecar"] = sha256_file(
-            Path(config.embeddinggemma2_text_sidecar)
-        )
-    if config.embeddinggemma2_warmup:
-        identity["embeddinggemma2_text_recipe"] = sha256_file(
-            Path(config.embeddinggemma2_text_recipe)
-        )
-        identity["embeddinggemma2_media_recipe"] = sha256_file(
-            Path(config.embeddinggemma2_media_recipe)
-        )
+    for name in ("packs", "omni_recipe", "concordance_recipe", "text_anchors"):
+        path = getattr(config, name)
+        if path:
+            identity[name] = sha256_file(Path(path))
     return content_hash(identity)
 
 

@@ -18,7 +18,7 @@ from megatoken.data.media_assets import MediaRecord, TensorAssetStore
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, stable_id
 from megatoken.generation.structure import ActionSpec
 from megatoken.model.core import ROLE_IDS
-from megatoken.model.media import MediaOutputSpec
+from megatoken.model.media import MediaOutputSpec, validate_public_media_spec
 from megatoken.model.multitrack import GroupGeneration, MultiTrackGenerator, MultiTrackState
 from megatoken.tensors import byte_tensor
 
@@ -31,7 +31,6 @@ class ServingObservation:
     instruction: str
     role: str = "user"
     revision: int = 0
-    sample_rate: int = 16000
     settings_json: str = "{}"
     references: tuple[str, ...] = ()
 
@@ -69,8 +68,8 @@ class ServingOutputRequest:
             not isinstance(self.spec, MediaOutputSpec) or self.modality != self.spec.modality
         ):
             raise ValueError("Media output requires its exact native rendering spec")
-        if isinstance(self.spec, MediaOutputSpec) and self.spec.extent_source == "teacher_only":
-            raise ValueError("Free rollout cannot adopt a gold-only output duration or geometry")
+        if isinstance(self.spec, MediaOutputSpec):
+            validate_public_media_spec(self.spec)
 
 
 @dataclass
@@ -174,42 +173,11 @@ class ServingSession:
                 else:
                     if assets is None:
                         raise ValueError("Media serving requires a resolved immutable asset store")
-                    ref = event.payload
-                    assert isinstance(ref, MediaRecord)
-                    sources = (ref.source, *ref.views)
-                    views = tuple(
-                        torch.from_numpy(assets.load(x)).to(device)[None] for x in sources
+                    source = event.payload.source
+                    raw = core.encode_media(
+                        torch.from_numpy(assets.load(source)).to(device)[None],
+                        extractor=source.extractor,
                     )
-                    kinds = tuple(x.kind for x in sources)
-                    extractors = tuple(x.extractor for x in sources)
-                    masks = tuple(
-                        torch.from_numpy(assets.load_mask(x)).to(device)[None]
-                        for x in ref.source_masks
-                    )
-                    if len(views) > 1 or masks:
-                        raw = core.media_stems.encode_multiview(
-                            core,
-                            event.modality,
-                            views,
-                            kinds,
-                            extractors,
-                            masks=masks,
-                            sample_rate=ref.source.sample_rate or event.sample_rate,
-                        )
-                    elif kinds[0] == "features":
-                        raw = core.encode_media_features(
-                            event.modality,
-                            views[0],
-                            extractor=extractors[0],
-                        )
-                    elif kinds[0] == "raw":
-                        raw = core.encode_media(
-                            event.modality,
-                            views[0],
-                            sample_rate=ref.source.sample_rate or event.sample_rate,
-                        )
-                    else:
-                        raise ValueError("Observed codec targets cannot be supplied as E input")
                 raws.append(raw)
             state = self.generator.tracks.advance_group(
                 self.state,

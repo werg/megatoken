@@ -20,9 +20,8 @@ from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import EncodedRecord
-from megatoken.data.text_hidden import TEXT_HIDDEN_RECORD_TYPE, TextHiddenReference
 from megatoken.generation.targets import PreparedAction, PreparedTargets
-from megatoken.model.media import AUDIO_SAMPLE_RATE, MediaOutputSpec, MediaTrainTarget
+from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.tensors import byte_tensor
 from megatoken.tool_schema import (
@@ -33,6 +32,7 @@ from megatoken.tool_schema import (
 )
 from megatoken.training.history import NativeHistory
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.text_anchors import anchor_loss
 
 
 @dataclass(frozen=True)
@@ -66,85 +66,22 @@ class MediaPlan:
         return counts
 
     def resolve(self, store: TensorAssetStore, device: torch.device) -> MediaTrainTarget:
-        source = torch.from_numpy(store.load(self.reference.source)).to(device)[None]
-        assert self.reference.target is not None
-        target = torch.from_numpy(store.load(self.reference.target)).to(device)[None]
-        valid = None
-        if self.reference.target.kind == "codec_latents":
-            target_asset = self.reference.target
-            if self.modality == "video" and not target_asset.codec_id:
-                # Legacy donor packs store time-major tensors; typed native packs
-                # already use their own declared latent-coordinate ordering.
-                target = target.permute(0, 2, 1, 3, 4).contiguous()
-                if target_asset.valid_count:
-                    valid = (
-                        torch.arange(target.shape[2], device=device)[None, None, :, None, None]
-                        < target_asset.valid_count
-                    )
-            elif self.modality == "audio" and target_asset.valid_count:
-                valid = (
-                    torch.arange(target.shape[1], device=device)[None, :, None]
-                    < target_asset.valid_count
-                )
-        if self.modality == "image" and self.reference.target.kind == "raw":
-            target = target[:, None]
-        views = []
-        for asset in self.reference.source_views:
-            data = torch.from_numpy(store.load(asset)).to(device)[None]
-            data, mask = _view_tokens(data, asset)
-            views.append((asset.extractor, data, mask))
-        if self.reference.source.kind == "features":
-            source_asset = self.reference.source
-            source, mask = _view_tokens(source, source_asset)
-            views.insert(0, (source_asset.extractor, source, mask))
-        native_views = tuple(
-            torch.from_numpy(store.load(asset)).to(device)[None] for asset in self.reference.views
-        )
-        source_masks = tuple(
-            torch.from_numpy(store.load_mask(asset)).to(device)[None]
-            for asset in self.reference.source_masks
-        )
-        target_mask = (
-            torch.from_numpy(store.load_mask(self.reference.target_mask)).to(device)[None]
-            if self.reference.target_mask is not None
-            else None
-        )
+        source, target = self.reference.source, self.reference.target
+        assert target is not None
+        mask = None
+        if target.valid_count:
+            # Only the leading real latent frames are supervised; codec padding is not.
+            mask = torch.arange(target.shape[0], device=device)[None] < target.valid_count
         return MediaTrainTarget(
             self.modality,
             self.spec,
-            source,
-            target,
+            torch.from_numpy(store.load(source)).to(device)[None],
+            source.extractor,
+            torch.from_numpy(store.load(target)).to(device)[None],
+            mask,
+            target.extractor,
             self.mode,
-            source_kind=self.reference.source.kind,
-            source_sample_rate=self.reference.source.sample_rate or AUDIO_SAMPLE_RATE,
-            extractor=self.reference.source.extractor,
-            target_kind=self.reference.target.kind,
-            source_views=tuple(views),
-            target_valid_mask=valid,
-            target_mask=target_mask,
-            views=native_views,
-            view_kinds=tuple(asset.kind for asset in self.reference.views),
-            view_extractors=tuple(asset.extractor for asset in self.reference.views),
-            source_masks=source_masks,
         )
-
-
-def _view_tokens(value: torch.Tensor, asset) -> tuple[torch.Tensor, torch.Tensor]:
-    """Expose channel-last codec features and mask codec padding, not native pixels."""
-    if asset.kind == "codec_latents":
-        if asset.modality == "image":
-            value = value.flatten(2).transpose(1, 2)
-            sites_per_time = value.shape[1]
-        elif asset.modality == "video":
-            value = value.permute(0, 1, 3, 4, 2).reshape(value.shape[0], -1, value.shape[2])
-            sites_per_time = asset.shape[-2] * asset.shape[-1]
-        else:
-            sites_per_time = 1
-    else:
-        sites_per_time = 1
-    active = (asset.valid_count or asset.shape[0]) * sites_per_time
-    mask = torch.arange(value.shape[1], device=value.device)[None] < active
-    return value, mask
 
 
 Plan = PreparedAction | PreparedTargets | MediaPlan
@@ -240,154 +177,25 @@ def _target_plan(
     )
 
 
-def _validate_media_source(model: Any, reference: MediaRecord, modality: str) -> None:
-    """One pinned teacher source in unified mode, even on observed meridians.
-
-    Validate the actual observed asset, not the future target. Legacy raw or
-    additional donor views must not silently bypass the EmbeddingGemma2 bridge.
-    """
-    source = reference.source
-    if getattr(model.config, "embeddinggemma2_hidden_dim", 0):
-        if (
-            source.kind != "features"
-            or source.extractor != model.config.embeddinggemma2_hidden_id
-            or source.shape[-1] != model.config.embeddinggemma2_hidden_dim
-            or reference.views
-            or reference.source_views
-            or reference.source_masks
-        ):
-            raise ValueError(
-                "Unified EmbeddingGemma2 input requires one pinned hidden-state "
-                "source and no legacy raw or auxiliary feature views"
-            )
-    elif source.kind == "features":
-        identity, width = (
-            (model.config.audio_feature_id, model.config.audio_feature_dim)
-            if modality == "audio"
-            else (model.config.vision_feature_id, model.config.vision_feature_dim)
-        )
-        if source.extractor != identity or source.shape[-1] != width:
-            raise ValueError("Observed media feature revision/width differs from model")
+def _media_record(model: Any, entry: EncodedRecord, modality: str) -> MediaRecord:
+    """The canonical media descriptor of an event, from this model's own teacher."""
+    if entry.record.media_type != MEDIA_RECORD_TYPE:
+        raise ValueError("Media events require a pinned canonical media descriptor")
+    reference = MediaRecord.from_bytes(entry.payload)
+    if reference.modality != modality:
+        raise ValueError("Media event modality differs from its descriptor")
+    if reference.source.extractor != model.config.media_extractor:
+        raise ValueError("Media features come from a different teacher than this model's")
+    return reference
 
 
 def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) -> MediaPlan:
-    reference = MediaRecord.from_bytes(entry.payload)
-    if reference.modality != modality or entry.record.media_type != MEDIA_RECORD_TYPE:
-        raise ValueError("Media event requires a matching canonical media descriptor")
-    if reference.target is None:
-        raise ValueError("Generated media events require a pinned media target")
-    _validate_media_source(model, reference, modality)
-    source = reference.source
-    target = reference.target
-    if target.kind == "codec_latents" and target.codec_id:
-        if not target.profile or not target.geometry:
-            raise ValueError(
-                "Native codec targets require exact generator pack and physical geometry"
-            )
-        native_kw = dict(
-            codec_id=target.codec_id,
-            pack_id=target.profile,
-            latent_shape=target.shape,
-            sample_rate=target.sample_rate or AUDIO_SAMPLE_RATE,
-            fps_num=target.fps_num,
-            fps_den=target.fps_den,
-            shape_provenance="teacher_only",
-            extent_source="teacher_only",
-        )
-        geometry = target.geometry
-        if modality == "audio":
-            spec = MediaOutputSpec("audio", sample_count=geometry[0], **native_kw)
-        elif modality == "image":
-            spec = MediaOutputSpec("image", height=geometry[-2], width=geometry[-1], **native_kw)
-        else:
-            spec = MediaOutputSpec(
-                "video", frames=geometry[0], height=geometry[-2], width=geometry[-1], **native_kw
-            )
-        return MediaPlan(
-            reference,
-            spec,
-            config.representation_training,
-            model.config.n_facets,
-            model.config.facet_dim,
-        )
-    pretrained = target.kind == "codec_latents"
-    renderer = (
-        ("pocket" if modality == "audio" else "sana" if modality == "image" else "sana_video")
-        if pretrained
-        else "native"
-    )
-    geometry = reference.output_geometry
-    if pretrained and geometry is None and source.kind != "raw":
-        raise ValueError(
-            "Codec latent targets with cached feature inputs require actual "
-            "displayed output geometry, not guessed codec compression ratios"
-        )
-    if geometry is not None and geometry.modality != modality:
-        raise ValueError("Declared media geometry disagrees with generated modality")
-    provenance = (
-        geometry.provenance
-        if geometry is not None
-        else ("teacher_only" if pretrained else "requested")
-    )
-
-    if modality == "audio":
-        if geometry is not None:
-            sample_count, sample_rate = geometry.sample_count, geometry.sample_rate
-        elif pretrained:
-            if source.sample_rate != 24000:
-                raise ValueError("Pocket codec target needs declared native 24k audio geometry")
-            sample_count, sample_rate = source.shape[0], source.sample_rate
-        else:
-            sample_count, sample_rate = target.shape[0], target.sample_rate
-        spec = MediaOutputSpec(
-            "audio",
-            sample_count=sample_count,
-            sample_rate=sample_rate,
-            renderer=renderer,
-            latent_shape=target.shape if pretrained else (),
-            shape_provenance=provenance,
-        )
-    elif modality == "image":
-        if geometry is not None:
-            height, width = geometry.height, geometry.width
-        elif pretrained:
-            height, width = source.shape[-2:]
-        else:
-            height, width = target.shape[-2:]
-        spec = MediaOutputSpec(
-            "image",
-            height=height,
-            width=width,
-            renderer=renderer,
-            latent_shape=target.shape if pretrained else (),
-            shape_provenance=provenance,
-        )
-    else:
-        if geometry is not None:
-            frames, height, width = geometry.frames, geometry.height, geometry.width
-            fps_num, fps_den = geometry.fps_num, geometry.fps_den
-        elif pretrained:
-            frames, height, width = source.shape[0], *source.shape[-2:]
-            fps_num, fps_den = source.fps_num, source.fps_den
-        else:
-            frames, height, width = target.shape[0], *target.shape[-2:]
-            fps_num, fps_den = target.fps_num, target.fps_den
-        spec = MediaOutputSpec(
-            "video",
-            frames=frames,
-            height=height,
-            width=width,
-            renderer=renderer,
-            latent_shape=(
-                (target.shape[1], target.shape[0], *target.shape[-2:]) if pretrained else ()
-            ),
-            shape_provenance=provenance,
-            fps_num=fps_num,
-            fps_den=fps_den,
-        )
+    reference = _media_record(model, entry, modality)
+    if reference.output_geometry is None:
+        raise ValueError("Generated media events require a realization target")
     return MediaPlan(
         reference,
-        spec,
+        MediaOutputSpec.from_geometry(reference.output_geometry),
         config.representation_training,
         model.config.n_facets,
         model.config.facet_dim,
@@ -457,29 +265,10 @@ def prepare_meridian_batch(
         records = tuple(encoded[i] for i in offsets)
         for event, record in zip(meridian.events, records, strict=True):
             if event.modality in {"audio", "image", "video"}:
-                if record.record.media_type != MEDIA_RECORD_TYPE:
-                    raise ValueError(
-                        "Media events require a pinned canonical media asset descriptor"
-                    )
-                ref = MediaRecord.from_bytes(record.payload)
-                if ref.modality != event.modality or (
-                    event.asset_sha256 is not None and event.asset_sha256 != ref.source.sha256
-                ):
-                    raise ValueError("Media event modality/source hash differs from its asset")
-                _validate_media_source(model, ref, event.modality)
-            elif event.modality in {"document", "text_summary"}:
-                if record.record.media_type != TEXT_HIDDEN_RECORD_TYPE:
-                    raise ValueError("Compressed document event needs a pinned hidden reference")
-                reference = TextHiddenReference.from_bytes(record.payload)
-                if (
-                    reference.modality != event.modality
-                    or record.record.policy_mask
-                    or (event.asset_sha256 and event.asset_sha256 != reference.feature_sha256)
-                    or model.config.embeddinggemma2_hidden_dim != 512
-                    or reference.extractor != model.config.embeddinggemma2_hidden_id
-                ):
-                    raise ValueError("Document evidence and pinned teacher identity disagree")
-            elif record.record.media_type in {MEDIA_RECORD_TYPE, TEXT_HIDDEN_RECORD_TYPE} or (
+                reference = _media_record(model, record, event.modality)
+                if event.asset_sha256 is not None and event.asset_sha256 != reference.source.sha256:
+                    raise ValueError("Media event source hash differs from its descriptor")
+            elif record.record.media_type == MEDIA_RECORD_TYPE or (
                 record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
             ):
                 raise ValueError("Media payload cannot be ingested on a text track")
@@ -567,63 +356,10 @@ def _actual_raw(
             ).reshape(1, model.config.n_facets, model.config.facet_dim)
         else:
             with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
-                if entry.record.media_type == TEXT_HIDDEN_RECORD_TYPE:
-                    reference = TextHiddenReference.from_bytes(entry.payload)
-                    if (
-                        model.config.embeddinggemma2_hidden_dim != 512
-                        or reference.extractor != model.config.embeddinggemma2_hidden_id
-                    ):
-                        raise ValueError("Compressed document encoder fingerprint differs")
-                    hidden = torch.from_numpy(reference.load(store.root)).to(device)[None]
-                    raw = model.core.encode_document_hidden(hidden, extractor=reference.extractor)
-                elif modality in {"audio", "image", "video"}:
+                if modality in {"audio", "image", "video"}:
                     source = MediaRecord.from_bytes(entry.payload).source
-                    signal = torch.from_numpy(store.load(source)).to(device)[None]
-                    reference = MediaRecord.from_bytes(entry.payload)
-                    if reference.views or reference.source_masks:
-                        refs = (reference.source, *reference.views)
-                        signals = tuple(
-                            torch.from_numpy(store.load(ref)).to(device)[None] for ref in refs
-                        )
-                        masks = tuple(
-                            torch.from_numpy(store.load_mask(ref)).to(device)[None]
-                            for ref in reference.source_masks
-                        )
-                        raw = model.core.media_stems.encode_multiview(
-                            model.core,
-                            modality,
-                            signals,
-                            tuple(ref.kind for ref in refs),
-                            tuple(ref.extractor for ref in refs),
-                            masks=masks,
-                            sample_rate=source.sample_rate or AUDIO_SAMPLE_RATE,
-                        )
-                    elif reference.source_views:
-                        views = []
-                        feature_assets = (
-                            (source,) if source.kind == "features" else ()
-                        ) + reference.source_views
-                        for view in feature_assets:
-                            tensor = torch.from_numpy(store.load(view)).to(device)[None]
-                            tensor, mask = _view_tokens(tensor, view)
-                            views.append((view.extractor, tensor, mask))
-                        raw = model.core.encode_media_views(modality, tuple(views))
-                    elif source.kind == "features":
-                        if source.valid_count and source.valid_count < source.shape[0]:
-                            tokens, mask = _view_tokens(signal, source)
-                            raw = model.core.encode_media_views(
-                                modality, ((source.extractor, tokens, mask),)
-                            )
-                        else:
-                            raw = model.core.encode_media_features(
-                                modality, signal, extractor=source.extractor
-                            )
-                    elif source.kind == "raw":
-                        raw = model.core.encode_media(
-                            modality, signal, sample_rate=source.sample_rate or 16000
-                        )
-                    else:
-                        raise ValueError("Codec latents need a declared feature projection")
+                    features = torch.from_numpy(store.load(source)).to(device)[None]
+                    raw = model.core.encode_media(features, extractor=source.extractor)
                 else:
                     ids, lengths = byte_tensor([entry.payload], device)
                     raw = model.core.encode_chunk(ids, lengths)
@@ -674,7 +410,7 @@ def forward_meridian_batch(
     model_version: int,
     retrieval_aux,
     *,
-    text_hidden_aux=None,
+    text_anchors=None,
     differentiate: bool = True,
     probe: RetrievalProbe | None = None,
 ) -> dict[str, float | torch.Tensor]:
@@ -742,27 +478,20 @@ def forward_meridian_batch(
                 modalities=step.modalities,
             )
     for step in batch.steps:
-        if text_hidden_aux is not None:
-            text_cache, global_count, weight = text_hidden_aux
-            if text_cache is not None:
-                from megatoken.training.embeddinggemma2_warmup import text_hidden_alignment
-
-                for entry, modality in zip(step.records, step.modalities, strict=True):
-                    if modality != "text" or entry.payload not in text_cache:
-                        continue
-                    if global_count < 1:
-                        raise RuntimeError("Text alignment denominator is missing")
-                    hidden = text_cache.get(entry.payload, device)
-                    anchor = text_hidden_alignment(
-                        model,
-                        text_bytes=entry.payload,
-                        hidden=hidden,
-                        identity=model.config.embeddinggemma2_hidden_id,
-                    )
-                    retrieval_losses.append(anchor * weight / global_count)
-                    metrics["embeddinggemma2_text_anchors"] = (
-                        metrics.get("embeddinggemma2_text_anchors", 0) + 1
-                    )
+        if text_anchors is not None:
+            anchors, global_count, weight = text_anchors
+            for entry, modality in zip(step.records, step.modalities, strict=True):
+                key = anchors.key(entry.payload) if modality == "text" else None
+                if key not in anchors.assets:
+                    continue
+                if global_count < 1:
+                    raise RuntimeError("Text anchor denominator is missing")
+                anchor = anchor_loss(model, entry.payload, anchors.features(key, device))
+                losses.append(anchor * weight / global_count)
+                metrics["text_anchor_mse_sum"] = (
+                    metrics.get("text_anchor_mse_sum", 0.0) + anchor.detach()
+                )
+                metrics["text_anchors"] = metrics.get("text_anchors", 0) + 1
         state, replayed = _preceding_native(multi, state, batch.native_history, step)
         metrics["grouped_native_replays"] += replayed
         if step.generated:

@@ -42,7 +42,7 @@ from megatoken.tensors import byte_tensor
 from .attention import AttentionFeatures, join_attention
 from .config import RETRIEVAL_QUERY_TRACK
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
-from .media import MediaOutputSpec, MediaTrainTarget
+from .media import MediaOutputSpec, MediaTrainTarget, validate_public_media_spec
 from .relations import SelectedRelation
 from .routing import RowRoute
 from .state import KVHistory, RealizationContext, assert_cache_version
@@ -50,54 +50,37 @@ from .state import KVHistory, RealizationContext, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v9"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v10"
 
 
 @dataclass(frozen=True)
 class ObservedEvent:
-    """One available text or media input to commit in a shared meridian."""
+    """One available input to commit in a shared meridian.
+
+    Text is its exact bytes. Audio, image and video are ordered pinned teacher
+    hidden states ``[1, T, 512]`` (``megatoken.media_teacher``), never raw media.
+    """
 
     track: str
     modality: str
     payload: bytes | Tensor
     role_id: int = ROLE_IDS["user"]
-    sample_rate: int = 16000
-    # Optional immutable donor identity; nonempty means payload is ordered
-    # feature tokens rather than native waveform/image/video pixels.
     extractor: str = ""
-    # Frozen Whistle/Mimi/MiniCPM features carry a deterministic, causal
-    # valid-position mask. Additional views reduce through the same E once.
     valid_mask: Tensor | None = None
-    source_views: tuple[tuple[str, Tensor, Tensor], ...] = ()
 
     def __post_init__(self) -> None:
-        if self.modality not in {"text", "audio", "image", "video", "document", "text_summary"}:
+        if self.modality not in {"text", "audio", "image", "video"}:
             raise ValueError("Unsupported input modality")
-        if self.modality == "text" and not isinstance(self.payload, bytes):
-            raise TypeError("Text events must contain bytes")
-        if self.modality != "text" and not isinstance(self.payload, Tensor):
-            raise TypeError("Media events must contain a tensor")
         if self.role_id not in ROLE_IDS.values():
             raise ValueError("Unknown event role")
-        if self.extractor and (self.modality == "text" or not isinstance(self.payload, Tensor)):
-            raise ValueError("External features require a media tensor and pinned extractor")
-        if self.modality in {"document", "text_summary"} and not self.extractor:
-            raise ValueError(
-                "Compressed text/document must supply pinned EmbeddingGemma2 hidden states"
-            )
-        if self.source_views and not self.extractor:
-            raise ValueError("Multiple ordered views require a declared primary extractor")
-        if self.extractor:
-            if self.payload.ndim != 3 or self.payload.shape[1] < 1:
-                raise ValueError("Frozen input must be ordered [batch,frames,width]")
-            if self.valid_mask is not None and (
-                self.valid_mask.shape != self.payload.shape[:2]
-                or self.valid_mask.dtype != torch.bool
-                or not bool(self.valid_mask.any(dim=1).all())
-            ):
-                raise ValueError("Frozen source features need a nonempty boolean valid mask")
-        elif self.valid_mask is not None:
-            raise ValueError("Native raw media cannot carry a frozen token mask")
+        if self.modality == "text":
+            if not isinstance(self.payload, bytes) or self.extractor or self.valid_mask is not None:
+                raise TypeError("Text events are exact bytes")
+            return
+        if not isinstance(self.payload, Tensor) or not self.extractor:
+            raise TypeError("Media events are pinned teacher hidden states")
+        if self.payload.ndim != 3 or self.payload.shape[0] != 1 or self.payload.shape[1] < 1:
+            raise ValueError("Media features must be one ordered [1, tokens, width] row")
 
 
 @dataclass(frozen=True)
@@ -404,38 +387,17 @@ class MultiTrackCore:
                     values, lengths = byte_tensor([event.payload], state.device)
                     encoded = self.core.encode_chunk(values, lengths=lengths)
                 else:
-                    payload = event.payload
-                    assert isinstance(payload, Tensor)
-                    # A single media event has a single batch dimension.
-                    if payload.device != state.device or payload.shape[0] != 1:
-                        raise ValueError("Media event must be one batch row on the model device")
-                    if event.extractor:
-                        mask = event.valid_mask
-                        if mask is None:
-                            mask = torch.ones(
-                                payload.shape[:2],
-                                device=payload.device,
-                                dtype=torch.bool,
-                            )
-                        views = ((event.extractor, payload, mask), *event.source_views)
-                        encoded = self.core.encode_media_views(event.modality, tuple(views))
-                    else:
-                        encoded = self.core.encode_media(
-                            event.modality,
-                            payload,
-                            sample_rate=event.sample_rate,
-                        )
+                    if event.payload.device != state.device:
+                        raise ValueError("Media event must be on the model device")
+                    encoded = self.core.encode_media(
+                        event.payload, event.valid_mask, extractor=event.extractor
+                    )
                 raws.append(encoded)
         return self.advance_group(
             state,
             torch.stack(raws, dim=1),
             tracks=tracks,
-            # Coarse documents remain text events for existing C/P modality
-            # geometry; only their *input* uses the unified teacher route.
-            modalities=tuple(
-                "text" if event.modality in {"document", "text_summary"} else event.modality
-                for event in events
-            ),
+            modalities=tuple(event.modality for event in events),
             role_ids=torch.tensor(
                 [[event.role_id for event in events]], dtype=torch.long, device=state.device
             ),
@@ -697,8 +659,6 @@ class GroupActionTape:
         if self.version != GROUP_TAPE_VERSION:
             raise ValueError("Incompatible grouped tape version")
         n, f, d = self.facet_shape
-        if not self.modalities:
-            object.__setattr__(self, "modalities", ("text",) * n)
         if n < 1 or f < 1 or d < 1 or len(self.raw_f32) != n * f * d * 4:
             raise ValueError("Tape must contain every complete raw FP32 event")
         lengths = (
@@ -710,22 +670,15 @@ class GroupActionTape:
             len(self.payloads),
             len(self.emitted_ids),
             len(self.valid),
+            len(self.renderer_seeds),
+            len(self.pack_fingerprints),
         )
         if any(k != n for k in lengths) or len(set(self.tracks)) != n:
             raise ValueError("Grouped tape fields must agree on exact event identities")
-        if self.renderer_seeds and (
-            len(self.renderer_seeds) != n
-            or any(type(seed) is not int or not 0 <= seed < 2**63 for seed in self.renderer_seeds)
-        ):
+        if any(type(seed) is not int or not 0 <= seed < 2**63 for seed in self.renderer_seeds):
             raise ValueError("Renderer noise seeds must match group identities")
-        if self.pack_fingerprints and (
-            len(self.pack_fingerprints) != n
-            or any(
-                not isinstance(fingerprint, str) or not fingerprint
-                for fingerprint in self.pack_fingerprints
-            )
-        ):
-            raise ValueError("Grouped tape pack identities must cover every event")
+        if any(not isinstance(value, str) or not value for value in self.pack_fingerprints):
+            raise ValueError("Grouped tape realizer identities must cover every event")
         if not math.isfinite(self.behavior_log_prob):
             raise ValueError("Behavior log probability must be finite")
         if self.effort not in EFFORTS:
@@ -795,9 +748,9 @@ class GroupActionTape:
             behavior_log_prob=float(value["behavior_log_prob"]),
             effort=int(value["effort"]),
             event_log_probs=tuple(map(float, value["event_log_probs"])),
-            memory_snapshot_id=value.get("memory_snapshot_id", ""),
-            renderer_seeds=tuple(value.get("renderer_seeds", ())),
-            pack_fingerprints=tuple(value.get("pack_fingerprints", ())),
+            memory_snapshot_id=value["memory_snapshot_id"],
+            renderer_seeds=tuple(value["renderer_seeds"]),
+            pack_fingerprints=tuple(value["pack_fingerprints"]),
             payloads=tuple(map(decode, value["payloads"])),
             emitted_ids=tuple(tuple(s) for s in value["emitted_ids"]),
             valid=tuple(value["valid"]),
@@ -869,26 +822,8 @@ class _GroupedTeacherReadout(nn.Module):
             context = self.core.prepare_realization(selected)
             if isinstance(plan, MediaTrainTarget):
                 family = "audio" if plan.modality == "audio" else "visual"
-                if plan.target_kind == "codec_latents" and plan.spec.codec_id:
-                    value = self.media_realizers.loss_native(context, plan)
-                    sums[family], counts[family] = sums[family] + value, counts[family] + 1
-                elif plan.target_kind == "codec_latents":
-                    value, count = self.media_realizers.training_loss(
-                        context.facets,
-                        plan.spec,
-                        plan.target,
-                        valid_mask=plan.target_valid_mask,
-                    )
-                    sums[family], counts[family] = sums[family] + value, counts[family] + count
-                else:
-                    # v8: current R reads selected raw Z, never prompt control.
-                    predicted = self.media_realizers.realize(context, plan.spec)
-                    if predicted.shape != plan.target.shape:
-                        raise ValueError("Media realization differs from prepared output target")
-                    sums[family] = (
-                        sums[family] + (predicted.float() - plan.target.float()).square().mean()
-                    )
-                    counts[family] += 1
+                sums[family] = sums[family] + self.media_realizers.loss(context, plan)
+                counts[family] += 1
                 continue
             if isinstance(plan, PreparedTargets):
                 parts = self.decoder.teacher_raw(self.core, context, plan)
@@ -987,23 +922,8 @@ class MultiTrackGenerator:
         for plan in plans:
             if isinstance(plan, ActionSpec):
                 identities.append("text")
-            elif plan.codec_id:
-                if plan.modality not in generator.media_realizers.native:
-                    raise ValueError("Pinned native codec pack must be resident before generating")
-                pack = generator.media_realizers.native[plan.modality]
-                if pack.codec_id != plan.codec_id or pack.pack_id != plan.pack_id:
-                    raise ValueError("Native pack identity differs from requested output spec")
-                identities.append(f"{pack.pack_id}:{pack.codec_id}")
-            elif plan.renderer == "native":
-                identities.append("native")
             else:
-                if plan.renderer not in generator.media_realizers.pretrained:
-                    raise ValueError("Required native renderer pack is not resident")
-                module = generator.media_realizers.pretrained[plan.renderer]
-                value = getattr(module, "checkpoint_identity", "")
-                if not value:
-                    raise ValueError("Pretrained renderer requires verified lockfile identity")
-                identities.append(value)
+                identities.append(generator.media_realizers.resident(plan.modality).identity)
         return tuple(identities)
 
     @staticmethod
@@ -1071,49 +991,34 @@ class MultiTrackGenerator:
                 validity.append(decoded.valid)
                 media.append(None)
             else:
-                if spec.shape_provenance == "teacher_only" or (
-                    spec.codec_id and spec.extent_source == "teacher_only"
-                ):
-                    raise ValueError("Gold target-derived geometry cannot condition served media")
+                validate_public_media_spec(spec)
                 materializer = None
                 if seeds is not None:
                     materializer = torch.Generator(device=raw.device)
                     materializer.manual_seed(seeds[index])
                 tensor = self.generator.media_realizers.realize(
-                    context,
-                    spec,
-                    generator=materializer,
-                    seed=(seeds[index] if seeds is not None and spec.codec_id else None),
+                    context, spec, generator=materializer
                 )
-                native_bytes = (
-                    tensor[0]
-                    .detach()
-                    .float()
-                    .contiguous()
-                    .cpu()
-                    .numpy()
-                    .astype("<f4", copy=False)
-                    .tobytes()
+                native = (
+                    tensor[0].detach().float().contiguous().cpu().numpy().astype("<f4", copy=False)
                 )
-                if spec.codec_id:
-                    # Large native media is a digest-bound output, not a multi-MB tape field.
-                    payloads.append(
-                        json.dumps(
-                            {
-                                "kind": "native-media-sha256-v1",
-                                "modality": spec.modality,
-                                "pack_id": spec.pack_id,
-                                "codec_id": spec.codec_id,
-                                "sha256": hashlib.sha256(native_bytes).hexdigest(),
-                                "shape": list(tensor[0].shape),
-                                "dtype": "f32le",
-                            },
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        ).encode()
-                    )
-                else:
-                    payloads.append(native_bytes)
+                # Large media is a digest-bound output, not a multi-MB tape field.
+                payloads.append(
+                    json.dumps(
+                        {
+                            "kind": "media-sha256-v1",
+                            "modality": spec.modality,
+                            "realizer": self.generator.media_realizers.resident(
+                                spec.modality
+                            ).identity,
+                            "sha256": hashlib.sha256(native.tobytes()).hexdigest(),
+                            "shape": list(native.shape),
+                            "dtype": "f32le",
+                        },
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode()
+                )
                 ids.append(())
                 validity.append(True)
                 media.append(tensor)
@@ -1204,29 +1109,7 @@ class MultiTrackGenerator:
         encoded = []
         for plan in plans:
             if isinstance(plan, MediaTrainTarget):
-                if plan.views or plan.source_masks:
-                    current = core.media_stems.encode_multiview(
-                        core,
-                        plan.modality,
-                        (plan.source, *plan.views),
-                        (plan.source_kind, *plan.view_kinds),
-                        (plan.extractor, *plan.view_extractors),
-                        masks=plan.source_masks,
-                        sample_rate=plan.source_sample_rate,
-                        view_dropout=core.config.media_view_dropout if core.training else 0.0,
-                    )
-                elif plan.source_views:
-                    current = core.encode_media_views(plan.modality, plan.source_views)
-                elif plan.source_kind == "features":
-                    current = core.encode_media_features(
-                        plan.modality, plan.source, extractor=plan.extractor
-                    )
-                elif plan.source_kind == "raw":
-                    current = core.encode_media(
-                        plan.modality, plan.source, sample_rate=plan.source_sample_rate
-                    )
-                else:
-                    raise ValueError("Codec source needs a pinned input feature view")
+                current = core.encode_media(plan.source, extractor=plan.extractor)
             else:
                 payload = plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
                 values, lengths = byte_tensor([payload], state.device)
@@ -1453,149 +1336,6 @@ class MultiTrackGenerator:
         }
         return GroupSupervisedResult(next_state, weighted, components, losses, metrics, sampled)
 
-    def supervised_group(
-        self,
-        state: MultiTrackState,
-        *,
-        tracks: Sequence[str],
-        targets: Sequence[bytes | Tensor],
-        specs: Sequence[ActionSpec | MediaOutputSpec],
-        controls: Sequence[bytes] | None = None,
-        effort: int = 6,
-        generator: torch.Generator | None = None,
-    ) -> GroupSupervisedResult:
-        """Bootstrap one whole meridian, sharing P/C and modality E/R parameters.
-
-        The objective is deliberately explicit. Predict from causal history,
-        score the realized targets, reconstruct from independent noisy encoder
-        facets, and align the detached encoder distribution with the prior.
-        This is the supervised bootstrap path; recurrent teacher/action replay
-        requires the separate real-trajectory continuation rules.
-        """
-        self.tracks._validate(state)
-        names = self.tracks._names(tracks, len(tracks))
-        if len(targets) != len(names) or len(specs) != len(names):
-            raise ValueError("One target and realization spec is required per track")
-        if state.batch_size != 1:
-            raise ValueError("Grouped bootstrap currently supports one independent session")
-        control_bytes = tuple(controls) if controls is not None else (b"",) * len(names)
-        if len(control_bytes) != len(names):
-            raise ValueError("One causal control is required per track")
-        selected_specs = self._specs(specs, len(names), self.generator.config.max_capacity)
-        for spec, target in zip(selected_specs, targets, strict=True):
-            if isinstance(spec, ActionSpec) and not isinstance(target, bytes):
-                raise TypeError("Text targets must contain bytes")
-            if isinstance(spec, MediaOutputSpec) and not isinstance(target, Tensor):
-                raise TypeError("Media targets must be tensors")
-        core = self.generator.core
-        core.routing_aux_loss(clear=True)
-        control = self._controls(control_bytes, state.device)
-        modal_names = tuple(
-            "text" if isinstance(x, ActionSpec) else x.modality for x in selected_specs
-        )
-        memory_snapshot = self.tracks.materialize_memory(state)
-        mean = self.tracks.predict_group(
-            state,
-            tracks=names,
-            control=control,
-            effort=effort,
-            modalities=modal_names,
-            memory_snapshot=memory_snapshot,
-        )
-        distribution = self.generator.facet_distribution(mean)
-        sampled = self._sample_policy(distribution, names, generator)
-        roles = torch.full(
-            (1, len(names)), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
-        )
-
-        def losses(raw: Tensor) -> Tensor:
-            values = []
-            for i, (spec, target) in enumerate(zip(selected_specs, targets, strict=True)):
-                selected = raw[:, i]
-                if memory_snapshot is not None and core.memory_adapters is not None:
-                    tracks_ids = self.tracks._track_indices(state, names)[0]
-                    selected = core.memory_adapters.apply(
-                        selected,
-                        module="r",
-                        stage=0,
-                        track_ids=tracks_ids[:, i : i + 1].expand(-1, selected.shape[1]),
-                        snapshot=memory_snapshot,
-                    )
-                ctx = core.prepare_realization(selected)
-                if isinstance(spec, ActionSpec):
-                    if spec.schemas:
-                        raise ValueError("Typed tool targets require structured target planning")
-                    assert isinstance(target, bytes)
-                    plan = self.generator.prepare_target(
-                        target_bytes=target, representation_mode="bootstrap"
-                    )
-                    items = self.generator.decoder.teacher_raw(core, ctx, plan)
-                    active = [item / max(1, count) for item, count in items.values() if count]
-                    values.append(torch.stack(active).sum())
-                else:
-                    assert isinstance(target, Tensor)
-                    if spec.codec_id:
-                        raise ValueError(
-                            "Native codec targets require prepared masked media training"
-                        )
-                    if spec.renderer != "native":
-                        value, count = self.generator.media_realizers.training_loss(
-                            ctx.facets, spec, target
-                        )
-                        values.append(value / max(1, count))
-                    else:
-                        out = self.generator.media_realizers.realize(ctx, spec)
-                        if target.shape != out.shape or target.device != out.device:
-                            raise ValueError("Media target must match realized shape/device")
-                        values.append((out.float() - target.float()).square().mean())
-            return torch.stack(values).mean()
-
-        main_loss = losses(sampled)
-        # The encoder owns one canonical raw representation per target regardless
-        # of how many source codec frames or visual patches it consumed.
-        encodings = []
-        for spec, target in zip(selected_specs, targets, strict=True):
-            if isinstance(spec, ActionSpec):
-                ids, lengths = byte_tensor([target], state.device)
-                encoded = core.encode_chunk(ids, lengths)
-            else:
-                encoded = core.encode_media(spec.modality, target)
-            encodings.append(encoded)
-        encoded_raw = torch.stack(encodings, dim=1)
-        tau = self.generator.config.codec_noise_std
-        posterior = DiagonalGaussian(
-            encoded_raw.float(), torch.full_like(encoded_raw, math.log(tau))
-        )
-        # Per-example KL sums all raw coordinates; normalize by active coordinates.
-        kl = posterior.detach().kl(distribution).sum() / encoded_raw.numel()
-        noise = torch.randn(
-            encoded_raw.shape, device=state.device, dtype=torch.float32, generator=generator
-        )
-        recon_loss = losses(encoded_raw + tau * noise)
-        # The real live state is the clean teacher-forced encoding, not either
-        # alternate sampled/reconstruction branch used to score the objective.
-        next_state = self.tracks.advance_group(
-            state,
-            encoded_raw,
-            tracks=names,
-            role_ids=roles,
-            modalities=modal_names,
-            memory_snapshot=memory_snapshot,
-        )
-        router_balance, router_stabilization = core.routing_aux_loss(clear=True)
-        routing = router_balance * 0.005 + router_stabilization * 1e-4
-        total = main_loss + recon_loss + 0.1 * kl + routing
-        return GroupSupervisedResult(
-            next_state,
-            total,
-            {
-                "prediction": main_loss,
-                "reconstruction": recon_loss,
-                "facet_kl": kl,
-                "routing": routing,
-            },
-        )
-
     @torch.no_grad()
     def generate_group(
         self,
@@ -1616,8 +1356,6 @@ class MultiTrackGenerator:
             raise ValueError("Every track needs a byte-exact causal control")
         plans = self._specs(specs, len(names), self.generator.config.max_capacity)
         pack_fingerprints = self._pack_ids(self.generator, plans)
-        from .media import validate_public_media_spec
-
         for plan in plans:
             if isinstance(plan, MediaOutputSpec):
                 validate_public_media_spec(plan)
@@ -1767,14 +1505,8 @@ class MultiTrackGenerator:
         plans = self._specs(specs, len(tape.tracks), self.generator.config.max_capacity)
         modality_names = tuple("text" if isinstance(x, ActionSpec) else x.modality for x in plans)
         expected_pack_ids = self._pack_ids(self.generator, plans)
-        # Legacy text/native tapes did not have donor identities. Never allow
-        # such a tape to silently replay with new pretrained weights.
-        if tape.pack_fingerprints and tape.pack_fingerprints != expected_pack_ids:
-            raise ValueError("Grouped tape pretrained pack identity mismatch")
-        if not tape.pack_fingerprints and any(
-            x not in ("text", "native") for x in expected_pack_ids
-        ):
-            raise ValueError("Legacy group tape cannot certify a pretrained renderer")
+        if tape.pack_fingerprints != expected_pack_ids:
+            raise ValueError("Grouped tape realizer identity mismatch")
         if (
             tuple(self._spec_id(x) for x in plans) != tape.spec_fingerprints
             or modality_names != tape.modalities
@@ -1821,7 +1553,7 @@ class MultiTrackGenerator:
             tape.meridian_id,
             tape.spec_fingerprints,
         )
-        if tape.renderer_seeds and tape.renderer_seeds != seeds:
+        if tape.renderer_seeds != seeds:
             raise ValueError("Grouped tape renderer noise identity mismatch")
         output, emitted, valid, media = self._realize(
             raw,
@@ -1829,7 +1561,7 @@ class MultiTrackGenerator:
             encoded,
             memory_snapshot=memory_snapshot,
             track_ids=self.tracks._track_indices(state, tape.tracks)[0],
-            seeds=tape.renderer_seeds or seeds,
+            seeds=seeds,
         )
         committed = self.tracks.advance_group(
             state,

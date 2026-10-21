@@ -149,7 +149,7 @@ def test_media_payload_is_not_silently_trained_as_text(tmp_path):
     )
     model = tiny_model()
     window = next(iter_windows(changed, ByteCodec.byte_fallback()))
-    with pytest.raises(ValueError, match="pinned canonical media asset"):
+    with pytest.raises(ValueError, match="pinned canonical media descriptor"):
         prepare_batches(
             model,
             [EpisodeWindow(changed, window)],

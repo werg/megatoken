@@ -1,165 +1,108 @@
-"""Offline EmbeddingGemma2 hidden-state extraction (NOT 768-d pooled embeddings).
+"""Offline EmbeddingGemma2 hidden-state extraction (not its 768-d pooled embedding).
 
-The model's language_model.embedding_projection is its 512->768 head. A
-forward-pre-hook captures ordered [B,T,512] states immediately before that
-projection, after modality adapters and the bidirectional text backbone.
-Only local, immutable, revision-pinned snapshots are permitted.
+The teacher's ``language_model.embedding_projection`` maps final normalized
+512-wide hidden states to 768-wide embedding coordinates, per token. A
+forward-pre-hook captures its ordered ``[T, 512]`` input after the modality
+towers and the bidirectional text backbone. Weights are loaded only from the
+locked pack manifest; the extractor identity is derived from that lock.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 from torch import Tensor
 
-SNAPSHOT_MODEL = "google/embeddinggemma-2"
-HIDDEN_TAP = "language_model.embedding_projection:input"
-_MODALITIES = frozenset({"text", "document", "audio", "image", "video"})
+from megatoken.media_teacher import HIDDEN_WIDTH, MAX_TOKENS, locked_teacher
 
-
-def verify_local_snapshot(path: Path, revision: str) -> None:
-    """Hash every model/processor byte; no mutable or unhashed dependencies."""
-    hidden_identity(revision)
-    metadata = path / "teacher-lock.json"
-    if not metadata.is_file() or metadata.is_symlink():
-        raise ValueError("Teacher snapshot needs a pinned teacher-lock.json")
-    lock = json.loads(metadata.read_text(encoding="utf-8"))
-    files = lock.get("sha256")
-    if (
-        set(lock) != {"model", "revision", "sha256"}
-        or lock["model"] != SNAPSHOT_MODEL
-        or lock["revision"] != revision
-        or not isinstance(files, dict)
-        or not files
-    ):
-        raise ValueError("Teacher snapshot/processor revision identity mismatch")
-    present = set()
-    for artifact in path.rglob("*"):
-        if artifact.is_symlink():
-            raise ValueError("Teacher snapshot cannot include symlinks")
-        if not artifact.is_file() or artifact == metadata:
-            continue
-        relative = artifact.relative_to(path).as_posix()
-        present.add(relative)
-        if relative not in files or not re.fullmatch(r"[0-9a-f]{64}", str(files[relative])):
-            raise ValueError(f"Unhashed teacher file: {relative}")
-        with artifact.open("rb") as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        if digest != files[relative]:
-            raise ValueError(f"Teacher artifact checksum differs: {relative}")
-    if present != set(files):
-        raise ValueError("Teacher lock includes missing or extra files")
-
-
-def hidden_identity(revision: str, *, preprocessing: str = "chat-template-v1") -> str:
-    if not re.fullmatch(r"[0-9a-f]{40}", revision):
-        raise ValueError("EmbeddingGemma2 teacher identity requires an immutable 40-char revision")
-    if not preprocessing or not re.fullmatch(r"[a-z0-9_.-]+", preprocessing):
-        raise ValueError("Preprocessor needs a pinned nonempty revision")
-    return f"embeddinggemma2:{revision}:{HIDDEN_TAP}:{preprocessing}"
+MODALITIES = ("text", "audio", "image", "video")
 
 
 @dataclass(frozen=True)
 class HiddenObservation:
+    """One event's ordered teacher states; every position is real evidence."""
+
     features: Tensor
-    mask: Tensor
     modality: str
     extractor: str
 
     def __post_init__(self) -> None:
-        if self.modality not in _MODALITIES:
-            raise ValueError("Unsupported EmbeddingGemma2 hidden-state modality")
         if (
-            self.features.ndim != 3
-            or self.features.shape[0] != 1
-            or self.features.shape[-1] != 512
-            or self.mask.shape != self.features.shape[:2]
-            or self.mask.dtype != torch.bool
-            or not bool(self.mask.any())
+            self.modality not in MODALITIES
+            or self.features.ndim != 2
+            or not 1 <= self.features.shape[0] <= MAX_TOKENS
+            or self.features.shape[1] != HIDDEN_WIDTH
+            or self.features.dtype != torch.float32
             or not bool(torch.isfinite(self.features).all())
-            or not self.extractor.startswith("embeddinggemma2:")
         ):
-            raise ValueError("Expected one finite masked [1,T,512] hidden-state observation")
+            raise ValueError("Expected finite FP32 [T, 512] EmbeddingGemma2 hidden states")
 
 
 class EmbeddingGemma2HiddenExtractor:
-    """Frozen inference-only teacher; its weights never join Megatoken checkpoints."""
+    """Frozen, resident, inference-only teacher; never part of a Megatoken checkpoint."""
 
-    def __init__(self, model, processor, *, revision: str, preprocessing: str = "chat-template-v1"):
-        self.model = model.eval()
-        self.processor = processor
-        self.extractor = hidden_identity(revision, preprocessing=preprocessing)
-        if (
-            not hasattr(model, "language_model")
-            or not hasattr(model.language_model, "embedding_projection")
-            or model.language_model.embedding_projection.in_features != 512
-            or model.language_model.embedding_projection.out_features != 768
+    def __init__(self, model, processor, *, extractor: str):
+        projection = getattr(getattr(model, "language_model", None), "embedding_projection", None)
+        if projection is None or (projection.in_features, projection.out_features) != (
+            HIDDEN_WIDTH,
+            768,
         ):
-            raise ValueError("Snapshot is not the known EmbeddingGemma2 512->768 head")
-        for param in model.parameters():
-            param.requires_grad_(False)
+            raise ValueError("Snapshot is not the EmbeddingGemma2 512->768 embedding head")
+        self.model = model.eval().requires_grad_(False)
+        self.processor = processor
+        self.extractor = extractor
+        self._projection = projection
 
     @classmethod
-    def from_local_snapshot(cls, snapshot: str | Path, *, revision: str, device: str = "cpu"):
-        """Never silently load main/latest or download weights during preprocessing."""
+    def from_pack(cls, base: Path, packs: dict, *, device: str = "cuda"):
+        """Load bf16 weights from a verified pack manifest (``read_locked_manifest``)."""
         from transformers import AutoModel, AutoProcessor
 
-        path = Path(snapshot).resolve()
-        if not path.is_dir() or not (path / "config.json").is_file():
-            raise FileNotFoundError("A downloaded local EmbeddingGemma2 snapshot is required")
-        verify_local_snapshot(path, revision)
-        model = AutoModel.from_pretrained(path, local_files_only=True, trust_remote_code=False).to(
-            device
-        )
+        snapshot, extractor = locked_teacher(base, packs)
+        model = AutoModel.from_pretrained(
+            snapshot, dtype=torch.bfloat16, local_files_only=True, trust_remote_code=False
+        ).to(device)
         processor = AutoProcessor.from_pretrained(
-            path, local_files_only=True, trust_remote_code=False
+            snapshot, local_files_only=True, trust_remote_code=False
         )
-        return cls(model, processor, revision=revision)
+        return cls(model, processor, extractor=extractor)
 
-    @torch.no_grad()
-    def encode(self, modality: str, source, *, max_tokens: int = 8192) -> HiddenObservation:
-        if modality not in _MODALITIES:
-            raise ValueError("Expected text, document, audio, image or video")
-        if not 1 <= max_tokens <= 8192:
-            raise ValueError("EmbeddingGemma2 sequence budget must fit its 8192-token context")
-        # Documents are text after auditable parsing; scanned pages must be
-        # rendered separately as images. Do not pretend the model decodes PDFs.
-        kind = "text" if modality == "document" else modality
+    @torch.inference_mode()
+    def encode(self, modality: str, source: str) -> HiddenObservation:
+        """``source`` is the text itself, or a local audio/image/video file path."""
+        if modality not in MODALITIES:
+            raise ValueError("Teacher input must be text, audio, image or video")
         content = (
-            {"type": "text", "text": source} if kind == "text" else {"type": kind, "url": source}
+            {"type": "text", "text": source}
+            if modality == "text"
+            else {"type": modality, "path": str(source)}
         )
-        conversation = [{"role": "user", "content": [content]}]
         inputs = self.processor.apply_chat_template(
-            conversation, tokenize=True, return_dict=True, return_tensors="pt"
+            [{"role": "user", "content": [content]}],
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
         )
-        if "attention_mask" not in inputs:
-            raise ValueError("Processor did not preserve a valid-token mask")
-        mask = inputs["attention_mask"].bool()
-        if mask.ndim != 2 or mask.shape[0] != 1 or int(mask.sum()) > max_tokens:
-            raise ValueError(
-                "Teacher context exceeds the declared token budget; chunk or sample first"
-            )
-        # Hook rather than last_hidden_state: the latter is *already* projected
-        # to 768, as is any SentenceTransformer.encode() result.
+        mask = inputs.get("attention_mask")
+        if mask is None or mask.shape[0] != 1 or not bool(mask.bool().all()):
+            raise ValueError("A single unpadded teacher sequence is required")
+        if mask.shape[1] > MAX_TOKENS:
+            raise ValueError("Teacher context exceeds 8192 tokens; split the event first")
         captured: list[Tensor] = []
 
-        def capture(module, arguments):
-            if len(arguments) != 1:
-                raise RuntimeError("Unexpected EmbeddingGemma2 projection signature")
-            captured.append(arguments[0].detach())
+        def capture(module, args, kwargs):
+            captured.append(args[0] if args else kwargs["input"])
 
-        handle = self.model.language_model.embedding_projection.register_forward_pre_hook(capture)
+        handle = self._projection.register_forward_pre_hook(capture, with_kwargs=True)
         try:
-            device = next(self.model.parameters()).device
-            batch = {k: v.to(device) if isinstance(v, Tensor) else v for k, v in inputs.items()}
-            self.model(**batch, return_dict=True)
+            device = self._projection.weight.device
+            self.model(
+                **{k: v.to(device) if isinstance(v, Tensor) else v for k, v in inputs.items()}
+            )
         finally:
             handle.remove()
         if len(captured) != 1 or captured[0].shape[:2] != mask.shape:
-            raise RuntimeError("EmbeddingGemma2 internal-state hook was not invoked exactly once")
-        return HiddenObservation(captured[0].float().cpu(), mask.cpu(), modality, self.extractor)
+            raise RuntimeError("The hidden-state tap must fire exactly once per sequence")
+        return HiddenObservation(captured[0][0].float().cpu(), modality, self.extractor)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a complete local SHA256 manifest from existing pinned donor snapshots.
+"""Create a complete local SHA256 manifest from existing pinned pack snapshots.
 
 The inventory is JSON: {"sana": {"revision": "<40hex>", "snapshot": "sana"},
 "pocket": {"revision": "<40hex>", "config": "pocket/local.yaml",
@@ -15,14 +15,14 @@ from pathlib import Path
 
 from megatoken.omni.loader import read_locked_manifest
 
-_ALLOWED = {"whistle", "minicpm", "pocket", "sana", "sana_video"}
-_PATHS = {"snapshot", "config", "checkpoint", "weights"}
+_ALLOWED = {"pocket", "sana", "sana_video", "embeddinggemma2"}
+_PATHS = {"snapshot", "config", "checkpoint"}
 
 
 def create_lock(root: str, inventory: dict) -> dict:
     base = Path(root).resolve()
     if not isinstance(inventory, dict) or not inventory or set(inventory) - _ALLOWED:
-        raise ValueError("Inventory has unknown or missing donor packs")
+        raise ValueError("Inventory has unknown or missing packs")
     locked = {}
     for name, item in sorted(inventory.items()):
         if not isinstance(item, dict) or not item.get("revision"):

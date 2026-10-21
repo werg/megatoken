@@ -100,18 +100,17 @@ class TrainConfig:
     budget_meter: str = "G"
     accumulate_events: int = 32
     media_root: str | None = None
-    # Immutable local checkpoint manifest. Donors are loaded before optimizer enumeration.
-    pretrained_packs: str | None = None
+    # Locked pack manifest (omni/loader.py): the Pocket/Sana/Sana-Video realizers
+    # are installed before optimizer enumeration and checkpoint restore.
+    packs: str | None = None
     omni_recipe: str | None = None
-    # Cross-worker shared recipe. Different workers own disjoint warmup gradients;
-    # all keep identical FP32 masters and DiLoCo parameter fingerprints.
-    embeddinggemma2_warmup: bool = False
-    embeddinggemma2_media_workers: tuple[int, ...] = ()
-    embeddinggemma2_text_sidecar: str | None = None
-    embeddinggemma2_text_recipe: str | None = None
-    embeddinggemma2_media_recipe: str | None = None
-    embeddinggemma2_text_weight: float = 0.1
-    native_pack_manifest: str | None = None
+    # "media_bridge" trains only the media input projection and the realizer
+    # conditions (identically on every DiLoCo worker); "all" trains everything.
+    trainable: str = "all"
+    # Same-text alignment of byte-E facets with teacher-feature facets: JSONL
+    # rows {"text_sha256", "asset"} of EmbeddingGemma2 text features.
+    text_anchors: str | None = None
+    text_anchor_weight: float = 0.1
     concordance_recipe: str | None = None
     max_media_events_per_window: int = 5
     deterministic: bool = False
@@ -146,10 +145,6 @@ class TrainConfig:
     engram_import: str | None = None
 
     def __post_init__(self) -> None:
-        if isinstance(self.embeddinggemma2_media_workers, list):
-            object.__setattr__(
-                self, "embeddinggemma2_media_workers", tuple(self.embeddinggemma2_media_workers)
-            )
         if isinstance(self.decoupled, dict):
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
@@ -214,57 +209,18 @@ class TrainConfig:
             raise ValueError(
                 "Event-budget media training needs eval_every=0 until media evaluation is installed"
             )
-        if self.embeddinggemma2_warmup:
-            if self.decoupled is None or self.decoupled.workers < 2:
-                raise ValueError(
-                    "Parallel EmbeddingGemma2 warmup requires DiLoCo text and media workers"
-                )
-            if not self.embeddinggemma2_text_recipe or not self.embeddinggemma2_media_recipe:
-                raise ValueError("Pin both worker-family recipes for parallel warmup")
-            if self.omni_recipe is not None:
-                raise ValueError("Warmup selects its lane-specific omni recipe automatically")
-            if not self.embeddinggemma2_media_workers:
-                raise ValueError("Warmup needs at least one explicit media worker ID")
-            count = self.decoupled.workers
-            if len(set(self.embeddinggemma2_media_workers)) != len(
-                self.embeddinggemma2_media_workers
-            ) or any(
-                type(i) is not int or not 0 <= i < count for i in self.embeddinggemma2_media_workers
-            ):
-                raise ValueError("Media worker IDs must be unique members of the DiLoCo group")
-            if len(self.embeddinggemma2_media_workers) == count:
-                raise ValueError("At least one DiLoCo learner must perform native text pretraining")
-            if self.embeddinggemma2_text_sidecar is None and count > len(
-                self.embeddinggemma2_media_workers
-            ):
-                raise ValueError(
-                    "Text warmup requires a pinned text hidden-state alignment sidecar"
-                )
-            if self.concordance_recipe is not None:
-                raise ValueError("Concordance editing follows, not precedes, frozen warmup")
-        elif (
-            self.embeddinggemma2_media_workers
-            or self.embeddinggemma2_text_recipe
-            or self.embeddinggemma2_media_recipe
-        ):
-            raise ValueError("Teacher lane settings need embeddinggemma2_warmup=true")
-        # Text anchors remain active during the subsequent joint recurrent
-        # curriculum; only lane-specific scheduling ends at the phase boundary.
-        if (
-            self.embeddinggemma2_text_sidecar
-            and self.model_overrides.get("embeddinggemma2_hidden_dim") != 512
-        ):
-            raise ValueError("Text alignment requires the pinned unified 512d teacher geometry")
-        if not 0 < self.embeddinggemma2_text_weight <= 1:
-            raise ValueError("Teacher text alignment weight must be in (0,1]")
+        if self.trainable not in {"all", "media_bridge"}:
+            raise ValueError("trainable is all or media_bridge")
+        if self.trainable == "media_bridge" and (self.packs is None or self.omni_recipe is None):
+            raise ValueError("Media bridge training needs realizer packs and a media omni recipe")
+        if not 0 < self.text_anchor_weight <= 1:
+            raise ValueError("Text anchor weight must be in (0, 1]")
         if self.omni_recipe is not None and not self.omni_recipe:
             raise ValueError("Omni recipe path must be nonempty")
         if self.omni_recipe is not None and self.budget_meter != "G":
             raise ValueError("Concordant media tasks require an explicit G event budget")
-        if self.pretrained_packs is not None and not self.pretrained_packs:
-            raise ValueError("Pretrained pack manifest path must be nonempty")
-        if self.native_pack_manifest is not None and not self.native_pack_manifest:
-            raise ValueError("Pretrained native pack registry path must be nonempty")
+        if self.packs is not None and not self.packs:
+            raise ValueError("Pack manifest path must be nonempty")
         if self.concordance_recipe is not None and not self.concordance_recipe:
             raise ValueError("Concordance task mixture path must be nonempty")
         if self.concordance_recipe is not None and self.budget_meter != "G":
@@ -303,13 +259,6 @@ class TrainConfig:
             raise ValueError(f"loss_weights must define exactly {tuple(DEFAULT_LOSS_WEIGHTS)}")
         if any(value < 0 for value in self.loss_weights.values()):
             raise ValueError("Loss weights cannot be negative")
-
-    @property
-    def embeddinggemma2_lane(self) -> str:
-        if not self.embeddinggemma2_warmup:
-            return "joint"
-        worker = self.decoupled.resolved_worker_id if self.decoupled is not None else 0
-        return "media" if worker in self.embeddinggemma2_media_workers else "text"
 
     @property
     def representation_training(self) -> str:

@@ -9,7 +9,6 @@ an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 import os
 import shutil
@@ -265,14 +264,15 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
             for modality, record in zip(step.modalities, step.records, strict=True):
                 if modality not in {"audio", "image", "video"}:
                     continue
-                reference = MediaRecord.from_bytes(record.payload)
                 result.media_events += 1
-                asset = reference.target or reference.source
-                if modality == "audio" and asset.kind == "raw":
-                    result.audio_samples += asset.shape[0]
-                elif modality == "video" and asset.kind == "raw":
-                    result.video_frames += asset.shape[0]
-                elif modality == "image":
+                geometry = MediaRecord.from_bytes(record.payload).output_geometry
+                if geometry is None:
+                    continue  # observed media: no physical output is realized
+                if modality == "audio":
+                    result.audio_samples += geometry.sample_count
+                elif modality == "video":
+                    result.video_frames += geometry.frames
+                else:
                     result.image_events += 1
         result.P += sum(plan.scored_positions for step in batch.steps for plan in step.plans)
         result.facet_encodes += sum(len(step.plans) for step in batch.steps)
@@ -357,12 +357,11 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "retrieval_kv_dropout",
             "retrieval_lora_dropout",
             "router_balance_mode",
-            "embeddinggemma2_warmup",
-            "embeddinggemma2_media_workers",
-            "embeddinggemma2_text_sidecar",
-            "embeddinggemma2_text_recipe",
-            "embeddinggemma2_media_recipe",
-            "embeddinggemma2_text_weight",
+            "omni_recipe",
+            "concordance_recipe",
+            "trainable",
+            "text_anchors",
+            "text_anchor_weight",
         )
     for key in critical:
         if old.get(key) != current.get(key):
@@ -516,29 +515,17 @@ def train(
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
-        native_pack_fingerprint = (
-            sha256_file(config.native_pack_manifest) if config.native_pack_manifest else None
-        )
+        packs_fingerprint = sha256_file(config.packs) if config.packs else None
         model = build_model(
             model_config,
             codec,
             device=context.device,
             precision=config.precision,
-            native_pack_manifest=config.native_pack_manifest,
+            packs=config.packs,
         )
-        pretrained_pack_fingerprint = ""
-        if config.pretrained_packs is not None:
-            from megatoken.omni.loader import install_pretrained_packs
-
-            install_pretrained_packs(
-                model,
-                config.pretrained_packs,
-                device=context.device,
-                dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
-            )
-            pretrained_pack_fingerprint = hashlib.sha256(
-                Path(config.pretrained_packs).read_bytes()
-            ).hexdigest()
+        # Owners a phase transition may introduce: realizers installed for the
+        # first time (e.g. text pretraining -> media). Nothing else may appear.
+        new_owners: tuple[str, ...] = ()
         payload = None
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
@@ -549,17 +536,21 @@ def train(
                 or payload.get("retrieval_recipe_fingerprint", "") != (retrieval_recipe.fingerprint)
             ):
                 raise ValueError("Exact resume changed retrieval supervision or recipe identity")
-            if payload.get("pretrained_pack_fingerprint", "") != pretrained_pack_fingerprint:
-                raise ValueError("Checkpoint pretrained pack lock differs from current run")
-            if payload.get("native_pack_fingerprint") != native_pack_fingerprint:
-                raise ValueError("Checkpoint pinned native pack registry changed since checkpoint")
+            if payload["packs_fingerprint"] != packs_fingerprint:
+                if not (phase_transition and payload["packs_fingerprint"] is None):
+                    raise ValueError("Realizer pack manifest differs from the checkpoint")
+                new_owners = ("media_realizers.packs.",)
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
             if payload["model_config"] != model_config.to_dict():
                 raise ValueError("Checkpoint model configuration differs")
             # Dynamic temporary imports must be restored before optimizer owner
             # enumeration, or their FP32 masters and hooks would be missing.
-            model.load_state_dict(payload["model"], strict=True)
+            restored = model.load_state_dict(payload["model"], strict=not new_owners)
+            if restored.unexpected_keys or any(
+                not key.startswith(new_owners) for key in restored.missing_keys
+            ):
+                raise ValueError("Checkpoint parameters differ beyond newly installed realizers")
         elif config.engram_import:
             from megatoken.assets import install_engram_asset
 
@@ -701,38 +692,33 @@ def train(
             budget=config.budget or PHASES[config.phase].budget,
             meter="G" if config.budget_meter == "G" else PHASES[config.phase].meter,
         )
-        if config.embeddinggemma2_warmup and not model_config.embeddinggemma2_hidden_dim:
-            raise ValueError(
-                "EmbeddingGemma2 warmup must pin the internal hidden-state model geometry"
-            )
         optimizer = MasterAdamW(
             model,
             phase.learning_rate(0),
             config.weight_decay,
             inner_optimizer=config.inner_optimizer,
         )
-        if config.embeddinggemma2_warmup:
-            from megatoken.training.embeddinggemma2_warmup import freeze_other_owners
-
-            trainable = freeze_other_owners(optimizer, model, config.embeddinggemma2_lane)
-            logger.log(
-                "unified_warmup_lane",
-                lane=config.embeddinggemma2_lane,
-                trainable_owners=len(trainable),
+        if config.trainable == "media_bridge":
+            # Every DiLoCo worker freezes the same owners, so their deltas are
+            # exactly zero everywhere and the outer merge stays unbiased.
+            bridge = {id(parameter) for parameter in model.media_bridge_parameters()}
+            optimizer.freeze(
+                [name for name, p in optimizer.model_parameters.items() if id(p) not in bridge]
             )
-        if config.representation_training == "recurrent" and not config.embeddinggemma2_warmup:
+        elif config.representation_training == "recurrent":
             # Contextual codec auxiliaries use frozen C/R with E gradients only.
             # Independent clipping prevents their norm scaling the main update.
             optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
         windows_config = window_config(config)
-        text_hidden_sidecar = None
-        if config.embeddinggemma2_text_sidecar:
-            from megatoken.training.embeddinggemma2_text_sidecar import TextHiddenSidecar
+        text_anchors = None
+        if config.text_anchors:
+            from megatoken.data.media_assets import TensorAssetStore
+            from megatoken.training.text_anchors import TextAnchors
 
-            text_hidden_sidecar = TextHiddenSidecar(
-                config.embeddinggemma2_text_sidecar,
-                config.media_root or config.dataset,
-                extractor=model_config.embeddinggemma2_hidden_id,
+            text_anchors = TextAnchors(
+                config.text_anchors,
+                TensorAssetStore(config.media_root or config.dataset),
+                extractor=model_config.media_extractor,
             )
         dataset = PreparedDataset(config.dataset)
         if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
@@ -747,14 +733,7 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        active_omni_recipe = (
-            config.embeddinggemma2_media_recipe
-            if config.embeddinggemma2_lane == "media"
-            else config.embeddinggemma2_text_recipe
-            if config.embeddinggemma2_lane == "text"
-            else config.omni_recipe
-        )
-        if active_omni_recipe is not None and config.concordance_recipe is not None:
+        if config.omni_recipe is not None and config.concordance_recipe is not None:
             raise ValueError("Select one of omni_recipe and concordance_recipe per run")
         concordance_recipe = (
             load_concordance_recipe(config.concordance_recipe)
@@ -763,14 +742,14 @@ def train(
         )
         if concordance_recipe is not None and phase.meter != "G":
             raise ValueError("Concordance tasks must use event-based G training budgets")
-        if active_omni_recipe is not None:
+        if config.omni_recipe is not None:
             from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
 
             stream = OmniWindowStream(
                 config.dataset,
                 codec,
                 windows_config,
-                load_omni_recipe(active_omni_recipe),
+                load_omni_recipe(config.omni_recipe),
                 "G",
                 seed=config.seed,
                 rank=data_rank,
@@ -848,7 +827,7 @@ def train(
         consumed = 0
         counters = Counters()
         if payload is not None:
-            optimizer.load_state_dict(payload["optimizer"])
+            optimizer.load_state_dict(payload["optimizer"], new=new_owners)
             if diloco is not None:
                 if phase_transition:
                     raise ValueError("Start a new coordinator run for a phase transition")
@@ -872,13 +851,6 @@ def train(
             # data cursors, or mutable runtime history management.
             model.core.compile_kernels(mode=config.compile_mode)
         model.train()
-        if config.embeddinggemma2_warmup:
-            # The physical decoders/denoisers are frozen donors during stage A;
-            # only their learned facet conditioning adapters may update.
-            for donor in model.media_realizers.pretrained.values():
-                donor.eval()
-            for donor in model.media_realizers.native.values():
-                donor.eval()
         model.core.set_model_version(global_step)
         if context.is_primary:
             write_json(output / "config.json", asdict(config))
@@ -946,8 +918,7 @@ def train(
                             "retrieval_sidecar_sha256": retrieval_sidecar_sha,
                             "retrieval_document_sha256": document_sidecar_sha,
                             "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
-                            "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
-                            "native_pack_fingerprint": native_pack_fingerprint,
+                            "packs_fingerprint": packs_fingerprint,
                             "chunking": chunking_identity,
                             "rank_state": rank_state,
                             "global_step": global_step,
@@ -961,8 +932,7 @@ def train(
                         "phase_consumed": consumed,
                         "dataset_fingerprint": stream.fingerprint,
                         "codec_fingerprint": codec.fingerprint,
-                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
-                        "native_pack_fingerprint": native_pack_fingerprint,
+                        "packs_fingerprint": packs_fingerprint,
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
@@ -1058,16 +1028,18 @@ def train(
                 for r in step.records
             )
             document_denom = context.sum_counts({"document_chunks": doc_local})["document_chunks"]
-            text_anchor_local = sum(
-                entry.payload in text_hidden_sidecar
-                for batch in batches
-                for step in batch.steps
-                for entry, modality in zip(step.records, step.modalities, strict=True)
-                if text_hidden_sidecar is not None and modality == "text"
+            anchor_local = (
+                0
+                if text_anchors is None
+                else sum(
+                    text_anchors.key(entry.payload) in text_anchors.assets
+                    for batch in batches
+                    for step in batch.steps
+                    for entry, modality in zip(step.records, step.modalities, strict=True)
+                    if modality == "text"
+                )
             )
-            text_anchor_denom = context.sum_counts({"text_hidden": text_anchor_local})[
-                "text_hidden"
-            ]
+            anchor_denom = context.sum_counts({"text_anchors": anchor_local})["text_anchors"]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -1099,38 +1071,7 @@ def train(
             optimizer.set_lr(learning_rate)
             model.core.dispatch_metrics(reset=True)
             step_diagnostics: dict[str, float | torch.Tensor] = {}
-            media_lane = config.embeddinggemma2_lane == "media"
-            if media_lane:
-                from megatoken.data.media_assets import TensorAssetStore
-                from megatoken.training.embeddinggemma2_warmup import media_warmup_batch
-
-                media_store = TensorAssetStore(config.media_root or config.dataset)
-                from megatoken.training.meridians import MediaPlan
-
-                media_count = sum(
-                    isinstance(plan, MediaPlan)
-                    for batch in batches
-                    for step in batch.steps
-                    for plan in step.plans
-                )
-                media_denom = context.sum_counts({"unified_media": media_count})["unified_media"]
-                if not media_denom:
-                    raise RuntimeError(
-                        "Media warmup dataset must contain identity media reconstruction pairs"
-                    )
             for batch in batches:
-                if media_lane:
-                    value, count = media_warmup_batch(model, batch, media_store, context.device)
-                    if count:
-                        assert value is not None
-                        (value / media_denom).backward()
-                        step_diagnostics["unified_media_recon_sum"] = (
-                            step_diagnostics.get("unified_media_recon_sum", 0.0) + value.detach()
-                        )
-                        step_diagnostics["unified_media_events"] = (
-                            step_diagnostics.get("unified_media_events", 0) + count
-                        )
-                    continue
                 diagnostics_batch = forward_meridian_batch(
                     model,
                     batch,
@@ -1138,13 +1079,11 @@ def train(
                     config,
                     context.device,
                     global_step,
-                    text_hidden_aux=(
-                        text_hidden_sidecar,
-                        text_anchor_denom,
-                        config.embeddinggemma2_text_weight,
-                    )
-                    if text_hidden_sidecar is not None and not media_lane
-                    else None,
+                    text_anchors=(
+                        None
+                        if text_anchors is None
+                        else (text_anchors, anchor_denom, config.text_anchor_weight)
+                    ),
                     retrieval_aux=(
                         retrieval_examples,
                         retrieval_recipe,
@@ -1156,9 +1095,8 @@ def train(
                 )
                 for key, value in diagnostics_batch.items():
                     step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
-            if not media_lane:
-                ledger.finish()
-            if router_replay is not None and not media_lane:
+            ledger.finish()
+            if router_replay is not None:
                 # All ranks participate, including workers with zero eligible
                 # assignments. The model's version remains fixed until step().
                 step_diagnostics.update(

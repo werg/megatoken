@@ -1,4 +1,4 @@
-"""Offline, byte-pinned native donor loading for the existing model owner."""
+"""Locked, byte-pinned pack manifests: realizer installation and teacher verification."""
 
 from __future__ import annotations
 
@@ -7,9 +7,7 @@ import json
 import re
 from pathlib import Path
 
-import torch
-
-from .donors import PocketFacetsStudent, SanaFacetsStudent
+from .realizers import PocketRealizer, SanaRealizer
 
 
 def read_locked_manifest(filename: str):
@@ -22,15 +20,14 @@ def read_locked_manifest(filename: str):
     if (
         not isinstance(packs, dict)
         or not packs
-        or set(packs) - {"pocket", "sana", "sana_video", "whistle", "minicpm"}
+        or set(packs) - {"pocket", "sana", "sana_video", "embeddinggemma2"}
     ):
-        raise ValueError("Supported residents: Pocket, Sana, Sana-Video")
+        raise ValueError("Supported packs: Pocket, Sana, Sana-Video, EmbeddingGemma2")
     for name, item in packs.items():
         if set(item) - {
             "snapshot",
             "config",
             "checkpoint",
-            "weights",
             "files",
             "revision",
             "repository",
@@ -46,10 +43,8 @@ def read_locked_manifest(filename: str):
         if name == "pocket":
             if not item.get("config"):
                 raise ValueError("Pocket requires its YAML config and exact Mimi weights")
-        elif name in {"sana", "sana_video", "minicpm"} and not item.get("snapshot"):
+        elif not item.get("snapshot"):
             raise ValueError("Pack requires a locally pinned snapshot")
-        elif name == "whistle" and not item.get("weights"):
-            raise ValueError("Whistle requires a locally pinned .cact file")
         verified = set()
         for relative, expected in item["files"].items():
             if (
@@ -72,7 +67,7 @@ def read_locked_manifest(filename: str):
             if hasher.hexdigest() != expected:
                 raise ValueError(f"Pretrained artifact checksum mismatch: {relative}")
             verified.add(filename)
-        for required in ("config", "checkpoint", "weights"):
+        for required in ("config", "checkpoint"):
             if item.get(required):
                 target = (path.parent / item[required]).resolve()
                 if not target.is_file() or target not in verified:
@@ -86,13 +81,6 @@ def read_locked_manifest(filename: str):
             for asset in snapshot.rglob("*"):
                 if asset.is_symlink() or (asset.is_file() and asset.resolve() not in verified):
                     raise ValueError(f"Unhashed or symlinked snapshot asset: {asset}")
-        if name == "minicpm_export":
-            from .perception import verify_minicpm_export
-
-            receipt = verify_minicpm_export(str(snapshot))
-            parent = packs.get("minicpm")
-            if parent is not None and receipt["source_revision"] != parent["revision"]:
-                raise ValueError("Extracted MiniCPM tower revision differs from parent VLM")
         if name == "pocket":
             import yaml
 
@@ -125,63 +113,47 @@ def read_locked_manifest(filename: str):
     return path.parent, packs
 
 
-def install_pretrained_packs(model, manifest: str, *, device, dtype=torch.bfloat16):
-    """All packs become registered modules before optimizer and checkpoint restore."""
+def build_realizer(
+    base: Path, name: str, item: dict, *, facet_count: int, facet_width: int, device
+):
+    """One realizer from an already verified pack entry, its identity bound to its files."""
+    if name == "pocket":
+        realizer = PocketRealizer.from_checkpoint(
+            config=str(base / item["config"]),
+            checkpoint=str(base / item["checkpoint"]) if item.get("checkpoint") else None,
+            facet_count=facet_count,
+            facet_width=facet_width,
+        )
+    elif name in ("sana", "sana_video"):
+        realizer = SanaRealizer.from_checkpoint(
+            snapshot=str(base / item["snapshot"]),
+            modality="image" if name == "sana" else "video",
+            facet_count=facet_count,
+            facet_width=facet_width,
+        )
+    else:
+        raise ValueError(f"{name} is not a realizer pack")
+    realizer.checkpoint_identity = hashlib.sha256(
+        json.dumps(
+            {"revision": item["revision"], "files": item["files"]},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    return realizer.to_device(device)
+
+
+def install_realizers(model, manifest: str, *, device) -> None:
+    """Install every locked realizer before optimizer enumeration and checkpoint restore.
+
+    Only their facet conditions become parameters; the frozen donors stay
+    outside checkpoints. The EmbeddingGemma2 teacher may share the manifest but
+    is never installed into the model. The manifest is verified once.
+    """
     base, packs = read_locked_manifest(manifest)
-    resident = model.media_realizers
-    for name, item in packs.items():
-        if name not in {"pocket", "sana", "sana_video"}:
-            continue
-        if name == "pocket":
-            student = PocketFacetsStudent.from_checkpoint(
-                config=str(base / item["config"]),
-                checkpoint=str(base / item["checkpoint"]) if item.get("checkpoint") else None,
-                facet_width=model.config.facet_dim,
+    for name in sorted(set(packs) - {"embeddinggemma2"}):
+        model.media_realizers.register(
+            build_realizer(
+                base, name, packs[name], facet_width=model.config.facet_dim, device=device
             )
-        else:
-            student = SanaFacetsStudent.from_checkpoint(
-                snapshot=str(base / item["snapshot"]),
-                modality="image" if name == "sana" else "video",
-                facet_width=model.config.facet_dim,
-                torch_dtype=dtype,
-            )
-        # A live group tape binds to all exact verified decoder/generator files.
-        # This digest survives pack unload/reload and does not depend on order.
-        student.checkpoint_identity = hashlib.sha256(
-            json.dumps(
-                {"revision": item["revision"], "files": item["files"]},
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
-        student = student.to(device)
-        student.eval()
-        resident.register_pretrained(name, student)
-    return model
-
-
-def write_manifest_template():
-    return {
-        "version": 1,
-        "packs": {
-            "pocket": {
-                "revision": "REPLACE_WITH_PINNED_COMMIT",
-                "config": "pocket/pocket.yaml",
-                "files": {
-                    "pocket/pocket.yaml": "REPLACE_WITH_SHA256",
-                    "pocket/flow_lm.safetensors": "REPLACE_WITH_SHA256",
-                    "pocket/mimi.safetensors": "REPLACE_WITH_SHA256",
-                },
-            },
-            "sana": {
-                "revision": "REPLACE_WITH_PINNED_COMMIT",
-                "snapshot": "sana",
-                "files": {"sana/model_index.json": "REPLACE_WITH_SHA256"},
-            },
-            "sana_video": {
-                "revision": "REPLACE_WITH_PINNED_COMMIT",
-                "snapshot": "sana_video",
-                "files": {"sana_video/model_index.json": "REPLACE_WITH_SHA256"},
-            },
-        },
-    }
+        )

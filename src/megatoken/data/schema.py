@@ -232,16 +232,7 @@ class TrackEvent:
     def __post_init__(self) -> None:
         if not self.record_id or not self.track_id or self.meridian_id < 0:
             raise ValueError("Track event needs ID, track and nonnegative meridian")
-        if self.modality not in {
-            "text",
-            "audio",
-            "image",
-            "video",
-            "document",
-            "text_summary",
-            "tool",
-            "evidence",
-        }:
+        if self.modality not in {"text", "audio", "image", "video", "tool", "evidence"}:
             raise ValueError("Unknown event modality")
         if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
             raise ValueError("Unknown track event role")
@@ -718,19 +709,7 @@ def encode_record(record: PhysicalRecord, codec: Codec) -> EncodedRecord:
     # A media reference is a typed asset descriptor, never lexical supervision.
     # Its JSON serialization is only transport; it has zero text-token cost.
     from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
-    from .text_hidden import TEXT_HIDDEN_RECORD_TYPE, TextHiddenReference
 
-    if record.media_type == TEXT_HIDDEN_RECORD_TYPE:
-        TextHiddenReference.from_bytes(record.payload)
-        if (
-            record.policy_mask
-            or record.emitted_ids is not None
-            or record.cached_ids is not None
-            or record.emitted_free_mask is not None
-            or record.free_spans is not None
-        ):
-            raise ValueError("Compressed document evidence is input, never lexical policy targets")
-        return EncodedRecord(record, (), (), (), codec.fingerprint, 0)
     if record.media_type == MEDIA_RECORD_TYPE:
         MediaRecord.from_bytes(record.payload)
         if (

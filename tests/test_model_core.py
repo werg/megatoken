@@ -425,7 +425,7 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
     # are absent from this single-track text scenario; their gradients are covered
     # by the multitrack, media and memory tests.
     conditional = (
-        "media_stems.",
+        "media_encoder.",
         "memory_projector.",
         "memory_adapters.",
         "memory_seed.",

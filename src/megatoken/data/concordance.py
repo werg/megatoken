@@ -99,16 +99,7 @@ class BundleArtifact:
         if generated and self.media.target is None:
             raise ValueError(f"Generated media artifact {self.artifact_id} lacks native target")
         # Observed records must not expose the target asset's identity.
-        record = (
-            self.media
-            if generated
-            else MediaRecord(
-                self.modality,
-                self.media.source,
-                views=self.media.views,
-                source_masks=self.media.source_masks,
-            )
-        )
+        record = self.media if generated else self.media.observed()
         return record.to_bytes(), MEDIA_RECORD_TYPE
 
 

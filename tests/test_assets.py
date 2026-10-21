@@ -47,6 +47,7 @@ def test_offline_engram_extract_install_checkpoint_bake_and_export(tmp_path):
             "train_config": asdict(train_config),
             "global_step": 1,
             "codec_fingerprint": codec.fingerprint,
+            "packs_fingerprint": None,
             "chunking": ChunkingConfig().with_hard_limit(config.max_capacity).identity(codec),
             "rank_state": [{"rng": capture_rng()}],
         },
@@ -60,7 +61,7 @@ def test_offline_engram_extract_install_checkpoint_bake_and_export(tmp_path):
     assert baked["max_lookup_error"] == 0 and baked["optimizer_rows_reset"]
     payload, _ = load_checkpoint(baked["checkpoint"])
     assert not any("import_map" in name for name in payload["model"])
-    assert not any("import_map" in name for name in payload["optimizer"]["names"])
+    assert not any("import_map" in name for name in payload["optimizer"]["master_weights"])
     export_served(baked["checkpoint"], tmp_path / "served")
     (asset / "descriptors.npz").write_bytes(b"corruption")
     with pytest.raises(ValueError, match="checksum"):

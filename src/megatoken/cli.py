@@ -115,17 +115,8 @@ def _diloco_initialize(args):
         codec,
         device=torch.device("cpu"),
         precision=config.precision,
-        native_pack_manifest=config.native_pack_manifest,
+        packs=config.packs,
     )
-    if config.pretrained_packs:
-        from megatoken.omni.loader import install_pretrained_packs
-
-        install_pretrained_packs(
-            model,
-            config.pretrained_packs,
-            device=torch.device("cpu"),
-            dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
-        )
     weights = None
     if args.resume:
         payload, _ = load_checkpoint(args.resume, map_location="cpu")
