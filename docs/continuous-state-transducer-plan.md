@@ -21,8 +21,8 @@ Replace point/pair semantic memory with a **continuous-state transducer**. Each 
 | Optimizer storage | One FP32 statistic per 256 coordinates, plus a count and timestamp per edge field |
 | Small-update retention | An 8,192-edge FP32 working cache; stochastic rounding on publication; no full-bank master weights |
 | Initialization | Clustered sequences, transition bigrams, and recursively reused patterns |
-| Evolution | A sparse location inserts an edge during training; error-driven add/split/merge/remove under a byte budget |
-| Distributed ownership | DiLoCo learners update locally; one coordinator merges and changes structure; **no outer KB momentum** |
+| Evolution | A sparse location inserts an edge during training; per-edge utility and gradient-disagreement statistics, accumulated during ordinary training, drive split and remove under a byte budget |
+| Distributed ownership | DiLoCo learners update locally; one coordinator merges and changes structure; late submissions are age-weighted, not rejected; **no outer KB momentum** |
 
 Literal-document retrieval (source RAG) stays for exact passages and citations.
 
@@ -72,7 +72,7 @@ Each edge applies the affine map $(I+U_iV_i^\top)s+r_i$ before renormalization. 
 
 **The weights are identical for knowledge and movement.** Keep the live state on the unit sphere. Bound $\|U_i\|_F,\|V_i\|_F\le0.5$. Offsets are unbounded: renormalization keeps the state finite, and an edge's reach is whatever training makes useful. Use FP32 norms, scores, softmax, weighted sums, operator products and state accumulation. Nonfinite inputs are errors, not values to hide with clamping.
 
-Let $a=\sum_i w_i=1-w_0$. **Every lookup with a non-empty neighbourhood commits** its knowledge event, with the readout scaled by $a$ (§3), and its state update. Null mass weakens the result continuously; there is no admission threshold. Gradients therefore always reach the mixture, biases and null logit, and every committed lookup can enter the growth buffer. Only an empty neighbourhood is a null result, in training and serving alike. Start the null bias so ordinary initialized candidates have nonzero mass.
+Let $a=\sum_i w_i=1-w_0$. **Every lookup with a non-empty neighbourhood commits** its knowledge event, with the readout scaled by $a$ (§3), and its state update. Null mass weakens the result continuously; there is no admission threshold. Gradients therefore always reach the mixture, biases and null logit, and every committed lookup updates its edges' structural statistics (§6). Only an empty neighbourhood is a null result, in training and serving alike. Start the null bias so ordinary initialized candidates have nonzero mass.
 
 The no-answer labels mean "unanswerable from any knowledge" by construction, never "absent from the current bank". On labelled no-answer positions, the loss trains $a$ down. Unlabelled positions are not negatives.
 
@@ -90,9 +90,14 @@ The first ordinary event is a compact metadata prefix containing the available r
 
 A query cannot use the answer it is about to predict. Training targets may update parameters after the forward pass, just as they update transformer weights.
 
-### A fixed wide-value projection
+### An anchored wide-value projection
 
-Decode and blend the 32,768-wide values before projection. Divide the resulting vector into **64 rows of width 512**, add learned row identities, apply a small shared adapter, route the rows through the **existing U expert bank**, and use **32 learned facet queries** to gather a native $[32,512]$ block. Query and search-state summaries condition the routing/readout.
+Decode and blend the 32,768-wide values before projection. The readout is the sum of two paths:
+
+- **Anchor:** the fixed inverse of the value lift (§6). Undo its permutation and average its signed copies, giving a native $[32,512]$ block directly. It has no parameters.
+- **Learned path:** divide the vector into **64 rows of width 512**, add learned row identities, apply a small shared adapter, route the rows through the **existing U expert bank**, and use **32 learned facet queries** to gather a second $[32,512]$ block. Query and search-state summaries condition the routing/readout.
+
+The anchor fixes what a value means in the native facet space the whole model shares. An edge that is not visited for a long time stays readable while the learned path keeps training (§5).
 
 Pass non-null mass separately: form the content readout from $\bar v/a$ and multiply its final raw block by $a$. This avoids losing evidence strength inside normalization or creating full-strength knowledge from projector biases. State movement remains $\bar m$, with no second application of $a$.
 
@@ -151,9 +156,14 @@ The global prior $P_b$ is a recent mean squared-gradient estimate per field/bloc
 
 Discount numerator and count together. After a long absence, confidence returns toward the current prior; an old momentum direction cannot reappear because none is stored. A computed zero gradient is an observation. A row that was not trained is not a stream of zero-gradient observations. Preserve global task-loss normalization; do not divide by visit frequency or retrieval weight and accidentally amplify weak evidence.
 
-### Replay
+### Robust to staleness
 
-Each training batch is 10% **replay**: training sequences seen earlier, rerun under the current weights. Edges those sequences reach get fresh gradients against the current reader (P, projector, C), not the one they were trained with. Stale worker deltas are handled at the DiLoCo merge (§7), not by the optimizer.
+There is no replay. The system is built so that old rows and late updates stay usable:
+
+- **Values** are anchored in the native facet space (§3), so a dormant value keeps its meaning while the learned readout drifts.
+- **Keys** are never the gate to retrieval. Candidates come from the location, so an edge with an outdated key still enters the mixture whenever its location is visited, and receives the gradient that realigns it.
+- **Statistics** are discounted sums of observations: optimizer block sums here, structural statistics in §6. A late contribution is still valid evidence, and its age is applied as discount.
+- **Distributed updates** arriving late are age-weighted rather than rejected (§7).
 
 ## 6. Initialize once, evolve continuously
 
@@ -179,7 +189,7 @@ The inserted edge lies within 0.5 of that location, so one learner never inserts
 
 A jump starts random, but its offset trains like any other through the unrolled future loss. Over training it moves toward destinations whose retrievals help, and Remove retires jumps that never do. Training thereby places an exit at every empty location it reaches, and serving dead ends are confined to locations training never visited.
 
-Sparseness is the one structural trigger that needs no gradient evidence, because nothing departs from that location to correct. A dense neighbourhood with high null mass is not, by itself, evidence of missing knowledge; that case belongs to Add below.
+Sparseness is the one structural trigger that needs no gradient evidence, because nothing departs from that location to correct. A dense neighbourhood with high null mass is not, by itself, evidence of missing knowledge; that case belongs to Split below.
 
 ### One objective controls capacity
 
@@ -191,43 +201,38 @@ $$
 
 Count parameters, quantizer scales, optimizer summaries, the device departure table, working cache and transfer/decode/C work. Use the intended task mixture, including rare tasks. Native MoE load balancing stays separate.
 
-Each learner keeps a bounded 1,024-example training buffer of $(s,q,F,g)$ from committed lookups, where $F=(\bar v,\bar m)$ and $g=\partial L_{\mathrm{future}}/\partial F$. Store detached BF16 snapshots, not live graphs. Sample from across the task mixture so frequent visits do not fill the entire buffer. Clear the buffer after every structural submission, so each one reflects only the bank it was computed against.
+### Structure from statistics training already computes
 
-A new local output $u$ with small mass $\epsilon h_t$ changes the function to $(1-\epsilon h_t)F_t+\epsilon h_tu$. Its first-order loss change is:
+Structural decisions use no buffer, no candidate search and no extra forward passes. On every committed lookup, the backward pass already has the future-loss gradient $g=\partial L_{\mathrm{future}}/\partial F$ for $F=(\bar v,\bar m)$, each selected edge's output $u_i=(v_i,\,U_i(V_i^\top\hat s_t)+r_i)$, and its weight $w_i$. Removing edge $i$ would renormalize the mixture to $(F-w_iu_i)/(1-w_i)$, so to first order it would change the loss by
 
 $$
-\left.\frac{dL}{d\epsilon}\right|_0
-=\sum_t h_t g_t^\top(u-F_t).
+\Delta_i=\frac{w_i}{1-w_i}\,g^\top(F-u_i).
 $$
 
-Each edge's output $u=(v,\,U(V^\top\hat s_t)+r)$ is linear in its mixture weight, so this holds for operator transitions as written. $h_t$ is nonzero only where the new edge's departure puts it inside $\mathcal N(s_t)$; candidate placement must respect that. Use recurring aligned corrections inside dense neighbourhoods to place new edges. Fit their initial bias for approximately 1% mass on the supporting training examples.
+That is one dot product per selected edge. Each edge accumulates, with a 16,384-local-step half-life:
 
-Every **256 local optimizer steps** (every eighth synchronization round), structure changes in three steps:
+- **utility** $\mathcal U_i$: the discounted sum of $\Delta_i$, the loss its presence has been saving;
+- **gradient sketch** $G_i\in\mathbb R^{64}$: the discounted sum of $R\gamma_{i,t}$, where $\gamma_{i,t}$ is the gradient of all its fields at that visit and $R$ is one fixed seeded random projection;
+- **gradient energy** $Q_i$: the discounted sum of $\|R\gamma_{i,t}\|^2$, and the discounted visit count $n_i$.
 
-1. **Propose.** Each learner submits its growth buffer with that round. The coordinator pools the buffers and scores add/split/merge/remove candidates by the first-order formula above, together with their byte cost. This uses only dot products over the stored samples and candidate fields, with no model forward pass. It publishes the best **256 candidates** with the next round as a trial set.
-2. **Trial.** During that round, each learner takes a disjoint share of the trial set. On one fresh batch of its own training sequences, it reruns forward-only, with and without each change, only those eight-position windows whose lookups touch a neighbourhood containing an affected edge. It submits each change's loss difference and example count.
-3. **Commit.** At the following round boundary, the coordinator applies every trial whose example-weighted loss change plus byte cost lowers $J$. It refreshes the device departure table and republishes. Untested or losing trials are discarded.
+If an edge's gradients agree, $\|G_i\|^2\approx n_iQ_i$; if they cancel, $\|G_i\|^2\ll n_iQ_i$. Their ratio $\kappa_i=\|G_i\|^2/(n_iQ_i)$ is the edge's gradient coherence.
 
-The changes:
+At every round boundary, the coordinator applies two rules from these merged statistics:
 
 | Change | Rule |
 | --- | --- |
-| Add | Place a small new component where existing components repeatedly miss an aligned correction. |
-| Split | Separate an edge serving incompatible corrections. Duplicate its packed fields, transition factors included, and subtract $\log 2$ from both biases before perturbation. |
-| Merge | Fit one replacement for two behaviorally redundant components when the saved bytes outweigh the loss. |
-| Remove | Remove a component whose measured contribution does not justify its cost. Rare use alone is insufficient. |
+| Split | $n_i\ge64$, $\kappa_i<0.1$, and mean energy $Q_i/n_i$ in the bank's top decile: the edge is pushed hard in directions that cancel, because it serves contexts that want different things. Duplicate its packed codes, transition factors included, subtract $\log2$ from both biases, and perturb the two children's departures and keys in opposite random directions by 0.01 rad. Training separates them. |
+| Remove | The edge is at least 4,096 local steps old, and its utility rate (utility divided by the decay window) is below $\lambda$ times its bytes. A rarely used but important edge keeps its utility through the long half-life. |
 
-Copy quantized codes, not independently rounded approximations. New edges start with the global prior; split/merged edges use parent scale estimates as initialization and reset effective counts. Retiring an edge removes its statistics and departure-table entry.
-
-If no trial lowers $J$, parameter training continues without structural change. At the byte ceiling, growth must pay for its capacity through a beneficial replacement. The final evaluation set never determines individual edges.
+New capacity comes from sparse-location insertion and from splits. Redundant edges need no merge rule: they divide their utility, and Remove retires whichever no longer pays. Children start from their parent's optimizer and structural statistics, halved; new edges start with the global prior and zero statistics. Retiring an edge removes its statistics and departure-table entry. At the byte ceiling, the lowest-utility-rate eligible edges make room. The final evaluation set never determines individual edges.
 
 ## 7. DiLoCo and storage ownership
 
 Reuse the current storage, sparse update and DiLoCo infrastructure; replace its IVF index, full-vector KB optimizer state, demand forwarding and point/pair semantics. Learners keep only their own compact statistics and bounded active cache. The coordinator owns IDs, canonical packed rows and structure.
 
-Use **32 local steps per KB synchronization round**. Each round starts from a compatible model/KB snapshot. Merge only submissions for that round; late or duplicate submissions do not get applied to a newer graph. Slow workers install the next snapshot rather than carrying unbounded stale progress forward. This deliberately bounds distributed staleness while allowing an individual edge to remain dormant for an arbitrarily long time.
+Use **32 local steps per KB synchronization round**. A learner installs the newest published snapshot at its next window boundary and submits its deltas relative to the base it trained from. A submission $\alpha_w$ rounds behind the current canonical version merges with weight $2^{-\alpha_w/8}$. Late work is discounted, never refused. A committed per-worker sequence ledger rejects duplicates, and deltas for edges retired since their base are skipped.
 
-Workers send $\delta_{wi}=\theta^{\mathrm{local}}_{wi}-\theta^{\mathrm{base}}_i$ for changed rows. Merge by processed-example weight across **all participating workers**, with zero for an untouched row, then repack:
+Workers send $\delta_{wi}=\theta^{\mathrm{local}}_{wi}-\theta^{\mathrm{base}}_i$ for changed rows. Merge with $W_w$ = processed examples $\times\,2^{-\alpha_w/8}$ across **all workers merged this round**, with zero for an untouched row, then repack:
 
 $$
 \theta_i^{\mathrm{new}}
@@ -237,7 +242,9 @@ $$
 
 Do not average only over workers that touched the row, which would silently change its effective learning rate. **There is no outer KB momentum or Adam state.** These deltas are not gradients and are not inputs to the block squared-gradient estimator. Dense model fragments keep their existing optimizer/merge machinery but publish under the same compatible round identity.
 
-Provisional edges from sparse-location insertion have no baseline, so they bypass the delta formula. Each learner submits their decoded fields, block statistics and processed-example weight. The coordinator combines provisional rows from different learners whose departures and keys both have cosine at least 0.9, using an example-weighted mean. It then packs them, assigns canonical IDs and publishes them with the round. At the byte ceiling, a provisional row enters only by replacing a lower-value edge under $J$. Otherwise it is dropped, and its location is sparse again on the next visit. Learners create provisional rows; only the coordinator makes them canonical.
+Learners also send their increments to each touched edge's optimizer and structural statistics. These are discounted sums, so the coordinator ages each increment by its submission's age and adds it.
+
+Provisional edges from sparse-location insertion have no baseline, so they bypass the delta formula. Each learner submits their decoded fields, statistics and processed-example weight. The coordinator combines provisional rows from different learners whose departures and keys both have cosine at least 0.9, using an example-weighted mean. It then packs them, assigns canonical IDs and publishes them with the round. At the byte ceiling, a provisional row enters only by replacing a lower-value edge under $J$. Otherwise it is dropped, and its location is sparse again on the next visit. Learners create provisional rows; only the coordinator makes them canonical.
 
 Hold a coherent row snapshot through each forward/backward window. Update packed rows, optimizer statistics and the device departure table together at its boundary. Departures are therefore fixed within a window, and the table never lags the rows it indexes; never perform fused row updates halfway through a recurrent backward pass. Save model, KB, learner summaries, active fractional progress, structural cursor and random state as one consistent checkpoint. On a partially failed step, resume the last complete checkpoint.
 
@@ -248,10 +255,10 @@ Target architecture **v10**, new packed-edge layout, and new retrieval-event/che
 | Work | Repository owners and deliverable |
 | --- | --- |
 | Transducer and neighbourhood search | `memory/`: packed rows with transition factors, exact density-adaptive departure-neighbourhood scan, location-modulated score, null, paired value/operator mixtures and boundary-ring exploration |
-| Native model integration | `model/config.py`, `core.py`, `multitrack.py`: search state, reserved knowledge track, shared-U readout, one normal C commit |
-| Training data and recurrence | `data/`, `training/engine.py`, `meridians.py`: metadata prefix, first retrieval boundary, eight-position credit, causal labels and replay |
-| Sparse optimizer and growth | `memory/optimizer.py`, `growth.py`, `training/bank.py`: selected block algorithm, bounded master cache, sparse-location insertion and gradient-driven structural trials |
-| Distributed execution | `training/diloco_kb.py`, checkpoint/runtime owners: round-bound deltas without outer KB momentum, provisional-row reconciliation (replacing learner demand forwarding), packed publication and exact resume |
+| Native model integration | `model/config.py`, `core.py`, `multitrack.py`: search state, reserved knowledge track, anchored shared-U readout, one normal C commit |
+| Training data and recurrence | `data/`, `training/engine.py`, `meridians.py`: metadata prefix, first retrieval boundary, eight-position credit and causal labels |
+| Sparse optimizer and growth | `memory/optimizer.py`, `growth.py`, `training/bank.py`: selected block algorithm, bounded master cache, sparse-location insertion, per-edge utility/sketch statistics, split and remove |
+| Distributed execution | `training/diloco_kb.py`, checkpoint/runtime owners: age-weighted deltas and statistics without outer KB momentum, provisional-row reconciliation (replacing learner demand forwarding), packed publication and exact resume |
 
 Delete the **v10** direct semantic-KV projector, semantic KB LoRA controllers, point/pair dependence and writer-reproduction launch requirements. Ordinary transformer KV, source RAG, native parameter ownership and exact action tapes stay. Do not modify v9 runtime versions or supported launch commands in this documentation commit; update them together when implementation lands.
 
@@ -267,11 +274,12 @@ For one million edges with the selected geometry, calculated storage is approxim
 | FP8 keys/departures/offsets/transition factors and 128-element FP32 scales | 5.808 |
 | FP32 block statistics for all six vector fields | 0.600 |
 | 8,192-edge FP32 working cache | 1.258 |
+| Structural statistics: utility, 64-d gradient sketch, energy, count, creation step | 0.272 |
 
-That is **about 26.10 GB for these components**, before biases, counters, growth samples, gradients, activations, replicas and checkpoints. Per-worker summaries/caches and baseline/delta buffers count against the machine budget. The device-resident FP8 departure table that the neighbourhood scan reads is about 0.26 GB with scales; there is no query-key index. The 1,024-example growth buffer is approximately 0.14 GB with BF16 outputs and gradients.
+That is **about 26.37 GB for these components**, before biases, counters, gradients, activations, replicas and checkpoints. Per-worker summaries/caches and baseline/delta buffers count against the machine budget. The device-resident FP8 departure table that the neighbourhood scan reads is about 0.26 GB with scales; there is no query-key index.
 
 At the existing native geometry, each knowledge event adds 32 KiB of BF16 KV and a C pass. Use the existing whole-meridian history bound. Cap a request at 256 retrieval opportunities; after the cap or an explicit retrieval timeout, continue without changing the agenda.
 
-**Check correctness before burning the run, and measure quality during it.** Required automated checks are neighbourhood-only candidates (no code path reaches an edge outside $\mathcal N(s_t)$ or the training boundary ring); location-modulated scores against an unfused reference; order sensitivity of composed transitions; matched value/operator weights; density-adaptive radius bounds (0.5 dense, 0.3 floor); empty-neighbourhood null at serving; single sparse-location insertion in training; jump-edge landing on the sampled departure; provisional-row reconciliation; three-step structural trial/commit; null/no-recursion; metadata causality; query and selected-row gradients; packed-forward/replay identity; small-update and cache-eviction behavior; dormant-row return updates; split behavior; sparse merge normalization; and checkpoint recovery. Finite-difference tests apply to the decoded differentiable reference; test the quantization surrogate separately.
+**Check correctness before burning the run, and measure quality during it.** Required automated checks are neighbourhood-only candidates (no code path reaches an edge outside $\mathcal N(s_t)$ or the training boundary ring); location-modulated scores against an unfused reference; order sensitivity of composed transitions; matched value/operator weights; density-adaptive radius bounds (0.5 dense, 0.3 floor); empty-neighbourhood null at serving; single sparse-location insertion in training; jump-edge landing on the sampled departure; provisional-row reconciliation; utility and coherence statistics against brute-force removal and gradient sets on a small bank; split and remove rules; anchored readout as the exact inverse of the lift; age-weighted late merges of deltas and statistics; null/no-recursion; metadata causality; query and selected-row gradients; packed-forward/recomputation identity; small-update and cache-eviction behavior; dormant-row return updates; split behavior; sparse merge normalization; and checkpoint recovery. Finite-difference tests apply to the decoded differentiable reference; test the quantization surrogate separately.
 
-During training log continuation loss, multi-hop completion, rare-task retention, first-visit recovery after dormancy, null rate, adaptive-radius distribution, sparse-location and empty-neighbourhood rates in training and serving, insertions and jump edges and their survival through Remove, realized versus intended updates, edge/byte growth, latency and all memory tiers. Observe on a fixed validation stream; keep test targets outside training and growth.
+During training log continuation loss, multi-hop completion, rare-task retention, first-visit recovery after dormancy, null rate, adaptive-radius distribution, sparse-location and empty-neighbourhood rates in training and serving, insertions and jump edges and their survival through Remove, split and removal rates, utility distribution, merge age distribution, realized versus intended updates, edge/byte growth, latency and all memory tiers. Observe on a fixed validation stream; keep test targets outside training and growth.
