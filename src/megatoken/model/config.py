@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
@@ -256,4 +257,6 @@ class ModelConfig:
         return cls(**values)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """JSON-canonical (sequences as lists), so a dict that went through a JSON
+        manifest compares equal to a freshly built one."""
+        return json.loads(json.dumps(asdict(self)))
