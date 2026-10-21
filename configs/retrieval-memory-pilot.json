@@ -13,7 +13,7 @@
     "normalized": true
   },
   "model": {
-    "architecture_version": 9,
+    "architecture_version": 10,
     "semantic_dim": 768,
     "semantic_value_dim": 256,
     "max_kb_positions": 4,

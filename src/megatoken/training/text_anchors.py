@@ -1,0 +1,58 @@
+"""Same-text alignment of byte-E facets with teacher-feature facets.
+
+The media bridge (teacher hidden states -> projection -> shared E) must land in
+the same facet space that byte-E gives text. For a text chunk with cached
+EmbeddingGemma2 features, the anchor is the mean squared difference between
+E(bytes) and E(teacher features). It is never a lexical target. Which side moves
+is decided by what is trainable: in ``media_bridge`` training only the bridge
+does; in joint training both do.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import torch
+from torch import Tensor
+
+from megatoken.data.media_assets import TensorAsset, TensorAssetStore
+from megatoken.tensors import byte_tensor
+
+
+class TextAnchors:
+    """JSONL rows ``{"text_sha256": <sha of exact record bytes>, "asset": TensorAsset}``."""
+
+    def __init__(self, path: str | Path, store: TensorAssetStore, *, extractor: str):
+        self.store = store
+        self.assets: dict[str, TensorAsset] = {}
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            asset = TensorAsset.from_dict(row["asset"])
+            if asset.kind != "features" or asset.modality != "text":
+                raise ValueError("Text anchors are EmbeddingGemma2 text features")
+            if asset.extractor != extractor:
+                raise ValueError("Text anchor features come from a different teacher")
+            if row["text_sha256"] in self.assets or asset.source_family != row["text_sha256"]:
+                raise ValueError("Each anchor covers exactly the text it was computed from")
+            self.assets[row["text_sha256"]] = asset
+        if not self.assets:
+            raise ValueError("Empty text anchor sidecar")
+
+    @staticmethod
+    def key(payload: bytes) -> str:
+        return hashlib.sha256(payload).hexdigest()
+
+    def features(self, key: str, device: torch.device) -> Tensor:
+        return torch.from_numpy(self.store.load(self.assets[key])).to(device)[None]
+
+
+def anchor_loss(model, payload: bytes, features: Tensor) -> Tensor:
+    """MSE between E(exact bytes) and E(teacher features of those bytes)."""
+    ids, lengths = byte_tensor([payload], features.device)
+    student = model.core.encode_chunk(ids, lengths)
+    teacher = model.core.encode_media(features, extractor=model.config.media_extractor)
+    return (student.float() - teacher.float()).square().mean()

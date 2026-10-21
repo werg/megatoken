@@ -1,4 +1,3 @@
-import hashlib
 from fractions import Fraction
 
 import pytest
@@ -8,9 +7,6 @@ from megatoken.controls import effective_event_payloads
 from megatoken.generation.latents import DiagonalGaussian
 from megatoken.omni.bundles import AlignedBundle, Artifact, Relation, TaskView, compile_views
 from megatoken.omni.clocks import TimeWindow, available_windows
-from megatoken.omni.flow import FacetFlow, flow_matching_loss
-from megatoken.omni.packs import PackRegistry, PackSpec
-from megatoken.omni.recipe import FamilySampler
 from megatoken.omni.relations import coordinate_kl, endpoint_targets
 
 
@@ -50,29 +46,6 @@ def test_bundle_compiler_keeps_joint_targets_out_of_prefix():
     assert c.episode.lineage.frozen_split == "train"
 
 
-def test_codec_pairing_never_silently_swaps():
-    digest = hashlib.sha256(b"weights").hexdigest()
-    g = PackSpec("sana", "generator", "provider/sana", "rev1", digest, "dcae", "rev2")
-    d = PackSpec("dcae", "codec", "provider/dcae", "rev2", digest)
-    assert PackRegistry((g, d)).verify_pair("sana", "dcae")
-    with pytest.raises(ValueError):
-        PackRegistry((g, PackSpec("dcae", "codec", "provider/dcae", "rev3", digest))).verify_pair(
-            "sana", "dcae"
-        )
-
-
-def test_latent_flow_free_rollout_and_masked_counts():
-    flow = FacetFlow(8, 4, 16)
-    raw = torch.randn(2, 32, 8)
-    target = torch.randn(2, 6, 4)
-    numerator, count = flow.training_loss(target, raw)
-    assert count.item() == 48 and numerator.isfinite()
-    sample = flow.sample(raw, target.shape, steps=2)
-    assert sample.shape == target.shape and sample.isfinite().all()
-    n, c = flow_matching_loss(torch.zeros_like(target), target, torch.ones(2, 6, dtype=torch.bool))
-    assert c.item() == 48 and n.item() > 0
-
-
 def test_analytic_kl_count_and_duplicate_invariance():
     q = DiagonalGaussian(torch.ones(1, 32, 2), torch.zeros(1, 32, 2))
     p = DiagonalGaussian(torch.zeros(1, 32, 2), torch.zeros(1, 32, 2))
@@ -90,7 +63,3 @@ def test_endpoints_and_prefix_limits():
     assert torch.equal(first, video[:, 1]) and torch.equal(last, video[:, 3])
     with pytest.raises(ValueError):
         available_windows((TimeWindow(Fraction(0), Fraction(2), Fraction(3)),), Fraction(2))
-    assert FamilySampler(seed=42).choose(("replay", "speech_translation")) in (
-        "replay",
-        "speech_translation",
-    )

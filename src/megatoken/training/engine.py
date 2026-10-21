@@ -9,7 +9,6 @@ an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 import os
 import shutil
@@ -27,7 +26,13 @@ from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
 from megatoken.io import content_hash, sha256_file, write_json
-from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
+from megatoken.loading import (
+    build_model,
+    load_codec,
+    load_model_config,
+    parameter_report,
+    restore_weights,
+)
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
 from megatoken.training.checkpoint import (
@@ -38,7 +43,6 @@ from megatoken.training.checkpoint import (
     snapshot_to_cpu,
     stage_checkpoint,
 )
-from megatoken.training.concordance_recipe import load_concordance_recipe
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
@@ -265,14 +269,15 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
             for modality, record in zip(step.modalities, step.records, strict=True):
                 if modality not in {"audio", "image", "video"}:
                     continue
-                reference = MediaRecord.from_bytes(record.payload)
                 result.media_events += 1
-                asset = reference.target or reference.source
-                if modality == "audio" and asset.kind == "raw":
-                    result.audio_samples += asset.shape[0]
-                elif modality == "video" and asset.kind == "raw":
-                    result.video_frames += asset.shape[0]
-                elif modality == "image":
+                geometry = MediaRecord.from_bytes(record.payload).output_geometry
+                if geometry is None:
+                    continue  # observed media: no physical output is realized
+                if modality == "audio":
+                    result.audio_samples += geometry.sample_count
+                elif modality == "video":
+                    result.video_frames += geometry.frames
+                else:
                     result.image_events += 1
         result.P += sum(plan.scored_positions for step in batch.steps for plan in step.plans)
         result.facet_encodes += sum(len(step.plans) for step in batch.steps)
@@ -357,6 +362,10 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "retrieval_kv_dropout",
             "retrieval_lora_dropout",
             "router_balance_mode",
+            "task_recipe",
+            "trainable",
+            "text_anchors",
+            "text_anchor_weight",
         )
     for key in critical:
         if old.get(key) != current.get(key):
@@ -510,29 +519,15 @@ def train(
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
-        native_pack_fingerprint = (
-            sha256_file(config.native_pack_manifest) if config.native_pack_manifest else None
-        )
+        packs_fingerprint = sha256_file(config.packs) if config.packs else None
         model = build_model(
             model_config,
             codec,
             device=context.device,
             precision=config.precision,
-            native_pack_manifest=config.native_pack_manifest,
+            packs=config.packs,
         )
-        pretrained_pack_fingerprint = ""
-        if config.pretrained_packs is not None:
-            from megatoken.omni.loader import install_pretrained_packs
-
-            install_pretrained_packs(
-                model,
-                config.pretrained_packs,
-                device=context.device,
-                dtype=torch.bfloat16 if config.precision == "bf16" else torch.float32,
-            )
-            pretrained_pack_fingerprint = hashlib.sha256(
-                Path(config.pretrained_packs).read_bytes()
-            ).hexdigest()
+        new_owners: tuple[str, ...] = ()
         payload = None
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
@@ -543,17 +538,15 @@ def train(
                 or payload.get("retrieval_recipe_fingerprint", "") != (retrieval_recipe.fingerprint)
             ):
                 raise ValueError("Exact resume changed retrieval supervision or recipe identity")
-            if payload.get("pretrained_pack_fingerprint", "") != pretrained_pack_fingerprint:
-                raise ValueError("Checkpoint pretrained pack lock differs from current run")
-            if payload.get("native_pack_fingerprint") != native_pack_fingerprint:
-                raise ValueError("Checkpoint pinned native pack registry changed since checkpoint")
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
             if payload["model_config"] != model_config.to_dict():
                 raise ValueError("Checkpoint model configuration differs")
             # Dynamic temporary imports must be restored before optimizer owner
             # enumeration, or their FP32 masters and hooks would be missing.
-            model.load_state_dict(payload["model"], strict=True)
+            new_owners = restore_weights(
+                model, payload, packs_fingerprint, phase_transition=phase_transition
+            )
         elif config.engram_import:
             from megatoken.assets import install_engram_asset
 
@@ -701,11 +694,28 @@ def train(
             config.weight_decay,
             inner_optimizer=config.inner_optimizer,
         )
-        if config.representation_training == "recurrent":
+        if config.trainable == "media_bridge":
+            # Every DiLoCo worker freezes the same owners, so their deltas are
+            # exactly zero everywhere and the outer merge stays unbiased.
+            bridge = {id(parameter) for parameter in model.media_bridge_parameters()}
+            optimizer.freeze(
+                [name for name, p in optimizer.model_parameters.items() if id(p) not in bridge]
+            )
+        elif config.representation_training == "recurrent":
             # Contextual codec auxiliaries use frozen C/R with E gradients only.
             # Independent clipping prevents their norm scaling the main update.
             optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
         windows_config = window_config(config)
+        text_anchors = None
+        if config.text_anchors:
+            from megatoken.data.media_assets import TensorAssetStore
+            from megatoken.training.text_anchors import TextAnchors
+
+            text_anchors = TextAnchors(
+                config.text_anchors,
+                TensorAssetStore(config.media_root or config.dataset),
+                extractor=model_config.media_extractor,
+            )
         dataset = PreparedDataset(config.dataset)
         if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
             raise ValueError("Prepared dataset uses a different codec")
@@ -719,39 +729,22 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        if config.omni_recipe is not None and config.concordance_recipe is not None:
-            raise ValueError("Select one of omni_recipe and concordance_recipe per run")
-        concordance_recipe = (
-            load_concordance_recipe(config.concordance_recipe)
-            if config.concordance_recipe is not None
-            else None
-        )
-        if concordance_recipe is not None and phase.meter != "G":
-            raise ValueError("Concordance tasks must use event-based G training budgets")
-        if config.omni_recipe is not None:
-            from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
+        task_recipe = None
+        if config.task_recipe is not None:
+            from megatoken.training.task_recipe import load_task_recipe
 
-            stream = OmniWindowStream(
-                config.dataset,
-                codec,
-                windows_config,
-                load_omni_recipe(config.omni_recipe),
-                "G",
-                seed=config.seed,
-                rank=data_rank,
-                world_size=data_world,
-                reduce_counts=context.sum_counts,
-                independent=config.decoupled is not None,
-            )
-        elif config.use_stage_mixture or concordance_recipe is not None:
-            recipe = (
-                concordance_recipe if concordance_recipe is not None else stage_recipe(config.phase)
+            task_recipe = load_task_recipe(config.task_recipe)
+        if config.use_stage_mixture or task_recipe is not None:
+            mixture = (
+                task_recipe.mixture
+                if task_recipe is not None
+                else stage_recipe(config.phase).mixture
             )
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
                 windows_config,
-                recipe.mixture,
+                mixture,
                 phase.meter,
                 seed=config.seed,
                 rank=data_rank,
@@ -813,7 +806,7 @@ def train(
         consumed = 0
         counters = Counters()
         if payload is not None:
-            optimizer.load_state_dict(payload["optimizer"])
+            optimizer.load_state_dict(payload["optimizer"], new=new_owners)
             if diloco is not None:
                 if phase_transition:
                     raise ValueError("Start a new coordinator run for a phase transition")
@@ -904,8 +897,7 @@ def train(
                             "retrieval_sidecar_sha256": retrieval_sidecar_sha,
                             "retrieval_document_sha256": document_sidecar_sha,
                             "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
-                            "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
-                            "native_pack_fingerprint": native_pack_fingerprint,
+                            "packs_fingerprint": packs_fingerprint,
                             "chunking": chunking_identity,
                             "rank_state": rank_state,
                             "global_step": global_step,
@@ -919,8 +911,7 @@ def train(
                         "phase_consumed": consumed,
                         "dataset_fingerprint": stream.fingerprint,
                         "codec_fingerprint": codec.fingerprint,
-                        "pretrained_pack_fingerprint": pretrained_pack_fingerprint,
-                        "native_pack_fingerprint": native_pack_fingerprint,
+                        "packs_fingerprint": packs_fingerprint,
                         "chunking_fingerprint": chunking_identity["fingerprint"],
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
@@ -1016,6 +1007,18 @@ def train(
                 for r in step.records
             )
             document_denom = context.sum_counts({"document_chunks": doc_local})["document_chunks"]
+            anchor_local = (
+                0
+                if text_anchors is None
+                else sum(
+                    text_anchors.key(entry.payload) in text_anchors.assets
+                    for batch in batches
+                    for step in batch.steps
+                    for entry, modality in zip(step.records, step.modalities, strict=True)
+                    if modality == "text"
+                )
+            )
+            anchor_denom = context.sum_counts({"text_anchors": anchor_local})["text_anchors"]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -1025,15 +1028,12 @@ def train(
             weights = dict(config.loss_weights)
             # The old per-operation router loss has been replaced.
             weights["router_balance"] = 0.0
-            if concordance_recipe is not None:
+            if task_recipe is not None:
+                from megatoken.training.task_recipe import AUXILIARY_LOSSES
+
                 # Reconstruction and distillation are auxiliaries, not extra mixture rows.
-                for name in (
-                    "reconstruction",
-                    "audio_reconstruction",
-                    "visual_reconstruction",
-                    "encoder_alignment",
-                ):
-                    weights[name] *= concordance_recipe.auxiliary_weight
+                for name in AUXILIARY_LOSSES:
+                    weights[name] *= task_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
             from megatoken.training.router_balance import RouterBalanceWindow
@@ -1055,6 +1055,11 @@ def train(
                     config,
                     context.device,
                     global_step,
+                    text_anchors=(
+                        None
+                        if text_anchors is None
+                        else (text_anchors, anchor_denom, config.text_anchor_weight)
+                    ),
                     retrieval_aux=(
                         retrieval_examples,
                         retrieval_recipe,

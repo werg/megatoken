@@ -1,0 +1,10 @@
+# Phase 1 after native text pretraining: bridge frozen-teacher media into the
+# trained core. With trainable: media_bridge only the media input projection
+# and the realizer conditions learn; text replay keeps the facet space anchored.
+recipe: megatoken-task-recipe-v1
+mixture:
+  text: 0.40
+  audio_identity: 0.20
+  image_identity: 0.20
+  video_identity: 0.20
+auxiliary_weight: 1.0

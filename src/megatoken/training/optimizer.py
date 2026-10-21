@@ -68,6 +68,7 @@ class MasterAdamW:
         groups: dict[ParameterRule, list[nn.Parameter]] = defaultdict(list)
         muon_groups: dict[ParameterRule, list[nn.Parameter]] = defaultdict(list)
         self.muon_names: list[str] = []
+        self._muon: set[str] = set()
         for name, parameter in module.named_parameters():
             if not parameter.requires_grad:
                 continue
@@ -90,6 +91,7 @@ class MasterAdamW:
             if use_muon:
                 muon_groups[self.rules[name]].append(master)
                 self.muon_names.append(name)
+                self._muon.add(name)
             else:
                 groups[self.rules[name]].append(master)
             if master is not parameter:
@@ -302,47 +304,59 @@ class MasterAdamW:
             if any(name in self.masters for name in names)
         }
 
+    def _inner(self, name: str) -> torch.optim.Optimizer:
+        inner = self.muon_optimizer if name in self._muon else self.optimizer
+        assert inner is not None
+        return inner
+
     def state_dict(self) -> dict[str, Any]:
+        """Masters and moments keyed by parameter name, not by optimizer group position."""
         return {
-            "format_version": 2 if self.inner_optimizer == "muon" else 1,
-            "names": list(self.masters),
+            "format_version": 3,
+            "inner_optimizer": self.inner_optimizer,
+            "muon_names": list(self.muon_names),
             "master_weights": {name: p.detach() for name, p in self.masters.items()},
-            "optimizer": self.optimizer.state_dict() if self.optimizer is not None else None,
-            **(
-                {
-                    "muon_names": list(self.muon_names),
-                    "muon": self.muon_optimizer.state_dict()
-                    if self.muon_optimizer is not None
-                    else None,
-                }
-                if self.inner_optimizer == "muon"
-                else {}
-            ),
+            "moments": {
+                name: dict(self._inner(name).state[master])
+                for name, master in self.masters.items()
+                if master in self._inner(name).state
+            },
         }
 
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        expected = 2 if self.inner_optimizer == "muon" else 1
-        if state.get("format_version") != expected or state["names"] != list(self.masters):
-            raise ValueError("Optimizer parameter ownership/type differs from the checkpoint")
-        if expected == 2 and state["muon_names"] != self.muon_names:
+    def load_state_dict(self, state: dict[str, Any], *, new: tuple[str, ...] = ()) -> None:
+        """Restore every owner by name.
+
+        ``new`` lists name prefixes that may be absent from the checkpoint: owners
+        installed at a phase transition (e.g. media realizer conditions). They
+        keep their initialization and start with fresh moments. Frozen owners
+        keep their masters, so a change of trainable scope changes nothing here.
+        Nothing else may be added, dropped, or change optimizer type.
+        """
+        if state.get("format_version") != 3 or state["inner_optimizer"] != self.inner_optimizer:
+            raise ValueError("Optimizer format or inner optimizer differs from the checkpoint")
+        saved = state["master_weights"]
+        added = [name for name in self.masters if name not in saved]
+        if set(saved) - self.masters.keys() or any(not name.startswith(new) for name in added):
+            raise ValueError("Optimizer parameter ownership differs from the checkpoint")
+        if {name for name in self._muon if name in saved} != set(state["muon_names"]):
             raise ValueError("Muon matrix ownership changed across the checkpoint")
         with torch.no_grad():
-            for name, parameter in self.masters.items():
-                parameter.copy_(state["master_weights"][name])
-        if self.optimizer is not None:
-            self.optimizer.load_state_dict(state["optimizer"])
-            # Optimizer.load_state_dict must not cast FP32 moments to served BF16.
-            for value in self.optimizer.state.values():
-                for key in ("exp_avg", "exp_avg_sq", "max_exp_avg_sq"):
-                    if key in value and value[key].dtype != torch.float32:
-                        raise RuntimeError(f"AdamW {key} lost FP32 precision")
-        if self.muon_optimizer is not None:
-            self.muon_optimizer.load_state_dict(state["muon"])
-            for value in self.muon_optimizer.state.values():
-                for slot in value.values():
-                    if isinstance(slot, torch.Tensor) and slot.is_floating_point():
-                        if slot.dtype != torch.float32:
-                            raise RuntimeError("Muon momentum lost FP32 precision")
+            for name, master in self.masters.items():
+                if name not in saved:
+                    continue
+                master.copy_(saved[name])
+                moments = state["moments"].get(name)
+                if moments is not None:
+                    self._inner(name).state[master] = {
+                        key: value.to(master.device, copy=True)
+                        if isinstance(value, torch.Tensor)
+                        else value
+                        for key, value in moments.items()
+                    }
+                    for key, value in moments.items():
+                        if key != "step" and isinstance(value, torch.Tensor):
+                            if value.is_floating_point() and value.dtype != torch.float32:
+                                raise RuntimeError(f"Optimizer {key} lost FP32 precision")
 
     def close(self) -> None:
         for hook in self._hooks.values():

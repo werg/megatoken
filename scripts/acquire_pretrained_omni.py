@@ -6,7 +6,7 @@ Inventory example:
          "revision":"40hex..."},
  "sana_video":{"repository":"Efficient-Large-Model/SANA-Video_2B_720p_diffusers",
                "revision":"40hex..."},
- "minicpm":{"repository":"openbmb/MiniCPM-V-4.7-1B","revision":"40hex..."}}.
+ "embeddinggemma2":{"repository":"google/embeddinggemma-2","revision":"40hex..."}}.
 
 The exact 40-hex commit and immutable local destination are compulsory.
 Pocket multi-repository tokenizer/model resources must be copied into its
@@ -28,7 +28,7 @@ def acquire(root: str, inventory: dict, *, token: str | None = None):
     root_path = Path(root).resolve()
     if not isinstance(inventory, dict) or not inventory:
         raise ValueError("Supply at least one named pinned pretrained component")
-    allowed = {"whistle", "pocket", "minicpm", "sana", "sana_video"}
+    allowed = {"pocket", "sana", "sana_video", "embeddinggemma2"}
     if set(inventory) - allowed:
         raise ValueError("Unknown pretrained pack")
     root_path.mkdir(parents=True, exist_ok=True)

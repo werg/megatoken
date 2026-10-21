@@ -1,0 +1,9 @@
+# Phase 2: everything trains. Native text dominates; identity streams keep
+# every modality's E -> C -> R path exercised.
+recipe: megatoken-task-recipe-v1
+mixture:
+  text: 0.55
+  audio_identity: 0.15
+  image_identity: 0.15
+  video_identity: 0.15
+auxiliary_weight: 0.5

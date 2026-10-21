@@ -61,8 +61,9 @@ def build_model(
     device: torch.device | str = "cpu",
     precision: str = "fp32",
     training_heads: bool = True,
-    native_pack_manifest: str | Path | None = None,
+    packs: str | Path | None = None,
 ):
+    """The model, with the locked media realizers installed before any optimizer or restore."""
     import torch
 
     from megatoken.generation import FacetedGenerator
@@ -73,10 +74,11 @@ def build_model(
             f"Model vocabulary {config.vocab_size} != codec vocabulary {codec.vocab_size}"
         )
     model = FacetedGenerator(FacetedCore(config), codec, training_heads=training_heads)
-    if native_pack_manifest is not None:
-        from megatoken.model.native_latents import load_native_packs
+    if packs is not None:
+        from megatoken.omni.loader import install_realizers
 
-        load_native_packs(model, native_pack_manifest)
+        install_realizers(model, str(packs), device=device)
+    # Casts the trainable realizer conditions too; frozen donors keep their dtype.
     return model.to(device=device, dtype=torch.bfloat16 if precision == "bf16" else torch.float32)
 
 
@@ -88,25 +90,58 @@ class TrainedModel:
     metadata: dict[str, Any]
 
 
+# A phase transition may install realizers for the first time (text -> media);
+# nothing else may appear or disappear between a checkpoint and its successor.
+NEW_REALIZER_OWNERS = ("media_realizers.packs.",)
+
+
+def restore_weights(
+    model, payload: dict[str, Any], packs_fingerprint: str | None, *, phase_transition: bool
+) -> tuple[str, ...]:
+    """Load checkpoint weights; return the owner prefixes that are new in this phase."""
+    new_owners: tuple[str, ...] = ()
+    if payload["packs_fingerprint"] != packs_fingerprint:
+        if not (phase_transition and payload["packs_fingerprint"] is None):
+            raise ValueError("Realizer pack manifest differs from the checkpoint")
+        new_owners = NEW_REALIZER_OWNERS
+    restored = model.load_state_dict(payload["model"], strict=not new_owners)
+    if restored.unexpected_keys or any(
+        not key.startswith(new_owners) for key in restored.missing_keys
+    ):
+        raise ValueError("Checkpoint parameters differ beyond newly installed realizers")
+    return new_owners
+
+
 def load_trained(
     checkpoint: str | Path,
     *,
     device: torch.device | str = "cpu",
     codec_path: str | Path | None = None,
+    packs: str | Path | None = None,
 ) -> TrainedModel:
-    """Rebuild a committed training checkpoint's model with its exact codec."""
+    """Rebuild a committed checkpoint's model with its exact codec and realizer packs.
+
+    ``codec_path``/``packs`` relocate assets; their content must match the checkpoint.
+    """
     from megatoken.model.config import ModelConfig
     from megatoken.training.checkpoint import load_checkpoint
 
     payload, metadata = load_checkpoint(checkpoint)
     config = ModelConfig.from_dict(payload["model_config"])
-    codec = load_codec(codec_path or payload["train_config"]["codec"], vocab_size=config.vocab_size)
+    train_config = payload["train_config"]
+    codec = load_codec(codec_path or train_config["codec"], vocab_size=config.vocab_size)
     if codec.fingerprint != payload["codec_fingerprint"]:
         raise ValueError("Codec does not match the trained checkpoint")
+    packs = packs or train_config["packs"]
     model = build_model(
-        config, codec, device=device, precision=payload["train_config"]["precision"]
+        config, codec, device=device, precision=train_config["precision"], packs=packs
     )
-    model.load_state_dict(payload["model"], strict=True)
+    restore_weights(
+        model,
+        payload,
+        None if packs is None else sha256_file(packs),
+        phase_transition=False,
+    )
     model.core.set_model_version(payload["global_step"])
     return TrainedModel(model, codec, payload, metadata)
 

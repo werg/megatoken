@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-ARCHITECTURE_VERSION = 9
+from megatoken.media_teacher import PINNED_EXTRACTOR, validate_extractor
+
+ARCHITECTURE_VERSION = 10
 # Reserved system track for retrieval queries. It occupies track index
 # ``max_tracks`` and never counts against the user-visible track registry.
 RETRIEVAL_QUERY_TRACK = "__retrieval_query__"
@@ -29,21 +31,10 @@ class ModelConfig:
     max_history_chunks: int = 1024
     max_tracks: int = 8
     source_dim: int = 256
-    # Zero disables a donor feature projector. Pinned extractor revisions live
-    # in model geometry so incompatible feature caches cannot silently resume.
-    audio_feature_dim: int = 0
-    vision_feature_dim: int = 0
-    audio_feature_id: str = ""
-    vision_feature_id: str = ""
-    # Exact identities and widths for optional acoustic/codec/detail views.
-    media_feature_views: dict[str, int] = field(default_factory=dict)
-    media_view_dropout: float = 0.0
-    audio_acoustic_feature_dim: int = 0
-    audio_acoustic_feature_id: str = ""
-    vision_detail_feature_dim: int = 0
-    vision_detail_feature_id: str = ""
-    vision_codec_feature_dim: int = 0
-    vision_codec_feature_id: str = ""
+    # The one media input: pinned EmbeddingGemma2 hidden states (see
+    # megatoken/media_teacher.py). Part of the geometry, so feature caches from a
+    # different teacher can never resume into this model.
+    media_extractor: str = PINNED_EXTRACTOR
     byte_dim: int = 8
     source_stride: int = 8
     ngram_dim: int = 16
@@ -83,8 +74,8 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: native retrieval-memory requires version 9; "
-                "earlier facet checkpoints cannot be loaded as this architecture"
+                "Incompatible architecture version: this model requires version 10; "
+                "earlier checkpoints cannot be loaded as this architecture"
             )
         positive = (
             "n_facets",
@@ -137,22 +128,7 @@ class ModelConfig:
             raise ValueError("ngram_orders must contain orders in [1, 8]")
         if self.ngram_rows <= self.exact_rows:
             raise ValueError("ngram_rows must leave space for the hashed fallback")
-        for dim, identity in (
-            (self.audio_feature_dim, self.audio_feature_id),
-            (self.vision_feature_dim, self.vision_feature_id),
-            (self.audio_acoustic_feature_dim, self.audio_acoustic_feature_id),
-            (self.vision_detail_feature_dim, self.vision_detail_feature_id),
-            (self.vision_codec_feature_dim, self.vision_codec_feature_id),
-        ):
-            if (
-                type(dim) is not int
-                or dim < 0
-                or (bool(dim) != bool(identity))
-                or (identity and (not isinstance(identity, str) or len(identity) < 12))
-            ):
-                raise ValueError(
-                    "External feature projectors require a positive width and pinned ID"
-                )
+        validate_extractor(self.media_extractor)
         if min(self.semantic_dim, self.semantic_value_dim, self.max_kb_positions) <= 0:
             raise ValueError(
                 "Retrieval embedding, free semantic memory and full-facet KB "
@@ -162,18 +138,6 @@ class ModelConfig:
             raise ValueError("LoRA geometry must be positive")
         if self.memory_lora_topk > self.memory_lora_experts:
             raise ValueError("LoRA top-k exceeds independent expert count")
-        if not isinstance(self.media_feature_views, dict) or any(
-            not isinstance(k, str) or len(k) < 12 or type(v) is not int or v <= 0
-            for k, v in self.media_feature_views.items()
-        ):
-            raise ValueError("Auxiliary view names require pinned identities and widths")
-        if (
-            not isinstance(self.media_view_dropout, (float, int))
-            or isinstance(self.media_view_dropout, bool)
-            or not math.isfinite(self.media_view_dropout)
-            or not 0 <= self.media_view_dropout < 1
-        ):
-            raise ValueError("Media view dropout must lie in [0, 1)")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
 
@@ -210,23 +174,13 @@ class ModelConfig:
             self.max_tracks,
             self.kv_heads,
             self.attention_head_dim,
-            self.audio_feature_dim,
-            self.vision_feature_dim,
-            self.audio_feature_id,
-            self.vision_feature_id,
+            self.media_extractor,
             self.semantic_dim,
             self.semantic_value_dim,
             self.max_kb_positions,
             self.memory_lora_experts,
             self.memory_lora_rank,
             self.memory_lora_topk,
-            tuple(sorted(self.media_feature_views.items())),
-            self.audio_acoustic_feature_dim,
-            self.audio_acoustic_feature_id,
-            self.vision_detail_feature_dim,
-            self.vision_detail_feature_id,
-            self.vision_codec_feature_dim,
-            self.vision_codec_feature_id,
         )
 
     @classmethod
@@ -277,7 +231,7 @@ class ModelConfig:
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=9; "
+                "Saved model configuration must explicitly declare architecture_version=10; "
                 "earlier checkpoints are intentionally unsupported"
             )
         unknown = set(values) - {field.name for field in fields(cls)}

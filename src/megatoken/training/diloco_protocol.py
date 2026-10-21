@@ -79,6 +79,8 @@ def training_identity(config: Any) -> str:
         "budget_meter",
         "accumulate_events",
         "router_balance_mode",
+        "trainable",
+        "text_anchor_weight",
         "retrieval_kv_dropout",
         "retrieval_lora_dropout",
     )
@@ -90,6 +92,10 @@ def training_identity(config: Any) -> str:
     identity["retrieval_recipe"] = RetrievalRecipe.load(config.retrieval_memory_recipe).fingerprint
     identity["retrieval_sidecar"] = sha256_file(Path(config.retrieval_sidecar))
     identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
+    for name in ("packs", "task_recipe", "text_anchors"):
+        path = getattr(config, name)
+        if path:
+            identity[name] = sha256_file(Path(path))
     return content_hash(identity)
 
 

@@ -54,9 +54,7 @@ def test_all_supervised_stages_preserve_optimizer_and_use_real_meters(training_c
         assert result["phase_consumed"] == result["counters"]["G"]
         payload, metadata = load_checkpoint(result["checkpoint"])
         assert metadata["pinned"] and metadata["checkpoint_name"].endswith("phase-end")
-        steps = [
-            int(state["step"]) for state in payload["optimizer"]["optimizer"]["state"].values()
-        ]
+        steps = [int(state["step"]) for state in payload["optimizer"]["moments"].values()]
         assert max(steps) == step + 1
         previous, step = result["checkpoint"], result["global_step"]
     # A completed phase is an idempotent no-op, with no checkpoint overwrite.

@@ -1,9 +1,0 @@
-# Family-choice probabilities. Each stream must exist; unavailable = explicit error.
-omni_recipe_version: concordant-v1
-task_weights:
-  replay: 0.20
-  transcription_and_verbalization: 0.20
-  speech_translation: 0.15
-  image_description_and_creation: 0.15
-  audiovisual_and_endpoints: 0.15
-  sequential_editing: 0.15

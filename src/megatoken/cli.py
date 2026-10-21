@@ -90,8 +90,8 @@ def _diloco_initialize(args):
     import torch
 
     from megatoken.data import PreparedDataset
-    from megatoken.io import content_hash
-    from megatoken.loading import build_model, load_codec, load_model_config
+    from megatoken.io import content_hash, sha256_file
+    from megatoken.loading import build_model, load_codec, load_model_config, restore_weights
     from megatoken.runtime import seed_everything
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.config import TrainConfig
@@ -110,22 +110,42 @@ def _diloco_initialize(args):
     }
     model_config = load_model_config(config.model, **overrides)
     codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
-    model = build_model(model_config, codec, device=torch.device("cpu"), precision=config.precision)
-    weights = None
+    model = build_model(
+        model_config,
+        codec,
+        device=torch.device("cpu"),
+        precision=config.precision,
+        packs=config.packs,
+    )
+    weights: dict = {}
     if args.resume:
+        # A new coordinator is the DiLoCo phase transition: it may install
+        # realizers the previous phase lacked, whose masters start from init.
         payload, _ = load_checkpoint(args.resume, map_location="cpu")
         if payload["model_config"] != model_config.to_dict():
             raise ValueError("Bootstrap checkpoint model architecture changed")
         if payload["codec_fingerprint"] != codec.fingerprint:
             raise ValueError("Bootstrap checkpoint codec differs")
-        model.load_state_dict(payload["model"], strict=True)
-        weights = payload["optimizer"]["master_weights"]
+        restore_weights(
+            model,
+            payload,
+            sha256_file(config.packs) if config.packs else None,
+            phase_transition=True,
+        )
+        # A coordinator export carries the global FP32 masters; a local
+        # training checkpoint carries its optimizer's.
+        weights = (
+            payload["master_weights"]
+            if payload.get("export_only")
+            else payload["optimizer"]["master_weights"]
+        )
     elif config.engram_import:
         from megatoken.assets import install_engram_asset
 
         install_engram_asset(model, config.engram_import)
     masters = {
-        name: (weights[name] if weights is not None else parameter).detach().cpu().float()
+        # Owners new in this phase start from their initialization.
+        name: weights.get(name, parameter).detach().cpu().float()
         for name, parameter in model.named_parameters()
         if parameter.requires_grad
     }
@@ -309,14 +329,14 @@ def _benchmark(args):
 def _export(args):
     from megatoken.inference import export_served
 
-    return export_served(args.checkpoint, args.output, codec_path=args.codec)
+    return export_served(args.checkpoint, args.output, codec_path=args.codec, packs=args.packs)
 
 
 def _generate(args):
     from megatoken.generation.structure import ActionSpec
     from megatoken.inference import InferenceEngine
 
-    engine = InferenceEngine(args.model, device=args.device, compile=args.compile)
+    engine = InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile)
     session = engine.new_session()
     payload = Path(args.prompt_file).read_bytes() if args.prompt_file else args.prompt.encode()
     engine.observe(session, payload)
@@ -363,7 +383,7 @@ def _serve(args):
     from megatoken.inference import InferenceEngine, serve_jsonl
 
     serve_jsonl(
-        InferenceEngine(args.model, device=args.device, compile=args.compile),
+        InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile),
         sys.stdin,
         sys.stdout,
         max_sessions=args.max_sessions,
@@ -375,7 +395,7 @@ def _serve_multitrack(args):
     from megatoken.multitrack_service import serve_multitrack_jsonl
 
     serve_multitrack_jsonl(
-        InferenceEngine(args.model, device=args.device, compile=args.compile),
+        InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile),
         sys.stdin,
         sys.stdout,
         max_sessions=args.max_sessions,
@@ -476,7 +496,10 @@ def parser() -> argparse.ArgumentParser:
     initial = sub.add_parser("init", help="Initialize persistent global weights and fragments")
     initial.add_argument("--config", required=True)
     initial.add_argument("--root", required=True)
-    initial.add_argument("--resume", help="Warm-start global weights from an earlier checkpoint")
+    initial.add_argument(
+        "--resume",
+        help="Start this phase from the previous phase's coordinator export or checkpoint",
+    )
     initial.add_argument("--quorum", type=int, default=4)
     initial.add_argument("--fragment-mib", type=int, default=64)
     initial.add_argument("--outer-lr", type=float, default=0.7)
@@ -490,7 +513,8 @@ def parser() -> argparse.ArgumentParser:
     serving.add_argument("--port", type=int, default=8823)
     serving.set_defaults(func=_diloco_serve)
     exporting = sub.add_parser(
-        "export", help="Export a stopped syncer's global model for evaluation"
+        "export",
+        help="Export a stopped syncer's global model (evaluation and the next phase's seed)",
     )
     exporting.add_argument("--root", required=True)
     exporting.add_argument("--output", required=True)
@@ -575,11 +599,13 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--checkpoint", required=True)
     item.add_argument("--output", required=True)
     item.add_argument("--codec", default="byte")
+    item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
     item.set_defaults(func=_export)
     item = commands.add_parser(
         "generate", help="Generate one complete chunk and return its exact tape"
     )
     item.add_argument("--model", required=True, help="Exported served bundle")
+    item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
     item.add_argument("--device", default="auto")
     item.add_argument("--compile", action="store_true")
     prompts = item.add_mutually_exclusive_group(required=True)
@@ -606,14 +632,16 @@ def parser() -> argparse.ArgumentParser:
         "serve", help="Serve stateful exact-byte sessions over a local JSONL protocol"
     )
     item.add_argument("--model", required=True)
+    item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
     item.add_argument("--device", default="auto")
     item.add_argument("--compile", action="store_true")
     item.add_argument("--max-sessions", type=int, default=32)
     item.set_defaults(func=_serve)
     item = commands.add_parser(
-        "serve-multitrack", help="Serve v8 joint semantic meridians via local JSONL"
+        "serve-multitrack", help="Serve joint text and media meridians via local JSONL"
     )
     item.add_argument("--model", required=True)
+    item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
     item.add_argument("--device", default="auto")
     item.add_argument("--compile", action="store_true")
     item.add_argument("--max-sessions", type=int, default=32)

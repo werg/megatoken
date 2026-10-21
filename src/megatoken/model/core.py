@@ -25,7 +25,7 @@ from .experts import ExpertBank
 from .frontend import SeedControlEncoder
 from .ingestion import ChunkEncoder
 from .layers import RMSNorm, SwiGLU
-from .media import MediaStems
+from .media import MediaEncoder
 from .routing import EpochRouter, RowRoute
 from .state import CoreState, KVHistory, RealizationContext, assert_cache_version
 
@@ -287,7 +287,7 @@ class FacetedCore(nn.Module):
         c = self.config
         self.model_version = 0
         self.frontend = ChunkEncoder(c)
-        self.media_stems = MediaStems(c)
+        self.media_encoder = MediaEncoder(c)
         self.control_encoder = SeedControlEncoder(c)
         self.initial_facets = nn.Parameter(torch.empty(c.n_facets, c.facet_dim))
         self.stage_codes = nn.Parameter(torch.empty(c.prediction_layers, c.facet_dim))
@@ -336,7 +336,7 @@ class FacetedCore(nn.Module):
     def encoder_parameters(self) -> Iterator[nn.Parameter]:
         """Only E owners; contextual C and P are independently owned."""
         yield from self.frontend.parameters()
-        yield from self.media_stems.parameters()
+        yield from self.media_encoder.parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
         """C, the KV projector, the C adapter family and the shared memory controller.
@@ -536,19 +536,11 @@ class FacetedCore(nn.Module):
         """History-, role-, and control-independent hierarchical E(bytes)."""
         return self.frontend(byte_ids, lengths)
 
-    def encode_media(self, modality: str, payload: Tensor, *, sample_rate: int = 16000) -> Tensor:
-        """Audio/images/video use the existing E reduction and readout owners."""
-        return self.media_stems.encode(self, modality, payload, sample_rate=sample_rate)
-
-    def encode_media_features(self, modality: str, features: Tensor, *, extractor: str) -> Tensor:
-        """Project pinned external feature tokens through the shared E hierarchy."""
-        return self.media_stems.encode_external(self, modality, features, extractor=extractor)
-
-    def encode_media_views(
-        self, modality: str, views: tuple[tuple[str, Tensor, Tensor], ...]
+    def encode_media(
+        self, features: Tensor, mask: Tensor | None = None, *, extractor: str
     ) -> Tensor:
-        """Fuse only causally visible pinned input views before canonical E."""
-        return self.media_stems.encode_views(self, modality, views)
+        """Pinned teacher hidden states [B, T, 512] -> raw facets, through the shared E."""
+        return self.media_encoder(self, features, mask, extractor=extractor)
 
     def encode_control(
         self,

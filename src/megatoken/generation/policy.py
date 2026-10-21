@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from itertools import chain
 from typing import Any
@@ -73,7 +73,7 @@ class FacetedGenerator(nn.Module):
         self.training_heads = training_heads
         self.facet_distribution = FacetGaussian(self.config.facet_dim, self.config.prior_noise_std)
         self.decoder = DeterministicDecoder(self.config, self.codec)
-        self.media_realizers = MediaRealizers(self.config)
+        self.media_realizers = MediaRealizers()
         from .embedding import EmbeddingRealizer
 
         self.embedding_realizer = EmbeddingRealizer(
@@ -556,6 +556,14 @@ class FacetedGenerator(nn.Module):
                 log_probs.append(result.log_prob)
                 decision += 1
         return state, tuple(log_probs)
+
+    def media_bridge_parameters(self) -> Iterator[nn.Parameter]:
+        """Everything that connects the frozen teacher and frozen donors to the
+        facet space: the media input projection, the (zero-initialized) modality
+        embedding by which C tells media kinds apart, and the realizer conditions."""
+        yield from self.core.media_encoder.parameters()
+        yield self.core.central.modality_embedding.weight
+        yield from self.media_realizers.parameters()
 
     def parameter_owners(self) -> dict[str, tuple[nn.Parameter, ...]]:
         """Disjoint owner groups (E, C, P, R) covering every parameter exactly once."""

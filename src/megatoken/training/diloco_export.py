@@ -1,7 +1,8 @@
 """Export a consistent *stopped-coordinator* model for standard evaluation.
 
 A global DiLoCo synchronizer owns outer momentum, not the independent inner
-optimizer states. Exports are evaluation/inference snapshots, NOT restartable
+optimizer states. Exports are evaluation/inference snapshots and the seed of
+the next phase's coordinator (with their global FP32 masters), NOT restartable
 local-training checkpoints. Pause the coordinator before exporting.
 """
 
@@ -53,6 +54,7 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
             cursor += part.length
     for name, value in params.items():
         snapshot[name] = value.to(snapshot[name].dtype)
+    # The global FP32 masters seed the next phase's coordinator (diloco init --resume).
     from megatoken.io import sha256_file
     from megatoken.memory.recipe import RetrievalRecipe
 
@@ -72,8 +74,10 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
             "model_config": manifest["model_config"],
             "train_config": asdict(config),
             "codec_fingerprint": manifest["codec_fingerprint"],
+            "packs_fingerprint": sha256_file(config.packs) if config.packs else None,
             **retrieval,
             "export_only": True,
+            "master_weights": params,
             "outer_fragment_versions": versions,
             "global_step": max(versions),
         },

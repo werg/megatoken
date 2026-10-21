@@ -1,4 +1,4 @@
-"""Stateful JSONL serving for v8 multitrack semantic meridians.
+"""Stateful JSONL serving for joint text and media meridians.
 
 Transport media as explicitly shaped little-endian FP32 buffers. The trained
 encoder/realizer weights are loaded from one served Megatoken bundle. No tool
@@ -63,15 +63,19 @@ def _read_event(value: Mapping[str, object], device: torch.device) -> ObservedEv
     if not isinstance(role_name, str) or role_name not in ROLE_TO_ID:
         raise ValueError("Unknown observation role")
     if modality == "text":
-        payload = _bytes(value.get("payload_b64", ""))
-    else:
-        payload = _float_tensor(value.get("payload_f32_b64", ""), value.get("shape"), device)
+        return ObservedEvent(
+            track=track,
+            modality=modality,
+            payload=_bytes(value.get("payload_b64", "")),
+            role_id=ROLE_TO_ID[role_name],
+        )
+    # Media arrives as pinned teacher hidden states [1, tokens, 512], never raw media.
     return ObservedEvent(
         track=track,
         modality=modality,
-        payload=payload,
+        payload=_float_tensor(value.get("payload_f32_b64", ""), value.get("shape"), device),
         role_id=ROLE_TO_ID[role_name],
-        sample_rate=int(value.get("sample_rate", 16000)),
+        extractor=str(value.get("extractor", "")),
     )
 
 
@@ -85,9 +89,13 @@ def _output_spec(value: Mapping[str, object], max_capacity: int):
     return MediaOutputSpec(
         modality=str(modality),
         sample_count=int(value.get("sample_count", 0)),
+        sample_rate=24000 if modality == "audio" else 0,
         frames=int(value.get("frames", 1)),
-        height=int(value.get("height", 64)),
-        width=int(value.get("width", 64)),
+        height=int(value.get("height", 0)),
+        width=int(value.get("width", 0)),
+        fps_num=int(value.get("fps_num", 0)),
+        fps_den=int(value.get("fps_den", 1)),
+        steps=int(value.get("steps", 30)),
     )
 
 
@@ -105,8 +113,11 @@ def _output_response(group, specs):
         else:
             tensor = group.media_outputs[i]
             assert tensor is not None
-            item["payload_f32_b64"] = base64.b64encode(group.tape.payloads[i]).decode("ascii")
-            item["shape"] = list(tensor.shape[1:])
+            media = tensor[0].detach().float().contiguous().cpu().numpy().astype("<f4")
+            item["payload_f32_b64"] = base64.b64encode(media.tobytes()).decode("ascii")
+            item["shape"] = list(media.shape)
+            # The tape binds the realized bytes by SHA256 and realizer identity.
+            item["tape_payload"] = group.tape.payloads[i].decode("utf-8")
         outputs.append(item)
     return outputs
 
