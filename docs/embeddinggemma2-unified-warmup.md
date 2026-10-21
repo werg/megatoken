@@ -97,7 +97,8 @@ python scripts/cache_embeddinggemma2_hidden.py \
   --asset-root /datasets/unified --identity-target-sha256 <raw-target-asset-sha256> \
   --output /datasets/unified/teacher/image-0001.json
 
-# Repeat for audio and video. For video also pass --fps-num and --fps-den.
+# Repeat for audio and video. Audio needs --sample-rate 16000|24000,
+# and video needs its actual --fps-num and --fps-den.
 # For text and document, OMIT identity-target-sha256. Cache one exact original
 # text chunk per text record; concatenate the resulting JSON descriptors as
 # JSONL for --embeddinggemma2_text_sidecar.

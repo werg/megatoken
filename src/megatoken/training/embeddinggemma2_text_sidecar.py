@@ -30,7 +30,7 @@ class TextHiddenSidecar:
                 continue
             entry = json.loads(line)
             asset = entry.get("asset", {})
-            source_sha = entry.get("source_sha256", "")
+            source_sha = entry.get("teacher_input_sha256") or entry.get("source_sha256", "")
             shape = asset.get("shape")
             if (
                 entry.get("format") != "megatoken.embeddinggemma2.hidden.v1"

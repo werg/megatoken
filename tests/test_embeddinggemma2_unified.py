@@ -141,6 +141,7 @@ def test_projection_only_warmup_freezes_all_except_media_edges():
     text_names = warmup_parameter_names(model, "text")
     assert any("unified_projection" in n for n in media_names)
     assert any(n.startswith("media_realizers.") for n in media_names)
+    assert not any("audio_filter" in n or "visual_filter" in n for n in media_names)
     assert set(media_names).isdisjoint(text_names)
     optimizer = MasterAdamW(model, 1e-3, weight_decay=0.0)
     initial_master_names = set(optimizer.masters)
@@ -166,6 +167,7 @@ def test_same_source_identity_reconstruction_and_finite_gradients(tmp_path):
         kind="features",
         extractor=IDENTITY,
         source_family=target.sha256,
+        sample_rate=16000,
     )
     reference = MediaRecord("audio", source=source, target=target)
     plan = MediaPlan(reference, MediaOutputSpec("audio", sample_count=128), "bootstrap", 4, 32)
@@ -179,6 +181,7 @@ def test_same_source_identity_reconstruction_and_finite_gradients(tmp_path):
         kind="features",
         extractor=IDENTITY,
         source_family="a" * 64,
+        sample_rate=16000,
     )
     bad = MediaPlan(
         MediaRecord("audio", source=wrong, target=target),
