@@ -165,8 +165,18 @@ sizes never become token weights.
 and seed. `GroupActionTape` v10 records renderer seeds and pack identities for
 every event; replay refuses a different realizer pack or drifted output.
 
-## Not established by this code
+## Verified, and not established
 
-No media-quality, perceptual or GPU-scale training result is implied. Real
-weight verification of each pack (`verify_packs.py`), rights-cleared
-media inventories, and measured gates per phase are prerequisites for claims.
+Verified on real weights (2026-10-21, `configs/cloud/verify-packs.json`, one RTX
+PRO 6000 Blackwell): packs acquired and locked from the pinned inventory, with
+the teacher identity reproducing `PINNED_EXTRACTOR` from a fresh download; Sana
+and Sana-Video encode, training loss with gradients to their conditions, and a
+free rollout (image `[1, 1, 3, 256, 256]`, 9-frame video); and `MediaPreparer`
+end to end on synthetic text, image, speech and video (teacher features for all,
+realizer latents and geometry for image and video). Pocket is not yet verified:
+`kyutai/pocket-tts` is gated, and its terms must be accepted for the account
+whose `HF_TOKEN` acquires it.
+
+No media-quality, perceptual or GPU-scale training result is implied.
+Rights-cleared media inventories and measured gates per phase are prerequisites
+for such claims.
