@@ -1125,7 +1125,8 @@ def train(
                 )
                 for key, value in diagnostics_batch.items():
                     step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
-            ledger.finish()
+            if not media_lane:
+                ledger.finish()
             if router_replay is not None and not media_lane:
                 # All ranks participate, including workers with zero eligible
                 # assignments. The model's version remains fixed until step().

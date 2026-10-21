@@ -247,14 +247,18 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
         raise ValueError("Generated media events require a pinned media target")
     source = reference.source
     if source.kind == "features":
-        feature_id = (
-            model.config.audio_feature_id if modality == "audio" else model.config.vision_feature_id
-        )
-        feature_width = (
-            model.config.audio_feature_dim
-            if modality == "audio"
-            else model.config.vision_feature_dim
-        )
+        if model.config.embeddinggemma2_hidden_dim:
+            feature_id = model.config.embeddinggemma2_hidden_id
+            feature_width = model.config.embeddinggemma2_hidden_dim
+        else:
+            feature_id = (
+                model.config.audio_feature_id if modality == "audio" else model.config.vision_feature_id
+            )
+            feature_width = (
+                model.config.audio_feature_dim
+                if modality == "audio"
+                else model.config.vision_feature_dim
+            )
         if source.extractor != feature_id or source.shape[-1] != feature_width:
             raise ValueError("Pinned media feature revision/width differs from model")
     target = reference.target

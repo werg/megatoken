@@ -30,6 +30,7 @@ def main():
     parser.add_argument("--asset-root", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--max-tokens", type=int, default=8192)
+    parser.add_argument("--identity-target-sha256", default="", help="SHA256 of matching raw/codec target tensor asset, required for autoencoder training")
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
@@ -49,11 +50,15 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     if args.modality in {"audio", "image", "video"}:
         store = TensorAssetStore(args.asset_root)
+        if args.identity_target_sha256:
+            import re
+            if not re.fullmatch(r"[0-9a-f]{64}", args.identity_target_sha256):
+                parser.error("Identity reconstruction target needs a valid asset SHA256")
         asset = store.put(
             features, modality=args.modality, kind="features", extractor=observation.extractor,
-            preprocessing_id="chat-template-v1", source_family=source_sha,
+            preprocessing_id="chat-template-v1", source_family=args.identity_target_sha256 or source_sha,
         )
-        descriptor = {"asset": {**asset.__dict__} if hasattr(asset, "__dict__") else None}
+        descriptor = {}
         from dataclasses import asdict
         descriptor["asset"] = asdict(asset)
     else:
@@ -76,6 +81,7 @@ def main():
     descriptor.update({
         "format": "megatoken.embeddinggemma2.hidden.v1",
         "source_sha256": source_sha,
+        "identity_target_sha256": args.identity_target_sha256,
         "modality": args.modality,
         "hidden_tap": "language_model.embedding_projection:input",
         "teacher_revision": args.revision,

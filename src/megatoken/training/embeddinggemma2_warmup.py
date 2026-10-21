@@ -29,9 +29,15 @@ def reconstruction_loss(model, target: MediaTrainTarget) -> Tensor:
         raise ValueError("Only physical media have autoencoder reconstruction heads")
     if target.source_kind != "features" or target.extractor != core.config.embeddinggemma2_hidden_id:
         raise ValueError("Autoencoder source must be the pinned EmbeddingGemma2 hidden-state cache")
-    if target.views or target.source_views or target.source_masks:
+    if target.views or target.source_masks or len(target.source_views) > 1:
         raise ValueError("Autoencoder warmup expects exactly one unified teacher hidden-state view")
-    raw = core.encode_media_features(target.modality, target.source, extractor=target.extractor)
+    if target.source_views:
+        identity, source, valid = target.source_views[0]
+        if identity != target.extractor or source.shape != target.source.shape:
+            raise ValueError("Primary teacher view does not match its source")
+        raw = core.encode_media_views(target.modality, ((identity, source, valid),))
+    else:
+        raw = core.encode_media_features(target.modality, target.source, extractor=target.extractor)
     context = core.prepare_realization(raw)
     renderer = model.media_realizers
     if target.target_kind == "codec_latents" and target.spec.codec_id:
