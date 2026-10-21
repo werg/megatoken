@@ -136,6 +136,7 @@ class DedupStore:
             );
             CREATE INDEX IF NOT EXISTS episode_content ON episodes(content_sha256);
             CREATE INDEX IF NOT EXISTS episode_family ON episodes(family_key);
+            CREATE INDEX IF NOT EXISTS episode_resolved_family ON episodes(resolved_family);
             CREATE TABLE IF NOT EXISTS anchors(anchor TEXT NOT NULL, episode_id TEXT NOT NULL,
                                                PRIMARY KEY(anchor, episode_id));
             CREATE TABLE IF NOT EXISTS source_rows(source_key TEXT NOT NULL, row_index INTEGER NOT NULL,
