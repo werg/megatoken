@@ -575,9 +575,7 @@ def _actual_raw(
                     ):
                         raise ValueError("Compressed document encoder fingerprint differs")
                     hidden = torch.from_numpy(reference.load(store.root)).to(device)[None]
-                    raw = model.core.encode_document_hidden(
-                        hidden, extractor=reference.extractor
-                    )
+                    raw = model.core.encode_document_hidden(hidden, extractor=reference.extractor)
                 elif modality in {"audio", "image", "video"}:
                     source = MediaRecord.from_bytes(entry.payload).source
                     signal = torch.from_numpy(store.load(source)).to(device)[None]

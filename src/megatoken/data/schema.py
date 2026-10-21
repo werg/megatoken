@@ -232,7 +232,16 @@ class TrackEvent:
     def __post_init__(self) -> None:
         if not self.record_id or not self.track_id or self.meridian_id < 0:
             raise ValueError("Track event needs ID, track and nonnegative meridian")
-        if self.modality not in {"text", "audio", "image", "video", "document", "text_summary", "tool", "evidence"}:
+        if self.modality not in {
+            "text",
+            "audio",
+            "image",
+            "video",
+            "document",
+            "text_summary",
+            "tool",
+            "evidence",
+        }:
             raise ValueError("Unknown event modality")
         if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
             raise ValueError("Unknown track event role")

@@ -463,16 +463,12 @@ def test_prepared_document_and_long_text_are_real_teacher_ingestion(tmp_path):
             payload,
             media_type=TEXT_HIDDEN_RECORD_TYPE,
         )
-        event = TrackEvent(
-            "doc", "doc", event_kind, 0, "document", asset_sha256=digest
-        )
+        event = TrackEvent("doc", "doc", event_kind, 0, "document", asset_sha256=digest)
         assert Meridian(0, (event,)).events[0].modality == event_kind
         assert TrackSpec("doc", "document").track_id == "doc"
         encoded = encode_record(record, codec)
         assert encoded.token_ids == () and encoded.transcript_tokens == 0
-        step = MeridianStep(
-            0, ("doc",), (4,), (0,), (encoded,), modalities=("text",)
-        )
+        step = MeridianStep(0, ("doc",), (4,), (0,), (encoded,), modalities=("text",))
         observed = _actual_raw(
             model,
             step,
@@ -489,8 +485,7 @@ def test_prepared_document_and_long_text_are_real_teacher_ingestion(tmp_path):
         with pytest.raises(ValueError, match="never lexical"):
             encode_record(
                 PhysicalRecord(
-                    "doc", "document", payload, policy_mask=True,
-                    media_type=TEXT_HIDDEN_RECORD_TYPE
+                    "doc", "document", payload, policy_mask=True, media_type=TEXT_HIDDEN_RECORD_TYPE
                 ),
                 codec,
             )
