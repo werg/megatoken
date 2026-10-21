@@ -1,0 +1,31 @@
+# Stage B after the modality E->R and native text gates pass.
+# Resume at a checkpoint phase boundary with identical model/teacher/codec.
+phase: P1
+model: 32x512
+model_overrides:
+  embeddinggemma2_hidden_dim: 512
+  embeddinggemma2_hidden_id: "embeddinggemma2:PIN_40_HEX_REVISION:language_model.embedding_projection:input:chat-template-v1"
+dataset: PIN_PREPARED_NATIVE_TEXT_AND_MEDIA_IDENTITY_EPISODES
+output: runs/embeddinggemma2-joint-pretrain
+codec: PIN_TRAINED_BYTE_CODEC
+device: cuda
+precision: bf16
+representation_mode: recurrent
+budget_meter: G
+budget: 100000
+accumulate_events: 32
+microbatch_episodes: 1
+max_window_records: 16
+max_record_bytes: 16384
+scored_decisions: 4
+generated_capacity: 512
+embeddinggemma2_text_sidecar: PIN_SAME_SOURCE_TEXT_HIDDEN_DESCRIPTORS_JSONL
+embeddinggemma2_text_weight: 0.1
+omni_recipe: configs/omni/embeddinggemma2-joint-pretrain.yaml
+native_pack_manifest: PIN_CHECKSUMMED_NATIVE_CODEC_AND_GENERATOR_PACKS
+pretrained_packs: PIN_CHECKSUMMED_POCKET_SANA_SANA_VIDEO_PACK_MANIFEST
+media_root: PIN_PREPARED_MEDIA_AND_TEXT_HIDDEN_ASSETS
+retrieval_sidecar: PIN_QUERY_RETRIEVAL_TEACHER_SIDECAR
+retrieval_document_sidecar: PIN_DOCUMENT_RETRIEVAL_TEACHER_SIDECAR
+retrieval_memory_recipe: PIN_P1_RETRIEVAL_MEMORY_RECIPE
+eval_every: 0

@@ -1,0 +1,15 @@
+# Stage C: explicit native text/identity replay alongside editing tasks.
+# All streams MUST exist under one deduplicated prepared dataset root.
+# Fractions are sampling probabilities, not per-modality compute.
+omni_recipe_version: concordant-v1
+task_weights:
+  embeddinggemma2_text_pretraining: 0.20
+  embeddinggemma2_audio_identity: 0.07
+  embeddinggemma2_image_identity: 0.07
+  embeddinggemma2_video_identity: 0.06
+  replay: 0.10
+  transcription_and_verbalization: 0.10
+  speech_translation: 0.09
+  image_description_and_creation: 0.11
+  audiovisual_and_endpoints: 0.10
+  sequential_editing: 0.10

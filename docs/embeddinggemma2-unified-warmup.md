@@ -210,6 +210,10 @@ false. The sidecar continues to supervise native text E in recurrent P1;
 removing the sidecar would silently drop the same-text bridge. The joint
 optimizer owns both the unified input projection and text E again; only the
 teacher checkpoint itself remains frozen and external to the student.
+Use `configs/train/embeddinggemma2-joint-pretrain.example.yaml` with
+`configs/omni/embeddinggemma2-joint-pretrain.yaml`: 55% native text
+and 15% each audio/image/video identity events, while jointly updating
+E/C/P/R. These are event probabilities, not equal GPU-seconds.
 
 Once per-modality direct recon and native text gates pass, start the
 recurrent mixed training recipe with unfrozen shared E/C/P and trainable
@@ -226,13 +230,17 @@ validation. The joint config is a scaffold and does not claim prebuilt data.
 ### Stage C — editing tasks
 
 After warmup: enable the existing concordant family mixture
-(`configs/omni/concordant-v1.yaml`) with text-conditioned media
+(`configs/omni/embeddinggemma2-joint-edit.yaml`) with text-conditioned media
 creation/editing, source-preserving changes, speech translation,
 cross-modal description, temporal continuation, joint audiovisual
 outputs, and recorded edit chains. Causal role/track clocks, same-step
 relations and native media output geometry must remain explicit. Continue
 interleaving anchored text copy and identity reconstruction as replay
-regularizers. Do not train an editing sample against a mismatched source
+regularizers. The edit recipe explicitly reserves 20% native text and 20%
+per-modality identity autoencoding, with the other 60% dedicated to editing
+and replay tasks. Prepare every declared stream in the same deduplicated,
+source-family-safe dataset root; the sampler rejects missing streams.
+Do not train an editing sample against a mismatched source
 identity or attach a future target as an observed input. Only now
 consider LoRA/full donor tuning if the frozen-backbone reconstruction
 ceiling is established by held-out measurements.

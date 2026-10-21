@@ -568,3 +568,22 @@ def test_text_lane_preparation_accepts_pinned_document_not_media(tmp_path):
     )
     with pytest.raises(ValueError, match="causal asset identity"):
         validate_text_warmup_episode(wrong, store)
+
+
+def test_joint_curricula_keep_native_text_and_modality_identity():
+    from megatoken.training.omni_stream import load_omni_recipe
+
+    pretrain = load_omni_recipe("configs/omni/embeddinggemma2-joint-pretrain.yaml")
+    editing = load_omni_recipe("configs/omni/embeddinggemma2-joint-edit.yaml")
+    identity = {
+        "embeddinggemma2_audio_identity",
+        "embeddinggemma2_image_identity",
+        "embeddinggemma2_video_identity",
+    }
+    assert sum(pretrain.values()) == pytest.approx(1.0)
+    assert sum(editing.values()) == pytest.approx(1.0)
+    assert sum(editing[key] for key in identity) == pytest.approx(0.20)
+    assert editing["embeddinggemma2_text_pretraining"] == pytest.approx(0.20)
+    assert all(key in pretrain and key in editing for key in identity)
+    assert "sequential_editing" not in pretrain
+    assert editing["sequential_editing"] > 0

@@ -24,7 +24,8 @@ generated_capacity: 512
 # recurrent mixed pretraining AND editing; unlike stage A, no owners are frozen.
 embeddinggemma2_text_sidecar: PIN_SAME_SOURCE_TEXT_HIDDEN_DESCRIPTORS_JSONL
 embeddinggemma2_text_weight: 0.1
-omni_recipe: configs/omni/concordant-v1.yaml
+# The editing dataset must also contain the per-modality identity and text streams.
+omni_recipe: configs/omni/embeddinggemma2-joint-edit.yaml
 # Required for codec-latent identity targets: install frozen decoders and
 # trainable facet-conditioning projections before optimizer enumeration.
 native_pack_manifest: PIN_CHECKSUMMED_NATIVE_CODEC_AND_GENERATOR_PACKS
