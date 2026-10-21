@@ -97,7 +97,7 @@ def test_scratch_volume_only_when_requested():
     assert volume == {"name": "work", "mount_path": cloud.WORK, "size": "50Gi"}
 
 
-def test_pull_retries_dropped_streams(tmp_path, monkeypatch):
+def test_pull_splits_large_outputs_and_retries_dropped_parts(tmp_path, monkeypatch):
     import sys
     import types
 
@@ -109,26 +109,49 @@ def test_pull_retries_dropped_streams(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "cwsandbox", types.ModuleType("cwsandbox"))
     monkeypatch.setitem(sys.modules, "cwsandbox.exceptions", exceptions)
     monkeypatch.setattr(cloud.time, "sleep", lambda _: None)
-    payload = b"x" * 1000
+    monkeypatch.setattr(cloud, "PART_BYTES", 400)
+    payload = bytes(range(256)) * 4  # 1024 bytes -> parts of 400, 400, 224
     source = tmp_path / "payload"
     source.write_bytes(payload)
-    calls = []
+    files, reads, removed = {}, [], []
+
+    class Done:
+        def __init__(self, returncode=0):
+            self.returncode, self.stderr = returncode, ""
+
+        def result(self):
+            return self
 
     class Sandbox:
+        def exec(self, argv):
+            if argv[0] == "rm":
+                removed.extend(argv[2:])
+                return Done()
+            if argv[0] == "test":
+                return Done(0 if argv[2] in files else 1)
+            remote, prefix, part = argv[-3:]
+            for index, offset in enumerate(range(0, len(payload), int(part))):
+                files[f"{prefix}{index:04d}"] = payload[offset : offset + int(part)]
+            files[f"{prefix}done"] = b""
+            return Done()
+
         def read_file_streaming(self, path, timeout_seconds):
-            calls.append(path)
+            reads.append(path)
+            data = files[path]
 
             def blocks():
-                yield payload[:400]
-                if len(calls) == 1:
+                yield data[:100]
+                if reads.count(path) == 1 and path.endswith("0001"):
                     raise SandboxError("ended without exit status")
-                yield payload[400:]
+                yield data[100:]
 
             return blocks()
 
     target = tmp_path / "out" / "file.bin"
     target.parent.mkdir()
-    item = {"path": "out/file.bin", "sha256": cloud.sha256_file(source)}
+    item = {"path": "out/file.bin", "bytes": len(payload), "sha256": cloud.sha256_file(source)}
     cloud._pull(Sandbox(), item, target)
-    assert target.read_bytes() == payload and len(calls) == 2
+    assert target.read_bytes() == payload
+    assert [path[-4:] for path in reads] == ["0000", "0001", "0001", "0002"]
+    assert sorted(removed) == sorted(files)
     assert not target.with_name(".file.bin.partial").exists()

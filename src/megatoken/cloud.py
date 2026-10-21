@@ -293,32 +293,78 @@ def _attach(sandbox_id: str):
     return Sandbox.from_id(sandbox_id, auth=_auth(), data_plane_mode="gateway").result()
 
 
-def _pull(sandbox, item: dict[str, Any], target: Path, *, attempts: int = 4) -> None:
-    """Stream one output file into ``target``; gateway streams can drop mid-file, so retry."""
+PART_BYTES = 32 << 20
+
+
+def _stream(sandbox, remote: str, size: int, out, *, attempts: int = 4) -> None:
+    """Append one remote file of ``size`` bytes to ``out``, retrying dropped streams."""
     from cwsandbox.exceptions import SandboxError
 
-    staging = target.with_name(f".{target.name}.partial")
+    start = out.tell()
     for attempt in range(1, attempts + 1):
+        out.seek(start)
+        out.truncate()
         try:
-            with (
-                contextlib.closing(
-                    sandbox.read_file_streaming(f"{WORK}/{item['path']}", timeout_seconds=7200)
-                ) as reader,
-                staging.open("wb") as out,
-            ):
+            with contextlib.closing(
+                sandbox.read_file_streaming(remote, timeout_seconds=7200)
+            ) as reader:
                 for block in reader:
                     out.write(block)
         except SandboxError as error:
             if attempt == attempts:
-                raise CloudError(f"{item['path']}: {error}") from error
-            time.sleep(10 * attempt)
-            continue
-        if sha256_file(staging) == item["sha256"]:
-            staging.replace(target)
-            return
-        if attempt == attempts:
-            staging.unlink()
-            raise CloudError(f"{item['path']}: pulled bytes do not match the sandbox manifest")
+                raise CloudError(f"{remote}: {error}") from error
+        else:
+            if out.tell() - start == size:
+                return
+            if attempt == attempts:
+                raise CloudError(f"{remote}: pulled {out.tell() - start} of {size} bytes")
+        time.sleep(10 * attempt)
+
+
+def _pull(sandbox, item: dict[str, Any], target: Path) -> None:
+    """Pull one output file into ``target``, verified against the sandbox manifest.
+
+    Single gateway streams drop on multi-GB files, so larger outputs are split
+    into PART_BYTES parts in the sandbox and each part is streamed (and retried)
+    on its own.
+    """
+    remote, size = f"{WORK}/{item['path']}", item["bytes"]
+    parts = [(remote, size)]
+    if size > PART_BYTES:
+        prefix = f"{WORK}/.cloud/parts/{item['sha256']}."
+        # Detached: the gateway also ends long exec streams, which would kill split.
+        sandbox.exec(
+            [
+                "bash",
+                "-c",
+                'mkdir -p "${2%/*}" && rm -f "$2"* && '
+                '(setsid bash -c \'split -b "$3" -d -a 4 "$1" "$2" && touch "$2done"\' '
+                '_ "$1" "$2" "$3" >/dev/null 2>&1 &)',
+                "split",
+                remote,
+                prefix,
+                str(PART_BYTES),
+            ]
+        ).result()
+        deadline = time.time() + 1800
+        while sandbox.exec(["test", "-f", f"{prefix}done"]).result().returncode != 0:
+            if time.time() > deadline:
+                raise CloudError(f"{item['path']}: splitting into parts did not finish")
+            time.sleep(5)
+        parts = [
+            (f"{prefix}{index:04d}", min(PART_BYTES, size - offset))
+            for index, offset in enumerate(range(0, size, PART_BYTES))
+        ]
+    staging = target.with_name(f".{target.name}.partial")
+    with staging.open("wb") as out:
+        for part, part_size in parts:
+            _stream(sandbox, part, part_size, out)
+    if size > PART_BYTES:
+        sandbox.exec(["rm", "-f", f"{prefix}done", *(part for part, _ in parts)]).result()
+    if sha256_file(staging) != item["sha256"]:
+        staging.unlink()
+        raise CloudError(f"{item['path']}: pulled bytes do not match the sandbox manifest")
+    staging.replace(target)
 
 
 def collect(sandbox_id: str, destination: Path, *, timeout: float = 30 * 86400) -> dict[str, Any]:
