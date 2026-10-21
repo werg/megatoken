@@ -532,30 +532,25 @@ def test_text_lane_preparation_accepts_pinned_document_not_media(tmp_path):
     digest = hashlib.sha256(data).hexdigest()
     (tmp_path / "teacher").mkdir()
     (tmp_path / "teacher" / f"{digest}.f32le").write_bytes(data)
-    reference = TextHiddenReference(
-        "document", IDENTITY, digest, "a" * 64, "b" * 64, 3
-    )
+    reference = TextHiddenReference("document", IDENTITY, digest, "a" * 64, "b" * 64, 3)
     records = (
-        PhysicalRecord(
-            "doc", "document", reference.to_bytes(), media_type=TEXT_HIDDEN_RECORD_TYPE
-        ),
+        PhysicalRecord("doc", "document", reference.to_bytes(), media_type=TEXT_HIDDEN_RECORD_TYPE),
         PhysicalRecord("answer", "assistant", b"Summary.", turn_index=1, policy_mask=True),
     )
     tracks = (TrackSpec("doc", "document"), TrackSpec("answer", "assistant"))
     meridians = (
         Meridian(
             0,
-            (
-                TrackEvent(
-                    "doc", "doc", "document", 0, "document", asset_sha256=digest
-                ),
-            ),
+            (TrackEvent("doc", "doc", "document", 0, "document", asset_sha256=digest),),
         ),
         Meridian(1, (TrackEvent("answer", "answer", "text", 1, "assistant"),)),
     )
     episode = Episode(
-        "doc-then-answer", records, Lineage("original", "rev", "family"),
-        tracks=tracks, meridians=meridians
+        "doc-then-answer",
+        records,
+        Lineage("original", "rev", "family"),
+        tracks=tracks,
+        meridians=meridians,
     )
     store = TensorAssetStore(tmp_path)
     validate_text_warmup_episode(episode, store)
@@ -565,8 +560,9 @@ def test_text_lane_preparation_accepts_pinned_document_not_media(tmp_path):
         Lineage("original", "rev", "family"),
         tracks=tracks,
         meridians=(
-            Meridian(0, (TrackEvent("doc", "doc", "document", 0, "document",
-                                    asset_sha256="c" * 64),)),
+            Meridian(
+                0, (TrackEvent("doc", "doc", "document", 0, "document", asset_sha256="c" * 64),)
+            ),
             meridians[1],
         ),
     )
