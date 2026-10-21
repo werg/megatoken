@@ -144,10 +144,7 @@ def warmup_parameter_names(model, lane: str) -> tuple[str, ...]:
             in {
                 "fuse",
                 "audio_expand",
-                "audio_filter",
                 "visual_features",
-                "visual_positions",
-                "visual_filter",
             }
         )
     )

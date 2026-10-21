@@ -41,6 +41,10 @@ def main():
         "--fps-num", type=int, default=0, help="Actual video sampling rate numerator"
     )
     parser.add_argument(
+        "--sample-rate", type=int, default=0,
+        help="Actual input-audio sampling rate; supply 16000 or 24000",
+    )
+    parser.add_argument(
         "--fps-den", type=int, default=1, help="Actual video sampling rate denominator"
     )
     args = parser.parse_args()
@@ -81,6 +85,10 @@ def main():
         source = path.read_text(encoding="utf-8")
     else:
         source = str(path)
+    if args.modality == "audio" and args.sample_rate not in (16000, 24000):
+        parser.error("Audio feature assets require an explicit 16000 or 24000 Hz source clock")
+    if args.modality != "audio" and args.sample_rate:
+        parser.error("Only audio has a source sample clock")
     if args.modality == "video" and (args.fps_num <= 0 or args.fps_den <= 0):
         parser.error("Video feature assets require an explicit positive rational frame clock")
     if args.modality != "video" and args.fps_num:
@@ -109,6 +117,7 @@ def main():
             preprocessing_id="chat-template-v1",
             source_family=args.identity_target_sha256 or source_sha,
             fps_num=args.fps_num if args.modality == "video" else 0,
+            sample_rate=args.sample_rate if args.modality == "audio" else 0,
             fps_den=args.fps_den,
         )
         descriptor = {}
