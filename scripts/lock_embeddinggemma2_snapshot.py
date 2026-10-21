@@ -6,6 +6,7 @@ Get the source only by immutable HF commit first, for example:
 This command does not authenticate a model revision against the Hub; it pins
 the bytes already present and records the caller-supplied download revision.
 """
+
 from __future__ import annotations
 
 import argparse

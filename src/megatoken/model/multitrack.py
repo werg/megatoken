@@ -82,7 +82,9 @@ class ObservedEvent:
         if self.extractor and (self.modality == "text" or not isinstance(self.payload, Tensor)):
             raise ValueError("External features require a media tensor and pinned extractor")
         if self.modality in {"document", "text_summary"} and not self.extractor:
-            raise ValueError("Compressed text/document must supply pinned EmbeddingGemma2 hidden states")
+            raise ValueError(
+                "Compressed text/document must supply pinned EmbeddingGemma2 hidden states"
+            )
         if self.source_views and not self.extractor:
             raise ValueError("Multiple ordered views require a declared primary extractor")
         if self.extractor:

@@ -10,6 +10,7 @@ must already live under --output. Optional --text-episodes-jsonl imports
 schema-v3 original native text episodes into the required text training stream.
 This script never generates media or teacher labels and cannot fill missing data.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from megatoken.data import DedupConfig, DedupStore, Episode, Lineage, PhysicalRecord
-from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAsset, TensorAssetStore
+from megatoken.data.media_assets import (
+    MEDIA_RECORD_TYPE,
+    MediaRecord,
+    TensorAsset,
+    TensorAssetStore,
+)
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
 from megatoken.data.storage import export_prepared
 from megatoken.loading import load_codec
@@ -68,17 +74,27 @@ def make_identity_episode(store, record, *, source_path: Path, index: int):
     records = (
         PhysicalRecord("prompt", "user", note),
         PhysicalRecord(
-            "reproduction", "assistant", refs.to_bytes(), turn_index=1,
-            policy_mask=True, media_type=MEDIA_RECORD_TYPE, provenance="teacher",
+            "reproduction",
+            "assistant",
+            refs.to_bytes(),
+            turn_index=1,
+            policy_mask=True,
+            media_type=MEDIA_RECORD_TYPE,
+            provenance="teacher",
         ),
     )
     tracks = (TrackSpec("prompt", "user"), TrackSpec("reproduction", "assistant"))
     meridians = (
         Meridian(0, (TrackEvent("prompt", "prompt", "text", 0, "user"),)),
         Meridian(
-            1, (
+            1,
+            (
                 TrackEvent(
-                    "reproduction", "reproduction", modality, 1, "assistant",
+                    "reproduction",
+                    "reproduction",
+                    modality,
+                    1,
+                    "assistant",
                     asset_sha256=target.sha256,
                 ),
             ),
@@ -88,9 +104,12 @@ def make_identity_episode(store, record, *, source_path: Path, index: int):
     if len(teacher_rev) != 40:
         raise ValueError("Unpinned original teacher model revision")
     return Episode(
-        episode_id, records, Lineage("embeddinggemma2-identity", teacher_rev, family_id),
+        episode_id,
+        records,
+        Lineage("embeddinggemma2-identity", teacher_rev, family_id),
         stream=f"embeddinggemma2_{modality}_identity",
-        tracks=tracks, meridians=meridians,
+        tracks=tracks,
+        meridians=meridians,
     )
 
 
@@ -98,7 +117,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pairs-jsonl", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--codec", required=True, help="Exact text codec; use 'byte' for offline smoke tests")
+    parser.add_argument(
+        "--codec", required=True, help="Exact text codec; use 'byte' for offline smoke tests"
+    )
     parser.add_argument("--text-episodes-jsonl", type=Path, default=None)
     args = parser.parse_args()
     root = args.output
@@ -123,11 +144,10 @@ def main() -> None:
             if args.text_episodes_jsonl is not None:
                 for _, record in read_rows(args.text_episodes_jsonl):
                     episode = Episode.from_dict(record)
-                    if any(
-                        e.modality != "text"
-                        for m in episode.meridians for e in m.events
-                    ):
-                        raise ValueError("Native text warmup must not smuggle media through raw bytes")
+                    if any(e.modality != "text" for m in episode.meridians for e in m.events):
+                        raise ValueError(
+                            "Native text warmup must not smuggle media through raw bytes"
+                        )
                     dedup.add(replace(episode, stream="embeddinggemma2_text_pretraining"), codec)
                     counters["text"] += 1
         if not all(counters[m] for m in ("audio", "image", "video")):
@@ -136,16 +156,21 @@ def main() -> None:
             raise ValueError("Import native original text episodes to populate the text lane")
         dedup.freeze()
         result = export_prepared(
-            dedup, root, codec=codec,
-            source_receipts=[{
-                "name": "embeddinggemma2_hidden_identity_pairs",
-                "pairs_sha256": hashlib.sha256(args.pairs_jsonl.read_bytes()).hexdigest(),
-                "text_sha256": (
-                    hashlib.sha256(args.text_episodes_jsonl.read_bytes()).hexdigest()
-                    if args.text_episodes_jsonl else None
-                ),
-                "counts": counters,
-            }],
+            dedup,
+            root,
+            codec=codec,
+            source_receipts=[
+                {
+                    "name": "embeddinggemma2_hidden_identity_pairs",
+                    "pairs_sha256": hashlib.sha256(args.pairs_jsonl.read_bytes()).hexdigest(),
+                    "text_sha256": (
+                        hashlib.sha256(args.text_episodes_jsonl.read_bytes()).hexdigest()
+                        if args.text_episodes_jsonl
+                        else None
+                    ),
+                    "counts": counters,
+                }
+            ],
             pipeline_fingerprint="embeddinggemma2-internal-hidden-identity-v1",
         )
     finally:

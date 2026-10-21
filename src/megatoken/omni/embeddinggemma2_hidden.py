@@ -5,6 +5,7 @@ forward-pre-hook captures ordered [B,T,512] states immediately before that
 projection, after modality adapters and the bidirectional text backbone.
 Only local, immutable, revision-pinned snapshots are permitted.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -31,8 +32,10 @@ def verify_local_snapshot(path: Path, revision: str) -> None:
     files = lock.get("sha256")
     if (
         set(lock) != {"model", "revision", "sha256"}
-        or lock["model"] != SNAPSHOT_MODEL or lock["revision"] != revision
-        or not isinstance(files, dict) or not files
+        or lock["model"] != SNAPSHOT_MODEL
+        or lock["revision"] != revision
+        or not isinstance(files, dict)
+        or not files
     ):
         raise ValueError("Teacher snapshot/processor revision identity mismatch")
     present = set()
@@ -51,7 +54,6 @@ def verify_local_snapshot(path: Path, revision: str) -> None:
             raise ValueError(f"Teacher artifact checksum differs: {relative}")
     if present != set(files):
         raise ValueError("Teacher lock includes missing or extra files")
-
 
 
 def hidden_identity(revision: str, *, preprocessing: str = "chat-template-v1") -> str:
@@ -73,10 +75,12 @@ class HiddenObservation:
         if self.modality not in _MODALITIES:
             raise ValueError("Unsupported EmbeddingGemma2 hidden-state modality")
         if (
-            self.features.ndim != 3 or self.features.shape[0] != 1
+            self.features.ndim != 3
+            or self.features.shape[0] != 1
             or self.features.shape[-1] != 512
             or self.mask.shape != self.features.shape[:2]
-            or self.mask.dtype != torch.bool or not bool(self.mask.any())
+            or self.mask.dtype != torch.bool
+            or not bool(self.mask.any())
             or not bool(torch.isfinite(self.features).all())
             or not self.extractor.startswith("embeddinggemma2:")
         ):
@@ -109,8 +113,12 @@ class EmbeddingGemma2HiddenExtractor:
         if not path.is_dir() or not (path / "config.json").is_file():
             raise FileNotFoundError("A downloaded local EmbeddingGemma2 snapshot is required")
         verify_local_snapshot(path, revision)
-        model = AutoModel.from_pretrained(path, local_files_only=True, trust_remote_code=False).to(device)
-        processor = AutoProcessor.from_pretrained(path, local_files_only=True, trust_remote_code=False)
+        model = AutoModel.from_pretrained(path, local_files_only=True, trust_remote_code=False).to(
+            device
+        )
+        processor = AutoProcessor.from_pretrained(
+            path, local_files_only=True, trust_remote_code=False
+        )
         return cls(model, processor, revision=revision)
 
     @torch.no_grad()
@@ -122,7 +130,9 @@ class EmbeddingGemma2HiddenExtractor:
         # Documents are text after auditable parsing; scanned pages must be
         # rendered separately as images. Do not pretend the model decodes PDFs.
         kind = "text" if modality == "document" else modality
-        content = {"type": "text", "text": source} if kind == "text" else {"type": kind, "url": source}
+        content = (
+            {"type": "text", "text": source} if kind == "text" else {"type": kind, "url": source}
+        )
         conversation = [{"role": "user", "content": [content]}]
         inputs = self.processor.apply_chat_template(
             conversation, tokenize=True, return_dict=True, return_tensors="pt"
@@ -131,14 +141,18 @@ class EmbeddingGemma2HiddenExtractor:
             raise ValueError("Processor did not preserve a valid-token mask")
         mask = inputs["attention_mask"].bool()
         if mask.ndim != 2 or mask.shape[0] != 1 or int(mask.sum()) > max_tokens:
-            raise ValueError("Teacher context exceeds the declared token budget; chunk or sample first")
+            raise ValueError(
+                "Teacher context exceeds the declared token budget; chunk or sample first"
+            )
         # Hook rather than last_hidden_state: the latter is *already* projected
         # to 768, as is any SentenceTransformer.encode() result.
         captured: list[Tensor] = []
+
         def capture(module, arguments):
             if len(arguments) != 1:
                 raise RuntimeError("Unexpected EmbeddingGemma2 projection signature")
             captured.append(arguments[0].detach())
+
         handle = self.model.language_model.embedding_projection.register_forward_pre_hook(capture)
         try:
             device = next(self.model.parameters()).device

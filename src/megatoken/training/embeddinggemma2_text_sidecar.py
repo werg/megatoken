@@ -4,6 +4,7 @@ JSONL rows are the descriptor JSON emitted by cache_embeddinggemma2_hidden.py.
 The source SHA256 must match actual prepared record bytes. Teacher vectors are
 never substituted for native byte E or exposed as next-token targets.
 """
+
 from __future__ import annotations
 
 import hashlib

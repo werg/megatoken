@@ -147,7 +147,9 @@ class TrainConfig:
 
     def __post_init__(self) -> None:
         if isinstance(self.embeddinggemma2_media_workers, list):
-            object.__setattr__(self, "embeddinggemma2_media_workers", tuple(self.embeddinggemma2_media_workers))
+            object.__setattr__(
+                self, "embeddinggemma2_media_workers", tuple(self.embeddinggemma2_media_workers)
+            )
         if isinstance(self.decoupled, dict):
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
@@ -220,19 +222,27 @@ class TrainConfig:
             if not self.embeddinggemma2_media_workers:
                 raise ValueError("Warmup needs at least one explicit media worker ID")
             count = self.decoupled.workers if self.decoupled is not None else 1
-            if len(set(self.embeddinggemma2_media_workers)) != len(self.embeddinggemma2_media_workers) or any(
+            if len(set(self.embeddinggemma2_media_workers)) != len(
+                self.embeddinggemma2_media_workers
+            ) or any(
                 type(i) is not int or not 0 <= i < count for i in self.embeddinggemma2_media_workers
             ):
                 raise ValueError("Media worker IDs must be unique members of the DiLoCo group")
             if self.decoupled is not None and len(self.embeddinggemma2_media_workers) == count:
                 raise ValueError("At least one DiLoCo learner must perform native text pretraining")
-            if self.embeddinggemma2_text_sidecar is None and count > len(self.embeddinggemma2_media_workers):
-                raise ValueError("Text warmup requires a pinned text hidden-state alignment sidecar")
+            if self.embeddinggemma2_text_sidecar is None and count > len(
+                self.embeddinggemma2_media_workers
+            ):
+                raise ValueError(
+                    "Text warmup requires a pinned text hidden-state alignment sidecar"
+                )
             if self.concordance_recipe is not None:
                 raise ValueError("Concordance editing follows, not precedes, frozen warmup")
         elif (
-            self.embeddinggemma2_media_workers or self.embeddinggemma2_text_sidecar
-            or self.embeddinggemma2_text_recipe or self.embeddinggemma2_media_recipe
+            self.embeddinggemma2_media_workers
+            or self.embeddinggemma2_text_sidecar
+            or self.embeddinggemma2_text_recipe
+            or self.embeddinggemma2_media_recipe
         ):
             raise ValueError("Teacher warmup settings need embeddinggemma2_warmup=true")
         if not 0 < self.embeddinggemma2_text_weight <= 1:

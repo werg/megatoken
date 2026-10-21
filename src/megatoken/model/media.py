@@ -266,7 +266,8 @@ class MediaStems(nn.Module):
         self.view_dropout = config.media_view_dropout
         self.unified_projection = (
             nn.Linear(config.embeddinggemma2_hidden_dim, config.source_dim, bias=False)
-            if config.embeddinggemma2_hidden_dim else None
+            if config.embeddinggemma2_hidden_dim
+            else None
         )
         self.external_audio = (
             nn.Linear(config.audio_feature_dim, config.source_dim, bias=False)
@@ -309,7 +310,9 @@ class MediaStems(nn.Module):
 
     def encode(self, core, modality: str, value: Tensor, *, sample_rate: int = AUDIO_SAMPLE_RATE):
         if self.unified_projection is not None:
-            raise ValueError("Unified EmbeddingGemma2 mode requires pinned hidden-state features, not raw media")
+            raise ValueError(
+                "Unified EmbeddingGemma2 mode requires pinned hidden-state features, not raw media"
+            )
         if modality == "audio":
             features = self.audio(value, sample_rate=sample_rate)
         elif modality in {"image", "video"}:
@@ -371,7 +374,11 @@ class MediaStems(nn.Module):
             identity, tokens, valid = views[0]
             if identity != core.config.embeddinggemma2_hidden_id:
                 raise ValueError("Unified teacher hidden-state identity mismatch")
-            if valid.shape != tokens.shape[:2] or valid.dtype != torch.bool or not bool(valid.any(dim=1).all()):
+            if (
+                valid.shape != tokens.shape[:2]
+                or valid.dtype != torch.bool
+                or not bool(valid.any(dim=1).all())
+            ):
                 raise ValueError("Unified hidden-state mask must be nonempty and boolean")
             if tokens.device != core.initial_facets.device:
                 raise ValueError("Unified teacher hidden states must be on the model device")
@@ -437,8 +444,10 @@ class MediaStems(nn.Module):
             raise ValueError("Every E view needs tensor/kind/extractor provenance")
         if self.unified_projection is not None:
             if len(tensors) != 1 or kinds[0] != "features":
-                raise ValueError("Unified mode accepts exactly one cached EmbeddingGemma2 hidden state")
-            mask = (masks[0] if masks else None)
+                raise ValueError(
+                    "Unified mode accepts exactly one cached EmbeddingGemma2 hidden state"
+                )
+            mask = masks[0] if masks else None
             if mask is None:
                 mask = torch.ones(tensors[0].shape[:2], dtype=torch.bool, device=tensors[0].device)
             return self.encode_views(core, modality, ((extractors[0], tensors[0], mask),))

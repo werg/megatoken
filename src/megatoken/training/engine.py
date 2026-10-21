@@ -702,7 +702,9 @@ def train(
             meter="G" if config.budget_meter == "G" else PHASES[config.phase].meter,
         )
         if config.embeddinggemma2_warmup and not model_config.embeddinggemma2_hidden_dim:
-            raise ValueError("EmbeddingGemma2 warmup must pin the internal hidden-state model geometry")
+            raise ValueError(
+                "EmbeddingGemma2 warmup must pin the internal hidden-state model geometry"
+            )
         optimizer = MasterAdamW(
             model,
             phase.learning_rate(0),
@@ -713,7 +715,11 @@ def train(
             from megatoken.training.embeddinggemma2_warmup import freeze_other_owners
 
             trainable = freeze_other_owners(optimizer, model, config.embeddinggemma2_lane)
-            logger.log("unified_warmup_lane", lane=config.embeddinggemma2_lane, trainable_owners=len(trainable))
+            logger.log(
+                "unified_warmup_lane",
+                lane=config.embeddinggemma2_lane,
+                trainable_owners=len(trainable),
+            )
         if config.representation_training == "recurrent" and not config.embeddinggemma2_warmup:
             # Contextual codec auxiliaries use frozen C/R with E gradients only.
             # Independent clipping prevents their norm scaling the main update.
@@ -742,8 +748,10 @@ def train(
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
         active_omni_recipe = (
-            config.embeddinggemma2_media_recipe if config.embeddinggemma2_lane == "media"
-            else config.embeddinggemma2_text_recipe if config.embeddinggemma2_lane == "text"
+            config.embeddinggemma2_media_recipe
+            if config.embeddinggemma2_lane == "media"
+            else config.embeddinggemma2_text_recipe
+            if config.embeddinggemma2_lane == "text"
             else config.omni_recipe
         )
         if active_omni_recipe is not None and config.concordance_recipe is not None:
@@ -1052,11 +1060,14 @@ def train(
             document_denom = context.sum_counts({"document_chunks": doc_local})["document_chunks"]
             text_anchor_local = sum(
                 entry.payload in text_hidden_sidecar
-                for batch in batches for step in batch.steps
+                for batch in batches
+                for step in batch.steps
                 for entry, modality in zip(step.records, step.modalities, strict=True)
                 if text_hidden_sidecar is not None and modality == "text"
             )
-            text_anchor_denom = context.sum_counts({"text_hidden": text_anchor_local})["text_hidden"]
+            text_anchor_denom = context.sum_counts({"text_hidden": text_anchor_local})[
+                "text_hidden"
+            ]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -1098,11 +1109,15 @@ def train(
 
                 media_count = sum(
                     isinstance(plan, MediaPlan)
-                    for batch in batches for step in batch.steps for plan in step.plans
+                    for batch in batches
+                    for step in batch.steps
+                    for plan in step.plans
                 )
                 media_denom = context.sum_counts({"unified_media": media_count})["unified_media"]
                 if not media_denom:
-                    raise RuntimeError("Media warmup dataset must contain identity media reconstruction pairs")
+                    raise RuntimeError(
+                        "Media warmup dataset must contain identity media reconstruction pairs"
+                    )
             for batch in batches:
                 if media_lane:
                     value, count = media_warmup_batch(model, batch, media_store, context.device)
@@ -1127,7 +1142,9 @@ def train(
                         text_hidden_sidecar,
                         text_anchor_denom,
                         config.embeddinggemma2_text_weight,
-                    ) if config.embeddinggemma2_lane == "text" else None,
+                    )
+                    if config.embeddinggemma2_lane == "text"
+                    else None,
                     retrieval_aux=(
                         retrieval_examples,
                         retrieval_recipe,

@@ -5,15 +5,13 @@ does not enter C, P, hidden KV, or the renderers; only its cached hidden states
 are read by the trainable bridge. Train one media event at a time so the native
 audio and image/video loss units remain per-event.
 """
-from __future__ import annotations
 
-from collections.abc import Iterable
+from __future__ import annotations
 
 import torch
 from torch import Tensor
 
 from megatoken.model.media import MediaTrainTarget
-from megatoken.model.state import RealizationContext
 
 
 def reconstruction_loss(model, target: MediaTrainTarget) -> Tensor:
@@ -27,7 +25,10 @@ def reconstruction_loss(model, target: MediaTrainTarget) -> Tensor:
         raise ValueError("Enable the pinned EmbeddingGemma2 internal hidden-state geometry")
     if target.modality not in {"audio", "image", "video"}:
         raise ValueError("Only physical media have autoencoder reconstruction heads")
-    if target.source_kind != "features" or target.extractor != core.config.embeddinggemma2_hidden_id:
+    if (
+        target.source_kind != "features"
+        or target.extractor != core.config.embeddinggemma2_hidden_id
+    ):
         raise ValueError("Autoencoder source must be the pinned EmbeddingGemma2 hidden-state cache")
     if target.views or target.source_masks or len(target.source_views) > 1:
         raise ValueError("Autoencoder warmup expects exactly one unified teacher hidden-state view")
@@ -82,7 +83,9 @@ def prepared_media_events(batch, store, device):
 
 def media_warmup_batch(model, batch, store, device):
     """Sum native reconstruction losses and return the event count for global scaling."""
-    values = [reconstruction_loss(model, target) for target in prepared_media_events(batch, store, device)]
+    values = [
+        reconstruction_loss(model, target) for target in prepared_media_events(batch, store, device)
+    ]
     if not values:
         return None, 0
     return torch.stack(values).sum(), len(values)
@@ -108,9 +111,7 @@ def text_hidden_alignment(
     device = model.core.initial_facets.device
     ids, lengths = byte_tensor([text_bytes], device)
     student = model.core.encode_chunk(ids, lengths)
-    teacher = model.core.encode_document_hidden(
-        hidden, extractor=identity, valid=valid
-    ).detach()
+    teacher = model.core.encode_document_hidden(hidden, extractor=identity, valid=valid).detach()
     if student.shape != teacher.shape:
         raise ValueError("Teacher alignment must preserve all raw facet coordinates")
     return (student.float() - teacher.float()).square().mean()
@@ -124,25 +125,40 @@ def warmup_parameter_names(model, lane: str) -> tuple[str, ...]:
     if lane == "joint":
         return tuple(names)
     media = tuple(
-        name for name in names
+        name
+        for name in names
         if name.startswith("core.media_stems.unified_projection.")
         or name.startswith("media_realizers.")
         and (
             name.startswith("media_realizers.pretrained.")
             and (".prefix." in name or ".condition." in name)
             or name.startswith("media_realizers.native.")
-            and (".conditioner." in name or ".condition." in name or ".projector." in name or ".adapter." in name)
+            and (
+                ".conditioner." in name
+                or ".condition." in name
+                or ".projector." in name
+                or ".adapter." in name
+            )
             or name.startswith("media_realizers.")
-            and name.split(".")[1] in {
-                "fuse", "audio_expand", "audio_filter", "visual_features",
-                "visual_positions", "visual_filter"
+            and name.split(".")[1]
+            in {
+                "fuse",
+                "audio_expand",
+                "audio_filter",
+                "visual_features",
+                "visual_positions",
+                "visual_filter",
             }
         )
     )
     if lane == "media" and not media:
         raise ValueError("No trainable media input/output projections are loaded")
-    return media if lane == "media" else tuple(
-        name for name in names if name not in media and not name.startswith("core.media_stems.")
+    return (
+        media
+        if lane == "media"
+        else tuple(
+            name for name in names if name not in media and not name.startswith("core.media_stems.")
+        )
     )
 
 

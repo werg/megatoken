@@ -1,9 +1,9 @@
 """Unified hidden-state media contracts and frozen projection warmup (no HF downloads)."""
+
 from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -32,14 +32,11 @@ from megatoken.training.embeddinggemma2_warmup import (
 from megatoken.training.meridians import MediaPlan
 from megatoken.training.optimizer import MasterAdamW
 
-
 IDENTITY = hidden_identity("d" * 40)
 
 
 def _build():
-    config = ModelConfig.tiny(
-        embeddinggemma2_hidden_dim=512, embeddinggemma2_hidden_id=IDENTITY
-    )
+    config = ModelConfig.tiny(embeddinggemma2_hidden_dim=512, embeddinggemma2_hidden_id=IDENTITY)
     return build_model(config, ByteCodec.byte_fallback(), precision="fp32")
 
 
@@ -74,7 +71,9 @@ class _FakeModel(nn.Module):
         self.register_buffer("hidden", torch.randn(1, 4, 512))
 
     def forward(self, **kwargs):
-        return SimpleNamespace(last_hidden_state=self.language_model.embedding_projection(self.hidden))
+        return SimpleNamespace(
+            last_hidden_state=self.language_model.embedding_projection(self.hidden)
+        )
 
 
 class _FakeProcessor:
@@ -88,9 +87,7 @@ class _FakeProcessor:
 
 def test_teacher_taps_unpooled_internal_512_before_768_projection():
     fake = _FakeModel()
-    extractor = EmbeddingGemma2HiddenExtractor(
-        fake, _FakeProcessor(), revision="d" * 40
-    )
+    extractor = EmbeddingGemma2HiddenExtractor(fake, _FakeProcessor(), revision="d" * 40)
     result = extractor.encode("video", "sample.mp4")
     assert result.features.shape == (1, 4, 512)
     assert result.mask.tolist() == [[True, True, True, False]]
@@ -112,10 +109,13 @@ def test_unified_media_rejects_legacy_raw_and_unpinned_features():
     with pytest.raises(ValueError, match="fingerprint"):
         core.encode_media_features("image", hidden, extractor="an-unrelated-model")
     with pytest.raises(ValueError, match="one ordered hidden-state"):
-        core.encode_media_views("video", (
-            (IDENTITY, hidden, torch.ones(1, 7, dtype=torch.bool)),
-            (IDENTITY, hidden, torch.ones(1, 7, dtype=torch.bool)),
-        ))
+        core.encode_media_views(
+            "video",
+            (
+                (IDENTITY, hidden, torch.ones(1, 7, dtype=torch.bool)),
+                (IDENTITY, hidden, torch.ones(1, 7, dtype=torch.bool)),
+            ),
+        )
     with pytest.raises(ValueError, match="pinned"):
         ObservedEvent("doc", "document", hidden)
     observed = ObservedEvent("doc", "document", hidden, extractor=IDENTITY)
@@ -162,7 +162,9 @@ def test_same_source_identity_reconstruction_and_finite_gradients(tmp_path):
     target = store.put(np.zeros(128, dtype=np.float32), modality="audio", sample_rate=16000)
     source = store.put(
         np.random.default_rng(2).normal(size=(7, 512)).astype("<f4"),
-        modality="audio", kind="features", extractor=IDENTITY,
+        modality="audio",
+        kind="features",
+        extractor=IDENTITY,
         source_family=target.sha256,
     )
     reference = MediaRecord("audio", source=source, target=target)
@@ -172,17 +174,25 @@ def test_same_source_identity_reconstruction_and_finite_gradients(tmp_path):
     assert count == 1 and numerator.isfinite()
     numerator.backward()
     wrong = store.put(
-        np.ones((7, 512), dtype=np.float32), modality="audio", kind="features",
-        extractor=IDENTITY, source_family="a" * 64,
+        np.ones((7, 512), dtype=np.float32),
+        modality="audio",
+        kind="features",
+        extractor=IDENTITY,
+        source_family="a" * 64,
     )
     bad = MediaPlan(
         MediaRecord("audio", source=wrong, target=target),
-        plan.spec, "bootstrap", 4, 32,
+        plan.spec,
+        "bootstrap",
+        4,
+        32,
     )
     with pytest.raises(ValueError, match="exact original target"):
         media_warmup_batch(
-            model, SimpleNamespace(steps=[SimpleNamespace(plans=[bad])]),
-            store, torch.device("cpu"),
+            model,
+            SimpleNamespace(steps=[SimpleNamespace(plans=[bad])]),
+            store,
+            torch.device("cpu"),
         )
 
 
@@ -209,15 +219,15 @@ def test_text_hidden_sidecar_rejects_substituted_bytes(tmp_path):
         },
     }
     (tmp_path / "sidecar.jsonl").write_text(json.dumps(row) + "\n")
-    cache = TextHiddenSidecar(
-        str(tmp_path / "sidecar.jsonl"), str(tmp_path), extractor=IDENTITY
-    )
+    cache = TextHiddenSidecar(str(tmp_path / "sidecar.jsonl"), str(tmp_path), extractor=IDENTITY)
     assert raw_text in cache
     assert b"substituted" not in cache
     model = _build()
     loss = text_hidden_alignment(
-        model, text_bytes=raw_text,
-        hidden=cache.get(raw_text, torch.device("cpu")), identity=IDENTITY,
+        model,
+        text_bytes=raw_text,
+        hidden=cache.get(raw_text, torch.device("cpu")),
+        identity=IDENTITY,
     )
     assert loss.isfinite()
     (tmp_path / "teacher" / "hidden.f32le").write_bytes(b"substituted")

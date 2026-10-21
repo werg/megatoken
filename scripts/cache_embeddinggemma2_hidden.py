@@ -8,14 +8,13 @@ python scripts/cache_embeddinggemma2_hidden.py --snapshot /models/embeddinggemma
 For document or text the input is UTF-8 source text. Split long documents
 upstream at auditable source boundaries; never silently truncate 8192 tokens.
 """
+
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 from pathlib import Path
-
-import numpy as np
 
 from megatoken.data.media_assets import TensorAssetStore
 from megatoken.omni.embeddinggemma2_hidden import EmbeddingGemma2HiddenExtractor
@@ -25,15 +24,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot", required=True)
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--modality", choices=("text", "document", "image", "audio", "video"), required=True)
+    parser.add_argument(
+        "--modality", choices=("text", "document", "image", "audio", "video"), required=True
+    )
     parser.add_argument("--input", required=True, help="Local immutable original source")
     parser.add_argument("--asset-root", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--max-tokens", type=int, default=8192)
-    parser.add_argument("--identity-target-sha256", default="", help="SHA256 of matching raw/codec target tensor asset, required for autoencoder training")
+    parser.add_argument(
+        "--identity-target-sha256",
+        default="",
+        help="SHA256 of matching raw/codec target tensor asset, required for autoencoder training",
+    )
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--fps-num", type=int, default=0, help="Actual video sampling rate numerator")
-    parser.add_argument("--fps-den", type=int, default=1, help="Actual video sampling rate denominator")
+    parser.add_argument(
+        "--fps-num", type=int, default=0, help="Actual video sampling rate numerator"
+    )
+    parser.add_argument(
+        "--fps-den", type=int, default=1, help="Actual video sampling rate denominator"
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -48,16 +57,22 @@ def main():
             try:
                 import pymupdf
             except ImportError as exc:
-                raise RuntimeError("Install megatoken[omni-documents] for PDF source parsing") from exc
+                raise RuntimeError(
+                    "Install megatoken[omni-documents] for PDF source parsing"
+                ) from exc
             with pymupdf.open(path) as pdf:
                 source = "\\f".join(page.get_text(sort=True) for page in pdf)
             if not source.strip():
-                raise ValueError("Scanned PDF needs visual page extraction, not empty document text")
+                raise ValueError(
+                    "Scanned PDF needs visual page extraction, not empty document text"
+                )
         elif path.suffix.lower() == ".docx":
             try:
                 from docx import Document
             except ImportError as exc:
-                raise RuntimeError("Install megatoken[omni-documents] for DOCX source parsing") from exc
+                raise RuntimeError(
+                    "Install megatoken[omni-documents] for DOCX source parsing"
+                ) from exc
             doc = Document(path)
             source = "\\n".join(p.text for p in doc.paragraphs if p.text.strip())
         else:
@@ -83,16 +98,22 @@ def main():
         store = TensorAssetStore(args.asset_root)
         if args.identity_target_sha256:
             import re
+
             if not re.fullmatch(r"[0-9a-f]{64}", args.identity_target_sha256):
                 parser.error("Identity reconstruction target needs a valid asset SHA256")
         asset = store.put(
-            features, modality=args.modality, kind="features", extractor=observation.extractor,
-            preprocessing_id="chat-template-v1", source_family=args.identity_target_sha256 or source_sha,
+            features,
+            modality=args.modality,
+            kind="features",
+            extractor=observation.extractor,
+            preprocessing_id="chat-template-v1",
+            source_family=args.identity_target_sha256 or source_sha,
             fps_num=args.fps_num if args.modality == "video" else 0,
             fps_den=args.fps_den,
         )
         descriptor = {}
         from dataclasses import asdict
+
         descriptor["asset"] = asdict(asset)
     else:
         # The same CAS format as media features, but documents/text are not
@@ -106,21 +127,30 @@ def main():
             raise ValueError("Immutable hidden-state cache collision")
         if not target.exists():
             from megatoken.io import atomic_binary_writer
+
             with atomic_binary_writer(target) as stream:
                 stream.write(data)
-        descriptor = {"asset": {"kind": "features", "path": str(relative),
-                                  "sha256": digest, "shape": list(features.shape),
-                                  "extractor": observation.extractor}}
-    descriptor.update({
-        "format": "megatoken.embeddinggemma2.hidden.v1",
-        "source_sha256": source_sha,
-        "identity_target_sha256": args.identity_target_sha256,
-        "modality": args.modality,
-        "hidden_tap": "language_model.embedding_projection:input",
-        "teacher_revision": args.revision,
-        "preprocessing_id": "chat-template-v1",
-        "valid_tokens": len(features),
-    })
+        descriptor = {
+            "asset": {
+                "kind": "features",
+                "path": str(relative),
+                "sha256": digest,
+                "shape": list(features.shape),
+                "extractor": observation.extractor,
+            }
+        }
+    descriptor.update(
+        {
+            "format": "megatoken.embeddinggemma2.hidden.v1",
+            "source_sha256": source_sha,
+            "identity_target_sha256": args.identity_target_sha256,
+            "modality": args.modality,
+            "hidden_tap": "language_model.embedding_projection:input",
+            "teacher_revision": args.revision,
+            "preprocessing_id": "chat-template-v1",
+            "valid_tokens": len(features),
+        }
+    )
     output.write_text(json.dumps(descriptor, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 

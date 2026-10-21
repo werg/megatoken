@@ -252,7 +252,9 @@ def _media_plan(model: Any, entry: EncodedRecord, modality: str, config: Any) ->
             feature_width = model.config.embeddinggemma2_hidden_dim
         else:
             feature_id = (
-                model.config.audio_feature_id if modality == "audio" else model.config.vision_feature_id
+                model.config.audio_feature_id
+                if modality == "audio"
+                else model.config.vision_feature_id
             )
             feature_width = (
                 model.config.audio_feature_dim
@@ -723,7 +725,9 @@ def forward_meridian_batch(
                         raise RuntimeError("Text alignment denominator is missing")
                     hidden = text_cache.get(entry.payload, device)
                     anchor = text_hidden_alignment(
-                        model, text_bytes=entry.payload, hidden=hidden,
+                        model,
+                        text_bytes=entry.payload,
+                        hidden=hidden,
                         identity=model.config.embeddinggemma2_hidden_id,
                     )
                     retrieval_losses.append(anchor * weight / global_count)

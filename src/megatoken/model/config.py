@@ -165,7 +165,9 @@ class ModelConfig:
                 r"embeddinggemma2:[0-9a-f]{40}:language_model\.embedding_projection:input:chat-template-v1",
                 self.embeddinggemma2_hidden_id,
             ):
-                raise ValueError("Unified teacher requires pinned 512d pre-embedding-projection hidden states")
+                raise ValueError(
+                    "Unified teacher requires pinned 512d pre-embedding-projection hidden states"
+                )
         if min(self.semantic_dim, self.semantic_value_dim, self.max_kb_positions) <= 0:
             raise ValueError(
                 "Retrieval embedding, free semantic memory and full-facet KB "
@@ -242,7 +244,8 @@ class ModelConfig:
             self.vision_codec_feature_id,
         ) + (
             (self.embeddinggemma2_hidden_dim, self.embeddinggemma2_hidden_id)
-            if self.embeddinggemma2_hidden_dim else ()
+            if self.embeddinggemma2_hidden_dim
+            else ()
         )
 
     @classmethod
