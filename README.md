@@ -77,3 +77,7 @@ See [the preparation/order/status ledger](docs/retrieval-memory-implementation-s
 A merge/production launch requires: complete CPU and Python-version tests, GPU/native attention gradient and RoPE parity, true multi-rank sparse/global-router equivalence, checkpoint corruption/recovery, full delayed retrieval replay, locality/visibility/negative support checks, teacher source-document and causal-query alignment, valid fresh source/pair writer reproduction, no-memory regressions and new-source task uptake. Passing structural tests does not assert these learned-quality results.
 
 The development PR stays **draft until verified**, but the architecture is not optional.
+
+## Unified EmbeddingGemma2 hidden-state ingestion (experimental)
+
+The optional shared image/audio/video and compressed document/text input route uses the **512-wide internal EmbeddingGemma2 hidden states**, not its pooled 768-dimensional embedding output. Frozen-teacher caches project into the canonical 32 raw facets; a parallel DiLoCo warmup trains media E→R projections alongside native text E/C/P/R with text anchors. See [the architecture and training recipe](docs/embeddinggemma2-unified-warmup.md), [warmup configuration](configs/train/embeddinggemma2-parallel-warmup.example.yaml), and [joint editing example](configs/train/embeddinggemma2-joint-edit.example.yaml). No media-quality or GPU-training results are implied by these contracts.
