@@ -294,3 +294,40 @@ same unified source contract: exactly one 512-wide feature view with the
 model-pinned EmbeddingGemma2 extractor identity. Raw PCM/pixels and legacy
 Whisper/vision donors are rejected rather than silently mixed with this path.
 This does not alter the native byte-exact text ingestion route.
+
+### Prepared compressed document/text input
+
+The optional coarse route now has an auditable **training** event as well as
+`MultiTrackGenerator.observe_group(ObservedEvent(...))` serving support.
+Use the existing `scripts/cache_embeddinggemma2_hidden.py` for
+`--modality document` (parsed PDF/DOCX or text) or `--modality text` (long
+text chunk); then convert the descriptor to a canonical reference:
+
+```bash
+python scripts/pack_embeddinggemma2_text_reference.py \\
+  --descriptor /datasets/unified/teacher/doc.json \\
+  --asset-root /datasets/unified \\
+  --output /datasets/unified/teacher/doc.ref.json
+```
+
+Include the **exact resulting bytes**, not the original JSON descriptor, in
+an observed `PhysicalRecord` with
+`media_type="application/vnd.megatoken.embeddinggemma2-hidden+json"`.
+Declare `TrackEvent.modality="document"` for a parsed document or
+`"text_summary"` for an optional compressed long-text chunk, and set
+`asset_sha256` to the reference's `feature_sha256`. This event consumes
+**one** shared 32-facet megatoken; the teacher's original sequence remains
+strictly bounded to 8192 tokens and is never scored as lexical output.
+Training rejects wrong model revision, altered feature bytes, observed
+reference mismatches, and predicted compressed-reference records. C/P sees
+these as text-role events, but E receives the frozen 512-wide teacher feature
+sequence through the **same** input projection as audio/image/video.
+
+The canonical native byte-exact E route remains mandatory for quotations,
+fine-grained document edits, span evidence, and text copy losses. This path is
+an *alternative*, lossy semantic/compressed input route: use multiple pinned
+segments/events for larger or more detailed documents, including separately
+encoded image page crops for scanned documents. Feature asset root, original
+document digest, parsed text digest, and teacher revision must all remain
+pinned in the prepared training set; compressing input does not prove an
+invertible autoencoder.

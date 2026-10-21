@@ -20,6 +20,7 @@ from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import EncodedRecord
+from megatoken.data.text_hidden import TEXT_HIDDEN_RECORD_TYPE, TextHiddenReference
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.model.media import AUDIO_SAMPLE_RATE, MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
@@ -466,7 +467,19 @@ def prepare_meridian_batch(
                 ):
                     raise ValueError("Media event modality/source hash differs from its asset")
                 _validate_media_source(model, ref, event.modality)
-            elif record.record.media_type == MEDIA_RECORD_TYPE or (
+            elif event.modality in {"document", "text_summary"}:
+                if record.record.media_type != TEXT_HIDDEN_RECORD_TYPE:
+                    raise ValueError("Compressed document event needs a pinned hidden reference")
+                reference = TextHiddenReference.from_bytes(record.payload)
+                if (
+                    reference.modality != event.modality
+                    or record.record.policy_mask
+                    or (event.asset_sha256 and event.asset_sha256 != reference.feature_sha256)
+                    or model.config.embeddinggemma2_hidden_dim != 512
+                    or reference.extractor != model.config.embeddinggemma2_hidden_id
+                ):
+                    raise ValueError("Document evidence and pinned teacher identity disagree")
+            elif record.record.media_type in {MEDIA_RECORD_TYPE, TEXT_HIDDEN_RECORD_TYPE} or (
                 record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
             ):
                 raise ValueError("Media payload cannot be ingested on a text track")
@@ -554,7 +567,18 @@ def _actual_raw(
             ).reshape(1, model.config.n_facets, model.config.facet_dim)
         else:
             with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
-                if modality in {"audio", "image", "video"}:
+                if entry.record.media_type == TEXT_HIDDEN_RECORD_TYPE:
+                    reference = TextHiddenReference.from_bytes(entry.payload)
+                    if (
+                        model.config.embeddinggemma2_hidden_dim != 512
+                        or reference.extractor != model.config.embeddinggemma2_hidden_id
+                    ):
+                        raise ValueError("Compressed document encoder fingerprint differs")
+                    hidden = torch.from_numpy(reference.load(store.root)).to(device)[None]
+                    raw = model.core.encode_document_hidden(
+                        hidden, extractor=reference.extractor
+                    )
+                elif modality in {"audio", "image", "video"}:
                     source = MediaRecord.from_bytes(entry.payload).source
                     signal = torch.from_numpy(store.load(source)).to(device)[None]
                     reference = MediaRecord.from_bytes(entry.payload)

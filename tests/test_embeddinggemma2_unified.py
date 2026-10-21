@@ -408,3 +408,119 @@ def test_checkpoint_restore_reinstalls_pinned_native_media_pack(tmp_path, monkey
     with pytest.raises(ValueError, match="pack manifest checksum"):
         loading.load_trained(tmp_path / "checkpoint", device="cpu")
     assert created == [str(manifest)]
+
+
+def test_prepared_document_and_long_text_are_real_teacher_ingestion(tmp_path):
+    from megatoken.data.schema import (
+        Meridian,
+        PhysicalRecord,
+        TrackEvent,
+        TrackSpec,
+        encode_record,
+    )
+    from megatoken.data.text_hidden import TEXT_HIDDEN_RECORD_TYPE, TextHiddenReference
+    from megatoken.training.meridians import MeridianStep, _actual_raw
+
+    model = _build()
+    codec = ByteCodec.byte_fallback()
+    features = np.random.default_rng(11).normal(size=(7, 512)).astype("<f4")
+    data = features.tobytes()
+    digest = hashlib.sha256(data).hexdigest()
+    (tmp_path / "teacher").mkdir()
+    asset_file = tmp_path / "teacher" / f"{digest}.f32le"
+    asset_file.write_bytes(data)
+    source_sha = hashlib.sha256(b"full document bytes").hexdigest()
+    content_sha = hashlib.sha256(b"parsed document content").hexdigest()
+
+    for original_kind, event_kind in (
+        ("document", "document"),
+        ("text", "text_summary"),
+    ):
+        descriptor = {
+            "format": "megatoken.embeddinggemma2.hidden.v1",
+            "modality": original_kind,
+            "source_sha256": source_sha,
+            "teacher_input_sha256": content_sha,
+            "hidden_tap": "language_model.embedding_projection:input",
+            "preprocessing_id": "chat-template-v1",
+            "teacher_revision": "d" * 40,
+            "valid_tokens": 7,
+            "asset": {
+                "kind": "features",
+                "path": f"teacher/{digest}.f32le",
+                "sha256": digest,
+                "extractor": IDENTITY,
+                "shape": [7, 512],
+            },
+        }
+        reference = TextHiddenReference.from_cache_descriptor(descriptor)
+        assert reference.modality == event_kind
+        payload = reference.to_bytes()
+        assert TextHiddenReference.from_bytes(payload) == reference
+        record = PhysicalRecord(
+            "doc",
+            "document",
+            payload,
+            media_type=TEXT_HIDDEN_RECORD_TYPE,
+        )
+        event = TrackEvent(
+            "doc", "doc", event_kind, 0, "document", asset_sha256=digest
+        )
+        assert Meridian(0, (event,)).events[0].modality == event_kind
+        assert TrackSpec("doc", "document").track_id == "doc"
+        encoded = encode_record(record, codec)
+        assert encoded.token_ids == () and encoded.transcript_tokens == 0
+        step = MeridianStep(
+            0, ("doc",), (4,), (0,), (encoded,), modalities=("text",)
+        )
+        observed = _actual_raw(
+            model,
+            step,
+            SimpleNamespace(paired_tape=lambda cursor: None),
+            TensorAssetStore(tmp_path),
+            torch.device("cpu"),
+            encoder_grad=False,
+        )
+        assert observed.shape == (1, 1, 4, 32)
+        expected = model.core.encode_document_hidden(
+            torch.from_numpy(features)[None], extractor=IDENTITY
+        )
+        torch.testing.assert_close(observed[:, 0], expected)
+        with pytest.raises(ValueError, match="never lexical"):
+            encode_record(
+                PhysicalRecord(
+                    "doc", "document", payload, policy_mask=True,
+                    media_type=TEXT_HIDDEN_RECORD_TYPE
+                ),
+                codec,
+            )
+
+    asset_file.write_bytes(b"tampered features")
+    with pytest.raises(ValueError, match="checksum/width"):
+        reference.load(tmp_path)
+
+
+def test_compressed_document_cannot_escape_pinned_teacher_cache(tmp_path):
+    from megatoken.data.text_hidden import TextHiddenReference
+
+    reference = TextHiddenReference(
+        modality="document",
+        extractor=IDENTITY,
+        feature_sha256="a" * 64,
+        source_sha256="b" * 64,
+        teacher_input_sha256="c" * 64,
+        tokens=7,
+    )
+    with pytest.raises(ValueError, match="missing"):
+        reference.load(tmp_path)
+    with pytest.raises(ValueError, match="canonical"):
+        TextHiddenReference.from_bytes(json.dumps(json.loads(reference.to_bytes())).encode())
+    with pytest.raises(ValueError, match="immutable"):
+        TextHiddenReference(
+            modality="document",
+            extractor="mutable:latest",
+            feature_sha256="a" * 64,
+            source_sha256="b" * 64,
+            teacher_input_sha256="c" * 64,
+            tokens=7,
+        )
