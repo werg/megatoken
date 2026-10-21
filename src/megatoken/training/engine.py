@@ -717,6 +717,15 @@ def train(
             # Independent clipping prevents their norm scaling the main update.
             optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
         windows_config = window_config(config)
+        text_hidden_sidecar = None
+        if config.embeddinggemma2_text_sidecar:
+            from megatoken.training.embeddinggemma2_text_sidecar import TextHiddenSidecar
+
+            text_hidden_sidecar = TextHiddenSidecar(
+                config.embeddinggemma2_text_sidecar,
+                config.media_root or config.dataset,
+                extractor=model_config.embeddinggemma2_hidden_id,
+            )
         dataset = PreparedDataset(config.dataset)
         if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
             raise ValueError("Prepared dataset uses a different codec")
@@ -1027,6 +1036,13 @@ def train(
                 for r in step.records
             )
             document_denom = context.sum_counts({"document_chunks": doc_local})["document_chunks"]
+            text_anchor_local = sum(
+                entry.payload in text_hidden_sidecar
+                for batch in batches for step in batch.steps
+                for entry, modality in zip(step.records, step.modalities, strict=True)
+                if text_hidden_sidecar is not None and modality == "text"
+            )
+            text_anchor_denom = context.sum_counts({"text_hidden": text_anchor_local})["text_hidden"]
             if not any(global_counts.values()):
                 raise RuntimeError(
                     "Accumulation window contains no supervision; audit role/turn masks"
@@ -1058,7 +1074,34 @@ def train(
             optimizer.set_lr(learning_rate)
             model.core.dispatch_metrics(reset=True)
             step_diagnostics: dict[str, float | torch.Tensor] = {}
+            media_lane = config.embeddinggemma2_lane == "media"
+            if media_lane:
+                from megatoken.data.media_assets import TensorAssetStore
+                from megatoken.training.embeddinggemma2_warmup import media_warmup_batch
+
+                media_store = TensorAssetStore(config.media_root or config.dataset)
+                from megatoken.training.meridians import MediaPlan
+
+                media_count = sum(
+                    isinstance(plan, MediaPlan)
+                    for batch in batches for step in batch.steps for plan in step.plans
+                )
+                media_denom = context.sum_counts({"unified_media": media_count})["unified_media"]
+                if not media_denom:
+                    raise RuntimeError("Media warmup dataset must contain identity media reconstruction pairs")
             for batch in batches:
+                if media_lane:
+                    value, count = media_warmup_batch(model, batch, media_store, context.device)
+                    if count:
+                        assert value is not None
+                        (value / media_denom).backward()
+                        step_diagnostics["unified_media_recon_sum"] = (
+                            step_diagnostics.get("unified_media_recon_sum", 0.0) + value.detach()
+                        )
+                        step_diagnostics["unified_media_events"] = (
+                            step_diagnostics.get("unified_media_events", 0) + count
+                        )
+                    continue
                 diagnostics_batch = forward_meridian_batch(
                     model,
                     batch,
@@ -1066,6 +1109,11 @@ def train(
                     config,
                     context.device,
                     global_step,
+                    text_hidden_aux=(
+                        text_hidden_sidecar,
+                        text_anchor_denom,
+                        config.embeddinggemma2_text_weight,
+                    ) if config.embeddinggemma2_lane == "text" else None,
                     retrieval_aux=(
                         retrieval_examples,
                         retrieval_recipe,
@@ -1078,7 +1126,7 @@ def train(
                 for key, value in diagnostics_batch.items():
                     step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
             ledger.finish()
-            if router_replay is not None:
+            if router_replay is not None and not media_lane:
                 # All ranks participate, including workers with zero eligible
                 # assignments. The model's version remains fixed until step().
                 step_diagnostics.update(

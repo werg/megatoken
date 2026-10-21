@@ -639,6 +639,7 @@ def forward_meridian_batch(
     model_version: int,
     retrieval_aux,
     *,
+    text_hidden_aux=None,
     differentiate: bool = True,
     probe: RetrievalProbe | None = None,
 ) -> dict[str, float | torch.Tensor]:
@@ -706,6 +707,25 @@ def forward_meridian_batch(
                 modalities=step.modalities,
             )
     for step in batch.steps:
+        if text_hidden_aux is not None:
+            text_cache, global_count, weight = text_hidden_aux
+            if text_cache is not None:
+                from megatoken.training.embeddinggemma2_warmup import text_hidden_alignment
+
+                for entry, modality in zip(step.records, step.modalities, strict=True):
+                    if modality != "text" or entry.payload not in text_cache:
+                        continue
+                    if global_count < 1:
+                        raise RuntimeError("Text alignment denominator is missing")
+                    hidden = text_cache.get(entry.payload, device)
+                    anchor = text_hidden_alignment(
+                        model, text_bytes=entry.payload, hidden=hidden,
+                        identity=model.config.embeddinggemma2_hidden_id,
+                    )
+                    retrieval_losses.append(anchor * weight / global_count)
+                    metrics["embeddinggemma2_text_anchors"] = (
+                        metrics.get("embeddinggemma2_text_anchors", 0) + 1
+                    )
         state, replayed = _preceding_native(multi, state, batch.native_history, step)
         metrics["grouped_native_replays"] += replayed
         if step.generated:
