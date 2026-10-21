@@ -319,7 +319,12 @@ Declare `TrackEvent.modality="document"` for a parsed document or
 **one** shared 32-facet megatoken; the teacher's original sequence remains
 strictly bounded to 8192 tokens and is never scored as lexical output.
 Training rejects wrong model revision, altered feature bytes, observed
-reference mismatches, and predicted compressed-reference records. C/P sees
+reference mismatches, and predicted compressed-reference records. The
+`--text-episodes-jsonl` stream importer in
+`scripts/prepare_embeddinggemma2_identity.py` now accepts such observed
+document/text-summary events alongside native lexical targets. It verifies the
+exact referenced assets at preparation time; generated media events are still
+restricted to the separate media worker lanes. C/P sees
 these as text-role events, but E receives the frozen 512-wide teacher feature
 sequence through the **same** input projection as audio/image/video.
 

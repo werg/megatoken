@@ -28,6 +28,7 @@ from megatoken.data.media_assets import (
 )
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
 from megatoken.data.storage import export_prepared
+from megatoken.data.text_hidden import TEXT_HIDDEN_RECORD_TYPE, TextHiddenReference
 from megatoken.loading import load_codec
 from megatoken.omni.embeddinggemma2_hidden import HIDDEN_TAP
 
@@ -120,6 +121,28 @@ def make_identity_episode(store, record, *, source_path: Path, index: int):
     )
 
 
+def validate_text_warmup_episode(episode: Episode, store: TensorAssetStore) -> None:
+    """Fail closed on mixed-source compressed documents in the text lane."""
+    records = {record.record_id: record for record in episode.records}
+    for meridian in episode.meridians:
+        for event in meridian.events:
+            record = records[event.record_id]
+            if event.modality not in {"text", "document", "text_summary"}:
+                raise ValueError("Text warmup must not smuggle media through raw bytes")
+            if event.modality in {"document", "text_summary"}:
+                if record.media_type != TEXT_HIDDEN_RECORD_TYPE or record.policy_mask:
+                    raise ValueError("Compressed document events must be observed references")
+                reference = TextHiddenReference.from_bytes(record.payload)
+                if (
+                    reference.modality != event.modality
+                    or event.asset_sha256 != reference.feature_sha256
+                ):
+                    raise ValueError("Compressed document's causal asset identity differs")
+                reference.load(store.root)
+            elif record.media_type == TEXT_HIDDEN_RECORD_TYPE:
+                raise ValueError("Compressed document cannot masquerade as native text")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pairs-jsonl", type=Path, required=True)
@@ -151,10 +174,7 @@ def main() -> None:
             if args.text_episodes_jsonl is not None:
                 for _, record in read_rows(args.text_episodes_jsonl):
                     episode = Episode.from_dict(record)
-                    if any(e.modality != "text" for m in episode.meridians for e in m.events):
-                        raise ValueError(
-                            "Native text warmup must not smuggle media through raw bytes"
-                        )
+                    validate_text_warmup_episode(episode, store)
                     dedup.add(replace(episode, stream="embeddinggemma2_text_pretraining"), codec)
                     counters["text"] += 1
         if not all(counters[m] for m in ("audio", "image", "video")):

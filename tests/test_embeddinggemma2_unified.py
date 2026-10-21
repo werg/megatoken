@@ -519,3 +519,56 @@ def test_compressed_document_cannot_escape_pinned_teacher_cache(tmp_path):
             teacher_input_sha256="c" * 64,
             tokens=7,
         )
+
+
+def test_text_lane_preparation_accepts_pinned_document_not_media(tmp_path):
+    from megatoken.data import Episode, Lineage, PhysicalRecord
+    from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
+    from megatoken.data.text_hidden import TEXT_HIDDEN_RECORD_TYPE, TextHiddenReference
+    from scripts.prepare_embeddinggemma2_identity import validate_text_warmup_episode
+
+    array = np.ones((3, 512), dtype="<f4")
+    data = array.tobytes()
+    digest = hashlib.sha256(data).hexdigest()
+    (tmp_path / "teacher").mkdir()
+    (tmp_path / "teacher" / f"{digest}.f32le").write_bytes(data)
+    reference = TextHiddenReference(
+        "document", IDENTITY, digest, "a" * 64, "b" * 64, 3
+    )
+    records = (
+        PhysicalRecord(
+            "doc", "document", reference.to_bytes(), media_type=TEXT_HIDDEN_RECORD_TYPE
+        ),
+        PhysicalRecord("answer", "assistant", b"Summary.", turn_index=1, policy_mask=True),
+    )
+    tracks = (TrackSpec("doc", "document"), TrackSpec("answer", "assistant"))
+    meridians = (
+        Meridian(
+            0,
+            (
+                TrackEvent(
+                    "doc", "doc", "document", 0, "document", asset_sha256=digest
+                ),
+            ),
+        ),
+        Meridian(1, (TrackEvent("answer", "answer", "text", 1, "assistant"),)),
+    )
+    episode = Episode(
+        "doc-then-answer", records, Lineage("original", "rev", "family"),
+        tracks=tracks, meridians=meridians
+    )
+    store = TensorAssetStore(tmp_path)
+    validate_text_warmup_episode(episode, store)
+    wrong = Episode(
+        "wrong-source",
+        records,
+        Lineage("original", "rev", "family"),
+        tracks=tracks,
+        meridians=(
+            Meridian(0, (TrackEvent("doc", "doc", "document", 0, "document",
+                                    asset_sha256="c" * 64),)),
+            meridians[1],
+        ),
+    )
+    with pytest.raises(ValueError, match="causal asset identity"):
+        validate_text_warmup_episode(wrong, store)
