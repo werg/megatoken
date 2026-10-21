@@ -276,12 +276,14 @@ def start(
     *,
     secrets: dict[str, bytes] | None = None,
     files: Callable[[Any], dict[str, bytes]] | None = None,
+    snapshot: tuple[Path, dict[str, str]] | None = None,
     start_timeout: float = 5400,
 ) -> tuple[dict[str, Any], Any]:
     """Create the sandbox and deliver code, inputs and secrets; return its record and handle.
 
     ``files(sandbox)`` may add small generated inputs ({relative path: bytes}) that
-    depend on the created sandbox, such as its own service URL. ``secrets`` are
+    depend on the created sandbox, such as its own service URL. ``snapshot`` (an archive
+    and its ``code_snapshot`` record) lets several sandboxes run one commit. ``secrets`` are
     written as mode-600 files under ``$MEGATOKEN_CW_SECRETS``, never into the
     sandbox spec or environment; inputs from a peer sandbox add that peer's
     share token as ``share-<peer>``.
@@ -292,8 +294,11 @@ def start(
         if item.get("peer"):
             secrets[f"share-{item['peer']}"] = share_token(item["peer"]).encode()
     with tempfile.TemporaryDirectory() as temporary:
-        archive = Path(temporary) / "code.tar.gz"
-        code = code_snapshot(repo, archive)
+        if snapshot is None:
+            archive = Path(temporary) / "code.tar.gz"
+            code = code_snapshot(repo, archive)
+        else:
+            archive, code = snapshot
         pushed = []
         for item in job["inputs"]:
             if item.get("source"):

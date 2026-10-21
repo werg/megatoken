@@ -27,9 +27,7 @@ class CheckpointStore:
         try:
             import boto3
         except ImportError as exc:
-            raise ImportError(
-                "Install megatoken[coreweave] for durable checkpoint storage"
-            ) from exc
+            raise ImportError("Install megatoken[storage] for durable checkpoint storage") from exc
         self.bucket = parsed.netloc
         self.prefix = "/".join(
             x for x in (parsed.path.strip("/"), run_id, f"worker-{worker_id:02d}") if x
@@ -80,7 +78,7 @@ class CheckpointStore:
         try:
             from botocore.exceptions import ClientError
         except ImportError as exc:
-            raise ImportError("Install megatoken[coreweave]") from exc
+            raise ImportError("Install megatoken[storage]") from exc
         try:
             obj = self.s3.get_object(Bucket=self.bucket, Key=self._key("latest.json"))
         except ClientError as exc:

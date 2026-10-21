@@ -31,6 +31,7 @@ import json
 import os
 import secrets
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -173,40 +174,62 @@ def launch(path: Path, repo: Path, *, ready_timeout: float = 3 * 3600) -> dict[s
         raise cloud.CloudError(f"Run {spec['id']} exists; finish it or choose a new id")
     inputs = data_inputs(spec["data"])
     token = secrets.token_urlsafe(48)
-    run: dict[str, Any] = {"id": spec["id"], "workers": spec["workers"], "learners": []}
     _keep_secret(cloud.SECRETS / f"diloco-{spec['id']}.token", token)
-    coordinator_spec = coordinator_job(spec, inputs)
-    entry, _ = cloud.start(
-        coordinator_spec,
-        repo,
-        secrets={"diloco-token": token.encode()},
-        files=lambda sandbox: {URL_FILE: cloud.service_url(sandbox).encode()},
-    )
-    run.update(coordinator=entry["sandbox_id"], url=entry["url"])
-    _run_path(spec["id"]).parent.mkdir(parents=True, exist_ok=True)
-    _run_path(spec["id"]).write_text(json.dumps(run, indent=2))
-    gateway = cloud.share_token(entry["sandbox_id"])
-    # Learners start only once the coordinator answers: its init must finish first.
-    deadline = time.time() + ready_timeout
-    while True:
+    run: dict[str, Any] = {"id": spec["id"], "workers": spec["workers"], "learners": []}
+    started: list[str] = []
+    with tempfile.TemporaryDirectory() as temporary:
+        # Every role runs the same commit.
+        archive = Path(temporary) / "code.tar.gz"
+        snapshot = (archive, cloud.code_snapshot(repo, archive))
         try:
-            run["coordinator_status"] = _status(entry["url"], token, gateway)
-            break
-        except OSError as error:
-            if time.time() > deadline:
-                raise cloud.CloudError(f"Coordinator never became ready: {error}") from error
-            time.sleep(30)
-    for worker in range(spec["workers"]):
-        learner, _ = cloud.start(
-            learner_job(spec, inputs, worker),
-            repo,
-            secrets={"diloco-token": token.encode(), "gateway-token": gateway.encode()},
-            files=lambda sandbox: {URL_FILE: entry["url"].encode()},
-        )
-        run["learners"].append(learner["sandbox_id"])
-        _run_path(spec["id"]).write_text(json.dumps(run, indent=2))
+            entry, _ = cloud.start(
+                coordinator_job(spec, inputs),
+                repo,
+                secrets={"diloco-token": token.encode()},
+                files=lambda sandbox: {URL_FILE: cloud.service_url(sandbox).encode()},
+                snapshot=snapshot,
+            )
+            started.append(entry["sandbox_id"])
+            run.update(coordinator=entry["sandbox_id"], url=entry["url"], commit=entry["commit"])
+            _save(run)
+            gateway = cloud.share_token(entry["sandbox_id"])
+            # Learners start only once the coordinator answers: init must finish first.
+            deadline = time.time() + ready_timeout
+            while True:
+                try:
+                    _status(entry["url"], token, gateway)
+                    break
+                except OSError as error:
+                    if time.time() > deadline:
+                        raise cloud.CloudError(
+                            f"Coordinator never became ready: {error}"
+                        ) from error
+                    time.sleep(30)
+            for worker in range(spec["workers"]):
+                learner, _ = cloud.start(
+                    learner_job(spec, inputs, worker),
+                    repo,
+                    secrets={"diloco-token": token.encode(), "gateway-token": gateway.encode()},
+                    files=lambda sandbox: {URL_FILE: entry["url"].encode()},
+                    snapshot=snapshot,
+                )
+                started.append(learner["sandbox_id"])
+                run["learners"].append(learner["sandbox_id"])
+                _save(run)
+        except BaseException:
+            # A partial phase must not bill: stop every sandbox this launch started.
+            for sandbox_id in started:
+                cloud._attach(sandbox_id).stop(missing_ok=True).result()
+                cloud.record({"event": "stop", "sandbox_id": sandbox_id, "reason": "launch failed"})
+            _run_path(spec["id"]).unlink(missing_ok=True)
+            raise
     cloud.record({"event": "diloco_launched", **{k: v for k, v in run.items() if k != "url"}})
     return run
+
+
+def _save(run: dict[str, Any]) -> None:
+    _run_path(run["id"]).parent.mkdir(parents=True, exist_ok=True)
+    _run_path(run["id"]).write_text(json.dumps(run, indent=2))
 
 
 def _exited(sandbox_id: str) -> bool:
