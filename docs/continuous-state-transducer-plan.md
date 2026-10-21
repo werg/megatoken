@@ -20,7 +20,8 @@ Replace point/pair semantic memory with a **continuous-state transducer**. Each 
 | Learning | Momentum-free, discounted block-scale updates with a local scale prior |
 | Optimizer storage | One FP32 statistic per 256 coordinates, plus a count and timestamp per edge field |
 | Small-update retention | An 8,192-edge FP32 working cache; stochastic rounding on publication; no full-bank master weights |
-| Initialization | Clustered sequences, transition bigrams, and recursively reused patterns |
+| Hindsight | A training-only, inverse-causal hindsight track emits the ideal knowledge value for each lookup. It is trained first, overlaid on retrieval while the bank trains, and is the target and initializer for edge values |
+| Initialization | Clustered sequences, transition bigrams, and recursively reused patterns; values from hindsight |
 | Evolution | A sparse location inserts an edge during training; per-edge utility and gradient-disagreement statistics, accumulated during ordinary training, drive split and remove under a byte budget |
 | Distributed ownership | DiLoCo learners update locally; one coordinator merges and changes structure; late submissions are age-weighted, not rejected; **no outer KB momentum** |
 
@@ -90,14 +91,9 @@ The first ordinary event is a compact metadata prefix containing the available r
 
 A query cannot use the answer it is about to predict. Training targets may update parameters after the forward pass, just as they update transformer weights.
 
-### An anchored wide-value projection
+### A fixed wide-value projection
 
-Decode and blend the 32,768-wide values before projection. The readout is the sum of two paths:
-
-- **Anchor:** the fixed inverse of the value lift (§6). Undo its permutation and average its signed copies, giving a native $[32,512]$ block directly. It has no parameters.
-- **Learned path:** divide the vector into **64 rows of width 512**, add learned row identities, apply a small shared adapter, route the rows through the **existing U expert bank**, and use **32 learned facet queries** to gather a second $[32,512]$ block. Query and search-state summaries condition the routing/readout.
-
-The anchor fixes what a value means in the native facet space the whole model shares. An edge that is not visited for a long time stays readable while the learned path keeps training (§5).
+Decode and blend the 32,768-wide values before projection. Divide the resulting vector into **64 rows of width 512**, add learned row identities, apply a small shared adapter, route the rows through the **existing U expert bank**, and use **32 learned facet queries** to gather a native $[32,512]$ block. Query and search-state summaries condition the routing/readout.
 
 Pass non-null mass separately: form the content readout from $\bar v/a$ and multiply its final raw block by $a$. This avoids losing evidence strength inside normalization or creating full-strength knowledge from projector biases. State movement remains $\bar m$, with no second application of $a$.
 
@@ -106,6 +102,29 @@ Commit this block as an observed event on a reserved knowledge track. It attends
 The query sample is reparameterized during supervised training, so gradients reach P and its embedding realizer. Neighbourhood membership and top-32 selection remain discrete. Unroll **eight ordinary positions** for future-loss credit, preserving complete event groups; gradients pass through the transition operators, so an edge is credited for the neighbourhoods its move makes reachable. Recorded-action policy scoring retains exact raw actions and remains distinct from this supervised path.
 
 Retrieval is a blocking boundary. IO can overlap independent work, but a result may never be applied to a different agenda state or halfway through a committed group. On cancellation, publish neither its state change nor its knowledge event. Internal events advance native history, not the external source-availability clock.
+
+### The hindsight track
+
+The hindsight track is a reserved, **training-only** track with **inverse causal masking**. For each lookup it produces the knowledge value that would have been ideal, judged by what the training sequence actually does next. This follows the hindsight writer in `~/hindsight-kb`, carried out natively on tracks.
+
+Tracks gain a masking mode. Causal is the default: a key is visible when its meridian is at or before the query's. **Inverse** makes a key visible when its meridian is at or after the query's. Within a meridian, attention stays bidirectional as today. Masking becomes an explicit mask built from per-query and per-key meridian and track metadata, replacing today's purely structural causality.
+
+Training runs two passes per sequence:
+
+1. **Inverse pass.** C runs once over the sequence's ordinary events, observed and generated but never query or knowledge events, as the hindsight track with inverse masking. Each meridian's hindsight KV summarizes itself and everything after it. Retrieval does not enter this pass, so there is no circular dependency on the bank. The pass writes a **separate hindsight KV stream**. It is never written to `KVHistory`, and no causal track can read it.
+2. **Hindsight events.** At each lookup $t$, a hindsight event takes the committed query event's raw facets as input. It attends to the hindsight KV of meridians $t+2$ onward, within the existing whole-meridian history bound mirrored forward. The gap of two keeps the very next position out of reach, as in `~/hindsight-kb`'s suffix rule. All hindsight events of a sequence are independent of one another, so they run as one batched C pass. **64 learned row queries** gather C's final $[32,512]$ state into a 32,768-wide value $h_t$. This is the mirror of the readout. $h_t$ is packed to FP4 and decoded, exactly like a stored value, so it carries no more precision than an edge can hold.
+
+The cost is one extra C pass over each sequence plus one hindsight event per lookup. Serving never runs the hindsight track.
+
+**Training order.**
+
+- **Hindsight warm-up (first 16,384 steps).** No bank exists yet. Every knowledge event's value is $h_t$, read through the ordinary readout and committed through C. The future loss trains the hindsight track, readout, P and C together. The state still moves only by edges, so it stays at $s_0$.
+- **Seeding.** Edge values are initialized from $h$ (§6).
+- **Overlay.** Every committed lookup's value becomes $(1-\alpha)\,\bar v_t/a+\alpha\,h_t$ before readout, and the final block is scaled by $(1-\alpha)a+\alpha$ instead of $a$. $\alpha$ anneals linearly from 1 to 0 over 65,536 steps. While $\alpha>0$, every lookup commits; an empty neighbourhood contributes $\bar v_t/a=0$. The model keeps receiving good knowledge while the bank learns to supply it.
+- **Distillation, for the whole run.** Every committed lookup adds $\|\bar v_t/a-\operatorname{sg}(h_t)\|^2$, normalized by the mean square of $h_t$, with weight 1. Through the mixture, this pulls each selected edge's value toward the current hindsight value, in proportion to its weight.
+- **After the overlay ends,** one in eight training sequences runs hindsight-only (every value is $h_t$). This keeps the hindsight track training against the current reader. The other seven use the bank alone, with distillation.
+
+Because the hindsight track is co-trained with the reader, its output is always in the reader's current language. Each visit pulls the bank toward that language, so rows are refreshed by use rather than kept interpretable by an anchor.
 
 ## 4. Low-bit memory that can still learn
 
@@ -156,22 +175,22 @@ The global prior $P_b$ is a recent mean squared-gradient estimate per field/bloc
 
 Discount numerator and count together. After a long absence, confidence returns toward the current prior; an old momentum direction cannot reappear because none is stored. A computed zero gradient is an observation. A row that was not trained is not a stream of zero-gradient observations. Preserve global task-loss normalization; do not divide by visit frequency or retrieval weight and accidentally amplify weak evidence.
 
-### Robust to staleness
+### Staleness
 
-There is no replay. The system is built so that old rows and late updates stay usable:
+There is no replay. Old rows and late updates stay usable as follows:
 
-- **Values** are anchored in the native facet space (§3), so a dormant value keeps its meaning while the learned readout drifts.
+- **Values** are pulled to the current hindsight value on every visit (§3), so a row returning from dormancy is corrected toward the reader's current language at once, not only by its own future-loss gradient.
 - **Keys** are never the gate to retrieval. Candidates come from the location, so an edge with an outdated key still enters the mixture whenever its location is visited, and receives the gradient that realigns it.
 - **Statistics** are discounted sums of observations: optimizer block sums here, structural statistics in §6. A late contribution is still valid evidence, and its age is applied as discount.
 - **Distributed updates** arriving late are age-weighted rather than rejected (§7).
 
 ## 6. Initialize once, evolve continuously
 
-Seed **65,536 edges**, then grow within a configured packed-byte budget with a one-million-edge ceiling for the first large run. All components, including low-bit storage, stateful retrieval, the chosen optimizer and growth, are present from the beginning of this run.
+After the hindsight warm-up (§3), seed **65,536 edges**, then grow within a configured packed-byte budget with a one-million-edge ceiling for the first large run. From seeding onward, low-bit storage, stateful retrieval, the chosen optimizer, growth and the hindsight overlay all run together.
 
 Cluster existing chunk/event representations into coarse symbols while preserving sequence boundaries. Count **transition bigrams**, replace recurrent sequences with reusable rules, and recursively find repeated combinations of those rules: **patterns of patterns**. Use this compressed sequence structure to initialize departure positions, query keys, knowledge and short outgoing transitions.
 
-Lift existing 32-facet content representations into the wide value space using a fixed signed duplication/permutation with norm preservation, not a giant learned initializer. Then make every value coordinate independently trainable. Align initial state/key projections through causal sequence training, including real search trajectories where available. Fit small offsets toward the next initial state. Start each transition with $V_i=0$ and small random $U_i$ (Frobenius norm 0.01): the first moves are pure offsets, gradients still reach both factors, and order dependence is learned rather than imposed. Do not skip an intermediate query merely because a two-step pattern is common.
+Run the warmed hindsight track over the seeding corpus. Each seed edge's value is the mean $h$ over the lookups at its pattern's occurrences. Then every value coordinate trains independently. Align initial state/key projections through causal sequence training, including real search trajectories where available. Fit small offsets toward the next initial state. Start each transition with $V_i=0$ and small random $U_i$ (Frobenius norm 0.01): the first moves are pure offsets, gradients still reach both factors, and order dependence is learned rather than imposed. Do not skip an intermediate query merely because a two-step pattern is common.
 
 After initialization, train the vectors freely. The grammar is used only for initialization.
 
@@ -180,7 +199,7 @@ After initialization, train the vectors freely. The grammar is used only for ini
 During training, a lookup with no departure within cosine 0.5 of $\hat s_t$ proceeds normally over its widened neighbourhood, or returns null if that is empty. After that step's backward pass, it inserts one edge at that location:
 
 - $d=\hat s_t$ and $k=\tilde q_t$, so the edge answers this query at this place;
-- $v$ is the fixed wide lift (above) of the mean 32-facet raw block of the next committed ordinary position, scaled to the bank's median value RMS. This uses the training target only to set parameters after the prediction, as §3 permits;
+- $v=h_t$, the hindsight value for this lookup. It is used only to set parameters after the prediction, as §3 permits;
 - $V=0$ and small random $U$ (Frobenius norm 0.01);
 - if the widened neighbourhood found candidates, $r=0$, and the bias gives $a\approx0.25$ when the same query revisits that location;
 - if the neighbourhood was **empty**, the edge is a **jump edge**. Sample one existing edge $j$ uniformly from the bank and set $r=\hat d_j-\hat s_t$, with the bias giving $a\approx0.95$ on revisit. Its move lands at about $\hat d_j$, a location that has departures, so the next lookup has candidates. Sampling edges uniformly makes destinations proportional to density.
@@ -255,12 +274,12 @@ Target architecture **v10**, new packed-edge layout, and new retrieval-event/che
 | Work | Repository owners and deliverable |
 | --- | --- |
 | Transducer and neighbourhood search | `memory/`: packed rows with transition factors, exact density-adaptive departure-neighbourhood scan, location-modulated score, null, paired value/operator mixtures and boundary-ring exploration |
-| Native model integration | `model/config.py`, `core.py`, `multitrack.py`: search state, reserved knowledge track, anchored shared-U readout, one normal C commit |
-| Training data and recurrence | `data/`, `training/engine.py`, `meridians.py`: metadata prefix, first retrieval boundary, eight-position credit and causal labels |
+| Native model integration | `model/config.py`, `core.py`, `multitrack.py`: search state, reserved knowledge track, shared-U readout, one normal C commit; per-track masking modes with an explicit meridian/track mask; the reserved inverse-causal hindsight track with its separate KV stream and 64-row value head |
+| Training data and recurrence | `data/`, `training/engine.py`, `meridians.py`: metadata prefix, first retrieval boundary, eight-position credit and causal labels; inverse pass, batched hindsight events, warm-up, overlay schedule, distillation and hindsight-only sequences |
 | Sparse optimizer and growth | `memory/optimizer.py`, `growth.py`, `training/bank.py`: selected block algorithm, bounded master cache, sparse-location insertion, per-edge utility/sketch statistics, split and remove |
 | Distributed execution | `training/diloco_kb.py`, checkpoint/runtime owners: age-weighted deltas and statistics without outer KB momentum, provisional-row reconciliation (replacing learner demand forwarding), packed publication and exact resume |
 
-Delete the **v10** direct semantic-KV projector, semantic KB LoRA controllers, point/pair dependence and writer-reproduction launch requirements. Ordinary transformer KV, source RAG, native parameter ownership and exact action tapes stay. Do not modify v9 runtime versions or supported launch commands in this documentation commit; update them together when implementation lands.
+Delete the **v10** direct semantic-KV projector, semantic KB LoRA controllers, point/pair dependence and writer-reproduction launch requirements. The v9 source and relation writers (`training/hindsight.py`, `hindsight_native.py`) are superseded by the hindsight track. Ordinary transformer KV, source RAG, native parameter ownership and exact action tapes stay. Do not modify v9 runtime versions or supported launch commands in this documentation commit; update them together when implementation lands.
 
 Build a small executable reference of this same design, fix its correctness failures, then run the identical path at scale.
 
@@ -280,6 +299,6 @@ That is **about 26.37 GB for these components**, before biases, counters, gradie
 
 At the existing native geometry, each knowledge event adds 32 KiB of BF16 KV and a C pass. Use the existing whole-meridian history bound. Cap a request at 256 retrieval opportunities; after the cap or an explicit retrieval timeout, continue without changing the agenda.
 
-**Check correctness before burning the run, and measure quality during it.** Required automated checks are neighbourhood-only candidates (no code path reaches an edge outside $\mathcal N(s_t)$ or the training boundary ring); location-modulated scores against an unfused reference; order sensitivity of composed transitions; matched value/operator weights; density-adaptive radius bounds (0.5 dense, 0.3 floor); empty-neighbourhood null at serving; single sparse-location insertion in training; jump-edge landing on the sampled departure; provisional-row reconciliation; utility and coherence statistics against brute-force removal and gradient sets on a small bank; split and remove rules; anchored readout as the exact inverse of the lift; age-weighted late merges of deltas and statistics; null/no-recursion; metadata causality; query and selected-row gradients; packed-forward/recomputation identity; small-update and cache-eviction behavior; dormant-row return updates; split behavior; sparse merge normalization; and checkpoint recovery. Finite-difference tests apply to the decoded differentiable reference; test the quantization surrogate separately.
+**Check correctness before burning the run, and measure quality during it.** Required automated checks are neighbourhood-only candidates (no code path reaches an edge outside $\mathcal N(s_t)$ or the training boundary ring); location-modulated scores against an unfused reference; order sensitivity of composed transitions; matched value/operator weights; density-adaptive radius bounds (0.5 dense, 0.3 floor); empty-neighbourhood null at serving; single sparse-location insertion in training; jump-edge landing on the sampled departure; provisional-row reconciliation; utility and coherence statistics against brute-force removal and gradient sets on a small bank; split and remove rules; hindsight masking (inverse within the hindsight track, the t+2 gap, and no hindsight KV reachable from any causal track or the serving path); FP4 round-trip of $h_t$; overlay schedule and distillation gradient reaching only the bank; age-weighted late merges of deltas and statistics; null/no-recursion; metadata causality; query and selected-row gradients; packed-forward/recomputation identity; small-update and cache-eviction behavior; dormant-row return updates; split behavior; sparse merge normalization; and checkpoint recovery. Finite-difference tests apply to the decoded differentiable reference; test the quantization surrogate separately.
 
-During training log continuation loss, multi-hop completion, rare-task retention, first-visit recovery after dormancy, null rate, adaptive-radius distribution, sparse-location and empty-neighbourhood rates in training and serving, insertions and jump edges and their survival through Remove, split and removal rates, utility distribution, merge age distribution, realized versus intended updates, edge/byte growth, latency and all memory tiers. Observe on a fixed validation stream; keep test targets outside training and growth.
+During training log continuation loss, multi-hop completion, rare-task retention, first-visit recovery after dormancy, null rate, adaptive-radius distribution, sparse-location and empty-neighbourhood rates in training and serving, insertions and jump edges and their survival through Remove, hindsight-assisted versus bank-only loss gap, distillation error by edge age, split and removal rates, utility distribution, merge age distribution, realized versus intended updates, edge/byte growth, latency and all memory tiers. Observe on a fixed validation stream; keep test targets outside training and growth.
