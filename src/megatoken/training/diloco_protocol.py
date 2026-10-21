@@ -93,6 +93,10 @@ def training_identity(config: Any) -> str:
     identity["retrieval_recipe"] = RetrievalRecipe.load(config.retrieval_memory_recipe).fingerprint
     identity["retrieval_sidecar"] = sha256_file(Path(config.retrieval_sidecar))
     identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
+    if config.pretrained_packs:
+        identity["pretrained_packs"] = sha256_file(Path(config.pretrained_packs))
+    if config.native_pack_manifest:
+        identity["native_pack_manifest"] = sha256_file(Path(config.native_pack_manifest))
     if config.embeddinggemma2_text_sidecar:
         identity["embeddinggemma2_text_sidecar"] = sha256_file(Path(config.embeddinggemma2_text_sidecar))
     if config.embeddinggemma2_warmup:
