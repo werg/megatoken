@@ -256,6 +256,13 @@ def finish(run_id: str, destination: Path, *, poll: float = 300) -> dict[str, An
         cloud.collect(learner, destination / f"learner-{index}")
         for index, learner in enumerate(run["learners"])
     ]
+    failed = [entry["sandbox_id"] for entry in learners if entry["status"] != 0]
+    if failed:
+        # No export of a phase whose learners failed; their logs are collected.
+        for sandbox_id in (run["coordinator"], *run["learners"]):
+            cloud._attach(sandbox_id).stop(graceful_shutdown_seconds=60, missing_ok=True).result()
+        cloud.record({"event": "diloco_failed", "run": run_id, "learners": failed})
+        raise cloud.CloudError(f"Learners failed (logs under {destination}): {failed}")
     cloud._attach(run["coordinator"]).write_file(f"{cloud.WORK}/.cloud/finish", b"").result()
     exported = cloud.collect(run["coordinator"], destination / "coordinator")
     for sandbox_id in (run["coordinator"], *run["learners"]):

@@ -25,6 +25,9 @@ finish() { log done "\"status\":$1"; exit 0; }
 die() { log failed "\"step\":\"$1\""; echo 1 > "$CW/exit-status"; touch "$CW/outputs-ready"; finish 1; }
 
 mkdir -p "$CW/inbox" "$CW/secrets" "$REPO"
+# Everything is also kept in $CW/job.log, which every collect pulls: sandbox logs
+# vanish once a sandbox stops.
+exec > >(tee -a "$CW/job.log") 2>&1
 chmod 700 "$CW/secrets"
 export MEGATOKEN_CW_SECRETS="$CW/secrets"
 log start "\"sandbox\":\"${CW_SANDBOX_ID:-}\""
@@ -113,6 +116,10 @@ for name in os.environ.get("MEGATOKEN_CW_OUTPUTS", "").split():
             for block in iter(lambda: f.read(1 << 22), b""):
                 h.update(block)
         files.append({"path": str(path.relative_to(work)), "bytes": path.stat().st_size, "sha256": h.hexdigest()})
+log = work / ".cloud" / "job-final.log"  # frozen copy: job.log keeps growing
+log.write_bytes((work / ".cloud" / "job.log").read_bytes())
+h = hashlib.sha256(log.read_bytes())
+files.append({"path": ".cloud/job-final.log", "bytes": log.stat().st_size, "sha256": h.hexdigest()})
 (work / ".cloud" / "outputs.json").write_text(json.dumps({"files": files}))
 PY
 if [ -n "${MEGATOKEN_CW_SERVE_OUTPUTS:-}" ]; then
