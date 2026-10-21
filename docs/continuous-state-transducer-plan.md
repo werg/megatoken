@@ -14,7 +14,7 @@ Commit to the following design. These are implementation choices, not a menu for
 | --- | --- |
 | Edge | Departure vector, query key, knowledge value, low-rank transition operator with offset, and scalar bias |
 | Geometry | 256-dimensional search state; 1,024-dimensional query/key; 32,768-dimensional value; rank-8 transition factors |
-| Retrieval | Location neighbourhood only, with no global search; location-modulated query scoring; 32 selected edges plus a null alternative |
+| Retrieval | Density-adaptive location neighbourhood only, with no global search; location-modulated query scoring; 32 selected edges plus a null alternative |
 | State movement | Mixture of state-dependent affine operators, so paths are order-sensitive |
 | Returned knowledge | Mix wide values first; shared U mixture-of-experts (MoE); one **32 x 512** knowledge megatoken |
 | Persistent precision | **NVFP4-style values; FP8 keys, departures, offsets and transition factors** |
@@ -22,7 +22,7 @@ Commit to the following design. These are implementation choices, not a menu for
 | Optimizer storage | One FP32 statistic per 256 coordinates, plus a count and timestamp per edge field |
 | Small-update retention | An 8,192-edge FP32 working cache; stochastic rounding on publication; no full-bank master weights |
 | Initialization | Clustered sequences, transition bigrams, and recursively reused patterns |
-| Evolution | An empty neighbourhood inserts an edge during training; error-driven add/split/merge/remove under a byte budget |
+| Evolution | A sparse location inserts an edge during training; error-driven add/split/merge/remove under a byte budget |
 | Distributed ownership | DiLoCo learners update locally; one coordinator merges and changes structure; **no outer KB momentum** |
 
 There is no separate correlation mechanism, manually named state ontology, per-edge source approval, mandatory source writer, second expert pool, or graph-management service. Keep literal-document retrieval for exact passages and citations; latent edges are learned parameters, not document records.
@@ -35,13 +35,15 @@ An edge is $(d_i,k_i,v_i,U_i,V_i,r_i,b_i)$: departure, query key, wide value, ra
 
 ### The location neighbourhood is the only search
 
-For state $s_t$, the candidate set is the edges departing near it:
+For state $s_t$, the candidate set is the edges departing near it, within a radius set by local density:
 
 $$
-\mathcal N(s_t)=\{\,i:\hat s_t^\top\hat d_i\ge0.5\,\},
+c(s_t)=\operatorname{clip}\big(\hat s_t^\top\hat d_{(16)},\,0.3,\,0.5\big),
+\qquad
+\mathcal N(s_t)=\{\,i:\hat s_t^\top\hat d_i\ge c(s_t)\,\},
 $$
 
-truncated to the 128 nearest departures. **A query never searches outside $\mathcal N(s_t)$.** There is no index over query keys, no global candidate pass, and no global fallback. An edge's successors are the edges whose departures lie near where its transition lands, so the graph is this geometry rather than a separately maintained adjacency list. An empty neighbourhood is a null result: no knowledge event and no state change. During training, it also inserts an edge at that location (§6). Serving never inserts, so a serving session whose location leaves trained territory stops retrieving; this rate is logged, not hidden behind another search path.
+where $\hat d_{(16)}$ is the 16th-nearest departure. The set is truncated to the 128 nearest departures. Where the bank is dense, the radius stays at cosine 0.5. Where it is sparse, the radius widens until it holds 16 departures, but never past cosine 0.3. In 256 dimensions, unrelated directions have cosine standard deviation of about 0.06, so 0.3 is still a local bound. Edges reached only through the widened radius pay through the departure term of the score (below), so a distant edge wins only when its key fits the query well; otherwise null wins. **A query never searches outside $\mathcal N(s_t)$.** There is no index over query keys, no global candidate pass, and no global fallback. An edge's successors are the edges whose departures lie near where its transition lands, so the graph is this geometry rather than a separately maintained adjacency list. An empty neighbourhood, with nothing within cosine 0.3, is a null result: no knowledge event and no state change. During training, a **sparse** location, with nothing within cosine 0.5, also inserts an edge there (§6), even when the widened radius found candidates. Retrieval keeps working from the wider radius while growth fills the gap. Serving never inserts, so a serving session whose location moves beyond 0.3 of every edge stops retrieving; this rate is logged, not hidden behind another search path.
 
 The departure search is an exact scan of the packed FP8 departure field on device: 256 bytes per edge, or about 0.26 GB and 0.26 GFLOP per lookup at one million edges. Exact search is both the production path and the test oracle, so there is no approximate-recall gap to manage. Coarse departure cells (4,096 k-means centroids, small FP32 derived data) exist only for the optimizer's spatial prior (§5).
 
@@ -81,7 +83,7 @@ The no-answer labels mean "unanswerable from any knowledge" by construction, nev
 
 ### Exploration stays local
 
-During training, use the 30 best neighbourhood edges plus two distinct edges sampled uniformly from the boundary ring $0.3\le\hat s_t^\top\hat d_i<0.5$. Rescore them normally (their departure term is lower), and count this exploration in the budget. These slots let edges just outside the current location receive gradient and move their departures in. They are not forced high-weight answers, and nothing is sampled from the bank at large.
+During training, use the 30 best neighbourhood edges plus two distinct edges sampled uniformly from the boundary ring $c(s_t)-0.1\le\hat s_t^\top\hat d_i<c(s_t)$. Rescore them normally (their departure term is lower), and count this exploration in the budget. These slots let edges just outside the current location receive gradient and move their departures in. They are not forced high-weight answers, and nothing is sampled from the bank at large.
 
 ## 3. Put retrieval through the transformer
 
@@ -176,18 +178,18 @@ Lift existing 32-facet content representations into the wide value space using a
 
 After initialization, train the vectors freely. The grammar is an initialization artifact, not an online hierarchy or a requirement that states retain human-readable meanings.
 
-### An empty neighbourhood grows the graph
+### A sparse location grows the graph
 
-During training, a lookup with an empty $\mathcal N(s_t)$ returns null. After that step's backward pass, it inserts one edge at that location:
+During training, a lookup with no departure within cosine 0.5 of $\hat s_t$ proceeds normally over its widened neighbourhood, or returns null if that is empty. After that step's backward pass, it inserts one edge at that location:
 
 - $d=\hat s_t$ and $k=\tilde q_t$, so the edge answers this query at this place;
 - $v$ is the fixed wide lift (above) of the mean 32-facet raw block of the next committed ordinary position, scaled to the bank's median value RMS. This uses the training target only to set parameters after the prediction, as §3 permits;
 - $r=0$, $V=0$, and small random $U$ (Frobenius norm 0.01);
 - the bias gives $a\approx0.25$ when the same query revisits that location, so the edge clears admission and trains from its next visit onward.
 
-Inserting the edge makes the location non-empty, so one learner never inserts twice for the same place. Each learner makes at most 512 insertions per synchronization round. Beyond that cap, empty visits stay null and are counted. Insertions are provisional rows in the learner's working cache, with learner-local IDs. They are trained like any resident edge and submitted at the round boundary (§7). Their bytes count in $J$, and Remove prunes those that do not earn them.
+The inserted edge lies within 0.5 of that location, so one learner never inserts twice for the same place. Each learner makes at most 512 insertions per synchronization round. Beyond that cap, sparse visits are only counted. Insertions are provisional rows in the learner's working cache, with learner-local IDs. They are trained like any resident edge and submitted at the round boundary (§7). Their bytes count in $J$, and Remove prunes those that do not earn them.
 
-Emptiness is the one structural trigger that needs no gradient evidence, because there is nothing at that location to correct. A non-empty neighbourhood where null wins is not, by itself, evidence of missing knowledge; that case belongs to Add below.
+Sparseness is the one structural trigger that needs no gradient evidence, because nothing departs from that location to correct. A dense neighbourhood where null wins is not, by itself, evidence of missing knowledge; that case belongs to Add below.
 
 ### One objective controls capacity
 
@@ -208,7 +210,7 @@ $$
 =\sum_t h_t g_t^\top(u-F_t).
 $$
 
-Each edge's output $u=(v,\,U(V^\top\hat s_t)+r)$ is linear in its mixture weight, so this holds for operator transitions as written. $h_t$ is nonzero only where the new edge's departure puts it inside $\mathcal N(s_t)$; candidate placement must respect that. Use recurring aligned corrections inside non-empty neighbourhoods to place new edges. Fit their initial bias for approximately 1% mass on the supporting training examples. A large error alone does not establish missing capacity: check that the selected rows actually moved after packing, and that a suitable boundary-ring edge does not just need to move its departure in.
+Each edge's output $u=(v,\,U(V^\top\hat s_t)+r)$ is linear in its mixture weight, so this holds for operator transitions as written. $h_t$ is nonzero only where the new edge's departure puts it inside $\mathcal N(s_t)$; candidate placement must respect that. Use recurring aligned corrections inside dense neighbourhoods to place new edges. Fit their initial bias for approximately 1% mass on the supporting training examples. A large error alone does not establish missing capacity: check that the selected rows actually moved after packing, and that a suitable boundary-ring edge does not just need to move its departure in.
 
 Every **256 local optimizer steps** (every eighth synchronization round), structure changes in three steps:
 
@@ -245,7 +247,7 @@ $$
 
 Do not average only over workers that touched the row, which would silently change its effective learning rate. **There is no outer KB momentum or Adam state.** These deltas are not gradients and are not inputs to the block squared-gradient estimator. Dense model fragments keep their existing optimizer/merge machinery but publish under the same compatible round identity.
 
-Provisional edges from empty-neighbourhood insertion have no baseline, so they bypass the delta formula. Each learner submits their decoded fields, block statistics and processed-example weight. The coordinator combines provisional rows from different learners whose departures and keys both have cosine at least 0.9, using an example-weighted mean. It then packs them, assigns canonical IDs and publishes them with the round. At the byte ceiling, a provisional row enters only by replacing a lower-value edge under $J$. Otherwise it is dropped, and its location is empty again on the next visit. Learners create provisional rows; only the coordinator makes them canonical.
+Provisional edges from sparse-location insertion have no baseline, so they bypass the delta formula. Each learner submits their decoded fields, block statistics and processed-example weight. The coordinator combines provisional rows from different learners whose departures and keys both have cosine at least 0.9, using an example-weighted mean. It then packs them, assigns canonical IDs and publishes them with the round. At the byte ceiling, a provisional row enters only by replacing a lower-value edge under $J$. Otherwise it is dropped, and its location is sparse again on the next visit. Learners create provisional rows; only the coordinator makes them canonical.
 
 Hold a coherent row snapshot through each forward/backward window. Update packed rows, optimizer statistics and the device departure table together at its boundary. Departures are therefore fixed within a window, and the table never lags the rows it indexes; never perform fused row updates halfway through a recurrent backward pass. Save model, KB, learner summaries, active fractional progress, structural cursor and random state as one consistent checkpoint. Publication can be atomic; GPU parameter updates and a database transaction are not magically one transaction. On a partially failed step, resume the last complete checkpoint.
 
@@ -257,10 +259,10 @@ Target architecture **v10**, new packed-edge layout, and new retrieval-event/che
 
 | Work | Repository owners and deliverable |
 | --- | --- |
-| Transducer and neighbourhood search | `memory/`: packed rows with transition factors, exact departure-neighbourhood scan, location-modulated score, null, paired value/operator mixtures and boundary-ring exploration |
+| Transducer and neighbourhood search | `memory/`: packed rows with transition factors, exact density-adaptive departure-neighbourhood scan, location-modulated score, null, paired value/operator mixtures and boundary-ring exploration |
 | Native model integration | `model/config.py`, `core.py`, `multitrack.py`: search state, reserved knowledge track, shared-U readout, one normal C commit |
 | Training data and recurrence | `data/`, `training/engine.py`, `meridians.py`: metadata prefix, first retrieval boundary, eight-position credit, causal labels and replay |
-| Sparse optimizer and growth | `memory/optimizer.py`, `growth.py`, `training/bank.py`: selected block algorithm, bounded master cache, empty-neighbourhood insertion and gradient-driven structural trials |
+| Sparse optimizer and growth | `memory/optimizer.py`, `growth.py`, `training/bank.py`: selected block algorithm, bounded master cache, sparse-location insertion and gradient-driven structural trials |
 | Distributed execution | `training/diloco_kb.py`, checkpoint/runtime owners: round-bound deltas without outer KB momentum, provisional-row reconciliation (replacing learner demand forwarding), packed publication and exact resume |
 
 Delete the **v10** direct semantic-KV projector, semantic KB LoRA controllers, point/pair dependence and writer-reproduction launch requirements. Ordinary transformer KV, source RAG, native parameter ownership and exact action tapes stay. Do not modify v9 runtime versions or supported launch commands in this documentation commit; update them together when implementation lands.
@@ -282,8 +284,8 @@ That is **about 26.10 GB for these components**, before biases, counters, centro
 
 At the existing native geometry, each knowledge event adds 32 KiB of BF16 KV and a C pass. Use the existing whole-meridian history bound. Cap a request at 256 retrieval opportunities; after the cap or an explicit retrieval timeout, continue without changing the agenda. The cap is a runtime budget, not a learned alternative architecture.
 
-**Check correctness before burning the run, and measure quality during it.** Required automated checks are neighbourhood-only candidates (no code path reaches an edge outside $\mathcal N(s_t)$ or the training boundary ring); location-modulated scores against an unfused reference; order sensitivity of composed transitions; matched value/operator weights; empty-neighbourhood null at serving and single insertion in training; exploration-admission rate and seeding; provisional-row reconciliation; three-step structural trial/commit; null/no-recursion; metadata causality; query and selected-row gradients; packed-forward/replay identity; small-update and cache-eviction behavior; dormant-row return updates; split behavior; sparse merge normalization; and checkpoint recovery. Finite-difference tests apply to the decoded differentiable reference; test the quantization surrogate separately.
+**Check correctness before burning the run, and measure quality during it.** Required automated checks are neighbourhood-only candidates (no code path reaches an edge outside $\mathcal N(s_t)$ or the training boundary ring); location-modulated scores against an unfused reference; order sensitivity of composed transitions; matched value/operator weights; density-adaptive radius bounds (0.5 dense, 0.3 floor); empty-neighbourhood null at serving; single sparse-location insertion in training; exploration-admission rate and seeding; provisional-row reconciliation; three-step structural trial/commit; null/no-recursion; metadata causality; query and selected-row gradients; packed-forward/replay identity; small-update and cache-eviction behavior; dormant-row return updates; split behavior; sparse merge normalization; and checkpoint recovery. Finite-difference tests apply to the decoded differentiable reference; test the quantization surrogate separately.
 
-During training log continuation loss, multi-hop completion, rare-task retention, first-visit recovery after dormancy, null rate, empty-neighbourhood rate in training and serving, insertions and their survival through Remove, exploration-admission gain, realized versus intended updates, edge/byte growth, latency and all memory tiers. Use a fixed validation stream for observation, not per-edge admissions or repeated redesign selection. Keep test targets outside training and growth. Numerical corruption, broken causality or failed resume is a defect to repair; an uncertain quality curve is a learning result to investigate, not a reason to pretend the run succeeded.
+During training log continuation loss, multi-hop completion, rare-task retention, first-visit recovery after dormancy, null rate, adaptive-radius distribution, sparse-location and empty-neighbourhood rates in training and serving, insertions and their survival through Remove, exploration-admission gain, realized versus intended updates, edge/byte growth, latency and all memory tiers. Use a fixed validation stream for observation, not per-edge admissions or repeated redesign selection. Keep test targets outside training and growth. Numerical corruption, broken causality or failed resume is a defect to repair; an uncertain quality curve is a learning result to investigate, not a reason to pretend the run succeeded.
 
 **The design is decided. Implementation tests protect the run; they do not reopen the architecture.** Train the FP4 transducer, local-scale optimizer and adaptive graph together, document the actual outcome, and make any later architecture change explicitly rather than accumulating hidden fallback paths.
