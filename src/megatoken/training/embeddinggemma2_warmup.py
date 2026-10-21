@@ -56,6 +56,32 @@ def reconstruction_loss(model, target: MediaTrainTarget) -> Tensor:
     return error.masked_select(expanded).mean()
 
 
+def prepared_media_events(batch, store, device):
+    """Resolve only identity-verified, media-output training pairs."""
+    from megatoken.training.meridians import MediaPlan
+
+    for step in batch.steps:
+        for plan in step.plans:
+            if not isinstance(plan, MediaPlan):
+                continue
+            asset = plan.reference.source
+            target = plan.reference.target
+            if target is None or asset.kind != "features" or asset.source_family != target.sha256:
+                raise ValueError(
+                    "Autoencoder teacher features must attest to the exact original target "
+                    "asset SHA256 in source_family; edit pairs cannot be used for warmup"
+                )
+            yield plan.resolve(store, device)
+
+
+def media_warmup_batch(model, batch, store, device):
+    """Sum native reconstruction losses and return the event count for global scaling."""
+    values = [reconstruction_loss(model, target) for target in prepared_media_events(batch, store, device)]
+    if not values:
+        return None, 0
+    return torch.stack(values).sum(), len(values)
+
+
 def text_hidden_alignment(
     model,
     *,
@@ -99,7 +125,7 @@ def warmup_parameter_names(model, lane: str) -> tuple[str, ...]:
             name.startswith("media_realizers.pretrained.")
             and (".prefix." in name or ".condition." in name)
             or name.startswith("media_realizers.native.")
-            and (".condition." in name or ".projector." in name or ".adapter." in name)
+            and (".conditioner." in name or ".condition." in name or ".projector." in name or ".adapter." in name)
             or name.startswith("media_realizers.")
             and name.split(".")[1] in {
                 "fuse", "audio_expand", "audio_filter", "visual_features",
@@ -109,7 +135,9 @@ def warmup_parameter_names(model, lane: str) -> tuple[str, ...]:
     )
     if lane == "media" and not media:
         raise ValueError("No trainable media input/output projections are loaded")
-    return media if lane == "media" else tuple(name for name in names if name not in media)
+    return media if lane == "media" else tuple(
+        name for name in names if name not in media and not name.startswith("core.media_stems.")
+    )
 
 
 def freeze_other_owners(optimizer, model, lane: str) -> tuple[str, ...]:

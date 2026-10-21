@@ -357,6 +357,10 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "retrieval_kv_dropout",
             "retrieval_lora_dropout",
             "router_balance_mode",
+            "embeddinggemma2_warmup",
+            "embeddinggemma2_media_workers",
+            "embeddinggemma2_text_sidecar",
+            "embeddinggemma2_text_weight",
         )
     for key in critical:
         if old.get(key) != current.get(key):
@@ -695,13 +699,20 @@ def train(
             budget=config.budget or PHASES[config.phase].budget,
             meter="G" if config.budget_meter == "G" else PHASES[config.phase].meter,
         )
+        if config.embeddinggemma2_warmup and not model_config.embeddinggemma2_hidden_dim:
+            raise ValueError("EmbeddingGemma2 warmup must pin the internal hidden-state model geometry")
         optimizer = MasterAdamW(
             model,
             phase.learning_rate(0),
             config.weight_decay,
             inner_optimizer=config.inner_optimizer,
         )
-        if config.representation_training == "recurrent":
+        if config.embeddinggemma2_warmup:
+            from megatoken.training.embeddinggemma2_warmup import freeze_other_owners
+
+            trainable = freeze_other_owners(optimizer, model, config.embeddinggemma2_lane)
+            logger.log("unified_warmup_lane", lane=config.embeddinggemma2_lane, trainable_owners=len(trainable))
+        if config.representation_training == "recurrent" and not config.embeddinggemma2_warmup:
             # Contextual codec auxiliaries use frozen C/R with E gradients only.
             # Independent clipping prevents their norm scaling the main update.
             optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())

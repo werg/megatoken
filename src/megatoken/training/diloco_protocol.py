@@ -79,6 +79,9 @@ def training_identity(config: Any) -> str:
         "budget_meter",
         "accumulate_events",
         "router_balance_mode",
+        "embeddinggemma2_warmup",
+        "embeddinggemma2_media_workers",
+        "embeddinggemma2_text_weight",
         "retrieval_kv_dropout",
         "retrieval_lora_dropout",
     )
@@ -90,6 +93,8 @@ def training_identity(config: Any) -> str:
     identity["retrieval_recipe"] = RetrievalRecipe.load(config.retrieval_memory_recipe).fingerprint
     identity["retrieval_sidecar"] = sha256_file(Path(config.retrieval_sidecar))
     identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
+    if config.embeddinggemma2_text_sidecar:
+        identity["embeddinggemma2_text_sidecar"] = sha256_file(Path(config.embeddinggemma2_text_sidecar))
     return content_hash(identity)
 
 
