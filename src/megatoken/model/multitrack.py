@@ -428,7 +428,12 @@ class MultiTrackCore:
             state,
             torch.stack(raws, dim=1),
             tracks=tracks,
-            modalities=tuple(event.modality for event in events),
+            # Coarse documents remain text events for existing C/P modality
+            # geometry; only their *input* uses the unified teacher route.
+            modalities=tuple(
+                "text" if event.modality in {"document", "text_summary"} else event.modality
+                for event in events
+            ),
             role_ids=torch.tensor(
                 [[event.role_id for event in events]], dtype=torch.long, device=state.device
             ),

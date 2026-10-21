@@ -45,7 +45,8 @@ def verify_local_snapshot(path: Path, revision: str) -> None:
         present.add(relative)
         if relative not in files or not re.fullmatch(r"[0-9a-f]{64}", str(files[relative])):
             raise ValueError(f"Unhashed teacher file: {relative}")
-        digest = hashlib.file_digest(artifact.open("rb"), "sha256").hexdigest()
+        with artifact.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
         if digest != files[relative]:
             raise ValueError(f"Teacher artifact checksum differs: {relative}")
     if present != set(files):

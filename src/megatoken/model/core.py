@@ -33,7 +33,7 @@ ROLE_IDS = ROLE_TO_ID
 RECORD_ROLES = tuple(ROLE_TO_ID)
 EFFORTS = (1, 2, 3, 6)
 P_HISTORY_READ_STAGES = (3, 6, 9, 12)
-MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "tool": 4, "evidence": 5, "document": 6, "text_summary": 7}
+MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "tool": 4, "evidence": 5}
 
 
 class PairStage(nn.Module):

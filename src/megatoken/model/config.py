@@ -240,8 +240,9 @@ class ModelConfig:
             self.vision_detail_feature_id,
             self.vision_codec_feature_dim,
             self.vision_codec_feature_id,
-            self.embeddinggemma2_hidden_dim,
-            self.embeddinggemma2_hidden_id,
+        ) + (
+            (self.embeddinggemma2_hidden_dim, self.embeddinggemma2_hidden_id)
+            if self.embeddinggemma2_hidden_dim else ()
         )
 
     @classmethod
