@@ -214,22 +214,52 @@ def test_push_uploads_retried_parts_that_the_bootstrap_joins(tmp_path, monkeypat
     assert sorted(p.name for p in inbox.iterdir() if p.name.startswith(digests[big])) == [
         f"{digests[big]}.{i:04d}" for i in range(4)
     ]
+    # A peer sandbox's served output, fetched with that peer's share token.
+    import http.server
+    import threading
+
+    served = os.urandom(300)
+
+    class Peer(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            allowed = self.headers.get("X-Sandbox-Share-Token") == "peer-token"
+            self.send_response(200 if allowed else 401)
+            self.end_headers()
+            self.wfile.write(served if allowed else b"")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Peer)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    (work / ".cloud" / "secrets").mkdir()
+    (work / ".cloud" / "secrets" / "share-prep").write_text("peer-token")
     spec = {
         "code": {"sha256": digests[archive]},
         "inputs": [
             {"path": "inputs/big.bin", "sha256": digests[big]},
             {"path": "inputs/copy.bin", "sha256": digests[big]},
             {"path": "inputs/empty.bin", "sha256": digests[empty]},
+            {
+                "path": "out/corpus/x.bin",
+                "sha256": hashlib.sha256(served).hexdigest(),
+                "url": f"http://127.0.0.1:{server.server_address[1]}/out/corpus/x.bin",
+                "peer": "prep",
+            },
         ],
     }
     (work / ".cloud" / "inputs.json").write_text(json.dumps(spec))
     script = Path(cloud.__file__).with_name("cloud_bootstrap.sh").read_text()
     materialize = re.search(r"python3 - <<'PY' \|\| die inputs\n(.*?)\nPY\n", script, re.S)[1]
-    subprocess.run(
-        [sys.executable, "-c", materialize],
-        env={**os.environ, "MEGATOKEN_CW_WORK": str(work)},
-        check=True,
-    )
+    try:
+        subprocess.run(
+            [sys.executable, "-c", materialize],
+            env={**os.environ, "MEGATOKEN_CW_WORK": str(work)},
+            check=True,
+        )
+    finally:
+        server.shutdown()
+    assert (work / "out" / "corpus" / "x.bin").read_bytes() == served
     assert (work / "inputs" / "big.bin").read_bytes() == payload
     assert (work / "inputs" / "copy.bin").read_bytes() == payload
     assert (work / "inputs" / "empty.bin").read_bytes() == b""

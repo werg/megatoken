@@ -8,7 +8,11 @@
 #   3. materialize every input (pushed or public URL) at its declared path, verifying sha256;
 #   4. run the job in $REPO, forwarding SIGTERM so trainers write their final state;
 #   5. write a sha256 manifest of every output directory, signal $CW/outputs-ready and stay up until the
-#      controller has pulled them ($CW/outputs-collected) or MEGATOKEN_CW_COLLECT_WAIT seconds pass.
+#      controller has pulled them ($CW/outputs-collected) or MEGATOKEN_CW_COLLECT_WAIT seconds pass;
+#      with MEGATOKEN_CW_SERVE_OUTPUTS=<port>, other sandboxes meanwhile fetch the outputs over the
+#      sandbox's share-token HTTPS endpoint (read-only, outputs only).
+#
+# Secrets (the controller's files) are in $MEGATOKEN_CW_SECRETS (mode 700), never in the sandbox spec.
 #
 # Always exits 0: a nonzero main-process exit makes the platform restart the container and rerun the job.
 # The job's real status is in the log and $CW/exit-status.
@@ -20,7 +24,9 @@ log() { printf '{"bootstrap":"%s","job":"%s","at":"%s"%s}\n' "$1" "${MEGATOKEN_C
 finish() { log done "\"status\":$1"; exit 0; }
 die() { log failed "\"step\":\"$1\""; echo 1 > "$CW/exit-status"; touch "$CW/outputs-ready"; finish 1; }
 
-mkdir -p "$CW/inbox" "$REPO"
+mkdir -p "$CW/inbox" "$CW/secrets" "$REPO"
+chmod 700 "$CW/secrets"
+export MEGATOKEN_CW_SECRETS="$CW/secrets"
 log start "\"sandbox\":\"${CW_SANDBOX_ID:-}\""
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null | sed 's/^/gpu: /'
 log waiting-for-inputs
@@ -66,7 +72,11 @@ for item in spec["inputs"]:
     if source is not None:
         shutil.copyfile(source, staging)  # identical inputs share one pushed file
     else:
-        with urllib.request.urlopen(item["url"], timeout=600) as response, open(staging, "wb") as out:
+        headers = {}
+        if item.get("peer"):  # another sandbox's served outputs, behind its share token
+            headers["X-Sandbox-Share-Token"] = (cw / "secrets" / f"share-{item['peer']}").read_text()
+        request = urllib.request.Request(item["url"], headers=headers)
+        with urllib.request.urlopen(request, timeout=600) as response, open(staging, "wb") as out:
             shutil.copyfileobj(response, out, 1 << 22)
     if digest(staging) != item["sha256"]:
         raise SystemExit(f"{item['path']}: checksum mismatch")
@@ -105,6 +115,15 @@ for name in os.environ.get("MEGATOKEN_CW_OUTPUTS", "").split():
         files.append({"path": str(path.relative_to(work)), "bytes": path.stat().st_size, "sha256": h.hexdigest()})
 (work / ".cloud" / "outputs.json").write_text(json.dumps({"files": files}))
 PY
+if [ -n "${MEGATOKEN_CW_SERVE_OUTPUTS:-}" ]; then
+  served="$CW/served"
+  for name in ${MEGATOKEN_CW_OUTPUTS:-}; do
+    mkdir -p "$served/$(dirname "$name")" && ln -sfn "$WORK/$name" "$served/$name"
+  done
+  python3 -m http.server "$MEGATOKEN_CW_SERVE_OUTPUTS" --bind 0.0.0.0 --directory "$served" \
+    >/dev/null 2>&1 &
+  log serving "\"port\":$MEGATOKEN_CW_SERVE_OUTPUTS"
+fi
 touch "$CW/outputs-ready"
 log outputs-ready
 waited=0

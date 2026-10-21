@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,8 @@ ENV_FILE = Path(
     os.environ.get("MEGATOKEN_CW_ENV_FILE", Path.home() / ".config/megatoken/coreweave.env")
 )
 STATE = Path(os.environ.get("MEGATOKEN_CW_STATE", Path.home() / ".local/state/megatoken/cloud"))
+SECRETS = STATE / "secrets"
+SERVICE_TIMEOUT = 900  # seconds; the platform maximum for an HTTPS request
 CHUNK = 8 << 20
 # Gateway streams are cut after ~25 s, so every transfer moves bounded parts.
 PART_BYTES = 32 << 20
@@ -104,11 +107,18 @@ def validate(job: dict[str, Any]) -> dict[str, Any]:
             raise CloudError(f"Input path must be relative to {WORK}: {item}")
         if len(item.get("sha256", "")) != 64 or bool(item.get("url")) == bool(item.get("source")):
             raise CloudError(f"Input needs sha256 and exactly one of url/source: {item['path']}")
+        if item.get("peer") and not item.get("url"):
+            raise CloudError(f"A peer input is fetched from the peer's URL: {item['path']}")
     for item in job.get("push_dirs", []):
         if Path(item.get("path", "")).is_absolute() or ".." in Path(item.get("path", "")).parts:
             raise CloudError(f"push_dirs path must be relative to {WORK}: {item}")
         if not item.get("source"):
             raise CloudError(f"push_dirs entry lacks a local source: {item}")
+    port = job.get("serve_port")
+    if port is not None and (type(port) is not int or not 1024 <= port <= 65535):
+        raise CloudError("serve_port must be an unprivileged TCP port")
+    if job.get("serve_outputs") and port is None:
+        raise CloudError("serve_outputs needs a serve_port")
     for output in job["outputs"]:
         if Path(output).is_absolute() or ".." in Path(output).parts:
             raise CloudError(f"Output must be relative to {WORK}: {output}")
@@ -142,6 +152,21 @@ def request(job: dict[str, Any]) -> dict[str, Any]:
         # Under W&B auth the direct data plane fails ("project not found"); the gateway works.
         "data_plane_mode": "gateway",
     }
+    if job.get("serve_port"):
+        # One public HTTPS port behind the sandbox's create-only share token.
+        request["services"] = [
+            {
+                "port": job["serve_port"],
+                "visibility": "public",
+                "endpoint": {
+                    "kind": "https",
+                    "auth": "share_token",
+                    "request_timeout_seconds": SERVICE_TIMEOUT,
+                },
+            }
+        ]
+        if job.get("serve_outputs"):
+            request["environment_variables"]["MEGATOKEN_CW_SERVE_OUTPUTS"] = str(job["serve_port"])
     if job.get("scratch"):
         # Optional: measured 2026-10-21, GPU requests with a scratch volume sat in "creating"
         # until reconciled away, while identical requests without one placed. The root
@@ -242,8 +267,30 @@ def expand_push_dirs(job: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[str, Any]:
-    job = validate(json.loads(job_path.read_text()))
-    job["inputs"] = [*job.get("inputs", []), *expand_push_dirs(job)]
+    return start(validate(json.loads(job_path.read_text())), repo, start_timeout=start_timeout)[0]
+
+
+def start(
+    job: dict[str, Any],
+    repo: Path,
+    *,
+    secrets: dict[str, bytes] | None = None,
+    files: Callable[[Any], dict[str, bytes]] | None = None,
+    start_timeout: float = 5400,
+) -> tuple[dict[str, Any], Any]:
+    """Create the sandbox and deliver code, inputs and secrets; return its record and handle.
+
+    ``files(sandbox)`` may add small generated inputs ({relative path: bytes}) that
+    depend on the created sandbox, such as its own service URL. ``secrets`` are
+    written as mode-600 files under ``$MEGATOKEN_CW_SECRETS``, never into the
+    sandbox spec or environment; inputs from a peer sandbox add that peer's
+    share token as ``share-<peer>``.
+    """
+    job = dict(job, inputs=[*job.get("inputs", []), *expand_push_dirs(job)])
+    secrets = dict(secrets or {})
+    for item in job["inputs"]:
+        if item.get("peer"):
+            secrets[f"share-{item['peer']}"] = share_token(item["peer"]).encode()
     with tempfile.TemporaryDirectory() as temporary:
         archive = Path(temporary) / "code.tar.gz"
         code = code_snapshot(repo, archive)
@@ -264,6 +311,9 @@ def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[s
                 json.dumps(job["inputs"], sort_keys=True).encode()
             ).hexdigest(),
         }
+        if job.get("serve_port"):
+            _keep_share_token(sandbox)
+            entry["url"] = service_url(sandbox)
         record(entry)
         # Waiting in "creating" is not billed, but a sandbox the controller gave up
         # on must never start later and idle billed while it waits for inputs.
@@ -277,15 +327,23 @@ def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[s
                     "seconds": time.time() - started,
                 }
             )
+            inputs = list(job["inputs"])
+            for path, content in (files(sandbox) if files else {}).items():
+                local = Path(temporary) / hashlib.sha256(content).hexdigest()
+                local.write_bytes(content)
+                inputs.append({"path": path, "sha256": local.name})
+                pushed.append((local, local.name))
             _push(sandbox, {code["sha256"]: archive, **{d: s for s, d in pushed}})
-            inputs = {
+            for name, value in secrets.items():
+                sandbox.write_file(f"{WORK}/.cloud/secrets/{name}", value).result()
+            spec = {
                 "code": code,
                 "inputs": [
-                    {key: item[key] for key in ("path", "sha256", "url") if key in item}
-                    for item in job.get("inputs", [])
+                    {key: item[key] for key in ("path", "sha256", "url", "peer") if key in item}
+                    for item in inputs
                 ],
             }
-            sandbox.write_file(f"{WORK}/.cloud/inputs.json", json.dumps(inputs).encode()).result()
+            sandbox.write_file(f"{WORK}/.cloud/inputs.json", json.dumps(spec).encode()).result()
             sandbox.write_file(f"{WORK}/.cloud/inputs-ready", b"").result()
         except BaseException as error:
             sandbox.stop(graceful_shutdown_seconds=10, missing_ok=True).result()
@@ -300,7 +358,36 @@ def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[s
         record(
             {"event": "inputs_pushed", "sandbox_id": sandbox.sandbox_id, "files": len(pushed) + 1}
         )
-    return entry
+    return entry, sandbox
+
+
+def _keep_share_token(sandbox) -> None:
+    """Persist the create-only share token of a served sandbox (mode 600, never printed)."""
+    token = sandbox.endpoint_share_token
+    if token is None:
+        raise CloudError(f"{sandbox.sandbox_id}: the service has no share token")
+    SECRETS.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = SECRETS / f"{sandbox.sandbox_id}.share"
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as file:
+        file.write(token.get_secret_value())
+
+
+def share_token(sandbox_id: str) -> str:
+    path = SECRETS / f"{sandbox_id}.share"
+    if not path.is_file():
+        raise CloudError(f"No share token for {sandbox_id}; only its launcher holds one")
+    return path.read_text()
+
+
+def service_url(sandbox, *, timeout: float = 600) -> str:
+    deadline = time.time() + timeout
+    while not sandbox.service_urls:
+        if time.time() > deadline:
+            raise CloudError(f"{sandbox.sandbox_id}: no service URL assigned")
+        time.sleep(5)
+        sandbox.get_status()
+    return sandbox.service_urls[0][2]
 
 
 def _attach(sandbox_id: str):

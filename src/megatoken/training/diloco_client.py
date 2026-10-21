@@ -51,6 +51,10 @@ class Transport:
             raise ValueError("MEGATOKEN_DILOCO_TOKEN is missing or too short")
         self.token = token
         self.timeout = timeout
+        # A coordinator behind a gateway that admits only share-token holders
+        # (megatoken.cloud sandboxes) also needs that gateway credential.
+        gateway = os.environ.get("MEGATOKEN_DILOCO_GATEWAY_TOKEN", "")
+        self.gateway = {"X-Sandbox-Share-Token": gateway} if gateway else {}
 
     def request(
         self,
@@ -77,6 +81,7 @@ class Transport:
             method=method,
             headers={
                 "Authorization": f"Bearer {self.token}",
+                **self.gateway,
                 **({"Content-Type": "application/json"} if json_body is not None else {}),
                 **(headers or {}),
             },
