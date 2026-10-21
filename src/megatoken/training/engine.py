@@ -864,6 +864,13 @@ def train(
             # data cursors, or mutable runtime history management.
             model.core.compile_kernels(mode=config.compile_mode)
         model.train()
+        if config.embeddinggemma2_warmup:
+            # The physical decoders/denoisers are frozen donors during stage A;
+            # only their learned facet conditioning adapters may update.
+            for donor in model.media_realizers.pretrained.values():
+                donor.eval()
+            for donor in model.media_realizers.native.values():
+                donor.eval()
         model.core.set_model_version(global_step)
         if context.is_primary:
             write_json(output / "config.json", asdict(config))

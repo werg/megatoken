@@ -32,6 +32,8 @@ def main():
     parser.add_argument("--max-tokens", type=int, default=8192)
     parser.add_argument("--identity-target-sha256", default="", help="SHA256 of matching raw/codec target tensor asset, required for autoencoder training")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--fps-num", type=int, default=0, help="Actual video sampling rate numerator")
+    parser.add_argument("--fps-den", type=int, default=1, help="Actual video sampling rate denominator")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -64,6 +66,10 @@ def main():
         source = path.read_text(encoding="utf-8")
     else:
         source = str(path)
+    if args.modality == "video" and (args.fps_num <= 0 or args.fps_den <= 0):
+        parser.error("Video feature assets require an explicit positive rational frame clock")
+    if args.modality != "video" and args.fps_num:
+        parser.error("Only video has an FPS sampling clock")
     extractor = EmbeddingGemma2HiddenExtractor.from_local_snapshot(
         args.snapshot, revision=args.revision, device=args.device
     )
@@ -82,6 +88,8 @@ def main():
         asset = store.put(
             features, modality=args.modality, kind="features", extractor=observation.extractor,
             preprocessing_id="chat-template-v1", source_family=args.identity_target_sha256 or source_sha,
+            fps_num=args.fps_num if args.modality == "video" else 0,
+            fps_den=args.fps_den,
         )
         descriptor = {}
         from dataclasses import asdict
