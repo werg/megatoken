@@ -211,15 +211,13 @@ def build(args: argparse.Namespace) -> dict:
         DocumentEmbeddingExample,
         write_document_sidecar,
     )
-    from megatoken.data.retrieval import RetrievalExample, read_sidecar, write_sidecar
+    from megatoken.data.retrieval import RetrievalExample, write_sidecar
     from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
     from megatoken.data.storage import export_prepared
     from megatoken.io import sha256_file
     from megatoken.loading import load_codec, load_model_config
     from megatoken.memory.catalog_cli import build_source_catalog
-    from megatoken.memory.centroids_cli import fit_centroids
     from megatoken.memory.contracts import Footprint, QueryBoundary, SemanticSpace, SourceRange
-    from megatoken.memory.index_cli import publish_index
     from megatoken.memory.recipe import RetrievalRecipe
 
     out = Path(args.output)
@@ -509,33 +507,14 @@ def build(args: argparse.Namespace) -> dict:
             }
             print(f"{view}-{split}", summary[f"{view}-{split}"], flush=True)
     # ---- IVF centroids and the calibrated index publication ----
-    centroids = out / "kb" / "centroids.npy"
-    coherence = RetrievalRecipe.load(recipes["coherence_embedding"])
-    if not centroids.exists():
-        fit_centroids(coherence, bank_path=bank, output=centroids, cells=args.ivf_cells)
-    receipt_path = bank.with_suffix(bank.suffix + ".index.json")
-    if not receipt_path.exists():
-        queries = np.stack(
-            [
-                np.asarray(row.teacher_target, dtype=np.float32)
-                for view in ("rc", "open")
-                for row in read_sidecar(out / "datasets" / f"{view}-heldout" / "queries.jsonl")
-            ]
-        )
-        receipt = publish_index(
-            coherence,
-            bank_path=bank,
-            centroid_path=centroids,
-            centroid_sha256=sha256_file(centroids),
-            queries=queries,
-        )
-        receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-    index = json.loads(receipt_path.read_text())
+    index = publish_ivf(
+        out, RetrievalRecipe.load(recipes["coherence_embedding"]), bank, args.ivf_cells
+    )
     result = {
         "recipes": recipes,
         "bank": str(bank),
         "ivf": {
-            "centroids": str(centroids),
+            "centroids": str(out / "kb" / "centroids.npy"),
             "centroids_sha256": index["centroid_file_sha256"],
             "nprobe": index["nprobe"],
         },
@@ -548,6 +527,37 @@ def build(args: argparse.Namespace) -> dict:
     }
     (out / "corpus.json").write_text(json.dumps(result, indent=2, sort_keys=True))
     return result
+
+
+def publish_ivf(out: Path, recipe, bank: Path, cells: int) -> dict:
+    """Fit pinned centroids and publish the IVF index, its probe count calibrated on
+    the held-out teacher queries. Idempotent: an existing receipt is kept."""
+    from megatoken.data.retrieval import read_sidecar
+    from megatoken.io import sha256_file
+    from megatoken.memory.centroids_cli import fit_centroids
+    from megatoken.memory.index_cli import publish_index
+
+    centroids = out / "kb" / "centroids.npy"
+    if not centroids.exists():
+        fit_centroids(recipe, bank_path=bank, output=centroids, cells=cells)
+    receipt_path = bank.with_suffix(bank.suffix + ".index.json")
+    if not receipt_path.exists():
+        queries = np.stack(
+            [
+                np.asarray(row.teacher_target, dtype=np.float32)
+                for view in ("rc", "open")
+                for row in read_sidecar(out / "datasets" / f"{view}-heldout" / "queries.jsonl")
+            ]
+        )
+        receipt = publish_index(
+            recipe,
+            bank_path=bank,
+            centroid_path=centroids,
+            centroid_sha256=sha256_file(centroids),
+            queries=queries,
+        )
+        receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return json.loads(receipt_path.read_text())
 
 
 def main(argv: list[str] | None = None) -> int:

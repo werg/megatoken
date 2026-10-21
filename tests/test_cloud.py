@@ -209,7 +209,7 @@ def test_push_uploads_retried_parts_that_the_bootstrap_joins(tmp_path, monkeypat
     digests = {
         path: hashlib.sha256(path.read_bytes()).hexdigest() for path in (big, empty, archive)
     }
-    cloud._push(Sandbox(), {digest: path for path, digest in digests.items()}, in_flight=3)
+    cloud._push(Sandbox(), {digest: path for path, digest in digests.items()})
     assert len(writes) == 4 + 1 + 1 + 1  # every part once, plus one retried part
     assert sorted(p.name for p in inbox.iterdir() if p.name.startswith(digests[big])) == [
         f"{digests[big]}.{i:04d}" for i in range(4)
