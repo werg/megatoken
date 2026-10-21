@@ -17,7 +17,7 @@ The same selected raw-facet representation powers ordinary E/C/P/R generation an
 
 [Architecture and acceptance specification](docs/retrieval-memory-plan.md). [Donor methodology: hindsight-kb@4501647](https://github.com/werg/hindsight-kb/tree/450164784589b2576256b8b0ba3d2ccc89af992d).
 
-**Selected v10 design (not implemented):** [Continuous State Transducer](docs/continuous-state-transducer-plan.md): 32,768-wide FP4 values, FP8 routing vectors, shared-MoE knowledge megatokens, a momentum-free local-scale optimizer, and error-driven growth. This is the committed architecture for one integrated run, not an experiment menu. The plan takes precedence over the accompanying research survey; v9 remains the supported implementation until v10 lands.
+**Selected v10 design (not implemented):** [Continuous State Transducer](docs/continuous-state-transducer-plan.md): neighbourhood-only graph search with order-sensitive operator transitions, 32,768-wide FP4 values, FP8 routing vectors, shared-MoE knowledge megatokens, a momentum-free local-scale optimizer, and error-driven growth. This is the committed architecture for one integrated run, not an experiment menu. The plan takes precedence over the accompanying research survey; v9 remains the supported implementation until v10 lands.
 
 ## Prepare once, train only through the new recipe
 
