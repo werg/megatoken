@@ -18,7 +18,7 @@
  "command": [
   "bash",
   "-c",
-  "set -e; command -v ffmpeg >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null); python -c 'import torch, torchcodec, diffusers, transformers; print(torch.__version__, torchcodec.__version__, diffusers.__version__, transformers.__version__)'; mkdir -p /work/out/verify; python scripts/acquire_packs.py --root /work/packs --only embeddinggemma2 sana sana_video | tee /work/out/verify/acquire.json; python scripts/verify_packs.py --manifest /work/packs/lock.json --rollout --prepare | tee /work/out/verify/report.json; cp /work/packs/lock.json /work/out/verify/"
+  "set -eo pipefail; command -v ffmpeg >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null); python -c 'import torch, torchcodec, diffusers, transformers; print(torch.__version__, torchcodec.__version__, diffusers.__version__, transformers.__version__)'; mkdir -p /work/out/verify; python scripts/acquire_packs.py --root /work/packs --only embeddinggemma2 sana sana_video | tee /work/out/verify/acquire.json; python scripts/verify_packs.py --manifest /work/packs/lock.json --rollout --prepare | tee /work/out/verify/report.json; cp /work/packs/lock.json /work/out/verify/"
  ],
  "outputs": [
   "out/verify"

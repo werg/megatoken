@@ -104,7 +104,9 @@ class Pipeline:
         self.frames, self.calls = frames, []
 
     def __call__(self, **kwargs):
-        assert "prompt" not in kwargs and "negative_prompt" not in kwargs
+        # The real pipeline refuses a text negative prompt next to negative embeds,
+        # and its default negative prompt is "" (diffusers 0.41).
+        assert "prompt" not in kwargs and kwargs["negative_prompt"] is None
         embeds = kwargs["prompt_embeds"]
         assert embeds.shape[1:] == (FACETS, CAPTION)
         assert not kwargs["negative_prompt_embeds"].any()

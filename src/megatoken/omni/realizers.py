@@ -414,6 +414,9 @@ class SanaRealizer(Realizer):
         kwargs = dict(
             prompt_embeds=embeds,
             prompt_attention_mask=attention,
+            # Precomputed embeddings replace the pipeline's text prompts (whose
+            # negative default "" would otherwise conflict with them).
+            negative_prompt=None,
             negative_prompt_embeds=torch.zeros_like(embeds),
             negative_prompt_attention_mask=attention,
             guidance_scale=4.0,
