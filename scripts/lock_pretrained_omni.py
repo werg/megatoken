@@ -13,7 +13,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from megatoken.omni.loader import read_locked_manifest
+from megatoken.omni.loader import read_locked_manifest, snapshot_files
 
 _ALLOWED = {"pocket", "sana", "sana_video", "embeddinggemma2"}
 _PATHS = {"snapshot", "config", "checkpoint"}
@@ -37,7 +37,7 @@ def create_lock(root: str, inventory: dict) -> dict:
             location = base / relative
             if not location.exists() or location.is_symlink():
                 raise ValueError("Pack has missing or symlinked resources")
-            children = location.rglob("*") if location.is_dir() else (location,)
+            children = snapshot_files(location) if location.is_dir() else (location,)
             for entry in children:
                 if entry.is_symlink():
                     raise ValueError("Symlink inside snapshot; make an immutable local copy")

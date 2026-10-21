@@ -60,7 +60,7 @@ def test_export_preserves_the_canonical_facet_policy_and_recurrent_state_exactly
     assert not any(
         any(old in name for old in ("posterior", "carry", "alignment")) for name in weights
     )
-    assert metadata["training_heads"] is False and metadata["donor_assets_required"] is False
+    assert metadata["training_heads"] is False and metadata["packs_fingerprint"] is None
     engine = InferenceEngine(directory, device="cpu")
     session = engine.new_session()
     payload = b"actual \xff observation"
@@ -172,7 +172,7 @@ def test_legacy_bundle_format_is_rejected_before_weight_loading(bundle):
     manifest = json.loads((directory / "manifest.json").read_text())
     manifest["format_version"] = 2
     (directory / "manifest.json").write_text(json.dumps(manifest))
-    with pytest.raises(ValueError, match="v8 direct realization"):
+    with pytest.raises(ValueError, match="requires architecture v10"):
         InferenceEngine(directory, device="cpu")
 
 
@@ -544,3 +544,11 @@ def test_cli_generation_shares_tool_and_raw_control_inputs_with_python(
         tools_json=tools_text,
     )
     assert tape == expected.tape
+
+
+def test_bundle_requires_the_pack_manifest_it_was_trained_with(bundle, tmp_path):
+    _, directory, _ = bundle
+    lock = tmp_path / "lock.json"
+    lock.write_text("{}")
+    with pytest.raises(ValueError, match="pack manifest the bundle was trained with"):
+        InferenceEngine(directory, packs=lock, device="cpu")

@@ -1,9 +1,0 @@
-# Stage B: jointly train E/C/P/R after DiLoCo modality warmup.
-# Each identity row binds the same frozen teacher source and R target.
-# Shares are event probabilities, not equal accelerator seconds.
-omni_recipe_version: concordant-v1
-task_weights:
-  embeddinggemma2_text_pretraining: 0.55
-  embeddinggemma2_audio_identity: 0.15
-  embeddinggemma2_image_identity: 0.15
-  embeddinggemma2_video_identity: 0.15

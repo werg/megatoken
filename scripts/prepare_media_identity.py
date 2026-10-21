@@ -6,7 +6,7 @@ episode: a short instruction, then the assistant realizes that media. The event
 observes nothing of the target; the meridian forward encodes its teacher features
 through E and trains R to reproduce its codec latents (plus P's facet prediction).
 Optional --text-episodes imports schema-v3 native text episodes into the "text"
-stream, so one omni recipe mixes text and identity media.
+stream, so one task recipe mixes text and identity media.
 """
 
 from __future__ import annotations

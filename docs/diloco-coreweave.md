@@ -1,4 +1,4 @@
-# Decoupled DiLoCo on eight CoreWeave GPU sandboxes
+# Decoupled DiLoCo: coordinator, learners and CoreWeave GPU sandboxes
 
 DiLoCo is the **target training methodology** for megatoken. It runs the same
 mandatory retrieval-memory architecture as the torchrun trainer: every learner
@@ -66,8 +66,8 @@ proprietary orchestration infrastructure or its adaptive performance controller.
 
 ## Prerequisites
 
-- A Forge organization allowlisted for GPU sandboxes (private preview) and a
-  quota of at least eight concurrent GPUs. Serverless GPU capacity currently
+- A CoreWeave account with GPU-sandbox access and a quota of at least eight
+  concurrent GPUs for an eight-worker run. Serverless GPU capacity currently
   offers **one NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB) per sandbox**.
   [CoreWeave GPU docs](https://docs.coreweave.com/products/sandboxes/serverless/gpu-sandboxes).
 - A persistent coordinator host with public/private HTTPS ingress, a **durable
@@ -80,11 +80,11 @@ proprietary orchestration infrastructure or its adaptive performance controller.
 - A private S3-compatible bucket with workload credentials to persist worker
   checkpoints (strongly recommended). CoreWeave AI Object Storage uses the
   `https://cwobject.com` endpoint and virtual-hosted addressing.
-- An unguessable token called `MEGATOKEN_DILOCO_TOKEN` in the Forge team
-  Secret Manager and the **same** value installed on the coordinator host.
-  Optionally store `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
-  `AWS_SESSION_TOKEN` as separate Forge secrets. Use short-lived credentials
-  or workload identity instead where available.
+- An unguessable token called `MEGATOKEN_DILOCO_TOKEN`, with the **same** value
+  on the coordinator host and every learner. Keep it, and any
+  `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` for the
+  checkpoint bucket, out of command lines and logs. Use short-lived
+  credentials or workload identity instead where available.
 
 ## Configure
 
@@ -156,8 +156,10 @@ quorum grace timer is restored conservatively, not precisely, after a restart.
 
 The `init` command deliberately refuses to replace any existing coordinator
 directory. To begin a new phase/experiment, choose a new run ID and root.
-`--resume` can warm-start **weights** from a previous standard checkpoint;
-it does not transplant the previous outer optimizer history.
+`--resume` warm-starts the coordinator's global FP32 **weights** from a
+previous coordinator export (`exports/latest.json`) or a training checkpoint;
+it does not transplant the previous outer optimizer history. See "Phase
+transitions" below.
 
 Inspect authenticated status:
 
@@ -171,41 +173,41 @@ pending submissions, and accepted merges. Worker JSONL metrics include
 per-step wall time, per-domain gradient norms, local/global tokens, pending
 uploads, fragment versions, and coordinator-visible merge progress.
 
-## Build and run eight GPU sandboxes
+## Running learners on GPU sandboxes
 
-The existing `Dockerfile` builds a Blackwell-compatible CUDA/PyTorch image.
-Build and push it to a registry visible to the sandboxes, using an immutable
-image digest in production. This image contains the CLI, SDK-independent
-learner, S3 storage library, source, tests, and staging script.
+The existing `Dockerfile` builds a Blackwell-compatible CUDA/PyTorch image
+(CLI, learner, S3 storage library, source, tests, staging script). Build it
+and push it to a registry visible to the sandboxes, using an immutable image
+digest in production.
 
-On the orchestration machine:
+GPU jobs run through the single-sandbox job runner in
+[`src/megatoken/cloud.py`](../src/megatoken/cloud.py): a
+`megatoken.cloud-job/1` file declares the image, resources (exactly one GPU per
+sandbox), lifetime, sha256-pinned inputs, the command and the output
+directories (an example is [configs/cloud/qa-p1.json](../configs/cloud/qa-p1.json)).
 
 ```bash
-python -m pip install 'cwsandbox>=1.14.2'
-export FORGE_API_KEY='...'
-# Optional: export FORGE_TEAM='your-team'
-python scripts/coreweave_diloco.py \
-  --image registry.example/megatoken@sha256:YOUR_IMAGE_DIGEST \
-  --config configs/train/retrieval-coherence-diloco-coreweave.example.yaml \
-  --workers 8 --cpu 8 --memory 32Gi --scratch 80Gi \
-  --lifetime-seconds 86400 \
-  --data-s3 s3://YOUR-BUCKET/megatoken-input \
-  --s3-endpoint https://cwobject.com \
-  --s3-region YOUR_COREWEAVE_REGION \
-  --secret AWS_ACCESS_KEY_ID \
-  --secret AWS_SECRET_ACCESS_KEY
+python -m megatoken.cloud launch JOB.json        # start the sandbox, push a clean committed snapshot and inputs
+python -m megatoken.cloud logs SANDBOX_ID --follow
+python -m megatoken.cloud collect SANDBOX_ID --dest DIR   # pull and sha256-verify outputs, then release
+python -m megatoken.cloud stop SANDBOX_ID
 ```
 
-The launcher uses the current Forge `AuthHeaders` and `Secret(store="wandb")`
-APIs, assigns one GPU and a unique rank per sandbox, stages the data from S3,
-and runs `megatoken train` without torchrun. The shared DiLoCo token is
-always requested from Forge Secret Manager, never sent in CLI arguments.
-All eight workers may start and finish independently. A failed worker does
-not block fragment updates as long as the configured quorum remains available.
-The client sends only outbound HTTPS; no worker needs inbound networking.
+Credentials come from the environment or a mode-600 `MEGATOKEN_CW_ENV_FILE`
+(see the module docstring). **A multi-worker DiLoCo launcher built on
+`megatoken.cloud` does not exist yet.** The former per-worker launcher script was
+removed, and nothing in this repository currently starts N learner sandboxes
+for one coordinator. Until one exists, each learner must be started by hand
+or by your own tooling as a job whose command is `megatoken train` with the
+shared config, a unique `MEGATOKEN_WORKER_ID` (`0..workers-1`) and the shared
+`MEGATOKEN_DILOCO_TOKEN`; the protocol requirements below are unchanged.
 
-The default sandbox lifetime limit is explicit and cannot be extended on a
-running sandbox; the CoreWeave maximum is 30 days. If a run exceeds a sandbox
+Learners send only outbound HTTPS; no worker needs inbound networking. All
+workers may start and finish independently, and a failed worker does not block
+fragment updates as long as the configured quorum remains available.
+
+The sandbox lifetime limit is explicit and cannot be extended on a running
+sandbox; the CoreWeave maximum is 30 days. If a run exceeds a sandbox
 lifetime, launch a replacement with the same worker ID and S3 checkpoint
 namespace. The coordinator's lease can take up to three minutes to expire
 before a *different* worker session may reuse the slot.
@@ -262,12 +264,27 @@ megatoken evaluate \
   --codec /work/artifacts/codec
 ```
 
-Exported checkpoints are **evaluation/inference only** and do not contain
-the workers' inner optimizer/data cursors. Their `global_step` reflects the
-highest fragment outer version, not a synchronized learner step. For the next
-curriculum phase, initialize a new coordinator from a full compatible
-*training checkpoint* or use the exported weights as a deliberate new
-initialization, not an exact optimizer resume.
+Exports do not contain the workers' inner optimizer states or data cursors, so
+they are not restartable local-training checkpoints; their `global_step`
+reflects the highest fragment outer version, not a synchronized learner step.
+They do carry the coordinator's global FP32 `master_weights`, which is what
+seeds the next phase.
+
+### Phase transitions
+
+A phase transition is a **new coordinator** initialized from the previous
+phase's export. Workers never resume across phases; they start fresh under the
+new run ID with their own inner-optimizer state.
+
+```bash
+megatoken diloco export --config PREV.yaml --root PREV_ROOT --output exports
+megatoken diloco init --config NEXT.yaml --root NEW_ROOT --resume exports/latest.json
+```
+
+Owners that are new in the next phase (for example realizer conditions when
+packs are first installed) start from initialization; owners frozen in the
+previous phase keep their exported weights. The media phases (bridge, joint,
+tasks) chain this way; see [media.md](media.md).
 
 ## Validation checklist before a large-budget run
 
@@ -296,5 +313,4 @@ baselines.
 - [Decoupled DiLoCo (Douillard et al., 2026)](https://arxiv.org/abs/2604.21428)
 - [CoreWeave serverless GPU sandboxes](https://docs.coreweave.com/products/sandboxes/serverless/gpu-sandboxes)
 - [Sandbox configuration and lifetime](https://docs.coreweave.com/products/sandboxes/client/guides/sandbox-configuration)
-- [Forge Secret Manager injection](https://docs.coreweave.com/products/sandboxes/secrets)
 - [PyTorch Muon](https://docs.pytorch.org/docs/stable/generated/torch.optim.Muon.html)

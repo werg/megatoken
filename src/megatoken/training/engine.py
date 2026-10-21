@@ -26,7 +26,13 @@ from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
 from megatoken.io import content_hash, sha256_file, write_json
-from megatoken.loading import build_model, load_codec, load_model_config, parameter_report
+from megatoken.loading import (
+    build_model,
+    load_codec,
+    load_model_config,
+    parameter_report,
+    restore_weights,
+)
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
 from megatoken.training.checkpoint import (
@@ -37,7 +43,6 @@ from megatoken.training.checkpoint import (
     snapshot_to_cpu,
     stage_checkpoint,
 )
-from megatoken.training.concordance_recipe import load_concordance_recipe
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
@@ -357,8 +362,7 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "retrieval_kv_dropout",
             "retrieval_lora_dropout",
             "router_balance_mode",
-            "omni_recipe",
-            "concordance_recipe",
+            "task_recipe",
             "trainable",
             "text_anchors",
             "text_anchor_weight",
@@ -523,8 +527,6 @@ def train(
             precision=config.precision,
             packs=config.packs,
         )
-        # Owners a phase transition may introduce: realizers installed for the
-        # first time (e.g. text pretraining -> media). Nothing else may appear.
         new_owners: tuple[str, ...] = ()
         payload = None
         if resume:
@@ -536,21 +538,15 @@ def train(
                 or payload.get("retrieval_recipe_fingerprint", "") != (retrieval_recipe.fingerprint)
             ):
                 raise ValueError("Exact resume changed retrieval supervision or recipe identity")
-            if payload["packs_fingerprint"] != packs_fingerprint:
-                if not (phase_transition and payload["packs_fingerprint"] is None):
-                    raise ValueError("Realizer pack manifest differs from the checkpoint")
-                new_owners = ("media_realizers.packs.",)
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
             if payload["model_config"] != model_config.to_dict():
                 raise ValueError("Checkpoint model configuration differs")
             # Dynamic temporary imports must be restored before optimizer owner
             # enumeration, or their FP32 masters and hooks would be missing.
-            restored = model.load_state_dict(payload["model"], strict=not new_owners)
-            if restored.unexpected_keys or any(
-                not key.startswith(new_owners) for key in restored.missing_keys
-            ):
-                raise ValueError("Checkpoint parameters differ beyond newly installed realizers")
+            new_owners = restore_weights(
+                model, payload, packs_fingerprint, phase_transition=phase_transition
+            )
         elif config.engram_import:
             from megatoken.assets import install_engram_asset
 
@@ -733,39 +729,22 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        if config.omni_recipe is not None and config.concordance_recipe is not None:
-            raise ValueError("Select one of omni_recipe and concordance_recipe per run")
-        concordance_recipe = (
-            load_concordance_recipe(config.concordance_recipe)
-            if config.concordance_recipe is not None
-            else None
-        )
-        if concordance_recipe is not None and phase.meter != "G":
-            raise ValueError("Concordance tasks must use event-based G training budgets")
-        if config.omni_recipe is not None:
-            from megatoken.training.omni_stream import OmniWindowStream, load_omni_recipe
+        task_recipe = None
+        if config.task_recipe is not None:
+            from megatoken.training.task_recipe import load_task_recipe
 
-            stream = OmniWindowStream(
-                config.dataset,
-                codec,
-                windows_config,
-                load_omni_recipe(config.omni_recipe),
-                "G",
-                seed=config.seed,
-                rank=data_rank,
-                world_size=data_world,
-                reduce_counts=context.sum_counts,
-                independent=config.decoupled is not None,
-            )
-        elif config.use_stage_mixture or concordance_recipe is not None:
-            recipe = (
-                concordance_recipe if concordance_recipe is not None else stage_recipe(config.phase)
+            task_recipe = load_task_recipe(config.task_recipe)
+        if config.use_stage_mixture or task_recipe is not None:
+            mixture = (
+                task_recipe.mixture
+                if task_recipe is not None
+                else stage_recipe(config.phase).mixture
             )
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
                 windows_config,
-                recipe.mixture,
+                mixture,
                 phase.meter,
                 seed=config.seed,
                 rank=data_rank,
@@ -1049,15 +1028,12 @@ def train(
             weights = dict(config.loss_weights)
             # The old per-operation router loss has been replaced.
             weights["router_balance"] = 0.0
-            if concordance_recipe is not None:
+            if task_recipe is not None:
+                from megatoken.training.task_recipe import AUXILIARY_LOSSES
+
                 # Reconstruction and distillation are auxiliaries, not extra mixture rows.
-                for name in (
-                    "reconstruction",
-                    "audio_reconstruction",
-                    "visual_reconstruction",
-                    "encoder_alignment",
-                ):
-                    weights[name] *= concordance_recipe.auxiliary_weight
+                for name in AUXILIARY_LOSSES:
+                    weights[name] *= task_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
             from megatoken.training.router_balance import RouterBalanceWindow

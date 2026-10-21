@@ -26,7 +26,7 @@ MAX_TOKENS = 8192
 # google/embeddinggemma-2 @ 914f7f89, every snapshot file locked (pack manifest).
 PINNED_EXTRACTOR = (
     "embeddinggemma2:914f7f89142e33e77833254d9c9b90c3cef7303b:"
-    "a8403f12fdef844ecb8c44ed6671b977e9e747dafb6b335e7e17e8e76868dacc:"
+    "dcc342ef4bf5d120eeba035c685d9ced3b435d75f23d95a9a7c2ab77ad1383c9:"
     f"{HIDDEN_TAP}:{PREPROCESSING}"
 )
 _EXTRACTOR = re.compile(
@@ -45,8 +45,11 @@ def extractor_id(revision: str, files: dict[str, str], snapshot: str) -> str:
         not re.fullmatch(r"[0-9a-f]{40}", revision)
         or not files
         or not all(path.startswith(prefix) for path in files)
+        or any(".cache" in Path(path).parts for path in files)
     ):
-        raise ValueError("Teacher identity needs a 40-hex revision and its snapshot's file hashes")
+        raise ValueError(
+            "Teacher identity needs a 40-hex revision and its snapshot's model file hashes"
+        )
     relative = {path.removeprefix(prefix): sha for path, sha in files.items()}
     digest = hashlib.sha256(
         json.dumps(relative, sort_keys=True, separators=(",", ":")).encode()

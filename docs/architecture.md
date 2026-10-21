@@ -1,15 +1,16 @@
-# Architecture v8: direct raw-facet realization and multi-track causal KV
+# Architecture v10: direct raw-facet realization and multi-track causal KV
 
-**The single-event path below is one special case of the v8 multi-track core.**
+**The single-event path below is one special case of the multi-track core (architecture v10).**
 Multiple tracks are integrated as one atomic meridian with a shared full-resolution
 KV history and joint central processing. For the grouped contract, see the
 [multi-track plan](multi-track-plan.md) and
-[implementation status](multi-track-implementation.md) and the
-[omnimodal architecture and training proposal](omnimodal-architecture-and-training.md).
+[implementation status](multi-track-implementation.md). Media input and
+output (pinned EmbeddingGemma2 hidden states in, frozen Pocket/Sana/Sana-Video
+realizers out) are specified in [media.md](media.md).
 
 The following sections document the single-event mechanics and retained v6 design
-choices inside the **v8 implementation**. Where an example speaks about one
-megatoken or one selected input, grouped v8 meridians operate on several such
+choices inside the **current implementation**. Where an example speaks about one
+megatoken or one selected input, grouped meridians operate on several such
 complete blocks in the same central pass. The legacy single-event path remains
 supported; multimedia quality and grouped recurrent training are not yet established.
 
@@ -21,9 +22,11 @@ C does not participate in the current output realization.
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version **8** defines the currently supported core and grouped state.
-The single-action and grouped-action tapes have v8 identities. Checkpoints
-and served bundles require v8 weights; dataset schema version 3 remains.
+Architecture version **10** (`ARCHITECTURE_VERSION`) defines the currently supported
+core and grouped state. The grouped action tape is `GroupActionTape` v10
+(`fmt-multitrack-facets-v10`); the single-event text tape keeps its
+`fmt-canonical-facets-v8` identifier. Checkpoints require v10 weights and the
+locked pack manifest's fingerprint; dataset schema version 3 remains.
 The legacy CLI names `recurrent32` and `compact32` still select the corresponding
 fresh-construction geometry, not old checkpoint semantics.
 

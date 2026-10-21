@@ -90,6 +90,28 @@ class TrainedModel:
     metadata: dict[str, Any]
 
 
+# A phase transition may install realizers for the first time (text -> media);
+# nothing else may appear or disappear between a checkpoint and its successor.
+NEW_REALIZER_OWNERS = ("media_realizers.packs.",)
+
+
+def restore_weights(
+    model, payload: dict[str, Any], packs_fingerprint: str | None, *, phase_transition: bool
+) -> tuple[str, ...]:
+    """Load checkpoint weights; return the owner prefixes that are new in this phase."""
+    new_owners: tuple[str, ...] = ()
+    if payload["packs_fingerprint"] != packs_fingerprint:
+        if not (phase_transition and payload["packs_fingerprint"] is None):
+            raise ValueError("Realizer pack manifest differs from the checkpoint")
+        new_owners = NEW_REALIZER_OWNERS
+    restored = model.load_state_dict(payload["model"], strict=not new_owners)
+    if restored.unexpected_keys or any(
+        not key.startswith(new_owners) for key in restored.missing_keys
+    ):
+        raise ValueError("Checkpoint parameters differ beyond newly installed realizers")
+    return new_owners
+
+
 def load_trained(
     checkpoint: str | Path,
     *,
@@ -111,12 +133,15 @@ def load_trained(
     if codec.fingerprint != payload["codec_fingerprint"]:
         raise ValueError("Codec does not match the trained checkpoint")
     packs = packs or train_config["packs"]
-    if (None if packs is None else sha256_file(packs)) != payload["packs_fingerprint"]:
-        raise ValueError("Realizer pack manifest does not match the trained checkpoint")
     model = build_model(
         config, codec, device=device, precision=train_config["precision"], packs=packs
     )
-    model.load_state_dict(payload["model"], strict=True)
+    restore_weights(
+        model,
+        payload,
+        None if packs is None else sha256_file(packs),
+        phase_transition=False,
+    )
     model.core.set_model_version(payload["global_step"])
     return TrainedModel(model, codec, payload, metadata)
 

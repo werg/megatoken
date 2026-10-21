@@ -558,9 +558,11 @@ class FacetedGenerator(nn.Module):
         return state, tuple(log_probs)
 
     def media_bridge_parameters(self) -> Iterator[nn.Parameter]:
-        """The media input projection and the realizer conditions: everything
-        that connects the frozen teacher and frozen donors to the facet space."""
+        """Everything that connects the frozen teacher and frozen donors to the
+        facet space: the media input projection, the (zero-initialized) modality
+        embedding by which C tells media kinds apart, and the realizer conditions."""
         yield from self.core.media_encoder.parameters()
+        yield self.core.central.modality_embedding.weight
         yield from self.media_realizers.parameters()
 
     def parameter_owners(self) -> dict[str, tuple[nn.Parameter, ...]]:

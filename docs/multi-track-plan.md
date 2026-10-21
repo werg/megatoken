@@ -1,6 +1,15 @@
-> **Historical v7 plan:** The contextual C→R edge here is superseded by
-> [ADR 0007](decisions/0007-direct-realization.md). The media research
-> directions remain proposals; v8 R reads raw facets independently of C.
+> **Historical plan (written for v7):** The contextual C→R edge here is superseded by
+> [ADR 0007](decisions/0007-direct-realization.md), and the **media ingestion and
+> realization design in Sections 8-10 is superseded by [media.md](media.md)**: the
+> implemented path has one input (pinned EmbeddingGemma2 hidden states) and one
+> output per modality (frozen Pocket, Sana and Sana-Video with trainable
+> `FacetCondition`s). Where this plan describes per-modality stems, codec input
+> features, flow heads trained from scratch, or shared U-bank media realizers, read
+> those passages (including the matching asset tables, work packages C/D and
+> acceptance gates G05/G08 later on) as alternatives that were considered, not as
+> current behavior.
+> Task and data directions are tracked in
+> [pretrained-omnimodal-bottleneck-plan.md](pretrained-omnimodal-bottleneck-plan.md).
 
 # Multi-track Megatoken: architecture and implementation plan
 
@@ -429,7 +438,7 @@ Extend the existing chunking fingerprint with modality, codec/feature-extractor 
 
 Track exposure in meaningful units: text tokens, audio seconds, image count/pixels, video seconds/frames, and selected megatokens. A codec frame is not an interchangeable training-budget unit with a reference text token.
 
-## 8. Ingestion: specialized stems, common reduction and facets
+## 8. Ingestion: one media encoder, common reduction and facets
 
 The encoder contract remains:
 
@@ -442,12 +451,11 @@ E does not read future targets, other tracks' history, or prospective output con
 ### Shared shape of the encoders
 
 ```text
-modality stem
-    -> ordered local features with coordinates/masks
+text bytes                       -> byte E
+pinned teacher hidden states     -> MediaEncoder (512 -> E width) -> shared E reductions
     -> hierarchical reduction
     -> bounded 32-query readout
     -> shared facet refinement
-    -> modality-specific final calibration/projection where needed
     -> canonical raw facets
 ```
 
@@ -457,23 +465,11 @@ Reuse the existing reduction and `DenseFacetBlock` building blocks where their a
 
 Keep the ordered byte/ngram stem and current hierarchy. All transcripts, captions, code, tool JSON, retrieved text, and textual controls reuse this same text machinery.
 
-### Audio
+### Audio, images and video
 
-Use a fixed or pretrained audio feature/codec stem for the first audio experiment. Preserve phonetic content, timing, speaker information, and non-speech acoustic cues rather than converting audio only to its transcript.
+Every media event enters as the pinned EmbeddingGemma2 512-wide hidden states of the original file ([media.md](media.md)): one ordered `[T <= 8192, 512]` row per event, extracted offline by the frozen teacher, which applies its own audio and vision front ends. Audio, images and video therefore share one `MediaEncoder` projection and the same E reduction as text; there are no separate audio or visual stems, no codec-latent or raw-sample input paths, and no separate appearance, optical-flow, tracker or event-segmenter encoders. Teacher features carry no physical clock, so timing lives in event metadata, not in E. An image is a one-event case; long clips are split into several events before extraction.
 
-Project temporal features to the shared source width, then apply ordered temporal reduction and the common facet readout. Tens of seconds of codec frames can be internal input to one encoder call.
-
-Mimi is a concrete reusable codec baseline; its 12.5 Hz representation is an internal rate, not a proposed Megatoken clock. [R2] The abstraction should also admit continuous speech features. No pretrained audio transformer's historical cache enters the core.
-
-### Images and video
-
-Use one visual family. An image is the one-frame case at the interface; codec-specific padding or minimum-frame requirements remain local implementation details.
-
-A video stem can use a pretrained spatiotemporal VAE or visual feature encoder. Apply local spatial processing and ordered temporal reduction before the 32-query readout. Preserve spatial and temporal coordinates until the readout; do not merely average frame embeddings.
-
-Open-Sora-Plan provides a concrete image/video VAE precedent with joint spatial-temporal compression. Its released v1.0 report describes 4 x 8 x 8 compression and joint image/video handling. These are reusable mechanisms, not evidence that our additional 32-facet compression is already validated. [R3]
-
-Use one visual encoder path. Separate appearance encoders, optical-flow networks, object trackers, and learned event segmenters are excluded architectural mechanisms.
+Earlier drafts of this plan considered codec stems (Mimi, spatiotemporal VAEs such as Open-Sora-Plan's) as inputs [R2, R3]. Those remain useful as *output* codecs only through the pretrained realizers.
 
 ### What the bottleneck is supposed to preserve
 
@@ -492,13 +488,12 @@ The stable boundary is:
 ```text
 R_modality(
     selected raw facets,
-    selected early/final C features,
-    unified control context,
     output specification,
-    explicit public references,
     renderer randomness
 ) -> payload
 ```
+
+(Current code: R reads only the selected raw facets, the public output spec and renderer randomness; see [media.md](media.md) and ADR 0007.)
 
 Realizers may use many internal tokens and several decoding steps. They do not write semantic KV, create hidden megatokens, or run another general-purpose agent policy.
 
@@ -506,39 +501,15 @@ Realizers may use many internal tokens and several decoding steps. They do not w
 
 Keep the current deterministic lexical realizer, structured decoding, exact copies, and schema constraints. Retain its existing output limits and losses.
 
-### Audio realizer
+### Media realizers
 
-Implement chunk-level conditional flow matching over a pinned vocoder-compatible continuous acoustic representation, followed by its fixed decoder/vocoder. This supports whole-chunk generation without making every frame a central autoregressive action.
+Each modality has exactly one resident, frozen pretrained realizer ([media.md](media.md)): Pocket (flow LM + Mimi, 24 kHz) for speech, Sana (+ DC-AE) for stills, and Sana-Video (+ VAE) for video. Each owns a trainable `FacetCondition` that projects the 32 raw facets into the donor's conditioning width; donor weights stay frozen and outside checkpoints. Training uses the donor's own objective on its own codec latents, and generation calls `realize(raw, spec, generator)`. There are no flow heads trained from scratch, no second codec-token backend, and no shared U-bank across media realizers; F5-TTS and Transfusion [R4, R5] were considered references only.
 
-F5-TTS provides a concrete flow-matching speech recipe and training code. Its conditioning architecture is a reference, not a requirement to transplant a second language model. Its code and pretrained weights have different licenses, so choose assets deliberately. [R4]
-
-Choose and pin the acoustic target/vocoder pair during the required asset-preparation work. A second codec-token output backend is outside the selected implementation; the continuous-flow path must be fully trained, exported, and served.
-
-For exact TTS, the earlier selected text and any declared exact text reference are available as causal content constraints. Otherwise the audio realizer must learn to render the content selected in its facets, not independently invent another response.
-
-### Shared image/video realizer
-
-Use a visual latent generator conditioned on raw/early/final facets and unified controls, followed by a fixed visual decoder. Treat the one-frame case and multi-frame case as one family with shared spatial processing and temporal support for video.
-
-Flow matching gives numeric media realizers a common training and inference structure. Different latent grids and output projections do not require different central reasoning models. Transfusion is a useful precedent for keeping discrete text and continuous image generation under a common model while retaining modality-specific edges. [R5]
-
-### How much of R should be shared
-
-Start with a common conditioning interface, facet-conditioning blocks, normalization, attention/FFN implementations, and training harness. Share image/video weights from the outset where the codec permits it. Keep audio-specific input/output projections and local time processing.
-
-Implement shared U-bank refinement at compatible facet-conditioned widths and evaluate the specified sharing ablation. High-resolution denoising layers retain their modality-appropriate widths and owners. Parameter sharing that changes optimization ownership must pass the shared-owner audit.
-
-Bootstrap the implemented renderer from the selected pretrained media components where useful, adapt its conditioning to the shared facets, and complete its joint training and serving integration in this delivery. A separate renderer-distillation project is outside the selected architecture.
+For exact TTS the earlier selected text is available to the model as ordinary history, but the speech realizer itself reads only the selected facets; it never re-reads a transcript.
 
 ### Synchronized audio and video
 
-Generate audio and video as distinct megatokens in one generated meridian, under a shared alignment and duration specification. Joint C provides semantic agreement. The realizers use the same media clock and duration budget.
-
-Fine acoustic/visual alignment is a realization task as well as a core task. Implement a coupled media-realization block that exchanges information between the audio and video latent grids during their conditional flow solve. This remains bounded work for one selected meridian; it does not become a second historical KV system.
-
-LTX-2 is a concrete reference for joint audiovisual generation and released fine-tuning infrastructure. Its existence supports reusing media-generation techniques, not assuming that two independently trained heads will automatically lip-sync. [R6]
-
-Train coarse synchronized clips and consistent content, then fine lip synchronization through paired realization training. Both are required completion gates, including measured synchronization capability rather than merely an implemented loss. The core architecture is shared across these training steps.
+Audio and video are distinct events in one generated meridian under a shared alignment and duration specification. Joint C provides semantic agreement; each realizer is independent and uses the same media clock and duration budget. Fine acoustic/visual alignment (lip synchronization) is **not implemented**: independently trained realizers do not automatically lip-sync, and a coupled audiovisual realizer such as LTX-2 [R6] is not part of the current path. Coarse synchronization and measured lip-sync gates remain future work.
 
 ### Output shape and duration
 
@@ -553,13 +524,13 @@ Ground-truth output length may be used in an explicitly teacher-forced realizati
 | Parameter family | Required sharing policy |
 | --- | --- |
 | Byte/ngram table | Shared by all textual material; retain its byte semantics |
-| Audio/visual input embeddings and codec stems | Separate |
+| Media input projection (`MediaEncoder`) | One projection for the pinned teacher features, shared E reductions after it |
 | Reduction block implementation | Shared; tie compatible weights after modality projection where useful |
 | Facet-resolution encoder refinement | Shared within E, with small modality-specific calibration |
 | Central C and final KV projection | Fully shared across tracks and modalities |
 | Predictor P and P expert bank | Fully shared, modality/task-conditioned routing |
 | Realizer conditioning and block implementation | Shared |
-| Image/video realizer | Shared family |
+| Media realizers | One frozen donor per modality; only the `FacetCondition` is trainable |
 | Acoustic/visual output heads and codecs | Modality-specific |
 | U expert bank | Shared compatible refinement with ownership and utilization checks; no fixed modality quota |
 
@@ -612,7 +583,7 @@ Apply overrides field by field: omitted means inherit; an explicit reset is a ty
 
 Retain a pooled control summary for the existing predictor injection. Add a small bounded set of control/reference features for realizers to attend to. A concrete starting point is eight control slots, with the width set in configuration, plus the existing pooled summary.
 
-Text uses the shared byte frontend. Audio and visual references use their modality stems and a bounded reference readout. These features join one control encoder and versioned `ControlContext`.
+Text uses the shared byte frontend. Audio and visual references use the same pinned-teacher `MediaEncoder` path and a bounded reference readout. These features join one control encoder and versioned `ControlContext`.
 
 The reference path is explicit conditioning, analogous to the existing public schema/copy mechanism. It is not an undeclared observation history or a hidden store of the target's original media.
 
@@ -748,7 +719,7 @@ This requires code in Work package A: `training/engine.py::make_training_control
 
 ### Bootstrap each new modality before using the recurrent auxiliary
 
-Pin a modality bootstrap recipe that names the input features, output representation/decoder, frozen pretrained assets, trainable E/R adapters, and whether compatible C/P/control owners update. First validate preprocessing and codec/vocoder round trips independently, then train the facet-conditioned reconstruction branch and causal cross-modal tasks. An audio input stem and an audio realization target may be different representations; their sample rates, normalization, lengths, masks, and conversion path must be explicit and independently tested.
+The implemented bootstrap is the bridge phase of [media.md](media.md) (`trainable: media_bridge`): the pinned input features, the frozen realizer and its codec latents, and the trainable media projection and realizer conditions are named by the locked pack manifest and the phase config. First validate codec round trips independently (`scripts/verify_pretrained_omni.py`), then train the facet-conditioned reconstruction branch and causal cross-modal tasks. The input representation (teacher hidden states) and the realization target (codec latents) are different representations; the output clock (24 kHz speech), masks and lengths are explicit and independently tested.
 
 The current recurrent encoder auxiliary freezes C/R. Attaching an untrained media R and immediately using that branch cannot train R to decode E's output. Give the new E/R pair a supervised bootstrap phase with the intended owners trainable, then transition to the existing recurrent encoder-only auxiliary after reconstruction and causal-prior generation have both been evaluated. Preserve the existing bootstrap correspondence/gradient boundaries and do not introduce a recurrent target-to-prior KL implicitly.
 
@@ -758,9 +729,9 @@ At every transition retain text replay, record owner-specific gradient norms and
 
 **MT0: multi-track text.** Use existing text/code/tool examples and synthetic tasks with two to four tracks. Train copying across tracks, joining independent results, worker/critic ordering, and evidence-conditioned answers. Include singleton meridians throughout.
 
-**MT1: text and speech.** Bootstrap audio E/R with paired speech/transcript data, then train transcription, text-constrained TTS, and audio-conditioned answers. Add chunk-aligned translation after a bilingual data recipe and held-out language-pair evaluation are pinned. Keep text capability replay in the mixture.
+**MT1: text and speech.** Bootstrap audio E/R (bridge phase) with paired speech/transcript data, then train transcription, text-constrained TTS, and audio-conditioned answers. Add chunk-aligned translation after a bilingual data recipe and held-out language-pair evaluation are pinned. Keep text capability replay in the mixture.
 
-**MT2: images and video understanding.** Train image captions, questions, temporal ordering, event descriptions, and cross-track audiovisual grounding. Start with the same visual stem for images and clips.
+**MT2: images and video understanding.** Train image captions, questions, temporal ordering, event descriptions, and cross-track audiovisual grounding. Images and clips use the same pinned-teacher path.
 
 **MT3: visual and joint media realization.** Train image generation, short clips, reference/style controls, then paired audio/video output under common duration/alignment conditions.
 

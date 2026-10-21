@@ -328,8 +328,9 @@ class MasterAdamW:
 
         ``new`` lists name prefixes that may be absent from the checkpoint: owners
         installed at a phase transition (e.g. media realizer conditions). They
-        keep their initialization and start with fresh moments. Nothing else
-        may be added, dropped, or change optimizer type.
+        keep their initialization and start with fresh moments. Frozen owners
+        keep their masters, so a change of trainable scope changes nothing here.
+        Nothing else may be added, dropped, or change optimizer type.
         """
         if state.get("format_version") != 3 or state["inner_optimizer"] != self.inner_optimizer:
             raise ValueError("Optimizer format or inner optimizer differs from the checkpoint")
@@ -347,7 +348,9 @@ class MasterAdamW:
                 moments = state["moments"].get(name)
                 if moments is not None:
                     self._inner(name).state[master] = {
-                        key: value.to(master.device) if isinstance(value, torch.Tensor) else value
+                        key: value.to(master.device, copy=True)
+                        if isinstance(value, torch.Tensor)
+                        else value
                         for key, value in moments.items()
                     }
                     for key, value in moments.items():

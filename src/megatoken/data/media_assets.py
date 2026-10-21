@@ -104,6 +104,8 @@ class TensorAsset:
                 raise ValueError("Speech latents, and only they, are Pocket/Mimi 24 kHz")
             if (self.modality == "video") != (self.fps_num > 0) or self.fps_den < 1:
                 raise ValueError("Video latents, and only they, carry a positive frame rate")
+            if self.modality == "image" and self.valid_count:
+                raise ValueError("Still-image latents have no frame axis to pad")
         else:
             raise ValueError("Media assets are teacher features or realizer codec latents")
         if self.valid_count < 0 or self.valid_count > self.shape[0]:

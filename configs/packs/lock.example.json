@@ -1,6 +1,15 @@
 {
   "version": 1,
   "packs": {
+    "embeddinggemma2": {
+      "repository": "google/embeddinggemma-2",
+      "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+      "snapshot": "embeddinggemma2",
+      "files": {
+        "embeddinggemma2/model.safetensors": "0000000000000000000000000000000000000000000000000000000000000000",
+        "embeddinggemma2/config.json": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
     "pocket": {
       "revision": "PIN_FULL_UPSTREAM_COMMIT",
       "config": "pocket/pocket.yaml",

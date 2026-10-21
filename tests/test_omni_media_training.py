@@ -1,106 +1,83 @@
-"""Real media assets through the existing grouped loss ledger and checkpoint path."""
+"""Prepared media (teacher features -> realizer latents) through the grouped loss ledger."""
 
 from dataclasses import replace
 
-import numpy as np
 import pytest
 import torch
+from media_support import FakeRealizer, install_fake_realizers, prepared_record
 from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
 
 from megatoken.data import Episode, Lineage, PhysicalRecord, WindowConfig, iter_windows
-from megatoken.data.media_assets import (
-    MEDIA_RECORD_TYPE,
-    MediaRecord,
-    TensorAssetStore,
-)
+from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, encode_record
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
+from megatoken.media_teacher import PINNED_EXTRACTOR
 from megatoken.model import ModelConfig
 from megatoken.training.engine import batch_counters, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
 
+CODEC = ByteCodec.byte_fallback()
+OTHER_TEACHER = PINNED_EXTRACTOR.replace("914f7f89", "0" * 8)
 
-def _case(tmp_path, *, external=False):
-    assets = TensorAssetStore(tmp_path)
-    wave = np.sin(np.arange(512, dtype=np.float32) / 21).astype("<f4")
-    image = np.linspace(0, 1, 3 * 8 * 8, dtype=np.float32).reshape(3, 8, 8)
-    wave_asset = assets.put(wave, modality="audio", sample_rate=16000)
-    image_asset = assets.put(image, modality="image")
-    feature_id = "pinned-audio-test-v1"
-    features = (
-        assets.put(
-            np.ones((12, 16), dtype=np.float32),
-            modality="audio",
-            kind="features",
-            extractor=feature_id,
-            sample_rate=16000,
-        )
-        if external
-        else wave_asset
-    )
-    observed = MediaRecord("audio", features)
-    generated = MediaRecord("image", image_asset, image_asset)
-    tracks = (
-        TrackSpec("mic", "user"),
-        TrackSpec("prompt", "user"),
-        TrackSpec("caption", "assistant"),
-        TrackSpec("picture", "assistant"),
-    )
-    records = (
-        PhysicalRecord("sound", "user", observed.to_bytes(), media_type=MEDIA_RECORD_TYPE),
-        PhysicalRecord("prompt", "user", b"Describe the sound and draw a scene"),
-        PhysicalRecord("caption", "assistant", b"bright", turn_index=1, policy_mask=True),
+
+def _generated(name, modality, record, turn=1):
+    return (
         PhysicalRecord(
-            "picture",
+            name,
             "assistant",
-            generated.to_bytes(),
-            turn_index=1,
+            record.to_bytes(),
+            turn_index=turn,
             policy_mask=True,
             media_type=MEDIA_RECORD_TYPE,
         ),
+        TrackSpec(name, "assistant"),
+        TrackEvent(name, name, modality, turn, "assistant", asset_sha256=record.source.sha256),
     )
-    meridians = (
-        Meridian(
-            0,
-            (
-                TrackEvent("sound", "mic", "audio", 0, "user", asset_sha256=features.sha256),
-                TrackEvent("prompt", "prompt", "text", 0, "user"),
-            ),
-        ),
-        Meridian(
-            1,
-            (
-                TrackEvent("caption", "caption", "text", 1, "assistant"),
-                TrackEvent(
-                    "picture", "picture", "image", 1, "assistant", asset_sha256=image_asset.sha256
-                ),
-            ),
-        ),
-    )
+
+
+def _case(tmp_path):
+    """Observed audio + prompt in meridian 0; a caption and a generated image in meridian 1."""
+    store = TensorAssetStore(tmp_path)
+    sound = prepared_record(store, "audio", seed=1, target=False, tokens=10)
+    picture = prepared_record(store, "image", seed=2, tokens=14)
+    record, spec, event = _generated("picture", "image", picture)
     episode = Episode(
         "omni",
-        records,
-        Lineage("local", "revision", "family"),
-        tracks=tracks,
-        meridians=meridians,
-    )
-    model = build_model(
-        ModelConfig.tiny(
-            **MODEL_OVERRIDES,
-            **(
-                {
-                    "audio_feature_dim": 16,
-                    "audio_feature_id": feature_id,
-                }
-                if external
-                else {}
-            ),
+        (
+            PhysicalRecord("sound", "user", sound.to_bytes(), media_type=MEDIA_RECORD_TYPE),
+            PhysicalRecord("prompt", "user", b"Describe the sound and draw a scene"),
+            PhysicalRecord("caption", "assistant", b"bright", turn_index=1, policy_mask=True),
+            record,
         ),
-        ByteCodec.byte_fallback(),
+        Lineage("local", "revision", "family"),
+        tracks=(
+            TrackSpec("mic", "user"),
+            TrackSpec("prompt", "user"),
+            TrackSpec("caption", "assistant"),
+            spec,
+        ),
+        meridians=(
+            Meridian(
+                0,
+                (
+                    TrackEvent(
+                        "sound", "mic", "audio", 0, "user", asset_sha256=sound.source.sha256
+                    ),
+                    TrackEvent("prompt", "prompt", "text", 0, "user"),
+                ),
+            ),
+            Meridian(1, (TrackEvent("caption", "caption", "text", 1, "assistant"), event)),
+        ),
     )
+    # The track name of a generated media record is its own name ("picture").
+    episode = replace(
+        episode,
+        tracks=(*episode.tracks[:3], TrackSpec("picture", "assistant")),
+    )
+    model = install_fake_realizers(build_model(ModelConfig.tiny(**MODEL_OVERRIDES), CODEC))
     config = retrieval_train_config(
         tmp_path / "retrieval",
         phase="B0",
@@ -109,49 +86,61 @@ def _case(tmp_path, *, external=False):
         budget=4,
         generated_capacity=16,
         max_history_tokens=128,
-        max_record_bytes=1024,
+        max_record_bytes=4096,
     )
-    return assets, episode, model, config
+    return store, episode, model, config
+
+
+def _forward(model, episode, config, *, window_config=None):
+    window = next(iter_windows(episode, CODEC, window_config or WindowConfig()))
+    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window)], config)
+    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
+    model.core.set_model_version(0)
+    forward_meridian_batch(
+        model,
+        batch,
+        ledger,
+        config,
+        torch.device("cpu"),
+        0,
+        retrieval_aux(config, supervised=False),
+    )
+    ledger.finish()
+    return batch, ledger
+
+
+def _condition_grad(model, name):
+    return model.media_realizers.packs[name].condition.project.weight.grad
 
 
 def test_media_reference_has_zero_text_tokens_and_corruption_fails(tmp_path):
-    assets, episode, _, _ = _case(tmp_path)
-    codec = ByteCodec.byte_fallback()
+    store, episode, _, _ = _case(tmp_path)
     for record in (episode.records[0], episode.records[-1]):
-        encoded = encode_record(record, codec)
+        encoded = encode_record(record, CODEC)
         assert encoded.tokens == encoded.P == encoded.positions == 0
-    ref = MediaRecord.from_bytes(episode.records[0].payload).source
-    expected = assets.load(ref).copy()
-    assert expected.shape == (512,)
-    path = tmp_path / ref.relative_path
+    reference = MediaRecord.from_bytes(episode.records[-1].payload)
+    expected = store.load(reference.source)
+    assert expected.shape == reference.source.shape == (14, 512)
+    assert store.load(reference.target).shape == (4, 2, 2)
+    path = tmp_path / reference.source.relative_path
     path.write_bytes(path.read_bytes()[:-1] + b"x")
     with pytest.raises(ValueError, match="SHA256"):
-        assets.load(ref)
+        store.load(reference.source)
+    # Corrupting the target latents fails closed the same way.
+    target = tmp_path / reference.target.relative_path
+    target.write_bytes(target.read_bytes()[:-1] + b"x")
+    with pytest.raises(ValueError, match="SHA256"):
+        store.load(reference.target)
 
 
-@pytest.mark.parametrize("external", (False, True))
 @pytest.mark.parametrize("mode", ("bootstrap", "recurrent"))
-def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, external, mode):
+def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, mode):
     torch.set_num_threads(1)
     torch.manual_seed(901)
-    _, episode, model, config = _case(tmp_path, external=external)
-    config = replace(
-        config,
-        representation_mode=mode,
-        phase="B0" if mode == "bootstrap" else "P1",
-    )
-    windows = list(
-        iter_windows(
-            episode,
-            ByteCodec.byte_fallback(),
-            WindowConfig(max_records=8, max_decisions=4),
-        )
-    )
-    (batch,) = prepare_batches(
-        model,
-        [EpisodeWindow(episode, windows[0])],
-        config,
-    )
+    _, episode, model, config = _case(tmp_path)
+    config = replace(config, representation_mode=mode, phase="B0" if mode == "bootstrap" else "P1")
+    window = next(iter_windows(episode, CODEC, WindowConfig(max_records=8, max_decisions=4)))
+    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window)], config)
     assert batch.counts["visual_prediction"] == 1
     assert batch.counts["visual_reconstruction"] == 1
     assert batch.counts["audio_prediction"] == 0
@@ -171,91 +160,135 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, external, mode
         retrieval_aux(config, supervised=False),
     )
     ledger.finish()
-    assert model.media_realizers.visual_filter[0].weight.grad is not None
+    # The image realizer's own objective trains its facet condition; the audio
+    # realizer is untouched because the audio event is only observed.
+    assert _condition_grad(model, "sana") is not None
+    assert _condition_grad(model, "sana").abs().sum() > 0
+    assert _condition_grad(model, "pocket") is None
     assert model.core.frontend.facet_queries.grad is not None
-    if external:
-        # Recurrent observations are intentionally detached from main gradients.
-        if mode == "bootstrap":
-            assert model.core.media_stems.external_audio.weight.grad is not None
-        else:
-            assert model.core.media_stems.external_audio.weight.grad is None
+    if mode == "bootstrap":
+        assert model.core.media_encoder.projection.weight.grad is not None
     counters = batch_counters([batch])
     assert counters.G == len(episode.records)
     assert counters.media_events == 2
     assert counters.image_events == 1
-    # Offline feature caches do not assert an original sample count without
-    # a verified linked raw source; only the media-event count is universal.
-    assert counters.audio_samples == (0 if external else 512)
+    # An observed audio event realizes nothing, so it declares no output samples.
+    assert counters.audio_samples == 0
+    assert counters.video_frames == 0
     assert counters.P == 2 * len(b"bright")
 
 
-def test_feature_revision_does_not_fall_back_to_unpinned_source(tmp_path):
-    _, episode, model, config = _case(tmp_path, external=True)
-    model = build_model(ModelConfig.tiny(**MODEL_OVERRIDES), ByteCodec.byte_fallback())
-    window = next(iter_windows(episode, ByteCodec.byte_fallback()))
-    with pytest.raises(ValueError, match="revision/width|fingerprint"):
+def test_wrong_teacher_identity_is_rejected(tmp_path):
+    _, episode, _, config = _case(tmp_path)
+    model = install_fake_realizers(
+        build_model(ModelConfig.tiny(**MODEL_OVERRIDES, media_extractor=OTHER_TEACHER), CODEC)
+    )
+    window = next(iter_windows(episode, CODEC))
+    with pytest.raises(ValueError, match="different teacher"):
         prepare_batches(model, [EpisodeWindow(episode, window)], config)
+    # A non-pinned identity cannot even be written as an asset or a model.
+    with pytest.raises(ValueError, match="pinned EmbeddingGemma2"):
+        prepared_record(TensorAssetStore(tmp_path), "image", extractor="other-teacher-v1")
+    with pytest.raises(ValueError, match="pinned EmbeddingGemma2"):
+        ModelConfig.tiny(**MODEL_OVERRIDES, media_extractor="other-teacher-v1")
+
+
+def test_target_from_another_realizer_pack_is_rejected(tmp_path):
+    torch.set_num_threads(1)
+    _, episode, model, config = _case(tmp_path)
+    # A realizer with another checkpoint digest cannot consume these latents.
+    other = FakeRealizer("image", model.config.n_facets, model.config.facet_dim)
+    other.checkpoint_identity = "f" * 64
+    model.media_realizers.packs["sana"] = other
+    with pytest.raises(ValueError, match="different realizer pack"):
+        _forward(model, episode, config)
 
 
 def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
-    from dataclasses import replace
-
     torch.set_num_threads(1)
-    assets, ep, model, config = _case(tmp_path)
-    raw = assets.put(
-        np.sin(np.arange(512, dtype=np.float32) / 21),
-        modality="audio",
-        sample_rate=16000,
-    )
-    audio = MediaRecord("audio", raw, raw)
-    voice_record = PhysicalRecord(
-        "voice",
-        "assistant",
-        audio.to_bytes(),
-        turn_index=1,
-        media_type=MEDIA_RECORD_TYPE,
-        policy_mask=True,
-    )
-    second = Meridian(
-        1,
-        (
-            *ep.meridians[1].events,
-            TrackEvent("voice", "voice", "audio", 1, "assistant", asset_sha256=raw.sha256),
+    store, episode, model, config = _case(tmp_path)
+    voice = prepared_record(store, "audio", seed=3, tokens=9)
+    record, spec, event = _generated("voice", "audio", voice)
+    episode = replace(
+        episode,
+        records=(*episode.records, record),
+        tracks=(*episode.tracks, spec),
+        meridians=(
+            episode.meridians[0],
+            Meridian(1, (*episode.meridians[1].events, event)),
         ),
     )
-    ep = replace(
-        ep,
-        records=(*ep.records, voice_record),
-        tracks=(*ep.tracks, TrackSpec("voice", "assistant")),
-        meridians=(ep.meridians[0], second),
-    )
-    window = next(iter_windows(ep, ByteCodec.byte_fallback()))
-    (batch,) = prepare_batches(
-        model,
-        [EpisodeWindow(ep, window)],
-        config,
-    )
+    batch, ledger = _forward(model, episode, config)
     assert batch.counts["audio_prediction"] == 1
     assert batch.counts["audio_reconstruction"] == 1
     assert batch.counts["visual_prediction"] == 1
     assert batch.counts["lexical"] == len(b"bright")
-    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_meridian_batch(
-        model,
-        batch,
-        ledger,
-        config,
-        torch.device("cpu"),
-        0,
-        retrieval_aux(config, supervised=False),
+    assert _condition_grad(model, "pocket").abs().sum() > 0
+    assert _condition_grad(model, "sana").abs().sum() > 0
+    # Different realizers, different latents: the two gradients are not one signal.
+    assert not torch.equal(_condition_grad(model, "pocket"), _condition_grad(model, "sana"))
+    counters = batch_counters([batch])
+    assert counters.audio_samples == 48
+    assert counters.image_events == 1
+    assert counters.media_events == 3
+
+
+def test_codec_padding_is_not_supervised(tmp_path):
+    torch.set_num_threads(1)
+    store, episode, model, config = _case(tmp_path)
+    voice = prepared_record(store, "audio", seed=3, tokens=9, valid_frames=2)
+    record, spec, event = _generated("voice", "audio", voice)
+    episode = replace(
+        episode,
+        records=(*episode.records[:2], record),
+        tracks=(*episode.tracks[:2], spec),
+        meridians=(
+            episode.meridians[0],
+            Meridian(1, (event,)),
+        ),
     )
-    ledger.finish()
-    assert model.media_realizers.audio_filter[0].weight.grad is not None
-    assert model.media_realizers.visual_filter[0].weight.grad is not None
-    assert batch_counters([batch]).audio_samples == 1024
+    window = next(iter_windows(episode, CODEC))
+    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window)], config)
+    (step,) = [s for s in batch.steps if s.generated]
+    (plan,) = [p for p in step.plans if hasattr(p, "resolve")]
+    target = plan.resolve(store, torch.device("cpu"))
+    assert target.target_mask.tolist() == [[True, True, False, False, False, False]]
+    assert target.realizer == voice.target.extractor
 
 
-def test_real_event_budget_checkpoint_and_media_data(tmp_path):
+@pytest.mark.parametrize("mode", ("bootstrap", "recurrent"))
+def test_video_training_is_one_32_facet_megatoken(tmp_path, mode):
+    torch.set_num_threads(1)
+    torch.manual_seed(922)
+    store, episode, model, config = _case(tmp_path)
+    # A video clip is many teacher tokens and many latent frames, but exactly one event.
+    clip = prepared_record(store, "video", seed=4, tokens=40)
+    record, spec, event = _generated("picture", "video", clip)
+    episode = replace(
+        episode,
+        records=(*episode.records[:-1], record),
+        meridians=(
+            episode.meridians[0],
+            Meridian(1, (episode.meridians[1].events[0], event)),
+        ),
+    )
+    config = replace(config, representation_mode=mode, phase="B0" if mode == "bootstrap" else "P1")
+    batch, _ = _forward(model, episode, config)
+    assert batch.counts["visual_prediction"] == 1
+    counters = batch_counters([batch])
+    assert counters.video_frames == 4
+    assert counters.image_events == 0
+    assert counters.media_events == 2
+    assert _condition_grad(model, "sana_video").abs().sum() > 0
+    # 40 teacher tokens are reduced to the one canonical facet block.
+    raw = model.core.encode_media(
+        torch.from_numpy(store.load(clip.source))[None], extractor=PINNED_EXTRACTOR
+    )
+    assert raw.shape == (1, model.config.n_facets, model.config.facet_dim)
+
+
+def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
+    """The engine path; realizers come from a locked pack manifest, replaced here by fakes."""
     from retrieval_fixture import write_retrieval_artifacts
 
     from megatoken.data import DedupConfig, DedupStore
@@ -278,38 +311,35 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path):
     )
     data = tmp_path / "omni-data"
     source = DedupStore(
-        tmp_path / "index.sqlite",
-        DedupConfig(
-            train_fraction=1.0,
-            validation_fraction=0.0,
-        ),
+        tmp_path / "index.sqlite", DedupConfig(train_fraction=1.0, validation_fraction=0.0)
     )
     try:
         with source.transaction():
-            source.add(ep, ByteCodec.byte_fallback())
+            source.add(ep, CODEC)
         source.freeze()
         export_prepared(
             source,
             data,
-            codec=ByteCodec.byte_fallback(),
+            codec=CODEC,
             source_receipts=[],
             pipeline_fingerprint="omni-event-pilot-v1",
         )
     finally:
         source.close()
     artifacts = write_retrieval_artifacts(
-        tmp_path / "omni-retrieval",
-        [ep],
-        doc="doc",
-        request="prompt",
-        answer="caption",
+        tmp_path / "omni-retrieval", [ep], doc="doc", request="prompt", answer="caption"
     )
-    # B0's text-token budget would not account for image/audio events. G is an
-    # explicit event budget with its own advance/accumulation and checkpoint.
+    packs = tmp_path / "packs.json"
+    packs.write_text("{}")
+    monkeypatch.setattr(
+        "megatoken.omni.loader.install_realizers",
+        lambda model, path, *, device: install_fake_realizers(model),
+    )
     config = replace(
         config,
         dataset=str(data),
         output=str(tmp_path / "run"),
+        packs=str(packs),
         **artifacts,
         max_steps=1,
         accumulate_events=5,
@@ -327,102 +357,9 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path):
     assert result["phase_consumed"] == result["counters"]["G"]
     assert result["counters"]["G"] == 5
     assert result["counters"]["media_events"] == 2
+    assert result["counters"]["image_events"] == 1
     assert payload["phase_consumed"] == 5
-
-
-def test_video_training_is_one_32_facet_megatoken(tmp_path):
-    torch.set_num_threads(1)
-    torch.manual_seed(922)
-    assets, ep, model, config = _case(tmp_path)
-    clip = np.stack((np.zeros((3, 8, 8), dtype=np.float32), np.ones((3, 8, 8), dtype=np.float32)))
-    video = assets.put(clip, modality="video", fps_num=8)
-    replacement = MediaRecord("video", video, video)
-    from megatoken.data.schema import Meridian, TrackEvent
-
-    records = (
-        *ep.records[:-1],
-        replace(
-            ep.records[-1],
-            payload=replacement.to_bytes(),
-        ),
-    )
-    changed = replace(
-        ep,
-        records=records,
-        meridians=(
-            ep.meridians[0],
-            Meridian(
-                1,
-                (
-                    ep.meridians[1].events[0],
-                    TrackEvent(
-                        "picture", "picture", "video", 1, "assistant", asset_sha256=video.sha256
-                    ),
-                ),
-            ),
-        ),
-    )
-    window = next(iter_windows(changed, ByteCodec.byte_fallback()))
-    (batch,) = prepare_batches(model, [EpisodeWindow(changed, window)], config)
-    assert batch.counts["visual_prediction"] == 1
-    assert batch_counters([batch]).video_frames == 2
-    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_meridian_batch(
-        model,
-        batch,
-        ledger,
-        config,
-        torch.device("cpu"),
-        0,
-        retrieval_aux(config, supervised=False),
-    )
-    ledger.finish()
-    assert model.media_realizers.visual_filter[0].weight.grad is not None
-
-
-def test_generated_pretrained_vision_features_train_e_in_recurrent_mode(tmp_path):
-    torch.set_num_threads(1)
-    torch.manual_seed(937)
-    assets, ep, _, config = _case(tmp_path)
-    reference = MediaRecord.from_bytes(ep.records[-1].payload)
-    identifier = "vision-features-pinned-test-v1"
-    cached = assets.put(
-        np.arange(12 * 16, dtype=np.float32).reshape(12, 16) / 192,
-        modality="image",
-        kind="features",
-        extractor=identifier,
-    )
-    target = MediaRecord("image", cached, reference.target)
-    records = (*ep.records[:-1], replace(ep.records[-1], payload=target.to_bytes()))
-    meridian = Meridian(
-        1,
-        (
-            ep.meridians[1].events[0],
-            TrackEvent("picture", "picture", "image", 1, "assistant", asset_sha256=cached.sha256),
-        ),
-    )
-    ep = replace(ep, records=records, meridians=(ep.meridians[0], meridian))
-    model = build_model(
-        ModelConfig.tiny(
-            **MODEL_OVERRIDES,
-            vision_feature_dim=16,
-            vision_feature_id=identifier,
-        ),
-        ByteCodec.byte_fallback(),
-    )
-    config = replace(config, phase="P1", representation_mode="recurrent")
-    window = next(iter_windows(ep, ByteCodec.byte_fallback()))
-    (batch,) = prepare_batches(model, [EpisodeWindow(ep, window)], config)
-    ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-    forward_meridian_batch(
-        model,
-        batch,
-        ledger,
-        config,
-        torch.device("cpu"),
-        0,
-        retrieval_aux(config, supervised=False),
-    )
-    ledger.finish()
-    assert model.core.media_stems.external_vision.weight.grad is not None
-    assert model.media_realizers.visual_filter[0].weight.grad is not None
+    # Frozen realizer donors never enter the checkpoint; trainable conditions do.
+    names = set(payload["model"])
+    assert any(name.startswith("media_realizers.packs.sana.condition.") for name in names)
+    assert not any(".donor." in name for name in names)

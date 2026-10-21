@@ -1,4 +1,4 @@
-"""Stateful JSONL serving for v8 multitrack semantic meridians.
+"""Stateful JSONL serving for joint text and media meridians.
 
 Transport media as explicitly shaped little-endian FP32 buffers. The trained
 encoder/realizer weights are loaded from one served Megatoken bundle. No tool

@@ -24,14 +24,19 @@ from megatoken.data.chunking import ChunkingConfig, segment_bytes
 from megatoken.generation.structure import TAPE_VERSION, ActionSpec, ActionTape, Observation
 from megatoken.io import fsync_directory, sha256_file, strict_json_loads, write_json
 from megatoken.loading import build_model, load_codec, load_trained, parameter_report
-from megatoken.model.config import ModelConfig
+from megatoken.model.config import ARCHITECTURE_VERSION, ModelConfig
 from megatoken.tensors import byte_tensor
 
 
 def export_served(
-    checkpoint: str | Path, output: str | Path, *, codec_path: str = "byte"
+    checkpoint: str | Path,
+    output: str | Path,
+    *,
+    codec_path: str = "byte",
+    packs: str | Path | None = None,
 ) -> dict[str, Any]:
-    trained = load_trained(checkpoint, codec_path=codec_path)
+    """Served bundle of a checkpoint; realizer packs stay external, bound by fingerprint."""
+    trained = load_trained(checkpoint, codec_path=codec_path, packs=packs)
     model, codec, payload, metadata = (
         trained.model,
         trained.codec,
@@ -73,7 +78,7 @@ def export_served(
             with artifact.open("rb") as handle:
                 os.fsync(handle.fileno())
         manifest = {
-            "format_version": 8,
+            "format_version": ARCHITECTURE_VERSION,
             "model_sha256": sha256_file(temporary / "model.safetensors"),
             "config_sha256": sha256_file(temporary / "model_config.json"),
             "codec_file": bundled_codec,
@@ -87,7 +92,7 @@ def export_served(
             "checkpoint_sha256": metadata["state_sha256"],
             "parameters": parameter_report(model)["totals"]["served"],
             "training_heads": False,
-            "donor_assets_required": False,
+            "packs_fingerprint": payload["packs_fingerprint"],
         }
         if bundled_codec != "byte":
             manifest["tokenizer_sha256"] = sha256_file(temporary / bundled_codec)
@@ -112,14 +117,27 @@ class Session:
 
 
 class InferenceEngine:
-    def __init__(self, bundle: str | Path, *, device: str = "auto", compile: bool = False) -> None:
+    def __init__(
+        self,
+        bundle: str | Path,
+        *,
+        packs: str | Path | None = None,
+        device: str = "auto",
+        compile: bool = False,
+    ) -> None:
+        """``packs`` is the locked realizer manifest the bundle was trained with."""
         directory = Path(bundle)
         manifest = json.loads((directory / "manifest.json").read_text())
-        if manifest.get("format_version") != 8 or manifest.get("training_heads") is not False:
+        if (
+            manifest.get("format_version") != ARCHITECTURE_VERSION
+            or manifest.get("training_heads") is not False
+        ):
             raise ValueError(
-                "Unsupported or training-only bundle: v8 direct realization requires "
-                "v8 weights and state; earlier bundles cannot be loaded"
+                f"Unsupported or training-only bundle: serving requires architecture "
+                f"v{ARCHITECTURE_VERSION} weights"
             )
+        if (None if packs is None else sha256_file(packs)) != manifest["packs_fingerprint"]:
+            raise ValueError("Supply the realizer pack manifest the bundle was trained with")
         if manifest.get("policy_likelihood") != "canonical_facet_gaussian_density":
             raise ValueError("Unsupported served action likelihood")
         if manifest.get("tape_version") != TAPE_VERSION:
@@ -161,6 +179,7 @@ class InferenceEngine:
             device=self.device,
             precision=manifest["precision"],
             training_heads=False,
+            packs=packs,
         )
         self.model.load_state_dict(
             load_file(str(directory / "model.safetensors"), device=str(self.device)), strict=True

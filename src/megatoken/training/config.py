@@ -103,7 +103,9 @@ class TrainConfig:
     # Locked pack manifest (omni/loader.py): the Pocket/Sana/Sana-Video realizers
     # are installed before optimizer enumeration and checkpoint restore.
     packs: str | None = None
-    omni_recipe: str | None = None
+    # Media phases draw events from prepared streams by this recipe
+    # (training/task_recipe.py); requires the event (G) budget meter.
+    task_recipe: str | None = None
     # "media_bridge" trains only the media input projection and the realizer
     # conditions (identically on every DiLoCo worker); "all" trains everything.
     trainable: str = "all"
@@ -111,7 +113,6 @@ class TrainConfig:
     # rows {"text_sha256", "asset"} of EmbeddingGemma2 text features.
     text_anchors: str | None = None
     text_anchor_weight: float = 0.1
-    concordance_recipe: str | None = None
     max_media_events_per_window: int = 5
     deterministic: bool = False
     require_blackwell: bool = False
@@ -211,20 +212,16 @@ class TrainConfig:
             )
         if self.trainable not in {"all", "media_bridge"}:
             raise ValueError("trainable is all or media_bridge")
-        if self.trainable == "media_bridge" and (self.packs is None or self.omni_recipe is None):
-            raise ValueError("Media bridge training needs realizer packs and a media omni recipe")
+        if self.trainable == "media_bridge" and (self.packs is None or self.task_recipe is None):
+            raise ValueError("Media bridge training needs realizer packs and a task recipe")
         if not 0 < self.text_anchor_weight <= 1:
             raise ValueError("Text anchor weight must be in (0, 1]")
-        if self.omni_recipe is not None and not self.omni_recipe:
-            raise ValueError("Omni recipe path must be nonempty")
-        if self.omni_recipe is not None and self.budget_meter != "G":
-            raise ValueError("Concordant media tasks require an explicit G event budget")
+        if self.task_recipe is not None and not self.task_recipe:
+            raise ValueError("Task recipe path must be nonempty")
+        if self.task_recipe is not None and self.budget_meter != "G":
+            raise ValueError("Task recipes require the G event budget meter")
         if self.packs is not None and not self.packs:
             raise ValueError("Pack manifest path must be nonempty")
-        if self.concordance_recipe is not None and not self.concordance_recipe:
-            raise ValueError("Concordance task mixture path must be nonempty")
-        if self.concordance_recipe is not None and self.budget_meter != "G":
-            raise ValueError("Concordance training requires an explicit G event budget")
         if self.media_root is not None and not self.media_root:
             raise ValueError("Media asset root must be a nonempty path")
         positive = (

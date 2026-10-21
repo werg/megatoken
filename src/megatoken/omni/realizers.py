@@ -171,10 +171,12 @@ class PocketRealizer(Realizer):
         if flow_type != "lsd":
             raise ValueError("Unsupported Pocket flow objective: use LSD or OT")
         # Pocket's LSD diagonal term plus its stop-gradient self-distillation term.
-        t = torch.sigmoid(torch.randn((b, frames, 1), device=clean.device) + 0.4)
+        t = torch.sigmoid(
+            torch.randn((b, frames, 1), device=clean.device, generator=generator) + 0.4
+        )
         x_t = t * clean + (1 - t) * noise
         diagonal = self.flow_lm.flow_net(hidden, t, t, x_t)
-        logits = torch.randn((b, frames, 2), device=clean.device) + 0.4
+        logits = torch.randn((b, frames, 2), device=clean.device, generator=generator) + 0.4
         s = torch.sigmoid(logits.min(dim=-1, keepdim=True).values)
         end = torch.sigmoid(logits.max(dim=-1, keepdim=True).values)
         x_s = s * clean + (1 - s) * noise

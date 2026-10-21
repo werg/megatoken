@@ -1,7 +1,0 @@
-# Prepared task families of SAME-source frozen teacher features and R targets.
-# Fractions are *event probabilities*, not equalized GPU seconds.
-omni_recipe_version: concordant-v1
-task_weights:
-  embeddinggemma2_audio_identity: 0.34
-  embeddinggemma2_image_identity: 0.33
-  embeddinggemma2_video_identity: 0.33

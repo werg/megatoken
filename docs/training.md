@@ -2,18 +2,20 @@
 
 # Training and operations
 
-> **Implementation boundary (v8):** The stages described below still support
-> legacy one-event episodes; the new grouped `MultiTrackGenerator`
-> now also supports grouped text, audio, image and video B0/recurrent
-> meridians using checksummed media references and separate audio/visual
-> loss denominators. Opt-in G budgets count physical megatokens, and frozen
-> donor feature caches may feed trainable E projections. The current native
-> media realizers are **untrained PCM/pixel baselines**, not high-quality
-> pretrained generators; media evaluation and grouped RL remain future work.
-> See [the runnable media pilot](omni-media-pipeline.md) and
-> [revised omnimodal curriculum](omnimodal-architecture-and-training.md) for the
-> proposed OM0–OM5 training strategy and concrete multi-track task families.
-> Do not treat those proposed phases or mixtures as an already implemented recipe.
+> **Implementation boundary (architecture v10):** The stages described below
+> still support legacy one-event episodes. The grouped `MultiTrackGenerator`
+> also supports grouped text, audio, image and video bootstrap/recurrent
+> meridians. Media enters only as pinned EmbeddingGemma2 hidden states and leaves
+> only through the frozen pretrained Pocket, Sana and Sana-Video realizers with
+> trainable `FacetCondition`s; audio and visual losses have separate global
+> denominators and the `G` budget counts events. Media training runs as three
+> DiLoCo phases (bridge, joint, tasks), each with a `task_recipe` naming the
+> prepared streams and their shares, chained by `megatoken diloco export` then
+> `megatoken diloco init --resume`. See [media.md](media.md) for the contract and
+> configs, [diloco-coreweave.md](diloco-coreweave.md) for the coordinator
+> workflow, and [the concordant task roadmap](pretrained-omnimodal-bottleneck-plan.md)
+> for task families and data. No media-quality or GPU-scale training result is
+> established.
 
 ## Two representation-training modes
 

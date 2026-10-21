@@ -10,6 +10,17 @@ from pathlib import Path
 from .realizers import PocketRealizer, SanaRealizer
 
 
+def snapshot_files(directory: Path):
+    """Every entry of a snapshot that is part of the model.
+
+    Hub download bookkeeping under ``.cache/`` differs per machine and download,
+    so it is neither locked nor allowed to bind an identity.
+    """
+    for entry in sorted(directory.rglob("*")):
+        if ".cache" not in entry.relative_to(directory).parts:
+            yield entry
+
+
 def read_locked_manifest(filename: str):
     """No implicit Hub downloads, mutable tags, unverified file substitution."""
     path = Path(filename).resolve()
@@ -78,7 +89,7 @@ def read_locked_manifest(filename: str):
                 raise ValueError("Snapshot must be inside the manifest directory")
             if name in {"sana", "sana_video"} and (snapshot / "model_index.json") not in verified:
                 raise ValueError("Diffusers snapshot requires a hashed model_index.json")
-            for asset in snapshot.rglob("*"):
+            for asset in snapshot_files(snapshot):
                 if asset.is_symlink() or (asset.is_file() and asset.resolve() not in verified):
                     raise ValueError(f"Unhashed or symlinked snapshot asset: {asset}")
         if name == "pocket":
@@ -154,6 +165,11 @@ def install_realizers(model, manifest: str, *, device) -> None:
     for name in sorted(set(packs) - {"embeddinggemma2"}):
         model.media_realizers.register(
             build_realizer(
-                base, name, packs[name], facet_width=model.config.facet_dim, device=device
+                base,
+                name,
+                packs[name],
+                facet_count=model.config.n_facets,
+                facet_width=model.config.facet_dim,
+                device=device,
             )
         )
