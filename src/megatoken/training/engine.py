@@ -354,7 +354,6 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "retrieval_source_assets_root",
             "retrieval_ivf_centroids",
             "retrieval_ivf_sha256",
-            "retrieval_ivf_nprobe",
             "retrieval_gate_receipt",
             "retrieval_sparse_lr",
             "retrieval_growth_every",
@@ -671,7 +670,6 @@ def train(
                         sparse_lr=config.retrieval_sparse_lr,
                         source_features=source_features,
                         centroids=centroids,
-                        nprobe=config.retrieval_ivf_nprobe,
                     )
 
                 bank_owner = make_bank_owner(bank)

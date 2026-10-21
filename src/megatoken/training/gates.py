@@ -156,7 +156,6 @@ def retrieval_recall(
     *,
     k: int,
     centroids: np.ndarray | None,
-    nprobe: int,
 ) -> dict[str, Any]:
     """Recall@k of annotated gold sources for student vs teacher query vectors."""
     from megatoken.memory.contracts import Collection, Visibility
@@ -172,7 +171,7 @@ def retrieval_recall(
             scope = annotation.query_teacher_inputs.ranges[0].scope
             groups.setdefault((scope, annotation.query.meridian), []).append(annotation)
     exact = ExactIndex(bank)
-    ivf = SQLiteDiskIVF(bank, centroids, nprobe=nprobe) if centroids is not None else None
+    ivf = SQLiteDiskIVF.published(bank, centroids) if centroids is not None else None
     student_recall, teacher_recall, index_overlap = [], [], []
     for (scope, clock), items in sorted(groups.items()):
         visibility = Visibility(scope, clock)
@@ -200,6 +199,7 @@ def retrieval_recall(
         "student_recall": float(np.mean(student_recall)) if student_recall else math.nan,
         "teacher_recall": float(np.mean(teacher_recall)) if teacher_recall else math.nan,
         "index_recall": float(np.mean(index_overlap)) if index_overlap else None,
+        "nprobe": None if ivf is None else ivf.nprobe,
     }
 
 
@@ -213,7 +213,6 @@ def bootstrap_gates(
     bank_path: str | Path,
     output: str | Path,
     centroids: str | Path | None = None,
-    nprobe: int = 8,
     max_episodes: int = 1000,
     thresholds: GateThresholds | None = None,
     device: str = "cuda",
@@ -268,7 +267,6 @@ def bootstrap_gates(
             measured.queries,
             k=thresholds.recall_k,
             centroids=None if centroids is None else np.load(centroids),
-            nprobe=nprobe,
         )
         lexical = measured.per_token("lexical")
         terminal = measured.per_token("terminal")
@@ -301,7 +299,7 @@ def bootstrap_gates(
         if recall["index_recall"] is not None:
             evidence["index_recall"] = {
                 "ivf_exact_overlap": recall["index_recall"],
-                "nprobe": nprobe,
+                "nprobe": recall["nprobe"],
                 "passed": recall["index_recall"] >= thresholds.min_index_recall,
             }
         identity = {

@@ -354,7 +354,6 @@ def initialize_kb(
     bank_path: str,
     centroids_path: str | None,
     centroids_sha256: str | None,
-    nprobe: int,
     scopes: tuple[str, ...],
     growth_budget: int,
 ) -> dict:
@@ -383,7 +382,6 @@ def initialize_kb(
         "database_id": database_id,
         "recipe_fingerprint": recipe.fingerprint,
         "centroids_sha256": centroids_sha256 if centroids_path else None,
-        "nprobe": nprobe,
         "scopes": sorted(set(scopes)),
         "growth_budget": growth_budget,
     }
@@ -446,9 +444,7 @@ class KBCoordinator:
             centroids = self.root / "centroids.npy"
             if sha256_file(centroids) != settings["centroids_sha256"]:
                 raise ValueError("Coordinator IVF centroids changed")
-            self.ivf = SQLiteDiskIVF(
-                self.bank, np.load(centroids, allow_pickle=False), nprobe=settings["nprobe"]
-            )
+            self.ivf = SQLiteDiskIVF.published(self.bank, np.load(centroids, allow_pickle=False))
         self.quorum_since: float | None = None
         self.merges = 0
 

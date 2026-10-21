@@ -26,12 +26,13 @@ class SQLiteDiskIVF:
     top-k, and return one coherent SQLite scoring snapshot per call.
     """
 
-    def __init__(self, store: SQLiteKB, centroids, *, nprobe: int = 8, batch_size: int = 1024):
+    def __init__(self, store: SQLiteKB, centroids, *, nprobe: int, batch_size: int = 1024) -> None:
         matrix = np.asarray(centroids, dtype="<f4")
         if (
             matrix.ndim != 2
             or matrix.shape[1] != store.space.dimension
-            or (matrix.shape[0] < 1 or nprobe < 1 or batch_size < 1)
+            or not 1 <= nprobe <= matrix.shape[0]
+            or batch_size < 1
         ):
             raise ValueError("Disk-IVF centroids require a compatible learned space")
         self.centroids = np.stack(
@@ -43,6 +44,22 @@ class SQLiteDiskIVF:
             store.space.fingerprint,
         )
         self.store, self.nprobe, self.batch_size = store, nprobe, batch_size
+        # (collection, scope) -> store revisions at which postings were verified complete.
+        self._verified: dict[tuple[str, str], object] = {}
+
+    @classmethod
+    def published(cls, store: SQLiteKB, centroids) -> SQLiteDiskIVF:
+        """The index as published into ``store``, with its calibrated probe count."""
+        receipt = store.growth_state("ivf_publication")
+        index = cls(store, centroids, nprobe=1)
+        if receipt is None or receipt["centroid_vectors_sha256"] != index.identity.centroid_sha256:
+            raise RuntimeError(
+                "The bank has no IVF publication for these centroids; run megatoken-memory-index"
+            )
+        if not 1 <= receipt["nprobe"] <= index.identity.cells:
+            raise RuntimeError("Published IVF probe count is outside the centroid table")
+        index.nprobe = int(receipt["nprobe"])
+        return index
 
     def cell(self, key) -> int:
         return int(
@@ -136,7 +153,11 @@ class SQLiteDiskIVF:
                     ),
                 )
 
-    def _check_complete(self, collection: Collection, scope: str):
+    def _check_complete(self, collection: Collection, scope: str, revisions) -> None:
+        # Any record or key change advances a store revision, so a verified
+        # (collection, scope) stays complete until the revisions move.
+        if self._verified.get((collection.value, scope)) == revisions:
+            return
         key = f"ivf:{collection.value}:{scope}:{self.identity.centroid_sha256}"
         entry = self.store.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         if entry is None:
@@ -152,6 +173,7 @@ class SQLiteDiskIVF:
         ).fetchone()[0]
         if gap:
             raise RuntimeError("Index cannot search unposted or stale learned keys")
+        self._verified[(collection.value, scope)] = revisions
 
     def search(
         self,
@@ -165,45 +187,57 @@ class SQLiteDiskIVF:
     ) -> SearchBatch:
         if limit < 0:
             raise ValueError("Negative source/memory retrieval budget")
-        q = unit_finite(query, dimension=self.store.space.dimension)
+        q = unit_finite(query, dimension=self.store.space.dimension).astype(np.float64)
         cells = np.argsort(-(self.centroids @ q), kind="stable")[: self.nprobe]
         with self.store.read_snapshot():
-            self._check_complete(collection, scope)
             revisions = self.store.revisions()
-            hits = []
-            candidates_evaluated = 0
-            blocked = excluded or set()
+            self._check_complete(collection, scope, revisions)
+            ids: list[int] = []
+            keys: list[bytes] = []
             for cell in cells:
-                after = 0
-                while True:
-                    rows = self.store.db.execute(
-                        """SELECT r.* FROM postings p JOIN records r
-                           ON r.id=p.record_id AND r.collection=p.collection
-                           WHERE p.collection=? AND r.scope=? AND p.cell=? AND
-                             p.centroids_revision=? AND r.id>?
-                           ORDER BY r.id LIMIT ?""",
-                        (
-                            collection.value,
-                            scope,
-                            int(cell),
-                            self.identity.centroid_sha256,
-                            after,
-                            self.batch_size,
-                        ),
-                    ).fetchall()
-                    if not rows:
-                        break
-                    after = rows[-1]["id"]
-                    for entry in rows:
-                        if entry["id"] in blocked:
-                            continue
-                        row = self.store._record(entry)
-                        if not row.active or not visibility.permits(row.footprint):
-                            continue
-                        score = float(np.dot(q.astype(np.float64), row.key.astype(np.float64)))
-                        hits.append(Hit(row, score))
-                        candidates_evaluated += 1
-            hits.sort(key=lambda x: (-x.similarity, x.record.id))
-            return SearchBatch(
-                tuple(hits[:limit]), max(0, limit - len(hits)), candidates_evaluated, revisions
-            )
+                rows = self.store.db.execute(
+                    """SELECT r.id, r.key FROM postings p JOIN records r
+                       ON r.id=p.record_id AND r.collection=p.collection
+                       WHERE p.collection=? AND r.scope=? AND p.cell=? AND
+                         p.centroids_revision=? AND r.active=1""",
+                    (collection.value, scope, int(cell), self.identity.centroid_sha256),
+                ).fetchall()
+                if rows:
+                    cell_ids, cell_keys = zip(*rows, strict=True)
+                    ids.extend(cell_ids)
+                    keys.extend(cell_keys)
+            candidates = np.asarray(ids, dtype=np.int64)
+            keep = ~np.isin(candidates, list(excluded or ()))
+            if not keep.any() or limit == 0:
+                return SearchBatch((), limit, int(keep.sum()), revisions)
+            # Score every candidate key at once; materialize records only in
+            # score order, until ``limit`` of them pass visibility.
+            matrix = np.frombuffer(b"".join(keys), dtype="<f4")
+            if matrix.size != len(ids) * self.store.space.dimension:
+                raise ValueError("Corrupt or incompatible IVF candidate keys")
+            matrix = matrix.reshape(len(ids), -1)[keep]
+            candidates = candidates[keep]
+            scores = matrix.astype(np.float64) @ q
+            if not np.isfinite(scores).all():
+                raise ValueError("Stored IVF candidate keys contain nonfinite coordinates")
+            order = np.lexsort((candidates, -scores))
+            hits: list[Hit] = []
+            start, size = 0, 2 * limit  # visibility rarely rejects; grow if it does
+            while start < len(order):
+                chunk = order[start : start + size]
+                start, size = start + size, self.batch_size
+                chosen = [int(i) for i in candidates[chunk]]
+                rows = {
+                    row["id"]: row
+                    for row in self.store.db.execute(
+                        f"SELECT * FROM records WHERE id IN ({','.join('?' * len(chosen))})",
+                        chosen,
+                    )
+                }
+                for index, record_id in zip(chunk, chosen, strict=True):
+                    record = self.store._record(rows[record_id])
+                    if visibility.permits(record.footprint):
+                        hits.append(Hit(record, float(scores[index])))
+                        if len(hits) == limit:
+                            return SearchBatch(tuple(hits), 0, len(candidates), revisions)
+            return SearchBatch(tuple(hits), limit - len(hits), len(candidates), revisions)

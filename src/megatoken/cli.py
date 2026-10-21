@@ -161,7 +161,6 @@ def _diloco_initialize(args):
             "bank_path": config.retrieval_bank,
             "centroids_path": config.retrieval_ivf_centroids,
             "centroids_sha256": config.retrieval_ivf_sha256,
-            "nprobe": config.retrieval_ivf_nprobe,
             "scopes": tuple(
                 sorted(
                     {
@@ -285,7 +284,6 @@ def _gates(args):
         bank_path=args.bank,
         output=args.output,
         centroids=args.centroids,
-        nprobe=args.nprobe,
         max_episodes=args.episodes,
         thresholds=GateThresholds(
             max_lexical_ce=args.max_lexical_ce,
@@ -550,7 +548,6 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--bank", required=True, help="Source catalog bank")
     item.add_argument("--output", required=True, help="Evidence directory")
     item.add_argument("--centroids", help="Pinned IVF centroids for index recall")
-    item.add_argument("--nprobe", type=int, default=8)
     item.add_argument("--episodes", type=int, default=1000)
     item.add_argument("--device", default="cuda")
     from megatoken.training.gates import GateThresholds

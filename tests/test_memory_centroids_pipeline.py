@@ -94,12 +94,15 @@ def test_bounded_spherical_centroids_and_source_memory_postings(tmp_path):
         bank_path=bank_path,
         centroid_path=output,
         centroid_sha256=sha256_file(output),
-        nprobe=3,
+        queries=np.eye(8)[:4],
+        target_recall=1.0,
+        k=2,
     )
     assert published["postings"]["team:source"] == 6
     assert published["postings"]["team:memory"] == 6
     with SQLiteKB(bank_path, space, value_dim=16, readonly=True) as bank:
-        index = SQLiteDiskIVF(bank, centroids, nprobe=3)
+        index = SQLiteDiskIVF.published(bank, centroids)
+        assert index.nprobe == published["nprobe"]
         retrieved = index.search(
             np.eye(8)[0],
             collection=Collection.SOURCE,

@@ -40,7 +40,6 @@ retrieval_bank: PIN_GATE_READY_SOURCE_POPULATED_KB_SQLITE
 retrieval_source_assets_root: PIN_ORIGINAL_SOURCE_ASSETS_ROOT
 retrieval_ivf_centroids: PIN_CENTROIDS_NPY
 retrieval_ivf_sha256: PIN_CENTROIDS_SHA256
-retrieval_ivf_nprobe: 8
 retrieval_gate_receipt: PIN_FREE_KB_GATE_RECEIPT_JSON
 retrieval_sparse_lr: 0.001
 retrieval_growth_budget: 32

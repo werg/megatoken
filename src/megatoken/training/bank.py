@@ -76,7 +76,6 @@ class BankTrainingOwner:
         sparse_lr: float = 1e-3,
         source_features: NativeSourceFeatures | None = None,
         centroids: np.ndarray | None = None,
-        nprobe: int = 8,
     ):
         if bank.space.fingerprint != recipe.space.fingerprint or (
             bank.value_dim != recipe.model.semantic_value_dim
@@ -92,7 +91,7 @@ class BankTrainingOwner:
         self.source_features = source_features
         self.recipe = recipe
         self.device = device
-        self.ivf = SQLiteDiskIVF(bank, centroids, nprobe=nprobe) if centroids is not None else None
+        self.ivf = SQLiteDiskIVF.published(bank, centroids) if centroids is not None else None
         self.index = self.ivf if self.ivf is not None else ExactIndex(bank)
         self.sparse = SparseRowAdam(bank, lr=sparse_lr, index=self.ivf)
         self.selected = LocalMemoryWindow(self.sparse, "semantic-v1", device)

@@ -128,7 +128,6 @@ class TrainConfig:
     retrieval_source_assets_root: str | None = None
     retrieval_ivf_centroids: str | None = None
     retrieval_ivf_sha256: str | None = None
-    retrieval_ivf_nprobe: int = 8
     retrieval_gate_receipt: str | None = None
     retrieval_sparse_lr: float = 1e-3
     retrieval_kv_dropout: float = 0.1
@@ -171,8 +170,6 @@ class TrainConfig:
             raise ValueError("RAG source-feature assets require a live canonical KB")
         if bool(self.retrieval_ivf_centroids) != bool(self.retrieval_ivf_sha256):
             raise ValueError("Learned IVF must pin both centroid path and SHA256")
-        if self.retrieval_ivf_nprobe < 1:
-            raise ValueError("IVF nprobe must be a positive integer")
         if self.retrieval_bank and not self.retrieval_sidecar:
             raise ValueError("A live KB requires retrieval supervision sidecars")
         if self.retrieval_bank and not self.retrieval_gate_receipt:

@@ -85,7 +85,6 @@ def _setup(tmp_path, *, quorum=2, workers=2, staleness=1, growth_budget=0):
         bank_path=str(bank_path),
         centroids_path=None,
         centroids_sha256=None,
-        nprobe=8,
         scopes=("team",),
         growth_budget=growth_budget,
     )

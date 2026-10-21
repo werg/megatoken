@@ -7,6 +7,8 @@ Outputs, under ``--output``:
 - ``recipes/``: coherence_embedding, progressive_warmup and free_kb_pretraining recipes.
 - ``catalog.jsonl`` + ``kb/catalog.sqlite``: the source catalog keyed by teacher vectors.
 - ``datasets/{rc,open}-{train,heldout}``: prepared episodes (real Ling codec) and sidecars.
+- ``kb/centroids.npy`` and the IVF publication in ``kb/catalog.sqlite``, its probe
+  count calibrated on the held-out queries (``kb/catalog.sqlite.index.json``).
 
 Two views of every question:
 
@@ -209,13 +211,15 @@ def build(args: argparse.Namespace) -> dict:
         DocumentEmbeddingExample,
         write_document_sidecar,
     )
-    from megatoken.data.retrieval import RetrievalExample, write_sidecar
+    from megatoken.data.retrieval import RetrievalExample, read_sidecar, write_sidecar
     from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
     from megatoken.data.storage import export_prepared
     from megatoken.io import sha256_file
     from megatoken.loading import load_codec, load_model_config
     from megatoken.memory.catalog_cli import build_source_catalog
+    from megatoken.memory.centroids_cli import fit_centroids
     from megatoken.memory.contracts import Footprint, QueryBoundary, SemanticSpace, SourceRange
+    from megatoken.memory.index_cli import publish_index
     from megatoken.memory.recipe import RetrievalRecipe
 
     out = Path(args.output)
@@ -504,9 +508,37 @@ def build(args: argparse.Namespace) -> dict:
                 "counts": manifest["counts"],
             }
             print(f"{view}-{split}", summary[f"{view}-{split}"], flush=True)
+    # ---- IVF centroids and the calibrated index publication ----
+    centroids = out / "kb" / "centroids.npy"
+    coherence = RetrievalRecipe.load(recipes["coherence_embedding"])
+    if not centroids.exists():
+        fit_centroids(coherence, bank_path=bank, output=centroids, cells=args.ivf_cells)
+    receipt_path = bank.with_suffix(bank.suffix + ".index.json")
+    if not receipt_path.exists():
+        queries = np.stack(
+            [
+                np.asarray(row.teacher_target, dtype=np.float32)
+                for view in ("rc", "open")
+                for row in read_sidecar(out / "datasets" / f"{view}-heldout" / "queries.jsonl")
+            ]
+        )
+        receipt = publish_index(
+            coherence,
+            bank_path=bank,
+            centroid_path=centroids,
+            centroid_sha256=sha256_file(centroids),
+            queries=queries,
+        )
+        receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    index = json.loads(receipt_path.read_text())
     result = {
         "recipes": recipes,
         "bank": str(bank),
+        "ivf": {
+            "centroids": str(centroids),
+            "centroids_sha256": index["centroid_file_sha256"],
+            "nprobe": index["nprobe"],
+        },
         "assets": str(assets),
         "catalog_snapshot": snapshot,
         "partition_id": partition,
@@ -533,6 +565,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hotpot-heldout", type=int, default=1000)
     parser.add_argument("--musique-heldout", type=int, default=500)
     parser.add_argument("--seed", type=int, default=20261020)
+    parser.add_argument("--ivf-cells", type=int, default=256)
     args = parser.parse_args(argv)
     print(json.dumps(build(args), indent=2, sort_keys=True))
     return 0
