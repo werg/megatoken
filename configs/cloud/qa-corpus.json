@@ -3,10 +3,11 @@
  "id": "qa-corpus",
  "image": "nvcr.io/nvidia/pytorch:26.09-py3",
  "resources": {
-  "cpu": "64",
-  "memory": "128Gi"
+  "cpu": "8",
+  "memory": "64Gi",
+  "gpu": 1
  },
- "lifetime_hours": 8,
+ "lifetime_hours": 4,
  "scratch": "100Gi",
  "pip": [
   "transformers==5.20.2",
@@ -117,7 +118,7 @@
  "command": [
   "bash",
   "-c",
-  "set -e; megatoken codec --output /work/inputs/codec; python scripts/prepare_retrieval_corpus.py --output /work/out/corpus --hotpot /work/inputs/hotpot --musique /work/inputs/musique --teacher /work/inputs/embeddinggemma-2 --codec /work/inputs/codec --teacher-device cpu"
+  "set -e; megatoken codec --output /work/inputs/codec; python scripts/prepare_retrieval_corpus.py --output /work/out/corpus --hotpot /work/inputs/hotpot --musique /work/inputs/musique --teacher /work/inputs/embeddinggemma-2 --codec /work/inputs/codec"
  ],
  "outputs": [
   "out/corpus"
