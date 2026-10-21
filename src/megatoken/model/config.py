@@ -158,6 +158,14 @@ class ModelConfig:
                 raise ValueError(
                     "External feature projectors require a positive width and pinned ID"
                 )
+        if self.embeddinggemma2_hidden_dim:
+            import re
+
+            if self.embeddinggemma2_hidden_dim != 512 or not re.fullmatch(
+                r"embeddinggemma2:[0-9a-f]{40}:language_model\\.embedding_projection:input:chat-template-v1",
+                self.embeddinggemma2_hidden_id,
+            ):
+                raise ValueError("Unified teacher requires pinned 512d pre-embedding-projection hidden states")
         if min(self.semantic_dim, self.semantic_value_dim, self.max_kb_positions) <= 0:
             raise ValueError(
                 "Retrieval embedding, free semantic memory and full-facet KB "

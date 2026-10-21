@@ -34,11 +34,36 @@ def main():
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
-    path = Path(args.input).resolve()
-    if not path.is_file() or path.is_symlink():
+    input_path = Path(args.input)
+    if input_path.is_symlink():
+        parser.error("Input source symlinks are not allowed")
+    path = input_path.resolve()
+    if not path.is_file():
         parser.error("Input must be a regular local file, not a symlink")
     source_sha = hashlib.sha256(path.read_bytes()).hexdigest()
-    source = path.read_text(encoding="utf-8") if args.modality in ("text", "document") else str(path)
+    if args.modality == "document":
+        if path.suffix.lower() == ".pdf":
+            try:
+                import pymupdf
+            except ImportError as exc:
+                raise RuntimeError("Install megatoken[omni-documents] for PDF source parsing") from exc
+            with pymupdf.open(path) as pdf:
+                source = "\\f".join(page.get_text(sort=True) for page in pdf)
+            if not source.strip():
+                raise ValueError("Scanned PDF needs visual page extraction, not empty document text")
+        elif path.suffix.lower() == ".docx":
+            try:
+                from docx import Document
+            except ImportError as exc:
+                raise RuntimeError("Install megatoken[omni-documents] for DOCX source parsing") from exc
+            doc = Document(path)
+            source = "\\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        else:
+            source = path.read_text(encoding="utf-8")
+    elif args.modality == "text":
+        source = path.read_text(encoding="utf-8")
+    else:
+        source = str(path)
     extractor = EmbeddingGemma2HiddenExtractor.from_local_snapshot(
         args.snapshot, revision=args.revision, device=args.device
     )

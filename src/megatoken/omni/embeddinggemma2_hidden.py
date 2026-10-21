@@ -21,6 +21,38 @@ HIDDEN_TAP = "language_model.embedding_projection:input"
 _MODALITIES = frozenset({"text", "document", "audio", "image", "video"})
 
 
+def verify_local_snapshot(path: Path, revision: str) -> None:
+    """Hash every model/processor byte; no mutable or unhashed dependencies."""
+    hidden_identity(revision)
+    metadata = path / "teacher-lock.json"
+    if not metadata.is_file() or metadata.is_symlink():
+        raise ValueError("Teacher snapshot needs a pinned teacher-lock.json")
+    lock = json.loads(metadata.read_text(encoding="utf-8"))
+    files = lock.get("sha256")
+    if (
+        set(lock) != {"model", "revision", "sha256"}
+        or lock["model"] != SNAPSHOT_MODEL or lock["revision"] != revision
+        or not isinstance(files, dict) or not files
+    ):
+        raise ValueError("Teacher snapshot/processor revision identity mismatch")
+    present = set()
+    for artifact in path.rglob("*"):
+        if artifact.is_symlink():
+            raise ValueError("Teacher snapshot cannot include symlinks")
+        if not artifact.is_file() or artifact == metadata:
+            continue
+        relative = artifact.relative_to(path).as_posix()
+        present.add(relative)
+        if relative not in files or not re.fullmatch(r"[0-9a-f]{64}", str(files[relative])):
+            raise ValueError(f"Unhashed teacher file: {relative}")
+        digest = hashlib.file_digest(artifact.open("rb"), "sha256").hexdigest()
+        if digest != files[relative]:
+            raise ValueError(f"Teacher artifact checksum differs: {relative}")
+    if present != set(files):
+        raise ValueError("Teacher lock includes missing or extra files")
+
+
+
 def hidden_identity(revision: str, *, preprocessing: str = "chat-template-v1") -> str:
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValueError("EmbeddingGemma2 teacher identity requires an immutable 40-char revision")
@@ -75,12 +107,7 @@ class EmbeddingGemma2HiddenExtractor:
         path = Path(snapshot).resolve()
         if not path.is_dir() or not (path / "config.json").is_file():
             raise FileNotFoundError("A downloaded local EmbeddingGemma2 snapshot is required")
-        metadata = path / "teacher-lock.json"
-        if not metadata.is_file():
-            raise ValueError("Teacher snapshot needs a checked teacher-lock.json")
-        lock = json.loads(metadata.read_text(encoding="utf-8"))
-        if lock != {"model": SNAPSHOT_MODEL, "revision": revision}:
-            raise ValueError("Teacher snapshot/processor revision identity mismatch")
+        verify_local_snapshot(path, revision)
         model = AutoModel.from_pretrained(path, local_files_only=True, trust_remote_code=False).to(device)
         processor = AutoProcessor.from_pretrained(path, local_files_only=True, trust_remote_code=False)
         return cls(model, processor, revision=revision)
