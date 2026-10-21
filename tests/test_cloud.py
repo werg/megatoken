@@ -181,11 +181,16 @@ def test_push_uploads_retried_parts_that_the_bootstrap_joins(tmp_path, monkeypat
         def result(self):
             return None
 
+    class Dropped:
+        def result(self):
+            raise error("dropped")
+
     class Sandbox:
         def write_file(self, path, data):
+            # Writes complete asynchronously; a dropped stream fails in result().
             writes.append(path)
             if len(writes) == 2:
-                raise error("dropped")
+                return Dropped()
             (inbox / path.rsplit("/", 1)[1]).write_bytes(data)
             return Done()
 
@@ -204,8 +209,8 @@ def test_push_uploads_retried_parts_that_the_bootstrap_joins(tmp_path, monkeypat
     digests = {
         path: hashlib.sha256(path.read_bytes()).hexdigest() for path in (big, empty, archive)
     }
-    for path, digest in digests.items():
-        cloud._push(Sandbox(), path, digest)
+    cloud._push(Sandbox(), {digest: path for path, digest in digests.items()}, in_flight=3)
+    assert len(writes) == 4 + 1 + 1 + 1  # every part once, plus one retried part
     assert sorted(p.name for p in inbox.iterdir() if p.name.startswith(digests[big])) == [
         f"{digests[big]}.{i:04d}" for i in range(4)
     ]

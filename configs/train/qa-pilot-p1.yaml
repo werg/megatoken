@@ -16,7 +16,9 @@ microbatch_episodes: 4
 accumulate_scored: 4096
 max_accumulation_windows: 8
 max_history_tokens: 4096
-generated_capacity: 128
+# Answers are clipped to 360 bytes (prepare_retrieval_corpus.MAX_ANSWER_BYTES);
+# a Ling token covers at least one byte, so 384 always fits one answer.
+generated_capacity: 384
 max_steps: 3000
 budget: 1000000000
 checkpoint_every: 250

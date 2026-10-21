@@ -44,6 +44,7 @@ STATE = Path(os.environ.get("MEGATOKEN_CW_STATE", Path.home() / ".local/state/me
 CHUNK = 8 << 20
 # Gateway streams are cut after ~25 s, so every transfer moves bounded parts.
 PART_BYTES = 32 << 20
+PUSH_IN_FLIGHT = 8
 CREATE_ATTEMPTS = 6
 
 
@@ -200,22 +201,43 @@ def _create(job: dict[str, Any]):
     raise AssertionError("unreachable")
 
 
-def _push(sandbox, source: Path, digest: str, *, attempts: int = 4) -> None:
-    """Upload ``source`` as ``inbox/<digest>.NNNN`` parts; the bootstrap joins and verifies them."""
+def _push(
+    sandbox, files: dict[str, Path], *, in_flight: int = PUSH_IN_FLIGHT, attempts: int = 4
+) -> None:
+    """Upload each ``{digest: source}`` as ``inbox/<digest>.NNNN`` parts (the bootstrap
+    joins and verifies them), keeping ``in_flight`` part writes outstanding at once:
+    one gateway stream is latency-bound, so throughput scales with concurrency."""
     from cwsandbox.exceptions import SandboxError
 
-    size = source.stat().st_size
-    with source.open("rb") as stream:
-        for index in range(max(1, -(-size // PART_BYTES))):
-            block = stream.read(PART_BYTES)
-            for attempt in range(1, attempts + 1):
-                try:
-                    sandbox.write_file(f"{WORK}/.cloud/inbox/{digest}.{index:04d}", block).result()
-                    break
-                except SandboxError as error:
-                    if attempt == attempts:
-                        raise CloudError(f"{source}: part {index}: {error}") from error
-                    time.sleep(10 * attempt)
+    parts = [
+        (digest, source, index)
+        for digest, source in files.items()
+        for index in range(max(1, -(-source.stat().st_size // PART_BYTES)))
+    ]
+
+    def read(source: Path, index: int) -> bytes:
+        with source.open("rb") as stream:
+            stream.seek(index * PART_BYTES)
+            return stream.read(PART_BYTES)
+
+    def write(digest: str, source: Path, index: int):
+        return sandbox.write_file(f"{WORK}/.cloud/inbox/{digest}.{index:04d}", read(source, index))
+
+    pending: dict[tuple[str, int], tuple[Any, Path, int]] = {}
+    queue = list(reversed(parts))
+    while queue or pending:
+        while queue and len(pending) < in_flight:
+            digest, source, index = queue.pop()
+            pending[(digest, index)] = (write(digest, source, index), source, 1)
+        (digest, index), (future, source, attempt) = next(iter(pending.items()))
+        try:
+            future.result()
+            del pending[(digest, index)]
+        except SandboxError as error:
+            if attempt == attempts:
+                raise CloudError(f"{source}: part {index}: {error}") from error
+            time.sleep(10 * attempt)
+            pending[(digest, index)] = (write(digest, source, index), source, attempt + 1)
 
 
 def expand_push_dirs(job: dict[str, Any]) -> list[dict[str, str]]:
@@ -272,8 +294,7 @@ def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[s
                     "seconds": time.time() - started,
                 }
             )
-            for digest, source in {code["sha256"]: archive, **{d: s for s, d in pushed}}.items():
-                _push(sandbox, source, digest)
+            _push(sandbox, {code["sha256"]: archive, **{d: s for s, d in pushed}})
             inputs = {
                 "code": code,
                 "inputs": [
