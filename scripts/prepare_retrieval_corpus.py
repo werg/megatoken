@@ -131,6 +131,12 @@ def load_musique(root: Path, split: str) -> list[dict]:
     return questions
 
 
+def _unit_mean(vectors: list) -> list[float]:
+    stacked = np.asarray(vectors, dtype=np.float64)
+    stacked /= np.linalg.norm(stacked, axis=1, keepdims=True)
+    return stacked.mean(0).tolist()
+
+
 def select(questions: list[dict], count: int, rng: random.Random) -> list[dict]:
     usable = [
         q
@@ -308,6 +314,17 @@ def build(args: argparse.Namespace) -> dict:
         json.dumps({k: [q["qid"] for q in v] for k, v in splits.items()}).encode()
     ).hexdigest()
     model_config = load_model_config(args.model, **json.loads(args.model_overrides))
+    # Role centers over the training split: the alignment loss and gates score
+    # what distinguishes a vector from its role mean (RetrievalRecipe).
+    train_qids = [q["qid"] for q in splits["train"]]
+    train_docs = sorted({cid for qid in train_qids for cid in windows[qid]})
+    centers = {
+        role: _unit_mean([vectors[key] for key in keys])
+        for role, vectors, keys in (
+            ("query", query_vectors, train_qids),
+            ("document", doc_vectors, train_docs),
+        )
+    }
     recipes = {}
     for phase in ("coherence_embedding", "progressive_warmup", "free_kb_pretraining"):
         recipe = {
@@ -321,6 +338,7 @@ def build(args: argparse.Namespace) -> dict:
                 "partition_id": partition,
             },
             "max_kb_positions": model_config.max_kb_positions,
+            "embedding_centers": centers,
         }
         path = out / "recipes" / f"{phase}.json"
         path.parent.mkdir(exist_ok=True)

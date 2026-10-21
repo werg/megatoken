@@ -14,12 +14,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
-from torch.nn import functional as F
 
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import EncodedRecord
+from megatoken.generation.embedding import EmbeddingSpec, alignment_distance
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
@@ -175,6 +175,10 @@ def _target_plan(
         representation_mode=config.representation_training,
         native_tapes=[tape],
     )
+
+
+def _center(recipe: Any, role: str, device: torch.device) -> torch.Tensor:
+    return torch.tensor(recipe.embedding_centers[role], device=device, dtype=torch.float32)
 
 
 def _media_record(model: Any, entry: EncodedRecord, modality: str) -> MediaRecord:
@@ -589,21 +593,18 @@ def forward_meridian_batch(
                     ):
                         metrics[metric] = metrics.get(metric, 0) + count
                 # The teacher is a coordinate target, never P input.
-                # Unit normalization must hold even for sidecar exporters
-                # that retain unnormalized raw teacher magnitudes.
-                teacher = F.normalize(teacher, dim=-1)
                 if probe is not None:
                     probe.queries[(annotation.episode_id, annotation.event_id)] = (
                         predicted.detach()[0].float().cpu()
                     )
-                similarity = (predicted * teacher).sum(-1)
+                distance = alignment_distance(
+                    predicted, teacher, _center(recipe, "query", device)
+                ).sum()
                 retrieval_losses.append(
-                    recipe.loss_weights.get("embedding", 0.0)
-                    * (1 - similarity).sum()
-                    / global_count
+                    recipe.loss_weights.get("embedding", 0.0) * distance / global_count
                 )
                 metrics["retrieval_embedding_sum"] = (
-                    metrics.get("retrieval_embedding_sum", 0.0) + (1 - similarity.detach()).sum()
+                    metrics.get("retrieval_embedding_sum", 0.0) + distance.detach()
                 )
                 metrics["retrieval_embedding_count"] = (
                     metrics.get("retrieval_embedding_count", 0) + 1
@@ -649,8 +650,6 @@ def forward_meridian_batch(
                     value.detach() if isinstance(value, torch.Tensor) else value
                 )
         else:
-            from megatoken.generation.embedding import EmbeddingSpec
-
             examples, recipe, _, _, documents, global_docs = retrieval_aux
             matches = [
                 documents.get(
@@ -691,7 +690,6 @@ def forward_meridian_batch(
                 target = torch.as_tensor(item.teacher_target, device=device, dtype=torch.float32)[
                     None
                 ]
-                target = F.normalize(target, dim=-1)
                 output = model.embedding_realizer(
                     source_raw[:, index],
                     EmbeddingSpec(recipe.space.fingerprint, "document", recipe.space.dimension),
@@ -700,7 +698,9 @@ def forward_meridian_batch(
                     probe.documents[(item.episode_id, item.event_id)] = (
                         output.detach()[0].float().cpu()
                     )
-                distance = (1 - (output * target).sum(-1)).sum()
+                distance = alignment_distance(
+                    output, target, _center(recipe, "document", device)
+                ).sum()
                 retrieval_losses.append(
                     recipe.loss_weights.get("document_embedding", 0.0) * distance / global_docs
                 )

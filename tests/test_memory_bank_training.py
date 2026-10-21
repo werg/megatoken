@@ -65,6 +65,7 @@ def _fixture(tmp_path, *, early=True):
             "query_ranking": 0.5,
             "source_value": 0.0,
         },
+        embedding_centers={"query": (0.0,) * config.semantic_dim},
         phase="progressive_warmup",
         max_selected_source=2,
         max_selected_memory=2,

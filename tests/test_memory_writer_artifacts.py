@@ -18,6 +18,8 @@ def _recipe():
     data["phase"] = "local_source_writer"
     data["space"]["teacher_revision"] = "pinned-revision-test"
     data["growth"]["partition_id"] = "pinned-split-test"
+    center = [0.5] + [0.0] * (data["space"]["dimension"] - 1)
+    data["embedding_centers"] = {"query": center, "document": center}
     return RetrievalRecipe.from_dict(data)
 
 

@@ -160,6 +160,7 @@ def write_retrieval_artifacts(
         "max_source_bytes": 256,
         "max_kb_positions": model_config.max_kb_positions,
         "max_readout_groups": 2,
+        "embedding_centers": {role: [0.0] * SEMANTIC_DIM for role in ("query", "document")},
     }
     recipe_path = root / "recipe.json"
     recipe_path.write_text(json.dumps(recipe, sort_keys=True))

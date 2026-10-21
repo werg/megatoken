@@ -546,3 +546,18 @@ def test_admission_keeps_native_frontier_and_allows_full_kv_gradients():
     assert coefficient.grad is not None and coefficient.grad.abs().sum() > 0
     assert model.memory_projector.to_kv.weight.grad is not None
     assert model.memory_adapters.controllers["p"].router.weight.grad is not None
+
+
+def test_alignment_distance_does_not_reward_the_role_mean():
+    from megatoken.generation.embedding import alignment_distance
+
+    generator = torch.Generator().manual_seed(0)
+    offsets = torch.randn(256, 64, generator=generator)
+    mean = torch.nn.functional.normalize(torch.randn(64, generator=generator), dim=0)
+    teacher = torch.nn.functional.normalize(3 * mean + 0.3 * offsets, dim=-1)
+    center = teacher.mean(0)
+    collapsed = torch.nn.functional.normalize(center, dim=0).expand_as(teacher)
+    raw = 1 - (collapsed * teacher).sum(-1)
+    assert raw.mean() < 0.3  # anisotropy makes the mean look aligned
+    assert alignment_distance(collapsed, teacher, center).mean() > 0.9
+    assert alignment_distance(teacher, teacher, center).abs().max() < 1e-5

@@ -46,6 +46,7 @@ def _recipe():
         model=ModelConfig.tiny(semantic_dim=8, semantic_value_dim=4, max_kb_positions=2),
         growth=GrowthPolicy(value_dim=4, seed=9, max_points=10, max_pairs=5),
         loss_weights={"embedding": 1.0, "query_ranking": 0.5, "source_value": 0.0},
+        embedding_centers={"query": (0.0,) * 8},
         phase="free_kb_pretraining",
         max_selected_source=2,
         max_selected_memory=2,

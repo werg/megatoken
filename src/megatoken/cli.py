@@ -288,8 +288,8 @@ def _gates(args):
         thresholds=GateThresholds(
             max_lexical_ce=args.max_lexical_ce,
             max_terminal_ce=args.max_terminal_ce,
-            min_document_cosine=args.min_document_cosine,
-            min_query_cosine=args.min_query_cosine,
+            min_document_centered_cosine=args.min_document_centered_cosine,
+            min_query_centered_cosine=args.min_query_centered_cosine,
             min_recall_ratio=args.min_recall_ratio,
             min_index_recall=args.min_index_recall,
             recall_k=args.recall_k,
@@ -555,8 +555,16 @@ def parser() -> argparse.ArgumentParser:
     defaults = GateThresholds()
     item.add_argument("--max-lexical-ce", type=float, default=defaults.max_lexical_ce)
     item.add_argument("--max-terminal-ce", type=float, default=defaults.max_terminal_ce)
-    item.add_argument("--min-document-cosine", type=float, default=defaults.min_document_cosine)
-    item.add_argument("--min-query-cosine", type=float, default=defaults.min_query_cosine)
+    item.add_argument(
+        "--min-document-centered-cosine",
+        type=float,
+        default=defaults.min_document_centered_cosine,
+    )
+    item.add_argument(
+        "--min-query-centered-cosine",
+        type=float,
+        default=defaults.min_query_centered_cosine,
+    )
     item.add_argument("--min-recall-ratio", type=float, default=defaults.min_recall_ratio)
     item.add_argument("--min-index-recall", type=float, default=defaults.min_index_recall)
     item.add_argument("--recall-k", type=int, default=defaults.recall_k)

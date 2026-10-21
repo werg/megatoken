@@ -69,6 +69,10 @@ class RetrievalRecipe:
     max_kb_positions: int = 4
     max_readout_groups: int = 4
     extra_rules: dict[str, str] = field(default_factory=dict)
+    # Mean unit teacher vector per role over the training corpus. Teacher spaces
+    # are anisotropic (EmbeddingGemma-2 role means have norm ~0.75), so raw
+    # cosine rewards predicting the mean; alignment also scores the residual.
+    embedding_centers: dict[str, tuple[float, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.schema != "megatoken-retrieval-recipe-v1":
@@ -96,6 +100,25 @@ class RetrievalRecipe:
             raise ValueError("A KB snapshot cannot contain more groups than materialized slots")
         if not self.loss_weights or any(value < 0 for value in self.loss_weights.values()):
             raise ValueError("Pretraining losses must have explicit nonnegative weights")
+        object.__setattr__(
+            self,
+            "embedding_centers",
+            {role: tuple(float(x) for x in v) for role, v in self.embedding_centers.items()},
+        )
+        trained = {
+            role
+            for role, weight in (("query", "embedding"), ("document", "document_embedding"))
+            if self.loss_weights.get(weight, 0.0) > 0
+        }
+        if not trained <= set(self.embedding_centers) or not set(self.embedding_centers) <= {
+            "query",
+            "document",
+        }:
+            raise ValueError("Trained embedding roles need a teacher center in the recipe")
+        for center in self.embedding_centers.values():
+            norm = sum(x * x for x in center) ** 0.5
+            if len(center) != self.space.dimension or not norm < 1:
+                raise ValueError("Embedding centers are sub-unit means in the teacher space")
 
     @property
     def fingerprint(self) -> str:
@@ -116,6 +139,7 @@ class RetrievalRecipe:
             "max_kb_positions": self.max_kb_positions,
             "max_readout_groups": self.max_readout_groups,
             "extra_rules": dict(self.extra_rules),
+            "embedding_centers": {k: list(v) for k, v in self.embedding_centers.items()},
         }
 
     @classmethod

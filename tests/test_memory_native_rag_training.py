@@ -67,6 +67,7 @@ def test_selected_query_then_actual_source_bytes_advance_native_clock(tmp_path):
         max_kb_positions=2,
         max_readout_groups=2,
         extra_rules={"source_threshold": "-1.0"},
+        embedding_centers={"query": (0.0,) * config.semantic_dim},
     )
     model = FacetedGenerator(FacetedCore(config), ByteCodec.byte_fallback())
     multi = MultiTrackGenerator(model)

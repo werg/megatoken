@@ -20,8 +20,8 @@ from megatoken.training.gates import BOOTSTRAP_GATES, GateThresholds, bootstrap_
 LENIENT = GateThresholds(
     max_lexical_ce=1e9,
     max_terminal_ce=1e9,
-    min_document_cosine=-1.0,
-    min_query_cosine=-1.0,
+    min_document_centered_cosine=-1.0,
+    min_query_centered_cosine=-1.0,
     min_recall_ratio=0.0,
     recall_k=2,
 )

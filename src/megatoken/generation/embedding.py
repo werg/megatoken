@@ -57,10 +57,15 @@ class EmbeddingRealizer(nn.Module):
         projection = self.query if role == 0 else self.document
         return F.normalize(projection(pooled).float(), dim=-1, eps=1e-8)
 
-    def distill(self, raw: Tensor, targets: Tensor, spec: EmbeddingSpec) -> Tensor:
-        """Unit teacher vectors are targets only; never causal P inputs."""
-        output = self(raw, spec)
-        if targets.shape != output.shape or not bool(torch.isfinite(targets).all()):
-            raise ValueError("Teacher targets must match the pinned embedding space")
-        targets = F.normalize(targets.detach().float(), dim=-1)
-        return (1 - (output * targets).sum(-1)).mean()
+
+def alignment_distance(output: Tensor, target: Tensor, center: Tensor) -> Tensor:
+    """Per-row ``(1 - cos) + (1 - centered cos)`` to unit teacher targets.
+
+    Raw cosine alone is nearly satisfied by the teacher's role mean in an
+    anisotropic space; the centered term scores only what distinguishes this
+    target from that mean, and the raw term pins how much of the mean to keep.
+    """
+    target = F.normalize(target.detach().float(), dim=-1)
+    raw = (output * target).sum(-1)
+    centered = F.cosine_similarity(output - center, target - center, dim=-1, eps=1e-8)
+    return (1 - raw) + (1 - centered)

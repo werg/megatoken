@@ -9,10 +9,13 @@ Bootstrap gates (coherence_embedding -> progressive_warmup):
 
 - ``coherence``: held-out per-token lexical CE <= ``max_lexical_ce`` and the
   terminal CE below ``max_terminal_ce`` (default: binary chance, ln 2).
-- ``embedding_alignment``: mean cosine between E's realized document embeddings
-  and the teacher's >= ``min_document_cosine``.
-- ``query_alignment``: mean cosine between P's realized queries and the teacher's
-  >= ``min_query_cosine``, and student recall@k of annotated gold sources in the
+- ``embedding_alignment``: mean *centered* cosine (both vectors minus the
+  recipe's teacher role center) between E's realized document embeddings and
+  the teacher's >= ``min_document_centered_cosine``. Raw cosine is reported
+  too, but the teacher space is anisotropic: predicting the role mean alone
+  scores its norm (~0.75 for EmbeddingGemma-2) in raw cosine and ~0 centered.
+- ``query_alignment``: mean centered cosine between P's realized queries and the
+  teacher's >= ``min_query_centered_cosine``, and student recall@k of annotated gold sources in the
   teacher-keyed source catalog >= ``min_recall_ratio`` x the teacher's own recall@k.
 - ``index_recall`` (with pinned centroids): IVF top-k overlap with exact top-k
   for the student's queries >= ``min_index_recall``.
@@ -39,8 +42,8 @@ BOOTSTRAP_GATES = ("coherence", "embedding_alignment", "query_alignment")
 class GateThresholds:
     max_lexical_ce: float = 3.0
     max_terminal_ce: float = math.log(2)
-    min_document_cosine: float = 0.75
-    min_query_cosine: float = 0.75
+    min_document_centered_cosine: float = 0.5
+    min_query_centered_cosine: float = 0.5
     min_recall_ratio: float = 0.75
     min_index_recall: float = 0.95
     recall_k: int = 10
@@ -142,11 +145,20 @@ def _unit(vector: Any) -> np.ndarray:
     return value / max(np.linalg.norm(value), 1e-12)
 
 
-def _mean_cosine(student: dict, teacher: dict) -> tuple[float, int]:
+def _mean_cosines(student: dict, teacher: dict, center: Any) -> tuple[float, float, int]:
+    """Mean raw and centered cosine of unit student vs unit teacher vectors."""
     keys = sorted(set(student) & set(teacher))
     if not keys:
-        return math.nan, 0
-    return float(np.mean([_unit(student[k]) @ _unit(teacher[k]) for k in keys])), len(keys)
+        return math.nan, math.nan, 0
+    center = np.asarray(center, dtype=np.float64)
+    mine = np.stack([_unit(student[k]) for k in keys])
+    reference = np.stack([_unit(teacher[k]) for k in keys])
+    raw = (mine * reference).sum(-1)
+    mine, reference = mine - center, reference - center
+    centered = (mine * reference).sum(-1) / np.maximum(
+        np.linalg.norm(mine, axis=-1) * np.linalg.norm(reference, axis=-1), 1e-12
+    )
+    return float(raw.mean()), float(centered.mean()), len(keys)
 
 
 def retrieval_recall(
@@ -254,11 +266,15 @@ def bootstrap_gates(
         )
     finally:
         heldout.close()
-    document_cosine, document_count = _mean_cosine(
-        measured.documents, {k: v.teacher_target for k, v in documents.items()}
+    document_cosine, document_centered, document_count = _mean_cosines(
+        measured.documents,
+        {k: v.teacher_target for k, v in documents.items()},
+        recipe.embedding_centers["document"],
     )
-    query_cosine, query_count = _mean_cosine(
-        measured.queries, {k: v.teacher_target for k, v in queries.items()}
+    query_cosine, query_centered, query_count = _mean_cosines(
+        measured.queries,
+        {k: v.teacher_target for k, v in queries.items()},
+        recipe.embedding_centers["query"],
     )
     with open_bank_for_recipe(recipe, bank_path, readonly=not mark_ready) as bank:
         recall = retrieval_recall(
@@ -281,16 +297,21 @@ def bootstrap_gates(
             },
             "embedding_alignment": {
                 "document_cosine": document_cosine,
+                "document_centered_cosine": document_centered,
                 "documents": document_count,
-                "passed": document_count > 0 and document_cosine >= thresholds.min_document_cosine,
+                "passed": (
+                    document_count > 0
+                    and document_centered >= thresholds.min_document_centered_cosine
+                ),
             },
             "query_alignment": {
                 "query_cosine": query_cosine,
+                "query_centered_cosine": query_centered,
                 "queries": query_count,
                 **{key: recall[key] for key in ("k", "student_recall", "teacher_recall")},
                 "passed": (
                     query_count > 0
-                    and query_cosine >= thresholds.min_query_cosine
+                    and query_centered >= thresholds.min_query_centered_cosine
                     and recall["student_recall"]
                     >= thresholds.min_recall_ratio * recall["teacher_recall"]
                 ),
