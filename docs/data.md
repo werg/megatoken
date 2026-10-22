@@ -2091,6 +2091,12 @@ should fit in 32 GiB, but they are the first thing to check if a shard dies.
   least 6 to 12 rows when the network allowed (the Hub limits to 1000 requests per five minutes
   and the uplink was slow). Sources the readers could not parse were either given a new reader
   above or dropped; the dropped ones are in the next list.
+  Final real-row runs (8 rows each) passed for the Anthropic helpful-base, UltraChat full,
+  LMSYS GPT-5, Nebius gpt-oss, Dolphin-R1, Llama-Nemotron chat, SFT-datablend, MOSS-003,
+  Synth-APIGen (both), Glaive v1 (260 observation positions, 10 simulated results) and Toucan
+  (90 executed results) sources. SODA and AceMath could not be streamed within the 15-minute
+  limit on this connection (their files are 0.7 GB and larger); they are covered by the
+  fixture tests only.
 
 Size figures are approximations from the dataset size on the Hub divided by four. The Dolci 7B
 and 32B figures and the r1-distill figure vary widely, and the Updesh figures are guesses.

@@ -10940,7 +10940,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/argilla/Synth-APIGen-v0.1",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Query -> parallel calls, no tool results. The first ~6,000 rows have tools=[] or missing arguments with a plain-text refusal as the answer (relevance-detection data): the xlam reader rejects them, so rows=14000 reads ~8,000 usable ones; they could become a recovery_clarification source once a reader accepts text answers. argilla/apigen-function-calling is this set plus Salesforce/xlam-function-calling-60k (already present). Estimated 8M unique tokens in the kept selection (43,402 usable rows (of 49,402; the first ~6,000 rows are the unanswerable ones, rejected by this reader); ~750 chars of query+tools+answers per row / 4)."
+      "notes": "Query -> parallel calls, no tool results. The first ~6,000 rows have tools=[] or missing arguments with a plain-text refusal as the answer (relevance-detection data); the xLAM reader now reads those as assistant text turns. argilla/apigen-function-calling is this set plus Salesforce/xlam-function-calling-60k (already present). Estimated 8M unique tokens in the kept selection (43,402 usable rows (of 49,402; the first ~6,000 rows are the unanswerable ones, rejected by this reader); ~750 chars of query+tools+answers per row / 4)."
     },
     {
       "source_id": "synth-apigen-qwen-exec",
@@ -11393,7 +11393,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/glaiveai/glaive-function-calling",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS-PROFILE (small): each row is ONE string `sample` = 'SYSTEM: ...\\n\\nUSER: ...\\nASSISTANT: ...' (v2 splits it into `system` and `chat`, which the glaive reader needs). Splitting the string at the first 'USER:' line gives the v2 shape; with that split the glaive reader accepts the sampled rows (see t1 check). Distinct from glaive-function-calling-v2 (already present): only ~5% of first user prompts coincide in a 60-row comparison, so this is mostly new. Estimated 26M unique tokens in the kept selection (52,893 rows, 113 MB json; 105.9M chars / 4)."
+      "notes": "Each row is ONE string `sample` = 'SYSTEM: ...\\n\\nUSER: ...\\nASSISTANT: ...'; the Glaive reader splits it at the first 'USER:' line into the system prompt and the chat. Distinct from glaive-function-calling-v2 (already present): only ~5% of first user prompts coincide in a 60-row comparison, so this is mostly new. Estimated 26M unique tokens in the kept selection (52,893 rows, 113 MB json; 105.9M chars / 4)."
     },
     {
       "source_id": "toucan-kimi-k2",
@@ -11546,7 +11546,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/argilla/Synth-APIGen-v0.1",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS-PROFILE (small): xlam_calls rejects them because `answers` is plain text, not a call list (e.g. 'The query cannot be answered, no tools were provided.' / 'The given question lacks the parameters required by the function.'). A reader that emits user query -> assistant text with the tool list would make this a clean refusal/clarification source. Tools use the OpenAI {type: function, function: {...}} spelling (see synth-apigen-v0.1). Estimated 1.5M unique tokens in the kept selection (~6,000 rows (2,068 with tools=[], 3,932 with missing arguments), ~800 chars of query+tools+answer per row / 4)."
+      "notes": "Queries the tools cannot answer: `answers` is plain text (e.g. 'The query cannot be answered, no tools were provided.' / 'The given question lacks the parameters required by the function.'), which the xLAM reader turns into an assistant text turn, so this is a refusal and clarification source. Tools use the OpenAI {type: function, function: {...}} spelling (see synth-apigen-v0.1). Estimated 1.5M unique tokens in the kept selection (~6,000 rows (2,068 with tools=[], 3,932 with missing arguments), ~800 chars of query+tools+answer per row / 4)."
     },
     {
       "source_id": "xlam-r1-cot",
@@ -11576,7 +11576,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/AymanTarig/function-calling-v0.2-with-r1-cot",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS-PROFILE (small): the useful target is `r1-gen` (reasoning + call JSON in the Llama-3.1 {name, parameters} spelling) but xlam_calls only reads query/tools/answers and would drop the reasoning. Reasoning is also available alone in the separate `think` column. Same 60k xLAM queries as Salesforce/xlam-function-calling-60k (already present). `prompt` is a Llama-3 template that already contains the correct answer: do not use it. Estimated 60M unique tokens in the kept selection (57,970 rows, 353 MB (about a third is the redundant `prompt` column) ; ~60M tokens of useful text)."
+      "notes": "Read as xLAM query, tools and answers. The `r1-gen` and `think` reasoning columns are not read. Same 60k xLAM queries as Salesforce/xlam-function-calling-60k (already present). `prompt` is a Llama-3 template that already contains the correct answer: do not use it. Estimated 60M unique tokens in the kept selection (57,970 rows, 353 MB (about a third is the redundant `prompt` column) ; ~60M tokens of useful text)."
     },
     {
       "source_id": "adp-go-browse-wa",
@@ -15946,7 +15946,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/FreedomIntelligence/HuatuoGPT-sft-data-v1",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Chinese medical. The 'data' list holds strings prefixed with '问：' and '答：' (kept in the text). Estimated 82M unique tokens in the kept selection (~223k rows, 333 MB jsonl)."
+      "notes": "Chinese medical. The 'data' list holds strings prefixed with '\u95ee\uff1a' and '\u7b54\uff1a' (kept in the text). Estimated 82M unique tokens in the kept selection (~223k rows, 333 MB jsonl)."
     },
     {
       "source_id": "ru-turbo-alpaca",
@@ -16479,7 +16479,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/Anthropic/hh-rlhf",
       "metadata_checked_at": "2026-10-22",
-      "notes": "needs-profile 'anthropic-hh-text': split on '\\n\\nHuman:' / '\\n\\nAssistant:' markers into alternating user/assistant messages; the last assistant turn is the chosen reply. Human side is crowdworkers, assistant side is an Anthropic 52B model (not Claude 1). Estimated 6.7M unique tokens in the kept selection (42,537 train rows, mean chosen 628 chars (counted over the whole gz file): 26.7 M chars / 4)."
+      "notes": "Read as Anthropic text: one string of `Human:` and `Assistant:` turns; the chosen side of each preference pair is the conversation, the last assistant turn is the chosen reply. Estimated 6.7M unique tokens in the kept selection (42,537 train rows, mean chosen 628 chars (counted over the whole gz file): 26.7 M chars / 4)."
     },
     {
       "source_id": "anthropic-hh-helpful-base-chosen",
@@ -16514,7 +16514,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/Anthropic/hh-rlhf",
       "metadata_checked_at": "2026-10-22",
-      "notes": "needs-profile 'anthropic-hh-text' (same shape as the harmless-base source). Estimated 8.6M unique tokens in the kept selection (43,835 train rows, mean chosen 781 chars (counted over the whole gz file): 34.3 M chars / 4)."
+      "notes": "Read as Anthropic text: one string of `Human:` and `Assistant:` turns; the chosen side of each preference pair is the conversation, the last assistant turn is the chosen reply. Estimated 8.6M unique tokens in the kept selection (43,835 train rows, mean chosen 781 chars (counted over the whole gz file): 34.3 M chars / 4)."
     },
     {
       "source_id": "anthropic-hh-helpful-online-chosen",
@@ -16549,7 +16549,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/Anthropic/hh-rlhf",
       "metadata_checked_at": "2026-10-22",
-      "notes": "needs-profile 'anthropic-hh-text'. Estimated 10M unique tokens in the kept selection (22,007 train rows, mean chosen 1,829 chars (counted over the whole gz file): 40.3 M chars / 4)."
+      "notes": "Read as Anthropic text: one string of `Human:` and `Assistant:` turns; the chosen side of each preference pair is the conversation, the last assistant turn is the chosen reply. Estimated 10M unique tokens in the kept selection (22,007 train rows, mean chosen 1,829 chars (counted over the whole gz file): 40.3 M chars / 4)."
     },
     {
       "source_id": "anthropic-hh-helpful-rejection-sampled-chosen",
@@ -16584,7 +16584,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/Anthropic/hh-rlhf",
       "metadata_checked_at": "2026-10-22",
-      "notes": "needs-profile 'anthropic-hh-text'. Estimated 13M unique tokens in the kept selection (52,421 train rows, mean chosen 1,002 chars (counted over the whole gz file): 52.5 M chars / 4)."
+      "notes": "Read as Anthropic text: one string of `Human:` and `Assistant:` turns; the chosen side of each preference pair is the conversation, the last assistant turn is the chosen reply. Estimated 13M unique tokens in the kept selection (52,421 train rows, mean chosen 1,002 chars (counted over the whole gz file): 52.5 M chars / 4)."
     },
     {
       "source_id": "lmsys-gpt5-chat-response",
@@ -16616,7 +16616,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/ytz20/LMSYS-Chat-GPT-5-Chat-Response",
       "metadata_checked_at": "2026-10-22",
-      "notes": "needs-profile 'prompt-messages-response': messages list that ends on the user turn plus a separate assistant string column. The Alpaca template wrapper around the user text is part of the data (as used in the paper's training). Estimated 95M unique tokens in the kept selection (192,014 train rows, 366 MB raw text; bytes / 4)."
+      "notes": "Read as prompt and reply: a message list that ends on the user turn plus a separate assistant string column. The Alpaca template wrapper around the user text is part of the data (as used in the paper's training). Estimated 95M unique tokens in the kept selection (192,014 train rows, 366 MB raw text; bytes / 4)."
     },
     {
       "source_id": "ultrachat-full-1p4m",
@@ -16652,7 +16652,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/stingning/ultrachat",
       "metadata_checked_at": "2026-10-22",
-      "notes": "needs-profile 'alternating-string-list': even index = user, odd = assistant. HuggingFaceH4/ultrachat_200k (already present) is a cleaned 200k subset of this; the other 1.2M dialogues are new. Estimated 1900M unique tokens in the kept selection (9.3 GB over 10 jsonl files (train_0..train_9); bytes x 0.95 / 4)."
+      "notes": "Read as alternating turns: even index is the user, odd the assistant. HuggingFaceH4/ultrachat_200k (already present) is a cleaned 200k subset of this; the other 1.2M dialogues are new. Estimated 1900M unique tokens in the kept selection (9.3 GB over 10 jsonl files (train_0..train_9); bytes x 0.95 / 4)."
     },
     {
       "source_id": "nebius-deepseek-v3-infinity-instruct",
@@ -16681,7 +16681,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nebius/DeepSeek-V3-Infinity-Instruct-0625",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS PROFILE: row = conversation (list of {role, content}; prompt turns only) + generated_message ({role, content, reasoning_content=null, tool_calls=[]}) + finish_reason. A profile must append generated_message to conversation (and could drop finish_reason != 'stop'). Prompts overlap BAAI/Infinity-Instruct. Estimated 672M unique tokens in the kept selection (659,808 rows; mean 4073 text bytes over 200 sampled rows x rows / 4)."
+      "notes": "Read as prompt and reply: the row is a conversation (prompt turns only) plus generated_message, the model's answer, which becomes the final assistant turn. Estimated 672M unique tokens in the kept selection (659,808 rows; mean 4073 text bytes over 200 sampled rows x rows / 4)."
     },
     {
       "source_id": "nebius-gpt-oss-120b-infinity-instruct",
@@ -16710,7 +16710,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nebius/gpt-oss-120b-Infinity-Instruct-0625",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS PROFILE: same shape as the DeepSeek-V3 set, plus generated_message.reasoning_content (separate reasoning trace, currently ignored by the chat adapter). Same prompts as the DeepSeek-V3 set. Estimated 1659M unique tokens in the kept selection (659,358 rows; mean 10065 text bytes (answer + reasoning) over 200 sampled rows x rows / 4)."
+      "notes": "Read as prompt and reply: same shape as the DeepSeek-V3 set, plus generated_message.reasoning_content, a separate reasoning trace that is folded into the answer as <think> text. Same prompts as the DeepSeek-V3 set. Estimated 1659M unique tokens in the kept selection (659,358 rows; mean 10065 text bytes (answer + reasoning) over 200 sampled rows x rows / 4)."
     },
     {
       "source_id": "soda-dialogues",
@@ -16746,7 +16746,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/allenai/soda",
       "metadata_checked_at": "2026-10-22",
-      "notes": "needs-profile: `dialogue` is a list of utterance strings (no roles) with a parallel `speakers` list of names; alternate user and assistant starting with the first utterance, or choose one speaker as the assistant. Two-person role-play chit-chat, low information density; a cap or a 10% sample is advisable. See samples/soda.json. Estimated 190M unique tokens in the kept selection (1,191,582 rows (card), 689 MB train parquet)."
+      "notes": "Read as alternating turns: `dialogue` is a list of utterance strings (no roles); the first utterance is the user, then they alternate. Two-person role-play chit-chat, low information density; a cap or a 10% sample is advisable. Estimated 190M unique tokens in the kept selection (1,191,582 rows (card), 689 MB train parquet)."
     },
     {
       "source_id": "llama-nemotron-sft-chat",
@@ -16781,7 +16781,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs a new reader (profile 'prompt_messages_answer': prompt turns in a list column, the answer in a separate string column; field_map messages=input, target=output): the row is {input: [messages], output: string, system_prompt}; the chat reader needs the answer inside the messages list. Estimated 64M unique tokens in the kept selection (39,792 rows, 255 MB jsonl / 4)."
+      "notes": "Read as prompt and reply: {input: [prompt turns], output: string}; the answer is added as the final assistant turn. Estimated 64M unique tokens in the kept selection (39,792 rows, 255 MB jsonl / 4)."
     },
     {
       "source_id": "llama-nemotron-sft-safety",
@@ -16816,7 +16816,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs a new reader (profile 'prompt_messages_answer': prompt turns in a list column, the answer in a separate string column; field_map messages=input, target=output): the row is {input: [messages], output: string, system_prompt}; the chat reader needs the answer inside the messages list. Estimated 14M unique tokens in the kept selection (31,426 rows, 58 MB jsonl / 4)."
+      "notes": "Read as prompt and reply: {input: [prompt turns], output: string}; the answer is added as the final assistant turn. Estimated 14M unique tokens in the kept selection (31,426 rows, 58 MB jsonl / 4)."
     },
     {
       "source_id": "llama-nemotron-sft-science",
@@ -16851,7 +16851,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs a new reader (profile 'prompt_messages_answer': prompt turns in a list column, the answer in a separate string column; field_map messages=input, target=output): the row is {input: [messages], output: string, system_prompt}; the chat reader needs the answer inside the messages list. Estimated 1500M unique tokens in the kept selection (708,920 rows, 6.0 GB jsonl / 4)."
+      "notes": "Read as prompt and reply: {input: [prompt turns], output: string}; the answer is added as the final assistant turn. Estimated 1500M unique tokens in the kept selection (708,920 rows, 6.0 GB jsonl / 4)."
     },
     {
       "source_id": "llama-nemotron-sft-code-v1",
@@ -16886,7 +16886,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs a new reader (profile 'prompt_messages_answer': prompt turns in a list column, the answer in a separate string column; field_map messages=input, target=output): the row is {input: [messages], output: string, system_prompt}; the chat reader needs the answer inside the messages list. Prompts overlap with OpenCodeReasoning. Estimated 7670M unique tokens in the kept selection (about 4.0M rows, 30.7 GB jsonl / 4)."
+      "notes": "Read as prompt and reply: {input: [prompt turns], output: string}; the answer is added as the final assistant turn. Estimated 7670M unique tokens in the kept selection (about 4.0M rows, 30.7 GB jsonl / 4)."
     },
     {
       "source_id": "llama-nemotron-sft-code-v1.1",
@@ -16921,7 +16921,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs a new reader (profile 'prompt_messages_answer': prompt turns in a list column, the answer in a separate string column; field_map messages=input, target=output): the row is {input: [messages], output: string, system_prompt}; the chat reader needs the answer inside the messages list. Estimated 4400M unique tokens in the kept selection (17.6 GB jsonl / 4)."
+      "notes": "Read as prompt and reply: {input: [prompt turns], output: string}; the answer is added as the final assistant turn. Estimated 4400M unique tokens in the kept selection (17.6 GB jsonl / 4)."
     },
     {
       "source_id": "llama-nemotron-sft-math-v1",
@@ -16956,7 +16956,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs a new reader (profile 'prompt_messages_answer': prompt turns in a list column, the answer in a separate string column; field_map messages=input, target=output): the row is {input: [messages], output: string, system_prompt}; the chat reader needs the answer inside the messages list. The sampled head of this file is the reasoning-off Llama-3.3 variant (about 2.6k chars/row). Estimated 8520M unique tokens in the kept selection (34.1 GB jsonl / 4)."
+      "notes": "Read as prompt and reply: {input: [prompt turns], output: string}; the answer is added as the final assistant turn. Estimated 8520M unique tokens in the kept selection (34.1 GB jsonl / 4)."
     },
     {
       "source_id": "llama-nemotron-sft-math-v1.1",
@@ -16991,7 +16991,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs a new reader (profile 'prompt_messages_answer': prompt turns in a list column, the answer in a separate string column; field_map messages=input, target=output): the row is {input: [messages], output: string, system_prompt}; the chat reader needs the answer inside the messages list. Same prompts as the v1 file. Estimated 10350M unique tokens in the kept selection (41.4 GB jsonl / 4)."
+      "notes": "Read as prompt and reply: {input: [prompt turns], output: string}; the answer is added as the final assistant turn. Estimated 10350M unique tokens in the kept selection (41.4 GB jsonl / 4)."
     },
     {
       "source_id": "acemath-math-sft",
@@ -17022,7 +17022,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/AceMath-Instruct-Training-Data",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs the same new reader as llama-nemotron-* (profile 'prompt_messages_answer'): the row is {messages: [prompt turns only], answer: string}. Estimated 1020M unique tokens in the kept selection (1,661,094 rows; sample mean 2.5k chars/row; /4)."
+      "notes": "Read as prompt and reply: {messages: [prompt turns only], answer: string}; the answer is added as the final assistant turn. Estimated 1020M unique tokens in the kept selection (1,661,094 rows; sample mean 2.5k chars/row; /4)."
     },
     {
       "source_id": "acemath-general-sft-stage1",
@@ -17053,7 +17053,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/AceMath-Instruct-Training-Data",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs the same new reader as llama-nemotron-* (profile 'prompt_messages_answer'): the row is {messages: [prompt turns only], answer: string}. The sampled head is math problems. Estimated 1275M unique tokens in the kept selection (2,261,687 rows; sample mean 2.3k chars/row; /4)."
+      "notes": "Read as prompt and reply: {messages: [prompt turns only], answer: string}; the answer is added as the final assistant turn. The sampled head is math problems. Estimated 1275M unique tokens in the kept selection (2,261,687 rows; sample mean 2.3k chars/row; /4)."
     },
     {
       "source_id": "acemath-general-sft-stage2",
@@ -17084,7 +17084,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/AceMath-Instruct-Training-Data",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Needs the same new reader as llama-nemotron-* (profile 'prompt_messages_answer'): the row is {messages: [prompt turns only], answer: string}. The sampled head is FLAN/CoT style general questions. Estimated 1215M unique tokens in the kept selection (1,634,573 rows; sample mean 3.0k chars/row; /4)."
+      "notes": "Read as prompt and reply: {messages: [prompt turns only], answer: string}; the answer is added as the final assistant turn. The sampled head is FLAN/CoT style general questions. Estimated 1215M unique tokens in the kept selection (1,634,573 rows; sample mean 3.0k chars/row; /4)."
     },
     {
       "source_id": "sft-datablend-v1",
@@ -17115,7 +17115,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/sft_datablend_v1",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Fails today: capitalised roles 'User'/'Assistant' are rejected by the chat reader (needs role casefolding). Rows are repeated across epochs in the blend (card). Estimated 67M unique tokens in the kept selection (128,013 rows, 0.27 GB jsonl / 4)."
+      "notes": "Capitalised roles 'User'/'Assistant' are read as the lowercase ones. Rows are repeated across epochs in the blend (card). Estimated 67M unique tokens in the kept selection (128,013 rows, 0.27 GB jsonl / 4)."
     },
     {
       "source_id": "dolphin-r1-reasoning-deepseek",
@@ -17150,7 +17150,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/QuixiAI/dolphin-r1",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS PROFILE: reasoning column + answer column + prompt-only messages -> assistant turn '<think>reasoning</think>answer'. Estimated 900M unique tokens in the kept selection (3.85 GB jsonl x ~0.94 text share / 4 (first 60 rows are 3.85 KB each, so the share is a guess))."
+      "notes": "Read as prompt and reply: prompt-only messages plus a reasoning column and an answer column, joined into one assistant turn as <think>reasoning</think> then the answer. Estimated 900M unique tokens in the kept selection (3.85 GB jsonl x ~0.94 text share / 4 (first 60 rows are 3.85 KB each, so the share is a guess))."
     },
     {
       "source_id": "dolphin-r1-reasoning-flash",
@@ -17185,7 +17185,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/QuixiAI/dolphin-r1",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS PROFILE: same shape as dolphin-r1-reasoning-deepseek. Teacher: gemini-2.0-flash-thinking-exp-01-21. Whole set: 300,000 rows. Estimated 820M unique tokens in the kept selection (3.49 GB jsonl x ~0.94 text share / 4)."
+      "notes": "Read as prompt and reply: same shape as dolphin-r1-reasoning-deepseek. Teacher: gemini-2.0-flash-thinking-exp-01-21. Whole set: 300,000 rows. Estimated 820M unique tokens in the kept selection (3.49 GB jsonl x ~0.94 text share / 4)."
     },
     {
       "source_id": "moss-003-sft",
@@ -17221,7 +17221,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/YeungNLP/moss-003-sft-data",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS PROFILE: rows are {conversation: [{human, assistant}, ...]} (key names human / assistant per exchange); turn_pairs wants input / output keys. Mostly Chinese, some English. The OpenMOSS-Team/moss-003-sft-data original is zip-only (cannot be streamed). Estimated 2090M unique tokens in the kept selection (~1.13M rows, 8.7 GB jsonl)."
+      "notes": "Read as turn pairs: rows are {conversation: [{human, assistant}, ...]}. Mostly Chinese, some English. The OpenMOSS-Team/moss-003-sft-data original is zip-only (cannot be streamed). Estimated 2090M unique tokens in the kept selection (~1.13M rows, 8.7 GB jsonl)."
     },
     {
       "source_id": "sharegpt-zh-en-90k",
@@ -17268,7 +17268,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/shareAI/ShareGPT-Chinese-English-90k",
       "metadata_checked_at": "2026-10-22",
-      "notes": "NEEDS PROFILE: {conversation: [{human, assistant}, ...]}. Chinese and English. Estimated 230M unique tokens in the kept selection (~234k rows over 5 files; 62-483 MB each)."
+      "notes": "Read as turn pairs: {conversation: [{human, assistant}, ...]}. Chinese and English. Estimated 230M unique tokens in the kept selection (~234k rows over 5 files; 62-483 MB each)."
     }
   ]
 }
