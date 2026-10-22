@@ -88,9 +88,9 @@ class RowStore:
     def clear(self) -> None:
         self.row_of, self.free, self.size = {}, [], 0
 
-    def columns(self, ids: list[int], names=None) -> dict[str, Tensor]:
+    def columns(self, ids: list[int]) -> dict[str, Tensor]:
         rows = self.find(ids)
-        return {name: getattr(self, name)[rows] for name in names or self.spec}
+        return {name: getattr(self, name)[rows] for name in self.spec}
 
     def state_dict(self) -> dict[str, Tensor]:
         ids = self.ids()

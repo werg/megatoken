@@ -335,7 +335,9 @@ class TransducerGrowth:
             noise = unit(noise - (noise * base).sum(-1, keepdim=True) * base)
             perturbed[name] = (unit(base + 0.01 * noise), unit(base - 0.01 * noise))
         bias = bank.table.bias[slots] - math.log(2)
-        mass = bank.table.write_mass[slots] / 2
+        # Halve the mass as aged to now; the children and parents restart its clock here.
+        elapsed = (step - bank.table.last_write[slots]).float().clamp_min(0)
+        mass = bank.table.write_mass[slots] * torch.exp2(-elapsed / WRITE_HALF_LIFE) / 2
         children = bank.add_edges(
             departure=perturbed["departure"][1],
             key=perturbed["key"][1],
@@ -345,6 +347,8 @@ class TransducerGrowth:
             write_mass=mass,
             step=step,
         )
+        # Children duplicate the parents' value and destination codes exactly.
+        bank.table.copy_fields(("value", "destination"), slots, bank.table.slots(children))
         tensor_ids = torch.tensor(ids, dtype=torch.int64)
         for name in ("key", "departure"):
             bank.publish_addresses(name, tensor_ids, perturbed[name][0], step=step, worker=-1)

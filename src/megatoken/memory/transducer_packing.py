@@ -60,7 +60,8 @@ def uniforms(seeds: Tensor, count: int) -> Tensor:
     """[rows, count] uniforms in (0, 1) from per-row seeds."""
     index = torch.arange(count, device=seeds.device, dtype=torch.int64)
     x = _mix32(seeds[:, None] + _mul32(index, 0x9E3779B9)[None])
-    return (x.to(torch.float64) + 0.5).div(2.0**32).to(torch.float32)
+    # The float32 cast can round the top draws up to 1.0; keep them strictly below.
+    return (x.to(torch.float64) + 0.5).div(2.0**32).to(torch.float32).clamp_max(1 - 2.0**-24)
 
 
 def unit(values: Tensor, dim: int = -1) -> Tensor:
@@ -101,14 +102,10 @@ def _table(name: str, device: torch.device) -> Tensor:
     return table
 
 
-def _fp8_levels(device: torch.device) -> Tensor:
-    return _table("fp8", device)
-
-
 def _stochastic_fp8(normalized: Tensor, u: Tensor | None) -> Tensor:
     if u is None:
         return normalized.to(torch.float8_e4m3fn)
-    levels = _fp8_levels(normalized.device)
+    levels = _table("fp8", normalized.device)
     upper = torch.searchsorted(levels, normalized.contiguous()).clamp(1, levels.numel() - 1)
     low, high = levels[upper - 1], levels[upper]
     p = ((normalized - low) / (high - low)).clamp(0, 1)
@@ -163,7 +160,7 @@ class FP4Rows:
 
 def _round_up_e4m3(scales: Tensor) -> Tensor:
     """The smallest representable E4M3 value at or above each scale."""
-    levels = _fp8_levels(scales.device)
+    levels = _table("fp8", scales.device)
     positive = levels[levels > 0]
     index = torch.searchsorted(positive, scales.contiguous()).clamp_max(positive.numel() - 1)
     return positive[index]
@@ -182,7 +179,8 @@ def pack_fp4(values: Tensor, seeds: Tensor | None = None) -> FP4Rows:
     maximum = blocks.abs().amax(dim=(1, 2))
     row_scales = torch.where(maximum > 0, maximum / 6.0, torch.ones_like(maximum))
     group_scales = _round_up_e4m3(
-        (blocks.abs().amax(dim=2) / (6.0 * row_scales[:, None])).clamp_min(2.0**-9)
+        # The row's largest group divides to 1 up to roundoff; clamp so it never rounds past 1.
+        (blocks.abs().amax(dim=2) / (6.0 * row_scales[:, None])).clamp(2.0**-9, 1.0)
     )
     normalized = (blocks.abs() / (row_scales[:, None, None] * group_scales[..., None])).reshape(
         rows, -1
@@ -217,4 +215,4 @@ def straight_through(master: Tensor, decoded: Tensor) -> Tensor:
     """Forward reads exactly the packed row; backward reaches the FP32 master."""
     if master.shape != decoded.shape:
         raise ValueError("Master and packed field shapes disagree")
-    return master + (decoded.to(master.dtype) - master).detach()
+    return decoded.to(master.dtype) + (master - master.detach())

@@ -107,6 +107,8 @@ class TransducerGeometry:
 
 # Columns recomputed from the packed ones, never saved or published.
 DERIVED_COLUMNS = ("departure_unit", "key_unit")
+# Rows decoded, gathered or copied per call by whole-table passes (load, snapshot).
+TABLE_CHUNK = 65536
 
 
 class EdgeTable:
@@ -128,46 +130,44 @@ class EdgeTable:
         self.next_id = 1
         self._allocate(capacity)
 
-    def _empty(self, capacity: int) -> dict[str, Tensor]:
-        g, d = self.geometry, self.device
-        fp8 = torch.float8_e4m3fn
-
-        def scales(dim: int) -> Tensor:
-            return torch.ones(capacity, -(-dim // 128), device=d)
-
+    @property
+    def spec(self) -> dict[str, tuple[tuple[int, ...], torch.dtype, float]]:
+        """Each column's per-row shape, dtype and fill value."""
+        g, fp8 = self.geometry, torch.float8_e4m3fn
+        location, query = (g.location_dim,), (g.query_dim,)
         return {
-            "ids": torch.full((capacity,), -1, dtype=torch.int64, device=d),
-            "departure_codes": torch.zeros(capacity, g.location_dim, device=d).to(fp8),
-            "departure_scales": scales(g.location_dim),
-            "departure_unit": torch.zeros(capacity, g.location_dim, device=d),
-            "key_unit": torch.zeros(capacity, g.query_dim, device=d, dtype=torch.bfloat16),
-            "key_codes": torch.zeros(capacity, g.query_dim, device=d).to(fp8),
-            "key_scales": scales(g.query_dim),
-            "destination_codes": torch.zeros(capacity, g.location_dim, device=d).to(fp8),
-            "destination_scales": scales(g.location_dim),
-            "value_codes": torch.zeros(capacity, -(-g.value_dim // 2), dtype=torch.uint8, device=d),
-            "value_groups": torch.ones(capacity, -(-g.value_dim // 16), device=d).to(fp8),
-            "value_rows": torch.ones(capacity, device=d),
-            "value_norm2": torch.zeros(capacity, device=d),
-            "bias": torch.zeros(capacity, device=d),
-            "write_mass": torch.zeros(capacity, device=d),
-            "birth": torch.zeros(capacity, dtype=torch.int64, device=d),
-            "last_write": torch.zeros(capacity, dtype=torch.int64, device=d),
+            "ids": ((), torch.int64, -1),
+            "departure_codes": (location, fp8, 0),
+            "departure_scales": ((-(-g.location_dim // 128),), torch.float32, 1),
+            "departure_unit": (location, torch.float32, 0),
+            "key_unit": (query, torch.bfloat16, 0),
+            "key_codes": (query, fp8, 0),
+            "key_scales": ((-(-g.query_dim // 128),), torch.float32, 1),
+            "destination_codes": (location, fp8, 0),
+            "destination_scales": ((-(-g.location_dim // 128),), torch.float32, 1),
+            "value_codes": ((-(-g.value_dim // 2),), torch.uint8, 0),
+            "value_groups": ((-(-g.value_dim // 16),), fp8, 1),
+            "value_rows": ((), torch.float32, 1),
+            "value_norm2": ((), torch.float32, 0),
+            "bias": ((), torch.float32, 0),
+            "write_mass": ((), torch.float32, 0),
+            "birth": ((), torch.int64, 0),
+            "last_write": ((), torch.int64, 0),
         }
 
     def _allocate(self, capacity: int) -> None:
-        fresh = self._empty(capacity)
-        if self.capacity:
-            for name, tensor in fresh.items():
-                tensor[: self.capacity] = getattr(self, name)
-        for name, tensor in fresh.items():
-            setattr(self, name, tensor)
+        """Resize one column at a time, so growth never holds two whole tables."""
+        for name, (tail, dtype, fill) in self.spec.items():
+            fresh = torch.full((capacity, *tail), fill, dtype=dtype, device=self.device)
+            if self.capacity:
+                fresh[: self.capacity] = getattr(self, name)
+            setattr(self, name, fresh)
         self.capacity = capacity
 
     def to(self, device: torch.device) -> None:
         if torch.device(device) == self.device:
             return
-        for name in self._empty(0):
+        for name in self.spec:
             setattr(self, name, getattr(self, name).to(device))
         self.device = torch.device(device)
 
@@ -194,7 +194,8 @@ class EdgeTable:
         reused = [self.free.pop() for _ in range(min(count, len(self.free)))]
         needed = count - len(reused)
         if self.high_water + needed > self.capacity:
-            self._allocate(max(self.capacity * 2, self.high_water + needed))
+            ceiling = max(self.geometry.max_edges, self.high_water + needed)
+            self._allocate(min(max(self.capacity * 2, self.high_water + needed), ceiling))
         fresh = list(range(self.high_water, self.high_water + needed))
         self.high_water += needed
         return torch.tensor(reused + fresh, dtype=torch.int64, device=self.device)
@@ -214,8 +215,9 @@ class EdgeTable:
             self.key_unit[slots] = packed_unit(rows.decode()).to(torch.bfloat16)
 
     def _derive(self, slots: Tensor) -> None:
-        self.departure_unit[slots] = packed_unit(self.decode("departure", slots))
-        self.key_unit[slots] = packed_unit(self.decode("key", slots)).to(torch.bfloat16)
+        for chunk in slots.split(TABLE_CHUNK):
+            self.departure_unit[chunk] = packed_unit(self.decode("departure", chunk))
+            self.key_unit[chunk] = packed_unit(self.decode("key", chunk)).to(torch.bfloat16)
 
     def write_values(self, slots: Tensor, rows: FP4Rows) -> None:
         self.value_codes[slots] = rows.codes
@@ -245,11 +247,16 @@ class EdgeTable:
         """Compact CPU copy of the live rows (or the given ones), ordered by edge ID."""
         order = sorted(self.slot_of) if ids is None else sorted(ids)
         slots = self.slots(order)
-        return {
-            name: getattr(self, name)[slots].cpu()
-            for name in self._empty(0)
-            if name not in DERIVED_COLUMNS
-        }
+        state = {}
+        for name, (tail, dtype, _) in self.spec.items():
+            if name in DERIVED_COLUMNS:
+                continue
+            column = getattr(self, name)
+            state[name] = torch.empty((len(order), *tail), dtype=dtype)
+            for start in range(0, len(order), TABLE_CHUNK):
+                chunk = slots[start : start + TABLE_CHUNK]
+                state[name][start : start + chunk.numel()] = column[chunk].cpu()
+        return state
 
     def upsert(self, rows: dict[str, Tensor]) -> None:
         """Overwrite existing edges and add new ones, columns as produced by ``state``."""
@@ -266,17 +273,29 @@ class EdgeTable:
 
     def load(self, state: dict[str, Tensor]) -> None:
         count = int(state["ids"].numel())
+        slot_of = {int(edge): slot for slot, edge in enumerate(state["ids"].tolist())}
+        if len(slot_of) != count or any(edge <= 0 for edge in slot_of):
+            raise ValueError("Invalid or duplicate edge IDs in a transducer snapshot")
+        # Free the old columns before allocating, so a load never holds two tables.
+        for name in self.spec:
+            delattr(self, name)
         self.capacity = 0
-        self.free = []
-        self.slot_of = {}
         self._allocate(max(count, 256))
         for name, tensor in state.items():
-            getattr(self, name)[:count] = tensor.to(self.device)
+            column = getattr(self, name)
+            for start in range(0, count, TABLE_CHUNK):
+                piece = tensor[start : start + TABLE_CHUNK]
+                column[start : start + piece.shape[0]] = piece.to(self.device)
         self._derive(torch.arange(count, device=self.device))
-        self.slot_of = {int(edge): slot for slot, edge in enumerate(state["ids"].tolist())}
-        if len(self.slot_of) != count or any(edge <= 0 for edge in self.slot_of):
-            raise ValueError("Invalid or duplicate edge IDs in a transducer snapshot")
-        self.high_water = count
+        self.slot_of, self.free, self.high_water = slot_of, [], count
+
+    def copy_fields(self, names: tuple[str, ...], sources: Tensor, targets: Tensor) -> None:
+        """Copy packed fields row for row, codes and all (no requantization)."""
+        for name in names:
+            for column in FIELD_COLUMNS[name]:
+                getattr(self, column)[targets] = getattr(self, column)[sources]
+            if name == "value":
+                self.value_norm2[targets] = self.value_norm2[sources]
 
 
 @dataclass
@@ -354,10 +373,6 @@ class Lookup:
     overlay: float
     bank_version: int
 
-    @property
-    def candidates(self) -> tuple[int, ...]:
-        return tuple(edge for _, edge in self.pairs)
-
 
 class MasterCache:
     """FP32 working masters of trained fields: one LRU-bounded row store per field.
@@ -392,9 +407,6 @@ class MasterCache:
                 store.load_state_dict(states[name])
             self.pending = {name: [] for name in FIELDS}
             self.collected = {}
-
-    def __len__(self) -> int:
-        return sum(len(store) for store in self.stores.values())
 
     def leaf(self, name: str, ids: list[int], decoded: Tensor) -> Tensor:
         """A trainable ``[edges, width]`` copy of these edges' masters.
@@ -465,19 +477,17 @@ class MasterCache:
         self.collected = {}
 
     def state_dict(self) -> dict:
+        """Masters with their recency (``used`` and the clock), so eviction resumes exactly."""
         return {
-            name: {"ids": state["ids"], "data": state["data"]}
-            for name, state in ((name, store.state_dict()) for name, store in self.stores.items())
+            "clock": self.clock,
+            "fields": {name: store.state_dict() for name, store in self.stores.items()},
         }
 
     def load_state_dict(self, state: dict) -> None:
-        self.clear()
-        for name, saved in state.items():
-            store = self.stores[name]
-            ids = saved["ids"].tolist()
-            rows, _ = store.rows(ids)
-            store.data[rows] = saved["data"].to(store.device)
-            store.edge[rows] = saved["ids"].to(store.device)
+        self._forget_windows()
+        self.clock = int(state["clock"])
+        for name, saved in state["fields"].items():
+            self.stores[name].load_state_dict(saved)
 
 
 class TransducerBank(nn.Module):
@@ -585,28 +595,29 @@ class TransducerBank(nn.Module):
             or any(i in self.table.slot_of for i in id_list)
         ):
             raise ValueError("Canonical edge IDs must increase and never be reused")
-        slots = self.table.claim(count)
+        # Pack (and so validate) every field before claiming slots: a failure adds nothing.
         device_ids = ids.to(self.device)
+        addresses = {
+            name: pack_fp8(
+                unit(values.to(self.device).float()), row_seeds(device_ids, name, step, worker)
+            )
+            for name, values in (
+                ("departure", departure),
+                ("key", key),
+                ("destination", destination),
+            )
+        }
+        values = pack_fp4(
+            value.to(self.device).float(), row_seeds(device_ids, "value", step, worker)
+        )
+        slots = self.table.claim(count)
         self.table.ids[slots] = device_ids
         self.table.slot_of.update(zip(id_list, slots.tolist(), strict=True))
         if not provisional:
             self.table.next_id = int(ids.max()) + 1
-        for name, values in (
-            ("departure", departure),
-            ("key", key),
-            ("destination", destination),
-        ):
-            self.table.write_address(
-                name,
-                slots,
-                pack_fp8(
-                    unit(values.to(self.device).float()), row_seeds(device_ids, name, step, worker)
-                ),
-            )
-        self.table.write_values(
-            slots,
-            pack_fp4(value.to(self.device).float(), row_seeds(device_ids, "value", step, worker)),
-        )
+        for name, rows in addresses.items():
+            self.table.write_address(name, slots, rows)
+        self.table.write_values(slots, values)
         self.table.bias[slots] = bias.to(self.device).float()
         self.table.write_mass[slots] = write_mass.to(self.device).float()
         self.table.birth[slots] = step
@@ -638,6 +649,7 @@ class TransducerBank(nn.Module):
                 unit(values.to(self.device).float()), row_seeds(device_ids, name, step, worker)
             ),
         )
+        self._changed()
 
     def publish_values(self, ids: Tensor, values: Tensor, *, step: int, worker: int) -> None:
         device_ids = ids.to(self.device)
@@ -645,11 +657,13 @@ class TransducerBank(nn.Module):
             self.table.slots(ids),
             pack_fp4(values.to(self.device).float(), row_seeds(device_ids, "value", step, worker)),
         )
+        self._changed()
 
     def publish_bias(self, ids: Tensor, values: Tensor) -> None:
         if not bool(torch.isfinite(values).all()):
             raise FloatingPointError("Nonfinite bias publication")
         self.table.bias[self.table.slots(ids)] = values.to(self.device).float()
+        self._changed()
 
     def set_write_mass(self, ids: Tensor, mass: Tensor, *, step: int) -> None:
         slots = self.table.slots(ids)
@@ -686,22 +700,22 @@ class TransducerBank(nn.Module):
 
     def nearest(self, locations: Tensor, count: int) -> Tensor:
         """Exact scan of the packed departures: [rows, min(count, edges)] nearest slots."""
-        alive = self.table.alive_slots()
-        rows = locations.shape[0]
-        if not alive.numel():
+        rows, table = locations.shape[0], self.table
+        count = min(count, table.count)
+        if not count:
             return torch.full((rows, 0), -1, dtype=torch.int64, device=self.device)
         query = packed_unit(locations.detach().float())
         best_scores: Tensor | None = None
         best_slots: Tensor | None = None
-        for chunk in alive.split(65536):
-            scores = query @ self.table.departure_unit[chunk].T
+        for start in range(0, table.high_water, TABLE_CHUNK):
+            stop = min(start + TABLE_CHUNK, table.high_water)
+            scores = query @ table.departure_unit[start:stop].T
+            scores = scores.masked_fill(table.ids[start:stop] < 0, -math.inf)
+            chunk = torch.arange(start, stop, device=self.device).expand(rows, -1)
             if best_scores is not None:
                 scores = torch.cat((best_scores, scores), dim=1)
-                chunk = torch.cat((best_slots, chunk[None].expand(rows, -1)), dim=1)
-            else:
-                chunk = chunk[None].expand(rows, -1)
-            keep = min(count, scores.shape[1])
-            top = torch.topk(scores, keep, dim=1)
+                chunk = torch.cat((best_slots, chunk), dim=1)
+            top = torch.topk(scores, min(count, scores.shape[1]), dim=1)
             best_scores = top.values
             best_slots = torch.gather(chunk, 1, top.indices)
         return best_slots
@@ -753,14 +767,6 @@ class TransducerBank(nn.Module):
         """
         unique, inverse = torch.unique(slots, return_inverse=True)
         modulated = modulated.to(torch.bfloat16)
-        if unique.numel() <= PAIR_CHUNK:
-            keys = (self.table.key_unit[unique] @ modulated.T).float()
-            near = self.table.departure_unit[unique] @ locations.T
-            return (
-                beta_q * keys[inverse, where]
-                + beta_s * near[inverse, where]
-                + (self.table.bias[slots])
-            )
         # Pairs grouped by edge, so every chunk of edges owns one contiguous run of pairs.
         order = torch.argsort(inverse)
         inverse, where, slots = inverse[order], where[order], slots[order]
@@ -810,7 +816,8 @@ class TransducerBank(nn.Module):
         modulated = self.modulated(q, locations)
         # Scoring controls are FP32 whatever the model's storage precision.
         beta_q, beta_s = self.log_beta_query.float().exp(), self.log_beta_location.float().exp()
-        limit = g.selected - (g.exploration if training else 0)
+        explore = training and g.exploration and any(band.numel() for band in agenda.bands)
+        limit = g.selected - (g.exploration if explore else 0)
         with torch.no_grad():
             every_slot = torch.cat(agenda.shortlists)
             width = agenda.shortlists[0].numel()
@@ -824,7 +831,7 @@ class TransducerBank(nn.Module):
                 slots, where = every_slot[top], every_location[top]
             else:
                 slots = where = every_slot
-            if training and g.exploration and agenda.bands:
+            if explore:
                 slots, where = self._explore(agenda, slots, where, generator)
         sink_logit = self.sink_bias.float() + self.sink_direction.float() @ q
         start = agenda.state.float()  # unit: a landing or the initial location
@@ -980,5 +987,6 @@ class TransducerBank(nn.Module):
         self.table.next_id = next_id
         self.bank_id = str(data["bank_id"])
         self.learned_values = bool(data["learned_values"])
-        self.version = int(data["version"])
+        # Past every version this bank has had, so no cached shortlist survives the load.
+        self.version = max(self.version, int(data["version"])) + 1
         self.masters.clear()

@@ -9,7 +9,7 @@ import torch
 
 from megatoken.memory.transducer import BankFull, TransducerBank, TransducerGeometry
 from megatoken.memory.transducer_growth import PROVISIONAL_BASE, TransducerGrowth
-from megatoken.memory.transducer_optimizer import BlockScaleDescent
+from megatoken.memory.transducer_optimizer import WRITE_HALF_LIFE, BlockScaleDescent
 from megatoken.memory.transducer_packing import (
     fp4_nbytes,
     fp8_nbytes,
@@ -255,7 +255,16 @@ def test_split_duplicates_and_halves():
     assert result["split"] == 1 and bank.edge_count == 3
     child = 3
     assert float(bank.decode("bias", [child])[0]) == pytest.approx(-math.log(2))
-    assert float(bank.table.write_mass[bank.table.slots([1])][0]) == pytest.approx(0.5)
+    # Halved as aged to the split step, whose clock it then restarts from.
+    aged = 0.5 * 2 ** (-10 / WRITE_HALF_LIFE)
+    assert float(bank.table.write_mass[bank.table.slots([1])][0]) == pytest.approx(aged)
+    # The child copies the parent's value and destination codes, not a requantization.
+    parent, child_slot = bank.table.slots([1, child]).tolist()
+    for column in ("value_codes", "value_groups", "value_rows", "destination_codes"):
+        assert torch.equal(
+            getattr(bank.table, column)[child_slot].float(),
+            getattr(bank.table, column)[parent].float(),
+        )
 
 
 def test_provisional_write_outs_keep_canonical_ids():
@@ -306,3 +315,71 @@ def test_pair_scores_match_an_unfused_per_location_reference(monkeypatch):
         )
     # Selection scores read BF16 unit keys (8 significant bits) against FP32 here.
     torch.testing.assert_close(fused, reference, atol=0.02, rtol=0)
+
+
+def _assert_caches_match_packed_rows(bank):
+    from megatoken.memory.transducer_packing import packed_unit
+
+    table, slots = bank.table, bank.table.alive_slots()
+    departure = packed_unit(table.decode("departure", slots))
+    key = packed_unit(table.decode("key", slots)).to(torch.bfloat16)
+    assert torch.equal(table.departure_unit[slots], departure)
+    assert torch.equal(table.key_unit[slots], key)
+    torch.testing.assert_close(
+        table.value_norm2[slots], table.decode("value", slots).square().sum(1)
+    )
+
+
+def test_cached_unit_rows_follow_every_write_path():
+    bank = bank_with(20)
+    growth = TransducerGrowth(bank, optimizer=BlockScaleDescent(bank))
+    ids = torch.tensor([1, 2, 3])
+    bank.publish_addresses("departure", ids, torch.randn(3, 8), step=1, worker=0)
+    bank.publish_addresses("key", ids, torch.randn(3, 16), step=1, worker=0)
+    bank.publish_values(ids, torch.randn(3, 64), step=1, worker=0)
+    _assert_caches_match_packed_rows(bank)
+    growth._split([1, 2, 3], 5)
+    _assert_caches_match_packed_rows(bank)
+    bank.retire([4, 5])  # their slots are reused by the import below
+    fresh = bank_with(2, seed=3)
+    rows = fresh.export_rows([1, 2])
+    rows["ids"] = torch.tensor([100, 101])
+    bank.import_rows(rows, retired=[], next_id=102)
+    _assert_caches_match_packed_rows(bank)
+    copy = TransducerBank(SMALL)
+    copy.load_snapshot(bank.state_snapshot())
+    _assert_caches_match_packed_rows(copy)
+
+
+def test_a_failed_add_leaves_the_bank_unchanged():
+    bank = bank_with(3)
+    before = (bank.edge_ids().tolist(), bank.table.next_id, bank.version)
+    departure = torch.randn(2, 8)
+    departure[1] = 0  # a zero address cannot be packed
+    with pytest.raises(ValueError, match="Zero"):
+        bank.add_edges(
+            departure=departure,
+            key=torch.randn(2, 16),
+            value=torch.randn(2, 64),
+            destination=torch.randn(2, 8),
+            bias=torch.zeros(2),
+            write_mass=torch.ones(2),
+            step=1,
+        )
+    assert (bank.edge_ids().tolist(), bank.table.next_id, bank.version) == before
+    agenda = bank.initial_agenda(torch.randn(16))
+    lookup = bank.lookup(torch.randn(16), agenda)
+    assert {edge for _, edge in lookup.pairs} <= {1, 2, 3}
+
+
+def test_loading_a_snapshot_invalidates_cached_shortlists():
+    first, second = bank_with(30, seed=1), bank_with(30, seed=2)
+    assert first.version == second.version
+    agenda = first.initial_agenda(torch.randn(16))
+    first.refresh(agenda)
+    first.load_snapshot(second.state_snapshot())
+    first.refresh(agenda)
+    expected = second.initial_agenda(agenda.locations[0].new_zeros(16))
+    expected.locations, expected.state = agenda.locations, agenda.state
+    second.refresh(expected)
+    assert torch.equal(agenda.shortlists[0], expected.shortlists[0])

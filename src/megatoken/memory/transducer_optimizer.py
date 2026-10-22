@@ -369,4 +369,5 @@ class BlockScaleDescent:
 
     @staticmethod
     def _saved_masters(state: dict) -> list[int]:
-        return [edge for saved in state["masters"].values() for edge in saved["ids"].tolist()]
+        fields = state["masters"]["fields"].values()
+        return [edge for saved in fields for edge in saved["ids"].tolist()]
