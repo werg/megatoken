@@ -315,21 +315,20 @@ def test_grouped_bootstrap_kl_is_normalized_once_per_latent_coordinate():
     assert float(expected) > 0
 
 
-def test_media_features_reduce_through_the_shared_e_hierarchy():
+def test_media_features_read_every_teacher_token_at_once():
     core, _, _ = _system()
     n = core.config.n_facets
+    # 32 learned queries read every token: no pair reductions, any length.
     reductions = []
     hook = core.frontend.reduction.register_forward_hook(
         lambda module, inputs, output: reductions.append(inputs[0].shape[1])
     )
     try:
-        # At most n_facets tokens need no pair reduction; longer sequences halve.
-        short = core.encode_media(features(n, seed=1), extractor=PINNED_TEACHER)
-        assert reductions == []
+        short = core.encode_media(features(3, seed=1), extractor=PINNED_TEACHER)
         long = core.encode_media(features(8 * n, seed=1), extractor=PINNED_TEACHER)
     finally:
         hook.remove()
-    assert reductions[0] == 8 * n and len(reductions) == 3
+    assert reductions == []
     assert short.shape == long.shape == (1, n, core.config.facet_dim)
     # The module is exactly the public encode_media path.
     direct = core.media_encoder(core, features(8 * n, seed=1), extractor=PINNED_TEACHER)

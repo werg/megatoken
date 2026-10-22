@@ -66,8 +66,12 @@ def test_arriving_observation_invalidates_pending_generation():
 def test_accept_commits_whole_meridian_and_delivery_cannot_reverse():
     _, runtime = _runtime()
     session = runtime.open()
+    # A finished assistant turn, so the lookup it makes due is deterministic.
     draft = runtime.speculate(
-        session, tracks=("answer",), specs=(ActionSpec(max_tokens=8),), effort=1
+        session,
+        tracks=("answer",),
+        specs=(ActionSpec(max_tokens=8, require_terminal=True),),
+        effort=1,
     )
     accepted = runtime.accept(session, draft)
     assert session.revision == 1
