@@ -38,16 +38,19 @@ class TransducerGeometry:
     seed: int = 17
 
     def __post_init__(self) -> None:
-        if min(
-            self.location_dim,
-            self.query_dim,
-            self.value_dim,
-            self.neighbors,
-            self.selected,
-            self.max_lookups,
-            self.max_edges,
-            self.byte_budget,
-        ) < 1:
+        if (
+            min(
+                self.location_dim,
+                self.query_dim,
+                self.value_dim,
+                self.neighbors,
+                self.selected,
+                self.max_lookups,
+                self.max_edges,
+                self.byte_budget,
+            )
+            < 1
+        ):
             raise ValueError("Transducer geometry must be positive")
         if self.value_dim % 512 and self.value_dim == 32768:
             raise ValueError("Wide bank values must be divisible into 512-wide rows")
@@ -210,26 +213,27 @@ class TransducerBank(nn.Module):
         if len(self.rows) >= self.geometry.max_edges:
             raise RuntimeError("Transducer has reached its hard edge ceiling")
         g = self.geometry
-        if tuple(map(int, (departure.numel(), key.numel(), value.numel(),
-                          destination.numel()))) != (
-            g.location_dim, g.query_dim, g.value_dim, g.location_dim
-        ):
+        if tuple(
+            map(int, (departure.numel(), key.numel(), value.numel(), destination.numel()))
+        ) != (g.location_dim, g.query_dim, g.value_dim, g.location_dim):
             raise ValueError("Edge field dimensions do not match v10 geometry")
         edge_id = max(self.rows, default=0) + 1 if id is None else id
         if edge_id <= 0 or edge_id in self.rows:
             raise ValueError("Edge IDs must be unique positive canonical IDs")
         row = PackedEdge(
             edge_id,
-            pack_fp8(unit(departure.float()), stochastic_seed=rounding_seed(
-                edge_id, "departure", step, worker
-            )),
-            pack_fp8(unit(key.float()), stochastic_seed=rounding_seed(
-                edge_id, "key", step, worker
-            )),
+            pack_fp8(
+                unit(departure.float()),
+                stochastic_seed=rounding_seed(edge_id, "departure", step, worker),
+            ),
+            pack_fp8(
+                unit(key.float()), stochastic_seed=rounding_seed(edge_id, "key", step, worker)
+            ),
             pack_fp4(value, stochastic_seed=rounding_seed(edge_id, "value", step, worker)),
-            pack_fp8(unit(destination.float()), stochastic_seed=rounding_seed(
-                edge_id, "destination", step, worker
-            )),
+            pack_fp8(
+                unit(destination.float()),
+                stochastic_seed=rounding_seed(edge_id, "destination", step, worker),
+            ),
             float(bias),
             step,
             float(write_mass),
@@ -298,8 +302,7 @@ class TransducerBank(nn.Module):
     def refresh(self, agenda: SearchAgenda) -> None:
         if agenda.version != self.version:
             agenda.neighborhoods = [
-                self.nearest(location, self.geometry.neighbors)
-                for location in agenda.locations
+                self.nearest(location, self.geometry.neighbors) for location in agenda.locations
             ]
             agenda.version = self.version
 
@@ -310,8 +313,8 @@ class TransducerBank(nn.Module):
         if self._projection is None or self._projection.device != h.device:
             generator = torch.Generator(device="cpu").manual_seed(g.seed)
             self._projection = (
-                torch.randn(g.location_dim, g.value_dim, generator=generator) /
-                math.sqrt(g.value_dim)
+                torch.randn(g.location_dim, g.value_dim, generator=generator)
+                / math.sqrt(g.value_dim)
             ).to(h.device)
         return unit(self._projection @ h.float())
 
@@ -345,12 +348,11 @@ class TransducerBank(nn.Module):
             modulated.append(modq)
             if not neighborhood:
                 continue
-            keys = torch.stack([unit(self.field(i, "key", train=False))
-                                for i in neighborhood])
-            departures = torch.stack([unit(self.field(i, "departure", train=False))
-                                      for i in neighborhood])
-            biases = torch.cat([self.field(i, "bias", train=False)
-                                for i in neighborhood])
+            keys = torch.stack([unit(self.field(i, "key", train=False)) for i in neighborhood])
+            departures = torch.stack(
+                [unit(self.field(i, "departure", train=False)) for i in neighborhood]
+            )
+            biases = torch.cat([self.field(i, "bias", train=False) for i in neighborhood])
             scores = (
                 self.log_beta_query.exp() * (keys @ modq)
                 + self.log_beta_location.exp() * (departures @ unit(location))
@@ -369,8 +371,10 @@ class TransducerBank(nn.Module):
                 self.log_beta_query.exp()
                 * (unit(self.field(edge_id, "key", train=training)) @ modulated[j])
                 + self.log_beta_location.exp()
-                * (unit(self.field(edge_id, "departure", train=training))
-                   @ unit(agenda.locations[j]))
+                * (
+                    unit(self.field(edge_id, "departure", train=training))
+                    @ unit(agenda.locations[j])
+                )
                 + self.field(edge_id, "bias", train=training).squeeze()
                 for j, edge_id in pairs
             ]
@@ -389,10 +393,8 @@ class TransducerBank(nn.Module):
                 edge_id = band[int(torch.randint(len(band), (1,), generator=rng))]
                 location = unit(agenda.locations[location_id])
                 score = (
-                    self.log_beta_query.exp() * (
-                        unit(self.field(edge_id, "key", train=True))
-                        @ modulated[location_id]
-                    )
+                    self.log_beta_query.exp()
+                    * (unit(self.field(edge_id, "key", train=True)) @ modulated[location_id])
                     + self.log_beta_location.exp()
                     * (unit(self.field(edge_id, "departure", train=True)) @ location)
                     + self.field(edge_id, "bias", train=True).squeeze()
@@ -421,8 +423,18 @@ class TransducerBank(nn.Module):
             value = (1 - overlay) * bank_value + overlay * hindsight.float()
             landed = unit((1 - overlay) * bank_landing + overlay * h_destination)
         return Lookup(
-            value, landed, bank_value, unit(bank_landing), bank_landing, weights, w_sink,
-            tuple(pairs), edge_weights, q, agenda.current, h_destination
+            value,
+            landed,
+            bank_value,
+            unit(bank_landing),
+            bank_landing,
+            weights,
+            w_sink,
+            tuple(pairs),
+            edge_weights,
+            q,
+            agenda.current,
+            h_destination,
         )
 
     def commit(self, agenda: SearchAgenda, lookup: Lookup) -> bool:
@@ -431,8 +443,7 @@ class TransducerBank(nn.Module):
             raise RuntimeError("Lookup cap reached before publication")
         agenda.lookups += 1
         location = lookup.landing
-        if max(float(unit(s.detach()) @ unit(location.detach()))
-               for s in agenda.locations) >= 0.99:
+        if max(float(unit(s.detach()) @ unit(location.detach())) for s in agenda.locations) >= 0.99:
             return False
         agenda.locations.append(location)
         agenda.neighborhoods.append(self.nearest(location))
@@ -457,8 +468,10 @@ class TransducerBank(nn.Module):
         if any(
             (row.departure.size, row.key.size, row.value.size, row.destination.size)
             != (
-                self.geometry.location_dim, self.geometry.query_dim,
-                self.geometry.value_dim, self.geometry.location_dim
+                self.geometry.location_dim,
+                self.geometry.query_dim,
+                self.geometry.value_dim,
+                self.geometry.location_dim,
             )
             for row in loaded.values()
         ):
