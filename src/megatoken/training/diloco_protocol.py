@@ -92,7 +92,7 @@ def training_identity(config: Any) -> str:
     identity["retrieval_recipe"] = RetrievalRecipe.load(config.retrieval_memory_recipe).fingerprint
     identity["retrieval_sidecar"] = sha256_file(Path(config.retrieval_sidecar))
     identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
-    for name in ("packs", "task_recipe", "text_anchors"):
+    for name in ("packs", "text_anchors"):
         path = getattr(config, name)
         if path:
             identity[name] = sha256_file(Path(path))

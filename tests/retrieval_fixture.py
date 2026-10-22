@@ -24,6 +24,7 @@ from megatoken.data.storage import export_prepared
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import load_model_config
 from megatoken.memory.contracts import Footprint, QueryBoundary, SemanticSpace, SourceRange
+from megatoken.teacher import PINNED_TEACHER
 from megatoken.training.config import TrainConfig
 
 SEMANTIC_DIM = 16
@@ -39,7 +40,7 @@ MODEL_OVERRIDES = {
 SPACE = {
     "name": "e2e-space",
     "revision": "v1",
-    "teacher": "e2e-teacher",
+    "teacher": PINNED_TEACHER,
     "teacher_revision": "e2e-teacher-rev-1",
     "dimension": SEMANTIC_DIM,
     "document_recipe": "e2e-document-v1",

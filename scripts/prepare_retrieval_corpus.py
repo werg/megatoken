@@ -32,11 +32,13 @@ from collections.abc import Callable
 from dataclasses import asdict
 from hashlib import sha256
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-QUERY_PROMPT = "task: question answering | query: "
-DOCUMENT_PROMPT = "title: {title} | text: "
+if TYPE_CHECKING:
+    from megatoken.omni.embeddinggemma2 import EmbeddingGemma2
+
 SCOPE = "wiki-qa"
 MAX_DOCS = 5
 MAX_ANSWER_BYTES = 360
@@ -150,48 +152,8 @@ def select(questions: list[dict], count: int, rng: random.Random) -> list[dict]:
     return sorted(usable[:count], key=lambda q: q["qid"])
 
 
-class Teacher:
-    """EmbeddingGemma-2: mean pooling over the prompted input, then L2 normalization."""
-
-    def __init__(self, path: str, device: str = "cuda") -> None:
-        import torch
-        from transformers import AutoModel, AutoTokenizer
-
-        self.torch = torch
-        self.tokenizer = AutoTokenizer.from_pretrained(path)
-        self.model = AutoModel.from_pretrained(path, dtype=torch.bfloat16).to(device)
-        self.model.eval()
-        self.device = device
-
-    def encode(self, texts: list[str], *, batch_tokens: int = 32768) -> np.ndarray:
-        torch = self.torch
-        lengths = [len(t) for t in texts]
-        order = sorted(range(len(texts)), key=lambda i: lengths[i])
-        out = np.zeros((len(texts), 768), dtype=np.float32)
-        start = 0
-        while start < len(order):
-            longest = max(1, lengths[order[min(start + 255, len(order) - 1)]] // 3)
-            size = max(1, min(256, batch_tokens // longest))
-            ids = order[start : start + size]
-            batch = self.tokenizer(
-                [texts[i] for i in ids],
-                padding=True,
-                truncation=True,
-                max_length=1024,
-                return_tensors="pt",
-            ).to(self.device)
-            with torch.inference_mode():
-                hidden = self.model(**batch).last_hidden_state.float()
-            mask = batch["attention_mask"].unsqueeze(-1).float()
-            pooled = (hidden * mask).sum(1) / mask.sum(1).clamp_min(1)
-            pooled = torch.nn.functional.normalize(pooled, dim=-1)
-            out[ids] = pooled.cpu().numpy()
-            start += size
-        return out
-
-
 def encode_resumable(
-    teacher: Callable[[], Teacher],
+    teacher: Callable[[], EmbeddingGemma2],
     texts: list[str],
     directory: Path,
     *,
@@ -204,7 +166,7 @@ def encode_resumable(
         path = directory / f"{index:05d}.npy"
         if not path.exists():
             staging = directory / f".{index:05d}.npy"
-            np.save(staging, teacher().encode(texts[start : start + chunk]))
+            np.save(staging, teacher().embed_texts(texts[start : start + chunk], prompt=""))
             staging.replace(path)
             print(f"{directory.name}: {min(start + chunk, len(texts))}/{len(texts)}", flush=True)
         parts.append(np.load(path))
@@ -225,6 +187,7 @@ def build(args: argparse.Namespace) -> dict:
     from megatoken.memory.catalog_cli import build_source_catalog
     from megatoken.memory.contracts import Footprint, QueryBoundary, SemanticSpace, SourceRange
     from megatoken.memory.recipe import RetrievalRecipe
+    from megatoken.omni.embeddinggemma2 import EmbeddingGemma2
 
     out = Path(args.output)
     out.mkdir(parents=True, exist_ok=True)
@@ -276,17 +239,23 @@ def build(args: argparse.Namespace) -> dict:
     if manifest.exists() and json.loads(manifest.read_text()) != selection:
         raise ValueError("Cached teacher vectors belong to a different selection")
     manifest.write_text(json.dumps(selection))
-    loaded: list[Teacher] = []
+    # The pilot recipe pins the teacher space: the pinned EmbeddingGemma2 and the
+    # literal document/query prompt templates it is run with.
+    pilot = json.loads(Path(args.pilot_recipe).read_text())
+    space = pilot["space"]
+    loaded: list[EmbeddingGemma2] = []
 
-    def teacher() -> Teacher:
+    def teacher() -> EmbeddingGemma2:
         if not loaded:
-            loaded.append(Teacher(args.teacher))
+            loaded.append(EmbeddingGemma2.from_manifest(args.packs))
+            if loaded[0].extractor != space["teacher"]:
+                raise ValueError("The pack manifest's teacher is not the recipe's teacher")
         return loaded[0]
 
     doc_texts = []
     for cid in content_ids:
         title, _, body = paragraphs[cid]["payload"].decode().partition("\n")
-        doc_texts.append(DOCUMENT_PROMPT.format(title=title) + body)
+        doc_texts.append(space["document_recipe"].format(title=title, text=body))
     doc_vectors = dict(
         zip(
             content_ids,
@@ -298,7 +267,9 @@ def build(args: argparse.Namespace) -> dict:
         zip(
             selection["queries"],
             encode_resumable(
-                teacher, [QUERY_PROMPT + q["question"] for q in queries], teacher_dir / "queries"
+                teacher,
+                [space["query_recipe"].format(query=q["question"]) for q in queries],
+                teacher_dir / "queries",
             ),
             strict=True,
         )
@@ -306,9 +277,6 @@ def build(args: argparse.Namespace) -> dict:
     loaded.clear()
 
     # ---- recipes ----
-    pilot = json.loads(Path(args.pilot_recipe).read_text())
-    # The pilot recipe pins the teacher space; the prompts above implement its recipes.
-    space = pilot["space"]
     space_fp = SemanticSpace(**space).fingerprint
     partition = sha256(
         json.dumps({k: [q["qid"] for q in v] for k, v in splits.items()}).encode()
@@ -583,7 +551,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--hotpot", required=True, type=Path, help="HotpotQA distractor/ dir")
     parser.add_argument("--musique", required=True, type=Path, help="MuSiQue-Ans JSONL dir")
-    parser.add_argument("--teacher", required=True, help="Local embeddinggemma-2 snapshot")
+    parser.add_argument(
+        "--packs", required=True, help="Locked pack manifest holding the pinned EmbeddingGemma2"
+    )
     parser.add_argument("--codec", required=True, help="Pinned Ling codec directory")
     parser.add_argument("--pilot-recipe", default="configs/retrieval-memory-pilot.json")
     parser.add_argument("--model", default="32x512")

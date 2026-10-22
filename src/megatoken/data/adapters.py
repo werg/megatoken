@@ -26,10 +26,12 @@ from .schema import (
     canonical_json,
     digest_bytes,
     make_records,
+    sequential_meridians,
     stable_id,
 )
 
 if TYPE_CHECKING:
+    from .compression import DocumentCompressor
     from .parsing.chat import ChatParse
 
 
@@ -171,6 +173,9 @@ class AdapterContext:
     codec: Codec | None = None
     max_record_tokens: int | None = None
     chunking: ChunkingConfig | None = None
+    # Reads long observed fields (reference documents, large tool results) as
+    # teacher features instead of byte chunks; see data/compression.py.
+    compressor: DocumentCompressor | None = None
 
 
 def _object(value: Any, label: str) -> Any:
@@ -446,6 +451,26 @@ class _EpisodeBuilder:
                 if result
                 else "natural"
             )
+        compressor = self.reader.context.compressor
+        if (
+            compressor is not None
+            and action_id is None
+            and compressor.applies(payload, role=role, score=score)
+        ):
+            records = compressor.records(
+                payload,
+                logical_id=logical_id,
+                role=role,
+                turn_index=turn,
+                provenance=provenance,
+                source_uri=self.reader.context.uri,
+                source_field=source_field,
+                transform=transform,
+                result_of=result.action_id if result else None,
+                execution_id=result.execution_id if result else None,
+            )
+            self.records.extend(records)
+            return records
         records = make_records(
             payload,
             logical_id=logical_id,
@@ -1064,4 +1089,4 @@ def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> 
         dependencies.append(
             Dependency(writers[0].record_id, readers[-1].record_id, item.get("kind", "evidence"))
         )
-    return replace(episode, dependencies=tuple(dependencies))
+    return sequential_meridians(replace(episode, dependencies=tuple(dependencies)))

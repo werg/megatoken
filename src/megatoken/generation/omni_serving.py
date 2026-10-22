@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 import torch
 
 from megatoken.controls import resolve_event_control
-from megatoken.data.media_assets import MediaRecord, TensorAssetStore
+from megatoken.data.media_assets import DESCRIPTOR_MODALITY, MediaRecord, TensorAssetStore
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, stable_id
 from megatoken.generation.structure import ActionSpec
-from megatoken.model.core import ROLE_IDS
+from megatoken.model.core import MODALITY_IDS, ROLE_IDS
 from megatoken.model.media import MediaOutputSpec, validate_public_media_spec
 from megatoken.model.multitrack import GroupGeneration, MultiTrackGenerator, MultiTrackState
 from megatoken.tensors import byte_tensor
@@ -39,12 +39,13 @@ class ServingObservation:
             not self.track_id
             or not self.instruction
             or self.role not in ROLE_IDS
-            or self.modality not in {"text", "audio", "image", "video"}
+            or self.modality not in MODALITY_IDS
             or (self.modality == "text") != isinstance(self.payload, bytes)
         ):
             raise ValueError("Invalid causal observed event or model input type")
         if self.modality != "text" and (
-            not isinstance(self.payload, MediaRecord) or self.payload.modality != self.modality
+            not isinstance(self.payload, MediaRecord)
+            or self.payload.modality != DESCRIPTOR_MODALITY[self.modality]
         ):
             raise ValueError("Media observation requires a matching immutable record")
 

@@ -14,8 +14,8 @@ import torch
 from torch import Tensor, nn
 
 from megatoken.data.media_assets import MediaRecord, OutputGeometry, TensorAssetStore
-from megatoken.media_teacher import HIDDEN_WIDTH, PINNED_EXTRACTOR
 from megatoken.omni.realizers import FacetCondition, Realizer, masked_square_error
+from megatoken.teacher import HIDDEN_WIDTH, PINNED_TEACHER
 
 NAMES = {"audio": "pocket", "image": "sana", "video": "sana_video"}
 # Latent geometry per event: audio [frames, 4], image [4, 2, 2], video [frames, 4, 2, 2].
@@ -79,7 +79,7 @@ def prepared_record(
     seed: int = 0,
     tokens: int = 12,
     target: bool = True,
-    extractor: str = PINNED_EXTRACTOR,
+    extractor: str = PINNED_TEACHER,
     valid_frames: int = 0,
 ) -> MediaRecord:
     """A complete prepared media event written into ``store``."""

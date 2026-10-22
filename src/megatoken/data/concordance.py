@@ -11,7 +11,12 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord
+from megatoken.data.media_assets import (
+    DESCRIPTOR_MODALITY,
+    FEATURE_MODALITIES,
+    MEDIA_RECORD_TYPE,
+    MediaRecord,
+)
 from megatoken.data.schema import (
     Dependency,
     Episode,
@@ -81,13 +86,17 @@ class BundleArtifact:
     def __post_init__(self) -> None:
         if not self.artifact_id or not self.label or not self.version:
             raise ValueError("Bundle artifact needs stable ID, label and version")
-        if self.modality not in {"text", "audio", "image", "video", "tool", "evidence"}:
+        if self.modality not in {"text", *FEATURE_MODALITIES}:
             raise ValueError("Unsupported bundle artifact modality")
-        if self.modality in {"audio", "image", "video"}:
-            if self.media is None or self.media.modality != self.modality or self.payload:
-                raise ValueError("Media bundle artifact must have a matching MediaRecord")
+        if self.modality in FEATURE_MODALITIES:
+            if (
+                self.media is None
+                or self.media.modality != DESCRIPTOR_MODALITY[self.modality]
+                or self.payload
+            ):
+                raise ValueError("Feature bundle artifact must have a matching MediaRecord")
         elif self.media is not None or not isinstance(self.payload, bytes):
-            raise ValueError("Text/tool/evidence artifacts must carry raw bytes only")
+            raise ValueError("Text artifacts must carry raw bytes only")
         if self.source_end_ms is not None and self.source_end_ms < 0:
             raise ValueError("Source cutoff cannot be negative")
         if self.provenance not in {"natural", "teacher", "student", "executed", "simulated"}:

@@ -66,15 +66,13 @@ class MediaPreparer:
     """Resident teacher and realizer codecs over one prepared root."""
 
     def __init__(self, manifest: str | Path, root: str | Path, *, device: str = "cuda"):
-        from megatoken.omni.embeddinggemma2_hidden import EmbeddingGemma2HiddenExtractor
+        from megatoken.omni.embeddinggemma2 import EmbeddingGemma2
         from megatoken.omni.loader import read_locked_manifest
 
         self.base, self.packs = read_locked_manifest(str(manifest))
         self.store = TensorAssetStore(root)
         self.device = device
-        self.teacher = EmbeddingGemma2HiddenExtractor.from_pack(
-            self.base, self.packs, device=device
-        )
+        self.teacher = EmbeddingGemma2.from_pack(self.base, self.packs, device=device)
         self._realizers: dict[str, object] = {}
 
     def realizer(self, modality: str):

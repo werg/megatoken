@@ -6,7 +6,6 @@ import torch
 from megatoken.data.media_assets import OutputGeometry
 from megatoken.generation.codec import ByteCodec
 from megatoken.generation.policy import FacetedGenerator
-from megatoken.media_teacher import PINNED_EXTRACTOR
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.media import (
     MediaOutputSpec,
@@ -16,6 +15,7 @@ from megatoken.model.media import (
 )
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.model.state import RealizationContext
+from megatoken.teacher import PINNED_TEACHER
 from tests.media_support import LATENT, FakeRealizer, features, geometry, install_fake_realizers
 
 
@@ -153,7 +153,7 @@ def test_realizer_loss_requires_the_pack_that_encoded_the_latents():
             "image",
             spec,
             features(),
-            PINNED_EXTRACTOR,
+            PINNED_TEACHER,
             torch.zeros(1, *LATENT["image"]),
             None,
             identity,

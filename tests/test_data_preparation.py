@@ -220,9 +220,10 @@ def test_source_revision_and_terms_are_explicit():
 def test_current_stage_budget_units_and_proposed_mixtures():
     assert {
         phase: (stage_recipe(phase).meter, stage_recipe(phase).limit)
-        for phase in ("B0", "P1", "M1", "M2", "LC", "S", "D", "R")
+        for phase in ("B0", "MB", "P1", "M1", "M2", "LC", "S", "D", "R")
     } == {
         "B0": ("I", 250_000_000),
+        "MB": ("G", 4_000_000),
         "P1": ("D", 400_000_000_000),
         "M1": ("D", 60_000_000_000),
         "M2": ("D", 40_000_000_000),
@@ -231,6 +232,12 @@ def test_current_stage_budget_units_and_proposed_mixtures():
         "D": ("P", 1_000_000_000),
         "R": ("Z", 32_000_000_000),
     }
-    assert stage_recipe("M1").exposures["issue_pr_sequences"] == 24_480_000_000
-    assert stage_recipe("M1").exposures["build_logs"] == 720_000_000
+    assert stage_recipe("M1").exposures["issue_pr_sequences"] == 22_766_400_000
+    assert stage_recipe("M1").exposures["build_logs"] == 669_600_000
+    # Media is part of the plan: a bridge stage, then explicit shares and replay.
+    assert stage_recipe("MB").constraints["trainable"] == "media_bridge"
+    p1 = stage_recipe("P1").mixture
+    media = ("audio_identity", "image_identity", "video_identity", "transcription")
+    assert all(p1[name] > 0 for name in media) and p1["long_document_reading"] == 0.03
+    assert stage_recipe("M2").mixture["image_identity"] > 0
     assert stage_recipe("LC").constraints["writer_reader_scored_windows_min_fraction"] == 0.3

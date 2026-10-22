@@ -47,7 +47,7 @@ media output. Perceptual quality of the trained conditions is not established.
   features into the shared E reduction), `MediaOutputSpec`, and the
   `MediaRealizers` container for the resident realizers
   (`src/megatoken/omni/realizers.py`).
-- `src/megatoken/media_teacher.py`: `PINNED_EXTRACTOR`, the identity every
+- `src/megatoken/teacher.py`: `PINNED_TEACHER`, the identity every
   media event's features must carry.
 - `src/megatoken/controls.py`: byte-exact seed/reference/tool protocol with
   typed settings, media asset references and track-specific overrides.
@@ -69,7 +69,7 @@ second recurrent model and no independent modality KV history.
 
 The API runs on CPU with the tiny model and the byte codec. Media events are
 **pinned EmbeddingGemma2 hidden states** `[1, T, 512]` tagged with
-`extractor=PINNED_EXTRACTOR`; raw samples or pixels are rejected. Media output
+`extractor=PINNED_TEACHER`; raw samples or pixels are rejected. Media output
 needs resident realizers. In production they come from a locked pack manifest,
 `build_model(config, codec, packs="lock.json")`
 ([media.md](media.md)); this smoke example instead installs the tiny test
@@ -83,7 +83,7 @@ import torch
 
 from megatoken.generation.codec import ByteCodec
 from megatoken.generation.policy import FacetedGenerator
-from megatoken.media_teacher import PINNED_EXTRACTOR
+from megatoken.teacher import PINNED_TEACHER
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
@@ -100,7 +100,7 @@ runtime.observe(session, (
     ObservedEvent("user", "text", b"Please describe this scene."),
     # features(7): 7 random teacher tokens [1, 7, 512]; real ones come from
     # the offline EmbeddingGemma2 extraction of the camera frame.
-    ObservedEvent("camera", "image", features(7), extractor=PINNED_EXTRACTOR),
+    ObservedEvent("camera", "image", features(7), extractor=PINNED_TEACHER),
 ))
 result = runtime.generate(
     session,
@@ -121,10 +121,9 @@ declare `frames` and `fps_num`.
 
 Training does not use an ad hoc loop. The grouped losses (`supervised_meridian`
 and the media targets built from prepared `MediaRecord`s) run inside the
-training engine, which draws prepared streams according to a task recipe
-(`training/task_recipe.py`, `configs/tasks/media-{bridge,joint,tasks}.yaml`)
-and runs on DiLoCo like every phase. See [media.md](media.md) for the three
-phases and their `configs/train/media-*.example.yaml`, and
+training engine, which draws prepared streams by the stage plan's data mix
+(`src/megatoken/data/stages.json`) and runs on DiLoCo like every stage. See
+[media.md](media.md) for where media sits in that plan, and
 [diloco-coreweave.md](diloco-coreweave.md) for the coordinator workflow.
 
 ## Group-native JSONL protocol
@@ -134,7 +133,7 @@ manifest it was trained with (the bundle records its fingerprint and refuses
 any other manifest; text-only bundles take no `--packs`):
 
 ```bash
-megatoken export --checkpoint runs/media-tasks/checkpoints/latest.json \
+megatoken export --checkpoint runs/base-pretraining/checkpoints/latest.json \
   --output artifacts/served --codec <codec> --packs packs/lock.json
 megatoken serve-multitrack --model artifacts/served --packs packs/lock.json
 ```

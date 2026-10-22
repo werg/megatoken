@@ -1,10 +1,12 @@
-"""The one media input contract: frozen EmbeddingGemma2 internal hidden states.
+"""Identity of the one frozen teacher, EmbeddingGemma2 (``google/embeddinggemma-2``).
 
-Every audio, image and video event enters E as the ordered ``[T, 512]`` input of
-the teacher's ``language_model.embedding_projection`` (its final normalized
-hidden states, before the 512->768 embedding head). The teacher never joins a
-Megatoken checkpoint; its identity is pinned by the locked pack manifest, so a
-feature cache, a model and a serving boundary agree on exactly the same bytes.
+It plays every teacher role: media (and text read in compressed form) enter E
+as the ordered ``[T, 512]`` input of its ``language_model.embedding_projection``,
+and retrieval keys and embedding targets are its pooled 768-d embeddings, both
+from one forward pass (``megatoken.omni.embeddinggemma2``). The teacher never
+joins a Megatoken checkpoint; its identity is pinned by the locked pack
+manifest, so a feature cache, a retrieval bank, a model and a serving boundary
+agree on exactly the same weights and preprocessing.
 
 Torch-free (outside the omni package): imported by model configuration and data validation.
 """
@@ -19,12 +21,13 @@ from pathlib import Path
 PACK = "embeddinggemma2"
 REPOSITORY = "google/embeddinggemma-2"
 HIDDEN_WIDTH = 512
+EMBEDDING_WIDTH = 768
 HIDDEN_TAP = "language_model.embedding_projection:input"
 # Chat-template prompt, bf16 teacher weights; any change is a new identity.
 PREPROCESSING = "chat-bf16-v1"
 MAX_TOKENS = 8192
 # google/embeddinggemma-2 @ 914f7f89, every snapshot file locked (pack manifest).
-PINNED_EXTRACTOR = (
+PINNED_TEACHER = (
     "embeddinggemma2:914f7f89142e33e77833254d9c9b90c3cef7303b:"
     "dcc342ef4bf5d120eeba035c685d9ced3b435d75f23d95a9a7c2ab77ad1383c9:"
     f"{HIDDEN_TAP}:{PREPROCESSING}"

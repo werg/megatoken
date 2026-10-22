@@ -361,7 +361,6 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "retrieval_kv_dropout",
             "retrieval_lora_dropout",
             "router_balance_mode",
-            "task_recipe",
             "trainable",
             "text_anchors",
             "text_anchor_weight",
@@ -453,7 +452,7 @@ def train(
         }:
             raise ValueError("Training model differs from pinned recipe geometry")
         phase_stages = {
-            "coherence_embedding": {"B0", "P1"},
+            "coherence_embedding": {"B0", "MB", "P1"},
             "progressive_warmup": {"M1"},
             "free_kb_pretraining": {"M2", "LC", "S", "D"},
         }
@@ -462,10 +461,12 @@ def train(
                 f"Native training stage {config.phase} is not in the mandatory "
                 f"{retrieval_recipe.phase} retrieval-memory curriculum"
             )
-        if retrieval_recipe.space.teacher_revision.startswith(
-            "PIN_"
-        ) or retrieval_recipe.growth.partition_id.startswith("PIN_"):
-            raise ValueError("Pin teacher and data partition before training")
+        from megatoken.teacher import PINNED_TEACHER
+
+        if retrieval_recipe.space.teacher != PINNED_TEACHER:
+            raise ValueError("The retrieval space must be the pinned EmbeddingGemma2 teacher's")
+        if retrieval_recipe.growth.partition_id.startswith("PIN_"):
+            raise ValueError("Pin the data partition before training")
         if retrieval_recipe.phase != "coherence_embedding":
             if (
                 retrieval_recipe.phase
@@ -727,17 +728,8 @@ def train(
             raise ValueError("Exact resume changed the semantic chunking policy")
         data_rank = config.decoupled.resolved_worker_id if config.decoupled else context.rank
         data_world = config.decoupled.workers if config.decoupled else context.world_size
-        task_recipe = None
-        if config.task_recipe is not None:
-            from megatoken.training.task_recipe import load_task_recipe
-
-            task_recipe = load_task_recipe(config.task_recipe)
-        if config.use_stage_mixture or task_recipe is not None:
-            mixture = (
-                task_recipe.mixture
-                if task_recipe is not None
-                else stage_recipe(config.phase).mixture
-            )
+        if config.use_stage_mixture:
+            mixture = stage_recipe(config.phase).mixture
             stream = MixtureWindowStream(
                 config.dataset,
                 codec,
@@ -1026,12 +1018,6 @@ def train(
             weights = dict(config.loss_weights)
             # The old per-operation router loss has been replaced.
             weights["router_balance"] = 0.0
-            if task_recipe is not None:
-                from megatoken.training.task_recipe import AUXILIARY_LOSSES
-
-                # Reconstruction and distillation are auxiliaries, not extra mixture rows.
-                for name in AUXILIARY_LOSSES:
-                    weights[name] *= task_recipe.auxiliary_weight
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
             from megatoken.training.router_balance import RouterBalanceWindow

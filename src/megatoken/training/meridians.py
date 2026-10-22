@@ -17,7 +17,14 @@ import torch
 
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
-from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
+from megatoken.data.media_assets import (
+    DESCRIPTOR_MODALITY,
+    FEATURE_MODALITIES,
+    MEDIA,
+    MEDIA_RECORD_TYPE,
+    MediaRecord,
+    TensorAssetStore,
+)
 from megatoken.data.schema import EncodedRecord
 from megatoken.generation.embedding import EmbeddingSpec, alignment_distance
 from megatoken.generation.targets import PreparedAction, PreparedTargets
@@ -186,7 +193,7 @@ def _media_record(model: Any, entry: EncodedRecord, modality: str) -> MediaRecor
     if entry.record.media_type != MEDIA_RECORD_TYPE:
         raise ValueError("Media events require a pinned canonical media descriptor")
     reference = MediaRecord.from_bytes(entry.payload)
-    if reference.modality != modality:
+    if reference.modality != DESCRIPTOR_MODALITY[modality]:
         raise ValueError("Media event modality differs from its descriptor")
     if reference.source.extractor != model.config.media_extractor:
         raise ValueError("Media features come from a different teacher than this model's")
@@ -225,7 +232,7 @@ def prepare_meridian_batch(
         if record.policy_mask
     }
     media_events = sum(
-        event.record_id in selected and event.modality in {"audio", "image", "video"}
+        event.record_id in selected and event.modality in MEDIA
         for meridian in episode.meridians
         for event in meridian.events
     )
@@ -259,18 +266,17 @@ def prepare_meridian_batch(
                 "A zero-record native action inside an atomic meridian has "
                 "ambiguous causal timing; place it between meridians"
             )
-        modalities = tuple(
-            event.modality if event.modality in {"audio", "image", "video"} else "text"
-            for event in meridian.events
-        )
+        modalities = tuple(event.modality for event in meridian.events)
         if any(len(encoded[i].payload) > config.max_record_bytes for i in offsets):
             raise ValueError("Grouped record exceeds max_record_bytes")
         records = tuple(encoded[i] for i in offsets)
         for event, record in zip(meridian.events, records, strict=True):
-            if event.modality in {"audio", "image", "video"}:
+            if event.modality in FEATURE_MODALITIES:
                 reference = _media_record(model, record, event.modality)
                 if event.asset_sha256 is not None and event.asset_sha256 != reference.source.sha256:
                     raise ValueError("Media event source hash differs from its descriptor")
+                if event.modality not in MEDIA and record.record.policy_mask:
+                    raise ValueError("Compressed text is input-only and cannot be generated")
             elif record.record.media_type == MEDIA_RECORD_TYPE or (
                 record.record.media_type.split("/", 1)[0] in {"audio", "image", "video"}
             ):
@@ -285,7 +291,7 @@ def prepare_meridian_batch(
         if all(selected) and offsets[0] >= window.start:
             plans = tuple(
                 _media_plan(model, record, modality, config)
-                if modality in {"audio", "image", "video"}
+                if modality in MEDIA
                 else _target_plan(model, item, record, index, offsets[0], native, config)
                 for record, index, modality in zip(records, offsets, modalities, strict=True)
             )
@@ -359,7 +365,7 @@ def _actual_raw(
             ).reshape(1, model.config.n_facets, model.config.facet_dim)
         else:
             with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
-                if modality in {"audio", "image", "video"}:
+                if modality in FEATURE_MODALITIES:
                     source = MediaRecord.from_bytes(entry.payload).source
                     features = torch.from_numpy(store.load(source)).to(device)[None]
                     raw = model.core.encode_media(features, extractor=source.extractor)

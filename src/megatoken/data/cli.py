@@ -25,6 +25,7 @@ from .collection import (
     TaskSeed,
     TeacherResponse,
 )
+from .compression import CompressionPolicy
 from .dedup import DedupConfig, DedupStore
 from .demo import write_demo_source
 from .prepare import prepare_sources
@@ -184,6 +185,10 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
         shard_bytes=args.shard_mib << 20,
         benchmark_quarantine=quarantine,
         reject_invalid=args.reject_invalid,
+        compression=None
+        if args.compress_min_bytes is None
+        else CompressionPolicy(min_bytes=args.compress_min_bytes),
+        teacher_packs=args.teacher_packs,
         progress=_log,
     ) as dataset:
         return {
@@ -524,6 +529,13 @@ def add_data_commands(subparsers: argparse._SubParsersAction) -> None:
     prepare.add_argument("--dedup-config")
     prepare.add_argument("--benchmark-quarantine")
     prepare.add_argument("--reject-invalid", action="store_true")
+    prepare.add_argument(
+        "--compress-min-bytes",
+        type=int,
+        help="Read observed document/tool fields of at least this many bytes as "
+        "EmbeddingGemma2 features instead of byte chunks (needs --teacher-packs)",
+    )
+    prepare.add_argument("--teacher-packs", help="Locked pack manifest with EmbeddingGemma2")
     prepare.set_defaults(func=_prepare)
 
     chunks = subparsers.add_parser(

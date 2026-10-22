@@ -7,7 +7,7 @@ import math
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
-from megatoken.media_teacher import PINNED_EXTRACTOR, validate_extractor
+from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
 ARCHITECTURE_VERSION = 10
 # Reserved system track for retrieval queries. It occupies track index
@@ -35,9 +35,9 @@ class ModelConfig:
     max_tracks: int = 8
     source_dim: int = 256
     # The one media input: pinned EmbeddingGemma2 hidden states (see
-    # megatoken/media_teacher.py). Part of the geometry, so feature caches from a
+    # megatoken/teacher.py). Part of the geometry, so feature caches from a
     # different teacher can never resume into this model.
-    media_extractor: str = PINNED_EXTRACTOR
+    media_extractor: str = PINNED_TEACHER
     byte_dim: int = 8
     source_stride: int = 8
     ngram_dim: int = 16

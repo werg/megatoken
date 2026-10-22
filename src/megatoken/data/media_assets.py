@@ -5,7 +5,7 @@ or execute a pretrained model. A media event is one canonical JSON record that
 references immutable little-endian FP32 arrays under the prepared root:
 
 - ``source``: the observed input, always the pinned EmbeddingGemma2 hidden
-  states of the original media (``megatoken.media_teacher``);
+  states of the original media (``megatoken.teacher``);
 - ``target``: optional supervision for realizing that media, always latents of
   the resident pretrained realizer's own codec (Pocket/Mimi, Sana DC-AE,
   Sana-Video VAE), plus the physical output geometry they decode to.
@@ -26,14 +26,26 @@ from typing import Any, Literal
 import numpy as np
 
 from megatoken.io import atomic_binary_writer, canonical_json, strict_json_loads
-from megatoken.media_teacher import HIDDEN_WIDTH, MAX_TOKENS, validate_extractor
+from megatoken.teacher import HIDDEN_WIDTH, MAX_TOKENS, validate_extractor
 
 MEDIA_RECORD_TYPE = "application/vnd.megatoken.media-reference+json"
-MEDIA_RECORD_VERSION = 3
+MEDIA_RECORD_VERSION = 4
 _MAX_ELEMENTS = 16_000_000
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
-Modal = Literal["audio", "image", "video"]
+Modal = Literal["text", "audio", "image", "video"]
+# Realizable media: the modalities that may carry a codec-latent target.
 MEDIA = ("audio", "image", "video")
+# Event modality -> modality of the teacher features its descriptor holds. A
+# ``compressed_text`` event is a long text (a reference document, a large tool
+# result) read as EmbeddingGemma2 hidden states instead of byte by byte; it is
+# input-only and never generated.
+DESCRIPTOR_MODALITY = {
+    "audio": "audio",
+    "image": "image",
+    "video": "video",
+    "compressed_text": "text",
+}
+FEATURE_MODALITIES = tuple(DESCRIPTOR_MODALITY)
 # Codec latent rank per modality: audio [frames, latent], image [C, h, w],
 # video [frames, C, h, w] (time-major).
 LATENT_RANK = {"audio": 2, "image": 3, "video": 4}
@@ -163,21 +175,28 @@ class OutputGeometry:
 
 @dataclass(frozen=True, slots=True)
 class MediaRecord:
-    """One media event: observed teacher features and optional realization target."""
+    """One feature event: observed teacher features and, for media, an optional
+    realization target. Text records (compressed reading) never have a target."""
 
     modality: Modal
     source: TensorAsset
     target: TensorAsset | None = None
     output_geometry: OutputGeometry | None = None
+    # The teacher task prompt the source was encoded with (``title: ... | text: ``).
+    prompt: str = ""
 
     def __post_init__(self) -> None:
-        if self.modality not in MEDIA:
-            raise ValueError("Media records describe audio, image or video")
+        if not isinstance(self.prompt, str):
+            raise ValueError("A teacher prompt is text")
+        if self.modality not in ("text", *MEDIA):
+            raise ValueError("Media records describe text, audio, image or video")
         if self.source.kind != "features" or self.source.modality != self.modality:
             raise ValueError("A media record observes teacher features of its own modality")
         if (self.target is None) != (self.output_geometry is None):
             raise ValueError("A realization target and its output geometry come together")
         if self.target is not None:
+            if self.modality == "text":
+                raise ValueError("Compressed text is input-only and has no realization target")
             if self.target.kind != "codec_latents" or self.target.modality != self.modality:
                 raise ValueError("Realization targets are codec latents of the same modality")
             if self.target.source_family != self.source.source_family:
@@ -188,7 +207,7 @@ class MediaRecord:
 
     def observed(self) -> MediaRecord:
         """What a causal reader may see: the source alone, never the target."""
-        return MediaRecord(self.modality, self.source)
+        return MediaRecord(self.modality, self.source, prompt=self.prompt)
 
     def to_bytes(self) -> bytes:
         return canonical_json({"version": MEDIA_RECORD_VERSION, **asdict(self)})
@@ -200,7 +219,8 @@ class MediaRecord:
         value = strict_json_loads(payload)
         if (
             not isinstance(value, dict)
-            or set(value) != {"version", "modality", "source", "target", "output_geometry"}
+            or set(value)
+            != {"version", "modality", "source", "target", "output_geometry", "prompt"}
             or value["version"] != MEDIA_RECORD_VERSION
         ):
             raise ValueError("Media record has an unsupported version or fields")
@@ -215,6 +235,7 @@ class MediaRecord:
                 if value["output_geometry"] is None
                 else OutputGeometry(**value["output_geometry"])
             ),
+            prompt=value["prompt"],
         )
 
 
