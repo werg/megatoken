@@ -88,18 +88,11 @@ class MediaPreparer:
             )
         return self._realizers[name]
 
-    def _features(self, modality: str, source: str, family: str) -> TensorAsset:
-        observation = self.teacher.encode(modality, source)
-        return self.store.put(
-            observation.features.numpy(),
-            modality=modality,
-            kind="features",
-            extractor=observation.extractor,
-            source_family=family,
-        )
+    def _features(self, modality: str, source: str, family: str) -> tuple[TensorAsset, TensorAsset]:
+        return self.store.put_teacher(self.teacher.encode(modality, source), source_family=family)
 
-    def text(self, payload: bytes) -> TensorAsset:
-        """Teacher features of exact text bytes (a byte-E anchor)."""
+    def text(self, payload: bytes) -> tuple[TensorAsset, TensorAsset]:
+        """Teacher features and pooled embedding of exact text bytes (a byte-E anchor)."""
         return self._features("text", payload.decode("utf-8"), hashlib.sha256(payload).hexdigest())
 
     def media(self, modality: str, path: str | Path, *, target: bool = True) -> MediaRecord:
@@ -108,9 +101,9 @@ class MediaPreparer:
 
         path = Path(path)
         family = file_sha256(path)
-        source = self._features(modality, str(path), family)
+        source, embedding = self._features(modality, str(path), family)
         if not target:
-            return MediaRecord(modality, source)
+            return MediaRecord(modality, source, embedding=embedding)
         realizer = self.realizer(modality)
         if modality == "audio":
             waveform = decode_audio(path, realizer.sample_rate)
@@ -144,7 +137,7 @@ class MediaPreparer:
             source_family=family,
             **clock,
         )
-        return MediaRecord(modality, source, latent, geometry)
+        return MediaRecord(modality, source, latent, geometry, embedding=embedding)
 
     def video_endpoints(
         self, path: str | Path, *, sampled_source_indices: tuple[int, ...] | None = None

@@ -19,17 +19,17 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
 
 from megatoken.io import atomic_binary_writer, canonical_json, strict_json_loads
-from megatoken.teacher import HIDDEN_WIDTH, MAX_TOKENS, validate_extractor
+from megatoken.teacher import EMBEDDING_WIDTH, HIDDEN_WIDTH, MAX_TOKENS, validate_extractor
 
 MEDIA_RECORD_TYPE = "application/vnd.megatoken.media-reference+json"
-MEDIA_RECORD_VERSION = 4
+MEDIA_RECORD_VERSION = 5
 _MAX_ELEMENTS = 16_000_000
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 Modal = Literal["text", "audio", "image", "video"]
@@ -62,13 +62,13 @@ class TensorAsset:
     """One physically stored array, excluding an implicit batch dimension.
 
     ``extractor`` names what produced the array: the teacher identity for
-    features (of media, or of text for byte-E anchors), the realizer pack identity (``<pack>:<checkpoint digest>``) for
-    codec latents. ``valid_count`` > 0 marks only the leading frames of a
+    features and for the teacher's pooled embedding of the same input, the
+    realizer pack identity (``<pack>:<checkpoint digest>``) for codec latents. ``valid_count`` > 0 marks only the leading frames of a
     padded latent sequence as real.
     """
 
     modality: Literal["text", "audio", "image", "video"]
-    kind: Literal["features", "codec_latents"]
+    kind: Literal["features", "embedding", "codec_latents"]
     sha256: str
     shape: tuple[int, ...]
     extractor: str
@@ -91,9 +91,13 @@ class TensorAsset:
             or math.prod(self.shape) > _MAX_ELEMENTS
         ):
             raise ValueError("Invalid or excessive media tensor shape")
-        if self.kind == "features":
+        if self.kind in ("features", "embedding"):
             validate_extractor(self.extractor)
-            if len(self.shape) != 2 or self.shape[1] != HIDDEN_WIDTH or self.shape[0] > MAX_TOKENS:
+            if self.kind == "embedding" and self.shape != (EMBEDDING_WIDTH,):
+                raise ValueError("A teacher embedding is one 768-wide unit vector")
+            if self.kind == "features" and (
+                len(self.shape) != 2 or self.shape[1] != HIDDEN_WIDTH or self.shape[0] > MAX_TOKENS
+            ):
                 raise ValueError("Teacher features are [tokens <= 8192, 512]")
             # The teacher samples media by its own locked processor policy; its
             # token sequence carries no physical clock, padding or normalization.
@@ -119,7 +123,7 @@ class TensorAsset:
             if self.modality == "image" and self.valid_count:
                 raise ValueError("Still-image latents have no frame axis to pad")
         else:
-            raise ValueError("Media assets are teacher features or realizer codec latents")
+            raise ValueError("Media assets are teacher outputs or realizer codec latents")
         if self.valid_count < 0 or self.valid_count > self.shape[0]:
             raise ValueError("Valid frames exceed the padded tensor")
 
@@ -184,6 +188,9 @@ class MediaRecord:
     output_geometry: OutputGeometry | None = None
     # The teacher task prompt the source was encoded with (``title: ... | text: ``).
     prompt: str = ""
+    # The teacher's pooled 768-d embedding of the same input, from the same
+    # pass: the target for embedding distillation of this item's facets.
+    embedding: TensorAsset = field(kw_only=True)
 
     def __post_init__(self) -> None:
         if not isinstance(self.prompt, str):
@@ -192,6 +199,13 @@ class MediaRecord:
             raise ValueError("Media records describe text, audio, image or video")
         if self.source.kind != "features" or self.source.modality != self.modality:
             raise ValueError("A media record observes teacher features of its own modality")
+        if (
+            self.embedding.kind != "embedding"
+            or self.embedding.modality != self.modality
+            or self.embedding.source_family != self.source.source_family
+            or self.embedding.extractor != self.source.extractor
+        ):
+            raise ValueError("The teacher embedding must come from the same input and pass")
         if (self.target is None) != (self.output_geometry is None):
             raise ValueError("A realization target and its output geometry come together")
         if self.target is not None:
@@ -207,7 +221,7 @@ class MediaRecord:
 
     def observed(self) -> MediaRecord:
         """What a causal reader may see: the source alone, never the target."""
-        return MediaRecord(self.modality, self.source, prompt=self.prompt)
+        return MediaRecord(self.modality, self.source, prompt=self.prompt, embedding=self.embedding)
 
     def to_bytes(self) -> bytes:
         return canonical_json({"version": MEDIA_RECORD_VERSION, **asdict(self)})
@@ -220,7 +234,15 @@ class MediaRecord:
         if (
             not isinstance(value, dict)
             or set(value)
-            != {"version", "modality", "source", "target", "output_geometry", "prompt"}
+            != {
+                "version",
+                "modality",
+                "source",
+                "target",
+                "output_geometry",
+                "prompt",
+                "embedding",
+            }
             or value["version"] != MEDIA_RECORD_VERSION
         ):
             raise ValueError("Media record has an unsupported version or fields")
@@ -236,6 +258,7 @@ class MediaRecord:
                 else OutputGeometry(**value["output_geometry"])
             ),
             prompt=value["prompt"],
+            embedding=TensorAsset.from_dict(value["embedding"]),
         )
 
 
@@ -261,6 +284,17 @@ class TensorAssetStore:
         with atomic_binary_writer(path) as output:
             output.write(data)
         return asset
+
+    def put_teacher(self, output: Any, *, source_family: str) -> tuple[TensorAsset, TensorAsset]:
+        """Store one teacher pass (``TeacherOutput``): its features and pooled embedding."""
+        common = dict(
+            modality=output.modality if output.modality in MEDIA else "text",
+            extractor=output.extractor,
+            source_family=source_family,
+        )
+        features = self.put(output.features.numpy(), kind="features", **common)
+        embedding = self.put(output.embedding.numpy(), kind="embedding", **common)
+        return features, embedding
 
     def load(self, asset: TensorAsset) -> np.ndarray:
         """Fail closed on stale, substituted, or non-finite files."""

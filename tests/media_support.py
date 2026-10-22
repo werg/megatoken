@@ -91,8 +91,9 @@ def prepared_record(
         extractor=extractor,
         source_family=family,
     )
+    embedding = teacher_embedding(store, modality, family, seed=seed, extractor=extractor)
     if not target:
-        return MediaRecord(modality, source)
+        return MediaRecord(modality, source, embedding=embedding)
     rng = np.random.default_rng(seed)
     clock = {"audio": dict(sample_rate=24000), "video": dict(fps_num=8)}.get(modality, {})
     latents = store.put(
@@ -104,4 +105,16 @@ def prepared_record(
         valid_count=valid_frames,
         **clock,
     )
-    return MediaRecord(modality, source, latents, geometry(modality))
+    return MediaRecord(modality, source, latents, geometry(modality), embedding=embedding)
+
+
+def teacher_embedding(store, modality, family, *, seed=0, extractor=PINNED_TEACHER):
+    """A unit 768-d stand-in for the teacher's pooled embedding of the same input."""
+    vector = np.random.default_rng(seed + 7).standard_normal(768).astype(np.float32)
+    return store.put(
+        vector / np.linalg.norm(vector),
+        modality=modality,
+        kind="embedding",
+        extractor=extractor,
+        source_family=family,
+    )

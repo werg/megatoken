@@ -45,8 +45,12 @@ def main() -> None:
                 if args.anchors is None:
                     parser.error("Text anchor rows need --anchors")
                 payload = item["text"].encode("utf-8")
-                asset = preparer.text(payload)
-                row = {"text_sha256": hashlib.sha256(payload).hexdigest(), "asset": asdict(asset)}
+                asset, embedding = preparer.text(payload)
+                row = {
+                    "text_sha256": hashlib.sha256(payload).hexdigest(),
+                    "asset": asdict(asset),
+                    "embedding": asdict(embedding),
+                }
                 anchors.write(json.dumps(row, sort_keys=True) + "\n")
             else:
                 record = preparer.media(modality, item["path"], target=item.get("target", True))

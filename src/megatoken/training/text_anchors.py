@@ -22,23 +22,33 @@ from megatoken.tensors import byte_tensor
 
 
 class TextAnchors:
-    """JSONL rows ``{"text_sha256": <sha of exact record bytes>, "asset": TensorAsset}``."""
+    """JSONL rows ``{"text_sha256": <sha of exact record bytes>, "asset": TensorAsset,
+    "embedding": TensorAsset}``: the teacher features and pooled embedding of that text."""
 
     def __init__(self, path: str | Path, store: TensorAssetStore, *, extractor: str):
         self.store = store
         self.assets: dict[str, TensorAsset] = {}
+        self.embeddings: dict[str, TensorAsset] = {}
         for line in Path(path).read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             row = json.loads(line)
             asset = TensorAsset.from_dict(row["asset"])
+            embedding = TensorAsset.from_dict(row["embedding"])
             if asset.kind != "features" or asset.modality != "text":
                 raise ValueError("Text anchors are EmbeddingGemma2 text features")
+            if (
+                embedding.kind != "embedding"
+                or embedding.source_family != asset.source_family
+                or embedding.extractor != asset.extractor
+            ):
+                raise ValueError("A text anchor's embedding must come from the same teacher pass")
             if asset.extractor != extractor:
                 raise ValueError("Text anchor features come from a different teacher")
             if row["text_sha256"] in self.assets or asset.source_family != row["text_sha256"]:
                 raise ValueError("Each anchor covers exactly the text it was computed from")
             self.assets[row["text_sha256"]] = asset
+            self.embeddings[row["text_sha256"]] = embedding
         if not self.assets:
             raise ValueError("Empty text anchor sidecar")
 
