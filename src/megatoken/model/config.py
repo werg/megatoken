@@ -77,6 +77,12 @@ class ModelConfig:
     transducer_max_lookups: int = 256
     transducer_max_edges: int = 1_000_000
     transducer_byte_budget: int = 24_000_000_000
+    # The knowledge-routed adapter mixture (model/adapters.py): per owner of C, P
+    # and R, ``adapter_experts`` low-rank experts of rank ``adapter_rank``, of
+    # which each lookup's mixture picks ``adapter_topk``.
+    adapter_experts: int = 8
+    adapter_rank: int = 8
+    adapter_topk: int = 2
 
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
@@ -115,6 +121,9 @@ class ModelConfig:
             "vocab_size",
             "output_rank",
             "max_capacity",
+            "adapter_experts",
+            "adapter_rank",
+            "adapter_topk",
         )
         for name in positive:
             if getattr(self, name) <= 0:
@@ -123,6 +132,8 @@ class ModelConfig:
             value = getattr(self, name)
             if not math.isfinite(value) or not math.exp(-4.0) < value < math.exp(1.0):
                 raise ValueError(f"{name} must lie strictly within exp(-4) and exp(1)")
+        if self.adapter_topk > self.adapter_experts:
+            raise ValueError("adapter_topk cannot exceed adapter_experts")
         if self.n_facets % 4:
             raise ValueError("n_facets must be divisible by four for pair schedules")
         if self.query_heads % self.kv_heads:

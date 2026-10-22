@@ -69,7 +69,7 @@ from megatoken.training.metrics import (
     rates,
 )
 from megatoken.training.optimizer import MasterAdamW
-from megatoken.training.router_balance import RouterBalanceWindow
+from megatoken.training.router_balance import RouterBalanceWindow, balance_routers
 from megatoken.training.stream import (
     EpisodeWindow,
     IndependentWindowStream,
@@ -688,7 +688,7 @@ def train(
             weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
-            routers = {"p": model.core.p_router, "u": model.core.u_router}
+            routers = balance_routers(model.core)
             router_replay = RouterBalanceWindow()
             learning_rate = phase.learning_rate(
                 diloco.global_tokens if diloco is not None else consumed

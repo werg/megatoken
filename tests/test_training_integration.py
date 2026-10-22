@@ -121,6 +121,7 @@ def test_router_balance_recorders_are_released_when_a_forward_fails(training_con
     def failing(model, *args, **kwargs):
         models.append(model)
         assert model.core.p_router.balance_recorder is not None
+        assert all(o.balance_recorder is not None for o in model.core.adapters.owners.values())
         raise RuntimeError("forward failed")
 
     monkeypatch.setattr("megatoken.training.engine.forward_meridian_batch", failing)
@@ -129,3 +130,4 @@ def test_router_balance_recorders_are_released_when_a_forward_fails(training_con
     (model,) = models
     assert model.core.p_router.balance_recorder is None
     assert model.core.u_router.balance_recorder is None
+    assert all(owner.balance_recorder is None for owner in model.core.adapters.owners.values())

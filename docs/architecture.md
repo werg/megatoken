@@ -149,6 +149,27 @@ and optional media control. No distinction exists between normal R and a
 raw-only bootstrap fallback. R can render before or independently of C, and
 terminal outputs need no C pass unless a successor state is requested.
 
+### The knowledge-routed adapter mixture
+
+C, P and R each own eight low-rank experts of rank 8 (`adapter_experts`,
+`adapter_rank`, `adapter_topk`; part of the architecture identity) and a small
+controller (`model/adapters.py`). After every transducer lookup the controllers
+read the lookup's blended 32,768-wide knowledge value, the one its knowledge
+event is read from, and keep one preference over the experts per owner. Scaled by
+one minus the sink's share of the lookup, that is the **mixture**. It rides on
+the multitrack state, so every meridian on every track runs under it until the
+next lookup replaces it; before the first lookup there is none, and a lookup
+that found only the sink has strength exactly zero. Serving sessions carry it in
+their state, so a speculative branch inherits it and a rejected one cannot leak it.
+
+At every site the controller adds a track and a stage preference to the lookup's,
+picks the top two experts with softmax weights, and adds their low-rank update of
+the site's *input* to the site's output: after each of the four C layers (before
+the layer's temporary KV is written), after each of the twelve P stages, and on
+the selected raw block that every realizer (text, audio, image, video) reads.
+The hindsight pass and the single-event path have no mixture. Training drops a
+lookup's whole mixture with probability 0.1 (seeded by the window's generator).
+
 ## Public state APIs and exact chronology
 
 | Operation | Contract |

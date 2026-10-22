@@ -12,7 +12,21 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
+from megatoken.model.adapters import AdapterRoute, OwnerAdapters
+from megatoken.model.core import FacetedCore
 from megatoken.model.routing import EpochRouter, RowRoute
+
+# What the balance covers: expert routers with a replayable soft preference.
+BalancedRouter = EpochRouter | OwnerAdapters
+
+
+def balance_routers(core: FacetedCore) -> dict[str, BalancedRouter]:
+    """Every router the global balance covers: P's, U's and the three adapter controllers."""
+    return {
+        "p": core.p_router,
+        "u": core.u_router,
+        **{f"adapter_{name}": owner for name, owner in core.adapters.owners.items()},
+    }
 
 
 @dataclass
@@ -24,7 +38,7 @@ class _ContextEntry:
 
 @dataclass
 class _RouterState:
-    router: EpochRouter
+    router: BalancedRouter
     counts: Tensor
     contexts: dict[tuple, _ContextEntry] = field(default_factory=dict)
 
@@ -35,7 +49,7 @@ class RouterBalanceWindow:
 
     states: dict[int, _RouterState] = field(default_factory=dict)
 
-    def capture(self, router: EpochRouter, route: RowRoute) -> None:
+    def capture(self, router: BalancedRouter, route: RowRoute | AdapterRoute) -> None:
         if not torch.is_grad_enabled() or route.router_context is None:
             return
         used = route.expert_ids.detach()
@@ -70,7 +84,7 @@ class RouterBalanceWindow:
     def assignments(self) -> int:
         return int(sum(float(s.counts.sum()) for s in self.states.values()))
 
-    def global_counts(self, distributed, *, routers: dict[str, EpochRouter]):
+    def global_counts(self, distributed, *, routers: dict[str, BalancedRouter]):
         # Every rank contributes a fixed order and shape, even when it has no routes.
         values = {}
         for name, router in sorted(routers.items()):
@@ -83,7 +97,7 @@ class RouterBalanceWindow:
         return distributed.sum_tensors(values)
 
     def backward(
-        self, distributed, *, routers: dict[str, EpochRouter], coefficient: float
+        self, distributed, *, routers: dict[str, BalancedRouter], coefficient: float
     ) -> dict[str, float]:
         """Exact pooled hard-load/soft-palette proxy, stopping at captured inputs."""
         if coefficient < 0:

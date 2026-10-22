@@ -34,6 +34,7 @@ from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.io import strict_json_loads
 from megatoken.tensors import byte_tensor, is_host
 
+from .adapters import OWNERS, AdapterMixture, AdapterPlan
 from .attention import AttentionFeatures, join_attention
 from .config import RESERVED_TRACKS
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
@@ -99,6 +100,8 @@ class MultiTrackState:
     model_version: int
     routing_version: int
     geometry: tuple[int, ...]
+    # The latest lookup's adapter mixture; None until the first lookup.
+    adapters: AdapterMixture | None = None
 
     @property
     def batch_size(self) -> int:
@@ -118,6 +121,7 @@ class MultiTrackState:
             raw=self.raw.detach(),
             final=None if self.final is None else self.final.detach(),
             history=self.history.detach(),
+            adapters=None if self.adapters is None else self.adapters.detach(),
         )
 
 
@@ -186,6 +190,12 @@ class MultiTrackCore:
             raise ValueError("Retained track metadata must match whole KV event blocks")
         if state.history.slots > core.config.max_history_chunks * f:
             raise ValueError("History exceeds its full-block capacity")
+        if state.adapters is not None and state.adapters.logits.shape != (
+            state.batch_size,
+            len(OWNERS),
+            core.config.adapter_experts,
+        ):
+            raise ValueError("Adapter mixture has the wrong batch or expert geometry")
         if state.final is None and state.meridian_sizes:
             raise ValueError("Only initial state may lack processed features")
 
@@ -297,6 +307,7 @@ class MultiTrackCore:
             track_ids=track_ids,
             modality_ids=modality_ids,
             history_track_ids=state.history_tracks.repeat_interleave(c.n_facets, dim=1),
+            adapters=self.core.adapters.plan("c", state.adapters, track_ids),
         )
         history, retained = self._history_for(state, events)
         next_history = self.core.central.write(final, history, state.meridians_seen)
@@ -319,6 +330,7 @@ class MultiTrackCore:
             model_version=state.model_version,
             routing_version=state.routing_version,
             geometry=state.geometry,
+            adapters=state.adapters,
         )
 
     def observe_group(
@@ -428,6 +440,7 @@ class MultiTrackCore:
             epoch="prediction",
         )
         self.core._record_routing_loss(routes.balance_loss, routes.stabilization_loss)
+        adapters = self.core.adapters.plan("p", state.adapters, track_ids)
         for stage in stages:
             route = routes.at(stage)
             facets = self.core.run_pair_stage(
@@ -436,7 +449,7 @@ class MultiTrackCore:
                 route,
                 effort,
                 lambda value, stage=stage, route=route: self._stage(
-                    value, stage, route, effort, state, track_ids
+                    value, stage, route, effort, state, track_ids, adapters
                 ),
             )
         return facets
@@ -449,10 +462,12 @@ class MultiTrackCore:
         effort: int,
         state: MultiTrackState,
         track_ids: Tensor,
+        adapters: AdapterPlan | None,
     ) -> Tensor:
         core = self.core
         batch, events, f, d = facets.shape
         wrapper = core.stages[stage - 1]
+        source = facets
         facets = facets + core.stage_codes[stage - 1]
         joined = facets.reshape(batch, events * f, d)
         addresses = core.central.slot_codes().repeat(events, 1)
@@ -484,7 +499,8 @@ class MultiTrackCore:
         )
         joined = joined + wrapper.attention_gate.sigmoid() * mixed
         individual = core.pair_updates(joined.reshape(batch * events, f, d), stage, route, effort)
-        return individual.reshape(batch, events, f, d)
+        individual = individual.reshape(batch, events, f, d)
+        return individual if adapters is None else individual + adapters.delta(source, stage - 1)
 
 
 @dataclass(frozen=True)
@@ -650,10 +666,13 @@ class _GroupedTeacherReadout(nn.Module):
         raw: Tensor,
         plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
         control: Tensor | None = None,
+        mixture: AdapterMixture | None = None,
+        track_ids: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
         if raw.ndim != 4 or raw.shape[1] != len(plans):
             raise ValueError("Realization needs one canonical facet block per target")
         zero = raw.float().sum() * 0
+        raw = self.core.adapters.realization(mixture, track_ids, raw)
         names = (*DECODER_LOSSES, "audio", "visual")
         sums = {name: zero for name in names}
         counts = {name: 0 for name in names}
@@ -680,8 +699,10 @@ class _GroupedTeacherReadout(nn.Module):
         raw: Tensor,
         plans: tuple[PreparedTargets | PreparedAction | MediaTrainTarget, ...],
         control: Tensor | None = None,
+        mixture: AdapterMixture | None = None,
+        track_ids: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
-        return self.losses_for_selected(raw, plans, control)
+        return self.losses_for_selected(raw, plans, control, mixture, track_ids)
 
 
 class MultiTrackGenerator:
@@ -800,6 +821,8 @@ class MultiTrackGenerator:
         control: Tensor | None,
         *,
         seeds: Sequence[int] | None = None,
+        mixture: AdapterMixture | None = None,
+        track_ids: Tensor | None = None,
     ) -> tuple[
         tuple[bytes, ...],
         tuple[tuple[int, ...], ...],
@@ -810,8 +833,9 @@ class MultiTrackGenerator:
         payloads, ids, validity, terminals, media = [], [], [], [], []
         if seeds is not None and len(seeds) != len(specs):
             raise ValueError("Renderer seeds must identify each selected event")
+        realized = self.generator.core.adapters.realization(mixture, track_ids, raw)
         for index, spec in enumerate(specs):
-            selected = raw[:, index]
+            selected = realized[:, index]
             context = self.generator.core.prepare_realization(selected)
             if isinstance(spec, ActionSpec):
                 decoded = self.generator.decoder(self.generator.core, context, spec)
@@ -943,11 +967,14 @@ class MultiTrackGenerator:
         readout = _GroupedTeacherReadout(
             core, self.generator.decoder, self.generator.media_realizers
         )
-        prior_terms = readout.losses_for_selected(sampled, plans, control)
+        track_ids, _ = self.tracks._track_indices(state, names)
+        prior_terms = readout.losses_for_selected(
+            sampled, plans, control, state.adapters, track_ids
+        )
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
-                recon_terms = readout(codec_sample, plans, control)
+                recon_terms = readout(codec_sample, plans, control, state.adapters, track_ids)
             continuation = target_raw
             correspondence = q.detach().kl(prior).sum()
         else:
@@ -962,6 +989,8 @@ class MultiTrackGenerator:
                         codec_sample,
                         plans,
                         None if control is None else control.detach(),
+                        None if state.adapters is None else state.adapters.detach(),
+                        track_ids,
                     ),
                 )
             correspondence = mean.float().sum() * 0
@@ -1173,6 +1202,8 @@ class MultiTrackGenerator:
             plans,
             encoded,
             seeds=seeds,
+            mixture=state.adapters,
+            track_ids=self.tracks._track_indices(state, names)[0],
         )
         committed = self.tracks.advance_group(
             state,
@@ -1285,6 +1316,8 @@ class MultiTrackGenerator:
             plans,
             encoded,
             seeds=seeds,
+            mixture=state.adapters,
+            track_ids=self.tracks._track_indices(state, tape.tracks)[0],
         )
         committed = self.tracks.advance_group(
             state,
