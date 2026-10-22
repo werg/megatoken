@@ -21,11 +21,12 @@ import torch
 from torch import Tensor, nn
 
 from megatoken.generation.embedding import EmbeddingRealizer, EmbeddingSpec
-from megatoken.memory.transducer import Lookup, SearchAgenda, TransducerBank
+from megatoken.memory.transducer import Lookup, Mounted, SearchAgenda, TransducerBank
 from megatoken.memory.transducer_packing import pack_fp4, straight_through
 
 from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK
 from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
+from .ingest import IngestedRows, IngestHeads, IngestItem
 from .multitrack import MultiTrackState, ObservedEvent
 from .state import KVHistory, RealizationContext
 
@@ -205,6 +206,8 @@ class NativeTransducer(nn.Module):
         self.readout = WideKnowledgeReadout(core, bank)
         # Training-only: a served model neither ships nor counts it.
         self.hindsight_realizer = HindsightRealizer(core, bank) if training_heads else None
+        # Written from one item alone, so served too: it adds files to a base while serving.
+        self.ingest = IngestHeads(HindsightRealizer(core, bank), core, g.query_dim)
 
     @property
     def core(self) -> FacetedCore:
@@ -269,12 +272,19 @@ class NativeTransducer(nn.Module):
     # -------------------------------------------------------------- lookups
 
     def begin(
-        self, multi, state: MultiTrackState, payload: bytes, *, encoder_grad: bool = False
+        self,
+        multi,
+        state: MultiTrackState,
+        payload: bytes,
+        *,
+        encoder_grad: bool = False,
+        mounted: tuple[Mounted, ...] | None = None,
     ) -> tuple[MultiTrackState, SearchAgenda]:
         """Commit the metadata prefix as the first ordinary event; seed the agenda.
 
         ``encoder_grad`` is as for any observed event: only bootstrap training
-        lets E learn from what it observes.
+        lets E learn from what it observes. ``mounted`` are the knowledge bases
+        the session searches (default: the trained bank alone).
         """
         if state.batch_size != 1:
             raise ValueError("A transducer session is one independent sequence")
@@ -283,8 +293,61 @@ class NativeTransducer(nn.Module):
             [ObservedEvent(METADATA_TRACK, "text", payload, role_id=ROLE_IDS["system"])],
             encoder_grad=encoder_grad,
         )
-        prefix = self.prefix_head(state.final[0, 0].mean(dim=0).to(self.prefix_head.weight.dtype))
-        return state, self.bank.initial_agenda(prefix.float())
+        return state, self.bank.initial_agenda(self._prefix(state), mounted)
+
+    def _prefix(self, state: MultiTrackState) -> Tensor:
+        """The query-width vector a committed metadata event maps to."""
+        pooled = state.final[0, 0].mean(dim=0).to(self.prefix_head.weight.dtype)
+        return self.prefix_head(pooled).float()
+
+    # --------------------------------------------------------------- ingest
+
+    @torch.no_grad()
+    def ingest_rows(self, multi, items: Sequence[IngestItem]) -> IngestedRows:
+        """Entries for ``items`` read alone: each item's value, key, departure and destination.
+
+        Every part of a document must be in the call, in any order. The first
+        part (and any standalone item) departs from where its metadata starts a
+        session, through the same metadata path a session's prefix takes; part
+        ``i`` departs from part ``i - 1``'s destination, so reading on is one
+        more step. A destination is the content location of the value, as for a
+        hindsight write-out. The edge's bias is zero, the same as a write-out into an
+        empty bank, so a lookup scores it by key and location alone and the base's
+        blend weight is the only prior on it.
+        """
+        if not items:
+            raise ValueError("Nothing to ingest")
+        device = self.bank.device
+        raws = torch.stack([item.raw for item in items]).to(device)
+        values, keys = self.ingest(self.core, raws, [item.modality for item in items])
+        destinations = self.bank.content_location(values)
+        starts: dict[bytes, Tensor] = {}
+        previous = {
+            (item.document, item.part): row for row, item in enumerate(items) if item.document
+        }
+        departures = []
+        for item in items:
+            if item.part:
+                if (item.document, item.part - 1) not in previous:
+                    raise ValueError(
+                        f"Part {item.part - 1} of {item.document!r} is not in this call"
+                    )
+                departures.append(destinations[previous[(item.document, item.part - 1)]])
+                continue
+            if item.metadata not in starts:
+                starts[item.metadata] = self.metadata_start(multi, item.metadata)
+            departures.append(starts[item.metadata])
+        return IngestedRows(torch.stack(departures), keys, values, destinations)
+
+    def metadata_start(self, multi, payload: bytes) -> Tensor:
+        """Where a session that opens with this metadata starts its search."""
+        state = multi.tracks.initial_state(1, device=self.bank.device)
+        state = multi.tracks.observe_group(
+            state,
+            [ObservedEvent(METADATA_TRACK, "text", payload, role_id=ROLE_IDS["system"])],
+            encoder_grad=False,
+        )
+        return self.bank.metadata_start(self._prefix(state))
 
     def boundary(
         self,

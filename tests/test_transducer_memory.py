@@ -82,8 +82,8 @@ def test_agenda_lookup_scores_all_shortlisted_pairs_and_commits():
     assert torch.isclose(lookup.weights.sum(), torch.tensor(1.0))
     assert float(lookup.edge_weights.sum() + lookup.sink_weight) == pytest.approx(1.0, abs=1e-5)
     # Every pair comes from the cached departure shortlist of its location.
-    shortlist = set(bank.table.ids_of(agenda.shortlists[0]).tolist())
-    assert {edge for _, edge in lookup.pairs} <= shortlist
+    shortlist = set(bank.table.ids_of(agenda.shortlists[0][0]).tolist())
+    assert {edge for _, _, edge in lookup.pairs} <= shortlist
     appended = bank.commit(agenda, lookup)
     assert agenda.lookups == 1 and agenda.state is lookup.landing
     assert len(agenda.locations) == 1 + appended
@@ -310,7 +310,7 @@ def test_pair_scores_match_an_unfused_per_location_reference(monkeypatch):
     where = torch.tensor([0, 0, 1, 1, 2, 2, 2])
     beta_q, beta_s = bank.log_beta_query.exp(), bank.log_beta_location.exp()
     with torch.no_grad():
-        fused = bank._pair_scores(slots, where, modulated, locations, beta_q, beta_s)
+        fused = bank.pair_scores(slots, where, modulated, locations, beta_q, beta_s)
         reference = torch.stack(
             [
                 beta_q * unit(bank.table.decode("key", slot[None]))[0] @ modulated[j]
@@ -375,7 +375,7 @@ def test_a_failed_add_leaves_the_bank_unchanged():
     assert (bank.edge_ids().tolist(), bank.table.next_id, bank.version) == before
     agenda = bank.initial_agenda(torch.randn(16))
     lookup = bank.lookup(torch.randn(16), agenda)
-    assert {edge for _, edge in lookup.pairs} <= {1, 2, 3}
+    assert {edge for _, _, edge in lookup.pairs} <= {1, 2, 3}
 
 
 def test_loading_a_snapshot_invalidates_cached_shortlists():
@@ -388,4 +388,4 @@ def test_loading_a_snapshot_invalidates_cached_shortlists():
     expected = second.initial_agenda(agenda.locations[0].new_zeros(16))
     expected.locations, expected.state = agenda.locations, agenda.state
     second.refresh(expected)
-    assert torch.equal(agenda.shortlists[0], expected.shortlists[0])
+    assert torch.equal(agenda.shortlists[0][0], expected.shortlists[0][0])

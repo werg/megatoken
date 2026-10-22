@@ -9,12 +9,19 @@ shortlists of its session's agenda locations and keeps the best pairs.
 All structural and parameter changes happen at window boundaries (optimizer
 steps, coordinator merges, write-out after backward). Each change bumps the
 bank version; agendas recompute their cached shortlists when it moves.
+
+A session searches several knowledge bases at once (``Mounted``): the trained
+``TransducerBank`` and any number of ingested, read-only ``KnowledgeBase``s
+(``memory/knowledge.py``), which share its geometry. A lookup scans each base's
+departures, scores every pair together with the base's log blend weight added,
+and keeps the best pairs across all of them in one softmax with the one sink.
 """
 
 from __future__ import annotations
 
 import math
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -289,6 +296,28 @@ class EdgeTable:
         self._derive(torch.arange(count, device=self.device))
         self.slot_of, self.free, self.high_water = slot_of, [], count
 
+    def nearest(self, locations: Tensor, count: int) -> Tensor:
+        """Exact scan of the packed departures: [rows, min(count, edges)] nearest slots."""
+        rows = locations.shape[0]
+        count = min(count, self.count)
+        if not count:
+            return torch.full((rows, 0), -1, dtype=torch.int64, device=self.device)
+        query = packed_unit(locations.detach().float())
+        best_scores: Tensor | None = None
+        best_slots: Tensor | None = None
+        for start in range(0, self.high_water, TABLE_CHUNK):
+            stop = min(start + TABLE_CHUNK, self.high_water)
+            scores = query @ self.departure_unit[start:stop].T
+            scores = scores.masked_fill(self.ids[start:stop] < 0, -math.inf)
+            chunk = torch.arange(start, stop, device=self.device).expand(rows, -1)
+            if best_scores is not None:
+                scores = torch.cat((best_scores, scores), dim=1)
+                chunk = torch.cat((best_slots, chunk), dim=1)
+            top = torch.topk(scores, min(count, scores.shape[1]), dim=1)
+            best_scores = top.values
+            best_slots = torch.gather(chunk, 1, top.indices)
+        return best_slots
+
     def copy_fields(self, names: tuple[str, ...], sources: Tensor, targets: Tensor) -> None:
         """Copy packed fields row for row, codes and all (no requantization)."""
         for name in names:
@@ -298,33 +327,67 @@ class EdgeTable:
                 self.value_norm2[targets] = self.value_norm2[sources]
 
 
+TRAINED = "trained"  # the name of the bank training grows, in every mount
+
+
+@dataclass(frozen=True)
+class Mounted:
+    """One knowledge base in a session's search, with the blend weight it was mounted at.
+
+    The weight enters every one of the base's pair scores as ``log(weight)``: 1
+    changes nothing, a small weight lets the base contribute only where it fits
+    much better. A weight of 0 means not mounted at all (``mount`` drops it).
+    """
+
+    name: str
+    base: EdgeStore
+    weight: float
+
+    def __post_init__(self) -> None:
+        if not self.name or not math.isfinite(self.weight) or self.weight <= 0:
+            raise ValueError("A mounted base needs a name and a positive finite weight")
+
+    @property
+    def log_weight(self) -> float:
+        return math.log(self.weight)
+
+
 @dataclass
 class SearchAgenda:
     """One session's reached locations and their cached departure shortlists.
 
     ``locations`` are the distinct appended locations; ``state`` is where the
     search actually is now (the last landing), which the sink holds still.
+    ``mounted`` are the bases searched together; ``shortlists[b][j]`` is base
+    ``b``'s cached neighbourhood of location ``j``, valid while ``versions[b]``
+    is that base's version (one base changing rescans only that base).
     """
 
     locations: list[Tensor]
     state: Tensor
-    shortlists: list[Tensor] = field(default_factory=list)
-    bands: list[Tensor] = field(default_factory=list)
-    version: int = -1
+    mounted: tuple[Mounted, ...]
+    shortlists: list[list[Tensor]] = field(default_factory=list)
+    bands: list[list[Tensor]] = field(default_factory=list)
+    versions: list[int] = field(default_factory=list)
     lookups: int = 0
     births: list[int] = field(default_factory=list)  # lookup count when each location joined
 
     def __post_init__(self) -> None:
         if not self.births:
             self.births = [0] * len(self.locations)
+        if not self.versions:
+            self.versions = [-1] * len(self.mounted)
+            self.shortlists = [[] for _ in self.mounted]
+            self.bands = [[] for _ in self.mounted]
 
     def copy(self) -> SearchAgenda:
         return SearchAgenda(
             list(self.locations),
             self.state,
-            list(self.shortlists),
-            list(self.bands),
-            self.version,
+            self.mounted,
+            [list(x) for x in self.shortlists],
+            [list(x) for x in self.bands],
+            list(self.versions),
             self.lookups,
             list(self.births),
         )
@@ -332,7 +395,7 @@ class SearchAgenda:
     def publish(self, other: SearchAgenda) -> None:
         self.locations, self.state = other.locations, other.state
         self.shortlists, self.bands = other.shortlists, other.bands
-        self.version, self.lookups = other.version, other.lookups
+        self.versions, self.lookups = other.versions, other.lookups
         self.births = other.births
 
     def truncate_credit(self, groups: int) -> None:
@@ -358,17 +421,20 @@ class Lookup:
 
     value: Tensor  # what the readout receives (after the hindsight overlay)
     landing: Tensor  # the new location (after hindsight steering)
-    bank_value: Tensor  # the bank's own blend, sink included
+    bank_value: Tensor  # the blend over every mounted base, sink included
     bank_landing_raw: Tensor  # the bank's unnormalized landing, lambda_t
     weights: Tensor  # pair weights followed by the sink weight
     pair_logits: Tensor
     sink_weight: Tensor
-    pairs: tuple[tuple[int, int], ...]  # (agenda location index, edge ID)
-    edge_ids: Tensor  # distinct selected edges
-    edge_weights: Tensor  # each edge's total weight over its pairs, omega_i
+    pairs: tuple[tuple[int, str, int], ...]  # (agenda location index, base name, edge ID)
+    # The trained bank's distinct selected edges and their total weights omega_i: the
+    # only rows that train, write or evolve. Ingested bases never appear here.
+    edge_ids: Tensor
+    edge_weights: Tensor
     start: Tensor  # where the search was (the sink's hold-still destination)
     start_key: Tensor  # the query read through the start location
-    bank_version: int
+    query: Tensor  # the unit query asked
+    versions: tuple[int, ...]  # each mounted base's version when the lookup ran
 
 
 class MasterCache:
@@ -484,42 +550,21 @@ class MasterCache:
             self.stores[name].load_state_dict(saved)
 
 
-class TransducerBank(nn.Module):
-    """Dense lookup controls (trained with the model) plus the packed sparse edge table."""
+class EdgeStore:
+    """What every knowledge base is: a packed edge table in the shared spaces, a version, a search.
 
-    identity = "continuous-state-transducer-v10"
+    The trained bank and an ingested base are both stores; a lookup treats them
+    alike, and only the bank carries gradient masters, an optimizer and growth.
+    """
 
-    def __init__(self, geometry: TransducerGeometry | None = None) -> None:
-        super().__init__()
-        self.geometry = geometry or TransducerGeometry()
-        g = self.geometry
-        self.modulation = nn.Parameter(torch.zeros(g.query_dim, g.location_dim))
-        self.log_beta_location = nn.Parameter(torch.zeros(()))
-        self.log_beta_query = nn.Parameter(torch.zeros(()))
-        self.sink_direction = nn.Parameter(torch.zeros(g.query_dim))
-        # The sink bias starts at the mean pair score of a fresh bank (zero).
-        self.sink_bias = nn.Parameter(torch.zeros(()))
-        self.sink_value = nn.Parameter(torch.zeros(g.value_dim))
-        self.base_location = nn.Parameter(torch.randn(g.location_dim) * 0.01)
-        self.metadata_location = nn.Linear(g.query_dim, g.location_dim, bias=False)
-        self.table = EdgeTable(g, self.sink_value.device)
-        self.bank_id = uuid.uuid4().hex
-        self.version = 0
-        self.learned_values = False
-        self.masters = MasterCache(g, self.sink_value.device)
-        self._projection: Tensor | None = None
-
-    def _apply(self, fn, recurse: bool = True):
-        result = super()._apply(fn, recurse)
-        self.table.to(self.sink_value.device)
-        self.masters.to(self.sink_value.device)
-        if self._projection is not None:
-            self._projection = self._projection.to(self.sink_value.device)
-        return result
+    geometry: TransducerGeometry
+    table: EdgeTable
+    version: int
+    writable = False  # whether entries are appended while sessions search it (a user's base)
 
     @property
     def device(self) -> torch.device:
-        return self.sink_value.device
+        return self.table.device
 
     @property
     def edge_count(self) -> int:
@@ -547,17 +592,6 @@ class TransducerBank(nn.Module):
 
     def _changed(self) -> None:
         self.version += 1
-
-    def switch_to_learned(self) -> None:
-        """Values become trained parameters; written-mass bookkeeping ends."""
-        if self.learned_values:
-            raise RuntimeError("Value optimizer was already activated")
-        self.learned_values = True
-        self.table.write_mass.zero_()
-        self.masters.clear(("value",))
-        self._changed()
-
-    # ------------------------------------------------------------------ rows
 
     def add_edges(
         self,
@@ -635,6 +669,108 @@ class TransducerBank(nn.Module):
         self._changed()
         return ids
 
+    def decode(self, name: str, ids: Tensor | list[int]) -> Tensor:
+        return self.table.decode(name, self.table.slots(ids))
+
+    def shortlists(self, locations: list[Tensor]) -> tuple[list[Tensor], list[Tensor]]:
+        """Per location, its ``neighbors`` nearest departures and the band just past them."""
+        g = self.geometry
+        with torch.no_grad():
+            ranked = self.table.nearest(torch.stack(locations), 2 * g.neighbors)
+        return (
+            [row[: g.neighbors] for row in ranked],
+            [row[g.neighbors :] for row in ranked],
+        )
+
+    def pair_scores(
+        self,
+        slots: Tensor,
+        where: Tensor,
+        modulated: Tensor,
+        locations: Tensor,
+        beta_q: Tensor,
+        beta_s: Tensor,
+    ) -> Tensor:
+        """Selection scores of every (location, edge) pair from the cached unit rows.
+
+        Each distinct edge is read once; key products run in BF16 with FP32 output.
+        The selected pairs' logits are recomputed exactly by ``lookup``.
+        """
+        unique, inverse = torch.unique(slots, return_inverse=True)
+        modulated = modulated.to(torch.bfloat16)
+        # Pairs grouped by edge, so every chunk of edges owns one contiguous run of pairs.
+        order = torch.argsort(inverse)
+        inverse, where, slots = inverse[order], where[order], slots[order]
+        starts = torch.arange(0, unique.numel(), PAIR_CHUNK, device=slots.device)
+        bounds = torch.searchsorted(inverse, starts).tolist() + [inverse.numel()]
+        scores = torch.empty(slots.shape[0], device=self.device)
+        for index, start in enumerate(starts.tolist()):
+            low, high = bounds[index], bounds[index + 1]
+            chunk = unique[start : start + PAIR_CHUNK]
+            keys = (self.table.key_unit[chunk] @ modulated.T).float()
+            near = self.table.departure_unit[chunk] @ locations.T
+            row, column = inverse[low:high] - start, where[low:high]
+            scores[low:high] = (
+                beta_q * keys[row, column]
+                + beta_s * near[row, column]
+                + self.table.bias[slots[low:high]]
+            )
+        return torch.empty_like(scores).scatter_(0, order, scores)
+
+
+class TransducerBank(EdgeStore, nn.Module):
+    """Dense lookup controls (trained with the model) plus the packed sparse edge table.
+
+    This is the trained base: the one knowledge base that learns, grows and
+    syncs. The lookup itself (scoring, the sink, the blend) lives here because
+    its controls are model parameters; it searches whatever the session mounted.
+    """
+
+    identity = "continuous-state-transducer-v10"
+
+    def __init__(self, geometry: TransducerGeometry | None = None) -> None:
+        super().__init__()
+        self.geometry = geometry or TransducerGeometry()
+        g = self.geometry
+        self.modulation = nn.Parameter(torch.zeros(g.query_dim, g.location_dim))
+        self.log_beta_location = nn.Parameter(torch.zeros(()))
+        self.log_beta_query = nn.Parameter(torch.zeros(()))
+        self.sink_direction = nn.Parameter(torch.zeros(g.query_dim))
+        # The sink bias starts at the mean pair score of a fresh bank (zero).
+        self.sink_bias = nn.Parameter(torch.zeros(()))
+        self.sink_value = nn.Parameter(torch.zeros(g.value_dim))
+        self.base_location = nn.Parameter(torch.randn(g.location_dim) * 0.01)
+        self.metadata_location = nn.Linear(g.query_dim, g.location_dim, bias=False)
+        self.table = EdgeTable(g, self.sink_value.device)
+        self.bank_id = uuid.uuid4().hex
+        self.version = 0
+        self.learned_values = False
+        self.masters = MasterCache(g, self.sink_value.device)
+        self._projection: Tensor | None = None
+
+    def _apply(self, fn, recurse: bool = True):
+        result = super()._apply(fn, recurse)
+        self.table.to(self.sink_value.device)
+        self.masters.to(self.sink_value.device)
+        if self._projection is not None:
+            self._projection = self._projection.to(self.sink_value.device)
+        return result
+
+    @property
+    def device(self) -> torch.device:
+        return self.sink_value.device
+
+    def switch_to_learned(self) -> None:
+        """Values become trained parameters; written-mass bookkeeping ends."""
+        if self.learned_values:
+            raise RuntimeError("Value optimizer was already activated")
+        self.learned_values = True
+        self.table.write_mass.zero_()
+        self.masters.clear(("value",))
+        self._changed()
+
+    # ------------------------------------------------------------------ rows
+
     def retire(self, ids: Tensor | list[int]) -> None:
         ids = torch.as_tensor(ids, dtype=torch.int64)
         if not ids.numel():
@@ -642,9 +778,6 @@ class TransducerBank(nn.Module):
         self.table.release(self.table.slots(ids))
         self.masters.drop(ids.tolist())
         self._changed()
-
-    def decode(self, name: str, ids: Tensor | list[int]) -> Tensor:
-        return self.table.decode(name, self.table.slots(ids))
 
     def publish_addresses(
         self, name: str, ids: Tensor, values: Tensor, *, step: int, worker: int
@@ -690,50 +823,61 @@ class TransducerBank(nn.Module):
 
     # --------------------------------------------------------------- search
 
-    def initial_agenda(self, metadata: Tensor) -> SearchAgenda:
+    def mount(
+        self,
+        bases: Mapping[str, tuple[EdgeStore, float]] | None = None,
+        *,
+        trained: float = 1.0,
+    ) -> tuple[Mounted, ...]:
+        """The bases one session searches: this bank (at ``trained``) and ``bases`` by name.
+
+        A weight of 0 leaves a base out. Mounted bases must share this bank's
+        geometry (locations, queries, values and the content projection's seed).
+        """
+        g = self.geometry
+        if bases and TRAINED in bases:
+            raise ValueError(f"{TRAINED!r} names the trained base")
+        mounted = []
+        for name, (base, weight) in {TRAINED: (self, trained), **(bases or {})}.items():
+            if not math.isfinite(weight) or weight < 0:
+                raise ValueError("Blend weights are finite and nonnegative; 0 unmounts a base")
+            other = base.geometry
+            if (other.location_dim, other.query_dim, other.value_dim, other.seed) != (
+                g.location_dim,
+                g.query_dim,
+                g.value_dim,
+                g.seed,
+            ):
+                raise ValueError(f"Base {name!r} has a different geometry than this model's bank")
+            if base.device != self.device:
+                raise ValueError(f"Base {name!r} is not on the model's device")
+            if weight > 0:
+                mounted.append(Mounted(name, base, float(weight)))
+        return tuple(mounted)
+
+    def initial_agenda(
+        self, metadata: Tensor, mounted: tuple[Mounted, ...] | None = None
+    ) -> SearchAgenda:
         if metadata.shape != (self.geometry.query_dim,):
             raise ValueError("Metadata prefix must supply a query-width vector")
-        start = unit(
+        start = self.metadata_start(metadata)
+        return SearchAgenda(
+            locations=[start], state=start, mounted=self.mount() if mounted is None else mounted
+        )
+
+    def metadata_start(self, metadata: Tensor) -> Tensor:
+        """Where a metadata prefix places a search, or an ingested item: the one metadata map."""
+        return unit(
             self.base_location.float()
             + nn.functional.linear(metadata.float(), self.metadata_location.weight.float())
         )
-        return SearchAgenda(locations=[start], state=start)
-
-    def nearest(self, locations: Tensor, count: int) -> Tensor:
-        """Exact scan of the packed departures: [rows, min(count, edges)] nearest slots."""
-        rows, table = locations.shape[0], self.table
-        count = min(count, table.count)
-        if not count:
-            return torch.full((rows, 0), -1, dtype=torch.int64, device=self.device)
-        query = packed_unit(locations.detach().float())
-        best_scores: Tensor | None = None
-        best_slots: Tensor | None = None
-        for start in range(0, table.high_water, TABLE_CHUNK):
-            stop = min(start + TABLE_CHUNK, table.high_water)
-            scores = query @ table.departure_unit[start:stop].T
-            scores = scores.masked_fill(table.ids[start:stop] < 0, -math.inf)
-            chunk = torch.arange(start, stop, device=self.device).expand(rows, -1)
-            if best_scores is not None:
-                scores = torch.cat((best_scores, scores), dim=1)
-                chunk = torch.cat((best_slots, chunk), dim=1)
-            top = torch.topk(scores, min(count, scores.shape[1]), dim=1)
-            best_scores = top.values
-            best_slots = torch.gather(chunk, 1, top.indices)
-        return best_slots
-
-    def _shortlists(self, locations: list[Tensor]) -> tuple[list[Tensor], list[Tensor]]:
-        g = self.geometry
-        with torch.no_grad():
-            ranked = self.nearest(torch.stack(locations), 2 * g.neighbors)
-        return (
-            [row[: g.neighbors] for row in ranked],
-            [row[g.neighbors :] for row in ranked],
-        )
 
     def refresh(self, agenda: SearchAgenda) -> None:
-        if agenda.version != self.version:
-            agenda.shortlists, agenda.bands = self._shortlists(agenda.locations)
-            agenda.version = self.version
+        """Rescan the departures of every mounted base that changed since its cache was built."""
+        for b, mounted in enumerate(agenda.mounted):
+            if agenda.versions[b] != mounted.base.version:
+                agenda.shortlists[b], agenda.bands[b] = mounted.base.shortlists(agenda.locations)
+                agenda.versions[b] = mounted.base.version
 
     def content_location(self, values: Tensor) -> Tensor:
         """normalize(Pi h): the fixed content-derived location of a value (rows or one)."""
@@ -752,40 +896,41 @@ class TransducerBank(nn.Module):
         """The query read through each location: normalize(q * (1 + tanh(M s)))."""
         return packed_unit(query[None] * (1 + torch.tanh(locations @ self.modulation.float().T)))
 
-    def _pair_scores(
+    def _select(
         self,
-        slots: Tensor,
-        where: Tensor,
+        agenda: SearchAgenda,
         modulated: Tensor,
         locations: Tensor,
         beta_q: Tensor,
         beta_s: Tensor,
-    ) -> Tensor:
-        """Selection scores of every (location, edge) pair from the cached unit rows.
+        limit: int,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """The best ``limit`` pairs over every mounted base: slots, locations and owning bases.
 
-        Each distinct edge is read once; key products run in BF16 with FP32 output.
-        The selected pairs' logits are recomputed exactly by ``lookup``.
+        Every base's shortlisted pairs are scored together, each base's scores
+        shifted by its log blend weight, and ranked as one list.
         """
-        unique, inverse = torch.unique(slots, return_inverse=True)
-        modulated = modulated.to(torch.bfloat16)
-        # Pairs grouped by edge, so every chunk of edges owns one contiguous run of pairs.
-        order = torch.argsort(inverse)
-        inverse, where, slots = inverse[order], where[order], slots[order]
-        starts = torch.arange(0, unique.numel(), PAIR_CHUNK, device=slots.device)
-        bounds = torch.searchsorted(inverse, starts).tolist() + [inverse.numel()]
-        scores = torch.empty(slots.shape[0], device=self.device)
-        for index, start in enumerate(starts.tolist()):
-            low, high = bounds[index], bounds[index + 1]
-            chunk = unique[start : start + PAIR_CHUNK]
-            keys = (self.table.key_unit[chunk] @ modulated.T).float()
-            near = self.table.departure_unit[chunk] @ locations.T
-            row, column = inverse[low:high] - start, where[low:high]
-            scores[low:high] = (
-                beta_q * keys[row, column]
-                + beta_s * near[row, column]
-                + self.table.bias[slots[low:high]]
+        scored, slots, where, owner = [], [], [], []
+        for b, mounted in enumerate(agenda.mounted):
+            lists = agenda.shortlists[b]
+            every_slot = torch.cat(lists)
+            if not every_slot.numel():
+                continue
+            every_location = torch.arange(len(lists), device=self.device)
+            every_location = every_location.repeat_interleave(lists[0].numel())
+            scores = mounted.base.pair_scores(
+                every_slot, every_location, modulated, locations, beta_q, beta_s
             )
-        return torch.empty_like(scores).scatter_(0, order, scores)
+            scored.append(scores + mounted.log_weight)
+            slots.append(every_slot)
+            where.append(every_location)
+            owner.append(torch.full_like(every_slot, b))
+        if not scored:
+            empty = torch.empty(0, dtype=torch.int64, device=self.device)
+            return empty, empty, empty
+        scores = torch.cat(scored)
+        top = torch.topk(scores, min(limit, scores.numel())).indices
+        return torch.cat(slots)[top], torch.cat(where)[top], torch.cat(owner)[top]
 
     def lookup(
         self,
@@ -800,8 +945,11 @@ class TransducerBank(nn.Module):
     ) -> Lookup | None:
         """Score every shortlisted (agenda location, edge) pair, keep the best, blend.
 
-        ``train_rows`` (default: ``training``) gives the selected rows gradient
-        masters; hindsight-only lookups pass False so the unused bank trains nothing.
+        The pairs of every mounted base compete in one softmax with the one
+        sink; each base's scores carry its log blend weight. ``train_rows``
+        (default: ``training``) gives the selected trained-base rows gradient
+        masters (ingested rows never have any); hindsight-only lookups pass
+        False so the unused bank trains nothing.
         """
         g = self.geometry
         if agenda.lookups >= g.max_lookups:
@@ -817,56 +965,79 @@ class TransducerBank(nn.Module):
         modulated = self.modulated(q, locations)
         # Scoring controls are FP32 whatever the model's storage precision.
         beta_q, beta_s = self.log_beta_query.float().exp(), self.log_beta_location.float().exp()
-        explore = training and g.exploration and any(band.numel() for band in agenda.bands)
+        own = next((b for b, m in enumerate(agenda.mounted) if m.base is self), None)
+        # Exploration reaches only the trained base: ingested bases are fixed.
+        explore = bool(
+            training
+            and g.exploration
+            and own is not None
+            and any(band.numel() for band in agenda.bands[own])
+        )
         limit = g.selected - (g.exploration if explore else 0)
         with torch.no_grad():
-            every_slot = torch.cat(agenda.shortlists)
-            width = agenda.shortlists[0].numel()
-            every_location = torch.arange(len(agenda.shortlists), device=self.device)
-            every_location = every_location.repeat_interleave(width)
-            if every_slot.numel():
-                scores = self._pair_scores(
-                    every_slot, every_location, modulated, locations, beta_q, beta_s
-                )
-                top = torch.topk(scores, min(limit, scores.numel())).indices
-                slots, where = every_slot[top], every_location[top]
-            else:
-                slots = where = every_slot
+            slots, where, owner = self._select(agenda, modulated, locations, beta_q, beta_s, limit)
             if explore:
-                slots, where = self._explore(agenda, slots, where, generator)
+                slots, where, owner = self._explore(agenda, own, slots, where, owner, generator)
+            # Grouped by base, so each base's selected rows are one contiguous run.
+            order = torch.argsort(owner, stable=True)
+            slots, where, owner = slots[order], where[order], owner[order]
         sink_logit = self.sink_bias.float() + self.sink_direction.float() @ q
         start = agenda.state.float()  # unit: a landing or the initial location
-        pairs: tuple[tuple[int, int], ...] = ()
+        pairs: tuple[tuple[int, str, int], ...] = ()
+        edge_ids = torch.empty(0, dtype=torch.int64, device=self.device)
+        edge_weights = torch.empty(0, device=self.device)
         if slots.numel():
-            ids = self.table.ids_of(slots)
-            id_list = ids.tolist()
-            pairs = tuple(zip(where.tolist(), id_list, strict=True))
-            trained = id_list if train_rows else None
-            keys = packed_unit(self._fields("key", slots, trained))
-            departures = packed_unit(self._fields("departure", slots, trained))
-            biases = self._fields("bias", slots, trained).reshape(-1)
+            runs = torch.bincount(owner, minlength=len(agenda.mounted)).tolist()
+            ids, keys, departures, biases, values, destinations = [], [], [], [], [], []
+            low = 0
+            for b, run in enumerate(runs):
+                if not run:
+                    continue
+                base, chosen = agenda.mounted[b].base, slots[low : low + run]
+                low += run
+                ids.append(base.table.ids_of(chosen))
+                # Only the trained base's rows have gradient masters.
+                trained = ids[-1].tolist() if base is self and train_rows else None
+
+                def read(name: str, base=base, chosen=chosen, trained=trained) -> Tensor:
+                    if base is self:
+                        return self._fields(name, chosen, trained)
+                    return base.table.decode(name, chosen)
+
+                keys.append(read("key"))
+                departures.append(read("departure"))
+                biases.append(read("bias").reshape(-1))
+                values.append(read("value"))
+                destinations.append(read("destination"))
+            ids = torch.cat(ids)
+            names = [agenda.mounted[b].name for b in owner.tolist()]
+            pairs = tuple(zip(where.tolist(), names, ids.tolist(), strict=True))
+            keys = packed_unit(torch.cat(keys))
+            departures = packed_unit(torch.cat(departures))
+            shifts = torch.tensor([m.log_weight for m in agenda.mounted], device=self.device)
             logits = (
                 beta_q * (keys * modulated[where]).sum(-1)
                 + beta_s * (departures * locations[where]).sum(-1)
-                + biases
+                + torch.cat(biases)
+                + shifts[owner]
             )
             weights = torch.softmax(torch.cat((logits, sink_logit[None])).float(), dim=0)
             pair_weights = weights[:-1]
-            values = self._fields("value", slots, trained)
-            destinations = packed_unit(self._fields("destination", slots, trained))
+            values = torch.cat(values)
+            destinations = packed_unit(torch.cat(destinations))
             bank_value = weights[-1] * self.sink_value.float() + pair_weights @ values
             landing_raw = weights[-1] * start + pair_weights @ destinations
-            edge_ids, inverse = torch.unique(ids, return_inverse=True)
-            edge_weights = torch.zeros(edge_ids.numel(), device=self.device).index_add(
-                0, inverse, pair_weights
-            )
+            if own is not None and bool((owner == own).any()):
+                mine = owner == own
+                edge_ids, inverse = torch.unique(ids[mine], return_inverse=True)
+                edge_weights = torch.zeros(edge_ids.numel(), device=self.device).index_add(
+                    0, inverse, pair_weights[mine]
+                )
         else:
             logits = sink_logit.new_zeros(0)
             weights = torch.ones(1, device=self.device) + 0 * sink_logit
             bank_value = weights[-1] * self.sink_value.float()
             landing_raw = weights[-1] * start
-            edge_ids = torch.empty(0, dtype=torch.int64, device=self.device)
-            edge_weights = torch.empty(0, device=self.device)
         value, landing_mix = bank_value, landing_raw
         destination = None
         if hindsight is not None:
@@ -887,38 +1058,48 @@ class TransducerBank(nn.Module):
             edge_weights=edge_weights,
             start=start,
             start_key=self.modulated(q, start[None])[0],
-            bank_version=self.version,
+            query=q,
+            versions=tuple(m.base.version for m in agenda.mounted),
         )
 
     def _explore(
-        self, agenda: SearchAgenda, slots: Tensor, where: Tensor, generator: torch.Generator | None
-    ) -> tuple[Tensor, Tensor]:
-        """Add random pairs from the rank band just past the shortlists (training only)."""
-        chosen = set(zip(where.tolist(), slots.tolist(), strict=True))
+        self,
+        agenda: SearchAgenda,
+        own: int,
+        slots: Tensor,
+        where: Tensor,
+        owner: Tensor,
+        generator: torch.Generator | None,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        """Add random pairs from the rank band just past the trained base's shortlists."""
+        bands = agenda.bands[own]
+        chosen = set(zip(where.tolist(), slots.tolist(), owner.tolist(), strict=True))
         added_slots, added_where = [], []
         for _ in range(self.geometry.exploration):
-            index = int(torch.randint(len(agenda.bands), (1,), generator=generator))
-            band = agenda.bands[index].tolist()
-            band = [slot for slot in band if (index, slot) not in chosen]
+            index = int(torch.randint(len(bands), (1,), generator=generator))
+            band = bands[index].tolist()
+            band = [slot for slot in band if (index, slot, own) not in chosen]
             if not band:
                 continue
             slot = band[int(torch.randint(len(band), (1,), generator=generator))]
-            chosen.add((index, slot))
+            chosen.add((index, slot, own))
             added_slots.append(slot)
             added_where.append(index)
         if not added_slots:
-            return slots, where
-        device = slots.device
+            return slots, where, owner
+        device, count = slots.device, len(added_slots)
         return (
             torch.cat((slots, torch.tensor(added_slots, dtype=slots.dtype, device=device))),
             torch.cat((where, torch.tensor(added_where, dtype=where.dtype, device=device))),
+            torch.cat((owner, torch.full((count,), own, dtype=owner.dtype, device=device))),
         )
 
     def commit(self, agenda: SearchAgenda, lookup: Lookup) -> bool:
         """Publish a lookup that C accepted: move the search; append a distinct location."""
         if agenda.lookups >= self.geometry.max_lookups:
             raise RuntimeError("Lookup cap reached before publication")
-        if lookup.bank_version != self.version or agenda.version != self.version:
+        current = tuple(m.base.version for m in agenda.mounted)
+        if lookup.versions != current or tuple(agenda.versions) != current:
             raise RuntimeError("Stale transducer lookup cannot commit across a bank publication")
         agenda.lookups += 1
         agenda.state = lookup.landing
@@ -928,9 +1109,10 @@ class TransducerBank(nn.Module):
                 return False
         agenda.locations.append(lookup.landing)
         agenda.births.append(agenda.lookups)
-        shortlist, band = self._shortlists([lookup.landing])
-        agenda.shortlists.append(shortlist[0])
-        agenda.bands.append(band[0])
+        for b, mounted in enumerate(agenda.mounted):
+            shortlist, band = mounted.base.shortlists([lookup.landing])
+            agenda.shortlists[b].append(shortlist[0])
+            agenda.bands[b].append(band[0])
         return True
 
     # ------------------------------------------------------------- snapshots
