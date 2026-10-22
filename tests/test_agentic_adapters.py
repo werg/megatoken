@@ -1000,6 +1000,43 @@ def test_a_reply_that_is_one_fenced_block_of_calls_is_a_call_and_other_code_is_t
     assert linked(episode)
 
 
+def test_llamafactory_calls_keep_their_thinking_and_results_lose_their_tags():
+    row = {
+        "system": "You are an agent.",
+        "tools": json.dumps(
+            [
+                {
+                    "type": "function",
+                    "function": {"name": "f", "parameters": json.dumps({"type": "object"})},
+                }
+            ]
+        ),
+        "conversations": [
+            {"from": "human", "value": "go"},
+            {
+                "from": "function_call",
+                "value": '<think>\nplan\n</think>\n<tool_call>\n{"name": "f", "arguments": {}}\n</tool_call>',
+            },
+            {"from": "observation", "value": "<tool_response>\nok\n</tool_response>"},
+            {"from": "gpt", "value": "done"},
+        ],
+    }
+    episode = adapt(row, "simulated_tool_roles")
+    assert [r.payload for r in episode.records if r.result_of] == [b"ok"]
+    assert any(b"plan" in r.payload for r in episode.records if r.policy_mask and not r.action_id)
+    assert json.loads(episode.tools_json)[0]["function"]["parameters"] == {"type": "object"}
+    assert linked(episode)
+
+
+def test_one_response_holding_every_parallel_result_is_split_per_call():
+    calls = "".join(
+        f'<tool_call>{{"name": "f", "arguments": {{"a": {i}}}}}</tool_call>' for i in range(2)
+    )
+    packed = json.dumps([{"name": "f", "results": {"v": 1}}, {"name": "f", "results": "two"}])
+    episode = adapt(hermes_row(calls, f"<tool_response>{packed}</tool_response>"), "hermes_tools")
+    assert [r.payload for r in episode.records if r.result_of] == [b'{"v": 1}', b'"two"']
+
+
 def test_xml_function_calls_keep_parameter_types():
     call = (
         "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"

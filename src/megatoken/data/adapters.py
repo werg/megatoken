@@ -568,6 +568,16 @@ def _clean_schema(value: Any) -> Any:
     return value
 
 
+def _decoded_parameters(schema: dict[str, Any]) -> dict[str, Any]:
+    """A tool schema whose parameters are stored as a JSON string, with the string decoded."""
+    wrapped = isinstance(schema.get("function"), dict)
+    inner = schema["function"] if wrapped else schema
+    if not isinstance(inner.get("parameters"), str):
+        return schema
+    inner = {**inner, "parameters": _object(inner["parameters"], "tool parameters")}
+    return {**schema, "function": inner} if wrapped else inner
+
+
 def _tools(value: Any) -> str:
     schemas = _object(value, "tools") if value is not None else []
     if not isinstance(schemas, list):
@@ -575,7 +585,9 @@ def _tools(value: Any) -> str:
     schemas = [_object(item, "tool schema") for item in schemas]
     if any(not isinstance(item, dict) for item in schemas):
         raise SchemaError("Every tool schema must be an object")
-    return canonical_json(_clean_schema([_function_tool(item) for item in schemas]))
+    return canonical_json(
+        _clean_schema([_function_tool(_decoded_parameters(item)) for item in schemas])
+    )
 
 
 def _function_tool(tool: dict[str, Any]) -> dict[str, Any]:

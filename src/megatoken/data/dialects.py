@@ -164,6 +164,21 @@ def _call_body(piece: str) -> tuple[Any, Any]:
     return item.get("name"), item.get("arguments", {})
 
 
+def _packed_results(body: str, count: int) -> list[str] | None:
+    """One response holding a JSON list of ``{name, arguments, results}``, one entry per pending call."""
+    try:
+        entries = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if (
+        isinstance(entries, list)
+        and len(entries) == count
+        and all(isinstance(entry, Mapping) and "results" in entry for entry in entries)
+    ):
+        return [json.dumps(entry["results"], ensure_ascii=False) for entry in entries]
+    return None
+
+
 def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     """``<tool_call>{json}</tool_call>`` (or the XML ``<function=...>`` form) in assistant text,
     ``<tool_response>`` results."""
@@ -203,6 +218,8 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
         elif is_result:
             # A tool message without response tags is one result in the publisher's own words.
             bodies = _TAGGED["response"].findall(text) if "<tool_response>" in text else [text]
+            if len(bodies) == 1 and len(ledger.pending) > 1:
+                bodies = _packed_results(bodies[0], len(ledger.pending)) or bodies
             ids = ledger.answer(len(bodies), in_parts=True)
             results = [_result(i, body) for i, body in zip(ids, bodies, strict=True)]
             out.append({**message, "role": "tool", "content": results})
@@ -383,11 +400,24 @@ def python_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     return out, tools
 
 
+def _tagged_calls(text: str) -> tuple[str, list[Any]]:
+    """The prose and the call objects of a message written ``<think>..</think><tool_call>{..}</tool_call>``;
+    one block may also hold a JSON list of calls."""
+    pieces = _TAGGED["call"].split(text)
+    calls: list[Any] = []
+    for piece in pieces[1::2]:
+        body = _literal(piece, "A <tool_call> body")
+        calls += body if isinstance(body, list) else [body]
+    return "".join(pieces[0::2]).strip(), calls
+
+
 def role_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     """One message per call and per result: ``tool_call``/``function_call`` and ``tool_response``.
 
-    A call's content is ``{"name", "arguments"}`` (an object or its JSON text). Parallel
-    calls are consecutive messages answered, in order, by the results that follow.
+    A call's content is ``{"name", "arguments"}`` (an object, a list of them, or JSON text), or
+    LlamaFactory's ``<think>..</think><tool_call>{json}</tool_call>``, whose prose is kept. Parallel
+    calls are consecutive messages (or one message) answered, in order, by the results that follow;
+    a result may be wrapped in ``<tool_response>`` tags.
     """
     ledger, out = _Ledger(), []
     system = row.get("system")
@@ -398,30 +428,31 @@ def role_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
         if isinstance(raw, str):
             raw = raw.replace(" ", "_")  # "tool call" is how one publisher spells tool_call
         if raw in {"tool_call", "function_call"}:
-            body = message.get("content", message.get("value"))
-            if isinstance(body, str):
+            body, prose = message.get("content", message.get("value")), ""
+            if isinstance(body, str) and "<tool_call>" in body:
+                prose, body = _tagged_calls(body)
+            elif isinstance(body, str):
                 body = _literal(body, "A tool call body")
             bodies = (
                 body if isinstance(body, list) and body else [body]
-            )  # one message, several calls
+            )  # several calls in one message
             if any(not isinstance(item, Mapping) for item in bodies):
                 raise SchemaError("A tool call body must be an object")
             ids = ledger.issue(turn, len(bodies))
-            out.append(
-                {
-                    **message,
-                    "role": "assistant",
-                    "content": [
-                        _use(call_id, item.get("name"), item.get("arguments", {}))
-                        for call_id, item in zip(ids, bodies, strict=True)
-                    ],
-                }
-            )
+            uses = [
+                _use(call_id, item.get("name"), item.get("arguments", {}))
+                for call_id, item in zip(ids, bodies, strict=True)
+            ]
+            out.append({**message, "role": "assistant", "content": _blocks(prose, uses)})
         elif raw in {"tool_response", "observation", "tool"} and ledger.pending:
-            call_id = ledger.pending.popleft()
-            out.append(
-                {**message, "role": "tool", "content": [_result(call_id, _text_or_json(message))]}
-            )
+            text = _text_or_json(message)
+            results = _TAGGED["response"].findall(text) if "<tool_response>" in text else [text]
+            if len(results) > len(ledger.pending):
+                raise SchemaError(
+                    f"{len(results)} tool results for {len(ledger.pending)} pending call(s)"
+                )
+            blocks = [_result(ledger.pending.popleft(), result) for result in results]
+            out.append({**message, "role": "tool", "content": blocks})
         else:
             out.append({**message, "role": role_of(message), "content": _text_or_json(message)})
     return out, row.get("tools")
@@ -806,18 +837,7 @@ def call_list(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
             blocks += _blocks("".join(pieces[2::2]), [])
             out.append({"role": "assistant", "content": blocks})
         elif role == "tool":
-            try:
-                entries = json.loads(text)
-            except json.JSONDecodeError:
-                entries = None
-            if (
-                isinstance(entries, list)
-                and len(entries) == len(ledger.pending)
-                and all(isinstance(entry, Mapping) and "results" in entry for entry in entries)
-            ):
-                bodies = [json.dumps(entry["results"]) for entry in entries]
-            else:
-                bodies = [text]
+            bodies = _packed_results(text, len(ledger.pending)) or [text]
             ids = ledger.answer(len(bodies))
             out.append(
                 {
