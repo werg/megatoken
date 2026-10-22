@@ -1438,3 +1438,89 @@ def test_rows_linked_to_images_in_a_split_archive_become_edit_sessions(tmp_path,
         b"Change the yellow text in the picture to red",
     ]
     assert [d.kind for d in two.dependencies] == ["edit", "edit"]
+
+
+def test_multiple_choice_questions_about_recordings_list_the_options_in_the_question(
+    tmp_path, media
+):
+    source = make_source(
+        "choices",
+        "audio_questions",
+        columns={
+            "audio": "audio",
+            "question": "question",
+            "choices": "options",
+            "answer": "answer",
+            "id": "id",
+        },
+        include=("*.parquet",),
+        options={"format": "choices"},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "id": ["a", "b", "c"],
+                "audio": [{"bytes": _wave(i), "path": ""} for i in range(3)],
+                "question": ["What is heard?", "How many?", "Bad answer?"],
+                "options": [["rain", "wind"], ["one", "two", "three"], ["x", "y"]],
+                "answer": [1, "three", 7],
+            }
+        ),
+        _local(tmp_path, "choices") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    # The third row's answer index is outside its options: no turn, no episode.
+    assert _streams(episodes) == {"audio_description": 2, "audio_identity": 2}
+    first = next(e for e in episodes if e.stream == "audio_description")
+    assert first.records[1].payload == b"What is heard?\nA. rain\nB. wind"
+    assert first.records[2].payload == b"B. wind"
+
+
+@ffmpeg
+def test_captioned_clips_and_conversations_about_video_give_video_description(tmp_path, media):
+    captions = make_source(
+        "vcap",
+        "captioned_video",
+        "archive",
+        columns={"video": "member", "caption": "caption", "id": "__key__"},
+        include=("*.zip",),
+        options={
+            "table": {"path": "t.csv", "key": "{video}", "columns": ["caption"]},
+            "max_seconds": 1.0,
+        },
+    )
+    folder = _local(tmp_path, "vcap")
+    (folder / "t.csv").write_text("video,caption\nc.mp4,A test pattern moves\n")
+    with zipfile.ZipFile(folder / "0.zip", "w") as archive:
+        archive.writestr("dir/c.mp4", _video(tmp_path / "c.mp4", 2, sound=False).read_bytes())
+    episodes = _run(media, captions, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"video_description": 1, "video_identity": 1}
+    described = next(e for e in episodes if e.stream == "video_description")
+    assert described.records[1].payload == b"A test pattern moves"
+
+    questions = make_source(
+        "vqa",
+        "video_questions",
+        columns={"video": "video", "turns": "conversations", "id": "id"},
+        include=("*.parquet",),
+        options={"format": "messages", "max_seconds": 1.0},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "id": ["v"],
+                "video": [{"bytes": _video(tmp_path / "q.mp4", 2, sound=False).read_bytes()}],
+                "conversations": [
+                    [
+                        {"from": "human", "value": "<image>\nWhat moves?"},
+                        {"from": "gpt", "value": "A pattern."},
+                    ]
+                ],
+            }
+        ),
+        _local(tmp_path, "vqa") / "0.parquet",
+    )
+    episodes = _run(media, questions, tmp_path, inputs=tmp_path / "inputs")
+    asked = next(e for e in episodes if e.stream == "video_description")
+    assert [r.payload for r in asked.records[1:]] == [b"What moves?", b"A pattern."]
+    assert not list((tmp_path / "work").rglob("*.mp4"))

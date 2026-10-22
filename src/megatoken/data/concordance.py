@@ -52,6 +52,7 @@ TASK_FAMILIES = frozenset(
         "image_description",
         "image_creation",
         "audio_description",
+        "video_description",
         "av_understanding",
         "av_creation",
         "endpoints",
@@ -569,6 +570,22 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
             ),
             (Relation("describes", labels["audio_caption"], labels["audio"]),),
         )
+    if has("video", "video_caption"):
+        add(
+            "video_description",
+            "grounded-video-description",
+            (
+                group(observed(labels["video"], "video", "Watch the supplied clip.")),
+                group(
+                    generated(
+                        labels["video_caption"],
+                        "caption",
+                        "Describe the visible subjects, motion and their order.",
+                    )
+                ),
+            ),
+            (Relation("describes", labels["video_caption"], labels["video"]),),
+        )
     if has("creation_request", "image", "display_caption"):
         add(
             "image_creation",
@@ -988,7 +1005,7 @@ def question_chain_view(
     ``turns`` is each turn's ``(question, answer)`` text artifact IDs. Every answer is one
     supervised output that may use the media and every earlier turn.
     """
-    if family not in {"image_description", "audio_description"} or not turns:
+    if family not in {"image_description", "audio_description", "video_description"} or not turns:
         raise ValueError("A question chain needs a describing family and at least one turn")
     groups = [
         group(

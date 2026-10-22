@@ -149,6 +149,7 @@ STREAMS = frozenset(
         "image_description",
         "image_creation",
         "audio_description",
+        "video_description",
         "image_edit",
         "speech_edit",
         "av_creation",
@@ -530,22 +531,27 @@ def chain_episodes(
     )
 
 
-def question_episodes(
-    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
-) -> list[Episode]:
-    """A conversation about one image -> one multi-turn episode, and the image's identity.
+DESCRIPTION_FAMILY = {
+    "image": "image_description",
+    "audio": "audio_description",
+    "video": "video_description",
+}
 
-    ``clip["turns"]`` is the list of ``(question, answer)`` texts in order.
-    """
-    image = _media(
+
+def _question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any], modality: str
+) -> list[Episode]:
+    """A conversation about one image, recording or video -> one multi-turn episode, and the
+    media's identity. ``clip["turns"]`` is the list of ``(question, answer)`` texts in order."""
+    subject = _media(
         media,
-        _sha(clip["id"], "image"),
-        "image",
-        "image",
-        clip["image"],
+        _sha(clip["id"], modality),
+        modality,
+        modality,
+        clip[modality],
         provenance=_provenance(source, "media"),
     )
-    artifacts = [image]
+    artifacts = [subject]
     turns = []
     for number, (question, answer) in enumerate(clip["turns"], 1):
         asked = _text(source, _sha(clip["id"], "q", str(number)), f"question_{number}", question)
@@ -553,20 +559,61 @@ def question_episodes(
         artifacts += [asked, replied]
         turns.append((asked.artifact_id, replied.artifact_id))
     view = question_chain_view(
-        family="image_description",
-        view_id=f"grounded-image-questions-{len(turns)}",
-        media=image.artifact_id,
+        family=DESCRIPTION_FAMILY[modality],
+        view_id=f"grounded-{modality}-questions-{len(turns)}",
+        media=subject.artifact_id,
         turns=turns,
+        modality=modality,
     )
     episodes = compile_bundle(
         source,
         f"{source.source_id}:{clip['id']}",
         clip["family"],
         artifacts,
-        preprocessing=f"{source.source_id}-questions-v1",
+        preprocessing=f"{source.source_id}-{modality}-questions-v1",
         views=(view,),
     )
-    return [*episodes, identity_episode(image.media, clip["family"])]
+    return [*episodes, identity_episode(subject.media, clip["family"])]
+
+
+def question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    return _question_episodes(media, source, clip, "image")
+
+
+def audio_question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    return _question_episodes(media, source, clip, "audio")
+
+
+def video_question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    return _question_episodes(media, source, clip, "video")
+
+
+def video_caption_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    """A (silent or not) clip with a written description -> video description and video identity."""
+    video = _media(
+        media,
+        _sha(clip["id"], "video"),
+        "video",
+        "video",
+        clip["video"],
+        provenance=_provenance(source, "media"),
+    )
+    episodes = compile_bundle(
+        source,
+        f"{source.source_id}:{clip['id']}",
+        clip["family"],
+        (video, _text(source, _sha(clip["id"], "caption"), "video_caption", clip["caption"])),
+        preprocessing=f"{source.source_id}-video-caption-v1",
+    )
+    return [*episodes, identity_episode(video.media, clip["family"])]
 
 
 def audio_caption_episodes(
@@ -1360,7 +1407,8 @@ def _clean_turn(text: Any) -> str | None:
 def conversation(source: OpenSource, record: Mapping[str, Any]) -> list[tuple[str, str]]:
     """The ``(question, answer)`` turns of a record, whichever way the publisher stored them.
 
-    ``options.format`` is ``pairs`` (a list of ``{user, assistant}`` mappings, the keys named by
+    ``options.format`` is ``choices`` (``question``, ``choices`` and ``answer`` fields: a
+    multiple-choice question), ``pairs`` (a list of ``{user, assistant}`` mappings, the keys named by
     ``options.user_key`` / ``options.assistant_key``), ``messages`` (a list of role/text
     mappings: ``from``/``value`` or ``role``/``content``; a turn that does not alternate user,
     assistant ends the conversation) or ``parallel`` (the ``question`` and ``answer`` fields
@@ -1372,6 +1420,24 @@ def conversation(source: OpenSource, record: Mapping[str, Any]) -> list[tuple[st
     if layout == "parallel":
         questions, answers = (_list_label(source, record, role) for role in ("question", "answer"))
         pairs = list(zip(questions, answers, strict=False))
+    elif layout == "choices":
+        # A multiple-choice question: the options are listed in the question and the answer
+        # is the right option's letter and text (the answer field is its index or its text).
+        pairs = []
+        for question, options, answer in zip(
+            *(_list_label(source, record, role) for role in ("question", "choices", "answer")),
+            strict=False,
+        ):
+            options = [str(option) for option in options or ()]
+            right = (
+                answer
+                if isinstance(answer, int)
+                else (options.index(answer) if answer in options else None)
+            )
+            if not options or right is None or not 0 <= right < len(options):
+                continue
+            letters = [f"{chr(65 + i)}. {option}" for i, option in enumerate(options)]
+            pairs.append((f"{question}\n" + "\n".join(letters), letters[right]))
     elif layout == "pairs":
         user, assistant = (
             source.options.get("user_key", "user"),
@@ -1405,6 +1471,57 @@ def conversation(source: OpenSource, record: Mapping[str, Any]) -> list[tuple[st
             break
         turns.append((question, answer))
     return turns[: source.options.get("max_turns", 8)]
+
+
+def audio_question_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A conversation about one recording."""
+    turns = conversation(source, record)
+    if not turns or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    audio = _speech_file(source, record, out, _stem(clip_id))
+    return [{"id": clip_id, "family": family, "audio": audio, "turns": turns}] if audio else []
+
+
+def _cut_video(source: OpenSource, payload: bytes, clip_id: str, out: Path) -> Path | None:
+    """A clip of at most ``max_seconds`` as small video (the source's own sound dropped)."""
+    original = _video_source(payload, out, _stem(clip_id))
+    try:
+        seconds, kinds = probe(original)
+        if "video" not in kinds or seconds < source.options.get("min_seconds", 1.5):
+            return None
+        video = out / f"{_stem(clip_id)}.mp4"
+        transcode(original, video, seconds=min(seconds, source.options.get("max_seconds", 8.0)))
+    finally:
+        original.unlink()
+    return video
+
+
+def video_question_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A conversation about one video (the first ``max_seconds`` of it)."""
+    turns = conversation(source, record)
+    payload = blob(_label(source, record, "video"))
+    if not turns or payload is None or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    video = _cut_video(source, payload, clip_id, out)
+    return [{"id": clip_id, "family": family, "video": video, "turns": turns}] if video else []
+
+
+def video_caption_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    caption = _text_label(source, record, "caption")
+    payload = blob(_label(source, record, "video"))
+    if caption is None or payload is None or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    video = _cut_video(source, payload, clip_id, out)
+    return [{"id": clip_id, "family": family, "video": video, "caption": caption}] if video else []
 
 
 def question_clips(
@@ -1804,6 +1921,23 @@ TASKS = {
         frozenset({"image_description", "image_identity"}),
         _plain(question_episodes),
         question_clips,
+    ),
+    "audio_questions": Task(
+        frozenset({"audio_description", "audio_identity"}),
+        _plain(audio_question_episodes),
+        audio_question_clips,
+    ),
+    "captioned_video": Task(
+        frozenset({"video_description", "video_identity"}),
+        _plain(video_caption_episodes),
+        video_caption_clips,
+        procedural="video",
+    ),
+    "video_questions": Task(
+        frozenset({"video_description", "video_identity"}),
+        _plain(video_question_episodes),
+        video_question_clips,
+        procedural="video",
     ),
     "captioned_audio": Task(
         frozenset({"audio_description", "audio_identity"}),

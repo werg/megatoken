@@ -479,39 +479,43 @@
    "repository": "osunlp/MagicBrush",
    "revision": "6c254560879df7851233ea0fd2ae2a62764d0ef2",
    "reader": "parquet",
-   "task": "image_edit",
+   "task": "image_edit_chain",
    "terms": {
     "approved": true,
     "reviewed_by": "Gabriel Pickard",
     "reviewed_at": "2026-10-22",
     "license": "CC-BY-4.0",
     "license_url": "https://huggingface.co/datasets/osunlp/MagicBrush",
-    "notes": "Human-made multi-turn edits (DALL-E 2 inpainting guided by crowd workers) of COCO images."
+    "notes": "Human-made multi-turn edit sessions (DALL-E 2 inpainting guided by crowd workers) of COCO images; each turn edits the previous turn's result, so a session is read as one multi-turn episode. Train and dev are read; the test split is the benchmark and is left out."
    },
    "gated": false,
    "include": [
-    "data/train-*.parquet"
+    "data/train-*.parquet",
+    "data/dev-*.parquet"
    ],
    "columns": {
     "original": "source_img",
     "edited": "target_img",
     "instruction": "instruction",
-    "id": [
-     "img_id",
-     "turn_index"
-    ],
+    "id": "img_id",
     "family": "img_id"
    },
    "options": {
+    "session": {
+     "by": "img_id",
+     "order": "turn_index"
+    },
     "provenance": {
      "media": "teacher"
     }
    },
    "inventory": {
-    "items": 8807,
-    "basis": "training turns",
-    "shards": 51,
-    "size_gb": 25.6
+    "items": 4500,
+    "turns": 8807,
+    "mean_turns": 2.0,
+    "basis": "sessions (img_id) in train+dev; turns from the card: 8,807 train edits plus dev",
+    "shards": 55,
+    "size_gb": 27.1
    },
    "caveat": "Source images come from MS-COCO, whose Flickr photos carry mixed per-image Creative Commons licences (some NonCommercial/NoDerivatives); the card does not address this."
   },
