@@ -19,6 +19,7 @@ teacher identity. Nothing is truncated: sequences over 8192 tokens are refused.
 
 from __future__ import annotations
 
+import bisect
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -95,6 +96,32 @@ class EmbeddingGemma2:
     def encode(self, modality: str, source: str, *, prompt: str = "") -> TeacherOutput:
         """``source`` is the text itself, or a local audio/image/video file path."""
         return self.encode_batch([(modality, source)], prompt=prompt)[0]
+
+    def text_pieces(self, text: str, *, prompt: str = "", margin: int = 8) -> list[str]:
+        """Split ``text`` into consecutive pieces that each fit one teacher input.
+
+        Pieces are cut by the teacher's own token count (the prompt, special
+        tokens and a small margin included), at a line break in the last tenth
+        of a full piece when there is one; joined, they are ``text`` exactly.
+        """
+        tokenizer = self.processor.tokenizer
+        budget = MAX_TOKENS - margin - len(tokenizer(prompt, add_special_tokens=False)["input_ids"])
+        starts = [
+            begin
+            for begin, _ in tokenizer(text, return_offsets_mapping=True, add_special_tokens=False)[
+                "offset_mapping"
+            ]
+        ]
+        pieces, start, index = [], 0, 0
+        while index + budget < len(starts):
+            end = starts[index + budget]
+            cut = text.rfind("\n", starts[index + budget * 9 // 10], end)
+            end = cut + 1 if cut >= 0 else end
+            pieces.append(text[start:end])
+            start = end
+            index = bisect.bisect_left(starts, end, lo=index + 1)
+        pieces.append(text[start:])
+        return pieces
 
     def embed_texts(
         self, texts: list[str], *, prompt: str, batch_tokens: int = 32768

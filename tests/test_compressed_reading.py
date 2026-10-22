@@ -22,10 +22,14 @@ CODEC = ByteCodec.byte_fallback()
 
 
 class CountingTeacher:
-    """One feature row per 64 bytes; refuses pieces over ``limit`` bytes like the 8192 cap."""
+    """One feature row per 64 bytes; pieces of at most ``limit`` characters stand in
+    for the real teacher's 8192-token pieces."""
 
     def __init__(self, limit=6000):
         self.limit, self.calls = limit, []
+
+    def text_pieces(self, text, *, prompt=""):
+        return [text[i : i + self.limit] for i in range(0, len(text), self.limit)]
 
     def encode(self, modality, source, *, prompt=""):
         self.calls.append((modality, prompt, len(source)))
@@ -67,14 +71,14 @@ def _episode(tmp_path, log, policy=None):
 
 def test_long_tool_results_are_read_compressed_and_split_under_the_cap(tmp_path):
     log = "".join(f"step {i}: compiling module {i % 7}\n" for i in range(800))
-    episode, teacher = _episode(tmp_path, log, CompressionPolicy(min_bytes=4096, piece_bytes=8192))
+    episode, teacher = _episode(tmp_path, log, CompressionPolicy(min_bytes=4096))
     compressed = [r for r in episode.records if r.media_type == MEDIA_RECORD_TYPE]
     assert compressed and all(r.role == "tool" and not r.policy_mask for r in compressed)
-    # Pieces cover the result exactly; one over the teacher's cap was halved.
+    # Pieces cover the result exactly, each within the teacher's input limit.
     spans = [(r.source_span.start, r.source_span.end) for r in compressed]
     assert spans[0][0] == 0 and spans[-1][1] == len(log.encode())
     assert all(a[1] == b[0] for a, b in zip(spans, spans[1:], strict=False))
-    assert any(size > teacher.limit for _, _, size in teacher.calls)
+    assert len(compressed) > 1 and all(size <= teacher.limit for _, _, size in teacher.calls)
     assert all(prompt == "title: none | text: " for _, prompt, _ in teacher.calls)
     descriptors = [MediaRecord.from_bytes(r.payload) for r in compressed]
     assert all(d.modality == "text" and d.target is None for d in descriptors)
@@ -119,3 +123,30 @@ def test_compressed_documents_train_through_the_media_encoder(tmp_path, mode):
     if mode == "bootstrap":  # recurrent training updates E on its own branch only
         assert model.core.media_encoder.projection.weight.grad is not None
     assert model.core.central.modality_embedding.weight.grad[4].abs().sum() > 0
+
+
+def test_long_document_reading_episodes_answer_from_a_compressed_document(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts/prepare_long_document_reading.py"
+    spec = importlib.util.spec_from_file_location("prepare_long_document_reading", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    compressor = DocumentCompressor(
+        CountingTeacher(),
+        TensorAssetStore(tmp_path),
+        CompressionPolicy(min_bytes=1, roles=frozenset({"document"})),
+    )
+    task = {
+        "id": "q1",
+        "question": "Which river?",
+        "documents": ["Paris\nThe Seine flows through Paris.", "Rome\nThe Tiber."],
+        "answer": "The Seine",
+    }
+    episode = module.reading_episode(task, compressor)
+    assert episode.stream == "long_document_reading"
+    roles = [(r.role, r.media_type == MEDIA_RECORD_TYPE, r.policy_mask) for r in episode.records]
+    assert roles == [("user", False, False), ("document", True, False), ("assistant", False, True)]
+    modalities = [e.modality for m in episode.meridians for e in m.events]
+    assert modalities == ["text", "compressed_text", "text"]

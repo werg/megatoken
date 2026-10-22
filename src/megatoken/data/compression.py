@@ -19,7 +19,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from .media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
-from .schema import PhysicalRecord, Provenance, Role, SourceSpan, split_payload, stable_id
+from .schema import PhysicalRecord, Provenance, Role, SourceSpan, stable_id
 
 DOCUMENT_PROMPT = "title: none | text: "
 
@@ -30,13 +30,10 @@ class CompressionPolicy:
 
     min_bytes: int = 8192
     roles: frozenset[str] = field(default_factory=lambda: frozenset({"tool", "document"}))
-    # ~3-4 bytes per teacher token keeps a piece under 8192 tokens; a piece the
-    # teacher still refuses is halved.
-    piece_bytes: int = 24576
     prompt: str = DOCUMENT_PROMPT
 
     def __post_init__(self) -> None:
-        if not 1 <= self.min_bytes or not 1024 <= self.piece_bytes:
+        if self.min_bytes < 1:
             raise ValueError("Compression thresholds must be positive")
         if not self.roles <= {"tool", "document", "user", "system", "environment"}:
             raise ValueError("Only observed roles may be read compressed")
@@ -59,20 +56,10 @@ class DocumentCompressor:
 
     def descriptors(self, payload: bytes) -> list[tuple[int, bytes, MediaRecord]]:
         """``(byte offset, piece, descriptor)`` covering every byte of ``payload``."""
-        out = []
-        pending = list(split_payload(payload, self.policy.piece_bytes))
-        while pending:
-            offset, piece = pending.pop(0)
-            try:
-                observation = self.teacher.encode(
-                    "text", piece.decode("utf-8"), prompt=self.policy.prompt
-                )
-            except ValueError as error:
-                if "8192" not in str(error) or len(piece) < 2:
-                    raise
-                halves = list(split_payload(piece, max(1, len(piece) // 2)))
-                pending[:0] = [(offset + start, part) for start, part in halves]
-                continue
+        out, offset = [], 0
+        for text in self.teacher.text_pieces(payload.decode("utf-8"), prompt=self.policy.prompt):
+            piece = text.encode("utf-8")
+            observation = self.teacher.encode("text", text, prompt=self.policy.prompt)
             source = self.store.put(
                 observation.features.numpy(),
                 modality="text",
@@ -81,6 +68,9 @@ class DocumentCompressor:
                 source_family=hashlib.sha256(piece).hexdigest(),
             )
             out.append((offset, piece, MediaRecord("text", source, prompt=self.policy.prompt)))
+            offset += len(piece)
+        if offset != len(payload):
+            raise RuntimeError("Compressed pieces must cover the field exactly")
         return out
 
     def records(
