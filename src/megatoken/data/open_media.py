@@ -56,11 +56,7 @@ MAX_SPEECH_SECONDS = 20.0
 MAX_SIDE = 1024
 _PACKAGE_TREE_MANIFEST = Path(__file__).resolve().parents[3] / "configs/data/sources.media.json"
 _CHECKOUT_MANIFEST = Path.cwd() / "configs/data/sources.media.json"
-MANIFEST = (
-    _PACKAGE_TREE_MANIFEST
-    if _PACKAGE_TREE_MANIFEST.is_file()
-    else _CHECKOUT_MANIFEST
-)
+MANIFEST = _PACKAGE_TREE_MANIFEST if _PACKAGE_TREE_MANIFEST.is_file() else _CHECKOUT_MANIFEST
 
 
 @dataclass(frozen=True, slots=True)
