@@ -1037,6 +1037,25 @@ def test_one_response_holding_every_parallel_result_is_split_per_call():
     assert [r.payload for r in episode.records if r.result_of] == [b'{"v": 1}', b'"two"']
 
 
+def test_tool_calls_written_inside_one_assistant_output_are_split_out_with_their_results():
+    row = {
+        "instruction": "Think, search and answer.",
+        "input": "Who wrote it?",
+        "output": (
+            "<think> look it up </think><search>who wrote it</search>\n\n"
+            "<result>Ann wrote it.</result> <think>done</think><answer>Ann</answer>"
+        ),
+    }
+    episode = adapt(row, "tag_trace_tools")
+    (action,) = episode.actions
+    assert action.tool_name == "search" and json.loads(action.arguments_json) == {
+        "query": "who wrote it"
+    }
+    assert [r.payload for r in episode.records if r.result_of] == [b"Ann wrote it."]
+    assert episode.records[-1].role == "assistant" and episode.records[-1].policy_mask
+    assert linked(episode)
+
+
 def test_xml_function_calls_keep_parameter_types():
     call = (
         "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"

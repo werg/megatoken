@@ -933,6 +933,59 @@ def environment_roles(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any
     return out, row.get("tools")
 
 
+_TAG_CALL = re.compile(r"<(search|python)>(.*?)</\1>\s*<result>(.*?)</result>", re.DOTALL)
+_TAG_TOOLS = [
+    {
+        "name": "search",
+        "description": "Search Wikipedia and return the relevant passage.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "python",
+        "description": "Run Python code and return what it printed.",
+        "parameters": {
+            "type": "object",
+            "properties": {"code": {"type": "string"}},
+            "required": ["code"],
+        },
+    },
+]
+
+
+def tag_trace(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """Tool-integrated reasoning written as one assistant output (Tool-Star): ``<think>`` text, then
+    ``<search>query</search><result>...</result>`` or ``<python>code</python><result>...</result>``,
+    and a closing ``<answer>``. The system prompt is ``instruction`` and the question is ``input``.
+
+    Each tagged call ends the assistant turn that wrote it and its result is the tool's reply,
+    so the retrieved text is context rather than something trained.
+    """
+    system, question, output = row.get("instruction"), row.get("input"), row.get("output")
+    if not isinstance(question, str) or not isinstance(output, str):
+        raise SchemaError("A tag trace needs an input question and an output string")
+    ledger = _Ledger()
+    out: Messages = []
+    if isinstance(system, str) and system.strip():
+        out.append({"role": "system", "content": system})
+    out.append({"role": "user", "content": question})
+    position = 0
+    for turn, match in enumerate(_TAG_CALL.finditer(output)):
+        (call_id,) = ledger.issue(turn, 1)
+        argument = "query" if match.group(1) == "search" else "code"
+        call = _use(call_id, match.group(1), {argument: match.group(2).strip()})
+        out.append(
+            {"role": "assistant", "content": _blocks(output[position : match.start()], [call])}
+        )
+        out.append({"role": "tool", "content": [_result(call_id, match.group(3).strip())]})
+        position = match.end()
+    out.append({"role": "assistant", "content": output[position:]})
+    return out, _TAG_TOOLS
+
+
 def _response_text(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -1013,6 +1066,7 @@ def responses(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
 
 DIALECTS: dict[str, Dialect] = {
     "responses": responses,
+    "tag_trace": tag_trace,
     "environment_roles": environment_roles,
     "call_list": call_list,
     "device_calls": device_calls,

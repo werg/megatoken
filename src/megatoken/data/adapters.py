@@ -202,6 +202,8 @@ PROFILES: dict[str, AdapterProfile] = {
     "python_call_tools": AdapterProfile(observation_provenance="simulated", dialect="python_calls"),
     # gpt-oss traces of a browsing agent whose search and page tools really ran.
     "harmony_tools": AdapterProfile(observation_provenance="executed", dialect="harmony"),
+    # Tool-Star: search and Python calls with their results inside one assistant output.
+    "tag_trace_tools": AdapterProfile(observation_provenance="executed", dialect="tag_trace"),
     "call_list_tools": AdapterProfile(observation_provenance="simulated", dialect="call_list"),
     # tau2 logs: the customer also calls tools of its own, which stay on the customer's side.
     "device_call_tools": AdapterProfile(observation_provenance="executed", dialect="device_calls"),
