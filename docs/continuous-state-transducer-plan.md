@@ -6,7 +6,7 @@
 
 ## 1. One architecture, one run
 
-Replace point/pair semantic memory with a **continuous-state transducer**. Each learned edge answers a query from a particular search state, returns a wide knowledge vector, and transforms that state. Search only ever reaches edges near the current location, so retrieval is a walk through a spatially embedded graph, not a flat key-value lookup: what a query can retrieve depends jointly on the query, the current location, and the order of the retrievals that led there. Generation and retrieval become one recurrent search process.
+Replace point/pair semantic memory with a **continuous-state transducer**. Each learned edge answers a query from a particular search state, returns a wide knowledge vector, and transforms that state. Search only ever reaches edges near locations the session has already reached, its agenda, so retrieval is a walk through a spatially embedded graph, not a flat key-value lookup: what a query can retrieve depends jointly on the query, the agenda, and the order of the retrievals that built it. Generation and retrieval become one recurrent search process.
 
 
 | Part | Selected design |
