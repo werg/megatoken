@@ -17,6 +17,7 @@ import torch
 
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS, ROLE_TO_ID
 from megatoken.data import stage_recipe
+from megatoken.data.knowledge import episode_metadata
 from megatoken.data.media_assets import (
     DESCRIPTOR_MODALITY,
     FEATURE_MODALITIES,
@@ -40,7 +41,11 @@ from megatoken.tool_schema import (
 from megatoken.training.history import NativeHistory
 from megatoken.training.stream import EpisodeWindow
 from megatoken.training.text_anchors import anchor_loss
-from megatoken.training.transducer import Meridian
+from megatoken.training.transducer import (
+    INGEST_KEY_WEIGHT,
+    INGEST_VALUE_WEIGHT,
+    Meridian,
+)
 
 
 @dataclass(frozen=True)
@@ -408,9 +413,7 @@ def _metadata(episode: Any, seed: int | None) -> bytes:
     with partial or no metadata (as serving may) is in distribution; held-out
     evaluation (``seed=None``) sees every field.
     """
-    # Declared session tracks only: the modalities later events happen to use are future.
-    modalities = sorted({track.default_modality for track in episode.tracks})
-    fields = {"task": episode.stream, "modality": modalities, "version": "v10"}
+    fields = episode_metadata(episode)
     if seed is not None:
         keep = torch.rand(len(fields), generator=torch.Generator().manual_seed(seed + 1))
         fields = {
@@ -433,12 +436,16 @@ def _transducer_sequence(
     device: torch.device,
     model_version: int,
     seed: int,
+    mounted: Any = None,
 ):
     """Plan the window's lookups and, in training, run its hindsight pass once."""
     steps = (*batch.prefix, *batch.steps)
     meridians = [_boundary_meridian(step) for step in steps]
     sequence = trainer.sequence(
-        meridians, step=model_version, generator=torch.Generator().manual_seed(seed)
+        meridians,
+        step=model_version,
+        generator=torch.Generator().manual_seed(seed),
+        mounted=mounted,
     )
     sequence.hindsight(
         meridians,
@@ -493,7 +500,15 @@ def forward_meridian_batch(
         "grouped_native_replays": 0,
     }
     seed = int(torch.randint(0, 2**62, (1,)))
-    sequence = _transducer_sequence(model, batch, transducer, store, device, model_version, seed)
+    # A reading-from-a-base episode searches the ingested bases of its declared items too.
+    mounted = (
+        None
+        if transducer.reading is None
+        else transducer.reading.mount(multi, episode, store, model_version)
+    )
+    sequence = _transducer_sequence(
+        model, batch, transducer, store, device, model_version, seed, mounted
+    )
     state = sequence.begin(
         multi,
         state,
@@ -617,6 +632,10 @@ def forward_meridian_batch(
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
                 modalities=step.modalities,
             )
+    for name, loss in sequence.ingest_losses().items():
+        weight = INGEST_VALUE_WEIGHT if name == "ingest_value" else INGEST_KEY_WEIGHT
+        losses.append(loss * weight)
+        metrics[f"{name}_loss"] = loss.detach()
     if differentiate and losses:
         torch.stack(losses).sum().backward()
     return metrics

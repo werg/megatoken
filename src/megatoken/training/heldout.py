@@ -11,6 +11,13 @@ The selection is the first ``eval_windows`` windows of the stream's validation
 episodes in index order, so every evaluation of a run measures the same
 windows (an episode with many windows can fill the selection). Ranks of a synchronous run take them in turns; a DiLoCo worker is its
 own world of one and only one worker evaluates.
+
+Windows of reading-from-a-base episodes (whose reference items are declared for a base
+rather than placed in the context) are scored twice: with the base built from the
+episode's own items mounted, as in training, and with nothing mounted. The two are
+reported side by side as ``reading_base``; the difference is what the mounted base is
+worth. Each window mounts only its own episode's items, so the numbers do not depend on
+how many ranks share the windows.
 """
 
 from __future__ import annotations
@@ -20,13 +27,18 @@ from typing import Any
 import torch
 
 from megatoken.data import PreparedCorpus, WindowConfig, iter_windows, stage_recipe
+from megatoken.data.knowledge import declared_items
 from megatoken.runtime import capture_rng, restore_rng
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
+from megatoken.training.reading_base import ReadingBase
 from megatoken.training.stream import EpisodeWindow
 
 ALL = "all"  # the stream name when the whole corpus is one stream
 _SEED_OFFSET = 7919  # evaluation draws never share the training run's random stream
+# Entries that re-score windows the stream entries already count: kept out of the pooled loss.
+READING = "reading-base:"
+MOUNTED, UNMOUNTED = READING + "mounted", READING + "unmounted"
 
 Sums = dict[str, dict[str, Any]]
 
@@ -82,34 +94,55 @@ class HeldOutEvaluator:
         rng = capture_rng()
         was_training = model.training
         model.eval()
+        reading = transducer.reading
         result: Sums = {}
+
+        def entry(name: str) -> dict[str, Any]:
+            return result.setdefault(name, {"windows": 0, "sum": {}, "count": {}})
+
         try:
             device = model.core.initial_facets.device
             for name, corpus in self.corpora.items():
-                entry = result[name] = {"windows": 0, "sum": {}, "count": {}}
+                entry(name)
                 for ordinal, item in self._selection(corpus, rank, world):
-                    torch.manual_seed(config.seed + _SEED_OFFSET + ordinal)
-                    for batch in prepare_batches(model, [item], config):
-                        ledger = LossLedger(
-                            dict(batch.counts), dict(batch.counts), config.loss_weights
+                    declared = bool(declared_items(item.episode))
+                    # Scored with its own items mounted (and nothing else) and, if it
+                    # declares any, again with nothing mounted.
+                    for mounted in (True, False) if declared else (True,):
+                        transducer.reading = (
+                            ReadingBase(model.transducer, capacity=1) if mounted else None
                         )
-                        forward_meridian_batch(
-                            model,
-                            batch,
-                            ledger,
-                            config,
-                            device,
-                            step,
-                            differentiate=False,
-                            transducer=transducer,
+                        torch.manual_seed(config.seed + _SEED_OFFSET + ordinal)
+                        names = (
+                            [UNMOUNTED] if not mounted else [name, MOUNTED] if declared else [name]
                         )
-                        ledger.finish()
-                        entry["windows"] += 1
-                        for term, value in ledger.sums.items():
-                            entry["sum"][term] = entry["sum"].get(term, 0.0) + float(value)
-                        for term, count in batch.counts.items():
-                            entry["count"][term] = entry["count"].get(term, 0) + int(count)
+                        for batch in prepare_batches(model, [item], config):
+                            ledger = LossLedger(
+                                dict(batch.counts), dict(batch.counts), config.loss_weights
+                            )
+                            forward_meridian_batch(
+                                model,
+                                batch,
+                                ledger,
+                                config,
+                                device,
+                                step,
+                                differentiate=False,
+                                transducer=transducer,
+                            )
+                            ledger.finish()
+                            for target in map(entry, names):
+                                target["windows"] += 1
+                                for term, value in ledger.sums.items():
+                                    target["sum"][term] = target["sum"].get(term, 0.0) + float(
+                                        value
+                                    )
+                                for term, count in batch.counts.items():
+                                    target["count"][term] = target["count"].get(term, 0) + int(
+                                        count
+                                    )
         finally:
+            transducer.reading = reading
             model.train(was_training)
             restore_rng(rng)
         return result
@@ -127,7 +160,22 @@ class HeldOutEvaluator:
     def report(self, gathered: list[Sums]) -> dict[str, Any]:
         """Per-stream and pooled means from every rank's ``sums``."""
         streams, pooled = merge(gathered)
+        reading = {}
+        if UNMOUNTED in streams:
+            mounted, unmounted = (
+                self.weighted(streams[key]["sum"], streams[key]["count"])
+                for key in (MOUNTED, UNMOUNTED)
+            )
+            reading = {
+                "reading_base": {
+                    "windows": streams[MOUNTED]["windows"],
+                    "mounted_loss": mounted,
+                    "unmounted_loss": unmounted,
+                    "gain": unmounted - mounted,
+                }
+            }
         return {
+            **reading,
             "eval_windows_per_stream": self.config.eval_windows,
             "streams": {
                 name: {
@@ -150,7 +198,7 @@ def merge(gathered: list[Sums]) -> tuple[Sums, dict[str, Any]]:
     for sums in gathered:
         for name, entry in sums.items():
             target = streams.setdefault(name, {"windows": 0, "sum": {}, "count": {}})
-            for destination in (target, pooled):
+            for destination in (target,) if name.startswith(READING) else (target, pooled):
                 destination["windows"] += entry["windows"]
                 for field in ("sum", "count"):
                     for term, value in entry[field].items():

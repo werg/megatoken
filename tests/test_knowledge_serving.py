@@ -230,3 +230,47 @@ def test_knowledge_operations_are_off_without_a_root():
     assert rows[0]["ok"]  # an in-memory user base needs no files
     assert not rows[1]["ok"] and "--kb-root" in rows[1]["error"]
     assert rows[2]["ok"]
+
+
+# ------------------------------------------------------------------ the command line
+
+
+def test_kb_build_and_inspect_write_a_base_that_the_model_it_was_built_for_mounts(tmp_path, capsys):
+    from test_inference import checkpoint_model
+    from test_reading_base import reading_dataset
+
+    from megatoken.cli import main
+    from megatoken.inference import InferenceEngine, export_served
+
+    _, checkpoint = checkpoint_model(tmp_path / "checkpoint")
+    bundle = tmp_path / "served"
+    export_served(checkpoint, bundle)
+    dataset = reading_dataset(tmp_path / "corpus", 3)
+    out = tmp_path / "demo.kb"
+    # Built from the exported bundle ...
+    argv = ["--name", "demo", "--items", str(dataset), "--device", "cpu"]
+    assert main(["kb", "build", *argv, "--model", str(bundle), "--output", str(out)]) == 0
+    built = json.loads(capsys.readouterr().out)
+    assert built["edges"] == 9 and built["output"] == str(out)  # 3 episodes x 3 items
+    # ... and from the checkpoint it came from: the same weights, so the same identity.
+    twin = tmp_path / "twin.kb"
+    twin_argv = ["--model", str(checkpoint), "--codec", "byte", "--output", str(twin)]
+    assert main(["kb", "build", *argv, *twin_argv]) == 0
+    capsys.readouterr()
+    assert main(["kb", "inspect", str(out)]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["edges"] == 9 and shown["sources"] == 9 and shown["name"] == "demo"
+    assert main(["kb", "inspect", str(twin)]) == 0
+    assert json.loads(capsys.readouterr().out)["identity"] == shown["identity"]
+    # The model it was built for opens it; the identity it carries is that model's.
+    engine = InferenceEngine(bundle, device="cpu")
+    runtime = MultiTrackRuntime(MultiTrackGenerator(engine.model))
+    base = runtime.memory.open_base("demo", out)
+    assert base.edge_count == 9 and runtime.memory.identity == shown["identity"]
+    session = runtime.open({"task": "base_reading"}, bases={"demo": 1.0})
+    lookup = runtime.memory.observe(session.memory, _tool())
+    assert {name for _, name, _ in lookup.pairs} == {"demo"}
+    # Files and roots are not mixed in one build.
+    with pytest.raises(ValueError, match="not both"):
+        mixed = ["--name", "x", "--items", str(dataset), str(out), "--model", str(bundle)]
+        main(["--debug", "kb", "build", *mixed])

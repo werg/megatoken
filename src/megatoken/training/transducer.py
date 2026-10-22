@@ -8,6 +8,12 @@ records the differentiable ones. After the window's backward,
 evidence and write-out candidates; ``barrier`` then steps the bank.
 
 Serving uses ``BoundaryScheduler`` for the same boundary rule, live.
+
+The same hindsight pass trains the ingest heads: wherever a lookup's hindsight
+group is, or contains, exactly one item (an image, a clip, a document piece),
+that item read alone should give the value the hindsight head gave
+(distillation), and its key should be the one the lookup's own query picks out
+among the window's items (contrast).
 """
 
 from __future__ import annotations
@@ -17,18 +23,26 @@ from dataclasses import dataclass, field
 
 import torch
 from torch import Tensor
+from torch.nn import functional as F
 
-from megatoken.memory.transducer import Lookup, SearchAgenda
+from megatoken.data.media_assets import FEATURE_MODALITIES
+from megatoken.memory.transducer import Lookup, Mounted, SearchAgenda
 from megatoken.memory.transducer_growth import TransducerGrowth, WriteOut
 from megatoken.memory.transducer_optimizer import BlockScaleDescent
 from megatoken.model.multitrack import MultiTrackState
 from megatoken.model.transducer import HindsightValues, NativeTransducer, OrdinaryEvents
 
+from .reading_base import ReadingBase
 from .transducer_diloco import LOCAL_STEPS, SWITCH_EVERY, SwitchRule
 
 ARTIFICIAL_INTERVAL = 8
 TRAINING_INTERVALS = (4, 12)
 CREDIT_GROUPS = 4
+# Weights of the ingest losses (each a mean over the window's matched lookups) and the
+# contrast's temperature: keys and queries are unit vectors, so logits are cosines / this.
+INGEST_VALUE_WEIGHT = 0.1
+INGEST_KEY_WEIGHT = 0.05
+INGEST_KEY_TEMPERATURE = 0.05
 
 
 @dataclass
@@ -148,6 +162,16 @@ class _Recorded:
     hindsight: Tensor | None
     sink_only: bool
     alpha: float
+    writes: bool = True  # whether this lookup may write into the trained base
+
+
+@dataclass(frozen=True)
+class IngestedWindow:
+    """The window's items read alone, and which lookup each one matches."""
+
+    values: Tensor  # [items, value_dim] (FP4-exact)
+    keys: Tensor  # [items, query_dim], unit
+    matches: tuple[tuple[int, int], ...]  # (lookup, item) pairs: the lookup's group is/has the item
 
 
 class TransducerTrainer:
@@ -162,6 +186,7 @@ class TransducerTrainer:
         schedule: HindsightSchedule | None = None,
         max_writeouts: int = 512,
         cache_edges: int = 8192,
+        reading: ReadingBase | None = None,
     ) -> None:
         self.native = native
         self.bank = native.bank
@@ -178,6 +203,8 @@ class TransducerTrainer:
         self.candidates: list[WriteOut] = []
         self._writes = 0
         self.switch = SwitchRule()
+        # Ingested bases of the reading-from-a-base stream: built here, never checkpointed or synced.
+        self.reading = reading if reading is not None else ReadingBase(native)
 
     def sequence(
         self,
@@ -185,8 +212,14 @@ class TransducerTrainer:
         *,
         step: int,
         generator: torch.Generator | None = None,
+        mounted: tuple[Mounted, ...] | None = None,
     ) -> TransducerSequence:
-        """Plan one training window (or a bank-only evaluation window when not training)."""
+        """Plan one training window (or a bank-only evaluation window when not training).
+
+        ``mounted`` are the bases the window searches (default: the trained base alone).
+        A window that mounts others learns nothing into the trained base: what those
+        bases hold is not to be memorized by it.
+        """
         training = self.native.training
         lookups = plan_boundaries(
             meridians,
@@ -194,7 +227,9 @@ class TransducerTrainer:
             generator=generator if training else None,
         )
         if not training:
-            return TransducerSequence(self, lookups, step, alpha=0.0, hindsight=False)
+            return TransducerSequence(
+                self, lookups, step, alpha=0.0, hindsight=False, mounted=mounted
+            )
         sequence = self.sequences
         self.sequences += 1
         learned = self.bank.learned_values
@@ -205,6 +240,7 @@ class TransducerTrainer:
             alpha=self.schedule.overlay(step, sequence),
             hindsight=self.schedule.computes_hindsight(step, sequence, learned=learned),
             generator=generator,
+            mounted=mounted,
         )
 
     def after_backward(self, step: int) -> dict[str, int]:
@@ -233,7 +269,7 @@ class TransducerTrainer:
                 sink_only=record.sink_only,
             )
             observed += 1
-            usable = record.hindsight is not None and not record.sink_only
+            usable = record.hindsight is not None and not record.sink_only and record.writes
             if usable and not self.bank.learned_values and lookup.edge_ids.numel():
                 self.optimizer.add_write(lookup.edge_ids, lookup.edge_weights, record.hindsight)
                 writes += 1
@@ -251,7 +287,7 @@ class TransducerTrainer:
 
     def _hindsight_only(self, record: _Recorded, step: int, writeout_stage: bool) -> None:
         lookup = record.lookup
-        if record.hindsight is None or record.sink_only:
+        if record.hindsight is None or record.sink_only or not record.writes:
             return
         if not self.bank.learned_values and lookup.edge_ids.numel():
             self.optimizer.add_write(lookup.edge_ids, lookup.edge_weights, record.hindsight)
@@ -335,6 +371,7 @@ class TransducerSequence:
         alpha: float,
         hindsight: bool,
         generator: torch.Generator | None = None,
+        mounted: tuple[Mounted, ...] | None = None,
     ) -> None:
         self.trainer = trainer
         self.native = trainer.native
@@ -343,7 +380,10 @@ class TransducerSequence:
         self.alpha = alpha
         self.wants_hindsight = hindsight
         self.generator = generator
+        self.mounted = mounted
         self.values: HindsightValues | None = None
+        self.items: IngestedWindow | None = None
+        self.queries: list[Tensor] = []  # the unit query of every lookup performed
         self.agenda: SearchAgenda | None = None
         self.lookups = 0
 
@@ -388,18 +428,45 @@ class TransducerSequence:
             torch.tensor([owners], device=device),
         )
         stage = schedule.stage(self.step)
+        reads = schedule.reads(self.step, groups[-1] + 1, self.planned)
         # With no overlay h_t never reaches the loss: it only feeds writes and evidence.
         with torch.set_grad_enabled(torch.is_grad_enabled() and self.alpha > 0):
             self.values = self.native.hindsight_pass(
-                events,
-                schedule.reads(self.step, groups[-1] + 1, self.planned),
-                mode="full" if stage == "full" else "group-inverse",
+                events, reads, mode="full" if stage == "full" else "group-inverse"
             )
+        self._ingest(events, meridians, reads)
+
+    def _ingest(
+        self, events: OrdinaryEvents, meridians: Sequence[Meridian], reads: Sequence[int | None]
+    ) -> None:
+        """Read the window's items alone, and match each lookup whose group is or has one item.
+
+        A group with no item, or more than one, matches nothing; neither does a
+        lookup whose group lies past the end (its hindsight value is the sink's alone).
+        """
+        if not torch.is_grad_enabled():
+            return
+        modalities = [m for meridian in meridians for m in meridian.modalities]
+        items = [k for k, modality in enumerate(modalities) if modality in FEATURE_MODALITIES]
+        owners = events.groups[0].tolist()
+        matches = []
+        for t, group in enumerate(reads):
+            inside = [k for k in items if owners[k] == group]
+            if group is not None and len(inside) == 1:
+                matches.append((t, items.index(inside[0])))
+        if not matches:
+            return
+        values, keys = self.native.ingest(
+            self.native.core, events.raw[0, items], [modalities[k] for k in items]
+        )
+        self.items = IngestedWindow(values, keys, tuple(matches))
 
     def begin(
         self, multi, state: MultiTrackState, payload: bytes, *, encoder_grad: bool = False
     ) -> MultiTrackState:
-        state, self.agenda = self.native.begin(multi, state, payload, encoder_grad=encoder_grad)
+        state, self.agenda = self.native.begin(
+            multi, state, payload, encoder_grad=encoder_grad, mounted=self.mounted
+        )
         return state
 
     def before_meridian(
@@ -442,5 +509,32 @@ class TransducerSequence:
             for tensor in (lookup.value, lookup.bank_value, lookup.bank_landing_raw):
                 if tensor.requires_grad:
                     tensor.retain_grad()
-            self.trainer.records.append(_Recorded(lookup, h, bool(sink_only), alpha))
+            self.trainer.records.append(
+                _Recorded(lookup, h, bool(sink_only), alpha, writes=self.mounted is None)
+            )
+            self.queries.append(lookup.query.detach())
         return state
+
+    def ingest_losses(self) -> dict[str, Tensor]:
+        """Window means of the ingest heads' two losses; empty when no lookup matched an item.
+
+        Value: the item read alone should equal the hindsight value of its lookup, relative
+        to that value's size. Key: among the window's items, the lookup's own query should
+        pick out its item. Hindsight values and queries are targets (no gradient).
+        """
+        window = self.items
+        if window is None or self.values is None:
+            return {}
+        # A lookup that was cancelled or hit the cap has no query, so no pair.
+        pairs = [(t, k) for t, k in window.matches if t < len(self.queries)]
+        if not pairs:
+            return {}
+        target = torch.stack([self.values.values[t].detach().float() for t, _ in pairs])
+        item = torch.tensor([k for _, k in pairs], device=target.device)
+        error = (window.values[item] - target).square().sum(-1)
+        losses = {"ingest_value": (error / target.square().sum(-1).clamp_min(1e-6)).mean()}
+        if window.keys.shape[0] > 1:
+            queries = torch.stack([self.queries[t] for t, _ in pairs]).float()
+            logits = queries @ window.keys.float().T / INGEST_KEY_TEMPERATURE
+            losses["ingest_key"] = F.cross_entropy(logits, item)
+        return losses
