@@ -25,9 +25,9 @@ No new per-modality reasoning transformer, learned low-level scheduler, correlat
 
 ## 2. Current implementation and the remaining work
 
-Implemented in code: joint meridians with shared full-resolution KV, grouped text/media training through the engine, checksummed tensor assets with codec-latent targets, pinned-teacher media E, resident Pocket/Sana/Sana-Video realizers, separate media-loss denominators, a `G` event budget, the aligned-bundle compiler (`data/concordance.py`, `scripts/compile_aligned_bundles.py`), and one task-mixture mechanism (`training/task_recipe.py`). The architecture, packs, preparation, phases and serving contract are in [media.md](media.md); [architecture.md](architecture.md) and the [grouped model](../src/megatoken/model/multitrack.py) describe the core.
+Implemented in code: joint meridians with shared full-resolution KV, grouped text/media training through the engine, checksummed tensor assets with codec-latent targets, pinned-teacher media E, resident Pocket/Sana/Sana-Video realizers, separate media-loss denominators, a `G` event budget, the aligned-bundle compiler (`data/concordance.py`, `scripts/compile_aligned_bundles.py`), and one data-mix mechanism (the stage plan, `src/megatoken/data/stages.json`). The architecture, packs, preparation, phases and serving contract are in [media.md](media.md); [architecture.md](architecture.md) and the [grouped model](../src/megatoken/model/multitrack.py) describe the core.
 
-Not established: any media-quality, perceptual or GPU-scale training result; real-weight verification of each pack on an accelerator; rights-cleared media inventories; measured gates per phase. The remaining work this document tracks is data and evaluation:
+Not established: any media-quality, perceptual or GPU-scale training result; rights-cleared media inventories; measured gates per phase. The remaining work this document tracks is data and evaluation:
 
 - Acquire and admit the datasets of Sections 14-15 and prepare them with the media preparer.
 - Resolve real voice/style references and time-local per-event prompts upstream of selection.
@@ -427,27 +427,23 @@ Prompt templates and track names should not disclose class labels. Test held-out
 
 ## 16. Curriculum and sampling recipe
 
-Use the existing engine, prepared cursor, optimizer, DiLoCo coordinator and distributed loss ledger. Task mixtures are **one mechanism**: a task recipe (`training/task_recipe.py`) naming prepared streams and the share of *events* drawn from each, plus an auxiliary weight. The media phases and their configs are defined in [media.md](media.md); this section says what the concordant task data adds to them. A phase transition is a new DiLoCo coordinator initialized from the previous phase's export.
+Use the existing engine, prepared cursor, optimizer, DiLoCo coordinator and distributed loss ledger. Data mixes are **one mechanism**: the stage plan (`src/megatoken/data/stages.json`) names prepared streams and the share of *events* each stage draws from them; [media.md](media.md) shows where media sits in it. A stage transition is a new DiLoCo coordinator initialized from the previous stage's export.
 
-| Phase | Config / recipe | Trainable | Streams |
-| --- | --- | --- | --- |
-| 1 bridge | `configs/train/media-bridge.example.yaml`, `configs/tasks/media-bridge.yaml` | `media_bridge` (media projection, modality embedding, realizer conditions) | text 0.40; audio, image and video identity 0.20 each |
-| 2 joint | `configs/train/media-joint.example.yaml`, `configs/tasks/media-joint.yaml` | all | text 0.55; identities 0.15 each |
-| 3 tasks | `configs/train/media-tasks.example.yaml`, `configs/tasks/media-tasks.yaml` | all | text, identity replay, and the concordant task families below |
+| Stage | Trainable | Media streams |
+| --- | --- | --- |
+| MB media bridge (after the codec bootstrap) | `media_bridge` (media projection, modality embedding, realizer conditions) | text 0.40; audio, image and video identity 0.20 each |
+| P1 base pretraining | all | 15% identities and concordant task families, 3% long-document reading |
+| M1, M2, LC, S | all | small media replay and long-document reading shares |
 
-The shipped mixtures are the starting point, not tuned values. Keep every stream a prepared dataset really contains; a recipe naming an absent stream is an error rather than a silent relabeling.
+The shipped shares are the starting point, not tuned values. Keep every stream a prepared dataset really contains; a stage naming an absent stream is an error rather than a silent relabeling.
 
-### Phase 1: establish the shared modality interface
+### Bridge: establish the shared modality interface
 
-Identity episodes ("reproduce this image") and text anchors teach the bridge to land where byte E puts text, while only the bridge and the realizer conditions move. This corresponds to reconstruction and aligned teacher targets; simple conditional tasks may enter once the interface is stable. If the core already has useful skills, text replay protects them. If it is untrained, do not freeze random C/P indefinitely and expect adapters to create a reasoning model.
+Identity episodes ("reproduce this image") and text anchors teach the bridge to land where byte E puts text, while only the bridge and the realizer conditions move. It runs right after the codec bootstrap, when E is trained but C/P are young, and only briefly: do not freeze random C/P indefinitely and expect adapters to create a reasoning model.
 
-### Phase 2: everything trains
+### Base pretraining: media and concordance alongside text
 
-Text still dominates; identity streams keep every modality's E -> C -> R path exercised while all owners adapt.
-
-### Phase 3: concordance becomes a primary objective
-
-`configs/tasks/media-tasks.yaml` mixes text, identity replay and the task families that `data/concordance.py` compiles into their own streams (transcription, verbalization, speech translation, image description, image creation, audiovisual creation, and image/speech/audiovisual editing). Aim, over a sufficiently large sampling window, for these properties of the chosen mixture:
+Text dominates; identity streams keep every modality's E -> C -> R path exercised while all owners adapt, and the concordant task families that `data/concordance.py` compiles into their own streams (transcription, verbalization, speech translation, image description, image creation, audiovisual creation, and image/speech/audiovisual editing) make concordance an objective from the start. Aim, over a sufficiently large sampling window, for these properties of the media share:
 
 - **Every** participating track has a resolved prompt/interpretation descriptor.
 - **At least one-third** of tasks have two or more genuinely joint generated outputs.
@@ -588,7 +584,7 @@ Selected group publication/acceptance remains atomic. Even when current R is per
 | 1. Real-weight verification | `scripts/verify_packs.py`, media.md packs | Pocket/Sana/Sana-Video round trip, objective and rollout on an accelerator |
 | 2. Prepared inventories | `scripts/prepare_media.py`, `prepare_media_identity.py` | Identity and text-anchor streams from rights-cleared media, immutable identities |
 | 3. Bundle/task compiler at scale | `data/concordance.py`, `scripts/compile_aligned_bundles.py` | ASR/TTS, direct joint translation, image/description, AV/endpoints, and recorded edits with explicit input/target partitions |
-| 4. Phase runs | `configs/train/media-*.example.yaml`, `configs/tasks/media-*.yaml` | Bridge, joint and task phases chained by DiLoCo coordinator exports |
+| 4. Stage runs | `configs/train/media-bridge.example.yaml`, the stage plan | Media bridge, then base pretraining with media shares, chained by DiLoCo coordinator exports |
 | 5. Relation objectives and evaluation | `training/concordance_eval.py`, `scripts/eval_omni_concordance.py`, loss ledger | Sampled peer agreement, endpoint and edit-preservation checks |
 | 6. Interactive/long trajectories | Grouped recurrence, collectors, runtime | Prefix-limited translation, real student edit continuations, actual parallel tools, safe speculation |
 
@@ -637,7 +633,7 @@ The dataset shortlist was checked against the primary pages below for this revis
 
 ### Repository anchors
 
-[Architecture](architecture.md), [media](media.md), [core](../src/megatoken/model/core.py), [grouped model](../src/megatoken/model/multitrack.py), [Gaussian definitions](../src/megatoken/generation/latents.py), [media model](../src/megatoken/model/media.py), [controls](../src/megatoken/controls.py), [asset schema](../src/megatoken/data/media_assets.py), [meridian learner](../src/megatoken/training/meridians.py), [task recipe](../src/megatoken/training/task_recipe.py), [concordance compiler](../src/megatoken/data/concordance.py), and [broader multi-track plan](multi-track-plan.md).
+[Architecture](architecture.md), [media](media.md), [core](../src/megatoken/model/core.py), [grouped model](../src/megatoken/model/multitrack.py), [Gaussian definitions](../src/megatoken/generation/latents.py), [media model](../src/megatoken/model/media.py), [controls](../src/megatoken/controls.py), [asset schema](../src/megatoken/data/media_assets.py), [meridian learner](../src/megatoken/training/meridians.py), [stage plan](../src/megatoken/data/stages.json), [concordance compiler](../src/megatoken/data/concordance.py), and [broader multi-track plan](multi-track-plan.md).
 
 ## 25. Final direction
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS
+from megatoken.data.recipes import stage_recipe
 from megatoken.io import content_hash, read_mapping
 from megatoken.training.schedule import PHASES
 
@@ -103,11 +104,9 @@ class TrainConfig:
     # Locked pack manifest (omni/loader.py): the Pocket/Sana/Sana-Video realizers
     # are installed before optimizer enumeration and checkpoint restore.
     packs: str | None = None
-    # Media phases draw events from prepared streams by this recipe
-    # (training/task_recipe.py); requires the event (G) budget meter.
-    task_recipe: str | None = None
-    # "media_bridge" trains only the media input projection and the realizer
-    # conditions (identically on every DiLoCo worker); "all" trains everything.
+    # "media_bridge" trains only the media input projection, modality embedding
+    # and realizer conditions (identically on every DiLoCo worker); "all" trains
+    # everything. The stage plan decides: the MB stage requires media_bridge.
     trainable: str = "all"
     # Same-text alignment of byte-E facets with teacher-feature facets: JSONL
     # rows {"text_sha256", "asset"} of EmbeddingGemma2 text features.
@@ -209,14 +208,12 @@ class TrainConfig:
             )
         if self.trainable not in {"all", "media_bridge"}:
             raise ValueError("trainable is all or media_bridge")
-        if self.trainable == "media_bridge" and (self.packs is None or self.task_recipe is None):
-            raise ValueError("Media bridge training needs realizer packs and a task recipe")
+        if self.trainable != stage_recipe(self.phase).constraints.get("trainable", "all"):
+            raise ValueError(f"Stage {self.phase} trains {self.trainable!r} parameters only")
+        if self.trainable == "media_bridge" and self.packs is None:
+            raise ValueError("Media bridge training needs the realizer packs")
         if not 0 < self.text_anchor_weight <= 1:
             raise ValueError("Text anchor weight must be in (0, 1]")
-        if self.task_recipe is not None and not self.task_recipe:
-            raise ValueError("Task recipe path must be nonempty")
-        if self.task_recipe is not None and self.budget_meter != "G":
-            raise ValueError("Task recipes require the G event budget meter")
         if self.packs is not None and not self.packs:
             raise ValueError("Pack manifest path must be nonempty")
         if self.media_root is not None and not self.media_root:

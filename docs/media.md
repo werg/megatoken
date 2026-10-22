@@ -126,37 +126,44 @@ between E(bytes) and E(teacher features of the same bytes)
 train config). Whichever side is trainable moves: only the bridge in phase 1,
 both afterwards.
 
-## Training phases
+## Media in the training plan
 
-Media training follows native text pretraining and runs on DiLoCo like every
-phase ([diloco-coreweave.md](diloco-coreweave.md)). All workers of a phase run
-the same config; data is sharded per worker inside each stream. A phase
-transition is a **new coordinator** initialized from the previous phase's
-coordinator export:
+Media is part of the one stage plan (`src/megatoken/data/stages.json`), not a
+separate track of phases. Every stage runs on DiLoCo
+([diloco-coreweave.md](diloco-coreweave.md)); a stage transition is a **new
+coordinator** initialized from the previous stage's coordinator export:
 
 ```bash
 megatoken diloco export --config <previous config> --root <previous root> --output exports
 megatoken diloco init --config <next config> --root <new root> --resume exports/latest.json
 ```
 
-Exports carry the global FP32 masters. Owners new to a phase (the realizer
+Exports carry the global FP32 masters. Owners new to a stage (the realizer
 conditions when packs are first installed) start from initialization; owners
-frozen in the previous phase keep their exported weights and start fresh
+frozen in the previous stage keep their exported weights and start fresh
 inner-optimizer moments. Nothing else may appear or disappear.
 
-| Phase | Train config | Task recipe | Trainable |
-|---|---|---|---|
-| 1 bridge | `configs/train/media-bridge.example.yaml` | `configs/tasks/media-bridge.yaml`: text 0.40, identities 0.20 each | `media_bridge`: media projection, modality embedding, realizer conditions |
-| 2 joint | `configs/train/media-joint.example.yaml` | `configs/tasks/media-joint.yaml`: text 0.55, identities 0.15 each | all |
-| 3 tasks | `configs/train/media-tasks.example.yaml` | `configs/tasks/media-tasks.yaml`: text, identity replay and concordant task families | all |
+| Stage | Media in its data mix | Trainable |
+|---|---|---|
+| B0 codec bootstrap | none | all |
+| **MB media bridge** ([example config](../configs/train/media-bridge.example.yaml)) | text 0.40; audio, image and video identity 0.20 each | `media_bridge`: media input projection, modality embedding, realizer conditions |
+| P1 base pretraining | 15% media (identities and the concordant task families: transcription, verbalization, speech translation, image description/creation/editing, speech and audio-visual creation/editing), 3% long-document reading | all |
+| M1, M2 repository and agent work | 5% media replay, 2% long-document reading | all |
+| LC long context | 5% long-document reading | all |
+| S supervised dialogue | 5% media tasks with text answers | all |
 
-`trainable: media_bridge` freezes every other owner identically on all
-workers, so their outer deltas are exactly zero and the DiLoCo merge is not
-diluted. A task recipe (`training/task_recipe.py`) names prepared streams and
-the share of *events* drawn from each — not a share of accelerator time; a
-video event costs far more than a text window — plus the weight of the
-reconstruction/alignment auxiliaries. Media phases use the `G` (event) budget
-meter, and `max_media_events_per_window` caps media events per window.
+The bridge comes right after the codec bootstrap, so the media projection
+learns to land where the byte encoder already puts text (with text anchors),
+before the core trains on media. `trainable: media_bridge` freezes every other
+owner identically on all workers, so their outer deltas are exactly zero and
+the DiLoCo merge is not diluted; the stage plan requires it for MB and forbids
+it elsewhere. A run uses the stage's mix with `use_stage_mixture: true`; shares
+are shares of *events* (a text chunk, an image, a clip, a compressed document
+each count one), and every named stream must exist in the prepared dataset.
+`max_media_events_per_window` caps media events per window. Long-document
+reading streams are episodes whose reference documents are read compressed
+([compressed-reading.md](compressed-reading.md)); in agent stages, large tool
+results are also compressed at import.
 
 Each media event contributes one per-event mean to `audio_*` or `visual_*`
 loss sums with their own global denominators in the `LossLedger`, so tensor

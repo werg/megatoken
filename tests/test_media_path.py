@@ -690,10 +690,14 @@ def config(**overrides):
     return TrainConfig(**settings)
 
 
-def test_trainable_defaults_to_everything_and_accepts_the_media_bridge():
+def test_the_stage_plan_decides_what_trains():
     assert config().trainable == "all"
-    bridge = config(trainable="media_bridge", packs="pack-lock.json", task_recipe="recipe.json")
+    bridge = config(phase="MB", trainable="media_bridge", packs="pack-lock.json")
     assert bridge.trainable == "media_bridge"
+    with pytest.raises(ValueError, match="Stage MB trains"):
+        config(phase="MB", packs="pack-lock.json")
+    with pytest.raises(ValueError, match="Stage B0 trains"):
+        config(trainable="media_bridge", packs="pack-lock.json")
 
 
 def test_trainable_rejects_unknown_scopes():
@@ -702,13 +706,9 @@ def test_trainable_rejects_unknown_scopes():
             config(trainable=value)
 
 
-def test_media_bridge_requires_packs_and_a_media_recipe():
+def test_media_bridge_requires_packs():
     with pytest.raises(ValueError, match="realizer packs"):
-        config(trainable="media_bridge", task_recipe="recipe.json")
-    with pytest.raises(ValueError, match="realizer packs"):
-        config(trainable="media_bridge", packs="pack-lock.json")
-    with pytest.raises(ValueError, match="realizer packs"):
-        config(trainable="media_bridge")
+        config(phase="MB", trainable="media_bridge")
 
 
 def test_text_anchor_weight_is_a_fraction_in_the_half_open_unit_interval():

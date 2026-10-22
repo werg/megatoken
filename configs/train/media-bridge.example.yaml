@@ -1,13 +1,16 @@
-# Media phase 1 of 3 (configs/tasks/media-bridge.yaml). Start a new coordinator
-# from the native-text phase -- a new coordinator is the DiLoCo phase transition:
-#   megatoken diloco export --config <text config> --root <text root> --output X
+# Media bridge stage (MB in src/megatoken/data/stages.json), between the codec
+# bootstrap (B0) and base pretraining (P1). Start a new coordinator from B0's
+# export -- a new coordinator is the DiLoCo phase transition:
+#   megatoken diloco export --config <B0 config> --root <B0 root> --output X
 #   megatoken diloco init --config THIS --root <new root> --resume X/latest.json
-# Every worker runs this same config; trainable: media_bridge freezes all but the
-# media input projection and the realizer conditions, identically on all workers.
-# Prepare media with scripts/prepare_media.py, identity episodes (plus the
-# "text" stream via --text-episodes) with scripts/prepare_media_identity.py,
-# and text anchors with scripts/prepare_media.py --anchors. Replace every PIN_*.
-phase: P1
+# The stage plan sets the data mix (text 0.40, audio/image/video identity 0.20
+# each) and requires trainable: media_bridge, which freezes everything but the
+# media input projection, the modality embedding and the realizer conditions,
+# identically on all workers. Prepare media with scripts/prepare_media.py,
+# identity episodes (plus the "text" stream via --text-episodes) with
+# scripts/prepare_media_identity.py, and text anchors with
+# scripts/prepare_media.py --anchors. Replace every PIN_*.
+phase: MB
 model: 32x512
 codec: PIN_TRAINED_BYTE_CODEC
 dataset: PIN_PREPARED_TEXT_AND_MEDIA_IDENTITY_DATASET
@@ -27,7 +30,7 @@ scored_decisions: 4
 generated_capacity: 512
 eval_every: 0
 packs: PIN_PACK_ROOT/lock.json
-task_recipe: configs/tasks/media-bridge.yaml
+use_stage_mixture: true
 trainable: media_bridge
 text_anchors: PIN_TEXT_ANCHORS_JSONL
 text_anchor_weight: 0.1

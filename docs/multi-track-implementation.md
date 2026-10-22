@@ -121,10 +121,9 @@ declare `frames` and `fps_num`.
 
 Training does not use an ad hoc loop. The grouped losses (`supervised_meridian`
 and the media targets built from prepared `MediaRecord`s) run inside the
-training engine, which draws prepared streams according to a task recipe
-(`training/task_recipe.py`, `configs/tasks/media-{bridge,joint,tasks}.yaml`)
-and runs on DiLoCo like every phase. See [media.md](media.md) for the three
-phases and their `configs/train/media-*.example.yaml`, and
+training engine, which draws prepared streams by the stage plan's data mix
+(`src/megatoken/data/stages.json`) and runs on DiLoCo like every stage. See
+[media.md](media.md) for where media sits in that plan, and
 [diloco-coreweave.md](diloco-coreweave.md) for the coordinator workflow.
 
 ## Group-native JSONL protocol
@@ -134,7 +133,7 @@ manifest it was trained with (the bundle records its fingerprint and refuses
 any other manifest; text-only bundles take no `--packs`):
 
 ```bash
-megatoken export --checkpoint runs/media-tasks/checkpoints/latest.json \
+megatoken export --checkpoint runs/base-pretraining/checkpoints/latest.json \
   --output artifacts/served --codec <codec> --packs packs/lock.json
 megatoken serve-multitrack --model artifacts/served --packs packs/lock.json
 ```

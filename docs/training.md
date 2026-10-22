@@ -8,10 +8,11 @@
 > meridians. Media enters only as pinned EmbeddingGemma2 hidden states and leaves
 > only through the frozen pretrained Pocket, Sana and Sana-Video realizers with
 > trainable `FacetCondition`s; audio and visual losses have separate global
-> denominators and the `G` budget counts events. Media training runs as three
-> DiLoCo phases (bridge, joint, tasks), each with a `task_recipe` naming the
-> prepared streams and their shares, chained by `megatoken diloco export` then
-> `megatoken diloco init --resume`. See [media.md](media.md) for the contract and
+> denominators and the `G` budget counts events. Media is part of the stage
+> plan: a short media-bridge stage (MB) after the codec bootstrap, explicit media
+> and long-document-reading shares in base pretraining, and replay in later
+> stages, chained by `megatoken diloco export` then `megatoken diloco init
+> --resume`. See [media.md](media.md) for the contract and
 > configs, [diloco-coreweave.md](diloco-coreweave.md) for the coordinator
 > workflow, and [the concordant task roadmap](pretrained-omnimodal-bottleneck-plan.md)
 > for task families and data. No media-quality or GPU-scale training result is
