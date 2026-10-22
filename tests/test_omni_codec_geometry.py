@@ -110,10 +110,6 @@ def test_target_and_geometry_come_together_and_share_one_source(tmp_path):
         )
     with pytest.raises(ValueError, match="geometry modality"):
         MediaRecord("image", full.source, full.target, geometry("video"), embedding=full.embedding)
-    # The observed view drops the target and its geometry entirely.
-    observed = full.observed()
-    assert observed == MediaRecord("image", full.source, embedding=full.embedding)
-    assert full.target.sha256.encode() not in observed.to_bytes()
 
 
 def test_geometry_bounds_are_exact_per_modality():

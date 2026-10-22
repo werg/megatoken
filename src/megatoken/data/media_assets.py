@@ -219,10 +219,6 @@ class MediaRecord:
             if self.output_geometry.modality != self.modality:
                 raise ValueError("Output geometry modality differs from the record")
 
-    def observed(self) -> MediaRecord:
-        """What a causal reader may see: the source alone, never the target."""
-        return MediaRecord(self.modality, self.source, prompt=self.prompt, embedding=self.embedding)
-
     def to_bytes(self) -> bytes:
         return canonical_json({"version": MEDIA_RECORD_VERSION, **asdict(self)})
 

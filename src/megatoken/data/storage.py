@@ -20,6 +20,7 @@ from megatoken.io import (
 
 from .chunking import ChunkingConfig, ChunkingStats
 from .dedup import DedupStore
+from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
 from .schema import Codec, Episode, encode_record
 
 DATASET_VERSION = 3
@@ -56,9 +57,13 @@ def export_prepared(
         CREATE INDEX by_split_stream ON episodes(split,stream,entry_id);
         CREATE INDEX by_source ON episodes(source_id,entry_id);
         CREATE TABLE shared_prefixes(hash TEXT PRIMARY KEY,tokens INTEGER NOT NULL,occurrences INTEGER NOT NULL);
+        CREATE TABLE features(scope TEXT NOT NULL,position INTEGER NOT NULL,source TEXT NOT NULL,
+            descriptor BLOB NOT NULL,PRIMARY KEY(scope,position));
+        CREATE TABLE feature_sources(split TEXT NOT NULL,source TEXT NOT NULL,PRIMARY KEY(split,source));
     """)
     shards: list[dict[str, Any]] = []
     scope_counts: dict[str, int] = {}
+    feature_counts: dict[str, int] = {}
     shard_index = 0
     shard_handle: BinaryIO | None = None
     shard_temp: Path | None = None
@@ -167,6 +172,23 @@ def export_prepared(
                     "INSERT INTO positions VALUES(?,?,?)", (scope, position, entry_id)
                 )
                 scope_counts[scope] = position + 1
+            # Every distinct prepared feature item (teacher features of media or
+            # compressed text) per split, for the encode-and-reconstruct step.
+            for record in episode.records:
+                if record.media_type != MEDIA_RECORD_TYPE:
+                    continue
+                descriptor = MediaRecord.from_bytes(record.payload)
+                if connection.execute(
+                    "INSERT OR IGNORE INTO feature_sources VALUES(?,?)",
+                    (row["split"], descriptor.source.sha256),
+                ).rowcount:
+                    scope = f"split:{row['split']}|modality:{descriptor.modality}"
+                    position = feature_counts.get(scope, 0)
+                    connection.execute(
+                        "INSERT INTO features VALUES(?,?,?,?)",
+                        (scope, position, descriptor.source.sha256, record.payload),
+                    )
+                    feature_counts[scope] = position + 1
             # Prefix identity includes roles, bytes, and their preceding prefix.
             # It reports shared causal context without dropping it from episodes.
             prefix_digest = hashlib.sha256()
@@ -215,6 +237,7 @@ def export_prepared(
             "shards": shards,
             "index": {"path": "index.sqlite", "sha256": sha256_file(root / "index.sqlite")},
             "counts": scope_counts,
+            "feature_counts": feature_counts,
             "complete": True,
         }
         manifest["fingerprint"] = content_hash(manifest)
@@ -276,6 +299,19 @@ class PreparedDataset:
 
     def __len__(self) -> int:
         return self._length
+
+    def feature_count(self, split: str, modality: str) -> int:
+        """Distinct prepared feature items of ``modality`` (``text`` = compressed text)."""
+        return self.manifest["feature_counts"].get(f"split:{split}|modality:{modality}", 0)
+
+    def feature_item(self, split: str, modality: str, position: int) -> MediaRecord:
+        row = self.connection.execute(
+            "SELECT descriptor FROM features WHERE scope=? AND position=?",
+            (f"split:{split}|modality:{modality}", position),
+        ).fetchone()
+        if row is None:
+            raise IndexError(position)
+        return MediaRecord.from_bytes(bytes(row["descriptor"]))
 
     def index_entry(self, index: int) -> dict[str, Any]:
         if index < 0:

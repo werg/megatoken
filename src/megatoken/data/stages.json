@@ -23,7 +23,7 @@
       "mixture_status": "Media bridge after the codec bootstrap: only the media input projection, modality embedding and realizer conditions train (trainable: media_bridge) while text replay and text anchors keep the facet space fixed.",
       "history_schedule": [{"until": 4000000, "lengths": [4096]}],
       "effort_mix": {"6": 1.0},
-      "constraints": {"representation_mode": "recurrent", "trainable": "media_bridge"}
+      "constraints": {"representation_mode": "recurrent", "trainable": "media_bridge", "autoencode": {"items": 64}}
     },
     "P1": {
       "meter": "D", "limit": 400000000000,
@@ -31,14 +31,14 @@
       "unique_acquisition_targets": {"natural_documents": [50000000000, 70000000000], "natural_code": [30000000000, 50000000000], "synthetic_documents": [60000000000, 85000000000], "synthetic_code_rewrite": [30000000000, 45000000000], "synthetic_code_dialogue": [20000000000, 30000000000], "synthetic_reasoning": [15000000000, 25000000000], "chat": [3000000000, 7000000000], "executed_trajectories": [8000000000, 15000000000]},
       "history_schedule": [{"until": 20000000000, "lengths": [8192]}, {"until": 200000000000, "lengths": [32768]}, {"until": 400000000000, "lengths": [32768, 65536]}],
       "effort_mix": {"6": 0.8, "3": 0.15, "2": 0.04, "1": 0.01},
-      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "short_examples_min_fraction": 0.2, "max_decisions_initial": 4, "max_decisions_final": 8, "selected_max_decisions": 16, "large_capacity_initial_max_fraction": 0.1, "large_capacities_require_prior_gate": true, "bake_engram_near_end": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "short_examples_min_fraction": 0.2, "max_decisions_initial": 4, "max_decisions_final": 8, "selected_max_decisions": 16, "large_capacity_initial_max_fraction": 0.1, "large_capacities_require_prior_gate": true, "bake_engram_near_end": true, "autoencode": {"items": 16}}
     },
     "M1": {
       "meter": "D", "limit": 60000000000,
       "mixture": {"issue_pr_sequences": 0.37944, "connected_repositories": 0.186, "executed_trajectories": 0.093, "code_evolution": 0.0279, "build_logs": 0.01116, "base_replay": 0.186, "long_context": 0.0465, "audio_identity": 0.01, "image_identity": 0.01, "video_identity": 0.01, "transcription": 0.005, "image_description": 0.005, "av_creation": 0.005, "image_edit": 0.005, "long_document_reading": 0.02},
       "history_schedule": [{"until": 60000000000, "lengths": [65536, 262144]}],
       "effort_mix": {"6": 0.8, "3": 0.15, "2": 0.04, "1": 0.01},
-      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "preserve_short_replay": true, "trace_loss": "assistant_only", "pre_change_state_before_patch": true, "diagnostic_sft_at_boundary": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "preserve_short_replay": true, "trace_loss": "assistant_only", "pre_change_state_before_patch": true, "diagnostic_sft_at_boundary": true, "autoencode": {"items": 4}}
     },
     "M2": {
       "meter": "D", "limit": 40000000000,
@@ -46,21 +46,21 @@
       "trajectory_mix": {"repository": 0.5, "terminal": 0.2, "structured_tools": 0.2, "evidence": 0.1},
       "history_schedule": [{"until": 40000000000, "lengths": [32768, 65536, 131072, 262144]}],
       "effort_mix": {"6": 0.8, "3": 0.15, "2": 0.04, "1": 0.01},
-      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "fim_max_fraction": 0.02, "student_prefix_fraction_initial": 0.1, "student_prefix_fraction_final": 0.3, "changed_actions_require_new_observations": true, "diagnostic_sft_at_boundary": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "fim_max_fraction": 0.02, "student_prefix_fraction_initial": 0.1, "student_prefix_fraction_final": 0.3, "changed_actions_require_new_observations": true, "diagnostic_sft_at_boundary": true, "autoencode": {"items": 4}}
     },
     "LC": {
       "meter": "D", "limit": 20000000000,
       "mixture": {"long_verified_dependencies": 0.475, "long_natural_code_replay": 0.2375, "mixed_quality_episodes": 0.2375, "long_document_reading": 0.05},
       "history_schedule": [{"until": 20000000000, "lengths": [32768, 65536, 131072, 262144]}],
       "effort_mix": {"6": 0.8, "3": 0.15, "2": 0.04, "1": 0.01},
-      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "long_episode_min_tokens": 131072, "long_episode_max_tokens": 262144, "long_dependency_D_min_fraction": 0.5, "writer_reader_scored_windows_min_fraction": 0.3, "preserve_short_medium": true}
+      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "long_episode_min_tokens": 131072, "long_episode_max_tokens": 262144, "long_dependency_D_min_fraction": 0.5, "writer_reader_scored_windows_min_fraction": 0.3, "preserve_short_medium": true, "autoencode": {"items": 2}}
     },
     "S": {
       "meter": "P", "limit": 2000000000,
       "mixture": {"verified_successful_multiturn": 0.57, "recovery_clarification": 0.1425, "tested_artifacts": 0.095, "typed_exact_instructions": 0.095, "natural_document_replay": 0.0475, "transcription": 0.02, "image_description": 0.02, "speech_translation": 0.01},
       "history_schedule": [{"until": 2000000000, "lengths": [4096, 32768, 65536, 131072, 262144]}],
       "effort_mix": {"6": 0.6, "3": 0.25, "2": 0.1, "1": 0.05},
-      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "long_context_exposure_min_fraction": 0.2, "seed_only_control_fraction": 0.7, "valid_reference_control_fraction": 0.3, "future_control_fraction": 0.0, "initial_serving_effort": 6}
+      "constraints": {"representation_mode": "recurrent", "encoder_contextual_reconstruction": true, "encoder_follows_native_pairs_only": true, "long_context_exposure_min_fraction": 0.2, "seed_only_control_fraction": 0.7, "valid_reference_control_fraction": 0.3, "future_control_fraction": 0.0, "initial_serving_effort": 6, "autoencode": {"items": 4}}
     },
     "D": {
       "meter": "P", "limit": 1000000000,

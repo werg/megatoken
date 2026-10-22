@@ -107,21 +107,20 @@ def test_counterfactual_pairs_change_only_the_targeted_evidence(tmp_path, index)
 
 
 @pytest.mark.parametrize("index", [0, 1])
-def test_counterfactual_evidence_exposes_features_but_never_realization_targets(tmp_path, index):
+def test_counterfactual_evidence_is_observed_media(tmp_path, index):
     bundles, eps = _episodes(tmp_path, index)
     for variant, ep in eps.items():
         for artifact in ("sound", "picture"):
             media = bundles[variant].by_id(artifact).media
             assert media.target is not None  # prepared for generation elsewhere
-            shown = _source(ep, media.modality)
-            assert shown == media.observed()
-            assert shown.target is None and shown.output_geometry is None
+            # Evidence is observed: it keeps its own latents for encode-and-
+            # reconstruct, and training reads only its features.
+            assert _source(ep, media.modality) == media
             record = next(
                 r
                 for r in ep.records
                 if r.media_type == MEDIA_RECORD_TYPE and media.source.sha256.encode() in r.payload
             )
-            assert media.target.sha256.encode() not in record.payload
             assert not record.policy_mask
         # Meridian events bind observed media to their pinned feature digest.
         digests = {e.asset_sha256 for e in ep.meridians[0].events if e.asset_sha256}

@@ -101,14 +101,16 @@ python scripts/prepare_media_identity.py --records records.jsonl --root prepared
   --codec <codec> --text-episodes <native text episodes>
 ```
 
-One decode of each original file yields both assets of a `MediaRecord`: the
-teacher features (`source`) and, when `target` is set, the realizer's codec
-latents plus the physical `OutputGeometry`. Both carry `source_family` = the
+One decode of each original file yields the assets of a `MediaRecord`: the
+teacher features (`source`) and the teacher's pooled embedding of the same
+input (`embedding`, from the same pass) and, when `target` is set, the
+realizer's codec latents plus the physical `OutputGeometry`. Both carry `source_family` = the
 SHA256 of the original file, so a record's input and target describe the same
 media by construction. Assets are immutable little-endian FP32 files under
-`<root>/media/<sha256>.f32le`, verified by size and digest on every load. A
-causal reader sees `record.observed()` (source only); targets appear only on
-the generated side of a meridian.
+`<root>/media/<sha256>.f32le`, verified by size and digest on every load.
+Observed inputs keep their own latents (they are the input itself, never a
+future answer); training reads only an observed event's features, and uses the
+latents for encode-and-reconstruct (below).
 
 `prepare_media_identity.py` turns each record into an identity episode
 (“reproduce this image”) in the `<modality>_identity` stream and imports
@@ -168,6 +170,25 @@ results are also compressed at import.
 Each media event contributes one per-event mean to `audio_*` or `visual_*`
 loss sums with their own global denominators in the `LossLedger`, so tensor
 sizes never become token weights.
+
+### Two ways the media projections are shaped
+
+- **Through the core, in episodes.** For every generated media event, the
+  realizer reproduces the media both from P's prediction (`*_prediction`) and,
+  as a shortcut, from E's own noisy encoding of the target
+  (`*_reconstruction`).
+- **Without the core, every step: encode-and-reconstruct**
+  (`training/autoencode.py`). Each step also draws prepared feature items from
+  the training split: media inputs and outputs alike (an input keeps its own
+  latents for this) and compressed-text pieces, in equal turns per kind. Their
+  teacher states go through E only; the item's realizer reproduces its codec
+  latents from a noisy sample of the facets, and the embedding readout is
+  distilled to the teacher's own pooled embedding of the item (centered
+  alignment distance). This trains the media projection, E, the realizer
+  conditions and the embedding readout at encoder cost. The stage plan sets
+  the items per step (`constraints.autoencode`: MB 64, P1 16, M1/M2/S 4, LC 2)
+  and it runs whenever a run uses its stage's mix. Prepared datasets index
+  every distinct feature item per split at export for this.
 
 ## Serving and replay
 

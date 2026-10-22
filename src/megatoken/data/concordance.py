@@ -107,9 +107,10 @@ class BundleArtifact:
             return self.payload, "text/plain; charset=utf-8"
         if generated and self.media.target is None:
             raise ValueError(f"Generated media artifact {self.artifact_id} lacks native target")
-        # Observed records must not expose the target asset's identity.
-        record = self.media if generated else self.media.observed()
-        return record.to_bytes(), MEDIA_RECORD_TYPE
+        # An observed input keeps its own codec latents: they are the input
+        # itself, never a future answer, and the encode-and-reconstruct
+        # objective trains on inputs too. Training reads only their source.
+        return self.media.to_bytes(), MEDIA_RECORD_TYPE
 
 
 @dataclass(frozen=True, slots=True)
