@@ -12,9 +12,12 @@ and no shared state.
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 # Rough source text per row in KiB, by stream; used for sources capped at a row count.
@@ -49,6 +52,9 @@ PASS_RATE = {
 
 # Stored bytes expand to roughly this many bytes of row text once decompressed.
 EXPANSION = {".parquet": 3.0, ".gz": 4.0, ".zst": 4.0, ".json": 1.0, ".jsonl": 1.0}
+
+# Files whose sizes the Hub is asked for in one request.
+PATHS_PER_REQUEST = 200
 
 # A unit larger than this share of a shard's work is split, so no shard is a single unit.
 SPLIT_ABOVE = 0.5
@@ -175,7 +181,9 @@ def plan_shards(
             if unit.stripe is not None:
                 spec["stripe"] = list(unit.stripe)
         for source_id, names in files.items():
-            specs[source_id]["files"] = [{"path": name} for name in names]
+            # A pinned local file keeps its checksum; a Hub file is named by its URI alone.
+            pinned = {item["path"]: item for item in by_id[source_id].get("files") or ()}
+            specs[source_id]["files"] = [pinned.get(name, {"path": name}) for name in names]
         shards.append(
             {
                 **manifest,
@@ -205,8 +213,46 @@ def list_source_files(source: Mapping[str, Any]) -> list[tuple[str, int]]:
     uris = list(load_dataset_builder(**keywords).config.data_files[source["split"]])
     prefix = f"hf://datasets/{repository}@{source['revision']}/"
     paths = [uri.removeprefix(prefix) for uri in uris]
-    info = HfApi().get_paths_info(
-        repository, paths, repo_type="dataset", revision=source["revision"]
-    )
-    sizes = {item.path: item.size for item in info}
+    api = HfApi()
+    sizes = {}
+    for start in range(0, len(paths), PATHS_PER_REQUEST):  # a request with thousands is refused
+        info = api.get_paths_info(
+            repository,
+            paths[start : start + PATHS_PER_REQUEST],
+            repo_type="dataset",
+            revision=source["revision"],
+        )
+        sizes.update({item.path: item.size for item in info})
     return [(uri, sizes[path]) for uri, path in zip(uris, paths, strict=True)]
+
+
+def read_listings(
+    manifest: Mapping[str, Any], path: str | Path | None
+) -> dict[str, list[tuple[str, int]]]:
+    """Each source's ``(file, stored bytes)`` list, from ``path`` when that file exists.
+
+    Otherwise the lists are fetched from the Hub (metadata only) and, when ``path`` is
+    given, written there: commit that file and every machine plans from the same lists.
+    """
+    if path is not None and Path(path).exists():
+        stored = json.loads(Path(path).read_text())
+        return {key: [(name, int(size)) for name, size in value] for key, value in stored.items()}
+
+    def one(source: Mapping[str, Any]) -> tuple[str, list[tuple[str, int]]]:
+        if source["format"] == "hf":
+            try:
+                return source["source_id"], list_source_files(source)
+            except Exception as error:
+                raise ValueError(
+                    f"{source['source_id']}: cannot list its files: {error}"
+                ) from error
+        return source["source_id"], [
+            (item["path"], item.get("size_bytes") or Path(item["path"]).stat().st_size)
+            for item in source["files"]
+        ]
+
+    with ThreadPoolExecutor(8) as pool:
+        found = dict(pool.map(one, manifest["sources"]))
+    if path is not None:
+        Path(path).write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
+    return found

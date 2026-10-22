@@ -459,6 +459,8 @@ class DedupStore:
         partial.unlink(missing_ok=True)
         self.connection.execute("ATTACH DATABASE ? AS digest", (str(partial),))
         try:
+            # A sketch is about 2 KiB: with small pages every row would spill to an overflow page.
+            self.connection.execute("PRAGMA digest.page_size=16384")
             columns = (
                 "ordinal,episode_id,content_sha256,family_key,stream,source_id,sketch,word_count,"
                 "token_count,scored_positions,assistant_tokens,observation_tokens,executed_tokens,"
@@ -702,8 +704,10 @@ class DedupStore:
         }
 
 
-# Reconciliation commits after this many replayed episodes.
+# Reconciliation commits after this many replayed episodes, and keeps this much of the
+# joined store (anchor and episode pages) in memory: 12 GiB of a 32 GiB sandbox.
 COMMIT_EVERY = 4096
+CACHE_KIB = 12 << 20
 
 
 def reconcile(digests: Sequence[str | Path], output: str | Path) -> dict[str, Any]:
@@ -739,8 +743,12 @@ def reconcile(digests: Sequence[str | Path], output: str | Path) -> dict[str, An
         "verified_success,created_at,quarantine_reason,variant_key,inherited_split,record_shape"
     )
     with DedupStore(joined, config) as store:
-        store.connection.execute(
-            "CREATE TABLE origins(episode_id TEXT PRIMARY KEY, shard INTEGER NOT NULL, local_id TEXT NOT NULL)"
+        # The joined store is disposable (a failed reconciliation is rerun), so it need not fsync.
+        store.connection.execute("PRAGMA synchronous=OFF")
+        store.connection.execute(f"PRAGMA cache_size=-{CACHE_KIB}")
+        store.connection.executescript(
+            "CREATE TABLE origins(episode_id TEXT PRIMARY KEY, shard INTEGER NOT NULL, "
+            "local_id TEXT NOT NULL); CREATE INDEX origins_shard ON origins(shard);"
         )
         for shard, path in enumerate(paths):
             with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as digest:
@@ -790,4 +798,6 @@ def reconcile(digests: Sequence[str | Path], output: str | Path) -> dict[str, An
                 store.connection.commit()
             finally:
                 store.connection.execute("DETACH DATABASE verdicts")
+    for suffix in ("", "-wal", "-shm"):
+        Path(f"{joined}{suffix}").unlink(missing_ok=True)
     return counts

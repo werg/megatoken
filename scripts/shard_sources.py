@@ -22,32 +22,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from megatoken.data.sharding import list_source_files, plan_shards
-
-
-def listings_for(manifest: dict, path: Path | None) -> dict[str, list[tuple[str, int]]]:
-    """Each source's ``(file, stored bytes)`` list, from ``path`` when it exists."""
-    if path is not None and path.exists():
-        stored = json.loads(path.read_text())
-        return {key: [tuple(item) for item in value] for key, value in stored.items()}
-    sources = manifest["sources"]
-
-    def one(source: dict) -> tuple[str, list[tuple[str, int]]]:
-        if source["format"] == "hf":
-            return source["source_id"], list_source_files(source)
-        return source["source_id"], [
-            (item["path"], item.get("size_bytes") or Path(item["path"]).stat().st_size)
-            for item in source["files"]
-        ]
-
-    with ThreadPoolExecutor(8) as pool:
-        found = dict(pool.map(one, sources))
-    if path is not None:
-        path.write_text(json.dumps(found, indent=1, sort_keys=True))
-    return found
+from megatoken.data.sharding import plan_shards, read_listings
 
 
 def main() -> None:
@@ -63,7 +40,7 @@ def main() -> None:
     if not 0 <= index < count:
         raise SystemExit("Shard index must be in [0, count)")
     manifest = json.loads(args.manifest.read_text())
-    listings = listings_for(manifest, args.listing) if args.full else None
+    listings = read_listings(manifest, args.listing) if args.full else None
     shard = plan_shards(manifest, count, listings, scale=args.scale, full=args.full)[index]
     args.output.write_text(json.dumps(shard, indent=1))
     rows = [source["max_rows"] for source in shard["sources"]]

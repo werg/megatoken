@@ -208,7 +208,7 @@ def launch(path: Path, repo: Path, *, ready_timeout: float = 3 * 3600) -> dict[s
                     _status(entry["url"], token, gateway)
                     break
                 except OSError as error:
-                    if _exited(entry["sandbox_id"]):
+                    if cloud.outputs_ready(entry["sandbox_id"]):
                         raise cloud.CloudError(
                             f"Coordinator exited before it became ready (see its log): {error}"
                         ) from error
@@ -230,28 +230,11 @@ def launch(path: Path, repo: Path, *, ready_timeout: float = 3 * 3600) -> dict[s
                 _save(run)
         except BaseException:
             # A partial phase must not bill: stop every sandbox this launch started.
-            _stop_all(started, "launch failed")
+            cloud.stop_all(started, "launch failed")
             _run_path(spec["id"]).unlink(missing_ok=True)
             raise
     cloud.record({"event": "diloco_launched", **{k: v for k, v in run.items() if k != "url"}})
     return run
-
-
-def _stop_all(sandbox_ids: list[str], reason: str, *, grace: float | None = None) -> list[str]:
-    """Stop every sandbox, each on its own: one that fails to stop must not leave the rest
-    billing. Returns the ones that could not be stopped (also printed and recorded)."""
-    failed = []
-    for sandbox_id in sandbox_ids:
-        try:
-            options = {} if grace is None else {"graceful_shutdown_seconds": grace}
-            cloud._attach(sandbox_id).stop(missing_ok=True, **options).result()
-            cloud.record({"event": "stop", "sandbox_id": sandbox_id, "reason": reason})
-        except Exception as error:
-            failed.append(sandbox_id)
-            message = f"{type(error).__name__}: {error}"[:400]
-            cloud.record({"event": "stop_failed", "sandbox_id": sandbox_id, "error": message})
-            print(f"COULD NOT STOP {sandbox_id} (still billing): {message}", file=sys.stderr)
-    return failed
 
 
 def _save(run: dict[str, Any]) -> None:
@@ -259,25 +242,19 @@ def _save(run: dict[str, Any]) -> None:
     _run_path(run["id"]).write_text(json.dumps(run, indent=2))
 
 
-def _exited(sandbox_id: str) -> bool:
-    sandbox = cloud._attach(sandbox_id)
-    probe = sandbox.exec(["test", "-f", f"{cloud.WORK}/.cloud/outputs-ready"]).result()
-    return probe.returncode == 0
-
-
 def status(run_id: str) -> dict[str, Any]:
     run = json.loads(_run_path(run_id).read_text())
     token = (cloud.SECRETS / f"diloco-{run_id}.token").read_text()
     return {
         "coordinator": _status(run["url"], token, cloud.share_token(run["coordinator"])),
-        "learners_finished": [_exited(learner) for learner in run["learners"]],
+        "learners_finished": [cloud.outputs_ready(learner) for learner in run["learners"]],
     }
 
 
 def finish(run_id: str, destination: Path, *, poll: float = 300) -> dict[str, Any]:
     """Wait for every learner, then stop the coordinator, export and collect everything."""
     run = json.loads(_run_path(run_id).read_text())
-    while not all(_exited(learner) for learner in run["learners"]):
+    while not all(cloud.outputs_ready(learner) for learner in run["learners"]):
         time.sleep(poll)
     learners = [
         cloud.collect(learner, destination / f"learner-{index}")
@@ -286,12 +263,12 @@ def finish(run_id: str, destination: Path, *, poll: float = 300) -> dict[str, An
     failed = [entry["sandbox_id"] for entry in learners if entry["status"] != 0]
     if failed:
         # No export of a phase whose learners failed; their logs are collected.
-        _stop_all([run["coordinator"], *run["learners"]], "learners failed", grace=60)
+        cloud.stop_all([run["coordinator"], *run["learners"]], "learners failed", grace=60)
         cloud.record({"event": "diloco_failed", "run": run_id, "learners": failed})
         raise cloud.CloudError(f"Learners failed (logs under {destination}): {failed}")
     cloud._attach(run["coordinator"]).write_file(f"{cloud.WORK}/.cloud/finish", b"").result()
     exported = cloud.collect(run["coordinator"], destination / "coordinator")
-    unstopped = _stop_all([run["coordinator"], *run["learners"]], "finished", grace=60)
+    unstopped = cloud.stop_all([run["coordinator"], *run["learners"]], "finished", grace=60)
     cloud.record({"event": "diloco_finished", "run": run_id})
     if unstopped:
         raise cloud.CloudError(f"Collected, but these sandboxes would not stop: {unstopped}")
