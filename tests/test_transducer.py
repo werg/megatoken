@@ -250,7 +250,6 @@ def test_native_metadata_query_and_knowledge_are_committed_once():
     assert state.frontier_tracks == ("__transducer_knowledge__",)
 
 
-
 def test_transducer_allocator_rejects_reuse_after_retirement_and_restore():
     bank = small_bank()
     first = edge(bank, departure=(1, 0, 0, 0))

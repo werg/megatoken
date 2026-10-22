@@ -231,9 +231,7 @@ class TransducerCoordinator:
             for edge_id, incoming in submission.structural_increments.items():
                 if edge_id not in self.bank.rows:
                     continue
-                slot = self.growth.evidence.setdefault(
-                    edge_id, EdgeEvidence(last_step=step)
-                )
+                slot = self.growth.evidence.setdefault(edge_id, EdgeEvidence(last_step=step))
                 age = step - slot.last_step
                 if age < 0:
                     raise ValueError("Structural evidence clock moved backwards")
