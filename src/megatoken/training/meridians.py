@@ -609,15 +609,20 @@ def forward_meridian_batch(
                 episode.stream == "semantic_execution"
                 and json.loads(episode.supervision.annotations_json)
                 .get("semantic_execution", {})
-                .get("continuation") == "teacher_conditioned"
+                .get("continuation")
+                == "teacher_conditioned"
             )
-            teacher_forced = semantic_teacher or recorded_edit_base or any(
-                entry.record.action_id is not None
-                and any(
-                    later.result_of == entry.record.action_id
-                    for later in batch.windows[0].episode.records[step.offsets[-1] + 1 :]
+            teacher_forced = (
+                semantic_teacher
+                or recorded_edit_base
+                or any(
+                    entry.record.action_id is not None
+                    and any(
+                        later.result_of == entry.record.action_id
+                        for later in batch.windows[0].episode.records[step.offsets[-1] + 1 :]
+                    )
+                    for entry in step.records
                 )
-                for entry in step.records
             )
             resolved = tuple(
                 plan.resolve(store, device) if isinstance(plan, MediaPlan) else plan
