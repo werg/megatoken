@@ -309,7 +309,9 @@ def edits_table() -> str:
     return "\n".join(lines)
 
 
-def gap_table(only: set[str] | None = None) -> str:
+def gap_table(
+    only: set[str] | None = None, sources: dict[str, OpenSource] | None = None
+) -> str:
     mixture = stage_recipe("P1").mixture
     streams = sorted(
         name
@@ -322,10 +324,11 @@ def gap_table(only: set[str] | None = None) -> str:
         "| Episodes the share implies | Passes over the data |",
         "| --- | --- | --- | --- | --- | --- | --- |",
     ]
+    implied_total = share_total = 0.0
     for stream in streams:
         episodes = tokens = 0.0
         count = 0
-        for source in SOURCES.values():
+        for source in (sources or SOURCES).values():
             if only is not None and source.source_id not in only:
                 continue
             per_clip = episode_tokens(source).get(stream)
@@ -339,10 +342,16 @@ def gap_table(only: set[str] | None = None) -> str:
         mean = tokens / episodes if episodes else 0.0
         implied = share * P1_LIMIT / mean if mean else 0.0
         passes = implied / episodes if episodes else math.inf
+        implied_total += implied
+        share_total += share
         lines.append(
             f"| {stream} | {count} | {episodes:,.0f} | {mean:,.0f} | {share:.2%} "
             f"({share * P1_LIMIT / 1e9:.1f}B) | {implied:,.0f} | {passes:,.1f} |"
         )
+    lines.append(
+        f"| **all media streams** | | | | {share_total:.2%} ({share_total * P1_LIMIT / 1e9:.1f}B) "
+        f"| {implied_total:,.0f} | |"
+    )
     return "\n".join(lines)
 
 

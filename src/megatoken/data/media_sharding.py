@@ -105,7 +105,12 @@ def read_listing(
         found = {source_id: list_files(source) for source_id, source in wanted.items()}
         stored.update(found)
         if path is not None:
-            Path(path).write_text(json.dumps(stored, indent=1, sort_keys=True) + "\n")
+            # One source per line: the file is large, and a diff shows which source changed.
+            lines = (
+                f"{json.dumps(key)}: {json.dumps(stored[key], separators=(',', ':'))}"
+                for key in sorted(stored)
+            )
+            Path(path).write_text("{\n" + ",\n".join(lines) + "\n}\n")
     return stored
 
 

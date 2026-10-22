@@ -1,0 +1,52 @@
+{
+ "schema": "megatoken.cloud-prepare/1",
+ "kind": "media",
+ "id": "prepare-full-media-sound",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "media_sources": [
+  "audioset",
+  "audiocaps",
+  "clotho",
+  "song_describer",
+  "wavcaps_10s_16k",
+  "musicbench",
+  "freesound_laion_640k",
+  "jamendomaxcaps",
+  "fma_large_clips",
+  "mtg_jamendo",
+  "fsd50k",
+  "esc50",
+  "urbansound8k",
+  "nsynth",
+  "birdset_xeno_canto"
+ ],
+ "listing": "configs/data/files.media.json",
+ "pip": [
+  "Pillow",
+  "datasets>=3,<5",
+  "diffusers==0.41.0",
+  "huggingface-hub>=0.28,<2",
+  "librosa",
+  "pocket-tts>=4.0.1,<5",
+  "pyarrow",
+  "regex>=2024.11",
+  "soundfile",
+  "tokenizers>=0.21,<1",
+  "torchcodec>=0.12,<1",
+  "transformers==5.20.2",
+  "zstandard>=0.23,<1"
+ ],
+ "resources": {
+  "cpu": "8",
+  "memory": "32Gi",
+  "gpu": 1
+ },
+ "sandboxes": 4,
+ "shards_per_sandbox": 2,
+ "processes": 1,
+ "hours": {
+  "ingest": 12,
+  "reconcile": 4,
+  "finish": 3
+ }
+}

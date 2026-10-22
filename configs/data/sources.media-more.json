@@ -3300,57 +3300,6 @@
    "caveat": "The long reasoning text of each row (output_text) is not read."
   },
   {
-   "source_id": "opengpt_4o_image_editing",
-   "repository": "WINDop/OpenGPT-4o-Image",
-   "revision": "67d8e3f87f6a3d1a0d02cf0e8981eafa686ee253",
-   "reader": "linked",
-   "task": "image_edit_chain",
-   "terms": {
-    "approved": true,
-    "reviewed_by": "Gabriel Pickard",
-    "reviewed_at": "2026-10-22",
-    "license": "apache-2.0 (card; the images are GPT-4o outputs: OpenAI's terms apply)",
-    "license_url": "https://huggingface.co/datasets/WINDop/OpenGPT-4o-Image",
-    "notes": "OpenGPT-4o-Image: 40k instruction edits of photos by GPT-4o."
-   },
-   "gated": false,
-   "include": [
-    "editing.json"
-   ],
-   "columns": {
-    "images": "images",
-    "instruction": "texts",
-    "id": "output_image"
-   },
-   "options": {
-    "linked": {
-     "archives": [
-      "editing.tar.gz.*"
-     ],
-     "multipart": true,
-     "sequence": {
-      "images": [
-       "input_image",
-       "output_image"
-      ],
-      "texts": [
-       "input_prompt"
-      ]
-     }
-    },
-    "provenance": {
-     "media": "teacher"
-    },
-    "tier": "model-generated"
-   },
-   "inventory": {
-    "items": 40000,
-    "basis": "card: about 40k edits",
-    "shards": 9,
-    "size_gb": 94.5
-   }
-  },
-  {
    "source_id": "yodas_granary_asr_nonen",
    "repository": "espnet/yodas-granary",
    "revision": "969944574ea3f37890beaf67ea651e160cfaf043",
