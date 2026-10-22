@@ -1,7 +1,11 @@
-# Multimodal knowledge on the transducer: a proposal
+# Multimodal knowledge: knowledge bases, retrieval and adapters
 
-**Status:** proposal, not built. **Date:** 22 October 2026. Builds on the
-[transducer design](continuous-state-transducer-plan.md) (v10).
+**Status:** agreed direction, being built. **Date:** 22 October 2026. Builds on
+the [transducer design](continuous-state-transducer-plan.md) (v10).
+
+Three parts work from one lookup: **knowledge bases** (the transducer memory,
+several mounted at once), **retrieval** of original items of any medium, and
+an **adapter mixture** chosen by what the knowledge bases returned.
 
 ## What the memory can and cannot do today
 
@@ -21,9 +25,13 @@ What is missing:
    cannot run at serving time. A manual, a photo archive or a set of
    recordings cannot be added to what the model can look up.
 
-Exact recall of a specific source (quoting a passage, returning a file,
-citing) is out of scope: knowledge bases hold learned knowledge only, and
-source tracing belongs to a separate retrieval system.
+3. **No retrieval of originals.** Knowledge bases hold learned knowledge only.
+   Quoting a passage, showing a picture again or citing a source needs the
+   original item, and the earlier literal retrieval (text only) was deleted
+   with the v9 stack.
+4. **No adapters.** The earlier stack also chose a mixture of small low-rank
+   adapters from what memory returned and applied it across the network; it
+   was deleted too.
 
 ## 1. Many knowledge bases, searched as one
 
@@ -104,6 +112,69 @@ single item:
 - the item's key should score highest for the query the model actually asked
   before that use, against the other items in the batch (contrastive).
 
+## 3. Retrieval of original items, any medium
+
+A **source collection** holds original items (text passages, images, speech
+and other audio clips, video clips) with one search key each. Several
+collections can be mounted, like knowledge bases.
+
+- **One key space for every medium.** The key is the teacher's own 768-wide
+  pooled embedding of the item. EmbeddingGemma 2 embeds text, images, audio
+  and video into the same space, and every prepared item already stores this
+  embedding, so a photo, a recording and a paragraph about the same thing lie
+  near each other.
+- **Index.** The quantized inverted-file index of the v9 stack comes back
+  unchanged: int8 copies of the keys grouped into cells, with exact rescoring
+  of the probed candidates, on disk with only the cell centres in memory.
+- **Query.** At each lookup boundary the model already samples one query block
+  on its query track. The same block also goes through the embedding head's
+  query role, giving a 768-wide query. No teacher runs at serving time.
+- **Use.** The best items above a score threshold that the session has not
+  already seen are observed, after the knowledge event, as ordinary events in
+  their own medium on the knowledge track: text as bytes or compressed pieces,
+  media as their stored teacher features. The model then reads, quotes,
+  describes or regenerates them like anything it observes, and the runtime can
+  return the original file. At most a few items per lookup (start with 2).
+- **Adding items.** The same command and runtime call that add files to a
+  knowledge base (§"How knowledge gets into a base") also add them to a source
+  collection: each file is prepared once, giving both its knowledge-base
+  entries and its retrievable original.
+- **Training the query side.** (i) Query alignment: the embedding head's query
+  output matches the teacher's embedding of the question, centered as in the
+  current embedding-head training. (ii) Ranking: when the data says which item
+  answers (the reading streams know their supporting documents, images and
+  clips), the mass of the retrieved scores should fall on those items, with no
+  penalty on unannotated items. (iii) The continuation loss itself, since
+  retrieved items enter the sequence. A **reading-from-a-collection** stream
+  puts the supporting items in a collection instead of the context, so the
+  only way to answer is to retrieve them.
+
+## 4. Adapter mixture chosen by the knowledge bases
+
+A shared bank of small low-rank adapters (start with 8 experts of rank 8 per
+owner) applied **throughout**: every C layer, every P stage and the realizer
+conditions each get a low-rank update of their output computed from their
+input.
+
+- **Routing in the knowledge-base space.** After each lookup, a router reads the
+  lookup's blended knowledge value (the same wide value the knowledge event is
+  read from, across every mounted base), together with track and stage
+  embeddings, and picks the top 2 experts per owner with softmax weights.
+- **Strength follows retrieval.** The mixture is scaled by how much the lookup
+  actually found (one minus the sink's share), so a lookup that found nothing
+  changes nothing.
+- **Persistence.** A lookup's mixture applies to every meridian on every track
+  until the next lookup replaces it.
+- **Matched to retrieval.** Because the router reads the same blend that the
+  knowledge event carries, the adapters always correspond to what was
+  retrieved, from whichever knowledge bases were mounted. A user's ingested
+  base therefore steers the adapters without any adapter of its own.
+- **Training.** Jointly with everything else through the continuation loss,
+  with 10% adapter dropout so the model stays usable without them; the
+  router's expert load is balanced by the existing global router-balance
+  objective. The adapters are ordinary dense parameters and sync through
+  DiLoCo like the rest of the model.
+
 ## Cost
 
 - One ingest pass per item: one C pass over the item's events, the same as
@@ -115,13 +186,22 @@ single item:
 
 ## Build order
 
-1. Several mounted bases in one search: per-base tables, blend weights,
+Retrieval (§3) and the adapter mixture (§4) are independent of each other and
+of multiple bases, so they are built first and in parallel.
+
+1. Multimodal source collections: catalog, index, the query path from the
+   embedding head, observing retrieved items, the query-side losses, and the
+   collection CLI.
+2. The adapter bank, its knowledge-base router and its application in C, P
+   and the realizer conditions.
+3. Several mounted bases in one search: per-base tables, blend weights,
    (base, edge) pairs, the coordinator and checkpoints owning only the trained
    base.
-2. The ingest and key realizers, with their two losses inside the existing
+4. The ingest and key realizers, with their two losses inside the existing
    hindsight pass; metadata-placed departures and document chains.
-3. Reading-from-a-base streams from the existing reading data (long
+5. Reading-from-a-base and reading-from-a-collection streams from the existing reading data (long
    documents, image description, transcription): items are written into a
    base instead of the context, and later turns ask about them.
-4. Measurement: answer accuracy on held-out reading questions with the base
-   mounted and unmounted.
+6. Measurement: answer accuracy on held-out reading questions with bases and
+   collections mounted and unmounted, retrieval recall against the teacher,
+   and loss with adapters on and off.
