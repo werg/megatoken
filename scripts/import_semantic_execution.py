@@ -45,9 +45,10 @@ def main() -> int:
     accepted = 0
     seen: set[str] = set()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.input.open("r", encoding="utf-8") as source, args.output.open(
-        "w", encoding="utf-8"
-    ) as sink:
+    with (
+        args.input.open("r", encoding="utf-8") as source,
+        args.output.open("w", encoding="utf-8") as sink,
+    ):
         for index, line in enumerate(source, 1):
             if not line.strip():
                 continue
