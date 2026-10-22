@@ -37,6 +37,25 @@ and later legal observations may be used as conditioning. The JavaScript
 reference result, full journal, arrival buffers, archive hashes and private
 `sidecar` never become `PhysicalRecord` bytes, controls or the episode prefix.
 
+## Prepare as native megatoken data
+
+The converter outputs native Episode schema-v3 JSONL. In a pinned local source
+manifest for `megatoken prepare`, declare its adapter as `native`, stream as
+`semantic_execution`, and set `options.preserve_native_stream=true`. Set an
+immutable source revision and the actual file SHA256; record the true license
+and required human source-terms approval. The native preparation adapter
+preserves exact trace records, meridians, dependencies, physical loss masks,
+and supervision; it must not rechunk or silently promote local diagnostics.
+
+Training may then select the prepared dataset with `use_stage_mixture=false`
+(the existing stage mixture does **not** assign a sampling weight to this
+experimental stream). The default verification gate refuses `locally_verified`
+episodes. For isolated diagnostic trainer tests only, opt into
+`allow_unverified_data=true`; this is not an admission claim. For a
+production verified stream, a separate independent admission certifier,
+operation-level evidence, and free-running-model correctness checks are still
+required.
+
 ## Guarantees and gates
 
 - Strict validation rejects unknown grammar versions, improper loss masks,
