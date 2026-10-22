@@ -102,8 +102,12 @@ def test_adapter_builds_causal_episode_without_oracle_sidecar_leakage():
             record=line("observe", {"id": "e100", "effect": "fx1"})
         ),
         lambda e: e["public"]["groups"].append(
-            {"id": "m8", "mode": "generated", "loss": "semantic",
-             "events": [{"track": "t0", "record": line("value", {"id": "e4"})}]}
+            {
+                "id": "m8",
+                "mode": "generated",
+                "loss": "semantic",
+                "events": [{"track": "t0", "record": line("value", {"id": "e4"})}],
+            }
         ),
         lambda e: e["public"].update(traceFormat="semantic-trace/999"),
     ],
@@ -142,12 +146,15 @@ def test_fragments_commit_only_at_close_before_dependent_read():
         line("value-close", {"id": "e1"}),
     ]
     for offset, text in enumerate(parts):
-        body.insert(3 + offset, {
-            "id": "",
-            "mode": "generated",
-            "loss": "semantic",
-            "events": [{"track": "t0", "record": text}],
-        })
+        body.insert(
+            3 + offset,
+            {
+                "id": "",
+                "mode": "generated",
+                "loss": "semantic",
+                "events": [{"track": "t0", "record": text}],
+            },
+        )
     for i, row in enumerate(body):
         row["id"] = "m" + str(i + 1)
     episode, receipt = adapt_semantic_execution(candidate, allow_local=True)
