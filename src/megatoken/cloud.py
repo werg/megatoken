@@ -274,8 +274,22 @@ def expand_push_dirs(job: dict[str, Any]) -> list[dict[str, str]]:
     return items
 
 
-def launch(job_path: Path, repo: Path, *, start_timeout: float = 5400) -> dict[str, Any]:
-    return start(validate(json.loads(job_path.read_text())), repo, start_timeout=start_timeout)[0]
+def launch(
+    job_path: Path,
+    repo: Path,
+    *,
+    secrets: dict[str, bytes] | None = None,
+    start_timeout: float = 5400,
+) -> dict[str, Any]:
+    job = validate(json.loads(job_path.read_text()))
+    return start(job, repo, secrets=secrets, start_timeout=start_timeout)[0]
+
+
+def _secret(spec: str) -> tuple[str, bytes]:
+    name, sep, path = spec.partition("=")
+    if not sep or not name or "/" in name or name.startswith("share-"):
+        raise argparse.ArgumentTypeError("--secret takes NAME=FILE")
+    return name, Path(path).expanduser().read_bytes().strip()
 
 
 def start(
@@ -528,6 +542,14 @@ def main(argv: list[str] | None = None) -> int:
         default=1.5,
         help="How long to wait for GPU capacity before stopping the sandbox",
     )
+    item.add_argument(
+        "--secret",
+        type=_secret,
+        action="append",
+        default=[],
+        metavar="NAME=FILE",
+        help="Deliver FILE as $MEGATOKEN_CW_SECRETS/NAME (mode 600, never in the spec)",
+    )
     item = commands.add_parser("collect")
     item.add_argument("sandbox_id")
     item.add_argument("--dest", type=Path, required=True)
@@ -545,7 +567,12 @@ def main(argv: list[str] | None = None) -> int:
     # BaseException handler), not leave it billing while it waits for inputs.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     if args.command == "launch":
-        result: Any = launch(args.job, args.repo, start_timeout=args.start_timeout_hours * 3600)
+        result: Any = launch(
+            args.job,
+            args.repo,
+            secrets=dict(args.secret),
+            start_timeout=args.start_timeout_hours * 3600,
+        )
     elif args.command == "collect":
         result = collect(args.sandbox_id, args.dest)
     elif args.command == "logs":
