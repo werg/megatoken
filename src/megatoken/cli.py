@@ -264,6 +264,18 @@ def _evaluate(args):
         dataset.close()
 
 
+def _kb_build(args):
+    from megatoken.kb import build
+
+    return build(args)
+
+
+def _kb_inspect(args):
+    from megatoken.kb import inspect
+
+    return inspect(args)
+
+
 def _benchmark(args):
     from megatoken.benchmark import benchmark
 
@@ -357,11 +369,22 @@ def _serve_multitrack(args):
     from megatoken.inference import InferenceEngine
     from megatoken.multitrack_service import serve_multitrack_jsonl
 
+    engine = InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile)
+
+    def preparer():
+        from megatoken.data.media_prepare import MediaPreparer
+
+        if not (args.kb_root and args.packs):
+            raise ValueError("Adding files needs --kb-root and the pack manifest (--packs)")
+        return MediaPreparer(args.packs, Path(args.kb_root) / "prepared", device=str(engine.device))
+
     serve_multitrack_jsonl(
-        InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile),
+        engine,
         sys.stdin,
         sys.stdout,
         max_sessions=args.max_sessions,
+        kb_root=args.kb_root,
+        preparer=preparer,
     )
 
 
@@ -573,7 +596,43 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--device", default="auto")
     item.add_argument("--compile", action="store_true")
     item.add_argument("--max-sessions", type=int, default=32)
+    item.add_argument(
+        "--kb-root",
+        help="Directory knowledge base files are opened from and saved to; enables the kb_* operations",
+    )
     item.set_defaults(func=_serve_multitrack)
+    group = commands.add_parser(
+        "kb", help="Build and inspect knowledge bases that ship apart from the model"
+    )
+    sub = group.add_subparsers(dest="kb_command", required=True)
+    build = sub.add_parser(
+        "build",
+        help="Write a base file from prepared roots or plain files, reading each item alone",
+    )
+    build.add_argument("--name", required=True)
+    build.add_argument(
+        "--items", nargs="+", required=True, help="Prepared roots, or text/image/audio/video files"
+    )
+    build.add_argument("--model", required=True, help="Exported bundle or training checkpoint")
+    build.add_argument("--packs", help="Locked realizer pack manifest (needed to prepare files)")
+    build.add_argument("--codec", help="Codec location, if a checkpoint's has moved")
+    build.add_argument("--device", default="auto")
+    build.add_argument("--output", help="Base file to write (default: <name>.kb)")
+    build.add_argument(
+        "--prepared",
+        default="kb-prepared",
+        help="Where prepared features of plain files are kept (a new prepared root)",
+    )
+    build.add_argument("--split", choices=("train", "validation", "test", "all"), default="train")
+    build.add_argument("--batch", type=int, default=16, help="Items read together")
+    for name in ("task", "topic", "language", "date"):
+        build.add_argument(f"--{name}", help=f"File every plain file under this {name}")
+    build.set_defaults(func=_kb_build)
+    inspecting = sub.add_parser(
+        "inspect", help="Show what a base file holds and which model wrote it"
+    )
+    inspecting.add_argument("base")
+    inspecting.set_defaults(func=_kb_inspect)
     item = commands.add_parser(
         "engram", help="Optional offline native-table initialization and exact baking"
     )

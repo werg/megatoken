@@ -9,6 +9,13 @@ result makes a memory lookup due, as in training. ``open`` and ``observe``
 take the ``effort`` their lookups run at (default 6); a generation's lookup
 uses the generation's own effort. An event or output may carry ``terminal: false``
 when it is only part of a longer message; only a message's last part closes a turn.
+
+Knowledge bases (only when served with a ``kb_root`` directory, which every path
+must lie inside): ``kb_open`` mounts a base file built for this model under a name,
+``kb_create`` starts an empty base a user can fill, ``kb_add`` prepares files and writes
+them into a base (no retraining), ``kb_save`` writes a base to a file, ``kb_close``
+forgets one, ``kb_list`` describes the open ones. ``open`` takes ``bases``, a map of
+base name to blend weight (0 leaves one out), and ``trained_weight``.
 """
 
 from __future__ import annotations
@@ -17,13 +24,15 @@ import base64
 import json
 import math
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import TextIO
 
 import numpy as np
 import torch
 
 from megatoken.contracts import ROLE_TO_ID
+from megatoken.data.knowledge import FilePreparer
 from megatoken.generation.structure import ActionSpec
 from megatoken.inference import InferenceEngine
 from megatoken.io import strict_json_loads
@@ -138,17 +147,70 @@ def _output_response(group, specs):
     return outputs
 
 
+def _inside(root: Path | None, name: object) -> Path:
+    """A path the client names, which must lie inside the knowledge base root."""
+    if root is None:
+        raise ValueError("Knowledge base operations need the server's --kb-root")
+    if not isinstance(name, str) or not name:
+        raise ValueError("A knowledge base path must be a nonempty string")
+    path = (root / name).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError("Path lies outside the knowledge base root")
+    return path
+
+
+def _knowledge_op(runtime: MultiTrackRuntime, root: Path | None, op: str, request: Mapping):
+    """The knowledge base operations of the protocol; the answer to send."""
+    memory = runtime.memory
+    name = request.get("name")
+    if op == "kb_list":
+        return {"bases": {key: base.summary() for key, base in memory.bases.items()}}
+    if not isinstance(name, str):
+        raise ValueError("Knowledge base operations need a name")
+    if op == "kb_open":
+        base = memory.open_base(
+            name, _inside(root, request.get("path")), writable=bool(request.get("writable"))
+        )
+    elif op == "kb_create":
+        base = memory.create_base(name)
+    elif op == "kb_add":
+        paths = request.get("files")
+        if not isinstance(paths, list) or not paths:
+            raise ValueError("kb_add needs a nonempty list of files")
+        metadata = request.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise ValueError("File metadata must be a JSON object")
+        added = memory.add_files(name, [_inside(root, path) for path in paths], metadata=metadata)
+        return {"name": name, "added": len(added), **memory.bases[name].summary()}
+    elif op == "kb_save":
+        base = memory.bases[name]
+        base.save(_inside(root, request.get("path")))
+    elif op == "kb_close":
+        memory.close_base(name)
+        return {"closed": name}
+    else:
+        raise ValueError("Unknown knowledge base operation")
+    return {"name": name, **base.summary()}
+
+
 def serve_multitrack_jsonl(
     engine: InferenceEngine,
     input_stream: TextIO,
     output_stream: TextIO,
     *,
     max_sessions: int = 32,
+    kb_root: str | Path | None = None,
+    preparer: Callable[[], FilePreparer] | None = None,
 ) -> None:
-    """One runtime per weights bundle, many independent shared-track sessions."""
+    """One runtime per weights bundle, many independent shared-track sessions.
+
+    ``kb_root`` enables the knowledge base operations; ``preparer`` (called once, on first
+    use) prepares the files ``kb_add`` writes into a base: the existing media preparation.
+    """
     if max_sessions < 1:
         raise ValueError("max_sessions must be positive")
-    runtime = MultiTrackRuntime(MultiTrackGenerator(engine.model))
+    root = None if kb_root is None else Path(kb_root).resolve()
+    runtime = MultiTrackRuntime(MultiTrackGenerator(engine.model), preparer=preparer)
     sessions: dict[str, TrackSession] = {}
 
     for line in input_stream:
@@ -166,11 +228,21 @@ def serve_multitrack_jsonl(
                 if not isinstance(metadata, dict):
                     raise ValueError("Session metadata must be a JSON object")
                 session_id = uuid.uuid4().hex
-                sessions[session_id] = runtime.open(metadata, effort=int(request.get("effort", 6)))
+                bases = request.get("bases", {})
+                if not isinstance(bases, dict):
+                    raise ValueError("Mounted bases must be a JSON object of name to weight")
+                sessions[session_id] = runtime.open(
+                    metadata,
+                    bases={str(k): float(v) for k, v in bases.items()},
+                    trained=float(request.get("trained_weight", 1.0)),
+                    effort=int(request.get("effort", 6)),
+                )
                 answer = {
                     "session": session_id,
                     "architecture_version": engine.model.config.architecture_version,
                 }
+            elif isinstance(op, str) and op.startswith("kb_"):
+                answer = _knowledge_op(runtime, root, op, request)
             else:
                 session_id = request.get("session")
                 if session_id not in sessions:

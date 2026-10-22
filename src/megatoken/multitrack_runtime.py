@@ -10,12 +10,13 @@ without disturbing the committed session.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 import torch
 
+from megatoken.data.knowledge import FilePreparer
 from megatoken.generation.structure import ActionSpec
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import (
@@ -50,18 +51,34 @@ class TrackSession:
 class MultiTrackRuntime:
     """Reference scheduler: one ready meridian at a time, no global track barrier."""
 
-    def __init__(self, generator: MultiTrackGenerator) -> None:
+    def __init__(
+        self,
+        generator: MultiTrackGenerator,
+        *,
+        preparer: Callable[[], FilePreparer] | None = None,
+    ) -> None:
         self.generator = generator
-        self.memory = TransducerInferenceEngine(generator)
+        self.memory = TransducerInferenceEngine(generator, preparer=preparer)
 
-    def open(self, metadata: dict[str, object] | None = None, *, effort: int = 6) -> TrackSession:
+    def open(
+        self,
+        metadata: dict[str, object] | None = None,
+        *,
+        bases: Mapping[str, float] | None = None,
+        trained: float = 1.0,
+        effort: int = 6,
+    ) -> TrackSession:
         """Commit the metadata prefix and the first lookup, before any answer.
 
         Training shows the model the fields ``task``, ``modality`` and
         ``version``, each present or absent at random, so pass any of them
         (``metadata_payload`` lists the rest) or none; unknown fields stay null.
+        ``bases`` mounts the engine's open knowledge bases by name with blend weights
+        (``memory.open_base`` / ``create_base``); ``trained`` weights the trained base.
         """
-        return TrackSession(self.memory.new_session(metadata or {}, effort=effort))
+        return TrackSession(
+            self.memory.new_session(metadata or {}, bases=bases, trained=trained, effort=effort)
+        )
 
     def observe(
         self, session: TrackSession, events: Sequence[ObservedEvent], *, effort: int = 6

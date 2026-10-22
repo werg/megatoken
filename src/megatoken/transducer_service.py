@@ -14,11 +14,17 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import torch
 
+from megatoken.data.knowledge import FilePreparer, prepare_files
+from megatoken.kb import add_items, model_identity, new_base, open_base
+from megatoken.memory.knowledge import KnowledgeBase
 from megatoken.memory.transducer import Lookup, SearchAgenda
 from megatoken.model.config import RESERVED_TRACKS
 from megatoken.model.multitrack import MultiTrackGenerator, MultiTrackState, ObservedEvent
@@ -39,13 +45,74 @@ class TransducerSession:
 class TransducerInferenceEngine:
     """Owns serving sessions for one multitrack generator and its transducer."""
 
-    def __init__(self, multi: MultiTrackGenerator) -> None:
+    def __init__(
+        self,
+        multi: MultiTrackGenerator,
+        *,
+        preparer: Callable[[], FilePreparer] | None = None,
+    ) -> None:
+        """``preparer`` (called once, when first needed) prepares files to add to a base."""
         model = multi.generator.eval()
         self.native = model.transducer
         self.bank = self.native.bank
         if model.core.initial_facets.device != self.bank.device:
             raise ValueError("The v10 model and packed bank must be on one device")
         self.multi = multi
+        self.bases: dict[str, KnowledgeBase] = {}
+        self._preparer_factory = preparer
+        self._preparer: FilePreparer | None = None
+        self._identity: dict[str, Any] | None = None
+
+    # ---------------------------------------------------------- knowledge bases
+
+    @property
+    def identity(self) -> dict[str, Any]:
+        """What a base must share with this model (hashing the weights once, on first use)."""
+        if self._identity is None:
+            self._identity = model_identity(self.multi.generator)
+        return self._identity
+
+    def _register(self, name: str, base: KnowledgeBase) -> KnowledgeBase:
+        if not name or name in self.bases:
+            raise ValueError(
+                f"A knowledge base named {name!r} is already open (or the name is empty)"
+            )
+        self.bases[name] = base
+        return base
+
+    def open_base(self, name: str, path: str | Path, *, writable: bool = False) -> KnowledgeBase:
+        """Open a base file built for this model; a base from another model is refused."""
+        return self._register(
+            name, open_base(path, self.multi.generator, identity=self.identity, writable=writable)
+        )
+
+    def create_base(self, name: str) -> KnowledgeBase:
+        """A new empty base that files can be added to while serving."""
+        return self._register(
+            name, new_base(self.multi.generator, name, identity=self.identity, writable=True)
+        )
+
+    def close_base(self, name: str) -> None:
+        """Forget a base: no new session can mount it. Open sessions keep searching it."""
+        del self.bases[name]
+
+    @torch.inference_mode()
+    def add_files(
+        self,
+        name: str,
+        paths: Sequence[str | Path],
+        *,
+        metadata: Mapping[str, object] | None = None,
+    ) -> list[int]:
+        """Prepare files with the existing media preparation, then write them into base ``name``."""
+        base = self.bases[name]
+        if self._preparer_factory is None:
+            raise ValueError("Adding files needs the media preparer (serve with the pack manifest)")
+        if self._preparer is None:
+            self._preparer = self._preparer_factory()
+        items = prepare_files(paths, self._preparer, metadata=metadata)
+        with base.lock:
+            return add_items(base, self.multi.generator, self.multi, items)
 
     def _check(self, session: TransducerSession) -> None:
         if session.owner != id(self):
@@ -59,13 +126,28 @@ class TransducerInferenceEngine:
         self,
         metadata: dict[str, object],
         *,
+        bases: Mapping[str, float] | None = None,
+        trained: float = 1.0,
         effort: int = 6,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> TransducerSession:
-        """Commit the metadata prefix, then the first lookup, before any answer."""
+        """Commit the metadata prefix, then the first lookup, before any answer.
+
+        ``bases`` maps open base names to blend weights (0 leaves one out);
+        ``trained`` is the trained base's weight.
+        """
+        try:
+            mounts = {name: (self.bases[name], weight) for name, weight in (bases or {}).items()}
+        except KeyError as unknown:
+            raise ValueError(f"No open knowledge base named {unknown}") from None
         state = self.multi.tracks.initial_state(1, device=self.bank.device)
-        state, agenda = self.native.begin(self.multi, state, metadata_payload(metadata))
+        state, agenda = self.native.begin(
+            self.multi,
+            state,
+            metadata_payload(metadata),
+            mounted=self.bank.mount(mounts, trained=trained),
+        )
         scheduler = BoundaryScheduler(max_lookups=self.bank.geometry.max_lookups)
         session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self))
         if scheduler.first_metadata():
@@ -141,9 +223,16 @@ class TransducerInferenceEngine:
         lookup = None
         try:
             if not stopped():
-                state, lookup = self.native.boundary(
-                    self.multi, state, session.agenda, effort=effort, cancelled=stopped
-                )
+                # A base being filled reallocates its table: wait rather than read half a change.
+                filling = {
+                    id(m.base): m.base.lock for m in session.agenda.mounted if m.base.writable
+                }
+                with ExitStack() as locks:
+                    for _, lock in sorted(filling.items()):
+                        locks.enter_context(lock)
+                    state, lookup = self.native.boundary(
+                        self.multi, state, session.agenda, effort=effort, cancelled=stopped
+                    )
         finally:
             session.scheduler.finish(committed=lookup is not None)
         return state, lookup
