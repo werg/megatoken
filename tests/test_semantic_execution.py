@@ -71,6 +71,7 @@ def test_adapter_builds_causal_episode_without_oracle_sidecar_leakage():
     assert receipt.dependencies == 2
     assert ep.supervision.outcome == "unknown"
     assert ep.lineage.family_id == "family-A"
+    assert "repository:werg/tracing-js-self" not in ep.lineage.family_keys
     assert ep.lineage.frozen_split == "train"
     assert len(ep.meridians) == 7
     assert {track.track_id for track in ep.tracks} == {"t" + str(i) for i in range(8)}
