@@ -15,11 +15,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "other",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-CC-v2.1",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -41,11 +41,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "other",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-CC-v2.1",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -67,11 +67,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "other",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -93,11 +93,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "other",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -119,11 +119,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "other",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -145,11 +145,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "other",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -171,11 +171,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "other",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -197,11 +197,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "source-specific",
         "license_url": "https://huggingface.co/datasets/HuggingFaceTB/smoltalk2",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -223,11 +223,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "openmdw-1.1",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v4",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -249,11 +249,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "openmdw-1.1",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v4",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -275,11 +275,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "openmdw-1.1",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v4",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -301,11 +301,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "openmdw-1.1",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -327,11 +327,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "openmdw-1.1",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -353,11 +353,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "cc-by-4.0",
         "license_url": "https://huggingface.co/datasets/nvidia/Open-SWE-Traces",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -379,11 +379,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "apache-2.0",
         "license_url": "https://huggingface.co/datasets/open-thoughts/AgentTrove",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {
@@ -416,11 +416,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "cc-by-4.0",
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {
@@ -453,11 +453,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "mit",
         "license_url": "https://huggingface.co/datasets/microsoft/Orchard",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},
@@ -479,11 +479,11 @@
       "max_rows": 1000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "apache-2.0",
         "license_url": "https://huggingface.co/datasets/AlienKevin/SWE-ZERO-12M-trajectories",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "Record intended-use and upstream source obligations before acquisition."
       },
       "field_map": {},

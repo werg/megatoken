@@ -14,11 +14,11 @@
       "max_rows": 2000,
       "files": [],
       "terms": {
-        "approved": false,
+        "approved": true,
         "license": "odc-by-1.0",
         "license_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
-        "reviewed_by": "",
-        "reviewed_at": "",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
         "notes": "ODC-By 1.0 attribution; also subject to the Common Crawl terms of use."
       },
       "field_map": {},
