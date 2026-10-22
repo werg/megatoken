@@ -122,6 +122,52 @@ def _text_bytes(text: str) -> bytes:
         raise SemanticExecutionError("Unescaped surrogate in transport record") from error
 
 
+
+_HOST_REQUESTS = {
+    "demo.readAsync": ("demo.readAsync/1", 1),
+    "demo.readNumber": ("demo.readNumber/1", 1),
+    "demo.store": ("demo.store/1", 2),
+}
+
+
+def _host_request(fields: dict[str, Any]) -> list[Any]:
+    """Validate the complete, materialized boundary; no guest handles cross it."""
+    operation = fields.get("operation")
+    signature = _HOST_REQUESTS.get(operation)
+    if signature is None or fields.get("signature") != signature[0]:
+        _fail("External request has an unregistered versioned operation signature")
+    if fields.get("codec") != "canonical-json/1":
+        _fail("External request does not declare the supported canonical JSON codec")
+    wire = fields.get("payload")
+    if not isinstance(wire, str) or not 2 <= len(_text_bytes(wire)) <= 65536:
+        _fail("External request has missing or oversized immutable payload bytes")
+
+    def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                _fail("External JSON payload repeats an object key")
+            result[key] = value
+        return result
+
+    try:
+        args = json.loads(
+            wire,
+            object_pairs_hook=unique_pairs,
+            parse_constant=lambda value: _fail("Nonfinite external JSON value: " + value),
+        )
+    except (TypeError, ValueError) as error:
+        raise SemanticExecutionError("Malformed immutable external payload") from error
+    if (
+        not isinstance(args, list)
+        or len(args) != signature[1]
+        or not isinstance(args[0], str)
+        or args != fields.get("arguments")
+    ):
+        _fail("External JSON bytes disagree with the declared argument values")
+    return args
+
+
 def _validate(
     public: Mapping[str, Any],
     *,
@@ -242,10 +288,7 @@ def _validate(
             fx = fields.get("effect")
             if not isinstance(fx, str) or not fx or fx in actions:
                 _fail("Duplicate or missing effect identity")
-            if not isinstance(fields.get("operation"), str) or not isinstance(
-                fields.get("arguments"), list
-            ):
-                _fail("A request requires a declared operation and materialized arguments")
+            _host_request(fields)
             actions[fx] = index
         if kind == "observe":
             fx = fields.get("effect")
