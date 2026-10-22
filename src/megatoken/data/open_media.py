@@ -753,13 +753,25 @@ class Shards:
 
 
 def locate(record: Any, path: str) -> Any:
-    """Follow a dotted path through dicts and lists (list steps are integers); None if absent."""
-    for part in path.split("."):
+    """Follow a dotted path through dicts and lists (list steps are integers); None if absent.
+
+    A mapping key may itself contain dots (a WebDataset member ``image.jpg``): the longest
+    run of path parts that names a key is taken first.
+    """
+    parts = path.split(".")
+    while parts:
         if isinstance(record, Mapping):
-            record = record.get(part)
-        elif isinstance(record, (list, tuple)) and part.lstrip("-").isdigit():
-            index = int(part)
+            for length in range(len(parts), 0, -1):
+                key = ".".join(parts[:length])
+                if key in record:
+                    record, parts = record[key], parts[length:]
+                    break
+            else:
+                return None
+        elif isinstance(record, (list, tuple)) and parts[0].lstrip("-").isdigit():
+            index = int(parts[0])
             record = record[index] if -len(record) <= index < len(record) else None
+            parts = parts[1:]
         else:
             return None
         if record is None:
@@ -823,9 +835,10 @@ _TEXT_EXTENSIONS = frozenset(("txt", "cls", "caption"))
 def _sample(group: Mapping[str, bytes]) -> dict[str, Any]:
     sample: dict[str, Any] = {}
     for extension, payload in group.items():
-        if extension == "json":
+        suffix = extension.rpartition(".")[2]  # ``synthetic_caption.txt`` is text
+        if suffix == "json":
             sample[extension] = json.loads(payload)
-        elif extension in _TEXT_EXTENSIONS:
+        elif suffix in _TEXT_EXTENSIONS:
             sample[extension] = payload.decode("utf-8")
         else:
             sample[extension] = payload
@@ -978,7 +991,8 @@ def _numbered(row: Mapping[str, Any], templates: Sequence[str]) -> list[Any]:
     values: list[Any] = []
     for template in templates:
         if "{n}" not in template:
-            values.append(row.get(template))
+            found = row.get(template)
+            values.extend(found if isinstance(found, list) else [found])
             continue
         number = 1
         while row.get(template.format(n=number)) not in (None, ""):
@@ -994,10 +1008,10 @@ def _path_key(path: str) -> str:
 def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
     """Table rows joined with the images they name, read from archives in one pass.
 
-    ``include`` names the tables (jsonl, one row per line) and ``options.linked`` the images:
+    ``include`` names the tables (JSON lines or one JSON array of rows) and ``options.linked`` the images:
     ``archives`` are patterns of tar(.gz) files (``multipart``: together one archive that was cut
     into parts), ``sequence`` the row's media in order (``images``: field names, ``{n}`` standing
-    for 1, 2, ... while the row has it; ``texts`` likewise). An archive member belongs to a row
+    for 1, 2, ... while the row has it, a list field counting as several; ``texts`` likewise). An archive member belongs to a row
     when the row's path is the member's name or its tail (case-insensitive: ``a/b.jpg`` is
     ``data/a/B.JPG``). A row is yielded, with ``images`` and ``texts`` lists, as soon as its
     last image has been read, and dropped when more than ``pending`` of its images wait unmatched
@@ -1008,10 +1022,7 @@ def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any
     rows: dict[int, dict[str, Any]] = {}
     for table in shards.names():
         with shards.open(table) as handle:
-            for line in handle.read().decode("utf-8").split("\n"):
-                if not line.strip():
-                    continue
-                row = json.loads(line)
+            for row in _table_rows(handle, table, None):
                 paths = _numbered(row, spec["sequence"]["images"])
                 if not paths or any(not isinstance(path, str) for path in paths):
                     continue

@@ -1637,3 +1637,61 @@ def test_webdataset_keys_may_hold_dots_when_asked(tmp_path):
         ("abc.0", ["json", "mp4"]),
         ("abc.1", ["mp4"]),
     ]
+
+
+def test_webdataset_members_with_dotted_names_are_addressable_and_json_arrays_link(tmp_path, media):
+    """cc12m-recaptioned shape: members ``<key>.image.jpg`` and ``<key>.synthetic_caption.txt``."""
+    from megatoken.data.open_media import locate, webdataset_records
+
+    assert locate({"image.jpg": b"x", "json": {"a.b": 3}}, "json.a.b") == 3
+    assert locate({"image.jpg": b"x"}, "image.jpg") == b"x"
+    assert locate({"a": {"b": [5, 6]}}, "a.b.1") == 6
+    source = make_source(
+        "cc",
+        "captioned_image",
+        "webdataset",
+        columns={"image": "image.jpg", "caption": "synthetic_caption.txt", "id": "__key__"},
+        include=("*.tar",),
+    )
+    _tar(
+        _local(tmp_path, "cc") / "0.tar",
+        {
+            "k1.image.jpg": _image(1),
+            "k1.original_caption.txt": b"short",
+            "k1.synthetic_caption.txt": b"A long synthetic description of the image.",
+        },
+    )
+    (record,) = webdataset_records(source, Shards(source, tmp_path / "inputs"))
+    assert record["synthetic_caption.txt"].startswith("A long synthetic")
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_description": 1, "image_creation": 1, "image_identity": 1}
+
+    # ShareGPT-4o-Image edits: a JSON array table; input images are a list; one archive.
+    edits = make_source(
+        "gpt4o",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "output_image"},
+        include=("edits.json",),
+        options={
+            "linked": {
+                "archives": ["part_*.tar"],
+                "sequence": {"images": ["input_image", "output_image"], "texts": ["input_prompt"]},
+            }
+        },
+    )
+    folder = _local(tmp_path, "gpt4o")
+    (folder / "edits.json").write_text(
+        json.dumps(
+            [
+                {
+                    "input_prompt": "Remove the barrier",
+                    "input_image": ["image/v2v_1.png"],
+                    "output_image": "image/v2v_2.png",
+                }
+            ]
+        )
+    )
+    _tar(folder / "part_0.tar", {"image/v2v_1.png": _image(1), "image/v2v_2.png": _image(2)})
+    (episode,) = _run(media, edits, tmp_path, inputs=tmp_path / "inputs")
+    assert episode.stream == "image_edit" and episode.records[1].payload == b"Remove the barrier"
