@@ -105,7 +105,9 @@ class RouterBalanceWindow:
         counts = self.global_counts(distributed, routers=routers)
         diagnostics = {}
         total_loss = None
-        pool_scale = 1 / len(routers) if routers else 0.0
+        # Each router's term reaches only its own head, so this is a per-router weight:
+        # the half each of P and U had when they were the only balanced routers.
+        pool_scale = 0.5
         for name, router in sorted(routers.items()):
             hard = counts[name]
             total_assignments = hard.sum()
