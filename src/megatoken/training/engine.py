@@ -123,6 +123,7 @@ def prepare_batches(
         "tested_artifacts",
         "successful_replay",
         "long_verified_dependencies",
+        "semantic_execution",
     }
     for item in windows:
         episode = item.episode
