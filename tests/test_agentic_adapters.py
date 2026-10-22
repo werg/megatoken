@@ -910,6 +910,46 @@ def test_the_customers_own_tool_calls_stay_customer_text():
     assert any(b"Airplane Mode: ON" in text for text in texts) and linked(episode)
 
 
+def test_a_dialogue_prefix_with_its_next_step_trains_only_the_next_step():
+    row = {
+        "messages": [
+            {"role": "system", "content": "Policy."},
+            {"role": "user", "content": "Help"},
+            {"role": "assistant", "content": "Sure."},
+            {"role": "user", "content": "Thanks"},
+        ],
+        "answer": {
+            "role": "assistant",
+            "content": "",
+            "thinking": "plan",
+            "tool_calls": [
+                {"id": "c", "type": "function", "function": {"name": "f", "arguments": "{}"}}
+            ],
+        },
+    }
+    episode = adapt(row, "device_call_tools", allow_pending_final_action=True)
+    scored = [r for r in episode.records if r.policy_mask]
+    assert len(scored) == 2 and all(r.role == "assistant" for r in scored)
+    assert [a.tool_name for a in episode.actions] == ["f"]
+    assert b"<think>" in scored[0].payload
+
+
+def test_blank_user_turns_json_message_strings_and_empty_call_fields():
+    blank = {
+        "messages": [
+            {"role": "user", "content": ""},
+            {"role": "user", "content": "Real question"},
+            {"role": "assistant", "content": "Answer", "tool_calls": ""},
+        ]
+    }
+    with pytest.raises(SchemaError, match="no content"):
+        adapt(blank, "chat")
+    episode = adapt(blank, "chat", drop_empty_user_turns=True)
+    assert [r.role for r in episode.records] == ["user", "assistant"]
+    strings = {"messages": [json.dumps(m) for m in blank["messages"][1:]]}
+    assert len(adapt(strings, "chat").records) == 2
+
+
 def test_xml_function_calls_keep_parameter_types():
     call = (
         "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"

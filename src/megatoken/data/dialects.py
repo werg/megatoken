@@ -799,13 +799,27 @@ def device_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
 
     The agent's calls are calls. The simulated customer also operates a phone with tools of its
     own (``requestor`` ``user``); that is part of the customer's side of the conversation, so the
-    customer's action and what it returned are spelled as customer text.
+    customer's action and what it returned are spelled as customer text. Training rows that store
+    the next step apart from the dialogue so far keep it in ``answer``; it closes the dialogue, with
+    its ``thinking`` spelled as ``<think>``, and is the only turn trained.
     """
     pending: deque[tuple[str, str, Mapping[str, Any]]] = deque()
     out: Messages = []
-    for turn, message in enumerate(_messages(value)):
+    messages = list(_messages(value))
+    last = isinstance(row.get("answer"), Mapping)
+    if last:
+        messages.append(row["answer"])
+    first_new = 0
+    for turn, message in enumerate(messages):
+        if last and turn == len(messages) - 1:
+            first_new = len(out)
         role, text = role_of(message), _text(message)
+        thinking = message.get("thinking")
+        if role == "assistant" and isinstance(thinking, str) and thinking.strip():
+            text = f"<think>\n{thinking.strip()}\n</think>\n\n{text}"
         calls = message.get("tool_calls")
+        if isinstance(calls, str):  # a JSON string, empty when the message has no calls
+            calls = _literal(calls, "tool_calls") if calls.strip() else None
         if calls and not isinstance(calls, list):
             raise SchemaError("tool_calls must be a list")
         if role in {"assistant", "user"} and calls:
@@ -840,6 +854,9 @@ def device_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
                 )
         else:
             out.append({"role": role, "content": text})
+    for message in out[:first_new]:
+        # Every prefix of a dialogue is a row of its own; each row trains only its new step.
+        message["train"] = False
     return out, row.get("tools")
 
 

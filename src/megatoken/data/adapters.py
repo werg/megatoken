@@ -261,6 +261,7 @@ _PROFILE_OPTIONS: dict[str, frozenset[str]] = {
         "positional_call_ids",
         "admit_unknown_outcome",
         "path_dependencies",
+        "drop_empty_user_turns",
     },
     "serialized_chat": _HINT_OPTIONS | {"allow_incomplete_serialized"},
     "document": _HINT_OPTIONS | {"allow_incomplete_serialized"},
@@ -964,7 +965,10 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
             )
     from .dialects import role_of
 
+    drop_empty_users = bool(reader.context.options.get("drop_empty_user_turns", False))
     for turn, message in enumerate(messages):
+        if isinstance(message, str):
+            message = _object(message, "A message")  # some sets store one JSON string per message
         if not isinstance(message, Mapping):
             raise SchemaError("Every message must be an object")
         role = role_of(message)
@@ -1007,7 +1011,9 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         if structured_result:
             # A JSON result object is delivered as its canonical serialization.
             content = canonical_json(content)
-        calls = _object(message.get("tool_calls"), "tool_calls") or []
+        calls = (
+            _object(message.get("tool_calls"), "tool_calls") if message.get("tool_calls") else []
+        )
         if not isinstance(calls, list):
             raise SchemaError("tool_calls must be a list")
         if message.get("function_call"):
@@ -1016,9 +1022,10 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
             calls = [{"id": f"{builder.episode_id}:{turn}", "function": message["function_call"]}]
         if calls and role != "assistant":
             raise SchemaError("Only assistant messages can issue tools")
-        if (content is None and not calls) or (
-            role == "user" and isinstance(content, str) and not content.strip()
-        ):
+        blank_user = role == "user" and isinstance(content, str) and not content.strip()
+        if blank_user and drop_empty_users and not calls:
+            continue  # the publisher blanked a turn (a withheld device action), not the prompt
+        if (content is None and not calls) or blank_user:
             raise SchemaError(
                 f"Message {turn} has no content; a source that withholds prompts must be restored first"
             )
