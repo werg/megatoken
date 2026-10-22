@@ -351,76 +351,100 @@ def adapt_semantic_execution(
         source_uri="https://github.com/werg/tracing-js-self",
         frozen_split=split,
     )
+    # Reassemble *logical* semantic operations while retaining one physical
+    # model event/meridian for each fragment. A request only becomes executable
+    # when its final value-close commits. Source and input fragments remain user
+    # observations regardless of their absolute physical meridian index.
+    spans: list[tuple[int, int, str, dict[str, Any]]] = []
+    opened_at: int | None = None
+    fragments: list[str] = []
+    for index, group in enumerate(groups):
+        kind, fields = _record(group["events"][0]["record"])
+        if kind == "value-open":
+            opened_at = index
+            fragments = []
+        elif kind == "value-part":
+            fragments.append(fields["data"])
+        elif kind == "value-close":
+            if opened_at is None:
+                _fail("Fragment close has no opening event")
+            resolved_kind, resolved_fields = _record("".join(fragments))
+            spans.append((opened_at, index, resolved_kind, resolved_fields))
+            opened_at = None
+            fragments = []
+        else:
+            spans.append((index, index, kind, fields))
+    if opened_at is not None:
+        _fail("Unclosed physical request or source fragment")
+
     records: list[PhysicalRecord] = []
     meridians: list[Meridian] = []
     producers: dict[str, str] = {}
     dependencies: list[Dependency] = []
     actions: list[LogicalAction] = []
     dispatched: dict[str, tuple[str, str]] = {}
-    open_id: str | None = None
-    open_parts: list[str] = []
-    for index, group in enumerate(groups):
-        (item,) = group["events"]
-        line = item["record"]
-        kind, fields = _record(line)
-        mode = group["mode"]
-        name = "semantic:r" + str(index + 1)
+
+    for ordinal, (start, end, kind, fields) in enumerate(spans):
+        mode = groups[start]["mode"]
+        role = "assistant" if mode == "generated" else ("user" if ordinal < 2 else "environment")
         action_id: str | None = None
         result_of: str | None = None
         execution_id: str | None = None
+        record_ids = tuple("semantic:r" + str(i + 1) for i in range(start, end + 1))
         if kind == "request":
             effect = fields["effect"]
             action_id = "semantic:" + effect
             execution_id = action_id + ":execution"
             dispatched[effect] = (action_id, execution_id)
+            request_bytes = b"".join(
+                _text_bytes(groups[i]["events"][0]["record"]) for i in range(start, end + 1)
+            )
             actions.append(
                 LogicalAction(
                     action_id=action_id,
                     call_id=effect,
                     tool_name=fields["operation"],
-                    arguments_json=json.dumps({"args": fields["arguments"]}, separators=(",", ":")),
-                    record_ids=(name,),
-                    serialized_sha256=digest_bytes(_text_bytes(line)),
+                    arguments_json=json.dumps(
+                        {"args": _host_request(fields)}, separators=(",", ":"), ensure_ascii=True
+                    ),
+                    record_ids=record_ids,
+                    serialized_sha256=digest_bytes(request_bytes),
                     execution_id=execution_id,
+                    schema_id=fields["signature"],
                 )
             )
         if kind == "observe":
             result_of, execution_id = dispatched[fields["effect"]]
-        role = "assistant" if mode == "generated" else ("environment" if index >= 2 else "user")
-        record = PhysicalRecord(
-            record_id=name,
-            role=role,
-            payload=_text_bytes(line),
-            turn_index=index,
-            policy_mask=mode == "generated",
-            provenance="teacher" if mode == "generated" else "executed",
-            action_id=action_id,
-            result_of=result_of,
-            execution_id=execution_id if result_of else None,
-        )
-        records.append(record)
-        meridians.append(Meridian(index, (TrackEvent(name, item["track"], "text", index, role),)))
-        if kind == "value-open":
-            open_id = fields["id"]
-            open_parts = []
-        elif kind == "value-part":
-            if open_id is None:
-                _fail("Unexpected value-part while mapping dependencies")
-            open_parts.append(fields["data"])
-        elif kind == "value-close":
-            if open_id is None:
-                _fail("Unexpected value-close while mapping dependencies")
-            restored_kind, restored_fields = _record("".join(open_parts))
-            _add_dependencies(restored_kind, restored_fields, name, producers, dependencies)
-            producers[open_id] = name
-            open_id = None
-        elif kind not in ("code",):
+
+        for i in range(start, end + 1):
+            item = groups[i]["events"][0]
+            name = record_ids[i - start]
+            record = PhysicalRecord(
+                record_id=name,
+                role=role,
+                payload=_text_bytes(item["record"]),
+                turn_index=i,
+                logical_id="semantic:logical:" + str(start + 1) if end > start else "",
+                part_index=i - start,
+                part_count=end - start + 1,
+                policy_mask=mode == "generated",
+                provenance="teacher" if mode == "generated" else "executed",
+                action_id=action_id,
+                result_of=result_of,
+                execution_id=execution_id if result_of else None,
+            )
+            records.append(record)
+            meridians.append(Meridian(i, (TrackEvent(name, item["track"], "text", i, role),)))
+
+        # All value dependencies name the closing fragment, never a partially
+        # materialized JSON request, array, or function return. Observations
+        # are evidence, not policy-scored dependent predictions.
+        name = record_ids[-1]
+        if mode == "generated":
             _add_dependencies(kind, fields, name, producers, dependencies)
-            identifier = fields.get("id")
-            if isinstance(identifier, str):
-                producers[identifier] = name
-    if open_id is not None:
-        _fail("Unfinished physical semantic value")
+        identifier = fields.get("id")
+        if isinstance(identifier, str):
+            producers[identifier] = name
     tracks = tuple(TrackSpec("t" + str(i), "assistant") for i in range(8))
     episode_id = (
         "semantic:" + hashlib.sha256(b"\n".join(record.payload for record in records)).hexdigest()
