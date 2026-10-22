@@ -347,7 +347,6 @@ def test_fragmented_json_request_stays_one_logical_action_and_delivery():
 
 def test_wrong_external_request_codec_or_shape_is_rejected():
     document = fixture()
-    groups = document["public"]["groups"]
     requests = [
         {
             "id": "e1",
