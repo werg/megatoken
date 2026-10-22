@@ -1219,6 +1219,7 @@ def test_a_reused_clip_id_with_new_content_gives_new_episodes(tmp_path, media):
     transcripts = {e.episode_id for e in episodes if e.stream == "transcription"}
     assert len(transcripts) == 2  # the repeated row merges; the new caption does not
 
+
 def test_a_conversation_about_an_image_is_one_multi_turn_episode_in_every_stored_layout(
     tmp_path, media
 ):
@@ -1463,7 +1464,7 @@ def test_multiple_choice_questions_about_recordings_list_the_options_in_the_ques
                 "audio": [{"bytes": _wave(i), "path": ""} for i in range(3)],
                 "question": ["What is heard?", "How many?", "Bad answer?"],
                 "options": [["rain", "wind"], ["one", "two", "three"], ["x", "y"]],
-                "answer": [1, "three", 7],
+                "answer": ["wind", "three", "zzz"],
             }
         ),
         _local(tmp_path, "choices") / "0.parquet",
