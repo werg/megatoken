@@ -152,7 +152,7 @@ def test_fragments_commit_only_at_close_before_dependent_read():
         row["id"] = "m" + str(i + 1)
     episode, receipt = adapt_semantic_execution(candidate, allow_local=True)
     assert len(episode.records) == len(body)
-    assert receipt.generated == 4  # value fragments count as one committed semantic event
+    assert receipt.generated == 5  # value fragments count as one committed semantic event
     assert ("semantic:r7", "semantic:r8") in {
         (d.writer_id, d.reader_id) for d in episode.dependencies
     }
@@ -171,4 +171,7 @@ def test_local_diagnostics_never_impersonate_independently_admitted_data():
     example["sidecar"]["admission"] = "admitted"
     example["sidecar"]["referenceStatus"] = "not-checked"
     with pytest.raises(SemanticExecutionError, match="agreement"):
+        adapt_semantic_execution(example)
+    example["sidecar"]["referenceStatus"] = "agreed"
+    with pytest.raises(SemanticExecutionError, match="external admission verifier"):
         adapt_semantic_execution(example)
