@@ -112,11 +112,14 @@ def _condition_grad(model, name):
     return model.media_realizers.packs[name].condition.project.weight.grad
 
 
-def test_media_reference_has_zero_text_tokens_and_corruption_fails(tmp_path):
+def test_media_reference_counts_its_input_size_not_text_and_corruption_fails(tmp_path):
     store, episode, _, _ = _case(tmp_path)
     for record in (episode.records[0], episode.records[-1]):
         encoded = encode_record(record, CODEC)
-        assert encoded.tokens == encoded.P == encoded.positions == 0
+        # The data meters count the teacher vectors read; nothing is lexical.
+        source = MediaRecord.from_bytes(record.payload).source
+        assert encoded.tokens == source.shape[0] > 0
+        assert encoded.P == encoded.positions == 0
     reference = MediaRecord.from_bytes(episode.records[-1].payload)
     expected = store.load(reference.source)
     assert expected.shape == reference.source.shape == (14, 512)

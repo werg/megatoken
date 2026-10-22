@@ -711,18 +711,19 @@ class EncodedRecord:
 def encode_record(record: PhysicalRecord, codec: Codec) -> EncodedRecord:
     """Keep emitted IDs; mask fixed/copied bytes conservatively at boundaries."""
     # A media reference is a typed asset descriptor, never lexical supervision.
-    # Its JSON serialization is only transport; it has zero text-token cost.
+    # It counts toward the data meters by its real input size: the number of
+    # teacher feature vectors the model reads for it.
     from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
 
     if record.media_type == MEDIA_RECORD_TYPE:
-        MediaRecord.from_bytes(record.payload)
+        media = MediaRecord.from_bytes(record.payload)
         if (
             record.emitted_ids is not None
             or record.cached_ids is not None
             or (record.emitted_free_mask is not None or record.free_spans is not None)
         ):
             raise ValueError("Media references cannot carry lexical token labels")
-        return EncodedRecord(record, (), (), (), codec.fingerprint, 0)
+        return EncodedRecord(record, (), (), (), codec.fingerprint, media.source.shape[0])
     if record.media_type.split("/", 1)[0] in {"audio", "image", "video"}:
         raise ValueError(
             "Raw media payloads must be converted to canonical media asset references "
