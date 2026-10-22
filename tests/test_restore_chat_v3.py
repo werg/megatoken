@@ -34,3 +34,9 @@ def test_restores_found_prompts_and_drops_the_rest(tmp_path):
     assert restored[0]["metadata"]["train_turns"] == [False, True]
     assert restored[1] == own
     assert restored[2]["messages"][0]["content"] == "hello"
+
+
+def test_recognises_seed_datasets_as_the_release_spells_them():
+    assert restorer.family_of({"seed_dataset": "allenai/WildChat-1M"}) == "wildchat"
+    assert restorer.family_of({"seed_dataset": "lmsys/lmsys-chat-1m"}) == "lmsys"
+    assert restorer.family_of({"seed_dataset": "nvidia/other"}) is None

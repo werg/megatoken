@@ -28,7 +28,7 @@ def family_of(metadata: dict) -> str | None:
         if isinstance(value, str):
             name = value.lower()
             for family, (repository, _) in SOURCES.items():
-                if name == repository or name.startswith(family):
+                if name == repository.lower() or name.startswith(family):
                     return family
     return None
 
