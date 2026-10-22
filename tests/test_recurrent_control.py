@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from training_fixture import TEXT_ONLY_ASSETS
 
 from megatoken.controls import encode_controls
 from megatoken.data import WindowConfig, iter_windows
@@ -31,7 +32,7 @@ def _window(*, verified: bool, suffix: bytes = b"success", causal: bytes = b"pub
     )
     codec = ByteCodec.byte_fallback()
     (window,) = iter_windows(episode, codec, WindowConfig(max_records=5, max_decisions=5))
-    return EpisodeWindow(episode, window)
+    return EpisodeWindow(episode, window, TEXT_ONLY_ASSETS)
 
 
 @pytest.fixture

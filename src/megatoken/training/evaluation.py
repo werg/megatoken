@@ -32,7 +32,7 @@ def wilson_interval(
 
 @torch.no_grad()
 def evaluate_records(
-    model: Any, dataset: Any, codec: Any, config: Any, device: torch.device
+    model: Any, dataset: Any, codec: Any, config: Any, device: torch.device, *, episodes: int
 ) -> dict[str, Any]:
     """Causal CE and actual samples under the phase's representation mode.
 
@@ -48,7 +48,7 @@ def evaluate_records(
     sums: dict[str, float] = defaultdict(float)
     counts: dict[str, int] = defaultdict(int)
     exact = attempted = legal = 0
-    episodes = min(config.eval_episodes, len(dataset))
+    episodes = min(episodes, len(dataset))
     try:
         for episode in dataset.iter_episodes():
             if counts["episodes"] >= episodes:

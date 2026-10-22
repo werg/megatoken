@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Any
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS
 from megatoken.data.recipes import stage_recipe
 from megatoken.io import content_hash, read_mapping
-from megatoken.training.schedule import PHASES
+from megatoken.training.schedule import PHASES, Phase
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,9 @@ class DecoupledConfig:
 class TrainConfig:
     phase: str = "B0"
     model: str = "32x512"
-    dataset: str = "artifacts/demo"
+    # Prepared roots read as one corpus (data.storage.PreparedCorpus); each
+    # stage stream is read from whichever roots contain it.
+    datasets: list[str] = field(default_factory=lambda: ["artifacts/demo"])
     output: str = "runs/bootstrap"
     codec: str = "byte"
     device: str = "auto"
@@ -79,6 +82,7 @@ class TrainConfig:
     accumulate_ingested: int = 1_048_576
     max_accumulation_windows: int = 256
     max_steps: int | None = None
+    # A smaller budget than the stage's own limit, in the stage's own meter.
     budget: int | None = None
     max_history_tokens: int = 4096
     max_window_records: int = 8
@@ -89,18 +93,16 @@ class TrainConfig:
     checkpoint_every: int = 100
     keep_checkpoints: int = 3
     eval_every: int = 0
-    eval_episodes: int = 16
+    # Held-out windows scored per stage stream at each evaluation.
+    eval_windows: int = 16
     log_every: int = 1
     gradient_checkpointing: bool = True
     compile: bool = False
     compile_mode: str = "default"
     expert_backend: str = "auto"
     representation_mode: str = "auto"
-    # G counts physical megatoken events; use only with an explicit event budget.
-    # FP32 media assets live under the prepared dataset root by default.
-    budget_meter: str = "G"
+    # Optimizer-step accumulation target for a stage metered in G (events).
     accumulate_events: int = 32
-    media_root: str | None = None
     # Locked pack manifest (omni/loader.py): the Pocket/Sana/Sana-Video realizers
     # are installed before optimizer enumeration and checkpoint restore.
     packs: str | None = None
@@ -138,8 +140,6 @@ class TrainConfig:
                 "The local router fairness objective is removed; "
                 "all training uses optimizer-step global router replay"
             )
-        if self.budget_meter != "G":
-            raise ValueError("Training only supports causal grouped megatoken meridians")
         if self.inner_optimizer not in {"adamw", "muon"}:
             raise ValueError("inner_optimizer must be adamw or muon")
         if self.phase not in PHASES:
@@ -152,12 +152,6 @@ class TrainConfig:
             raise ValueError("expert_backend must be auto, torch, or triton")
         if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
-        if self.budget_meter == "G" and self.budget is None:
-            raise ValueError("A media/mixed event budget requires an explicit budget")
-        if self.budget_meter == "G" and self.eval_every:
-            raise ValueError(
-                "Event-budget media training needs eval_every=0 until media evaluation is installed"
-            )
         if self.trainable not in {"all", "media_bridge"}:
             raise ValueError("trainable is all or media_bridge")
         if self.trainable != stage_recipe(self.phase).constraints.get("trainable", "all"):
@@ -168,8 +162,10 @@ class TrainConfig:
             raise ValueError("Text anchor weight must be in (0, 1]")
         if self.packs is not None and not self.packs:
             raise ValueError("Pack manifest path must be nonempty")
-        if self.media_root is not None and not self.media_root:
-            raise ValueError("Media asset root must be a nonempty path")
+        if not isinstance(self.datasets, list) or not self.datasets:
+            raise ValueError("datasets must be a nonempty list of prepared roots")
+        if not all(isinstance(root, str) and root for root in self.datasets):
+            raise ValueError("datasets must be nonempty path strings")
         positive = (
             "microbatch_episodes",
             "accumulate_events",
@@ -184,7 +180,7 @@ class TrainConfig:
             "generated_capacity",
             "keep_checkpoints",
             "log_every",
-            "eval_episodes",
+            "eval_windows",
         )
         for name in positive:
             if getattr(self, name) <= 0:
@@ -194,14 +190,23 @@ class TrainConfig:
                 raise ValueError(f"{name} cannot be negative")
         if self.max_steps is not None and self.max_steps <= 0:
             raise ValueError("max_steps must be positive when supplied")
-        if self.budget is not None and self.budget <= 0:
-            raise ValueError("budget must be positive when supplied")
+        if self.budget is not None and not 0 < self.budget <= PHASES[self.phase].budget:
+            raise ValueError(
+                f"budget is in stage {self.phase}'s meter {PHASES[self.phase].meter} and must "
+                f"be in (0, {PHASES[self.phase].budget}], the stage's own limit"
+            )
         if self.grad_clip <= 0 or self.weight_decay < 0:
             raise ValueError("Invalid gradient clipping or decay")
         if set(self.loss_weights) != set(DEFAULT_LOSS_WEIGHTS):
             raise ValueError(f"loss_weights must define exactly {tuple(DEFAULT_LOSS_WEIGHTS)}")
         if any(value < 0 for value in self.loss_weights.values()):
             raise ValueError("Loss weights cannot be negative")
+
+    @property
+    def schedule(self) -> Phase:
+        """The stage's learning-rate schedule, budget and meter (``budget`` may shorten it)."""
+        phase = PHASES[self.phase]
+        return dataclasses.replace(phase, budget=self.budget or phase.budget)
 
     @property
     def representation_training(self) -> str:

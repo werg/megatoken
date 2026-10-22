@@ -13,9 +13,8 @@ import pytest
 import torch
 from training_fixture import tiny_train_config
 
-from megatoken.data import PreparedDataset
+from megatoken.data import PreparedCorpus
 from megatoken.generation.codec import ByteCodec
-from megatoken.io import content_hash
 from megatoken.loading import build_model, load_model_config, load_trained
 from megatoken.runtime import seed_everything
 from megatoken.training import transducer_diloco
@@ -24,7 +23,6 @@ from megatoken.training.config import DecoupledConfig
 from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.diloco_server import initialize_coordinator, serve_coordinator
 from megatoken.training.engine import train
-from megatoken.training.schedule import PHASES
 from megatoken.training.transducer import HindsightSchedule
 
 
@@ -69,8 +67,8 @@ def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, single_thr
     config = tiny_train_config(
         tmp_path, output=str(tmp_path / "runs"), max_steps=3, decoupled=settings
     )
-    with PreparedDataset(config.dataset) as prepared:
-        dataset_fingerprint = content_hash(prepared.manifest)
+    with PreparedCorpus(config.datasets) as prepared:
+        dataset_fingerprint = prepared.identity
     seed_everything(config.seed, config.deterministic)
     model_config = load_model_config(
         config.model,
@@ -108,7 +106,7 @@ def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, single_thr
         min_quorum=1,
         fragment_bytes=1 << 20,
         grace_seconds=0,
-        token_budget=config.budget or PHASES[config.phase].budget,
+        token_budget=config.schedule.budget,
         transducer={
             "geometry": dict(vars(model_config.transducer_geometry)),
             "evidence_from": HindsightSchedule().warmup_steps,

@@ -8,7 +8,8 @@
 > meridians. Media enters only as pinned EmbeddingGemma2 hidden states and leaves
 > only through the frozen pretrained Pocket, Sana and Sana-Video realizers with
 > trainable `FacetCondition`s; audio and visual losses have separate global
-> denominators and the `G` budget counts events. Media is part of the stage
+> denominators; a stage's budget is counted in its own meter (media-bridge: `G`
+> events). Media is part of the stage
 > plan: a short media-bridge stage (MB) after the codec bootstrap, explicit media
 > and long-document-reading shares in base pretraining, and replay in later
 > stages, chained by `megatoken diloco export` then `megatoken diloco init
@@ -200,6 +201,44 @@ Accumulation targets `accumulate_scored` or `accumulate_ingested` globally, with
 `max_accumulation_windows` as a hard iteration bound. Complete windows can overshoot a
 budget; the actual work is reported. `max_steps` limits additional optimizer updates in
 this invocation and is separate from the phase's work ceiling.
+
+## Prepared roots, stage budgets and held-out evaluation
+
+**Several prepared roots.** Each preparation script (text and code sources, media
+identities, concordant media tasks, long-document reading) writes its own immutable
+root with its own media tensors. A run lists them all in `datasets: [root, ...]`
+and reads them as one corpus (`PreparedCorpus`). With `use_stage_mixture: true`
+every stage stream is read from whichever roots contain it; a stream present in
+several roots is one stream, their episodes concatenated and drawn in proportion to
+size. With `use_stage_mixture: false` the whole concatenation is one stream (smoke
+runs, B0 bootstrap). Each episode is always paired with the asset store of the root
+it came from, so media tensors, encode-and-reconstruct items and held-out windows
+resolve against their own root; text anchors are looked up in all roots. Roots must
+share the codec, the semantic chunking policy and the teacher that produced their
+features (and the model's teacher), the same root may not be listed twice, and a
+stage stream missing from every root fails at launch. Roots are ordered by manifest
+fingerprint, so listing order and mount paths do not change the data order, the
+cursor identity or the DiLoCo shards. Changing the set of roots invalidates an exact
+resume.
+
+**Stage budgets.** A run's budget is its stage's limit in the stage's own meter, as
+declared in `stages.json` (B0: `I`, MB: `G`, P1/M1/M2/LC: `D`, S: `P`). The same
+meter drives the learning-rate schedule, DiLoCo's global token budget and the
+`phase_consumed` counter. `budget` may only shorten it (a smoke run of a few
+thousand `D` tokens), never exceed the stage limit. `accumulate_events` still sets
+the per-step target for the `G`-metered stage; every stage also accumulates to
+`accumulate_scored` / `accumulate_ingested`.
+
+**Held-out evaluation.** With `eval_every: N` the run scores, every N optimizer steps,
+the first `eval_windows` windows of each stage stream's validation episodes (the whole
+corpus is one stream without a stage mixture) with the identical training forward:
+eval mode, no gradient, no optimizer step, no bank writes, a fixed per-window seed.
+The `evaluation` log event holds, per stream, each loss term's mean over its own
+denominator (policy and reconstruction cross-entropy, facet prediction, the audio and
+visual terms) and the training objective's weighted sum, plus the pooled values. A
+stream without validation episodes reports zero windows; a run with none at all
+fails at launch. Synchronous ranks take the windows in turns and merge their sums;
+under DiLoCo only worker 0 evaluates its own weights between syncs.
 
 ## Distributed data and gradients
 

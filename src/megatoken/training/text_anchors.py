@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import torch
@@ -23,10 +24,12 @@ from megatoken.tensors import byte_tensor
 
 class TextAnchors:
     """JSONL rows ``{"text_sha256": <sha of exact record bytes>, "asset": TensorAsset,
-    "embedding": TensorAsset}``: the teacher features and pooled embedding of that text."""
+    "embedding": TensorAsset}``: the teacher features and pooled embedding of that text.
 
-    def __init__(self, path: str | Path, store: TensorAssetStore, *, extractor: str):
-        self.store = store
+    The assets live in whichever of ``stores`` (one per prepared root) holds them."""
+
+    def __init__(self, path: str | Path, stores: Sequence[TensorAssetStore], *, extractor: str):
+        self.stores = tuple(stores)
         self.assets: dict[str, TensorAsset] = {}
         self.embeddings: dict[str, TensorAsset] = {}
         for line in Path(path).read_text(encoding="utf-8").splitlines():
@@ -57,7 +60,11 @@ class TextAnchors:
         return hashlib.sha256(payload).hexdigest()
 
     def features(self, key: str, device: torch.device) -> Tensor:
-        return torch.from_numpy(self.store.load(self.assets[key])).to(device)[None]
+        asset = self.assets[key]
+        for store in self.stores:
+            if (store.root / asset.relative_path).exists():
+                return torch.from_numpy(store.load(asset)).to(device)[None]
+        raise ValueError("A text anchor's features are in none of the prepared roots")
 
 
 def anchor_loss(model, payload: bytes, features: Tensor) -> Tensor:

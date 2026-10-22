@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import asdict, dataclass
 from itertools import islice
 from typing import Any
 
-from megatoken.data import Episode, PreparedDataset, TrainingWindow, WindowConfig, iter_windows
+from megatoken.data import Episode, PreparedCorpus, TrainingWindow, WindowConfig, iter_windows
+from megatoken.data.media_assets import TensorAssetStore
 from megatoken.io import content_hash
 
 
@@ -28,6 +29,8 @@ def _validate_topology(
 class EpisodeWindow:
     episode: Episode
     window: TrainingWindow
+    # The root the episode was prepared in: its media tensors live there.
+    assets: TensorAssetStore
 
 
 class WindowStream:
@@ -40,7 +43,7 @@ class WindowStream:
 
     def __init__(
         self,
-        dataset: PreparedDataset,
+        dataset: PreparedCorpus,
         codec: Any,
         config: WindowConfig,
         *,
@@ -58,11 +61,12 @@ class WindowStream:
         self.reduce_counts = reduce_counts or (lambda counts: counts)
         self.block_start = self.slot = self.block_length = self.local_length = 0
         self._episode: Episode | None = None
+        self._assets: TensorAssetStore | None = None
         self._windows: Iterator[TrainingWindow] | None = None
         self._opened = False
         self.fingerprint = content_hash(
             {
-                "dataset": dataset.manifest,
+                "dataset": dataset.identity,
                 "scope": dataset.scope,
                 "window": asdict(config),
                 # Version the semantics of optimizer window boundaries. Old
@@ -82,10 +86,11 @@ class WindowStream:
 
     def _open_block(self) -> None:
         error = None
-        episode, local_length = None, 0
+        episode = assets = None
+        local_length = 0
         if self.block_start + self.rank < len(self.dataset):
             try:
-                episode = self.dataset[self._episode_index()]
+                episode, assets = self.dataset.fetch(self._episode_index())
                 # Counting releases each prefix slice immediately. Retaining a
                 # list of every window would keep quadratic prefix references.
                 local_length = sum(1 for _ in iter_windows(episode, self.codec, self.config))
@@ -116,7 +121,7 @@ class WindowStream:
         if length < 1 or self.block_length not in (0, length) or not 0 <= self.slot < length:
             raise ValueError("Invalid or changed synchronized window cursor")
         self.block_length = length
-        self._episode, self.local_length = episode, local_length
+        self._episode, self._assets, self.local_length = episode, assets, local_length
         if episode is not None:
             self._windows = islice(
                 iter_windows(episode, self.codec, self.config),
@@ -130,7 +135,7 @@ class WindowStream:
             self._open_block()
         result = None
         if self.slot < self.local_length:
-            result = EpisodeWindow(self._episode, next(self._windows))
+            result = EpisodeWindow(self._episode, next(self._windows), self._assets)
         self.slot += 1
         if self.slot == self.block_length:
             self.slot = self.block_length = self.local_length = 0
@@ -138,8 +143,7 @@ class WindowStream:
             if self.block_start >= len(self.dataset):
                 self.epoch += 1
                 self.block_start = 0
-            self._episode = None
-            self._windows = None
+            self._episode = self._assets = self._windows = None
             self._opened = False
         return result
 
@@ -196,7 +200,7 @@ class WindowStream:
             value
         )
         self.local_length = 0
-        self._episode = self._windows = None
+        self._episode = self._assets = self._windows = None
         self._opened = False
 
 
@@ -205,7 +209,7 @@ class IndependentWindowStream(WindowStream):
 
     def __init__(
         self,
-        dataset: PreparedDataset,
+        dataset: PreparedCorpus,
         codec: Any,
         config: WindowConfig,
         *,
@@ -232,12 +236,12 @@ class IndependentWindowStream(WindowStream):
         if self.block_start + self.rank >= len(self.dataset):
             self.epoch += 1
             self.block_start = 0
-        episode = self.dataset[self._episode_index()]
+        episode, assets = self.dataset.fetch(self._episode_index())
         length = sum(1 for _ in iter_windows(episode, self.codec, self.config))
         if length <= 0 or self.block_length not in (0, length) or self.slot >= length:
             raise ValueError("Invalid independent episode cursor or empty episode")
         self.block_length = self.local_length = length
-        self._episode = episode
+        self._episode, self._assets = episode, assets
         self._windows = islice(iter_windows(episode, self.codec, self.config), self.slot, None)
         self._opened = True
 
@@ -251,11 +255,14 @@ class IndependentWindowStream(WindowStream):
 
 
 class MixtureWindowStream:
-    """Deficit scheduling by transcript exposure or actual eligible policy positions."""
+    """Deficit scheduling by transcript exposure or actual eligible policy positions.
+
+    Every stream is read from whichever of ``roots`` hold it (see ``PreparedCorpus``).
+    """
 
     def __init__(
         self,
-        root: str,
+        roots: Sequence[str],
         codec: Any,
         config: WindowConfig,
         mixture: dict[str, float],
@@ -289,12 +296,13 @@ class MixtureWindowStream:
         self.exposure = dict.fromkeys(self.mixture, 0)
         try:
             for index, name in enumerate(self.mixture):
-                dataset = PreparedDataset(root, stream=name)
+                dataset = PreparedCorpus(roots, stream=name)
                 try:
                     if not len(dataset):
                         raise ValueError(
-                            f"Stage needs at least one episode in stream {name!r}; "
-                            "prepare the declared streams before launching this recipe"
+                            f"Stage needs at least one episode in stream {name!r} of "
+                            f"{[str(root) for root in roots]}; prepare the declared "
+                            "streams before launching this recipe"
                         )
                     if independent:
                         self.streams[name] = IndependentWindowStream(

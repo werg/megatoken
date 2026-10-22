@@ -8,7 +8,6 @@ an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
 
 from __future__ import annotations
 
-import dataclasses
 import os
 import shutil
 import signal
@@ -21,7 +20,7 @@ import torch
 
 from megatoken.contracts import ROLE_TO_ID
 from megatoken.controls import build_control_payload, encode_controls
-from megatoken.data import PreparedDataset, WindowConfig, stage_recipe
+from megatoken.data import PreparedCorpus, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
 from megatoken.io import content_hash, sha256_file, write_json
@@ -54,6 +53,7 @@ from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.diloco_client import DecoupledWorker
 from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.distributed import DistributedContext
+from megatoken.training.heldout import HeldOutEvaluator
 from megatoken.training.history import NativeHistory
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import (
@@ -69,7 +69,6 @@ from megatoken.training.metrics import (
     rates,
 )
 from megatoken.training.optimizer import MasterAdamW
-from megatoken.training.schedule import PHASES
 from megatoken.training.stream import (
     EpisodeWindow,
     IndependentWindowStream,
@@ -308,64 +307,6 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     return result
 
 
-def bank_only_loss(
-    model: Any, config: TrainConfig, codec: Any, step: int, transducer: TransducerTrainer
-) -> float:
-    """Held-out weighted per-position loss with every lookup reading the bank alone.
-
-    The identical training forward runs without updates on the validation
-    split; the model is in eval mode, so lookups take no hindsight.
-    """
-    from itertools import islice
-
-    from megatoken.data import iter_windows
-    from megatoken.training.stream import EpisodeWindow
-
-    validation = PreparedDataset(config.dataset, split="validation")
-    rng = capture_rng()
-    sums: dict[str, float] = {}
-    counts: dict[str, int] = {}
-    was_training = model.training
-    model.eval()
-    try:
-        device = model.core.initial_facets.device
-        windows_config = window_config(config)
-        for episode in islice(validation.iter_episodes(), config.eval_episodes):
-            windows = [
-                EpisodeWindow(episode, window)
-                for window in iter_windows(episode, codec, windows_config)
-            ]
-            for batch in prepare_batches(model, windows, config):
-                ledger = LossLedger(dict(batch.counts), dict(batch.counts), config.loss_weights)
-                with torch.no_grad():
-                    forward_meridian_batch(
-                        model,
-                        batch,
-                        ledger,
-                        config,
-                        device,
-                        step,
-                        differentiate=False,
-                        transducer=transducer,
-                    )
-                ledger.finish()
-                for name, value in ledger.sums.items():
-                    sums[name] = sums.get(name, 0.0) + float(value)
-                for name, count in batch.counts.items():
-                    counts[name] = counts.get(name, 0) + int(count)
-    finally:
-        model.train(was_training)
-        validation.close()
-        restore_rng(rng)
-    return float(
-        sum(
-            config.loss_weights.get(name, 0.0) * sums.get(name, 0.0) / count
-            for name, count in counts.items()
-            if count
-        )
-    )
-
-
 def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transition: bool) -> None:
     current = asdict(config)
     critical = (
@@ -382,7 +323,7 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
     if not phase_transition:
         critical += (
             "phase",
-            "dataset",
+            "datasets",
             "seed",
             "microbatch_episodes",
             "max_history_tokens",
@@ -450,7 +391,7 @@ def train(
     checkpoint_writer = None
     optimizer = None
     transducer = None
-    dataset = stream = None
+    dataset = stream = heldout = None
     old_handlers = {}
     stop_requested = False
 
@@ -518,11 +459,7 @@ def train(
         if resume:
             resume_transducer(transducer, rank_rounds, resolve_checkpoint(resume))
         context.broadcast_model(model)
-        phase = dataclasses.replace(
-            PHASES[config.phase],
-            budget=config.budget or PHASES[config.phase].budget,
-            meter="G" if config.budget_meter == "G" else PHASES[config.phase].meter,
-        )
+        phase = config.schedule
         optimizer = MasterAdamW(
             model,
             phase.learning_rate(0),
@@ -541,24 +478,24 @@ def train(
             # Independent clipping prevents their norm scaling the main update.
             optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
         windows_config = window_config(config)
+        dataset = PreparedCorpus(config.datasets)
+        if dataset.codec_fingerprint != codec.fingerprint:
+            raise ValueError("Prepared datasets use a different codec")
+        if dataset.extractor not in (None, model_config.media_extractor):
+            raise ValueError(
+                f"Prepared features come from teacher {dataset.extractor!r}, "
+                f"not this model's {model_config.media_extractor!r}"
+            )
         text_anchors = None
         if config.text_anchors:
-            from megatoken.data.media_assets import TensorAssetStore
             from megatoken.training.text_anchors import TextAnchors
 
             text_anchors = TextAnchors(
-                config.text_anchors,
-                TensorAssetStore(config.media_root or config.dataset),
-                extractor=model_config.media_extractor,
+                config.text_anchors, dataset.stores, extractor=model_config.media_extractor
             )
-        dataset = PreparedDataset(config.dataset)
-        if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
-            raise ValueError("Prepared dataset uses a different codec")
         autoencode = None
         plan = AutoencodePlan.from_stage(stage_recipe(config.phase).constraints)
         if config.use_stage_mixture and plan.items:
-            from megatoken.data.media_assets import TensorAssetStore
-
             sampler = FeatureSampler(
                 dataset,
                 seed=config.seed,
@@ -567,16 +504,10 @@ def train(
             if not sampler:
                 raise ValueError(
                     f"Stage {config.phase} trains encode-and-reconstruct on prepared "
-                    "feature items, but the dataset has none"
+                    "feature items, but the datasets have none"
                 )
-            store = TensorAssetStore(config.media_root or config.dataset)
-            autoencode = (
-                plan,
-                sampler,
-                store,
-                embedding_center(sampler, store).to(context.device),
-            )
-        chunking = ChunkingConfig.from_identity(dataset.manifest["chunking"], codec)
+            autoencode = (plan, sampler, embedding_center(sampler).to(context.device))
+        chunking = ChunkingConfig.from_identity(dataset.chunking, codec)
         chunking_identity = chunking.identity(codec)
         if (
             payload is not None
@@ -589,7 +520,7 @@ def train(
         if config.use_stage_mixture:
             mixture = stage_recipe(config.phase).mixture
             stream = MixtureWindowStream(
-                config.dataset,
+                config.datasets,
                 codec,
                 windows_config,
                 mixture,
@@ -621,6 +552,8 @@ def train(
                     reduce_counts=context.sum_counts,
                 )
             )
+        if config.eval_every:
+            heldout = HeldOutEvaluator(config, codec, windows_config, require=True)
         if config.decoupled is not None:
             diloco = DecoupledWorker(
                 config.decoupled,
@@ -630,7 +563,7 @@ def train(
                 output=output / "diloco",
                 token_budget=phase.budget,
                 train_identity=training_identity(config),
-                dataset_fingerprint=content_hash(dataset.manifest),
+                dataset_fingerprint=dataset.identity,
             )
             diloco.attach_transducer(TransducerSync())
             if payload is None:
@@ -877,11 +810,10 @@ def train(
                 model.core.u_router.balance_recorder = None
             step_diagnostics.update(transducer.after_backward(global_step))
             if autoencode is not None:
-                plan, sampler, store, center = autoencode
+                plan, sampler, center = autoencode
                 terms = autoencode_losses(
                     model,
                     sampler.draw(plan.items),
-                    store,
                     space_fingerprint=PINNED_TEACHER,
                     center=center,
                 )
@@ -1003,27 +935,38 @@ def train(
                     **rates(global_work, elapsed),
                     **step_metrics,
                 )
-            if config.eval_every and global_step % config.eval_every == 0:
-                from megatoken.training.evaluation import evaluate_records
-
-                rng = capture_rng()
-                if context.is_primary and (
-                    diloco is None or config.decoupled.resolved_worker_id == 0
-                ):
-                    validation = PreparedDataset(config.dataset, split="validation")
-                    try:
-                        logger.log(
-                            "evaluation",
-                            global_step=global_step,
-                            **evaluate_records(model, validation, codec, config, context.device),
-                        )
-                    finally:
-                        validation.close()
-                context.barrier()
-                restore_rng(rng)
-                model.train()
+            if (
+                config.eval_every
+                and global_step % config.eval_every == 0
+                and (diloco is None or config.decoupled.resolved_worker_id == 0)
+            ):
+                evaluation_started = time.perf_counter()
+                local, failure = {}, None
+                try:
+                    local = heldout.sums(
+                        model, transducer, global_step, rank=context.rank, world=context.world_size
+                    )
+                except Exception as error:
+                    failure = error
+                # A failing rank must not leave its peers waiting in the gather.
+                gathered = context.all_gather_object(
+                    (local, None if failure is None else str(failure))
+                )
+                if any(message for _, message in gathered):
+                    raise RuntimeError(
+                        "Held-out evaluation failed: " + next(m for _, m in gathered if m)
+                    ) from failure
+                logger.log(
+                    "evaluation",
+                    global_step=global_step,
+                    phase=phase.name,
+                    phase_consumed=consumed,
+                    evaluation_seconds=time.perf_counter() - evaluation_started,
+                    **heldout.report([sums for sums, _ in gathered]),
+                )
             if transducer.switch_due(global_step):
-                loss = bank_only_loss(model, config, codec, global_step, transducer)
+                heldout = heldout or HeldOutEvaluator(config, codec, windows_config, require=False)
+                loss = heldout.bank_only_loss(model, transducer, global_step)
                 if rank_rounds is not None:
                     rank_rounds.record_validation(global_step, loss)
                 elif diloco is None:
@@ -1065,6 +1008,8 @@ def train(
             optimizer.close()
         if stream is not None:
             stream.close()
+        if heldout is not None:
+            heldout.close()
         if dataset is not None:
             dataset.close()
         context.close()

@@ -3,16 +3,17 @@
 phase: B0
 output: runs/coherence
 model: 32x512
-dataset: PIN_PREPARED_CAUSAL_MERIDIAN_EPISODES
+# Prepared roots read as one corpus; without a stage mixture it is a single stream.
+datasets:
+  - PIN_PREPARED_CAUSAL_MERIDIAN_EPISODES
 codec: PIN_RAW_CODEC_DIRECTORY
 device: auto
 precision: bf16
 require_blackwell: true
 expert_backend: auto
 representation_mode: auto
-budget_meter: G
+# B0 is metered in ingested tokens (I); omit budget for the stage's full limit.
 budget: 1000000
-accumulate_events: 64
 microbatch_episodes: 1
 max_accumulation_windows: 64
 max_history_tokens: 4096
@@ -21,7 +22,9 @@ max_record_bytes: 16384
 generated_capacity: 512
 scored_decisions: 4
 effort: 6
-eval_every: 0
+# Every 100 steps, score 16 held-out windows of the validation split.
+eval_every: 100
+eval_windows: 16
 checkpoint_every: 100
 router_balance_mode: global
 gradient_checkpointing: true

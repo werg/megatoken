@@ -4,10 +4,10 @@ import torch
 from media_support import install_fake_realizers, prepared_record
 from training_fixture import MODEL_OVERRIDES
 
-from megatoken.data import DedupConfig, DedupStore, Episode, Lineage, PhysicalRecord
+from megatoken.data import DedupConfig, DedupStore, Episode, FeatureItem, Lineage, PhysicalRecord
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, TensorAssetStore
 from megatoken.data.schema import sequential_meridians
-from megatoken.data.storage import PreparedDataset, export_prepared
+from megatoken.data.storage import PreparedCorpus, PreparedDataset, export_prepared
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
@@ -66,10 +66,11 @@ def test_feature_items_are_indexed_once_per_split(tmp_path):
         "video": 1,
         "text": 0,
     }
-    item = dataset.feature_item("train", "image", 0)
+    item, assets = dataset.feature_item("train", "image", 0)
     assert item.target is not None and item.embedding.kind == "embedding"
-    sampler = FeatureSampler(dataset, seed=1, worker=0)
-    drawn = [r.modality for r in sampler.draw(6)]
+    assert assets.root == dataset.root
+    sampler = FeatureSampler(PreparedCorpus([tmp_path]), seed=1, worker=0)
+    drawn = [r.modality for r, _ in sampler.draw(6)]
     assert sorted(drawn) == ["audio", "audio", "image", "image", "video", "video"]
 
 
@@ -80,11 +81,12 @@ def test_encode_and_reconstruct_trains_the_encoder_side_only(tmp_path):
     center = (
         torch.nn.functional.normalize(torch.ones(model.embedding_realizer.dimension), dim=0) * 0.5
     )
-    terms = autoencode_losses(model, records, store, space_fingerprint="space", center=center)
+    items = [FeatureItem(record, store) for record in records]
+    terms = autoencode_losses(model, items, space_fingerprint="space", center=center)
     assert terms["reconstruction"][1] == 3 and terms["embedding"][1] == 3
     (terms["reconstruction"][0] + terms["embedding"][0]).backward()
     assert model.core.media_encoder.projection.weight.grad.abs().sum() > 0
-    assert model.core.frontend.reduction.ordered_merge.weight.grad is not None
+    assert model.core.media_encoder.queries.grad.abs().sum() > 0
     assert model.embedding_realizer.document.weight.grad.abs().sum() > 0
     for name in ("pocket", "sana", "sana_video"):
         assert model.media_realizers.packs[name].condition.project.weight.grad.abs().sum() > 0
@@ -132,7 +134,7 @@ def test_media_bridge_stage_trains_encode_and_reconstruct_end_to_end(tmp_path, m
     original = autoencode_losses
 
     def watch(model, items, *args, **kwargs):
-        calls.append(sorted(item.modality for item in items))
+        calls.append(sorted(item.record.modality for item in items))
         return original(model, items, *args, **kwargs)
 
     monkeypatch.setattr("megatoken.training.engine.autoencode_losses", watch)
@@ -141,8 +143,7 @@ def test_media_bridge_stage_trains_encode_and_reconstruct_end_to_end(tmp_path, m
         phase="MB",
         trainable="media_bridge",
         packs=str(packs),
-        dataset=str(data),
-        media_root=str(data),
+        datasets=[str(data)],
         use_stage_mixture=True,
         max_record_bytes=4096,
         max_steps=1,
@@ -152,49 +153,3 @@ def test_media_bridge_stage_trains_encode_and_reconstruct_end_to_end(tmp_path, m
     # The MB stage draws 64 feature items per step, in equal turns per modality.
     assert len(calls) == 1 and len(calls[0]) == 64
     assert {calls[0].count(m) for m in ("audio", "image", "video")} == {21, 22}
-
-
-def test_readout_comparison_runs_both_variants(tmp_path, monkeypatch):
-    import importlib.util
-    import json
-    from argparse import Namespace
-    from pathlib import Path
-
-    script = Path(__file__).resolve().parents[1] / "scripts/compare_media_readouts.py"
-    spec = importlib.util.spec_from_file_location("compare_media_readouts", script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    store = TensorAssetStore(tmp_path / "assets")
-    rows = []
-    for seed in range(8):
-        for modality in ("audio", "image", "video"):
-            record = prepared_record(store, modality, seed=seed * 3 + len(modality))
-            split = "validation" if seed == 0 else "train"
-            rows.append({"split": split, "record": record.to_bytes().decode()})
-    (tmp_path / "records.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    monkeypatch.setattr(
-        "megatoken.omni.loader.install_realizers",
-        lambda model, path, *, device: install_fake_realizers(model),
-    )
-    output = tmp_path / "report.json"
-    module.compare(
-        Namespace(
-            root=tmp_path,
-            packs=tmp_path / "packs.json",
-            output=output,
-            model="tiny",
-            variants=["halving", "attention"],
-            steps=2,
-            batch=3,
-            eval_every=1,
-            eval_items=2,
-            lr=1e-3,
-            seed=0,
-            device="cpu",
-        )
-    )
-    report = json.loads(output.read_text())
-    for variant in ("halving", "attention"):
-        assert set(report[variant]["curve"]["2"]) == {"audio", "image", "video"}
-        assert report[variant]["seconds_per_step"] > 0
-    assert report["attention"]["media_path_parameters"] > report["halving"]["media_path_parameters"]

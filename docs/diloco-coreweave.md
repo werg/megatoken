@@ -95,7 +95,7 @@ file (`megatoken.cloud-diloco/1`, JSON):
   (`python -m megatoken.cloud_diloco derive`), and `decoupled.workers` **must
   equal** `workers` or the sandbox fails. Use
   [configs/train/diloco-coreweave.example.yaml](../configs/train/diloco-coreweave.example.yaml)
-  as the template; its paths (dataset, codec) must point at where the
+  as the template; its paths (datasets, codec) must point at where the
   data lands under `/work`.
 - `workers` is 1..64. Learner resources must request one GPU.
 - `coordinator.args` are passed to `megatoken diloco init`: `--quorum`,
@@ -246,7 +246,7 @@ elsewhere, the same command is `megatoken diloco export --config CFG --root ROOT
 ```bash
 megatoken evaluate \
   --checkpoint DIR/coordinator/out/export/latest.json \
-  --dataset PREPARED_DATASET --codec CODEC_DIR
+  --datasets PREPARED_DATASET [PREPARED_DATASET ...] --codec CODEC_DIR
 ```
 
 Exports do not contain the workers' inner optimizer states or data cursors, so

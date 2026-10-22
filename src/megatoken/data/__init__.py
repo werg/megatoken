@@ -59,7 +59,7 @@ from .sources import (
     pin_local_source,
     write_source_manifest,
 )
-from .storage import PreparedDataset
+from .storage import FeatureItem, PreparedCorpus, PreparedDataset
 from .student import ModelTeacher
 
 __all__ = [
@@ -78,6 +78,7 @@ __all__ = [
     "Dependency",
     "EncodedRecord",
     "Episode",
+    "FeatureItem",
     "Lineage",
     "LogicalAction",
     "ModelTeacher",
@@ -85,6 +86,7 @@ __all__ = [
     "ParserReviewPolicy",
     "ParserReviewQueue",
     "PhysicalRecord",
+    "PreparedCorpus",
     "PreparedDataset",
     "PROFILES",
     "SchemaError",

@@ -14,7 +14,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch import nn
-from training_fixture import tiny_train_config
+from training_fixture import make_episode, prepare_dataset, tiny_train_config
 
 from megatoken.training import transducer_sync
 from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint
@@ -192,6 +192,48 @@ def _engine_worker(rank: int, rendezvous: str, config_dict: dict, output_path: s
         )
     finally:
         dist.destroy_process_group()
+
+
+def _evaluation_worker(rank: int, rendezvous: str, config_dict: dict) -> None:
+    _start_group(rank, rendezvous)
+    try:
+        train(TrainConfig.from_dict(config_dict))
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.distributed
+@pytest.mark.skipif(
+    not dist.is_available() or not dist.is_gloo_available(), reason="Gloo is unavailable"
+)
+def test_two_ranks_share_the_held_out_windows_and_report_one_merged_evaluation(tmp_path):
+    held_out = prepare_dataset(
+        tmp_path / "held-out", [make_episode(5 + i) for i in range(4)], heldout=True
+    )
+    config = tiny_train_config(
+        tmp_path,
+        microbatch_episodes=1,
+        accumulate_scored=1,
+        max_accumulation_windows=1,
+        eval_every=1,
+        eval_windows=4,
+    )
+    config = replace(config, datasets=[*config.datasets, str(held_out)])
+    mp.spawn(
+        _evaluation_worker,
+        args=(str(tmp_path / "evaluation-rendezvous"), asdict(config)),
+        nprocs=2,
+        join=True,
+    )
+    events = [
+        json.loads(line)
+        for line in (Path(config.output) / "metrics.jsonl").read_text().splitlines()
+    ]
+    (evaluation,) = [event for event in events if event["event"] == "evaluation"]
+    # Each rank scored two of the four windows; the report merges both.
+    assert evaluation["streams"]["all"]["windows"] == 4
+    assert evaluation["streams"]["all"]["loss"]["lexical"] > 0
+    assert evaluation["streams"]["all"]["denominators"]["lexical"] > 0
 
 
 @pytest.mark.distributed

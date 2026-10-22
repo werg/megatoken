@@ -13,13 +13,16 @@
 phase: MB
 model: 32x512
 codec: PIN_TRAINED_BYTE_CODEC
-dataset: PIN_PREPARED_TEXT_AND_MEDIA_IDENTITY_DATASET
+# The text root and the media-identity root(s); each holds its own media tensors.
+datasets:
+  - PIN_PREPARED_TEXT_ROOT
+  - PIN_PREPARED_MEDIA_IDENTITY_ROOT
 output: /work/runs/media-bridge
 device: cuda
 precision: bf16
 representation_mode: recurrent
 gradient_checkpointing: true
-budget_meter: G
+# MB is metered in physical megatoken events (G), 4M by default.
 budget: 100000
 accumulate_events: 32
 microbatch_episodes: 1
@@ -28,7 +31,8 @@ max_window_records: 16
 max_record_bytes: 16384
 scored_decisions: 4
 generated_capacity: 512
-eval_every: 0
+eval_every: 100
+eval_windows: 16
 packs: PIN_PACK_ROOT/lock.json
 use_stage_mixture: true
 trainable: media_bridge

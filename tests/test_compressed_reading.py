@@ -100,13 +100,14 @@ def test_compressed_documents_train_through_the_media_encoder(tmp_path, mode):
         tmp_path / "retrieval",
         phase="B0" if mode == "bootstrap" else "P1",
         representation_mode=mode,
-        media_root=str(tmp_path),
         generated_capacity=256,
         max_history_tokens=512,
         max_record_bytes=4096,
     )
     windows = list(iter_windows(episode, CODEC, WindowConfig(max_records=16, max_decisions=8)))
-    batches = prepare_batches(model, [EpisodeWindow(episode, w) for w in windows], config)
+    batches = prepare_batches(
+        model, [EpisodeWindow(episode, w, TensorAssetStore(tmp_path)) for w in windows], config
+    )
     model.core.set_model_version(0)
     for batch in batches:
         ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)

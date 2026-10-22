@@ -17,12 +17,13 @@ from megatoken.data import (
     Episode,
     Lineage,
     PhysicalRecord,
+    PreparedCorpus,
     PreparedDataset,
     WindowConfig,
 )
+from megatoken.data import storage as storage_module
 from megatoken.data.storage import export_prepared
 from megatoken.generation.codec import ByteCodec
-from megatoken.training import stream as stream_module
 from megatoken.training.stream import MixtureWindowStream, WindowStream
 
 WINDOWS = WindowConfig(max_window_tokens=4096, max_decisions=99, max_records=1)
@@ -121,7 +122,7 @@ def item_identity(item):
 def window_run(root, epochs=2, cursors=None):
     def worker(rank, reduce):
         stream = WindowStream(
-            PreparedDataset(root, stream="alpha"),
+            PreparedCorpus([root], stream="alpha"),
             ByteCodec.byte_fallback(),
             WINDOWS,
             seed=0,
@@ -193,7 +194,7 @@ def test_resume_inside_unassigned_rank_tail_preserves_next_windows_and_exposure(
 
 def test_cursor_rejects_scope_window_topology_and_invalid_positions_without_mutation(prepared):
     codec = ByteCodec.byte_fallback()
-    stream = WindowStream(PreparedDataset(prepared, stream="alpha"), codec, WINDOWS)
+    stream = WindowStream(PreparedCorpus([prepared], stream="alpha"), codec, WINDOWS)
     try:
         stream.next()
         original = stream.state_dict()
@@ -211,9 +212,9 @@ def test_cursor_rejects_scope_window_topology_and_invalid_positions_without_muta
                 stream.load_state_dict(original | overrides)
             assert stream.state_dict() == original
         alternatives = [
-            WindowStream(PreparedDataset(prepared, split=None, stream="alpha"), codec, WINDOWS),
+            WindowStream(PreparedCorpus([prepared], split=None, stream="alpha"), codec, WINDOWS),
             WindowStream(
-                PreparedDataset(prepared, stream="alpha"), codec, replace(WINDOWS, max_records=2)
+                PreparedCorpus([prepared], stream="alpha"), codec, replace(WINDOWS, max_records=2)
             ),
         ]
         for other in alternatives:
@@ -231,7 +232,7 @@ def mixture_run(root, meter, steps=30, cursors=None, shares=None):
 
     def worker(rank, reduce):
         stream = MixtureWindowStream(
-            root,
+            [root],
             ByteCodec.byte_fallback(),
             WINDOWS,
             dict(reversed(list(shares.items()))) if rank else shares,
@@ -321,7 +322,7 @@ def test_one_rank_window_preparation_failure_reaches_every_rank(prepared):
 
     def worker(rank, reduce):
         stream = WindowStream(
-            PreparedDataset(prepared, stream="alpha"),
+            PreparedCorpus([prepared], stream="alpha"),
             UnavailableCodec() if rank == 0 else ByteCodec.byte_fallback(),
             WINDOWS,
             rank=rank,
@@ -347,7 +348,7 @@ def test_one_rank_window_preparation_failure_reaches_every_rank(prepared):
 def test_resumed_rank_cursor_drift_is_rejected_collectively(prepared, overrides):
     def worker(rank, reduce):
         stream = WindowStream(
-            PreparedDataset(prepared, stream="alpha"),
+            PreparedCorpus([prepared], stream="alpha"),
             ByteCodec.byte_fallback(),
             WINDOWS,
             rank=rank,
@@ -368,7 +369,7 @@ def test_resumed_rank_cursor_drift_is_rejected_collectively(prepared, overrides)
 def test_mixture_restore_is_atomic_and_configuration_is_not_aliased(prepared):
     shares = {"alpha": 0.5, "beta": 0.5}
     stream = MixtureWindowStream(
-        prepared, ByteCodec.byte_fallback(), WINDOWS, shares, "P", seed=0, rank=0, world_size=1
+        [prepared], ByteCodec.byte_fallback(), WINDOWS, shares, "P", seed=0, rank=0, world_size=1
     )
     try:
         shares["alpha"] = 0.1
@@ -406,10 +407,10 @@ def test_invalid_mixture_closes_opened_readers_and_rejects_invalid_meters(prepar
         opened.append(reader)
         return reader
 
-    monkeypatch.setattr(stream_module, "PreparedDataset", track_reader)
+    monkeypatch.setattr(storage_module, "PreparedDataset", track_reader)
     with pytest.raises(ValueError, match="at least one episode"):
         MixtureWindowStream(
-            prepared,
+            [prepared],
             ByteCodec.byte_fallback(),
             WINDOWS,
             {"alpha": 0.5, "missing": 0.5},
@@ -424,7 +425,7 @@ def test_invalid_mixture_closes_opened_readers_and_rejects_invalid_meters(prepar
             reader.connection.execute("SELECT 1")
     with pytest.raises(ValueError, match="finite and positive"):
         MixtureWindowStream(
-            prepared,
+            [prepared],
             ByteCodec.byte_fallback(),
             WINDOWS,
             {"alpha": float("nan")},
@@ -435,7 +436,7 @@ def test_invalid_mixture_closes_opened_readers_and_rejects_invalid_meters(prepar
         )
     with pytest.raises(ValueError, match="meter"):
         MixtureWindowStream(
-            prepared,
+            [prepared],
             ByteCodec.byte_fallback(),
             WINDOWS,
             {"alpha": 1.0},

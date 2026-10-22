@@ -8,6 +8,7 @@ from training_fixture import tiny_train_config
 
 from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.engine import train
+from megatoken.training.schedule import PHASES
 
 
 @pytest.fixture
@@ -50,8 +51,10 @@ def test_all_supervised_stages_preserve_optimizer_and_use_real_meters(training_c
         )
         result = train(config, resume=previous, phase_transition=previous is not None)
         assert result["complete"] and result["global_step"] == step + 1
-        # Retrieval-memory training is always metered in grouped events (G).
-        assert result["phase_consumed"] == result["counters"]["G"]
+        # Each stage is metered in its own unit: B0 in ingested tokens, P1 in new tokens.
+        meter = PHASES[phase].meter
+        assert meter == {"B0": "I", "P1": "D"}[phase]
+        assert result["phase_consumed"] == result["counters"][meter]
         payload, metadata = load_checkpoint(result["checkpoint"])
         assert metadata["pinned"] and metadata["checkpoint_name"].endswith("phase-end")
         steps = [int(state["step"]) for state in payload["optimizer"]["moments"].values()]

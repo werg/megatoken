@@ -28,7 +28,8 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from megatoken.data.media_assets import MEDIA, MediaRecord, TensorAssetStore
+from megatoken.data import FeatureItem
+from megatoken.data.media_assets import MEDIA
 from megatoken.generation.embedding import EmbeddingSpec, alignment_distance
 from megatoken.teacher import EMBEDDING_WIDTH, HIDDEN_WIDTH
 
@@ -65,7 +66,7 @@ class FeatureSampler:
     def __bool__(self) -> bool:
         return bool(self.modalities)
 
-    def draw(self, count: int) -> list[MediaRecord]:
+    def draw(self, count: int) -> list[FeatureItem]:
         items = []
         for _ in range(count):
             modality = self.modalities[self.turn % len(self.modalities)]
@@ -75,7 +76,7 @@ class FeatureSampler:
         return items
 
 
-def embedding_center(sampler: FeatureSampler, store: TensorAssetStore, limit: int = 256) -> Tensor:
+def embedding_center(sampler: FeatureSampler, limit: int = 256) -> Tensor:
     """The mean unit teacher embedding of up to ``limit`` training feature items.
 
     It is the reference the centered alignment distance subtracts, so the
@@ -84,10 +85,10 @@ def embedding_center(sampler: FeatureSampler, store: TensorAssetStore, limit: in
     vectors = []
     for modality in sampler.modalities:
         for position in range(min(sampler.counts[modality], limit // len(sampler.modalities) + 1)):
-            item = sampler.dataset.feature_item("train", modality, position)
+            item, assets = sampler.dataset.feature_item("train", modality, position)
             vectors.append(
                 torch.nn.functional.normalize(
-                    torch.from_numpy(store.load(item.embedding)).float(), dim=-1
+                    torch.from_numpy(assets.load(item.embedding)).float(), dim=-1
                 )
             )
     return torch.stack(vectors).mean(0)
@@ -95,8 +96,7 @@ def embedding_center(sampler: FeatureSampler, store: TensorAssetStore, limit: in
 
 def autoencode_losses(
     model: Any,
-    items: list[MediaRecord],
-    store: TensorAssetStore,
+    items: list[FeatureItem],
     *,
     space_fingerprint: str,
     center: Tensor,
@@ -109,11 +109,11 @@ def autoencode_losses(
     zero = model.core.initial_facets.float().sum() * 0
     reconstruction, reconstructed = zero, 0
     embedding, embedded = zero, 0
-    by_modality: dict[str, list[MediaRecord]] = {}
+    by_modality: dict[str, list[FeatureItem]] = {}
     for item in items:
-        by_modality.setdefault(item.modality, []).append(item)
+        by_modality.setdefault(item.record.modality, []).append(item)
     for modality, group in by_modality.items():
-        sources = [torch.from_numpy(store.load(item.source)) for item in group]
+        sources = [torch.from_numpy(assets.load(record.source)) for record, assets in group]
         length = max(source.shape[0] for source in sources)
         features = torch.zeros(len(group), length, HIDDEN_WIDTH, device=device)
         mask = torch.zeros(len(group), length, dtype=torch.bool, device=device)
@@ -124,9 +124,9 @@ def autoencode_losses(
         readout = model.embedding_realizer(
             raw, EmbeddingSpec(space_fingerprint, "document", center.shape[0])
         )
-        targets = torch.stack([torch.from_numpy(store.load(item.embedding)) for item in group]).to(
-            device
-        )
+        targets = torch.stack(
+            [torch.from_numpy(assets.load(record.embedding)) for record, assets in group]
+        ).to(device)
         embedding = embedding + alignment_distance(readout, targets, center).sum()
         embedded += len(group)
         if modality not in MEDIA:
@@ -136,16 +136,16 @@ def autoencode_losses(
             raw.shape, device=device, generator=generator
         ) * math.exp(noise)
         realizer = model.media_realizers.resident(modality)
-        for row, item in enumerate(group):
-            if item.target is None:
+        for row, (record, assets) in enumerate(group):
+            if record.target is None:
                 continue
-            if realizer.identity != item.target.extractor:
+            if realizer.identity != record.target.extractor:
                 raise ValueError("Target latents were encoded by a different realizer pack")
-            latents = torch.from_numpy(store.load(item.target)).to(device)[None]
+            latents = torch.from_numpy(assets.load(record.target)).to(device)[None]
             valid = None
-            if item.target.valid_count:
+            if record.target.valid_count:
                 frames = torch.arange(latents.shape[1], device=device)
-                valid = frames[None] < item.target.valid_count
+                valid = frames[None] < record.target.valid_count
             reconstruction = reconstruction + realizer.loss(
                 sample[row : row + 1].to(raw.dtype), latents, valid, generator
             )

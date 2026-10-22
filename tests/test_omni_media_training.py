@@ -82,8 +82,6 @@ def _case(tmp_path):
     config = tiny_train_config(
         tmp_path / "retrieval",
         phase="B0",
-        media_root=str(tmp_path),
-        budget_meter="G",
         budget=4,
         generated_capacity=16,
         max_history_tokens=128,
@@ -92,9 +90,9 @@ def _case(tmp_path):
     return store, episode, model, config
 
 
-def _forward(model, episode, config, *, window_config=None):
+def _forward(model, episode, config, store, *, window_config=None):
     window = next(iter_windows(episode, CODEC, window_config or WindowConfig()))
-    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window)], config)
+    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window, store)], config)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
     model.core.set_model_version(0)
     forward_meridian_batch(
@@ -138,10 +136,10 @@ def test_media_reference_has_zero_text_tokens_and_corruption_fails(tmp_path):
 def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, mode):
     torch.set_num_threads(1)
     torch.manual_seed(901)
-    _, episode, model, config = _case(tmp_path)
+    store, episode, model, config = _case(tmp_path)
     config = replace(config, representation_mode=mode, phase="B0" if mode == "bootstrap" else "P1")
     window = next(iter_windows(episode, CODEC, WindowConfig(max_records=8, max_decisions=4)))
-    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window)], config)
+    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window, store)], config)
     assert batch.counts["visual_prediction"] == 1
     assert batch.counts["visual_reconstruction"] == 1
     assert batch.counts["audio_prediction"] == 0
@@ -180,13 +178,13 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, mode):
 
 
 def test_wrong_teacher_identity_is_rejected(tmp_path):
-    _, episode, _, config = _case(tmp_path)
+    store, episode, _, config = _case(tmp_path)
     model = install_fake_realizers(
         build_model(ModelConfig.tiny(**MODEL_OVERRIDES, media_extractor=OTHER_TEACHER), CODEC)
     )
     window = next(iter_windows(episode, CODEC))
     with pytest.raises(ValueError, match="different teacher"):
-        prepare_batches(model, [EpisodeWindow(episode, window)], config)
+        prepare_batches(model, [EpisodeWindow(episode, window, store)], config)
     # A non-pinned identity cannot even be written as an asset or a model.
     with pytest.raises(ValueError, match="pinned EmbeddingGemma2"):
         prepared_record(TensorAssetStore(tmp_path), "image", extractor="other-teacher-v1")
@@ -196,13 +194,13 @@ def test_wrong_teacher_identity_is_rejected(tmp_path):
 
 def test_target_from_another_realizer_pack_is_rejected(tmp_path):
     torch.set_num_threads(1)
-    _, episode, model, config = _case(tmp_path)
+    store, episode, model, config = _case(tmp_path)
     # A realizer with another checkpoint digest cannot consume these latents.
     other = FakeRealizer("image", model.config.n_facets, model.config.facet_dim)
     other.checkpoint_identity = "f" * 64
     model.media_realizers.packs["sana"] = other
     with pytest.raises(ValueError, match="different realizer pack"):
-        _forward(model, episode, config)
+        _forward(model, episode, config, store)
 
 
 def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
@@ -219,7 +217,7 @@ def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
             Meridian(1, (*episode.meridians[1].events, event)),
         ),
     )
-    batch, ledger = _forward(model, episode, config)
+    batch, ledger = _forward(model, episode, config, store)
     assert batch.counts["audio_prediction"] == 1
     assert batch.counts["audio_reconstruction"] == 1
     assert batch.counts["visual_prediction"] == 1
@@ -249,7 +247,7 @@ def test_codec_padding_is_not_supervised(tmp_path):
         ),
     )
     window = next(iter_windows(episode, CODEC))
-    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window)], config)
+    (batch,) = prepare_batches(model, [EpisodeWindow(episode, window, store)], config)
     (step,) = [s for s in batch.steps if s.generated]
     (plan,) = [p for p in step.plans if hasattr(p, "resolve")]
     target = plan.resolve(store, torch.device("cpu"))
@@ -274,7 +272,7 @@ def test_video_training_is_one_32_facet_megatoken(tmp_path, mode):
         ),
     )
     config = replace(config, representation_mode=mode, phase="B0" if mode == "bootstrap" else "P1")
-    batch, _ = _forward(model, episode, config)
+    batch, _ = _forward(model, episode, config, store)
     assert batch.counts["visual_prediction"] == 1
     counters = batch_counters([batch])
     assert counters.video_frames == 4
@@ -307,9 +305,9 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
             ep.meridians[1],
         ),
     )
-    data = tmp_path / "omni-data"
+    data = tmp_path  # the prepared root holds its own media assets
     source = DedupStore(
-        tmp_path / "index.sqlite", DedupConfig(train_fraction=1.0, validation_fraction=0.0)
+        tmp_path / "spool.sqlite", DedupConfig(train_fraction=1.0, validation_fraction=0.0)
     )
     try:
         with source.transaction():
@@ -332,7 +330,7 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
     )
     config = replace(
         config,
-        dataset=str(data),
+        datasets=[str(data)],
         output=str(tmp_path / "run"),
         packs=str(packs),
         max_steps=1,
@@ -348,11 +346,11 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
     result = train(config)
     payload, _ = load_checkpoint(result["checkpoint"])
     assert result["global_step"] == 1
-    assert result["phase_consumed"] == result["counters"]["G"]
+    assert result["phase_consumed"] == result["counters"]["I"]
     assert result["counters"]["G"] == 5
     assert result["counters"]["media_events"] == 2
     assert result["counters"]["image_events"] == 1
-    assert payload["phase_consumed"] == 5
+    assert payload["phase_consumed"] == result["counters"]["I"]
     # Frozen realizer donors never enter the checkpoint; trainable conditions do.
     names = set(payload["model"])
     assert any(name.startswith("media_realizers.packs.sana.condition.") for name in names)

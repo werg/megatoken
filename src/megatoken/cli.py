@@ -65,7 +65,7 @@ def _train(args):
         for name in (
             "phase",
             "model",
-            "dataset",
+            "datasets",
             "output",
             "codec",
             "device",
@@ -89,15 +89,14 @@ def _diloco_initialize(args):
     """Create immutable coordinator bootstrap from the exact train architecture."""
     import torch
 
-    from megatoken.data import PreparedDataset
-    from megatoken.io import content_hash, sha256_file
+    from megatoken.data import PreparedCorpus
+    from megatoken.io import sha256_file
     from megatoken.loading import build_model, load_codec, load_model_config, restore_weights
     from megatoken.runtime import seed_everything
     from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint
     from megatoken.training.config import TrainConfig
     from megatoken.training.diloco_protocol import training_identity
     from megatoken.training.diloco_server import initialize_coordinator
-    from megatoken.training.schedule import PHASES
     from megatoken.training.transducer import HindsightSchedule
     from megatoken.training.transducer_sync import load_transducer_state
 
@@ -154,8 +153,8 @@ def _diloco_initialize(args):
         for name, parameter in model.named_parameters()
         if parameter.requires_grad
     }
-    with PreparedDataset(config.dataset) as prepared:
-        dataset_fingerprint = content_hash(prepared.manifest)
+    with PreparedCorpus(config.datasets) as prepared:
+        dataset_fingerprint = prepared.identity
     return initialize_coordinator(
         args.root,
         run_id=config.decoupled.run_id,
@@ -172,7 +171,7 @@ def _diloco_initialize(args):
         outer_momentum=args.outer_momentum,
         grace_seconds=args.grace_seconds,
         max_staleness=args.max_staleness,
-        token_budget=config.budget or PHASES[config.phase].budget,
+        token_budget=config.schedule.budget,
         transducer={
             "geometry": dict(vars(model_config.transducer_geometry)),
             "evidence_from": HindsightSchedule().warmup_steps,
@@ -244,7 +243,7 @@ def _pipeline(args):
 def _evaluate(args):
     import torch
 
-    from megatoken.data import PreparedDataset
+    from megatoken.data import PreparedCorpus
     from megatoken.loading import load_trained
     from megatoken.runtime import seed_everything
     from megatoken.training.config import TrainConfig
@@ -255,12 +254,12 @@ def _evaluate(args):
     )
     trained = load_trained(args.checkpoint, device=device, codec_path=args.codec)
     seed_everything(args.seed)
-    config = TrainConfig.from_dict(
-        {**trained.payload["train_config"], "eval_episodes": args.episodes, "effort": args.effort}
-    )
-    dataset = PreparedDataset(args.dataset or config.dataset, split=args.split)
+    config = TrainConfig.from_dict({**trained.payload["train_config"], "effort": args.effort})
+    dataset = PreparedCorpus(args.datasets or config.datasets, split=args.split)
     try:
-        return evaluate_records(trained.model, dataset, trained.codec, config, device)
+        return evaluate_records(
+            trained.model, dataset, trained.codec, config, device, episodes=args.episodes
+        )
     finally:
         dataset.close()
 
@@ -433,7 +432,6 @@ def parser() -> argparse.ArgumentParser:
     for name in (
         "phase",
         "model",
-        "dataset",
         "output",
         "codec",
         "device",
@@ -442,6 +440,7 @@ def parser() -> argparse.ArgumentParser:
         "representation-mode",
     ):
         item.add_argument("--" + name, type=_preset_name if name == "model" else str)
+    item.add_argument("--datasets", nargs="+", help="Prepared roots, read as one corpus")
     for name in ("max-steps", "budget", "generated-capacity", "microbatch-episodes"):
         item.add_argument("--" + name, type=int)
     item.add_argument("--require-blackwell", action=argparse.BooleanOptionalAction, default=None)
@@ -495,7 +494,7 @@ def parser() -> argparse.ArgumentParser:
         "evaluate", help="Fixed-holdout served-prior sampling and lexical CE"
     )
     item.add_argument("--checkpoint", required=True)
-    item.add_argument("--dataset")
+    item.add_argument("--datasets", nargs="+")
     item.add_argument("--codec")
     item.add_argument("--device", default="auto")
     item.add_argument("--split", choices=("validation", "test"), default="validation")

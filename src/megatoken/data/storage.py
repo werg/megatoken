@@ -6,10 +6,12 @@ import hashlib
 import json
 import os
 import sqlite3
+from bisect import bisect_right
 from collections import OrderedDict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
+from itertools import accumulate
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, NamedTuple
 
 from megatoken.io import (
     content_hash,
@@ -20,7 +22,7 @@ from megatoken.io import (
 
 from .chunking import ChunkingConfig, ChunkingStats
 from .dedup import DedupStore
-from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
+from .media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from .schema import Codec, Episode, encode_record
 
 DATASET_VERSION = 3
@@ -250,8 +252,15 @@ def export_prepared(
         raise
 
 
+class FeatureItem(NamedTuple):
+    """A prepared feature descriptor with the asset store of the root that holds its tensors."""
+
+    record: MediaRecord
+    assets: TensorAssetStore
+
+
 class PreparedDataset:
-    """A read-only, process-local reader suitable for rank/worker partitioning."""
+    """A read-only, process-local reader of one prepared root."""
 
     def __init__(
         self,
@@ -271,6 +280,7 @@ class PreparedDataset:
         if content_hash(unsigned) != expected_fingerprint:
             raise ValueError("Prepared manifest fingerprint is invalid")
         self.split, self.stream = split, stream
+        self.assets = TensorAssetStore(self.root)
         self.verify_checksums = verify_checksums
         self.scope = (
             f"split:{split}|stream:{stream}"
@@ -304,14 +314,24 @@ class PreparedDataset:
         """Distinct prepared feature items of ``modality`` (``text`` = compressed text)."""
         return self.manifest["feature_counts"].get(f"split:{split}|modality:{modality}", 0)
 
-    def feature_item(self, split: str, modality: str, position: int) -> MediaRecord:
+    def feature_item(self, split: str, modality: str, position: int) -> FeatureItem:
         row = self.connection.execute(
             "SELECT descriptor FROM features WHERE scope=? AND position=?",
             (f"split:{split}|modality:{modality}", position),
         ).fetchone()
         if row is None:
             raise IndexError(position)
-        return MediaRecord.from_bytes(bytes(row["descriptor"]))
+        return FeatureItem(MediaRecord.from_bytes(bytes(row["descriptor"])), self.assets)
+
+    def feature_extractors(self) -> set[str]:
+        """Teachers that produced this root's feature tensors (one item per split and modality)."""
+        extractors = set()
+        for scope in self.manifest["feature_counts"]:
+            row = self.connection.execute(
+                "SELECT descriptor FROM features WHERE scope=? AND position=0", (scope,)
+            ).fetchone()
+            extractors.add(MediaRecord.from_bytes(bytes(row["descriptor"])).source.extractor)
+        return extractors
 
     def index_entry(self, index: int) -> dict[str, Any]:
         if index < 0:
@@ -383,6 +403,116 @@ class PreparedDataset:
         self.connection.close()
 
     def __enter__(self) -> PreparedDataset:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
+
+class PreparedCorpus:
+    """Several prepared roots read as one: per-scope concatenation in a canonical order.
+
+    Each preparation script writes its own immutable root with its own media
+    assets, so an episode is always fetched together with the asset store of
+    the root it came from. Roots are ordered by manifest fingerprint, never by
+    the order or paths they were listed in, so every rank and DiLoCo worker
+    (whatever its mount points) sees the same concatenation and shards it
+    identically. A scope that spans several roots (the same stream prepared in
+    pieces) is one stream whose episodes are drawn in proportion to size.
+    Roots must agree on codec, chunking policy and teacher; roots with nothing
+    in the scope are dropped from it.
+    """
+
+    def __init__(
+        self,
+        roots: Sequence[str | Path],
+        split: str | None = "train",
+        stream: str | None = None,
+        verify_checksums: bool = True,
+    ):
+        if not roots:
+            raise ValueError("A prepared corpus needs at least one root")
+        opened: list[PreparedDataset] = []
+        try:
+            for root in roots:
+                opened.append(PreparedDataset(root, split, stream, verify_checksums))
+            opened.sort(key=lambda part: part.manifest["fingerprint"])
+            self.extractor = self._validate(opened)
+        except BaseException:
+            for part in opened:
+                part.close()
+            raise
+        self.split, self.stream = split, stream
+        self.scope = opened[0].scope
+        self.parts = tuple(part for part in opened if len(part))
+        for part in opened:
+            if not len(part):
+                part.close()
+        self.all_roots = tuple(part.root for part in opened)
+        self._starts = [0, *accumulate(len(part) for part in self.parts)]
+        self.codec_fingerprint = opened[0].manifest["codec_fingerprint"]
+        self.chunking = opened[0].manifest["chunking"]
+        self.identity = content_hash([part.manifest["fingerprint"] for part in opened])
+
+    @staticmethod
+    def _validate(parts: list[PreparedDataset]) -> str | None:
+        """Reject incompatible roots; the one teacher behind their features, if any."""
+        first = parts[0]
+        if len({part.manifest["fingerprint"] for part in parts}) != len(parts):
+            raise ValueError("The same prepared dataset is listed twice")
+        extractors: dict[str, Path] = {}
+        for part in parts:
+            for key, what in (("codec_fingerprint", "codec"), ("chunking", "chunking policy")):
+                if part.manifest[key] != first.manifest[key]:
+                    raise ValueError(
+                        f"Prepared datasets {first.root} and {part.root} use different {what}s"
+                    )
+            for extractor in part.feature_extractors():
+                extractors.setdefault(extractor, part.root)
+        if len(extractors) > 1:
+            raise ValueError(
+                "Prepared datasets carry features from different teachers: "
+                + ", ".join(f"{name} ({root})" for name, root in sorted(extractors.items()))
+            )
+        return next(iter(extractors), None)
+
+    def __len__(self) -> int:
+        return self._starts[-1]
+
+    def fetch(self, index: int) -> tuple[Episode, TensorAssetStore]:
+        """Episode ``index`` of the concatenation and the assets of its own root."""
+        if not 0 <= index < len(self):
+            raise IndexError(index)
+        part = bisect_right(self._starts, index) - 1
+        return self.parts[part][index - self._starts[part]], self.parts[part].assets
+
+    def iter_episodes(self) -> Iterator[Episode]:
+        for part in self.parts:
+            yield from part.iter_episodes()
+
+    def feature_count(self, split: str, modality: str) -> int:
+        return sum(part.feature_count(split, modality) for part in self.parts)
+
+    def feature_item(self, split: str, modality: str, position: int) -> FeatureItem:
+        if position < 0:
+            raise IndexError(position)
+        for part in self.parts:
+            count = part.feature_count(split, modality)
+            if position < count:
+                return part.feature_item(split, modality, position)
+            position -= count
+        raise IndexError(position)
+
+    @property
+    def stores(self) -> tuple[TensorAssetStore, ...]:
+        """The asset store of every root, including roots without data in this scope."""
+        return tuple(TensorAssetStore(root) for root in self.all_roots)
+
+    def close(self) -> None:
+        for part in self.parts:
+            part.close()
+
+    def __enter__(self) -> PreparedCorpus:
         return self
 
     def __exit__(self, *args: Any) -> None:

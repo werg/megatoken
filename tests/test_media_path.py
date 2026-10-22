@@ -422,7 +422,7 @@ def test_text_anchor_sidecar_loads_features_for_exact_text(tmp_path):
     store = TensorAssetStore(tmp_path)
     anchors = TextAnchors(
         write_anchors(tmp_path, store, [anchor_row(store, b"hello")]),
-        store,
+        [store],
         extractor=PINNED_TEACHER,
     )
     key = TextAnchors.key(b"hello")
@@ -431,11 +431,22 @@ def test_text_anchor_sidecar_loads_features_for_exact_text(tmp_path):
     assert TextAnchors.key(b"hello!") not in anchors.assets
 
 
+def test_text_anchor_features_are_found_in_whichever_root_holds_them(tmp_path):
+    empty, holder = TensorAssetStore(tmp_path / "empty"), TensorAssetStore(tmp_path / "holder")
+    (tmp_path / "empty").mkdir()
+    sidecar = write_anchors(tmp_path, holder, [anchor_row(holder, b"hello")])
+    key = TextAnchors.key(b"hello")
+    anchors = TextAnchors(sidecar, [empty, holder], extractor=PINNED_TEACHER)
+    assert anchors.features(key, torch.device("cpu")).shape == (1, 9, HIDDEN_WIDTH)
+    with pytest.raises(ValueError, match="none of the prepared roots"):
+        TextAnchors(sidecar, [empty], extractor=PINNED_TEACHER).features(key, torch.device("cpu"))
+
+
 def test_text_anchor_sidecar_rejects_foreign_teacher_and_mismatched_text(tmp_path):
     store = TensorAssetStore(tmp_path)
 
     def load(*rows, extractor=PINNED_TEACHER):
-        return TextAnchors(write_anchors(tmp_path, store, rows), store, extractor=extractor)
+        return TextAnchors(write_anchors(tmp_path, store, rows), [store], extractor=extractor)
 
     with pytest.raises(ValueError, match="different teacher"):
         load(anchor_row(store, b"x", extractor=other_extractor()))

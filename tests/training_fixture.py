@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from megatoken.data import DedupConfig, DedupStore, Episode, Lineage, PhysicalRecord
+from megatoken.data.media_assets import TensorAssetStore
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
 from megatoken.data.storage import export_prepared
 from megatoken.generation.codec import ByteCodec
@@ -18,6 +19,8 @@ from megatoken.training.config import TrainConfig
 # Model preset for every artifact; scripts may switch it (e.g. "32x512") for GPU runs.
 MODEL = "tiny"
 MODEL_OVERRIDES: dict = {}
+# For windows of text-only episodes: nothing is ever loaded from it.
+TEXT_ONLY_ASSETS = TensorAssetStore("text-only")
 
 
 def make_episode(index: int, *, turns: int = 1) -> Episode:
@@ -107,7 +110,7 @@ def tiny_train_config(root: Path, *, episodes: int = 4, **overrides) -> TrainCon
     dataset = prepare_dataset(root, items)
     values = dict(
         phase="B0",
-        dataset=str(dataset),
+        datasets=[str(dataset)],
         output=str(root / "run"),
         model=MODEL,
         model_overrides=dict(MODEL_OVERRIDES),
@@ -128,7 +131,6 @@ def tiny_train_config(root: Path, *, episodes: int = 4, **overrides) -> TrainCon
         gradient_checkpointing=False,
         use_stage_mixture=False,
         use_effort_mixture=False,
-        budget=64,
     )
     values.update(overrides)
     return TrainConfig(**values)

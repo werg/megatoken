@@ -9,7 +9,7 @@ import pytest
 import torch
 from torch import nn
 
-from megatoken.data import PreparedDataset, WindowConfig, prepare_sources, write_demo_source
+from megatoken.data import PreparedCorpus, WindowConfig, prepare_sources, write_demo_source
 from megatoken.generation.codec import ByteCodec
 from megatoken.model.config import ModelConfig
 from megatoken.training.diloco_protocol import (
@@ -193,9 +193,9 @@ def test_independent_shard_cursor_is_restartable_without_collectives(tmp_path):
     source = write_demo_source(tmp_path / "source.jsonl", count=24, max_record_bytes=128)
     prepared = prepare_sources([source], tmp_path / "data", codec)
     prepared.close()
-    ds0 = PreparedDataset(tmp_path / "data")
-    ds1 = PreparedDataset(tmp_path / "data")
-    ds2 = PreparedDataset(tmp_path / "data")
+    ds0 = PreparedCorpus([tmp_path / "data"])
+    ds1 = PreparedCorpus([tmp_path / "data"])
+    ds2 = PreparedCorpus([tmp_path / "data"])
     config = WindowConfig(max_window_tokens=512, max_records=2)
     a = IndependentWindowStream(ds0, codec, config, seed=31, rank=0, world_size=2)
     b = IndependentWindowStream(ds1, codec, config, seed=31, rank=1, world_size=2)

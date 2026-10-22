@@ -2,7 +2,7 @@
 
 import pytest
 import torch
-from training_fixture import MODEL_OVERRIDES, tiny_train_config
+from training_fixture import MODEL_OVERRIDES, TEXT_ONLY_ASSETS, tiny_train_config
 
 from megatoken.data import Episode, Lineage, PhysicalRecord, WindowConfig, iter_windows
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
@@ -68,7 +68,7 @@ def grouped_batch(model, config):
     assert len(windows) == 1
     (batch,) = prepare_batches(
         model,
-        [EpisodeWindow(episode, windows[0])],
+        [EpisodeWindow(episode, windows[0], TEXT_ONLY_ASSETS)],
         config,
     )
     assert isinstance(batch, MeridianPreparedBatch)
@@ -155,7 +155,7 @@ def test_media_payload_is_not_silently_trained_as_text(tmp_path):
     with pytest.raises(ValueError, match="pinned canonical media descriptor"):
         prepare_batches(
             model,
-            [EpisodeWindow(changed, window)],
+            [EpisodeWindow(changed, window, TEXT_ONLY_ASSETS)],
             train_config(tmp_path, "bootstrap"),
         )
 
@@ -232,7 +232,7 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
     )
     (batch,) = prepare_batches(
         model,
-        [EpisodeWindow(episode, window)],
+        [EpisodeWindow(episode, window, TEXT_ONLY_ASSETS)],
         config,
     )
     selected = []

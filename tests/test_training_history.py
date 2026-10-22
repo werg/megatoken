@@ -429,7 +429,6 @@ def integration_config():
         representation_mode="recurrent",
         use_effort_mixture=False,
         microbatch_episodes=2,
-        eval_episodes=1,
         # The evaluator reads none of the retrieval artifacts; the config only
         # has to satisfy the every-invocation validation.
         budget=64,
@@ -457,7 +456,12 @@ def test_evaluation_replays_native_prefix_and_excludes_native_target_facets(
         trace.predictions.clear()
         trace.native_controls.clear()
         metrics = evaluate_records(
-            model, Dataset(episode), model.codec, integration_config(), torch.device("cpu")
+            model,
+            Dataset(episode),
+            model.codec,
+            integration_config(),
+            torch.device("cpu"),
+            episodes=1,
         )
         assert model.training  # The evaluator restores the caller's mode.
         assert metrics["generated_chunks"] == 1 and metrics["prior_scored_positions"] > 0

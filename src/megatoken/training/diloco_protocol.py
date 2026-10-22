@@ -76,7 +76,6 @@ def training_identity(config: Any) -> str:
         "weight_decay",
         "inner_optimizer",
         "gradient_checkpointing",
-        "budget_meter",
         "accumulate_events",
         "router_balance_mode",
         "trainable",

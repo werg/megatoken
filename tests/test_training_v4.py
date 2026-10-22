@@ -5,7 +5,12 @@ from dataclasses import replace
 
 import pytest
 import torch
-from training_fixture import MODEL_OVERRIDES, make_episode, tiny_train_config
+from training_fixture import (
+    MODEL_OVERRIDES,
+    TEXT_ONLY_ASSETS,
+    make_episode,
+    tiny_train_config,
+)
 
 from megatoken.data import WindowConfig, iter_windows
 from megatoken.generation import ByteCodec
@@ -24,7 +29,7 @@ def window_fixture():
     episode = make_episode(0)
     windows = list(iter_windows(episode, codec, WindowConfig(max_records=4, max_decisions=4)))
     assert len(windows) == 1 and windows[0].start == 0
-    return codec, [EpisodeWindow(episode, windows[0])]
+    return codec, [EpisodeWindow(episode, windows[0], TEXT_ONLY_ASSETS)]
 
 
 def config_for(base, *, reconstruction=0.0):
