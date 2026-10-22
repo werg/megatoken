@@ -1,7 +1,11 @@
 # Multimodal knowledge: knowledge bases, retrieval and adapters
 
-**Status:** agreed direction, being built. **Date:** 22 October 2026. Builds on
-the [transducer design](continuous-state-transducer-plan.md) (v10).
+**Status:** agreed direction. Built so far: several knowledge bases searched as
+one (§1), writing an entry by reading an item alone (§2), the `megatoken kb`
+commands and per-session mounting while serving, the reading-from-a-base stream and its
+measurement (build steps 3-5, base half, and the base half of step 6). Source retrieval (§3) and
+the adapter mixture (§4) are being built separately. **Date:** 22 October 2026.
+Builds on the [transducer design](continuous-state-transducer-plan.md) (v10).
 
 Three parts work from one lookup: **knowledge bases** (the transducer memory,
 several mounted at once), **retrieval** of original items of any medium, and
@@ -60,22 +64,52 @@ Ownership and lifetime follow from the base, not from the search:
   the model.
 
 Training mounts the trained base alone, plus, in the reading-from-a-base
-streams (build step 3), ingested
+streams (build step 5), ingested
 bases built from the training corpus, so the model learns to use bases it did
 not grow.
+
+**Built.** What was decided on the way:
+
+- A lookup's selected pairs are named `(location, base, edge)`; the same edge number
+  can occur in two bases. Its blended knowledge value is still one tensor over everything
+  mounted (the sink included), and its landing is shared, so a search can leave one
+  base's region for another's (tested).
+- Each mounted base has its own version. A session caches each location's neighbourhood
+  per base and rescans only the base that changed: adding files to a user's base does not
+  make the trained base rescan.
+- Scoring, the exact scan and the way train and serve look things up are unchanged; a
+  session that mounts only the trained base behaves exactly as before. With one ingested
+  base mounted in its place, the search returns the same pairs and blend (tested).
+- Random exploration reaches only the trained base: ingested bases are fixed.
+- The trained base alone is checkpointed, synced by DiLoCo and evolved. An ingested base
+  is a packed table with no gradient masters, optimizer or growth; entries can only be
+  appended (and only to a base opened writable, which is how a user's base is filled
+  while serving), never changed or removed.
+- A training window that mounts another base writes nothing into the trained base (no
+  hindsight write, no write-out), so what the mounted base holds is not memorized by it.
+- A base file holds the packed table, where each entry came from, and the identity of
+  what wrote it: the model's exact weights (a digest of every served weight), its
+  architecture, the teacher and the geometry fields that fix stored values and
+  locations. It mounts only on a model with the same identity, and says which
+  part differs otherwise. Entries are written in one model's internal language, so a base
+  built for last month's checkpoint is rebuilt, not carried over.
 
 ## How knowledge gets into a base
 
 - **The trained base** fills itself during training, as today.
 - **A corpus base** is built offline, before serving: an operator runs one
-  command over a folder or dataset of files (text, images, audio, video),
-  e.g. `megatoken kb build --name product-manuals --files ...`. Each file goes
-  through the existing media preparation, then is written as entries (§2). The
-  result is a self-contained base file that can be shipped and mounted next
-  to any model with the same geometry.
+  command over prepared roots or plain files (text, images, audio, video),
+  e.g. `megatoken kb build --name product-manuals --items manuals/*.txt photos/*.jpg
+  --model bundle/ --packs lock.json`. Each file goes through the existing media preparation,
+  then is written as entries (§2). The result is a self-contained base file
+  (`megatoken kb inspect FILE` shows what it holds and which model wrote it) that is shipped
+  separately from the model bundle and mounted next to the model that wrote it.
 - **A user's base** is built the same way while the model serves: the runtime
   accepts "add these files to knowledge base X", writes their entries, and from
-  then on sessions that mount X can find them. Nothing is retrained.
+  then on sessions that mount X can find them. Nothing is retrained. In the
+  multitrack JSONL service (`serve-multitrack --kb-root DIR`, every path inside `DIR`):
+  `kb_create`, `kb_add` (files), `kb_save`, `kb_open`, `kb_list`, `kb_close`, and
+  `open` takes `bases` (name to blend weight) and `trained_weight`.
 
 ## 2. Writing an entry by reading the item alone
 
@@ -111,6 +145,40 @@ single item:
   the item);
 - the item's key should score highest for the query the model actually asked
   before that use, against the other items in the batch (contrastive).
+
+**Built.** What was decided on the way:
+
+- The ingest and key heads are part of the served model (they run at serving time);
+  only the hindsight head stays training-only.
+- Placement. An item departs from where its metadata starts a session: the metadata
+  goes through the same event, prefix head and starting-location map a session's prefix
+  does (`metadata_start`). Files are filed under their modality and file name as topic
+  unless the operator gives a task, topic, language or date. Prepared roots are filed under
+  the metadata the training run itself gives that episode, so a session on the same task
+  starts where its items are. Part $i$ of a document departs from where part $i-1$ leads;
+  all parts of a document are written in one call. The destination is the content location
+  of the written value.
+- Bias. An entry's bias is zero, as a write-out into an empty bank has: it is scored by key
+  and location alone, and its base's blend weight is the only prior on it. (A write-out
+  takes the best score among its lookup's pairs, which an item has no lookup to give.)
+- The two training losses run inside the existing hindsight pass, whenever a lookup's
+  hindsight group is or contains exactly one item (an image, clip or document piece; a
+  group with two items, with none, or past the end of the sequence matches nothing, so the
+  sink-only lookups are excluded). *Value:* the item read alone should equal the
+  hindsight value $h_t$, as a squared error relative to $\|h_t\|^2$, with the
+  hindsight value as a fixed target. *Key:* among the window's items, the lookup's own
+  query should pick out its item (cross-entropy over cosines at temperature 0.05, query as
+  a fixed target). They enter the loss at weights 0.1 and 0.05, each a mean over the
+  window's matched lookups. Negatives are only the other items in the same window, so a
+  window with a single item trains the value alone; a larger pool of negatives is
+  future work.
+- The ingest value goes through the hindsight head's own packing, so a stored value has
+  exactly the format of a written-out one.
+- What the heads learn from. Streams that put items in the context (long documents,
+  image description, transcription, ...) give the distillation and contrast signal.
+  The reading-from-a-base stream trains the other side: how a query finds and reads an
+  ingested base. Nothing flows back into the heads from there (ingested bases carry no
+  gradient).
 
 ## 3. Retrieval of original items, any medium
 
@@ -194,14 +262,57 @@ of multiple bases, so they are built first and in parallel.
    collection CLI.
 2. The adapter bank, its knowledge-base router and its application in C, P
    and the realizer conditions.
-3. Several mounted bases in one search: per-base tables, blend weights,
+3. **Built.** Several mounted bases in one search: per-base tables, blend weights,
    (base, edge) pairs, the coordinator and checkpoints owning only the trained
    base.
-4. The ingest and key realizers, with their two losses inside the existing
-   hindsight pass; metadata-placed departures and document chains.
-5. Reading-from-a-base and reading-from-a-collection streams from the existing reading data (long
-   documents, image description, transcription): items are written into a
-   base instead of the context, and later turns ask about them.
+4. **Built.** The ingest and key realizers, with their two losses inside the existing
+   hindsight pass; metadata-placed departures and document chains; the
+   `megatoken kb` commands and mounting and adding files while serving.
+5. Reading-from-a-base (**built**) and reading-from-a-collection streams from the
+   existing reading data (long documents, image description, transcription): items are
+   written into a base instead of the context, and later turns ask about them.
+   The base stream (`base_reading`) is described below.
 6. Measurement: answer accuracy on held-out reading questions with bases and
    collections mounted and unmounted, retrieval recall against the teacher,
-   and loss with adapters on and off.
+   and loss with adapters on and off. For bases, **built**: held-out loss of the
+   reading-from-a-base windows with the base mounted and unmounted, reported side by
+   side.
+
+### The reading-from-a-base stream (built)
+
+`base_reading` episodes (`scripts/prepare_base_reading.py`, from HotpotQA / MuSiQue
+paragraphs, DOCCI photos and LibriSpeech clips) have three turns: the user's question,
+a short assistant turn ("Let me check the knowledge base.") and the scored answer. The
+assistant turn closes a turn, so a lookup falls between the question and the answer. The
+reference items are not in the episode's records: they are declared in the episode
+(`knowledge_items`) and the trainer reads each one alone with the current ingest heads,
+writes them into a small base of their own, and mounts it beside the trained base. So
+the only way to answer is to find them. Photos and clips are asked about by quoting
+the first sentence or first words of their description or transcript; video clips are not
+drawn yet (the episode builder takes any prepared item).
+
+The schedule is simple. An episode's items are ingested the first time it is drawn; the
+bases of the last 8 episodes stay mounted, so the right items must be found among
+others; every 1,024 optimizer steps all of them are dropped and rebuilt on demand, so no
+entry is older than that by more than the heads have moved. They belong to the training
+process and are neither checkpointed nor synced. Stage shares (all taken from the stage's
+natural-text or replay stream so mixtures still sum to one): P1 1%, M1 0.5%, M2 0.5%, LC 1%.
+
+Measurement: held-out evaluation scores each such window twice, with the window's own
+items mounted (alone, no other episodes' items) and with nothing mounted, and reports
+`reading_base`: both losses and their difference (unmounted minus mounted, positive when
+the base helps). Those two entries are kept out of the pooled loss, which counts every
+window once.
+
+### What is left of the base half
+
+- A larger pool of negatives for the key loss, and ingest-heads training from the
+  reading-from-a-base stream's own windows (needs a differentiable path through a
+  base, which the plan deliberately does not have).
+- Video clips in the reading-from-a-base producer, and a question that scores answer
+  accuracy rather than loss.
+- An ingested base is rewritten if the model's weights change; a way to carry a base
+  across a small fine-tune (re-reading each item from its stored features without the
+  teacher) is not built.
+- Every item is re-read from its stored teacher features; a base built from files
+  needs the teacher once, at preparation.

@@ -411,7 +411,7 @@ dataset card (read 2026-10-22; a card is not legal advice), and what is still mi
 pilot is small (a few thousand episodes per stream) so the full pipeline can be exercised;
 the stage plan's targets are orders of magnitude larger.
 
-`configs/cloud/prepare-open-mix.json` builds four prepared roots in one sandbox (nothing
+`configs/cloud/prepare-open-mix.json` builds five prepared roots in one sandbox (nothing
 launches by itself; it needs the approvals below, a clean commit, and
 `--secret hf-token=FILE`):
 
@@ -421,8 +421,9 @@ launches by itself; it needs the approvals below, a clean commit, and
 | `text-mb` | `megatoken prepare --sources configs/data/sources.open-mb.json` | text (replay for the media bridge) |
 | `media` | `scripts/prepare_open_media.py` (readers in `data/open_media.py`) | audio_identity, image_identity, video_identity, transcription, verbalization, speech_translation, image_description, image_creation, image_edit, speech_edit, av_creation, av_edit |
 | `long-reading` | `scripts/prepare_long_document_reading.py` | long_document_reading |
+| `base-reading` | `scripts/prepare_base_reading.py` | base_reading (questions whose reference items are in a knowledge base, not the context; same HotpotQA, DOCCI and LibriSpeech data as above) |
 
-MB trains on `text-mb` + `media` (identity streams only); the reduced P1 trains on all four.
+MB trains on `text-mb` + `media` (identity streams only); the reduced P1 trains on all five.
 Splits freeze per original family (speaker, FLoRes sentence, photo, COCO image, recording,
 repository, web page), and every media-bundle task is compiled by `data/concordance.py`,
 which emits the stage plan's own stream names.
@@ -439,6 +440,7 @@ which emits the stage plan's own stream names.
 | synthetic_code_dialogue | `nvidia/OpenCodeInstruct` | CC-BY-4.0 | LLM generated; its test results are not imported as outcomes. |
 | executed_trajectories | `nvidia/Open-SWE-Traces`, `open-thoughts/AgentTrove`, `nvidia/Nemotron-Terminal-Corpus` | CC-BY-4.0, Apache-2.0, CC-BY-4.0 | Copied from `sources.v13.json` at the same revisions. |
 | long_document_reading | `hotpotqa/hotpot_qa` (existing loader) | **CC-BY-SA-4.0** | ShareAlike; the maintainer must decide whether that is acceptable. MuSiQue's card names no licence. |
+| base_reading | the sources above: HotpotQA paragraphs, DOCCI photos, LibriSpeech clips | CC-BY-SA-4.0, CC-BY-4.0, CC-BY-4.0 | The same items as `long_document_reading`, `image_description` and `transcription`, read through a knowledge base instead of the context. |
 
 Every source keeps `terms.approved: false`: recording approval is the maintainer's
 decision, so the job's text steps stop with "Source terms are unapproved" until it is

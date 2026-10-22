@@ -161,6 +161,24 @@ byte-exact.
 Control payloads use `control_b64` per output track, produced by the common
 control builder. Speculative output is not a canonical commit until `accept`.
 
+Knowledge bases ([multimodal-knowledge-plan.md](multimodal-knowledge-plan.md))
+are served when the server is started with `--kb-root DIR`, a directory every
+path in the requests must lie inside (add `--packs` so files can be prepared):
+
+```bash
+megatoken kb build --name manuals --items manuals/*.txt --model artifacts/served \
+  --packs packs/lock.json --output kb/manuals.kb      # offline, once
+megatoken serve-multitrack --model artifacts/served --packs packs/lock.json --kb-root kb
+```
+
+`kb_open` (`name`, `path`) mounts a base file built for this model, `kb_create`
+(`name`) starts an empty base for a user's files, `kb_add` (`name`, `files`,
+optional `metadata`) prepares files and writes them into it with no retraining,
+`kb_save` (`name`, `path`), `kb_close` and `kb_list`. `open` takes `bases` (base
+name to blend weight; 0 leaves a base out) and `trained_weight`; a session that
+mounts a base finds entries added to it from its next lookup. A base built for
+other model weights is refused.
+
 The server does **not** execute model-produced tool commands, download remote
 reference assets or fetch pack weights.
 
