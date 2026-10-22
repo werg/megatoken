@@ -344,11 +344,11 @@ class TransducerBank(nn.Module):
             modulated.append(modq)
             if not neighborhood:
                 continue
-            keys = torch.stack([unit(self.field(i, "key", train=training))
+            keys = torch.stack([unit(self.field(i, "key", train=False))
                                 for i in neighborhood])
-            departures = torch.stack([unit(self.field(i, "departure", train=training))
+            departures = torch.stack([unit(self.field(i, "departure", train=False))
                                       for i in neighborhood])
-            biases = torch.cat([self.field(i, "bias", train=training)
+            biases = torch.cat([self.field(i, "bias", train=False)
                                 for i in neighborhood])
             scores = (
                 self.log_beta_query.exp() * (keys @ modq)
@@ -362,7 +362,17 @@ class TransducerBank(nn.Module):
             scores = torch.stack(all_scores)
             top_indices = torch.topk(scores, min(limit, len(all_pairs))).indices.tolist()
             pairs = [all_pairs[i] for i in top_indices]
-            selected_scores = [all_scores[i] for i in top_indices]
+            # Top-k and neighbourhood membership are discrete. Only the chosen
+            # edge masters receive sparse gradient leaves.
+            selected_scores = [
+                self.log_beta_query.exp()
+                * (unit(self.field(edge_id, "key", train=training)) @ modulated[j])
+                + self.log_beta_location.exp()
+                * (unit(self.field(edge_id, "departure", train=training))
+                   @ unit(agenda.locations[j]))
+                + self.field(edge_id, "bias", train=training).squeeze()
+                for j, edge_id in pairs
+            ]
         else:
             pairs, selected_scores = [], []
         if training and self.rows and g.exploration:
