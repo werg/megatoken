@@ -234,6 +234,16 @@ def test_headers_and_function_signatures_are_attached_to_first_body():
     assert attachment.path == function.path
 
 
+def test_a_heading_is_never_attached_across_the_next_heading():
+    # "## file" followed at once by "# Title" has no body of its own. Attaching it to the
+    # title's paragraph made it overlap the next section, and a long run of such files in one
+    # prompt (an agent's workspace files) could not be cut anywhere.
+    markdown = b"## notes/USER.md\n# User\n\nAbout the user.\n"
+    result = parse(markdown, language="markdown")
+    attachments = [r for r in result.regions if r.kind == "heading_attachment"]
+    assert [markdown[r.start : r.end] for r in attachments] == [b"# User\n\nAbout the user.\n"]
+
+
 def test_recovered_syntax_remains_useful_and_unknown_grammar_is_honest():
     broken = b'def broken(:\n    return "Hello. World!"\n\ndef good():\n    return 2\n'
     result = parse(broken, language="python")

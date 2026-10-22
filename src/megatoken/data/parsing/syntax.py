@@ -894,8 +894,13 @@ def scan_syntax(
             ),
             key=lambda region: (region.start, region.end),
         )
+        heading_starts = sorted(heading.start for heading in headings)
         for heading in headings:
             following = next((body for body in bodies if body.start >= heading.end), None)
+            # Never attach across the next heading: that would overlap the next section.
+            next_heading = next((start for start in heading_starts if start >= heading.end), None)
+            if next_heading is not None and following and following.start >= next_heading:
+                following = None
             if following and len(result.regions) < limits.max_regions:
                 result.regions.append(
                     Region(
