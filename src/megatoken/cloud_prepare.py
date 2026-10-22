@@ -272,16 +272,29 @@ def finish_inputs(
 # ---- inside a sandbox ---------------------------------------------------------------------
 
 
+def shard_plan(spec: Mapping[str, Any], root: Path = Path()) -> list[dict[str, Any]]:
+    """Every shard's source manifest, the same on every machine (paths are relative to ``root``,
+    the repository). A shard with nothing to read would fail its sandbox, so none may be empty."""
+    from megatoken.data.sharding import plan_shards, read_listings
+
+    manifest = json.loads((root / spec["sources"]).read_text())
+    listings = read_listings(manifest, root / spec["listing"])
+    shards = plan_shards(manifest, shard_count(spec), listings, full=True)
+    empty = [index for index, shard in enumerate(shards) if not shard["sources"]]
+    if empty:
+        raise cloud.CloudError(
+            f"{len(empty)} of {len(shards)} shards would have no rows to read (first: {empty[0]}): "
+            "the sources are too few or too small for this many shards; lower the shard count"
+        )
+    return shards
+
+
 def shard_commands(
     spec: Mapping[str, Any], sandbox: int, *, stage: str, work: Path, codec: str
 ) -> dict[int, list[str]]:
     """The ``megatoken prepare`` command of each shard of one sandbox, after writing its
     source manifest. Stage ``ingest`` reads the sources; ``finish`` applies the verdicts."""
-    from megatoken.data.sharding import plan_shards, read_listings
-
-    manifest = json.loads(Path(spec["sources"]).read_text())
-    listings = read_listings(manifest, spec["listing"])
-    plan = plan_shards(manifest, shard_count(spec), listings, full=True)
+    plan = shard_plan(spec)
     scratch = work / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     commands = {}
@@ -452,6 +465,7 @@ def launch(
             f"{spec['listing']} is missing: build it once with scripts/shard_sources.py --listing "
             "and commit it, so every sandbox plans the same shards"
         )
+    shard_plan(spec, repo)
     token = (hf_token or Path.home() / ".cache/huggingface/token").read_bytes().strip()
     run = (
         _load(spec["id"])
@@ -540,7 +554,7 @@ def stop(run_id: str) -> list[str]:
     return cloud.stop_all(_everything(_load(run_id)), "stopped by user", grace=60)
 
 
-def plan(spec: dict[str, Any], spec_path: str, destination: Path) -> list[Path]:
+def write_jobs(spec: dict[str, Any], spec_path: str, destination: Path) -> list[Path]:
     """Write every job of the run (with placeholder inputs for the later waves) and validate
     each against ``megatoken.cloud``; the way to check a run file before it costs anything."""
     validate(spec)
@@ -611,8 +625,10 @@ def main(argv: list[str] | None = None) -> int:
     cloud.load_credentials()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     if args.command == "plan":
+        shard_plan(json.loads(args.run.read_text()))
         result: Any = [
-            str(path) for path in plan(json.loads(args.run.read_text()), str(args.run), args.dest)
+            str(path)
+            for path in write_jobs(json.loads(args.run.read_text()), str(args.run), args.dest)
         ]
     elif args.command == "launch":
         result = launch(args.run, args.repo, hf_token=args.hf_token)

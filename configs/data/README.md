@@ -49,3 +49,13 @@ licence, each recorded); `sources.agentic-gated.json` holds the ones that need t
 maintainer to accept terms on the Hub or restore withheld prompts first. The cloud job
 `configs/cloud/prepare-agentic-mix.json` prepares the first in eight shards, scaled with
 `AGENTIC_ROW_SCALE`. See "Agentic and chat data" in [`docs/data.md`](../../docs/data.md).
+
+`files.agentic.json` and `files.open.json` list every file of every Hub source in the
+manifest of the same name, with its stored size, at the pinned revisions. They fix how a
+full-volume build is split into shards, so every machine plans the same shards from the same
+committed copy; rebuild one with `scripts/shard_sources.py MANIFEST OUT --full --listing FILE`
+after changing a manifest's sources or revisions (it only reads metadata, but a gated
+source needs a token that has accepted its terms). The runs that use them are
+`configs/cloud/prepare-full-agentic.json` and `configs/cloud/prepare-full-open.json`
+(`python -m megatoken.cloud_prepare plan|launch`); see "Preparing at full volume" in
+[`docs/data.md`](../../docs/data.md).

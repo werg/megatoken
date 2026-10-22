@@ -842,14 +842,16 @@ non-commercial and was not needed.
 
 ### Preparing the sources
 
-Preparation is single-threaded per process and dominated by sentence segmentation of long
-agent traces: about 25 KB of source text per second on SWE trajectories (3 to 8 s per
-150 KB trace). One process cannot prepare a useful amount, so
-`configs/cloud/prepare-agentic-mix.json` (one 16-CPU, 32 GiB sandbox, no GPU, nothing
-launches by itself) splits `sources.agentic.json` into `AGENTIC_SHARDS` (8) pieces with
-`scripts/scale_source_caps.py`, which assigns the costliest sources first to the lightest
-shard, and runs one `megatoken prepare --reject-invalid` per shard into
-`out/prepared/agentic-<i>`.
+Preparation is single-threaded per process. It reads about 300 to 500 KB of source text per
+CPU second on chat, documents and long SWE trajectories, and 200 KB on tool-use rows and
+code (measured numbers are under "Preparing at full volume"), so a useful amount needs many
+processes. `configs/cloud/prepare-agentic-mix.json` (one 16-CPU, 32 GiB sandbox, no GPU,
+nothing launches by itself) is the pilot: it splits `sources.agentic.json` into
+`AGENTIC_SHARDS` (8) pieces with `scripts/shard_sources.py`, which assigns the costliest
+sources first to the lightest shard and scales each source's row cap by `AGENTIC_ROW_SCALE`,
+and runs one `megatoken prepare --reject-invalid` per shard into `out/prepared/agentic-<i>`.
+Those shards are separate roots, each deduplicated on its own. For every row a source offers,
+use the full-volume build below, which also deduplicates across the shards.
 
 Parser review decides whether a trajectory is usable, so it was checked end to end on real
 rows (a 15-source run of 20 to 40 rows each). Every agent trajectory was first held out in
@@ -976,6 +978,155 @@ them; local Parquet skips completed row groups. Hub resume counts logical rows
 sequentially and reads preceding rows again, avoiding format-dependent Arrow
 `skip` behavior. This implementation has
 not been benchmarked on a multi-hundred-billion-token acquisition run.
+
+## Preparing at full volume
+
+Training also updates the per-row memory table (the knowledge-base parameters), and that
+table improves with every distinct row it sees, so a build should take every row each
+source offers, not a few hundred from each. That is about 82 million rows and 1.1 TB of
+text across the current configs (estimate below), too much for one machine and one
+process. Full-volume preparation therefore cuts a manifest into shards, prepares the shards
+on separate machines, and then decides duplicates, families and splits once over all of
+them.
+
+**Cutting the manifest.** `scripts/shard_sources.py MANIFEST OUT --full --listing FILE
+--shard i/n` writes shard `i` of `n`: the same sources with no row cap, each reading a
+share of its files (a source with one huge file, such as a 15 GB JSON, is cut by row
+stripes instead: shard `i` keeps every `n`-th row). `FILE` holds each source's file names
+and sizes at the pinned revision (`configs/data/files.agentic.json`,
+`configs/data/files.open.json`; rebuilt from Hub metadata when missing). Every machine
+computes the same plan from the same two files and keeps its own shard, so no coordinator
+is needed. Shards are balanced by expected work to within about 3 to 13 percent.
+
+**Three steps, on any machines:**
+
+```bash
+# 1. Each shard, anywhere: read, parse and deduplicate within the shard, then stop.
+megatoken prepare --sources shard-7.json --output shards/00007 --codec codec \
+    --reject-invalid --ingest-only        # leaves shards/00007/digest.sqlite
+# 2. One machine, from the digests only (about 2.3 KB per episode, no text):
+megatoken reconcile --digests shards/*/digest.sqlite --output verdicts
+# 3. Each shard again, with its verdicts: writes the final root.
+megatoken prepare --sources shard-7.json --output shards/00007 --codec codec \
+    --reject-invalid --decisions verdicts/decisions-0007.sqlite
+```
+
+Step 3 does not read the sources again: step 1 already stored every parsed episode in the
+shard's own database, and the verdicts only decide which of them stay and in which split.
+`reconcile` replays each shard's surviving episodes, in the order given, through the same
+exact and near-duplicate comparison a single store would have made, joins families that
+meet across shards, quarantines benchmark families everywhere, applies the per-parent
+variant cap and freezes the splits once. Fed the same rows in the same order it returns
+what one single run over all of them returns (`tests/test_prepare_reconcile.py` checks
+this, and checks a cross-shard exact copy, a near copy, a family split over three shards,
+a benchmark hit and a variant cap). Shard roots are ordinary roots: `PreparedCorpus`
+reads any number of them together.
+
+**In the cloud.** `python -m megatoken.cloud_prepare` runs the three steps as ordinary
+`megatoken.cloud` jobs on CPU sandboxes (16 CPU, 32 GiB, no GPU), reading a run file such
+as `configs/cloud/prepare-full-agentic.json`:
+
+```bash
+python -m megatoken.cloud_prepare plan   configs/cloud/prepare-full-agentic.json
+python -m megatoken.cloud_prepare launch configs/cloud/prepare-full-agentic.json
+python -m megatoken.cloud_prepare status prepare-full-agentic
+python -m megatoken.cloud_prepare stop   prepare-full-agentic   # after training took the roots
+```
+
+`plan` writes and validates every job offline (it costs nothing). `launch` runs three
+waves of sandboxes, each started only when the one before has published its files:
+
+1. **ingest**: `sandboxes` machines, each running `processes` shard preparations at a time
+   over its `shards_per_sandbox` shards (more shards than processes keeps the machines
+   evenly loaded), each writing `digest.sqlite` and `preparation.sqlite` per shard;
+2. **reconcile**: one machine fetches all digests (sha256-pinned, over the sandboxes'
+   share-token HTTPS, at data-centre speed) and writes one verdict file per shard;
+3. **finish**: one fresh machine per group of shards fetches that group's
+   `preparation.sqlite` files from its ingest machine and its verdicts, and writes
+   `out/prepared/<shard>`. These machines serve `out/prepared` to training like any job
+   with `serve_outputs`.
+
+`launch` is resumable. If a shard fails twice, its machine's log is kept under
+`~/.local/state/megatoken/cloud/prepare/<id>.logs`, that one machine is stopped, and running
+`launch` again redoes only it; the earlier waves stay up until every root is finished
+(they are billed while idle, which is why the reconcile and finish hours should be tight).
+The sources are read with `HF_TOKEN` from `~/.cache/huggingface/token`, delivered as a
+secret file, never in the job. Gated sources need a token that has accepted their terms.
+Nothing here was run against the live service; the launcher is tested against a fake
+fleet, and the whole ingest, reconcile and finish flow is tested on one machine.
+
+**Speed.** One preparation process used to read 30 to 160 KB of source text per CPU second.
+Unicode text segmentation in pure Python (finding the legal cut points, and sentence and
+word edges for prose) took half to two thirds of that time on documents and long traces, a
+JSON-schema check of every tool definition took up to half on tool-use rows, and per-token
+loops and the pipe to the parser worker took most of the rest. The segmentation is now
+checked in bulk and only the rare joined characters go to the slow path
+(`data/parsing/segmentation.py`, tested against the library on random text), the cut search
+runs on arrays, token widths are cached per codec, tool schemas built from common keywords
+skip the metaschema walk (anything unusual still takes it), and the pipe carries plain
+tuples. Every output was compared byte for byte with the old code (all eight samples below
+produce identical prepared files, with the chunker's version stamp held fixed, since
+editing the parser changes that stamp by design).
+
+The rate of one process (the process plus its parser worker, so a 16-CPU sandbox does about
+16 times this) on a real sample of each kind of source, before and after, measured on a
+busy shared machine (repeat runs differ by up to about 15 percent):
+
+| source | kind | sample (source KB) | before (KB per CPU s) | after (KB per CPU s) | faster | output identical |
+|---|---|---:|---:|---:|---:|---|
+| smol-smoltalk | chat | 6,129 | 145 | 452 | 3.1x | yes |
+| tulu3-sft-mixture | chat | 2,501 | 128 | 347 | 2.7x | yes |
+| open-swe-traces | long SWE trajectories | 16,107 | 100 | 558 | 5.6x | yes |
+| nemotron-agentic-v4-tools | tool-use trajectories | 10,552 | 168 | 391 | 2.3x | yes |
+| xlam-60k | short tool calls | 3,171 | 155 | 376 | 2.4x | yes |
+| fineweb-edu-10bt | web documents | 5,238 | 32 | 393 | 12.1x | yes |
+| stackv2-edu-0000 | source code files | 3,076 | 131 | 240 | 1.8x | yes |
+| cosmopedia-stanford | synthetic textbooks | 4,946 | 136 | 592 | 4.3x | yes |
+
+Web documents gain the most (about 12 times); long SWE trajectories and synthetic
+textbooks gain 4 to 6 times, chat about 3 times, and tool-use rows and code files about 2
+times, because their time is spread over many small steps. Weighted by how much text each
+kind has in the configs, a full build is about 6 times cheaper than before.
+What is left is spread thin: the Rust tokenizer, tree-sitter, the chunk planner's cut
+search, near-duplicate sketches, and the dataclass objects of the episode format, each under
+15 percent of a profile.
+
+**How long everything takes.** Text is counted as Hub-reported in-memory size, which is
+close to the source rows' JSON size, and each kind is priced at the rate measured above.
+A sandbox of 16 CPUs running 14 processes keeps about 85 percent of its CPUs busy, which
+gives per sandbox: trajectories 7.6 MB/s, documents 6.4, chat 5.7, tool use 5.3, code 3.3
+(MB of source text per second; 1 MB/s is 3.6 GB per hour). Every row each source offers:
+
+| config | rows (millions) | text (GB) | CPU-hours | sandbox-hours |
+|---|---:|---:|---:|---:|
+| agentic | 20.0 | 400 | 225 | 17 |
+| open | 36.1 | 190 | 128 | 9 |
+| v13 | 15.9 | 471 | 240 | 18 |
+| agentic-gated | 10.5 | 24 | 16 | 1 |
+| all | 82.5 | 1,084 | 610 | 45 |
+
+So the current configs need about 45 sandbox-hours of ingest work in total (the "all" row
+counts a source once even when two configs use it), which 16 sandboxes do in under three
+hours. The estimate is an upper bound on rows (rows a source's own filter drops are cheaper
+than prepared ones) and is only as good as the vCPU assumption: if the provider's vCPUs are
+hyperthreads, expect up to 1.5 times as long. The real cost is not ingest but the idle time
+of the waiting waves: reconcile replays about 4,000 episodes per second on one core (measured
+on 800,000 synthetic digests), a digest is 2.3 KB per episode, so 20 million episodes are 46 GB
+of digests, about 1.5 hours plus transfers, with a working store of roughly 70 GB of disk, and
+every ingest sandbox is billed while it waits. For `prepare-full-agentic` (16 sandboxes,
+about 20 million rows) that is roughly 16 x 2 = 32 idle sandbox-hours on top of 17 of work.
+Run a second manifest's ingest while the first reconciles to use that time.
+
+Run files exist for `sources.agentic.json` (16 sandboxes, 448 shards) and `sources.open.json`
+(8 sandboxes, 224 shards). The v13 and gated manifests list sources that need an accepted
+click-through on the Hub: build their listings with a token that has access
+(`scripts/shard_sources.py ... --listing`), then copy a run file.
+
+Before the first full run, launch a one-sandbox run (set `sandboxes` to 1 in a copy of the
+run file, with a pilot manifest) to check two numbers this document could only estimate: the
+local disk of a sandbox (an ingest sandbox keeps about as much SQLite as source text, 25 GB
+or more for the agentic run) and the real source read rate, since streaming a large parquet
+file from the Hub shares one connection among the 14 processes.
 
 ## Causal windows and long-context credit
 

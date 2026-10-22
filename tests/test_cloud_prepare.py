@@ -44,7 +44,7 @@ def run_spec(**overrides):
 
 def test_every_wave_job_is_valid_and_wired_to_the_right_shards(tmp_path):
     spec = cloud_prepare.validate(run_spec())
-    written = cloud_prepare.plan(spec, "configs/cloud/unit-prep.json", tmp_path)
+    written = cloud_prepare.write_jobs(spec, "configs/cloud/unit-prep.json", tmp_path)
     jobs = {path.stem: json.loads(path.read_text()) for path in written}
     assert set(jobs) == {f"{wave}-{i}" for wave in ("ingest", "finish") for i in range(3)} | {
         "reconcile"
@@ -111,6 +111,7 @@ def test_committed_run_files_are_valid_and_their_listings_exist(tmp_path):
         manifest = json.loads((ROOT / spec["sources"]).read_text())
         listing = json.loads((ROOT / spec["listing"]).read_text())
         assert {s["source_id"] for s in manifest["sources"] if s["format"] == "hf"} <= set(listing)
+        cloud_prepare.shard_plan(spec, ROOT)  # no shard is empty
         for job in cloud_prepare_jobs(spec, path, tmp_path):
             cloud.validate(job)
 
@@ -118,7 +119,7 @@ def test_committed_run_files_are_valid_and_their_listings_exist(tmp_path):
 def cloud_prepare_jobs(spec, path, tmp_path):
     return [
         json.loads(item.read_text())
-        for item in cloud_prepare.plan(spec, str(path.relative_to(ROOT)), Path(tmp_path))
+        for item in cloud_prepare.write_jobs(spec, str(path.relative_to(ROOT)), Path(tmp_path))
     ]
 
 
@@ -214,6 +215,29 @@ def test_the_launcher_refuses_a_run_whose_shards_are_not_pinned(tmp_path):
         cloud_prepare.launch(tmp_path / "run.json", tmp_path)
 
 
+def test_a_shard_with_nothing_to_read_is_refused(tmp_path):
+    manifest = {
+        "schema_version": 1,
+        "sources": [
+            {
+                "source_id": "only",
+                "uri": "hf://datasets/example/only",
+                "format": "hf",
+                "adapter": "chat",
+                "stream": "chat",
+                "revision": "a" * 40,
+                "terms": {"approved": True},
+                "split": "train",
+            }
+        ],
+    }
+    (tmp_path / "sources.json").write_text(json.dumps(manifest))
+    (tmp_path / "listing.json").write_text(json.dumps({"only": [["hf://x/only-0.parquet", 0]]}))
+    spec = run_spec(sources="sources.json", listing="listing.json", sandboxes=2)
+    with pytest.raises(cloud.CloudError, match="no rows to read"):
+        cloud_prepare.shard_plan(spec, tmp_path)
+
+
 def test_job_ids_are_unique_and_plain():
     spec = cloud_prepare.validate(run_spec())
     ids = [cloud_prepare.ingest_job(spec, i, "x.json")["id"] for i in range(3)]
@@ -278,8 +302,34 @@ class Fleet:
 def fleet_env(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / "configs").mkdir(parents=True)
-    (repo / "configs/listing.json").write_text("{}")
-    spec = run_spec(sandboxes=2, shards_per_sandbox=2, listing="configs/listing.json", processes=2)
+    sources = [
+        {
+            "source_id": name,
+            "uri": f"hf://datasets/example/{name}",
+            "format": "hf",
+            "adapter": "chat",
+            "stream": "chat",
+            "revision": "a" * 40,
+            "terms": {"approved": True},
+            "split": "train",
+        }
+        for name in ("alpha", "beta")
+    ]
+    (repo / "configs/sources.json").write_text(
+        json.dumps({"schema_version": 1, "sources": sources})
+    )
+    listing = {
+        s["source_id"]: [[f"hf://x/{s['source_id']}-{i}.parquet", 1000] for i in range(6)]
+        for s in sources
+    }
+    (repo / "configs/listing.json").write_text(json.dumps(listing))
+    spec = run_spec(
+        sources="configs/sources.json",
+        listing="configs/listing.json",
+        sandboxes=2,
+        shards_per_sandbox=2,
+        processes=2,
+    )
     (repo / "configs/run.json").write_text(json.dumps(spec))
     token = tmp_path / "token"
     token.write_text("hf_secret\n")
