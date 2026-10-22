@@ -531,11 +531,13 @@ share and `long_document_reading`):
 | environment_trajectories | - | 0.1% |
 | chat | 2.05% | 8% |
 | synthetic_reasoning | 6.15% | 10% |
-| natural_documents | 16.4% | 7% |
-| synthetic_documents | 20.5% | 9% |
+| natural_documents | 16.4% | 6% |
+| synthetic_documents | 20.5% | 8% |
 | natural_code | 12.3% | 8% |
 | synthetic_code_rewrite | 12.3% | 3.9% |
 | synthetic_code_dialogue | 8.2% | 8% |
+| base_reading | - | 1% |
+| collection_reading | - | 1% |
 
 Raw and generic web text (`natural_documents` plus `synthetic_documents`) falls from 36.9% to
 14% (two points went to reading from a knowledge base and from a source collection); the
