@@ -14,9 +14,10 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from .transducer import ADDRESS_FIELDS, PROVISIONAL_BASE, BankFull, Lookup, TransducerBank
+from .transducer import PROVISIONAL_BASE, BankFull, Lookup, TransducerBank
 from .transducer_optimizer import WRITE_HALF_LIFE, BlockScaleDescent
 from .transducer_packing import rounding_seed, unit
+from .transducer_rows import RowStore
 
 EVIDENCE_HALF_LIFE = 16384
 REMOVE_AGE = 4096
@@ -38,49 +39,26 @@ class EvidenceRows:
     last_step: Tensor  # int64
 
 
-class Evidence:
+class Evidence(RowStore):
     """Per-edge evidence keyed by edge ID, decayed lazily with a 16,384-step half-life."""
 
     names = ("utility", "visits", "dispersion", "sketch_count", "energy")
 
     def __init__(self, device: torch.device) -> None:
-        self.device = device
-        self.row_of: dict[int, int] = {}
-        self.free: list[int] = []
-        self.size = 0
-        self._allocate(256)
-
-    def _allocate(self, capacity: int) -> None:
-        old = {name: getattr(self, name, None) for name in (*self.names, "sketch", "last_step")}
-        self.capacity = capacity
-        for name in self.names:
-            setattr(self, name, torch.zeros(capacity, device=self.device))
-        self.sketch = torch.zeros(capacity, SKETCH, device=self.device)
-        self.last_step = torch.zeros(capacity, dtype=torch.int64, device=self.device)
-        for name, tensor in old.items():
-            if tensor is not None:
-                getattr(self, name)[: tensor.shape[0]] = tensor
+        super().__init__(
+            device,
+            {
+                **{name: ((), torch.float32) for name in self.names},
+                "sketch": ((SKETCH,), torch.float32),
+                "last_step": ((), torch.int64),
+            },
+        )
 
     def rows(self, ids: list[int], step: int) -> Tensor:
         """Rows for these edges (created empty if new), decayed to ``step``."""
-        result = []
-        for edge in ids:
-            row = self.row_of.get(edge)
-            if row is None:
-                if self.free:
-                    row = self.free.pop()
-                else:
-                    if self.size == self.capacity:
-                        self._allocate(self.capacity * 2)
-                    row = self.size
-                    self.size += 1
-                self.row_of[edge] = row
-                for name in self.names:
-                    getattr(self, name)[row] = 0
-                self.sketch[row] = 0
-                self.last_step[row] = step
-            result.append(row)
-        rows = torch.tensor(result, dtype=torch.int64, device=self.device)
+        rows, created = super().rows(ids)
+        if created:
+            self.last_step[rows[torch.tensor(created, device=rows.device)]] = step
         self.decay(rows, step)
         return rows
 
@@ -91,13 +69,7 @@ class Evidence:
         for name in self.names:
             getattr(self, name)[rows] *= factor
         self.sketch[rows] *= factor[:, None]
-        self.last_step[rows] = torch.maximum(self.last_step[rows], torch.full_like(rows, step))
-
-    def drop(self, ids: list[int]) -> None:
-        for edge in ids:
-            row = self.row_of.pop(edge, None)
-            if row is not None:
-                self.free.append(row)
+        self.last_step[rows] = self.last_step[rows].clamp_min(step)
 
     def export(self, ids: list[int], step: int) -> EvidenceRows:
         rows = self.rows(ids, step)
@@ -117,40 +89,19 @@ class Evidence:
         rows = self.rows(incoming.ids.tolist(), step)
         age = (step - incoming.last_step.to(self.device)).float().clamp_min(0)
         factor = torch.exp2(-age / EVIDENCE_HALF_LIFE) * scale
-        for name in ("utility", "visits", "dispersion", "sketch_count", "energy"):
-            getattr(self, name)[rows] += getattr(incoming, name).to(self.device) * factor
-        self.sketch[rows] += incoming.sketch.to(self.device) * factor[:, None]
-
-    def halve_into(self, source: int, target: int, step: int) -> None:
-        rows = self.rows([source, target], step)
         for name in self.names:
+            getattr(self, name).index_add_(
+                0, rows, getattr(incoming, name).to(self.device) * factor
+            )
+        self.sketch.index_add_(0, rows, incoming.sketch.to(self.device) * factor[:, None])
+
+    def halve_into(self, sources: list[int], targets: list[int], step: int) -> None:
+        parents = self.rows(sources, step)
+        children = self.rows(targets, step)
+        for name in (*self.names, "sketch"):
             column = getattr(self, name)
-            column[rows[0]] /= 2
-            column[rows[1]] = column[rows[0]]
-        self.sketch[rows[0]] /= 2
-        self.sketch[rows[1]] = self.sketch[rows[0]]
-
-    def state_dict(self) -> dict:
-        ids = sorted(self.row_of)
-        rows = torch.tensor([self.row_of[i] for i in ids], dtype=torch.int64, device=self.device)
-        return {
-            "ids": torch.tensor(ids, dtype=torch.int64),
-            **{name: getattr(self, name)[rows].cpu() for name in self.names},
-            "sketch": self.sketch[rows].cpu(),
-            "last_step": self.last_step[rows].cpu(),
-        }
-
-    def load_state_dict(self, state: dict) -> None:
-        count = int(state["ids"].numel())
-        self.row_of, self.free, self.size = {}, [], 0
-        for name in self.names:
-            delattr(self, name)
-        del self.sketch, self.last_step
-        self._allocate(max(256, count))
-        for name in (*self.names, "sketch", "last_step"):
-            getattr(self, name)[:count] = state[name].to(self.device)
-        self.row_of = {int(edge): row for row, edge in enumerate(state["ids"].tolist())}
-        self.size = count
+            column[parents] /= 2
+            column[children] = column[parents]
 
 
 @dataclass
@@ -271,17 +222,21 @@ class TransducerGrowth:
         """Learned phase: one gradient sketch per edge per backward window, from its masters."""
         if not self.bank.learned_values:
             return
-        per_edge: dict[int, Tensor] = {}
-        for (edge, name), leaf in self.bank.masters.items():
-            if leaf.grad is None or edge not in self.bank:
-                continue
-            grad = leaf.grad.detach().float().reshape(-1)
-            sketch = self._sketch_map(name, grad.numel()) @ grad
-            per_edge[edge] = per_edge.get(edge, 0) + sketch
-        if not per_edge:
+        masters = self.bank.masters
+        edges, sketches = [], []
+        for name, (rows, grad) in masters.collect().items():
+            edges.append(masters.stores[name].edge[rows])
+            sketches.append(grad @ self._sketch_map(name, grad.shape[1]).T)
+        if not edges:
             return
-        ids = list(per_edge)
-        sketches = torch.stack([per_edge[edge] for edge in ids])
+        unique, inverse = torch.unique(torch.cat(edges), return_inverse=True)
+        sketches = torch.zeros(unique.numel(), SKETCH, device=unique.device).index_add_(
+            0, inverse, torch.cat(sketches)
+        )
+        alive = torch.tensor([edge in self.bank for edge in unique.tolist()], device=unique.device)
+        ids, sketches = unique[alive].tolist(), sketches[alive]
+        if not ids:
+            return
         for evidence in (self.evidence, self.round_evidence):
             rows = evidence.rows(ids, step)
             evidence.sketch[rows] += sketches
@@ -395,12 +350,10 @@ class TransducerGrowth:
             bank.publish_addresses(name, tensor_ids, perturbed[name][0], step=step, worker=-1)
         bank.publish_bias(tensor_ids, bias)
         bank.set_write_mass(tensor_ids, mass, step=step)
-        for parent, child in zip(ids, children.tolist(), strict=True):
-            self.evidence.halve_into(parent, child, step)
-            if self.optimizer is not None:
-                self.optimizer.copy_statistics(parent, child)
-            for name in (*ADDRESS_FIELDS, "bias", "value"):
-                bank.masters.pop((parent, name), None)
+        self.evidence.halve_into(ids, children.tolist(), step)
+        if self.optimizer is not None:
+            self.optimizer.copy_statistics(ids, children.tolist())
+        bank.masters.drop(ids)
         return len(ids)
 
     def evolve(self, step: int, *, evidence_from: int = 0) -> dict[str, int]:

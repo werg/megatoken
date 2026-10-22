@@ -14,6 +14,7 @@ from megatoken.training.engine import batch_counters, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import MeridianPreparedBatch, forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.transducer import TransducerTrainer
 
 
 def fixture_episode():
@@ -118,6 +119,7 @@ def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch, tmp_pa
         config,
         torch.device("cpu"),
         0,
+        transducer=TransducerTrainer(model.transducer),
     )
     ledger.finish()
     assert metrics["grouped_supervised_meridians"] == 2
@@ -249,6 +251,7 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
         config,
         torch.device("cpu"),
         0,
+        transducer=TransducerTrainer(model.transducer),
     )
     ledger.finish()
     assert len(selected) == 1 and selected[0][0]

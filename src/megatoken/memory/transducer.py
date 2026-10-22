@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import math
 import uuid
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -29,10 +28,12 @@ from .transducer_packing import (
     fp8_nbytes,
     pack_fp4,
     pack_fp8,
+    packed_unit,
     row_seeds,
     straight_through,
     unit,
 )
+from .transducer_rows import RowStore
 
 ADDRESS_FIELDS = ("key", "departure", "destination")
 FIELDS = (*ADDRESS_FIELDS, "bias", "value")
@@ -104,8 +105,18 @@ class TransducerGeometry:
         }[name]
 
 
+# Columns recomputed from the packed ones, never saved or published.
+DERIVED_COLUMNS = ("departure_unit", "key_unit")
+
+
 class EdgeTable:
-    """Columnar packed storage. Not an nn.Module: rows are trained by the sparse optimizer."""
+    """Columnar packed storage. Not an nn.Module: rows are trained by the sparse optimizer.
+
+    ``departure_unit`` caches each row's decoded unit departure (FP32) so the
+    exact neighbourhood scan is one matrix product; ``key_unit`` caches its unit
+    key in BF16 (an E4M3 code is exact in BF16; only its scale rounds) for
+    scoring shortlisted pairs. Both are rewritten whenever their field is.
+    """
 
     def __init__(self, geometry: TransducerGeometry, device: torch.device, capacity: int = 256):
         self.geometry = geometry
@@ -128,6 +139,8 @@ class EdgeTable:
             "ids": torch.full((capacity,), -1, dtype=torch.int64, device=d),
             "departure_codes": torch.zeros(capacity, g.location_dim, device=d).to(fp8),
             "departure_scales": scales(g.location_dim),
+            "departure_unit": torch.zeros(capacity, g.location_dim, device=d),
+            "key_unit": torch.zeros(capacity, g.query_dim, device=d, dtype=torch.bfloat16),
             "key_codes": torch.zeros(capacity, g.query_dim, device=d).to(fp8),
             "key_scales": scales(g.query_dim),
             "destination_codes": torch.zeros(capacity, g.location_dim, device=d).to(fp8),
@@ -164,13 +177,15 @@ class EdgeTable:
 
     def slots(self, ids: Tensor | list[int]) -> Tensor:
         try:
-            values = [self.slot_of[int(i)] for i in torch.as_tensor(ids).tolist()]
+            values = [
+                self.slot_of[int(i)] for i in (ids.tolist() if isinstance(ids, Tensor) else ids)
+            ]
         except KeyError as missing:
             raise KeyError(f"Edge {missing} is not in the bank") from None
         return torch.tensor(values, dtype=torch.int64, device=self.device)
 
     def alive_slots(self) -> Tensor:
-        return torch.tensor(sorted(self.slot_of.values()), dtype=torch.int64, device=self.device)
+        return torch.nonzero(self.ids[: self.high_water] >= 0).flatten()
 
     def ids_of(self, slots: Tensor) -> Tensor:
         return self.ids[slots]
@@ -193,6 +208,14 @@ class EdgeTable:
     def write_address(self, name: str, slots: Tensor, rows: FP8Rows) -> None:
         getattr(self, f"{name}_codes")[slots] = rows.codes
         getattr(self, f"{name}_scales")[slots] = rows.scales
+        if name == "departure":
+            self.departure_unit[slots] = packed_unit(rows.decode())
+        elif name == "key":
+            self.key_unit[slots] = packed_unit(rows.decode()).to(torch.bfloat16)
+
+    def _derive(self, slots: Tensor) -> None:
+        self.departure_unit[slots] = packed_unit(self.decode("departure", slots))
+        self.key_unit[slots] = packed_unit(self.decode("key", slots)).to(torch.bfloat16)
 
     def write_values(self, slots: Tensor, rows: FP4Rows) -> None:
         self.value_codes[slots] = rows.codes
@@ -222,7 +245,11 @@ class EdgeTable:
         """Compact CPU copy of the live rows (or the given ones), ordered by edge ID."""
         order = sorted(self.slot_of) if ids is None else sorted(ids)
         slots = self.slots(order)
-        return {name: getattr(self, name)[slots].cpu() for name in self._empty(0)}
+        return {
+            name: getattr(self, name)[slots].cpu()
+            for name in self._empty(0)
+            if name not in DERIVED_COLUMNS
+        }
 
     def upsert(self, rows: dict[str, Tensor]) -> None:
         """Overwrite existing edges and add new ones, columns as produced by ``state``."""
@@ -235,6 +262,7 @@ class EdgeTable:
         slots = self.slots(ids)
         for name, tensor in rows.items():
             getattr(self, name)[slots] = tensor.to(self.device)
+        self._derive(slots)
 
     def load(self, state: dict[str, Tensor]) -> None:
         count = int(state["ids"].numel())
@@ -244,6 +272,7 @@ class EdgeTable:
         self._allocate(max(count, 256))
         for name, tensor in state.items():
             getattr(self, name)[:count] = tensor.to(self.device)
+        self._derive(torch.arange(count, device=self.device))
         self.slot_of = {int(edge): slot for slot, edge in enumerate(state["ids"].tolist())}
         if len(self.slot_of) != count or any(edge <= 0 for edge in self.slot_of):
             raise ValueError("Invalid or duplicate edge IDs in a transducer snapshot")
@@ -330,6 +359,127 @@ class Lookup:
         return tuple(edge for _, edge in self.pairs)
 
 
+class MasterCache:
+    """FP32 working masters of trained fields: one LRU-bounded row store per field.
+
+    A training lookup gathers its selected rows into one fresh leaf per field;
+    ``collect`` sums each window's leaf gradients per row for the sparse step.
+    Rows are only created, evicted or dropped between windows.
+    """
+
+    def __init__(self, geometry: TransducerGeometry, device: torch.device) -> None:
+        self.geometry = geometry
+        self.stores = {
+            name: RowStore(
+                device,
+                {
+                    "data": ((geometry.dims(name),), torch.float32),
+                    "edge": ((), torch.int64),
+                    "used": ((), torch.int64),
+                },
+            )
+            for name in FIELDS
+        }
+        self.clock = 0
+        self.pending: dict[str, list[tuple[Tensor, Tensor]]] = {name: [] for name in FIELDS}
+        self.collected: dict[str, tuple[Tensor, Tensor]] = {}
+
+    def to(self, device: torch.device) -> None:
+        if not self.stores["key"].device == torch.device(device):
+            states = {name: store.state_dict() for name, store in self.stores.items()}
+            for name, store in self.stores.items():
+                store.device = torch.device(device)
+                store.load_state_dict(states[name])
+            self.pending = {name: [] for name in FIELDS}
+            self.collected = {}
+
+    def __len__(self) -> int:
+        return sum(len(store) for store in self.stores.values())
+
+    def leaf(self, name: str, ids: list[int], decoded: Tensor) -> Tensor:
+        """A trainable ``[edges, width]`` copy of these edges' masters.
+
+        Masters not yet cached start from their ``decoded`` packed rows.
+        """
+        store = self.stores[name]
+        rows, created = store.rows(ids)
+        if created:
+            at = torch.tensor(created, device=rows.device)
+            store.data[rows[at]] = decoded.reshape(len(ids), -1)[at].detach().float()
+            store.edge[rows[at]] = torch.tensor([ids[k] for k in created], device=rows.device)
+        self.clock += 1
+        store.used[rows] = self.clock
+        leaf = store.data[rows].requires_grad_()
+        self.pending[name].append((rows, leaf))
+        return leaf
+
+    def rows(self, name: str, ids: list[int]) -> Tensor:
+        return self.stores[name].data[self.stores[name].find(ids)]
+
+    def collect(self) -> dict[str, tuple[Tensor, Tensor]]:
+        """Per field: (rows, summed gradients) of every leaf that received one."""
+        for name, entries in self.pending.items():
+            graded = [(rows, leaf.grad) for rows, leaf in entries if leaf.grad is not None]
+            entries.clear()
+            if not graded:
+                continue
+            if name in self.collected:
+                graded.append(self.collected[name])
+            rows = torch.cat([r for r, _ in graded])
+            grads = torch.cat([g.reshape(r.numel(), -1).float() for r, g in graded])
+            unique, inverse = torch.unique(rows, return_inverse=True)
+            summed = torch.zeros(unique.numel(), grads.shape[1], device=grads.device)
+            self.collected[name] = unique, summed.index_add_(0, inverse, grads)
+        return self.collected
+
+    def take(self) -> dict[str, tuple[Tensor, Tensor]]:
+        collected = self.collect()
+        self.collected = {}
+        return collected
+
+    def evict(self, capacity: int) -> None:
+        """Drop each field's least recently used rows beyond ``capacity`` edges."""
+        for store in self.stores.values():
+            excess = len(store) - capacity
+            if excess <= 0:
+                continue
+            ids = store.ids()
+            used = store.used[store.find(ids)]
+            oldest = torch.topk(used, excess, largest=False).indices.tolist()
+            store.drop([ids[k] for k in oldest])
+
+    def drop(self, ids, names=FIELDS) -> None:
+        ids = [int(edge) for edge in ids]
+        for name in names:
+            self.stores[name].drop(ids)
+        self._forget_windows()
+
+    def clear(self, names=FIELDS) -> None:
+        for name in names:
+            self.stores[name].clear()
+        self._forget_windows()
+
+    def _forget_windows(self) -> None:
+        # Rows can be reused after a drop: an unfinished window's leaves are void.
+        self.pending = {name: [] for name in FIELDS}
+        self.collected = {}
+
+    def state_dict(self) -> dict:
+        return {
+            name: {"ids": state["ids"], "data": state["data"]}
+            for name, state in ((name, store.state_dict()) for name, store in self.stores.items())
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        self.clear()
+        for name, saved in state.items():
+            store = self.stores[name]
+            ids = saved["ids"].tolist()
+            rows, _ = store.rows(ids)
+            store.data[rows] = saved["data"].to(store.device)
+            store.edge[rows] = saved["ids"].to(store.device)
+
+
 class TransducerBank(nn.Module):
     """Dense lookup controls (trained with the model) plus the packed sparse edge table."""
 
@@ -352,13 +502,13 @@ class TransducerBank(nn.Module):
         self.bank_id = uuid.uuid4().hex
         self.version = 0
         self.learned_values = False
-        # FP32 working masters of trained fields, keyed by (edge ID, field).
-        self.masters: OrderedDict[tuple[int, str], Tensor] = OrderedDict()
+        self.masters = MasterCache(g, self.sink_value.device)
         self._projection: Tensor | None = None
 
     def _apply(self, fn, recurse: bool = True):
         result = super()._apply(fn, recurse)
         self.table.to(self.sink_value.device)
+        self.masters.to(self.sink_value.device)
         if self._projection is not None:
             self._projection = self._projection.to(self.sink_value.device)
         return result
@@ -428,16 +578,17 @@ class TransducerBank(nn.Module):
         if ids is None:
             ids = torch.arange(self.table.next_id, self.table.next_id + count)
         ids = ids.to(torch.int64).cpu()
+        id_list = ids.tolist()
         if (
-            int(ids.min()) < self.table.next_id
-            or len(set(ids.tolist())) != count
-            or any(int(i) in self.table.slot_of for i in ids)
+            min(id_list) < self.table.next_id
+            or len(set(id_list)) != count
+            or any(i in self.table.slot_of for i in id_list)
         ):
             raise ValueError("Canonical edge IDs must increase and never be reused")
         slots = self.table.claim(count)
         device_ids = ids.to(self.device)
         self.table.ids[slots] = device_ids
-        self.table.slot_of.update(zip(ids.tolist(), slots.tolist(), strict=True))
+        self.table.slot_of.update(zip(id_list, slots.tolist(), strict=True))
         if not provisional:
             self.table.next_id = int(ids.max()) + 1
         for name, values in (
@@ -467,10 +618,8 @@ class TransducerBank(nn.Module):
         ids = torch.as_tensor(ids, dtype=torch.int64)
         if not ids.numel():
             return
-        gone = set(ids.tolist())
         self.table.release(self.table.slots(ids))
-        for identity in [k for k in self.masters if k[0] in gone]:
-            del self.masters[identity]
+        self.masters.drop(ids.tolist())
         self._changed()
 
     def decode(self, name: str, ids: Tensor | list[int]) -> Tensor:
@@ -507,27 +656,13 @@ class TransducerBank(nn.Module):
         self.table.write_mass[slots] = mass.to(self.device).float()
         self.table.last_write[slots] = step
 
-    def master(self, edge_id: int, name: str) -> Tensor:
-        """The FP32 trained master of one field, created from its packed row on first use."""
-        identity = edge_id, name
-        leaf = self.masters.get(identity)
-        if leaf is None:
-            decoded = self.decode(name, [edge_id])[0]
-            leaf = decoded.detach().float().clone().requires_grad_()
-            self.masters[identity] = leaf
-        else:
-            self.masters.move_to_end(identity)
-        return leaf
-
-    def _fields(self, name: str, slots: Tensor, *, train: bool) -> Tensor:
-        """Decoded rows; when trained, straight-through to the FP32 masters."""
+    def _fields(self, name: str, slots: Tensor, ids: list[int] | None) -> Tensor:
+        """Decoded rows; with ``ids`` (trained rows), straight-through to the FP32 masters."""
         decoded = self.table.decode(name, slots)
-        trained = train and (name != "value" or self.learned_values)
-        if not trained:
+        if ids is None or (name == "value" and not self.learned_values):
             return decoded
-        ids = self.table.ids_of(slots).tolist()
-        masters = torch.stack([self.master(edge, name) for edge in ids])
-        return straight_through(masters, decoded)
+        leaf = self.masters.leaf(name, ids, decoded)
+        return straight_through(leaf.reshape(decoded.shape), decoded)
 
     # --------------------------------------------------------------- search
 
@@ -550,17 +685,16 @@ class TransducerBank(nn.Module):
         return agenda
 
     def nearest(self, locations: Tensor, count: int) -> Tensor:
-        """Exact scan of the packed departures: [rows, count] slots, -1 where absent."""
+        """Exact scan of the packed departures: [rows, min(count, edges)] nearest slots."""
         alive = self.table.alive_slots()
         rows = locations.shape[0]
         if not alive.numel():
             return torch.full((rows, 0), -1, dtype=torch.int64, device=self.device)
-        query = unit(locations.detach().float())
+        query = packed_unit(locations.detach().float())
         best_scores: Tensor | None = None
         best_slots: Tensor | None = None
         for chunk in alive.split(65536):
-            departures = unit(self.table.decode("departure", chunk))
-            scores = query @ departures.T
+            scores = query @ self.table.departure_unit[chunk].T
             if best_scores is not None:
                 scores = torch.cat((best_scores, scores), dim=1)
                 chunk = torch.cat((best_slots, chunk[None].expand(rows, -1)), dim=1)
@@ -597,11 +731,11 @@ class TransducerBank(nn.Module):
                 torch.randn(g.location_dim, g.value_dim, generator=generator)
                 / math.sqrt(g.value_dim)
             ).to(self.device)
-        return unit(values.float() @ self._projection.T)
+        return packed_unit(values.float() @ self._projection.T)
 
     def modulated(self, query: Tensor, locations: Tensor) -> Tensor:
         """The query read through each location: normalize(q * (1 + tanh(M s)))."""
-        return unit(query[None] * (1 + torch.tanh(locations @ self.modulation.float().T)))
+        return packed_unit(query[None] * (1 + torch.tanh(locations @ self.modulation.float().T)))
 
     def _pair_scores(
         self,
@@ -612,21 +746,39 @@ class TransducerBank(nn.Module):
         beta_q: Tensor,
         beta_s: Tensor,
     ) -> Tensor:
-        """Scores of every (location, edge) pair; each distinct edge is decoded once."""
+        """Selection scores of every (location, edge) pair from the cached unit rows.
+
+        Each distinct edge is read once; key products run in BF16 with FP32 output.
+        The selected pairs' logits are recomputed exactly by ``lookup``.
+        """
         unique, inverse = torch.unique(slots, return_inverse=True)
+        modulated = modulated.to(torch.bfloat16)
+        if unique.numel() <= PAIR_CHUNK:
+            keys = (self.table.key_unit[unique] @ modulated.T).float()
+            near = self.table.departure_unit[unique] @ locations.T
+            return (
+                beta_q * keys[inverse, where]
+                + beta_s * near[inverse, where]
+                + (self.table.bias[slots])
+            )
+        # Pairs grouped by edge, so every chunk of edges owns one contiguous run of pairs.
+        order = torch.argsort(inverse)
+        inverse, where, slots = inverse[order], where[order], slots[order]
+        starts = torch.arange(0, unique.numel(), PAIR_CHUNK, device=slots.device)
+        bounds = torch.searchsorted(inverse, starts).tolist() + [inverse.numel()]
         scores = torch.empty(slots.shape[0], device=self.device)
-        for start in range(0, unique.numel(), PAIR_CHUNK):
+        for index, start in enumerate(starts.tolist()):
+            low, high = bounds[index], bounds[index + 1]
             chunk = unique[start : start + PAIR_CHUNK]
-            keys = unit(self.table.decode("key", chunk)) @ modulated.T  # [edges, locations]
-            near = unit(self.table.decode("departure", chunk)) @ locations.T
-            mine = (inverse >= start) & (inverse < start + chunk.numel())
-            row, column = inverse[mine] - start, where[mine]
-            scores[mine] = (
+            keys = (self.table.key_unit[chunk] @ modulated.T).float()
+            near = self.table.departure_unit[chunk] @ locations.T
+            row, column = inverse[low:high] - start, where[low:high]
+            scores[low:high] = (
                 beta_q * keys[row, column]
                 + beta_s * near[row, column]
-                + self.table.bias[slots[mine]]
+                + self.table.bias[slots[low:high]]
             )
-        return scores
+        return torch.empty_like(scores).scatter_(0, order, scores)
 
     def lookup(
         self,
@@ -654,47 +806,37 @@ class TransducerBank(nn.Module):
         train_rows = training if train_rows is None else train_rows
         self.refresh(agenda)
         q = unit(query.float())
-        locations = unit(torch.stack(agenda.locations).float())
+        locations = torch.stack(agenda.locations).float()  # unit on entry to the agenda
         modulated = self.modulated(q, locations)
         # Scoring controls are FP32 whatever the model's storage precision.
         beta_q, beta_s = self.log_beta_query.float().exp(), self.log_beta_location.float().exp()
         limit = g.selected - (g.exploration if training else 0)
-        pair_locations: list[int] = []
-        pair_slots: list[int] = []
         with torch.no_grad():
             every_slot = torch.cat(agenda.shortlists)
-            every_location = torch.cat(
-                [torch.full_like(row, index) for index, row in enumerate(agenda.shortlists)]
-            )
-            present = every_slot >= 0
-            every_slot, every_location = every_slot[present], every_location[present]
+            width = agenda.shortlists[0].numel()
+            every_location = torch.arange(len(agenda.shortlists), device=self.device)
+            every_location = every_location.repeat_interleave(width)
             if every_slot.numel():
                 scores = self._pair_scores(
                     every_slot, every_location, modulated, locations, beta_q, beta_s
                 )
                 top = torch.topk(scores, min(limit, scores.numel())).indices
-                pair_locations = every_location[top].tolist()
-                pair_slots = every_slot[top].tolist()
+                slots, where = every_slot[top], every_location[top]
+            else:
+                slots = where = every_slot
             if training and g.exploration and agenda.bands:
-                chosen = set(zip(pair_locations, pair_slots, strict=True))
-                for _ in range(g.exploration):
-                    index = int(torch.randint(len(agenda.bands), (1,), generator=generator))
-                    band = agenda.bands[index]
-                    band = [s for s in band[band >= 0].tolist() if (index, s) not in chosen]
-                    if not band:
-                        continue
-                    slot = band[int(torch.randint(len(band), (1,), generator=generator))]
-                    chosen.add((index, slot))
-                    pair_locations.append(index)
-                    pair_slots.append(slot)
+                slots, where = self._explore(agenda, slots, where, generator)
         sink_logit = self.sink_bias.float() + self.sink_direction.float() @ q
-        start = unit(agenda.state.float())
-        if pair_slots:
-            slots = torch.tensor(pair_slots, dtype=torch.int64, device=self.device)
-            where = torch.tensor(pair_locations, dtype=torch.int64, device=self.device)
-            keys = unit(self._fields("key", slots, train=train_rows))
-            departures = unit(self._fields("departure", slots, train=train_rows))
-            biases = self._fields("bias", slots, train=train_rows).reshape(-1)
+        start = agenda.state.float()  # unit: a landing or the initial location
+        pairs: tuple[tuple[int, int], ...] = ()
+        if slots.numel():
+            ids = self.table.ids_of(slots)
+            id_list = ids.tolist()
+            pairs = tuple(zip(where.tolist(), id_list, strict=True))
+            trained = id_list if train_rows else None
+            keys = packed_unit(self._fields("key", slots, trained))
+            departures = packed_unit(self._fields("departure", slots, trained))
+            biases = self._fields("bias", slots, trained).reshape(-1)
             logits = (
                 beta_q * (keys * modulated[where]).sum(-1)
                 + beta_s * (departures * locations[where]).sum(-1)
@@ -702,11 +844,11 @@ class TransducerBank(nn.Module):
             )
             weights = torch.softmax(torch.cat((logits, sink_logit[None])).float(), dim=0)
             pair_weights = weights[:-1]
-            values = self._fields("value", slots, train=train_rows)
-            destinations = unit(self._fields("destination", slots, train=train_rows))
+            values = self._fields("value", slots, trained)
+            destinations = packed_unit(self._fields("destination", slots, trained))
             bank_value = weights[-1] * self.sink_value.float() + pair_weights @ values
             landing_raw = weights[-1] * start + pair_weights @ destinations
-            edge_ids, inverse = torch.unique(self.table.ids_of(slots), return_inverse=True)
+            edge_ids, inverse = torch.unique(ids, return_inverse=True)
             edge_weights = torch.zeros(edge_ids.numel(), device=self.device).index_add(
                 0, inverse, pair_weights
             )
@@ -724,16 +866,15 @@ class TransducerBank(nn.Module):
         if overlay > 0:
             value = (1 - overlay) * bank_value + overlay * hindsight.float()
             landing_mix = (1 - overlay) * landing_raw + overlay * destination
-        ids = self.table.ids_of(torch.tensor(pair_slots, dtype=torch.int64, device=self.device))
         return Lookup(
             value=value,
-            landing=unit(landing_mix),
+            landing=packed_unit(landing_mix),
             bank_value=bank_value,
             bank_landing_raw=landing_raw,
             weights=weights,
             pair_logits=logits,
             sink_weight=weights[-1],
-            pairs=tuple(zip(pair_locations, ids.tolist(), strict=True)),
+            pairs=pairs,
             edge_ids=edge_ids,
             edge_weights=edge_weights,
             query=q,
@@ -742,6 +883,30 @@ class TransducerBank(nn.Module):
             hindsight_destination=destination,
             overlay=overlay,
             bank_version=self.version,
+        )
+
+    def _explore(
+        self, agenda: SearchAgenda, slots: Tensor, where: Tensor, generator: torch.Generator | None
+    ) -> tuple[Tensor, Tensor]:
+        """Add random pairs from the rank band just past the shortlists (training only)."""
+        chosen = set(zip(where.tolist(), slots.tolist(), strict=True))
+        added_slots, added_where = [], []
+        for _ in range(self.geometry.exploration):
+            index = int(torch.randint(len(agenda.bands), (1,), generator=generator))
+            band = agenda.bands[index].tolist()
+            band = [slot for slot in band if (index, slot) not in chosen]
+            if not band:
+                continue
+            slot = band[int(torch.randint(len(band), (1,), generator=generator))]
+            chosen.add((index, slot))
+            added_slots.append(slot)
+            added_where.append(index)
+        if not added_slots:
+            return slots, where
+        device = slots.device
+        return (
+            torch.cat((slots, torch.tensor(added_slots, dtype=slots.dtype, device=device))),
+            torch.cat((where, torch.tensor(added_where, dtype=where.dtype, device=device))),
         )
 
     def commit(self, agenda: SearchAgenda, lookup: Lookup) -> bool:
@@ -753,8 +918,8 @@ class TransducerBank(nn.Module):
         agenda.lookups += 1
         agenda.state = lookup.landing
         with torch.no_grad():
-            known = unit(torch.stack(agenda.locations).float())
-            if float((known @ unit(lookup.landing.float())).max()) >= 0.99:
+            known = torch.stack(agenda.locations).float()
+            if float((known @ lookup.landing.float()).max()) >= 0.99:
                 return False
         agenda.locations.append(lookup.landing)
         agenda.births.append(agenda.lookups)
@@ -782,9 +947,7 @@ class TransducerBank(nn.Module):
             ):
                 raise BankFull("Published rows exceed the canonical edge or byte budget")
             self.table.upsert(rows)
-            for edge in rows["ids"].tolist():
-                for name in FIELDS:
-                    self.masters.pop((edge, name), None)
+            self.masters.drop(rows["ids"].tolist())
         self.table.next_id = max(self.table.next_id, next_id)
         self._changed()
 

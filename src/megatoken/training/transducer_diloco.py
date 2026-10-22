@@ -26,12 +26,7 @@ from megatoken.memory.transducer import (
     TransducerBank,
 )
 from megatoken.memory.transducer_growth import EvidenceRows, TransducerGrowth
-from megatoken.memory.transducer_optimizer import (
-    STAT_HALF_LIFE,
-    WRITE_HALF_LIFE,
-    BlockScaleDescent,
-    FieldStatistics,
-)
+from megatoken.memory.transducer_optimizer import WRITE_HALF_LIFE, BlockScaleDescent
 from megatoken.memory.transducer_packing import FP4Rows, pack_fp4, row_seeds, unit
 
 LOCAL_STEPS = 32
@@ -113,7 +108,7 @@ def learner_round(
 ) -> LearnerRound:
     """Collect and reset one learner's round contribution (called at a round boundary)."""
     bank = optimizer.bank
-    deltas, stats, masses, sums = optimizer.take_round()
+    deltas, statistics, writes = optimizer.take_round()
     # Each provisional row is sent once, whole; it has no canonical base to differ from.
     provisional_ids = [edge for edge in growth.provisional_ids if edge in bank]
     growth.submitted_ids.extend(provisional_ids)
@@ -121,11 +116,17 @@ def learner_round(
     for name, (ids, rows) in list(deltas.items()):
         keep = ids < PROVISIONAL_BASE
         deltas[name] = (ids[keep], rows[keep])
-    write_ids = [edge for edge, mass in masses.items() if mass > 0 and edge in bank]
+    write_ids = [edge for edge in writes.ids() if edge in bank]
     write_means: dict[str, Tensor] = {}
-    write_mass = torch.tensor([masses[e] for e in write_ids], dtype=torch.float32)
+    write_mass = torch.empty(0)
     if write_ids:
-        means = torch.stack([sums[e] for e in write_ids]) / write_mass.to(bank.device)[:, None]
+        rows = writes.find(write_ids)
+        positive = writes.mass[rows] > 0
+        rows = rows[positive]
+        write_ids = torch.tensor(write_ids)[positive.cpu()].tolist()
+    if write_ids:
+        write_mass = writes.mass[rows].cpu()
+        means = writes.sums[rows] / writes.mass[rows][:, None]
         packed = pack_fp4(
             means, row_seeds(torch.tensor(write_ids, device=bank.device), "value", step, worker)
         )
@@ -134,15 +135,6 @@ def learner_round(
             "value_groups": packed.group_scales.cpu(),
             "value_rows": packed.row_scales.cpu(),
         }
-    statistics = {}
-    for name in {name for _, name in stats}:
-        identities = [(edge, n) for edge, n in stats if n == name and edge in bank]
-        if identities:
-            statistics[name] = (
-                torch.tensor([edge for edge, _ in identities], dtype=torch.int64),
-                torch.stack([stats[i].squared_sums.float().cpu() for i in identities]),
-                torch.tensor([stats[i].count for i in identities], dtype=torch.float32),
-            )
     evidence = growth.take_round(step)
     submission = LearnerRound(
         worker=worker,
@@ -227,16 +219,14 @@ def install_changes(
     """
     if optimizer.bank is not bank or growth.bank is not bank:
         raise ValueError("Install requires one learner's bank, optimizer and growth")
-    if optimizer.write_mass:
+    if len(optimizer.writes):
         raise RuntimeError("Install only between optimizer steps")
     gone = [edge for edge in growth.submitted_ids if edge in bank]
     retired = gone + changes.retired
     bank.import_rows(changes.rows, retired=retired, next_id=changes.next_id)
     optimizer.forget(retired)
     # Rows the coordinator republished are this round's new base.
-    for origins in optimizer.round_origin.values():
-        for edge in changes.rows["ids"].tolist():
-            origins.pop(edge, None)
+    optimizer.forget_origins(changes.rows["ids"].tolist())
     growth.evidence.drop(retired)
     growth.round_evidence.drop(retired)
     growth.submitted_ids = []
@@ -512,20 +502,19 @@ class TransducerCoordinator:
 
             scale = weight / submission.examples
             for name, (ids, sums, counts) in submission.statistics.items():
-                for edge, row, count in zip(ids.tolist(), sums, counts.tolist(), strict=True):
-                    target = canonical(edge)
-                    if target is None:
-                        continue
-                    state = self.optimizer.fields.get((target, name))
-                    if state is None:
-                        state = FieldStatistics(torch.zeros_like(row).to(self.bank.device), 0, step)
-                        self.optimizer.fields[target, name] = state
-                    decay = 2.0 ** (-max(0, step - state.last_step) / STAT_HALF_LIFE)
-                    state.squared_sums = (
-                        state.squared_sums * decay + row.to(self.bank.device) * scale
-                    )
-                    state.count = state.count * decay + count * scale
-                    state.last_step = step
+                targets = [canonical(edge) for edge in ids.tolist()]
+                keep = [k for k, target in enumerate(targets) if target is not None]
+                if not keep:
+                    continue
+                at = torch.tensor(keep)
+                device = self.bank.device
+                self.optimizer.fold(
+                    self.optimizer.fields[name],
+                    [targets[k] for k in keep],
+                    sums[at].to(device) * scale,
+                    counts[at].to(device) * scale,
+                    step,
+                )
             evidence = submission.evidence
             if evidence is not None and evidence.ids.numel():
                 targets = [canonical(edge) for edge in evidence.ids.tolist()]

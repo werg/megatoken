@@ -17,6 +17,7 @@ from megatoken.training.engine import prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.transducer import TransducerTrainer
 
 CODEC = ByteCodec.byte_fallback()
 
@@ -116,6 +117,7 @@ def test_compressed_documents_train_through_the_media_encoder(tmp_path, mode):
             config,
             torch.device("cpu"),
             0,
+            transducer=TransducerTrainer(model.transducer),
         )
         ledger.finish()
     assert sum(b.counts["lexical"] for b in batches) > 0

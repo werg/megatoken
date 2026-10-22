@@ -168,20 +168,21 @@ def test_optimizer_steps_selected_rows_only_and_respects_angle_cap():
     lookup = bank.lookup(torch.randn(16), agenda, training=True)
     before = {e: bank.decode("key", [e])[0].clone() for e in bank.edge_ids().tolist()}
     (lookup.bank_value.square().sum() + lookup.bank_landing_raw.sum()).backward()
-    trained = {edge for edge, name in bank.masters if bank.masters[edge, name].grad is not None}
-    assert trained <= set(lookup.edge_ids.tolist())
-    masters = {e: bank.masters[e, "key"].detach().clone() for e in trained}
+    rows, _ = bank.masters.collect()["key"]
+    trained = set(bank.masters.stores["key"].edge[rows].tolist())
+    assert trained and trained <= set(lookup.edge_ids.tolist())
+    masters = {e: bank.masters.rows("key", [e])[0].clone() for e in trained}
     result = optimizer.step(1)
     assert result["updated_fields"] > 0
     for edge, old in before.items():
         new = bank.decode("key", [edge])[0]
         if edge in trained:
-            moved = bank.masters[edge, "key"].detach()
+            moved = bank.masters.rows("key", [edge])[0]
             angle = math.acos(min(1.0, float(unit(masters[edge]) @ unit(moved))))
             assert 0 < angle <= 0.0101  # the 0.01 rad cap on the FP32 master
         else:
             assert torch.equal(new, old)
-    assert all(leaf.grad is None for leaf in bank.masters.values())
+    assert not bank.masters.collect()  # every window gradient was consumed
 
 
 def test_values_are_written_as_decayed_weighted_means():
@@ -205,9 +206,9 @@ def test_master_cache_evicts_least_recently_used_edges():
     bank = bank_with(10)
     optimizer = BlockScaleDescent(bank, cache_edges=2)
     for edge in bank.edge_ids().tolist()[:5]:
-        bank.master(edge, "key")
+        bank.masters.leaf("key", [edge], bank.decode("key", [edge]))
     optimizer.step(1)
-    assert {edge for edge, _ in bank.masters} == {4, 5}
+    assert bank.masters.stores["key"].ids() == [4, 5]
 
 
 def test_write_out_removal_utility_and_budget_rules():
@@ -303,4 +304,5 @@ def test_pair_scores_match_an_unfused_per_location_reference(monkeypatch):
                 for slot, j in zip(slots, where, strict=True)
             ]
         )
-    torch.testing.assert_close(fused, reference)
+    # Selection scores read BF16 unit keys (8 significant bits) against FP32 here.
+    torch.testing.assert_close(fused, reference, atol=0.02, rtol=0)

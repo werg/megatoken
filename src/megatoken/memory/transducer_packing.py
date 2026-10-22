@@ -73,10 +73,36 @@ def unit(values: Tensor, dim: int = -1) -> Tensor:
     return values / norm.to(values.dtype)
 
 
+def packed_unit(values: Tensor) -> Tensor:
+    """``unit`` without the host checks, for decoded rows validated when they were packed."""
+    return values / torch.linalg.vector_norm(values.float(), dim=-1, keepdim=True).clamp_min(
+        1e-12
+    ).to(values.dtype)
+
+
+_TABLES: dict[tuple[str, torch.device], Tensor] = {}
+
+
+def _table(name: str, device: torch.device) -> Tensor:
+    """Small constant lookup tables, built once per device (no per-call host copy)."""
+    key = name, torch.device(device)
+    table = _TABLES.get(key)
+    if table is None:
+        if name == "fp8":
+            codes = torch.arange(256, dtype=torch.int16).to(torch.uint8)
+            values = codes.view(torch.float8_e4m3fn).float()
+            table = torch.unique(values[torch.isfinite(values)]).sort().values
+        elif name == "fp4":
+            table = torch.tensor(_FP4_LEVELS)
+        else:  # signed E2M1 by nibble: bit 3 is the sign
+            levels = torch.tensor(_FP4_LEVELS)
+            table = torch.cat((levels, -levels))
+        table = _TABLES[key] = table.to(device)
+    return table
+
+
 def _fp8_levels(device: torch.device) -> Tensor:
-    codes = torch.arange(256, dtype=torch.int16).to(torch.uint8)
-    values = codes.view(torch.float8_e4m3fn).float()
-    return torch.unique(values[torch.isfinite(values)]).sort().values.to(device)
+    return _table("fp8", device)
 
 
 def _stochastic_fp8(normalized: Tensor, u: Tensor | None) -> Tensor:
@@ -95,9 +121,13 @@ class FP8Rows:
     scales: Tensor  # [rows, ceil(dim / 128)] float32
 
     def decode(self) -> Tensor:
-        dim = self.codes.shape[1]
-        scale = self.scales.repeat_interleave(FP8_GROUP, dim=1)[:, :dim]
-        return self.codes.float() * scale
+        rows, dim = self.codes.shape
+        groups = self.scales.shape[1]
+        values = self.codes.float()
+        if dim % FP8_GROUP:
+            values = torch.nn.functional.pad(values, (0, groups * FP8_GROUP - dim))
+        scaled = values.reshape(rows, groups, FP8_GROUP) * self.scales[..., None]
+        return scaled.reshape(rows, groups * FP8_GROUP)[:, :dim]
 
 
 def pack_fp8(values: Tensor, seeds: Tensor | None = None) -> FP8Rows:
@@ -122,14 +152,13 @@ class FP4Rows:
     row_scales: Tensor  # [rows] float32
 
     def decode(self, dim: int) -> Tensor:
-        levels = torch.tensor(_FP4_LEVELS, device=self.codes.device)
-        nibbles = torch.stack((self.codes & 15, self.codes >> 4), dim=-1).reshape(
-            self.codes.shape[0], -1
-        )[:, :dim]
-        magnitude = levels[(nibbles & 7).long()]
-        signed = torch.where(nibbles & 8 != 0, -magnitude, magnitude)
-        scale = self.group_scales.float().repeat_interleave(FP4_GROUP, dim=1)[:, :dim]
-        return signed * scale * self.row_scales[:, None]
+        rows, groups = self.codes.shape[0], self.group_scales.shape[1]
+        nibbles = torch.stack((self.codes & 15, self.codes >> 4), dim=-1).reshape(rows, -1)
+        signed = _table("fp4-signed", self.codes.device)[nibbles.int()]
+        if signed.shape[1] != groups * FP4_GROUP:
+            signed = torch.nn.functional.pad(signed, (0, groups * FP4_GROUP - signed.shape[1]))
+        grouped = signed.reshape(rows, groups, FP4_GROUP) * self.group_scales.float()[..., None]
+        return (grouped * self.row_scales[:, None, None]).reshape(rows, groups * FP4_GROUP)[:, :dim]
 
 
 def _round_up_e4m3(scales: Tensor) -> Tensor:
@@ -159,7 +188,7 @@ def pack_fp4(values: Tensor, seeds: Tensor | None = None) -> FP4Rows:
         rows, -1
     )
     normalized = normalized.clamp(max=6.0)
-    levels = torch.tensor(_FP4_LEVELS, device=x.device)
+    levels = _table("fp4", x.device)
     upper = torch.searchsorted(levels, normalized.contiguous()).clamp(1, len(_FP4_LEVELS) - 1)
     low, high = levels[upper - 1], levels[upper]
     if seeds is None:

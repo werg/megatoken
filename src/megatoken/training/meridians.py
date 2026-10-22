@@ -435,11 +435,6 @@ def _transducer_sequence(
     differentiate: bool,
 ):
     """Plan the window's lookups and, in training, run its hindsight pass once."""
-    if trainer is None:
-        # Evaluation, or a caller outside the engine: lookups go to a scratch owner.
-        from megatoken.training.transducer import TransducerTrainer
-
-        trainer = TransducerTrainer(model.transducer)
     steps = (*batch.prefix, *batch.steps)
     meridians = [_boundary_meridian(step) for step in steps]
     seed = int(torch.randint(0, 2**62, (1,)))
@@ -465,15 +460,15 @@ def forward_meridian_batch(
     *,
     text_anchors=None,
     differentiate: bool = True,
-    transducer=None,
+    transducer: Any,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
     No second optimizer, stream cursor, history, or parameter owner is created.
     Held-out evaluation runs the identical forward with ``differentiate=False``
     (under ``torch.no_grad``). The transducer looks up at the window's planned
-    boundaries; ``transducer`` is the run's ``TransducerTrainer`` (evaluation
-    without one reads the bank alone).
+    boundaries; ``transducer`` is the run's ``TransducerTrainer`` (in evaluation
+    its lookups read the bank alone and record nothing).
     """
     from megatoken.training.engine import episode_control_payload
 

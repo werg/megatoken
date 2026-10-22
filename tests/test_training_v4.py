@@ -16,6 +16,7 @@ from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.transducer import TransducerTrainer
 
 
 def window_fixture():
@@ -61,7 +62,15 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
         encoder_ids = {id(parameter) for parameter in model.core.encoder_parameters()}
         torch.manual_seed(639)
         ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-        forward_meridian_batch(model, batch, ledger, config, torch.device("cpu"), 0)
+        forward_meridian_batch(
+            model,
+            batch,
+            ledger,
+            config,
+            torch.device("cpu"),
+            0,
+            transducer=TransducerTrainer(model.transducer),
+        )
         ledger.finish()
         gradients.append(
             {

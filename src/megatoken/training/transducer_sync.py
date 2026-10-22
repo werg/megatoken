@@ -264,7 +264,7 @@ def install_published(trainer: Any, sync: TransducerSync, kind: str, path: Path)
         bank.import_rows(kept, retired=[], next_id=bank.table.next_id)
     gone = sorted(before - set(bank.edge_ids().tolist()))
     optimizer.forget(gone)
-    optimizer.round_origin = {}
+    optimizer.reset_origins()
     growth.evidence.drop(gone)
     growth.round_evidence.drop(gone)
     growth.submitted_ids = []

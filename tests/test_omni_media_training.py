@@ -18,6 +18,7 @@ from megatoken.training.engine import batch_counters, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.transducer import TransducerTrainer
 
 CODEC = ByteCodec.byte_fallback()
 OTHER_TEACHER = PINNED_TEACHER.replace("914f7f89", "0" * 8)
@@ -103,6 +104,7 @@ def _forward(model, episode, config, *, window_config=None):
         config,
         torch.device("cpu"),
         0,
+        transducer=TransducerTrainer(model.transducer),
     )
     ledger.finish()
     return batch, ledger
@@ -156,6 +158,7 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, mode):
         config,
         torch.device("cpu"),
         0,
+        transducer=TransducerTrainer(model.transducer),
     )
     ledger.finish()
     # The image realizer's own objective trains its facet condition; the audio

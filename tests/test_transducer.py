@@ -47,6 +47,12 @@ def tiny_model():
     return model.train()
 
 
+def give_gradient(bank: TransducerBank, edge: int, name: str, gradient: torch.Tensor) -> None:
+    """As if a training lookup had selected ``edge`` and backward reached its master."""
+    leaf = bank.masters.leaf(name, [edge], bank.decode(name, [edge]))
+    leaf.grad = gradient.reshape(leaf.shape).float()
+
+
 def add_random(bank: TransducerBank, count: int, *, step: int = 0, ids=None, provisional=False):
     g = bank.geometry
     return bank.add_edges(
@@ -231,7 +237,7 @@ def test_coordinator_merges_deltas_writes_and_provisional_rows_then_learners_res
     for worker in range(2):
         bank, opt, gro = learner(canonical, worker)
         learners.append((bank, opt, gro))
-        bank.master(1, "key").grad = torch.randn(GEOMETRY.query_dim)
+        give_gradient(bank, 1, "key", torch.randn(GEOMETRY.query_dim))
         opt.add_write(torch.tensor([2]), torch.tensor([1.0]), torch.randn(GEOMETRY.value_dim))
         opt.step(1)
         # Both learners write out the same entry; worker 1 also writes a distinct one.
@@ -373,7 +379,7 @@ def test_malformed_rounds_are_refused_and_failed_merges_are_consumed():
         canonical, optimizer, TransducerGrowth(canonical, optimizer=optimizer)
     )
     bank, opt, gro = learner(canonical, 0)
-    bank.master(1, "bias").grad = torch.tensor(1.0)
+    give_gradient(bank, 1, "bias", torch.tensor(1.0))
     opt.step(1)
     good = learner_round(opt, gro, worker=0, sequence=1, base_version=0, examples=1, step=1)
     ids, rows = good.deltas["bias"]

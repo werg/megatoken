@@ -303,7 +303,9 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     return result
 
 
-def bank_only_loss(model: Any, config: TrainConfig, codec: Any, step: int) -> float:
+def bank_only_loss(
+    model: Any, config: TrainConfig, codec: Any, step: int, transducer: TransducerTrainer
+) -> float:
     """Held-out weighted per-position loss with every lookup reading the bank alone.
 
     The identical training forward runs without updates on the validation
@@ -332,7 +334,14 @@ def bank_only_loss(model: Any, config: TrainConfig, codec: Any, step: int) -> fl
                 ledger = LossLedger(dict(batch.counts), dict(batch.counts), config.loss_weights)
                 with torch.no_grad():
                     forward_meridian_batch(
-                        model, batch, ledger, config, device, step, differentiate=False
+                        model,
+                        batch,
+                        ledger,
+                        config,
+                        device,
+                        step,
+                        differentiate=False,
+                        transducer=transducer,
                     )
                 ledger.finish()
                 for name, value in ledger.sums.items():
@@ -1017,7 +1026,7 @@ def train(
                 restore_rng(rng)
                 model.train()
             if transducer.switch_due(global_step):
-                loss = bank_only_loss(model, config, codec, global_step)
+                loss = bank_only_loss(model, config, codec, global_step, transducer)
                 if rank_rounds is not None:
                     rank_rounds.record_validation(global_step, loss)
                 elif diloco is None:
