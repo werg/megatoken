@@ -263,7 +263,6 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
     torch.testing.assert_close(selected[0][1].state.raw, actual, atol=1e-6, rtol=1e-6)
 
 
-
 def test_semantic_execution_continues_from_teacher_recorded_semantics(monkeypatch, tmp_path):
     """Every dependent semantic group commits the recorded target after scoring P."""
     from dataclasses import replace
