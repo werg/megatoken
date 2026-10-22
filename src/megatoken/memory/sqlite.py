@@ -29,6 +29,14 @@ def _vector(value, count: int) -> bytes:
     return a.tobytes()
 
 
+def quantize_key(key: np.ndarray) -> tuple[float, bytes]:
+    """Symmetric per-key int8 code: ``key ~= scale * code``."""
+    scale = float(np.abs(key).max()) / 127
+    if not scale > 0:
+        raise ValueError("A unit key has a nonzero coordinate")
+    return scale, np.rint(key / scale).astype(np.int8).tobytes()
+
+
 def _unpack(value: bytes, count: int) -> np.ndarray:
     if value is None or len(value) != 4 * count:
         raise ValueError("Corrupt or incompatible little-endian FP32 vector")
@@ -85,12 +93,17 @@ CREATE TABLE IF NOT EXISTS contributions (
     footprint TEXT NOT NULL, original_key BLOB NOT NULL, initial_value BLOB NOT NULL,
     assignment_distance REAL NOT NULL, optimization_lineage TEXT NOT NULL
 );
+-- A posting carries an int8 copy of its key (``code`` x ``scale``). The covering
+-- cell index stores postings contiguously per cell, so an IVF probe reads one
+-- B-tree range of ~D-byte codes instead of each record's FP32 key row.
 CREATE TABLE IF NOT EXISTS postings (
     collection TEXT NOT NULL, record_id INTEGER NOT NULL REFERENCES records(id) ON DELETE CASCADE,
     cell INTEGER NOT NULL, centroids_revision TEXT NOT NULL,
-    key_revision INTEGER NOT NULL, PRIMARY KEY (collection, record_id)
+    key_revision INTEGER NOT NULL, scope TEXT NOT NULL, scale REAL NOT NULL, code BLOB NOT NULL,
+    PRIMARY KEY (collection, record_id)
 );
-CREATE INDEX IF NOT EXISTS posting_cell ON postings(collection, centroids_revision, cell);
+CREATE INDEX IF NOT EXISTS posting_cell
+    ON postings(collection, centroids_revision, cell, scope, record_id, scale, code);
 CREATE TABLE IF NOT EXISTS optimizer_rows (
     collection TEXT NOT NULL, kind TEXT NOT NULL, entity_id INTEGER NOT NULL,
     field TEXT NOT NULL, layout_generation TEXT NOT NULL,
@@ -113,7 +126,7 @@ CREATE TABLE IF NOT EXISTS growth_state (
 
 
 class SQLiteKB:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(
         self, path: str | Path, space: SemanticSpace, *, value_dim: int, readonly: bool = False
@@ -532,26 +545,54 @@ class SQLiteKB:
                     *(["key"] if key_changed else []), *(["payload"] if payload_changed else [])
                 )
             if posting_cell is not None:
-                if posting_cell < 0 or not centroids_revision:
-                    raise ValueError("Postings require a pinned IVF centroid revision")
-                self.db.execute(
-                    """INSERT INTO postings VALUES (?,?,?,?,?)
-                    ON CONFLICT(collection,record_id) DO UPDATE SET
-                    cell=excluded.cell,centroids_revision=excluded.centroids_revision,
-                    key_revision=excluded.key_revision""",
-                    (
-                        collection.value,
-                        record_id,
-                        posting_cell,
-                        centroids_revision,
-                        old.key_revision + int(key_changed),
-                    ),
+                self.write_postings(
+                    collection,
+                    [(record_id, posting_cell, old.key_revision + int(key_changed), new_key)],
+                    scope=old.scope,
+                    centroids_revision=centroids_revision,
                 )
                 self._bump("index")
             elif key_changed:
                 self.db.execute("DELETE FROM postings WHERE record_id=?", (record_id,))
                 self._bump("index")
             return self.get(collection, record_id)
+
+    def write_postings(
+        self,
+        collection: Collection,
+        rows,
+        *,
+        scope: str,
+        centroids_revision: str,
+    ) -> None:
+        """Upsert ``(record_id, cell, key_revision, key)`` postings with their int8 codes."""
+        if not centroids_revision:
+            raise ValueError("Postings require a pinned IVF centroid revision")
+        values = []
+        for record_id, cell, key_revision, key in rows:
+            if cell < 0:
+                raise ValueError("Negative IVF cell")
+            scale, code = quantize_key(key)
+            values.append(
+                (
+                    collection.value,
+                    record_id,
+                    cell,
+                    centroids_revision,
+                    key_revision,
+                    scope,
+                    scale,
+                    code,
+                )
+            )
+        self.db.executemany(
+            """INSERT INTO postings VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(collection,record_id) DO UPDATE SET
+            cell=excluded.cell,centroids_revision=excluded.centroids_revision,
+            key_revision=excluded.key_revision,scope=excluded.scope,
+            scale=excluded.scale,code=excluded.code""",
+            values,
+        )
 
     def insert_relation(
         self,

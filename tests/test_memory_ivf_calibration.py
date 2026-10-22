@@ -72,6 +72,29 @@ def test_full_probe_search_equals_exact_search_and_filters_visibility(tmp_path):
         assert index.search(keys[3], **search, excluded=None).hits[0].record.id == 4
 
 
+def test_int8_codes_never_change_the_exact_ranking_of_near_ties(tmp_path):
+    # Keys closer together than the int8 code error: only exact FP64 rescoring
+    # can order them, and it must match exact search including ID tie-breaks.
+    rng = np.random.default_rng(3)
+    base = unit(rng.standard_normal((4, 8)))
+    keys = unit(np.repeat(base, 40, axis=0) + 1e-3 * rng.standard_normal((160, 8)))
+    keys[7] = keys[6]  # an exact duplicate: ties break by record ID
+    centroids = unit(rng.standard_normal((3, 8)))
+    with _bank(tmp_path / "kb.sqlite", keys) as bank:
+        index = SQLiteDiskIVF(bank, centroids, nprobe=3)
+        index.rebuild(scope="team", collection=Collection.SOURCE)
+        search = dict(
+            collection=Collection.SOURCE, scope="team", visibility=Visibility("team", 0), limit=25
+        )
+        for query in [*base, keys[6], *unit(rng.standard_normal((4, 8)))]:
+            approximate = index.search(query, **search)
+            exact = ExactIndex(bank).search(query, **search)
+            assert approximate.ids == exact.ids
+            assert [h.similarity for h in approximate.hits] == pytest.approx(
+                [h.similarity for h in exact.hits], abs=1e-12
+            )
+
+
 def test_readers_take_the_published_probe_count(tmp_path):
     rng = np.random.default_rng(2)
     keys = unit(rng.standard_normal((50, 8)))

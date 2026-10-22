@@ -82,21 +82,15 @@ class SQLiteDiskIVF:
                 rows = cursor.fetchmany(self.batch_size)
                 if not rows:
                     break
-                self.store.db.executemany(
-                    """INSERT INTO postings VALUES (?,?,?,?,?)
-                       ON CONFLICT(collection,record_id) DO UPDATE SET
-                       cell=excluded.cell,centroids_revision=excluded.centroids_revision,
-                       key_revision=excluded.key_revision""",
+                keys = [np.frombuffer(row["key"], dtype="<f4") for row in rows]
+                self.store.write_postings(
+                    collection,
                     [
-                        (
-                            collection.value,
-                            int(row["id"]),
-                            self.cell(np.frombuffer(row["key"], dtype="<f4")),
-                            self.identity.centroid_sha256,
-                            int(row["key_revision"]),
-                        )
-                        for row in rows
+                        (int(row["id"]), self.cell(key), int(row["key_revision"]), key)
+                        for row, key in zip(rows, keys, strict=True)
                     ],
+                    scope=scope,
+                    centroids_revision=self.identity.centroid_sha256,
                 )
                 count += len(rows)
             self.store.db.execute(
@@ -185,6 +179,14 @@ class SQLiteDiskIVF:
         limit: int,
         excluded: set[int] | None = None,
     ) -> SearchBatch:
+        """Exact FP64 top-``limit`` over the probed cells' candidates.
+
+        Candidates are ranked by their int8 codes; FP64 keys are read only in
+        that order until the ``limit``-th visible exact score beats every
+        unread candidate's code score plus its quantization error bound
+        (``scale / 2 * |q|_1``), so the result equals exact rescoring of all
+        candidates.
+        """
         if limit < 0:
             raise ValueError("Negative source/memory retrieval budget")
         q = unit_finite(query, dimension=self.store.space.dimension).astype(np.float64)
@@ -192,52 +194,58 @@ class SQLiteDiskIVF:
         with self.store.read_snapshot():
             revisions = self.store.revisions()
             self._check_complete(collection, scope, revisions)
-            ids: list[int] = []
-            keys: list[bytes] = []
-            for cell in cells:
-                rows = self.store.db.execute(
-                    """SELECT r.id, r.key FROM postings p JOIN records r
-                       ON r.id=p.record_id AND r.collection=p.collection
-                       WHERE p.collection=? AND r.scope=? AND p.cell=? AND
-                         p.centroids_revision=? AND r.active=1""",
-                    (collection.value, scope, int(cell), self.identity.centroid_sha256),
-                ).fetchall()
-                if rows:
-                    cell_ids, cell_keys = zip(*rows, strict=True)
-                    ids.extend(cell_ids)
-                    keys.extend(cell_keys)
+            rows = self.store.db.execute(
+                f"""SELECT record_id, scale, code FROM postings
+                    WHERE collection=? AND centroids_revision=? AND scope=?
+                      AND cell IN ({",".join("?" * len(cells))})""",
+                (collection.value, self.identity.centroid_sha256, scope, *map(int, cells)),
+            ).fetchall()
+            if excluded:
+                rows = [row for row in rows if row[0] not in excluded]
+            if not rows or limit == 0:
+                return SearchBatch((), limit, len(rows), revisions)
+            ids, scales, codes = zip(*rows, strict=True)
             candidates = np.asarray(ids, dtype=np.int64)
-            keep = ~np.isin(candidates, list(excluded or ()))
-            if not keep.any() or limit == 0:
-                return SearchBatch((), limit, int(keep.sum()), revisions)
-            # Score every candidate key at once; materialize records only in
-            # score order, until ``limit`` of them pass visibility.
-            matrix = np.frombuffer(b"".join(keys), dtype="<f4")
-            if matrix.size != len(ids) * self.store.space.dimension:
-                raise ValueError("Corrupt or incompatible IVF candidate keys")
-            matrix = matrix.reshape(len(ids), -1)[keep]
-            candidates = candidates[keep]
-            scores = matrix.astype(np.float64) @ q
-            if not np.isfinite(scores).all():
-                raise ValueError("Stored IVF candidate keys contain nonfinite coordinates")
-            order = np.lexsort((candidates, -scores))
-            hits: list[Hit] = []
-            start, size = 0, 2 * limit  # visibility rarely rejects; grow if it does
-            while start < len(order):
-                chunk = order[start : start + size]
-                start, size = start + size, self.batch_size
-                chosen = [int(i) for i in candidates[chunk]]
-                rows = {
-                    row["id"]: row
+            scales = np.asarray(scales, dtype=np.float64)
+            matrix = np.frombuffer(b"".join(codes), dtype=np.int8)
+            if matrix.size != len(rows) * self.store.space.dimension:
+                raise ValueError("Corrupt or incompatible IVF posting codes")
+            approx = (
+                matrix.reshape(len(rows), -1).astype(np.float32) @ q.astype(np.float32)
+            ) * scales
+            bound = approx + scales * (0.5 * np.abs(q).sum() + 1e-6)
+            order = np.argsort(-approx, kind="stable")
+            # ceiling[i]: the best exact score any candidate from order[i:] can have.
+            ceiling = np.append(np.maximum.accumulate(bound[order][::-1])[::-1], -np.inf)
+            exact: dict[int, float] = {}
+            records: dict[int, object] = {}
+            read, window = 0, max(4 * limit, 64)
+            while True:
+                chosen = [int(i) for i in candidates[order[read : read + window]]]
+                read, window = read + len(chosen), 2 * window
+                for row in self.store.db.execute(
+                    f"SELECT id, key FROM records WHERE id IN ({','.join('?' * len(chosen))})",
+                    chosen,
+                ):
+                    key = np.frombuffer(row["key"], dtype="<f4").astype(np.float64)
+                    exact[int(row["id"])] = float(key @ q)
+                ranked = sorted(exact, key=lambda i: (-exact[i], i))
+                missing = [i for i in ranked if i not in records]
+                if missing:
                     for row in self.store.db.execute(
-                        f"SELECT * FROM records WHERE id IN ({','.join('?' * len(chosen))})",
-                        chosen,
-                    )
-                }
-                for index, record_id in zip(chunk, chosen, strict=True):
-                    record = self.store._record(rows[record_id])
-                    if visibility.permits(record.footprint):
-                        hits.append(Hit(record, float(scores[index])))
-                        if len(hits) == limit:
-                            return SearchBatch(tuple(hits), 0, len(candidates), revisions)
+                        f"SELECT * FROM records WHERE id IN ({','.join('?' * len(missing))})",
+                        missing,
+                    ):
+                        record = self.store._record(row)
+                        records[record.id] = (
+                            record if visibility.permits(record.footprint) else None
+                        )
+                hits = [Hit(records[i], exact[i]) for i in ranked if records[i] is not None]
+                if read >= len(order) or (
+                    len(hits) >= limit and hits[limit - 1].similarity > ceiling[read]
+                ):
+                    break
+            if not np.isfinite([hit.similarity for hit in hits]).all():
+                raise ValueError("Stored IVF candidate keys contain nonfinite coordinates")
+            hits = hits[:limit]
             return SearchBatch(tuple(hits), limit - len(hits), len(candidates), revisions)
