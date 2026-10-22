@@ -1,0 +1,1874 @@
+{
+ "schema_version": 1,
+ "metadata_checked_at": "2026-10-22",
+ "sources": [
+  {
+   "source_id": "docci",
+   "repository": "google/docci",
+   "revision": "a0a43eaf34676ffd008fb6565dd8c2ba00d09100",
+   "reader": "docci",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0",
+    "license_url": "https://huggingface.co/datasets/google/docci",
+    "notes": "Dense human-written descriptions of 15k photos (the training split is read)."
+   },
+   "gated": false,
+   "include": [
+    "docci_descriptions.jsonlines",
+    "docci_images.tar.gz"
+   ],
+   "options": {
+    "max_side": 1024
+   },
+   "inventory": {
+    "items": 9647,
+    "basis": "training photos in the descriptions file"
+   },
+   "caveat": "Images and descriptions are fetched from the publisher's storage bucket (the Hub repository holds only a loading script); the job input pins their sha256."
+  },
+  {
+   "source_id": "llava_recap_cc3m",
+   "repository": "lmms-lab/LLaVA-ReCap-CC3M",
+   "revision": "9ffc2b09895808441c4a46110db0507b9a11465f",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on the card",
+    "license_url": "https://huggingface.co/datasets/lmms-lab/LLaVA-ReCap-CC3M",
+    "notes": "Detailed captions written by LLaVA-NeXT-34B for Conceptual Captions 3M images; images keep their web owners' rights."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "conversations.1.value",
+    "id": "id"
+   },
+   "options": {
+    "min_chars": 80,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 2857560,
+    "basis": "Hub dataset viewer rows",
+    "shards": 281,
+    "size_gb": 138.5
+   }
+  },
+  {
+   "source_id": "llava_recap_558k",
+   "repository": "lmms-lab/LLaVA-ReCap-558K",
+   "revision": "ea976d30453025685c51c29e0205529510fd74ac",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on the card",
+    "license_url": "https://huggingface.co/datasets/lmms-lab/LLaVA-ReCap-558K",
+    "notes": "LLaVA-NeXT-34B captions for the LLaVA-LCS-558K images (LAION, Conceptual Captions, SBU)."
+   },
+   "gated": false,
+   "include": [
+    "data/*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "conversations.1.value",
+    "id": "id"
+   },
+   "options": {
+    "min_chars": 80,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 558128,
+    "basis": "Hub dataset viewer rows",
+    "shards": 26,
+    "size_gb": 12.6
+   }
+  },
+  {
+   "source_id": "llava_recap_118k",
+   "repository": "lmms-lab/LLaVA-ReCap-118K",
+   "revision": "02aa686ee8ccce2cfcac93413315bec86d61bc21",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on the card",
+    "license_url": "https://huggingface.co/datasets/lmms-lab/LLaVA-ReCap-118K",
+    "notes": "LLaVA-NeXT-34B captions for the 118k COCO images."
+   },
+   "gated": false,
+   "include": [
+    "data/*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "conversations.1.value",
+    "id": "id"
+   },
+   "options": {
+    "min_chars": 80,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 118319,
+    "basis": "Hub dataset viewer rows",
+    "shards": 13,
+    "size_gb": 6.1
+   },
+   "caveat": "Images are MS-COCO Flickr photos with mixed per-image Creative Commons licences."
+  },
+  {
+   "source_id": "blip3o_long_caption",
+   "repository": "BLIP3o/BLIP3o-Pretrain-Long-Caption",
+   "revision": "e4d07091a466d1a1e35a9b0c61caddc78d14a059",
+   "reader": "webdataset",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "apache-2.0",
+    "license_url": "https://huggingface.co/datasets/BLIP3o/BLIP3o-Pretrain-Long-Caption",
+    "notes": "Long captions by Qwen2.5-VL-7B for SA-1B, web (CC12M-style) and JourneyDB images."
+   },
+   "gated": false,
+   "include": [
+    "sa_*.tar",
+    "webdataset_shard_*.tar",
+    "webdataset_JDB_*.tar"
+   ],
+   "columns": {
+    "image": "jpg",
+    "caption": "txt"
+   },
+   "options": {
+    "min_chars": 80,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 29400000,
+    "basis": "tar members counted in one shard of each family (11.2k, 9.8k, ~8.8k images) x shard counts",
+    "shards": 2891,
+    "size_gb": 1374.0
+   },
+   "caveat": "Images come from SA-1B (research licence), web crawls and JourneyDB (Midjourney outputs); the card states only Apache-2.0."
+  },
+  {
+   "source_id": "text_to_image_2m",
+   "repository": "jackyhate/text-to-image-2M",
+   "revision": "d6e16ffc2d9051fa91c08b4ebca82554287c28f3",
+   "reader": "webdataset",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "mit",
+    "license_url": "https://huggingface.co/datasets/jackyhate/text-to-image-2M",
+    "notes": "Synthetic images (Flux and Midjourney style) with the prompt that produced them, as caption."
+   },
+   "gated": false,
+   "include": [
+    "data_512_2M/*.tar"
+   ],
+   "columns": {
+    "image": "jpg",
+    "caption": "json.prompt"
+   },
+   "options": {
+    "min_chars": 40,
+    "provenance": {
+     "text": "teacher",
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 2000000,
+    "basis": "card: 2M text-image pairs",
+    "shards": 47,
+    "size_gb": 418.0
+   },
+   "caveat": "Images are model outputs; FLUX.1-dev outputs fall under the FLUX.1-dev non-commercial licence."
+  },
+  {
+   "source_id": "commoncatalog_cc_by",
+   "repository": "common-canvas/commoncatalog-cc-by",
+   "revision": "80f50fe4a1ca937f37a11be3f8eee5199d776ff3",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/common-canvas/commoncatalog-cc-by",
+    "notes": "Flickr photos under Creative Commons Attribution licences, with BLIP-2 captions."
+   },
+   "gated": false,
+   "include": [
+    "*/*/*/*.parquet"
+   ],
+   "columns": {
+    "image": "jpg",
+    "caption": "blip2_caption",
+    "id": "photoid",
+    "family": "uid"
+   },
+   "options": {
+    "min_chars": 25,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled",
+    "max_side": 1024
+   },
+   "inventory": {
+    "items": 14581672,
+    "basis": "Hub dataset viewer rows",
+    "shards": 5573,
+    "size_gb": 21465.2
+   },
+   "caveat": "Each photo carries its own Creative Commons Attribution licence (licensename/licenseurl columns); BLIP-2 captions are short and generic."
+  },
+  {
+   "source_id": "coco_captions",
+   "repository": "jxie/coco_captions",
+   "revision": "a2ed90d49b61dd13dd71f399c70f5feb897f8bec",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on the card",
+    "license_url": "https://huggingface.co/datasets/jxie/coco_captions",
+    "notes": "Human captions for MS-COCO (five per image; the longest is used)."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "caption",
+    "id": "cocoid"
+   },
+   "options": {
+    "unique": "cocoid",
+    "min_chars": 15
+   },
+   "inventory": {
+    "items": 113349,
+    "basis": "train rows 566,747 / 5 captions per image",
+    "shards": 182,
+    "size_gb": 19.2
+   },
+   "caveat": "COCO annotations are CC-BY-4.0; the Flickr photos carry mixed per-image Creative Commons licences (some NonCommercial/NoDerivatives)."
+  },
+  {
+   "source_id": "recap_coco_30k",
+   "repository": "UCSC-VLAA/Recap-COCO-30K",
+   "revision": "843e3568270f97c3d8fa6d5bd933079dbf179c4f",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/UCSC-VLAA/Recap-COCO-30K",
+    "notes": "LLaMA-3-powered recaptions of 30k COCO images."
+   },
+   "gated": false,
+   "include": [
+    "new_data.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "recaption",
+    "id": "image_id"
+   },
+   "options": {
+    "min_chars": 80,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 30504,
+    "basis": "parquet row count",
+    "shards": 1,
+    "size_gb": 1.6
+   },
+   "caveat": "COCO photos carry mixed per-image Creative Commons licences."
+  },
+  {
+   "source_id": "textcaps",
+   "repository": "lmms-lab-encoder/TextCaps",
+   "revision": "e9e223338832318a6161d04648871c18a024ce85",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on the card",
+    "license_url": "https://huggingface.co/datasets/lmms-lab-encoder/TextCaps",
+    "notes": "Human captions that mention the text in Open Images photos (five per image; the longest is used)."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "caption_str",
+    "id": "image_id"
+   },
+   "options": {
+    "min_chars": 15
+   },
+   "inventory": {
+    "items": 21953,
+    "basis": "13 train shards of ~1.7k",
+    "shards": 13,
+    "size_gb": 6.2
+   },
+   "caveat": "TextCaps captions are CC-BY-4.0 upstream; Open Images photos are CC-BY-2.0 per image."
+  },
+  {
+   "source_id": "flickr30k",
+   "repository": "lmms-lab-encoder/flickr30k",
+   "revision": "765d117f3eec816f2bfdc2d73ebb50a6f77b86a4",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on the card",
+    "license_url": "https://huggingface.co/datasets/lmms-lab-encoder/flickr30k",
+    "notes": "Human captions for Flickr30k (five per image; the longest is used)."
+   },
+   "gated": false,
+   "include": [
+    "data/*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "caption",
+    "id": "img_id"
+   },
+   "options": {
+    "min_chars": 15
+   },
+   "inventory": {
+    "items": 31783,
+    "basis": "9 shards of ~3.5k",
+    "shards": 9,
+    "size_gb": 4.4
+   },
+   "caveat": "Flickr30k is distributed for non-commercial research; the Flickr photos have their own owners."
+  },
+  {
+   "source_id": "densefusion_1m",
+   "repository": "BAAI/DenseFusion-1M",
+   "revision": "b935d5ad34311e351bc2f3eb33667451e331e167",
+   "reader": "archive",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/BAAI/DenseFusion-1M",
+    "notes": "Dense captions fused from several vision experts for 1M web images."
+   },
+   "gated": false,
+   "include": [
+    "images/DenseFusion-1M/*.zip"
+   ],
+   "columns": {
+    "image": "member",
+    "caption": "caption",
+    "id": "__key__"
+   },
+   "options": {
+    "table": {
+     "path": "DenseFusion-1M/DenseFusion-1M.jsonl",
+     "key": "{image_id}.png",
+     "columns": [
+      "caption"
+     ]
+    },
+    "min_chars": 80,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 1000000,
+    "basis": "card: 1M images",
+    "shards": 110,
+    "size_gb": 797.8
+   },
+   "caveat": "Images are web crawls (LAION-derived) with their owners' rights."
+  },
+  {
+   "source_id": "scienceqa_images",
+   "repository": "derek-thomas/ScienceQA",
+   "revision": "f18b0a70359ebfb41f658fd564208d0355b013f4",
+   "reader": "parquet",
+   "task": "picture",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-sa-4.0",
+    "license_url": "https://huggingface.co/datasets/derek-thomas/ScienceQA",
+    "notes": "Diagrams, maps and photos from school science questions (the questions are not used); rows without an image are skipped."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "image": "image"
+   },
+   "inventory": {
+    "items": 6218,
+    "basis": "train rows 12,726, about half with an image",
+    "shards": 1,
+    "size_gb": 0.4
+   },
+   "caveat": "ShareAlike; upstream images come from many web sources."
+  },
+  {
+   "source_id": "magicbrush",
+   "repository": "osunlp/MagicBrush",
+   "revision": "6c254560879df7851233ea0fd2ae2a62764d0ef2",
+   "reader": "parquet",
+   "task": "image_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0",
+    "license_url": "https://huggingface.co/datasets/osunlp/MagicBrush",
+    "notes": "Human-made multi-turn edits (DALL-E 2 inpainting guided by crowd workers) of COCO images."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "original": "source_img",
+    "edited": "target_img",
+    "instruction": "instruction",
+    "id": [
+     "img_id",
+     "turn_index"
+    ],
+    "family": "img_id"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    }
+   },
+   "inventory": {
+    "items": 8807,
+    "basis": "training turns",
+    "shards": 51,
+    "size_gb": 25.6
+   },
+   "caveat": "Source images come from MS-COCO, whose Flickr photos carry mixed per-image Creative Commons licences (some NonCommercial/NoDerivatives); the card does not address this."
+  },
+  {
+   "source_id": "ultraedit",
+   "repository": "BleachNick/UltraEdit",
+   "revision": "6889505ddb84063bdd31de52d5bb55d0d899c062",
+   "reader": "parquet",
+   "task": "image_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/BleachNick/UltraEdit",
+    "notes": "3M free-form edits generated with Stable Diffusion 3 inpainting from LLM-written instructions."
+   },
+   "gated": false,
+   "include": [
+    "data/FreeForm_*.parquet"
+   ],
+   "columns": {
+    "original": "source_image",
+    "edited": "edited_image",
+    "instruction": "edit_prompt"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 3027083,
+    "basis": "Hub dataset viewer rows",
+    "shards": 4000,
+    "size_gb": 1554.6
+   },
+   "caveat": "Source images come from COCO, Flickr and Open Images with their own licences; edited images are Stable Diffusion 3 outputs."
+  },
+  {
+   "source_id": "hq_edit",
+   "repository": "UCSC-VLAA/HQ-Edit",
+   "revision": "8d0a51255d4ebc82152806e1f3891c85b8e4e037",
+   "reader": "parquet",
+   "task": "image_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-nc-4.0",
+    "license_url": "https://huggingface.co/datasets/UCSC-VLAA/HQ-Edit",
+    "notes": "About 100k edits whose images were generated with DALL-E 3 and instructions written with GPT-4V."
+   },
+   "gated": false,
+   "include": [
+    "data/*.parquet"
+   ],
+   "columns": {
+    "original": "input_image",
+    "edited": "output_image",
+    "instruction": "edit"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 98000,
+    "basis": "319 GB of shards at ~3.3 MB a row (the card gives no count)",
+    "shards": 608,
+    "size_gb": 319.1
+   },
+   "caveat": "Images and instructions are OpenAI model outputs; the card licence is NonCommercial."
+  },
+  {
+   "source_id": "instructpix2pix",
+   "repository": "timbrooks/instructpix2pix-clip-filtered",
+   "revision": "aa665b890915f7a42f8615bee868a9f3447e178f",
+   "reader": "parquet",
+   "task": "image_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on the card",
+    "license_url": "https://huggingface.co/datasets/timbrooks/instructpix2pix-clip-filtered",
+    "notes": "The CLIP-filtered InstructPix2Pix set: GPT-3 instructions with Prompt-to-Prompt edits by Stable Diffusion."
+   },
+   "gated": false,
+   "include": [
+    "data/*.parquet"
+   ],
+   "columns": {
+    "original": "original_image",
+    "edited": "edited_image",
+    "instruction": "edit_prompt"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 313010,
+    "basis": "Hub dataset viewer rows",
+    "shards": 262,
+    "size_gb": 130.2
+   },
+   "caveat": "The InstructPix2Pix release is CC-BY-4.0 for the text; images are Stable Diffusion outputs (CreativeML Open RAIL-M)."
+  },
+  {
+   "source_id": "omniedit",
+   "repository": "TIGER-Lab/OmniEdit-Filtered-1.2M",
+   "revision": "82455c6cd66db7f0e5bfce8d7a236441af59d6df",
+   "reader": "parquet",
+   "task": "image_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "mit",
+    "license_url": "https://huggingface.co/datasets/TIGER-Lab/OmniEdit-Filtered-1.2M",
+    "notes": "1.2M edits from seven specialist editing models, filtered by GPT-4o quality scores."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "original": "src_img",
+    "edited": "edited_img",
+    "instruction": "edited_prompt_list.0",
+    "id": "omni_edit_id"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated",
+    "max_side": 1024
+   },
+   "inventory": {
+    "items": 1200000,
+    "basis": "571 shards of ~2.1k rows",
+    "shards": 571,
+    "size_gb": 2976.7
+   },
+   "caveat": "Source images come from several web datasets; 5 GB shards of full-resolution PNG."
+  },
+  {
+   "source_id": "anyedit",
+   "repository": "Bin1117/AnyEdit",
+   "revision": "dafac7e8cb19f3d45a0768037bcaa43cc8ad80db",
+   "reader": "parquet",
+   "task": "image_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/Bin1117/AnyEdit",
+    "notes": "Instruction edits across 25 types; rows that need a depth/segment guide image are skipped."
+   },
+   "gated": false,
+   "include": [
+    "data/train-0003?-of-00383.parquet",
+    "data/train-0004?-of-00383.parquet",
+    "data/train-0005?-of-00383.parquet",
+    "data/train-0006?-of-00383.parquet",
+    "data/train-0007?-of-00383.parquet",
+    "data/train-0008?-of-00383.parquet",
+    "data/train-0009?-of-00383.parquet",
+    "data/train-0010?-of-00383.parquet",
+    "data/train-0011?-of-00383.parquet",
+    "data/train-0012?-of-00383.parquet",
+    "data/train-0013?-of-00383.parquet",
+    "data/train-0014?-of-00383.parquet",
+    "data/train-0015?-of-00383.parquet",
+    "data/train-0016?-of-00383.parquet",
+    "data/train-0017?-of-00383.parquet",
+    "data/train-0018?-of-00383.parquet",
+    "data/train-0019?-of-00383.parquet",
+    "data/train-0020?-of-00383.parquet",
+    "data/train-0021?-of-00383.parquet",
+    "data/train-0022?-of-00383.parquet",
+    "data/train-0023?-of-00383.parquet",
+    "data/train-0024?-of-00383.parquet",
+    "data/train-0025?-of-00383.parquet",
+    "data/train-0026?-of-00383.parquet",
+    "data/train-0027?-of-00383.parquet",
+    "data/train-0028?-of-00383.parquet",
+    "data/train-0029?-of-00383.parquet",
+    "data/train-0030?-of-00383.parquet",
+    "data/train-0031?-of-00383.parquet",
+    "data/train-0032?-of-00383.parquet",
+    "data/train-0033?-of-00383.parquet",
+    "data/train-0034?-of-00383.parquet",
+    "data/train-0035?-of-00383.parquet",
+    "data/train-0036?-of-00383.parquet",
+    "data/train-0037?-of-00383.parquet",
+    "data/train-0038?-of-00383.parquet"
+   ],
+   "columns": {
+    "original": "image_file",
+    "edited": "edited_file",
+    "instruction": "edit_instruction",
+    "id": "image_id"
+   },
+   "options": {
+    "absent": [
+     "visual_input"
+    ],
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 2300000,
+    "basis": "353 shards of ~6.5k rows (shards 30-382; 0-29 hold only guided types)",
+    "shards": 353,
+    "size_gb": 265.2
+   },
+   "caveat": "Shards are grouped by edit type; the first thirty hold only types that need a guide image and are not listed. Instructions of some types name a guide image the reader does not supply; rows with a guide image are skipped."
+  },
+  {
+   "source_id": "librispeech_asr",
+   "repository": "openslr/librispeech_asr",
+   "revision": "71cacbfb7e2354c4226d01e70d77d5fca3d04ba1",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0",
+    "license_url": "https://huggingface.co/datasets/openslr/librispeech_asr",
+    "notes": "960 hours of read English audiobooks (LibriVox) with transcripts in upper case."
+   },
+   "gated": false,
+   "include": [
+    "all/train.clean.100/*.parquet",
+    "all/train.clean.360/*.parquet",
+    "all/train.other.500/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id",
+    "family": "speaker_id"
+   },
+   "inventory": {
+    "items": 281241,
+    "hours": 960,
+    "basis": "LibriSpeech paper",
+    "shards": 126,
+    "size_gb": 60.5
+   }
+  },
+  {
+   "source_id": "libritts_r",
+   "repository": "mythicinfinity/libritts_r",
+   "revision": "0d1718db351207d5a493135a62d5ed8cc4733830",
+   "reader": "parquet",
+   "task": "verbalization",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0",
+    "license_url": "https://huggingface.co/datasets/mythicinfinity/libritts_r",
+    "notes": "Restored LibriTTS: read English with the written text and its normalized spoken form."
+   },
+   "gated": false,
+   "include": [
+    "data/train.clean.100/*.parquet",
+    "data/train.clean.360/*.parquet",
+    "data/train.other.500/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "written": "text_original",
+    "spoken": "text_normalized",
+    "id": "id",
+    "family": "speaker_id"
+   },
+   "inventory": {
+    "items": 354780,
+    "hours": 585,
+    "basis": "LibriTTS paper",
+    "shards": 183,
+    "size_gb": 95.3
+   }
+  },
+  {
+   "source_id": "mls_english",
+   "repository": "parler-tts/mls_eng",
+   "revision": "faf6604dcf0bb9ec0d9c280a140ad74da9c931b0",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/parler-tts/mls_eng",
+    "notes": "Multilingual LibriSpeech English: 44.5k hours of read audiobooks (LibriVox), 10-20 s segments."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "transcript",
+    "family": "speaker_id"
+   },
+   "inventory": {
+    "items": 10808037,
+    "hours": 44500,
+    "basis": "Hub dataset viewer rows; paper hours",
+    "shards": 1416,
+    "size_gb": 704.7
+   },
+   "caveat": "Transcripts are lower case without punctuation."
+  },
+  {
+   "source_id": "mls_multilingual",
+   "repository": "facebook/multilingual_librispeech",
+   "revision": "2e83e61823b4c47dcbcb1980bb88601274127609",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/facebook/multilingual_librispeech",
+    "notes": "Multilingual LibriSpeech in seven further languages (read audiobooks)."
+   },
+   "gated": false,
+   "include": [
+    "german/train-*.parquet",
+    "dutch/train-*.parquet",
+    "french/train-*.parquet",
+    "spanish/train-*.parquet",
+    "italian/train-*.parquet",
+    "portuguese/train-*.parquet",
+    "polish/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "transcript",
+    "id": "id",
+    "family": "speaker_id"
+   },
+   "inventory": {
+    "items": 1445342,
+    "hours": 6030,
+    "basis": "Hub dataset viewer rows; paper hours",
+    "shards": 193,
+    "size_gb": 94.2
+   },
+   "caveat": "Transcripts are lower case without punctuation."
+  },
+  {
+   "source_id": "peoples_speech",
+   "repository": "MLCommons/peoples_speech",
+   "revision": "f10597c5d3d3a63f8b6827701297c3afdf178272",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "mixed Creative Commons (cc-by-2.0 to cc-by-4.0, cc-by-sa-3.0, cc-by-sa-4.0)",
+    "license_url": "https://huggingface.co/datasets/MLCommons/peoples_speech",
+    "notes": "English speech from the internet (the clean, well-aligned subset); family is the source recording."
+   },
+   "gated": false,
+   "include": [
+    "clean/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id"
+   },
+   "options": {
+    "family_pattern": "^(.*)_\\d+\\.flac$",
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 1501271,
+    "hours": 5970,
+    "basis": "Hub dataset viewer rows x 14.3 s mean (sampled shard); no segment exceeds 20 s",
+    "shards": 804,
+    "size_gb": 392.1
+   },
+   "caveat": "Share-alike and attribution terms apply per recording; transcripts are force-aligned and sometimes noisy."
+  },
+  {
+   "source_id": "voxpopuli",
+   "repository": "facebook/voxpopuli",
+   "revision": "42f01879c780b4a2e90ec0b4f616c2ece526e4f1",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc0-1.0 (European Parliament recordings; reuse terms of the Parliament also apply)",
+    "license_url": "https://huggingface.co/datasets/facebook/voxpopuli",
+    "notes": "European Parliament speech in 14 languages with transcripts."
+   },
+   "gated": false,
+   "include": [
+    "en/train-*.parquet",
+    "de/train-*.parquet",
+    "fr/train-*.parquet",
+    "es/train-*.parquet",
+    "it/train-*.parquet",
+    "pl/train-*.parquet",
+    "nl/train-*.parquet",
+    "ro/train-*.parquet",
+    "cs/train-*.parquet",
+    "hu/train-*.parquet",
+    "hr/train-*.parquet",
+    "fi/train-*.parquet",
+    "sk/train-*.parquet",
+    "sl/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "raw_text",
+    "id": "audio_id",
+    "family": "speaker_id"
+   },
+   "inventory": {
+    "items": 586508,
+    "hours": 1800,
+    "basis": "Hub dataset viewer rows for the listed languages; paper hours",
+    "shards": 104,
+    "size_gb": 313.8
+   }
+  },
+  {
+   "source_id": "common_voice_17",
+   "repository": "fixie-ai/common_voice_17_0",
+   "revision": "34f78a43893414e7b6e271ba94c1d5e05f18b239",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC0-1.0 (Mozilla Common Voice; the card states none)",
+    "license_url": "https://huggingface.co/datasets/fixie-ai/common_voice_17_0",
+    "notes": "Volunteers reading sentences, many accents and languages; family is the speaker."
+   },
+   "gated": false,
+   "include": [
+    "en/train-*.parquet",
+    "de/train-*.parquet",
+    "fr/train-*.parquet",
+    "es/train-*.parquet",
+    "it/train-*.parquet",
+    "nl/train/*/*.parquet",
+    "pl/train/*/*.parquet",
+    "pt/train-*.parquet",
+    "ru/train-*.parquet",
+    "cs/train/*/*.parquet",
+    "sv-SE/train/*/*.parquet",
+    "tr/train/*/*.parquet",
+    "uk/train/*/*.parquet",
+    "fa/train/*/*.parquet",
+    "ar/train-*.parquet",
+    "ja/train-*.parquet",
+    "hi/train/*/*.parquet",
+    "ta/train/*/*.parquet",
+    "th/train/*/*.parquet",
+    "vi/train/*/*.parquet",
+    "sw/train/*/*.parquet",
+    "ka/train/*/*.parquet",
+    "be/train/*/*.parquet",
+    "gl/train/*/*.parquet",
+    "hu/train/*/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "sentence",
+    "family": "client_id"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 3608534,
+    "hours": 5000,
+    "basis": "Hub dataset viewer rows for the listed languages; hours estimated at ~5 s a clip",
+    "shards": 524,
+    "size_gb": 132.3
+   },
+   "caveat": "Several clips per speaker and sentence; the mirror's card has no licence."
+  },
+  {
+   "source_id": "gigaspeech",
+   "repository": "speechcolab/gigaspeech",
+   "revision": "63c0836b643dc6136a608de041e56b67c12649b3",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "apache-2.0 (card; audio carries its sources' own terms)",
+    "license_url": "https://huggingface.co/datasets/speechcolab/gigaspeech",
+    "notes": "10,000 hours of audiobooks, podcasts and YouTube with transcripts."
+   },
+   "gated": true,
+   "include": [
+    "parquet-data/xl/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "segment_id",
+    "family": "audio_id"
+   },
+   "options": {
+    "clean": "gigaspeech",
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 8300000,
+    "hours": 10000,
+    "basis": "paper hours (xl subset); segments over 20 s are dropped",
+    "shards": 261,
+    "size_gb": 1151.8
+   },
+   "caveat": "Gated: the Hub account must accept the terms. Podcast and YouTube sources have their own terms. Transcripts hold punctuation tags that the reader converts and silence/noise tags that make it skip the segment."
+  },
+  {
+   "source_id": "emilia",
+   "repository": "amphion/Emilia-Dataset",
+   "revision": "d7f2f7340a6385696f3766c8049fa920a4707c07",
+   "reader": "webdataset",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0 on the card (Emilia-YODAS); the original Emilia part is CC-BY-NC-4.0 under the gate's terms",
+    "license_url": "https://huggingface.co/datasets/amphion/Emilia-Dataset",
+    "notes": "In-the-wild speech from podcasts and videos in six languages, pipeline-filtered, with ASR transcripts."
+   },
+   "gated": true,
+   "include": [
+    "Emilia-YODAS/EN/*.tar",
+    "Emilia/EN/*.tar",
+    "Emilia-YODAS/DE/*.tar",
+    "Emilia-YODAS/FR/*.tar",
+    "Emilia/DE/*.tar",
+    "Emilia/FR/*.tar",
+    "Emilia/ZH/*.tar",
+    "Emilia/JA/*.tar",
+    "Emilia-YODAS/KO/*.tar"
+   ],
+   "columns": {
+    "audio": "mp3",
+    "text": "json.text",
+    "id": "json.id",
+    "family": "json.speaker"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 77600000,
+    "hours": 215600,
+    "basis": "card hours (Emilia-Large, all six languages); items at ~10 s a segment (estimate)",
+    "shards": 4264,
+    "size_gb": 4701.7
+   },
+   "caveat": "Gated: the Hub account must accept the terms. Transcripts are Whisper-pipeline output, not human."
+  },
+  {
+   "source_id": "yodas_granary_en",
+   "repository": "espnet/yodas-granary",
+   "revision": "969944574ea3f37890beaf67ea651e160cfaf043",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-3.0",
+    "license_url": "https://huggingface.co/datasets/espnet/yodas-granary",
+    "notes": "English YouTube speech (Creative Commons videos) with punctuated Whisper-large-v3 transcripts, filtered for quality."
+   },
+   "gated": false,
+   "include": [
+    "data/en*/asr_only/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "utt_id",
+    "family": "original_audio_id"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 40810517,
+    "hours": 104294,
+    "basis": "Hub dataset viewer rows x 9.2 s mean (sampled shards); 13% of segments exceed 20 s and are dropped",
+    "shards": 18496,
+    "size_gb": 11264.0
+   },
+   "caveat": "Pseudo-labelled by Whisper and punctuation-restored by Qwen2.5-7B, not human transcripts; per-video Creative Commons terms."
+  },
+  {
+   "source_id": "yodas_granary_ast",
+   "repository": "espnet/yodas-granary",
+   "revision": "969944574ea3f37890beaf67ea651e160cfaf043",
+   "reader": "parquet",
+   "task": "translation_text",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-3.0",
+    "license_url": "https://huggingface.co/datasets/espnet/yodas-granary",
+    "notes": "Non-English YouTube speech with its transcript and an English translation by EuroLLM-9B, quality filtered."
+   },
+   "gated": false,
+   "include": [
+    "data/fr*/ast/*.parquet",
+    "data/de*/ast/*.parquet",
+    "data/es*/ast/*.parquet",
+    "data/it*/ast/*.parquet",
+    "data/nl*/ast/*.parquet",
+    "data/pl*/ast/*.parquet",
+    "data/pt*/ast/*.parquet",
+    "data/ru*/ast/*.parquet",
+    "data/uk*/ast/*.parquet",
+    "data/cs*/ast/*.parquet",
+    "data/hu*/ast/*.parquet",
+    "data/ro*/ast/*.parquet",
+    "data/fi*/ast/*.parquet",
+    "data/sv*/ast/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "translation": "translation_en",
+    "id": "utt_id",
+    "family": "original_audio_id"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 23193225,
+    "hours": 58627,
+    "basis": "Hub dataset viewer rows x 9.1 s mean (sampled shards), for ten of the fourteen languages (lower bound: the viewer does not list German, Portuguese, Ukrainian, Swedish)",
+    "shards": 16503,
+    "size_gb": 9727.1
+   },
+   "caveat": "Transcripts and translations are model output, not human; per-video Creative Commons terms."
+  },
+  {
+   "source_id": "covost2",
+   "repository": "fixie-ai/covost2",
+   "revision": "17c8c81e331e7a6929118121771a58c7ef7331d8",
+   "reader": "parquet",
+   "task": "translation_text",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on this mirror's card (CoVoST 2 release: CC0-1.0; facebook/covost2's card says CC-BY-NC-4.0)",
+    "license_url": "https://huggingface.co/datasets/fixie-ai/covost2",
+    "notes": "Common Voice speech in 21 languages with human English translations of the sentence."
+   },
+   "gated": false,
+   "include": [
+    "fr_en/train-*.parquet",
+    "de_en/train-*.parquet",
+    "es_en/train-*.parquet",
+    "ca_en/train-*.parquet",
+    "fa_en/train-*.parquet",
+    "it_en/train-*.parquet",
+    "ru_en/train-*.parquet",
+    "pt_en/train-*.parquet",
+    "zh-CN_en/train-*.parquet",
+    "nl_en/train-*.parquet",
+    "tr_en/train-*.parquet",
+    "et_en/train-*.parquet",
+    "mn_en/train-*.parquet",
+    "lv_en/train-*.parquet",
+    "sl_en/train-*.parquet",
+    "sv-SE_en/train-*.parquet",
+    "ta_en/train-*.parquet",
+    "ja_en/train-*.parquet",
+    "id_en/train-*.parquet",
+    "ar_en/train-*.parquet",
+    "cy_en/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "sentence",
+    "translation": "translation",
+    "id": "id",
+    "family": "client_id"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 652586,
+    "hours": 1500,
+    "basis": "Hub dataset viewer rows for the listed X-to-English configs; paper hours",
+    "shards": 192,
+    "size_gb": 24.7
+   }
+  },
+  {
+   "source_id": "fleurs",
+   "repository": "google/fleurs",
+   "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+   "reader": "fleurs",
+   "task": "translation_pair",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0",
+    "license_url": "https://huggingface.co/datasets/google/fleurs",
+    "notes": "The same FLoRes sentence read in about 100 languages: each language's reading paired with the English reading."
+   },
+   "gated": false,
+   "options": {
+    "languages": [
+     "af_za",
+     "am_et",
+     "ar_eg",
+     "as_in",
+     "ast_es",
+     "az_az",
+     "be_by",
+     "bg_bg",
+     "bn_in",
+     "bs_ba",
+     "ca_es",
+     "ceb_ph",
+     "ckb_iq",
+     "cmn_hans_cn",
+     "cs_cz",
+     "cy_gb",
+     "da_dk",
+     "de_de",
+     "el_gr",
+     "es_419",
+     "et_ee",
+     "fa_ir",
+     "ff_sn",
+     "fi_fi",
+     "fil_ph",
+     "fr_fr",
+     "ga_ie",
+     "gl_es",
+     "gu_in",
+     "ha_ng",
+     "he_il",
+     "hi_in",
+     "hr_hr",
+     "hu_hu",
+     "hy_am",
+     "id_id",
+     "ig_ng",
+     "is_is",
+     "it_it",
+     "ja_jp",
+     "jv_id",
+     "ka_ge",
+     "kam_ke",
+     "kea_cv",
+     "kk_kz",
+     "km_kh",
+     "kn_in",
+     "ko_kr",
+     "ky_kg",
+     "lb_lu",
+     "lg_ug",
+     "ln_cd",
+     "lo_la",
+     "lt_lt",
+     "luo_ke",
+     "lv_lv",
+     "mi_nz",
+     "mk_mk",
+     "ml_in",
+     "mn_mn",
+     "mr_in",
+     "ms_my",
+     "mt_mt",
+     "my_mm",
+     "nb_no",
+     "ne_np",
+     "nl_nl",
+     "nso_za",
+     "ny_mw",
+     "oc_fr",
+     "om_et",
+     "or_in",
+     "pa_in",
+     "pl_pl",
+     "ps_af",
+     "pt_br",
+     "ro_ro",
+     "ru_ru",
+     "sd_in",
+     "sk_sk",
+     "sl_si",
+     "sn_zw",
+     "so_so",
+     "sr_rs",
+     "sv_se",
+     "sw_ke",
+     "ta_in",
+     "te_in",
+     "tg_tj",
+     "th_th",
+     "tr_tr",
+     "uk_ua",
+     "umb_ao",
+     "ur_pk",
+     "uz_uz",
+     "vi_vn",
+     "wo_sn",
+     "xh_za",
+     "yo_ng",
+     "yue_hant_hk",
+     "zu_za"
+    ],
+    "target": "en_us"
+   },
+   "inventory": {
+    "items": 140000,
+    "hours": 440,
+    "basis": "about 1.4k shared sentences per language x 101 languages, ~4.5 h of source speech each",
+    "shards": 202
+   }
+  },
+  {
+   "source_id": "hifi_tts",
+   "repository": "MikhailT/hifi-tts",
+   "revision": "f0a934ddf4e8da0fc6c53fb42fda2c9ac8ed93df",
+   "reader": "parquet",
+   "task": "verbalization",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/MikhailT/hifi-tts",
+    "notes": "Ten studio-quality speakers reading audiobooks (44.1 kHz), 292 hours."
+   },
+   "gated": false,
+   "include": [
+    "data/train.clean-*.parquet",
+    "data/train.other-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "written": "text_no_preprocessing",
+    "spoken": "text_normalized",
+    "id": "file",
+    "family": "speaker"
+   },
+   "options": {
+    "min_seconds": 1.0
+   },
+   "inventory": {
+    "items": 322478,
+    "hours": 292,
+    "basis": "Hub dataset viewer rows; paper hours",
+    "shards": 89,
+    "size_gb": 41.7
+   }
+  },
+  {
+   "source_id": "expresso",
+   "repository": "ylacombe/expresso",
+   "revision": "9fb79a189698de3255eff48edd2bc0d9e487adc0",
+   "reader": "parquet",
+   "task": "verbalization",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-nc-4.0",
+    "license_url": "https://huggingface.co/datasets/ylacombe/expresso",
+    "notes": "Four speakers reading in several styles; only the neutral styles are used (the style is not part of the request)."
+   },
+   "gated": false,
+   "include": [
+    "read/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "written": "text",
+    "id": "id",
+    "family": "speaker_id"
+   },
+   "options": {
+    "keep": {
+     "style": [
+      "default",
+      "enunciated",
+      "essentials",
+      "longform"
+     ]
+    }
+   },
+   "inventory": {
+    "items": 6000,
+    "hours": 20,
+    "basis": "11,615 read rows, about half in neutral styles",
+    "shards": 12,
+    "size_gb": 5.8
+   }
+  },
+  {
+   "source_id": "lj_speech",
+   "repository": "MikhailT/lj-speech",
+   "revision": "f04bb20ddce4b1dbcfb95b10e5573121d871bf5f",
+   "reader": "parquet",
+   "task": "verbalization",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0 on this mirror's card (LJ Speech is public domain upstream)",
+    "license_url": "https://huggingface.co/datasets/MikhailT/lj-speech",
+    "notes": "One speaker reading seven non-fiction books, 24 hours."
+   },
+   "gated": false,
+   "include": [
+    "data/full-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "written": "spoken_text",
+    "spoken": "normalized_text",
+    "id": "file"
+   },
+   "options": {
+    "family_pattern": "^(lj-\\d+)-",
+    "min_seconds": 1.0
+   },
+   "inventory": {
+    "items": 13100,
+    "hours": 24,
+    "basis": "Hub dataset viewer rows; paper hours",
+    "shards": 8,
+    "size_gb": 3.8
+   }
+  },
+  {
+   "source_id": "audioset",
+   "repository": "agkphysics/AudioSet",
+   "revision": "0c609e8302cf139307f639c57652032af0a88041",
+   "reader": "parquet",
+   "task": "sound",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/agkphysics/AudioSet",
+    "notes": "10-second YouTube clips of 527 sound classes (the class labels are not used)."
+   },
+   "gated": false,
+   "include": [
+    "data/unbal_train/*.parquet",
+    "data/bal_train/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "id": "video_id",
+    "family": "video_id"
+   },
+   "inventory": {
+    "items": 1757340,
+    "hours": 4880,
+    "basis": "Hub dataset viewer rows; 10 s each",
+    "shards": 908,
+    "size_gb": 2420.9
+   },
+   "caveat": "The card licenses the labels; the audio belongs to the YouTube uploaders."
+  },
+  {
+   "source_id": "audiocaps",
+   "repository": "OpenSound/AudioCaps",
+   "revision": "b29b3243d6ce49c2cd0d48d4b5f0701ae7969ded",
+   "reader": "parquet",
+   "task": "sound",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-nc-4.0",
+    "license_url": "https://huggingface.co/datasets/OpenSound/AudioCaps",
+    "notes": "10-second AudioSet clips with human captions (the captions are not used)."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "id": "audiocap_id",
+    "family": "youtube_id"
+   },
+   "inventory": {
+    "items": 45178,
+    "hours": 126,
+    "basis": "Hub dataset viewer rows; 10 s each",
+    "shards": 412,
+    "size_gb": 38.7
+   }
+  },
+  {
+   "source_id": "clotho",
+   "repository": "CLAPv2/Clotho",
+   "revision": "b491ad6569dba180ca60a0e2d17a1d6a0d5d9f4a",
+   "reader": "parquet",
+   "task": "sound",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on this mirror's card",
+    "license_url": "https://huggingface.co/datasets/CLAPv2/Clotho",
+    "notes": "15-30 second Freesound recordings with five human captions (the captions are not used); a central 20 s excerpt is kept."
+   },
+   "gated": false,
+   "include": [
+    "data/train/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "id": "index"
+   },
+   "options": {
+    "crop": true,
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 3839,
+    "hours": 24,
+    "basis": "Hub dataset viewer rows; ~22 s each",
+    "shards": 128,
+    "size_gb": 8.1
+   },
+   "caveat": "Upstream Clotho terms were not verified here."
+  },
+  {
+   "source_id": "song_describer",
+   "repository": "renumics/song-describer-dataset",
+   "revision": "dc39062efec7515add304b98a54da2948709a808",
+   "reader": "parquet",
+   "task": "sound",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on this mirror's card",
+    "license_url": "https://huggingface.co/datasets/renumics/song-describer-dataset",
+    "notes": "Full music tracks with human captions (the captions are not used); a central 20 s excerpt is kept."
+   },
+   "gated": false,
+   "include": [
+    "data/*.parquet"
+   ],
+   "columns": {
+    "audio": "path",
+    "id": "caption_id",
+    "family": "track_id"
+   },
+   "options": {
+    "crop": true,
+    "max_seconds": 20.0,
+    "min_seconds": 2.0
+   },
+   "inventory": {
+    "items": 746,
+    "hours": 41,
+    "basis": "Hub dataset viewer rows; ~200 s each (20 s used)",
+    "shards": 8,
+    "size_gb": 2.6
+   },
+   "caveat": "Audio is Jamendo music under per-track Creative Commons licences (upstream; not verified here)."
+  },
+  {
+   "source_id": "rekadaily_processed",
+   "repository": "RekaAI/RekaDaily-10k-processed",
+   "revision": "4e7b797ffc1ca06ee7b0ac4c60d31dea8081a35b",
+   "reader": "webdataset",
+   "task": "av_caption",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "Apache-2.0",
+    "license_url": "https://huggingface.co/datasets/RekaAI/RekaDaily-10k-processed",
+    "notes": "First-person household and workplace clips (nine subsets) with sound and a model-written dense caption."
+   },
+   "gated": false,
+   "include": [
+    "data/video_capture/shard-*.tar",
+    "data/video_capture_activities/shard-*.tar",
+    "data/video_capture_first_person_videos_phone/shard-*.tar",
+    "data/daily_activities/shard-*.tar",
+    "data/procedural_tasks/shard-*.tar",
+    "data/egocentric_household_tasks/shard-*.tar",
+    "data/egocentric_household_tasks_usa/shard-*.tar",
+    "data/egocentric_commercial_environments/shard-*.tar",
+    "data/residential_egocentric_latam_upload_via_claru/shard-*.tar"
+   ],
+   "columns": {
+    "video": "mp4",
+    "caption": "json.text",
+    "request": "json.activities.0",
+    "id": "json.clip_id",
+    "family": "json.video_id"
+   },
+   "options": {
+    "request": "Create a short first-person clip of: {request}.",
+    "min_seconds": 1.5,
+    "max_seconds": 8.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 4495000,
+    "hours": 5400,
+    "basis": "metadata table: 6.37M clips (10.2k h) of which 4.5M are at most 8 s; clips without sound or an activity label are skipped",
+    "shards": 9302,
+    "size_gb": 74217.8
+   },
+   "caveat": "First-person recordings of paid collectors; clips contain ambient audio and possibly incidental speech."
+  },
+  {
+   "source_id": "finevideo",
+   "repository": "HuggingFaceFV/finevideo",
+   "revision": "84c74091e1c6ee7a5dffabfafb5c9033e4718883",
+   "reader": "parquet",
+   "task": "av_scenes",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc (per-video Creative Commons; see the card)",
+    "license_url": "https://huggingface.co/datasets/HuggingFaceFV/finevideo",
+    "notes": "43,751 YouTube videos with sound and rich scene/activity annotations; clips are cut at the annotated activities."
+   },
+   "gated": true,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "video": "mp4",
+    "meta": "json",
+    "id": "json.original_video_filename",
+    "family": "json.original_video_filename"
+   },
+   "options": {
+    "clips_per_video": 3,
+    "min_seconds": 2.0,
+    "max_seconds": 8.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 131253,
+    "hours": 3425,
+    "basis": "card: 43,751 videos (~3.4k hours); clips are 3 cut windows per video",
+    "shards": 1357,
+    "size_gb": 673.4
+   },
+   "caveat": "Gated: the Hub account must accept the terms (removal requests must be honoured). Annotations are Gemini and GPT output, not human. Layout is taken from the card; not sampled."
+  },
+  {
+   "source_id": "vggsound",
+   "repository": "Loie/VGGSound",
+   "revision": "2ca3012ef85a60143a8f97b83a45bb1a7b5c2244",
+   "reader": "archive",
+   "task": "av_caption",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/Loie/VGGSound",
+    "notes": "200k ten-second YouTube clips with sound, labelled by the sound class (for example \"dog barking\")."
+   },
+   "gated": false,
+   "include": [
+    "vggsound_*.tar.gz"
+   ],
+   "columns": {
+    "video": "member",
+    "caption": "label",
+    "id": "__key__",
+    "family": "youtube_id"
+   },
+   "options": {
+    "table": {
+     "path": "vggsound.csv",
+     "names": [
+      "youtube_id",
+      "start",
+      "label",
+      "split"
+     ],
+     "ints": [
+      "start"
+     ],
+     "key": "{youtube_id}_{start:06d}.mp4",
+     "columns": [
+      "youtube_id",
+      "label"
+     ]
+    },
+    "trim": true,
+    "max_seconds": 8.0,
+    "request": "Create a short clip of: {caption}."
+   },
+   "inventory": {
+    "items": 199000,
+    "hours": 550,
+    "basis": "README: 200k+ clips, 550+ hours",
+    "shards": 20,
+    "size_gb": 338.2
+   },
+   "caveat": "Captions are the class label only. The copyright remains with the original uploaders."
+  },
+  {
+   "source_id": "openvid_1m",
+   "repository": "nkp37/OpenVid-1M",
+   "revision": "d8a63bd22989c80b5734ec2bb989f4e1b61a5807",
+   "reader": "archive",
+   "task": "video",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/nkp37/OpenVid-1M",
+    "notes": "One million high-aesthetic clips (Pexels, CelebV-HQ and others), 2-30 s, without sound."
+   },
+   "gated": false,
+   "include": [
+    "OpenVid_part*.zip"
+   ],
+   "columns": {
+    "video": "member",
+    "id": "__key__"
+   },
+   "options": {
+    "table": {
+     "path": "data/train/OpenVid-1M.csv",
+     "key": "{video}",
+     "columns": []
+    },
+    "max_seconds": 8.0
+   },
+   "inventory": {
+    "items": 1019957,
+    "hours": 2000,
+    "basis": "card: 1M clips; ~7 s average (estimated)",
+    "shards": 170,
+    "size_gb": 6656.8
+   },
+   "caveat": "Silent clips: they feed video identity only. Zip parts are 20-50 GB; split parts (partaa/partab) are not read."
+  },
+  {
+   "source_id": "insvie",
+   "repository": "wyh6666/InsViE",
+   "revision": "12efa8dee73ec310f9ad42aee502ca4fad73bc30",
+   "reader": "archive",
+   "task": "video_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0",
+    "license_url": "https://huggingface.co/datasets/wyh6666/InsViE",
+    "notes": "One million instructed video edits (Pexels clips edited by generative models)."
+   },
+   "gated": false,
+   "include": [
+    "edited_zip/videos_part_*.zip"
+   ],
+   "columns": {
+    "edited": "member",
+    "original": "partner",
+    "instruction": "instruct",
+    "id": "__key__"
+   },
+   "options": {
+    "table": {
+     "path": "train_insvie_align.csv",
+     "key": "{video}",
+     "columns": [
+      "instruct"
+     ]
+    },
+    "partner": "source_zip/{name}",
+    "max_seconds": 6.0,
+    "provenance": {
+     "text": "teacher",
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 1000000,
+    "basis": "card: InsViE-1M; silent clips",
+    "shards": 19,
+    "size_gb": 393.8
+   },
+   "caveat": "Edits are model-generated; clips have no sound."
+  }
+ ]
+}
