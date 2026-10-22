@@ -31,9 +31,7 @@ class WorkerRound:
     examples: int
     deltas: dict[tuple[int, str], Tensor] = field(default_factory=dict)
     writes: dict[int, ValueWrite] = field(default_factory=dict)
-    optimizer_increments: dict[tuple[int, str], tuple[Tensor, float]] = field(
-        default_factory=dict
-    )
+    optimizer_increments: dict[tuple[int, str], tuple[Tensor, float]] = field(default_factory=dict)
     structural_increments: dict[int, EdgeEvidence] = field(default_factory=dict)
     provisional: list[PackedEdge] = field(default_factory=list)
 
@@ -67,8 +65,7 @@ class TransducerCoordinator:
 
     def submit(self, round_: WorkerRound) -> bool:
         if round_.sequence <= self.ledger.get(round_.worker, -1) or any(
-            (old.worker, old.sequence) == (round_.worker, round_.sequence)
-            for old in self.pending
+            (old.worker, old.sequence) == (round_.worker, round_.sequence) for old in self.pending
         ):
             return False
         if round_.base_version > self.version:
@@ -122,9 +119,10 @@ class TransducerCoordinator:
                 lead, original_worker, _ = cluster[0]
                 if original_worker == worker:
                     continue
-                if float(d @ unit(lead.departure.decode())) >= 0.9 and float(
-                    k @ unit(lead.key.decode())
-                ) >= 0.9:
+                if (
+                    float(d @ unit(lead.departure.decode())) >= 0.9
+                    and float(k @ unit(lead.key.decode())) >= 0.9
+                ):
                     cluster.append((row, worker, examples))
                     matched = True
                     break
@@ -136,22 +134,25 @@ class TransducerCoordinator:
             total_examples = sum(examples for _, _, examples in cluster)
             masses = [max(row.write_mass, 0.0) for row, _, _ in cluster]
             denominator = sum(masses) or len(cluster)
-            value = sum(
-                (m if sum(masses) else 1.0) * row.value.decode()
-                for (row, _, _), m in zip(cluster, masses, strict=True)
-            ) / denominator
-            key = unit(sum(
-                examples * row.key.decode() for row, _, examples in cluster
-            ) / total_examples)
-            departure = unit(sum(
-                examples * row.departure.decode() for row, _, examples in cluster
-            ) / total_examples)
-            destination = unit(sum(
-                examples * row.destination.decode() for row, _, examples in cluster
-            ) / total_examples)
-            bias = sum(
-                examples * row.bias for row, _, examples in cluster
-            ) / total_examples
+            value = (
+                sum(
+                    (m if sum(masses) else 1.0) * row.value.decode()
+                    for (row, _, _), m in zip(cluster, masses, strict=True)
+                )
+                / denominator
+            )
+            key = unit(
+                sum(examples * row.key.decode() for row, _, examples in cluster) / total_examples
+            )
+            departure = unit(
+                sum(examples * row.departure.decode() for row, _, examples in cluster)
+                / total_examples
+            )
+            destination = unit(
+                sum(examples * row.destination.decode() for row, _, examples in cluster)
+                / total_examples
+            )
+            bias = sum(examples * row.bias for row, _, examples in cluster) / total_examples
             try:
                 edge_id = self.bank.add_edge(
                     departure=departure,
@@ -201,9 +202,7 @@ class TransducerCoordinator:
                 for edge_id, write in submission.writes.items():
                     if edge_id in self.bank.rows and write.mass > 0:
                         aged = write.mass * weight / submission.examples
-                        written.setdefault(edge_id, []).append(
-                            (aged, write.mean.decode())
-                        )
+                        written.setdefault(edge_id, []).append((aged, write.mean.decode()))
             for identity, (sums, count) in submission.optimizer_increments.items():
                 if identity not in self.optimizer.fields or identity[0] not in self.bank.rows:
                     continue
@@ -245,8 +244,7 @@ class TransducerCoordinator:
             old_mass = row.write_mass * 2 ** (-(step - last) / 16384)
             new_mass = old_mass + sum(mass for mass, _ in updates)
             merged = (
-                old_mass * row.value.decode()
-                + sum(mass * mean for mass, mean in updates)
+                old_mass * row.value.decode() + sum(mass * mean for mass, mean in updates)
             ) / new_mass
             self.bank.rows[edge_id] = replace(
                 row,
