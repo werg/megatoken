@@ -6,7 +6,7 @@ from types import ModuleType
 
 import pytest
 
-from megatoken.data.parsing import prose
+from megatoken.data.parsing import prose, segmentation
 from megatoken.data.parsing.prose import analyze_prose, grapheme_offsets, prose_runtime_identity
 from megatoken.data.parsing.types import ParseLimits
 
@@ -33,7 +33,7 @@ def test_paragraph_scan_is_lazy_and_keeps_soft_wrapping_and_crlf(monkeypatch):
 
     monkeypatch.setattr(prose, "sentence_boundaries", unexpected)
     monkeypatch.setattr(prose, "word_boundaries", unexpected)
-    monkeypatch.setattr(prose, "grapheme_cluster_boundaries", unexpected)
+    monkeypatch.setattr(segmentation, "grapheme_cluster_boundaries", unexpected)
     first = "第一段 e\u0301。\r\nA soft wrap stays here.\r\n\t\r\n"
     second = "下一段。\r\n"
     payload = (first + second).encode()
@@ -333,7 +333,7 @@ def test_very_long_identifier_avoids_unnecessary_unicode_passes(monkeypatch):
 
     monkeypatch.setattr(prose, "sentence_boundaries", unexpected)
     monkeypatch.setattr(prose, "word_boundaries", unexpected)
-    monkeypatch.setattr(prose, "grapheme_cluster_boundaries", unexpected)
+    monkeypatch.setattr(segmentation, "grapheme_cluster_boundaries", unexpected)
     payload = b"a" * 250_000
     result = analyze_prose(payload, refine=True)
     assert boundaries_of(result, "word") == {len(payload)}
