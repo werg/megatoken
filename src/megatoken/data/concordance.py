@@ -51,6 +51,7 @@ TASK_FAMILIES = frozenset(
         "speech_translation",
         "image_description",
         "image_creation",
+        "audio_description",
         "av_understanding",
         "av_creation",
         "endpoints",
@@ -552,6 +553,22 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
             ),
             (Relation("describes", labels["display_caption"], labels["image"]),),
         )
+    if has("audio", "audio_caption"):
+        add(
+            "audio_description",
+            "grounded-audio-description",
+            (
+                group(observed(labels["audio"], "audio", "Listen to the supplied recording.")),
+                group(
+                    generated(
+                        labels["audio_caption"],
+                        "caption",
+                        "Describe the audible sources, events, music and their order.",
+                    )
+                ),
+            ),
+            (Relation("describes", labels["audio_caption"], labels["audio"]),),
+        )
     if has("creation_request", "image", "display_caption"):
         add(
             "image_creation",
@@ -954,6 +971,47 @@ def edit_chain_view(
             Relation("preserves", edited, previous, preserves_json),
         ]
         previous = edited
+    return TaskView(view_id, family, tuple(groups), tuple(relations))
+
+
+def question_chain_view(
+    *,
+    family: str,
+    view_id: str,
+    media: str,
+    turns: Sequence[tuple[str, str]],
+    modality: str = "image",
+) -> TaskView:
+    """A conversation about one observed recording: the user shows the ``media`` with a first
+    question, the model answers, the user asks a follow-up, and so on.
+
+    ``turns`` is each turn's ``(question, answer)`` text artifact IDs. Every answer is one
+    supervised output that may use the media and every earlier turn.
+    """
+    if family not in {"image_description", "audio_description"} or not turns:
+        raise ValueError("A question chain needs a describing family and at least one turn")
+    groups = [
+        group(
+            observed(media, modality, f"Inspect the supplied {modality}."),
+            observed(turns[0][0], "question", "Read the question about it."),
+        )
+    ]
+    relations = []
+    for turn, (question, answer) in enumerate(turns, 1):
+        if turn > 1:
+            groups.append(group(observed(question, "question", "Read the follow-up question.")))
+        groups.append(
+            group(
+                generated(
+                    answer,
+                    "answer",
+                    f"Answer from what the {modality} shows and what was said before.",
+                    revision=turn,
+                    reference_artifact_ids=(media,),
+                )
+            )
+        )
+        relations.append(Relation("describes", answer, media))
     return TaskView(view_id, family, tuple(groups), tuple(relations))
 
 

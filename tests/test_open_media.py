@@ -1015,8 +1015,16 @@ def test_manifest_sources_are_pinned_licensed_approved_and_readable():
                 "av_scenes": {"video", "meta"},
                 "video": {"video"},
                 "video_edit": {"original", "edited", "instruction"},
+                "image_edit_chain": {"instruction"},
+                "video_edit_chain": {"instruction"},
+                "image_questions": {"image"},
+                "captioned_audio": {"audio", "caption"},
             }[source.task]
             assert needed <= roles, source.source_id
+            if source.task.endswith("_chain"):  # all versions in one field, or per-turn pairs
+                assert "images" in roles or {"original", "edited"} <= roles, source.source_id
+            if source.task == "image_questions":
+                assert "turns" in roles or {"question", "answer"} <= roles, source.source_id
         if source.reader == "archive":
             assert "table" in source.options, source.source_id
         assert source.inventory.get("basis"), source.source_id
@@ -1210,3 +1218,223 @@ def test_a_reused_clip_id_with_new_content_gives_new_episodes(tmp_path, media):
     assert "accepted_candidate" in verdicts
     transcripts = {e.episode_id for e in episodes if e.stream == "transcription"}
     assert len(transcripts) == 2  # the repeated row merges; the new caption does not
+
+def test_a_conversation_about_an_image_is_one_multi_turn_episode_in_every_stored_layout(
+    tmp_path, media
+):
+    cauldron = make_source(
+        "pairs",
+        "image_questions",
+        columns={"image": "images", "turns": "texts", "id": "uid"},
+        include=("*.parquet",),
+        options={"format": "pairs", "max_turns": 2},
+    )
+    llava = make_source(
+        "chat",
+        "image_questions",
+        columns={"image": "image", "turns": "conversations", "id": "uid"},
+        include=("*.parquet",),
+        options={"format": "messages"},
+    )
+    lists = make_source(
+        "lists",
+        "image_questions",
+        columns={"image": "image", "question": "questions", "answer": "answers", "id": "uid"},
+        include=("*.parquet",),
+        options={"format": "parallel"},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "uid": ["a", "b", "c"],
+                # The second row shows two images and is skipped.
+                "images": [
+                    [{"bytes": _image(1), "path": ""}],
+                    [{"bytes": _image(2), "path": ""}, {"bytes": _image(3), "path": ""}],
+                    [{"bytes": _image(4), "path": ""}],
+                ],
+                "texts": [
+                    [
+                        {"user": "What is shown?", "assistant": "A red square."},
+                        {"user": "What colour?", "assistant": "Red."},
+                        {"user": "Third?", "assistant": "Cut off by max_turns."},
+                    ],
+                    [{"user": "Q", "assistant": "A"}],
+                    [{"user": "Where?", "assistant": ""}],  # no answer: nothing to learn
+                ],
+            }
+        ),
+        _local(tmp_path, "pairs") / "0.parquet",
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "uid": ["a"],
+                "image": [{"bytes": _image(5), "path": ""}],
+                "conversations": [
+                    [
+                        {"from": "human", "value": "<image>\nWhat is here?"},
+                        {"from": "gpt", "value": "A circle."},
+                        {"from": "human", "value": "Size?"},
+                        {"from": "gpt", "value": "Small."},
+                        {"from": "human", "value": "Dangling question"},
+                    ]
+                ],
+            }
+        ),
+        _local(tmp_path, "chat") / "0.parquet",
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "uid": ["a"],
+                "image": [{"bytes": _image(6), "path": ""}],
+                "questions": [["How many?", "Which side?"]],
+                "answers": [["Two.", "Left."]],
+            }
+        ),
+        _local(tmp_path, "lists") / "0.parquet",
+    )
+    first = _run(media, cauldron, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(first) == {"image_description": 1, "image_identity": 1}
+    chat = next(e for e in first if e.stream == "image_description")
+    assert [r.policy_mask for r in chat.records] == [False, False, True, False, True]
+    assert [r.payload for r in chat.records[1:]] == [
+        b"What is shown?",
+        b"A red square.",
+        b"What colour?",
+        b"Red.",
+    ]
+    assert [len(m.events) for m in chat.meridians] == [2, 1, 1, 1]
+    assert [
+        e.request_revision for m in chat.meridians for e in m.events if e.role == "assistant"
+    ] == [
+        1,
+        2,
+    ]
+    second = _run(media, llava, tmp_path, inputs=tmp_path / "inputs")
+    reply = next(e for e in second if e.stream == "image_description")
+    assert [r.payload for r in reply.records[1:]] == [
+        b"What is here?",
+        b"A circle.",
+        b"Size?",
+        b"Small.",
+    ]
+    third = _run(media, lists, tmp_path, inputs=tmp_path / "inputs")
+    assert (
+        sum(r.policy_mask for e in third if e.stream == "image_description" for r in e.records) == 2
+    )
+
+
+def test_recordings_with_descriptions_give_audio_description_and_identity(tmp_path, media):
+    source = make_source(
+        "captions",
+        "captioned_audio",
+        columns={"audio": "audio", "caption": "caption", "id": "id"},
+        include=("*.parquet",),
+        options={"pick": "first", "min_chars": 5},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "id": ["a", "b", "c"],
+                "audio": [{"bytes": _wave(i), "path": ""} for i in range(3)],
+                "caption": [["A dog barks twice.", "Dog."], ["x"], ["Rain falls on a roof."]],
+            }
+        ),
+        _local(tmp_path, "captions") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"audio_description": 2, "audio_identity": 2}
+    described = next(e for e in episodes if e.stream == "audio_description")
+    assert [(r.role, r.policy_mask) for r in described.records] == [
+        ("user", False),
+        ("assistant", True),
+    ]
+    assert described.records[1].payload == b"A dog barks twice."
+
+
+def test_an_original_of_another_size_follows_the_editing_model_when_the_shape_matches(tmp_path):
+    from megatoken.data.open_media import write_image_chain, write_image_pair
+
+    # MagicBrush: a 500 px photo edited by a model that returns 1024 px.
+    small, big, wide = _image(1, (50, 50)), _image(2, (100, 100)), _image(3, (100, 60))
+    pair = write_image_pair(small, big, tmp_path, "a")
+    assert pair is not None and {Image.open(p).size for p in pair} == {(100, 100)}
+    assert write_image_pair(small, wide, tmp_path, "b") is None  # another shape
+    chain = write_image_chain([small, big, big, wide], tmp_path, "c")
+    assert len(chain) == 3 and {Image.open(p).size for p in chain} == {(100, 100)}
+
+
+def test_rows_linked_to_images_in_a_split_archive_become_edit_sessions(tmp_path, media):
+    """SEED-Data-Edit multi-turn: jsonl rows name the source image and up to five edits, whose
+    files sit in one tar.gz that was cut into parts."""
+    source = make_source(
+        "seed",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "source_image"},
+        include=("annotations/*.jsonl",),
+        options={
+            "linked": {
+                "archives": ["images/multi_turn.tar.gz.part-*"],
+                "multipart": True,
+                "sequence": {
+                    "images": ["source_image", "edit_image_{n}"],
+                    "texts": ["instruction_{n}"],
+                },
+            },
+            "provenance": {"media": "teacher"},
+        },
+    )
+    folder = _local(tmp_path, "seed")
+    (folder / "annotations").mkdir()
+    (folder / "images").mkdir()
+    rows = [
+        {
+            "source_image": "20240407_586P/Data/12/aa.jpg",
+            "edit_image_1": "20240407_586P/Data/12/aa-edit1.JPG",
+            "instruction_1": "Remove the light bulb from the picture",
+            "edit_image_2": "20240407_586P/Data/12/aa-edit2.JPG",
+            "instruction_2": "Change the yellow text in the picture to red",
+        },
+        {
+            "source_image": "20240407_586P/Data/13/bb.jpg",
+            "edit_image_1": "20240407_586P/Data/13/bb_edit1.jpg",
+            "instruction_1": "Add character on the right",
+        },
+        {  # its edit is in no archive: skipped
+            "source_image": "20240407_586P/Data/14/cc.jpg",
+            "edit_image_1": "20240407_586P/Data/14/cc_edit1.jpg",
+            "instruction_1": "Replace background",
+        },
+    ]
+    (folder / "annotations/split_0001.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
+    members = {
+        # Upper-case extensions, an extra leading directory and interleaved rows.
+        "data/20240407_586P/Data/12/aa.jpg": _image(1),
+        "data/20240407_586P/Data/13/bb.jpg": _image(2),
+        "data/20240407_586P/Data/12/aa-edit1.jpg": _image(3),
+        "data/20240407_586P/Data/13/bb_edit1.jpg": _image(4),
+        "data/20240407_586P/Data/12/aa-edit2.jpg": _image(5),
+        "data/20240407_586P/Data/14/cc.jpg": _image(6),
+        "data/unrelated.jpg": _image(7),
+    }
+    whole = tmp_path / "all.tar.gz"
+    _tar(whole, members, "w:gz")
+    data = whole.read_bytes()
+    cut = len(data) // 3
+    (folder / "images/multi_turn.tar.gz.part-aa").write_bytes(data[:cut])
+    (folder / "images/multi_turn.tar.gz.part-ab").write_bytes(data[cut:])
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_edit": 2}
+    by_turns = sorted(sum(r.policy_mask for r in e.records) for e in episodes)
+    assert by_turns == [1, 2]
+    two = next(e for e in episodes if sum(r.policy_mask for r in e.records) == 2)
+    assert [r.payload for r in two.records if r.media_type.startswith("text")] == [
+        b"Remove the light bulb from the picture",
+        b"Change the yellow text in the picture to red",
+    ]
+    assert [d.kind for d in two.dependencies] == ["edit", "edit"]

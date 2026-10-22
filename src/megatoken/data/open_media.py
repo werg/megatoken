@@ -46,6 +46,7 @@ from .concordance import (
     TaskView,
     compile_task,
     edit_chain_view,
+    question_chain_view,
     standard_views,
 )
 from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
@@ -56,9 +57,19 @@ VALIDATION_PERCENT = 5
 MIN_SPEECH_SECONDS = 0.5
 MAX_SPEECH_SECONDS = 20.0
 MAX_SIDE = 1024
-_PACKAGE_TREE_MANIFEST = Path(__file__).resolve().parents[3] / "configs/data/sources.media.json"
-_CHECKOUT_MANIFEST = Path.cwd() / "configs/data/sources.media.json"
-MANIFEST = _PACKAGE_TREE_MANIFEST if _PACKAGE_TREE_MANIFEST.is_file() else _CHECKOUT_MANIFEST
+# The manifests, in the order they were written: the first forty-four sources, the full-volume
+# additions, and the additions whose repositories need the Hub account's agreement first.
+MANIFEST_NAMES = (
+    "sources.media.json",
+    "sources.media-more.json",
+    "sources.media-more-gated.json",
+)
+_PACKAGE_TREE = Path(__file__).resolve().parents[3] / "configs/data"
+_CONFIGS = (
+    _PACKAGE_TREE if (_PACKAGE_TREE / MANIFEST_NAMES[0]).is_file() else Path.cwd() / "configs/data"
+)
+MANIFESTS = tuple(path for path in (_CONFIGS / name for name in MANIFEST_NAMES) if path.is_file())
+MANIFEST = _CONFIGS / MANIFEST_NAMES[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,12 +103,19 @@ class OpenSource:
         return dataclasses.replace(self, options={**self.options, **overrides})
 
 
-def load_sources(path: Path = MANIFEST) -> dict[str, OpenSource]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    if raw.get("schema_version") != 1:
-        raise ValueError("Unknown media source manifest schema")
-    sources = {}
-    for row in raw["sources"]:
+def load_sources(*paths: Path) -> dict[str, OpenSource]:
+    """The sources of one or more manifests (default: all of ``MANIFESTS``); an id may not repeat."""
+    sources: dict[str, OpenSource] = {}
+    for path in paths or MANIFESTS:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if raw.get("schema_version") != 1:
+            raise ValueError("Unknown media source manifest schema")
+        _add_sources(sources, raw["sources"])
+    return sources
+
+
+def _add_sources(sources: dict[str, OpenSource], rows: Sequence[Mapping[str, Any]]) -> None:
+    for row in rows:
         source = OpenSource(
             source_id=row["source_id"],
             repository=row["repository"],
@@ -115,7 +133,6 @@ def load_sources(path: Path = MANIFEST) -> dict[str, OpenSource]:
         if source.source_id in sources:
             raise ValueError(f"Duplicate media source {source.source_id}")
         sources[source.source_id] = source
-    return sources
 
 
 SOURCES = load_sources()
@@ -131,6 +148,7 @@ STREAMS = frozenset(
         "speech_translation",
         "image_description",
         "image_creation",
+        "audio_description",
         "image_edit",
         "speech_edit",
         "av_creation",
@@ -512,6 +530,60 @@ def chain_episodes(
     )
 
 
+def question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    """A conversation about one image -> one multi-turn episode, and the image's identity.
+
+    ``clip["turns"]`` is the list of ``(question, answer)`` texts in order.
+    """
+    image = _media(
+        media,
+        _sha(clip["id"], "image"),
+        "image",
+        "image",
+        clip["image"],
+        provenance=_provenance(source, "media"),
+    )
+    artifacts = [image]
+    turns = []
+    for number, (question, answer) in enumerate(clip["turns"], 1):
+        asked = _text(source, _sha(clip["id"], "q", str(number)), f"question_{number}", question)
+        replied = _text(source, _sha(clip["id"], "a", str(number)), f"answer_{number}", answer)
+        artifacts += [asked, replied]
+        turns.append((asked.artifact_id, replied.artifact_id))
+    view = question_chain_view(
+        family="image_description",
+        view_id=f"grounded-image-questions-{len(turns)}",
+        media=image.artifact_id,
+        turns=turns,
+    )
+    episodes = compile_bundle(
+        source,
+        f"{source.source_id}:{clip['id']}",
+        clip["family"],
+        artifacts,
+        preprocessing=f"{source.source_id}-questions-v1",
+        views=(view,),
+    )
+    return [*episodes, identity_episode(image.media, clip["family"])]
+
+
+def audio_caption_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    """A recording with a written description -> audio description and audio identity."""
+    audio = _media(media, _sha(clip["id"], "sound"), "audio", "audio", clip["audio"])
+    episodes = compile_bundle(
+        source,
+        f"{source.source_id}:{clip['id']}",
+        clip["family"],
+        (audio, _text(source, _sha(clip["id"], "caption"), "audio_caption", clip["caption"])),
+        preprocessing=f"{source.source_id}-audio-caption-v1",
+    )
+    return [*episodes, identity_episode(audio.media, clip["family"])]
+
+
 def sound_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]) -> list[Episode]:
     """A recording of any sound -> audio identity (no open set pairs sounds with a task family)."""
     return [
@@ -779,6 +851,126 @@ def archive_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, An
                 yield record
 
 
+class Concatenated:
+    """Several files read as one stream (the parts of an archive that was cut with ``split``)."""
+
+    def __init__(self, handles: Sequence[BinaryIO]):
+        self.handles = list(handles)
+
+    def read(self, size: int = -1) -> bytes:
+        chunks: list[bytes] = []
+        while self.handles and size != 0:
+            chunk = self.handles[0].read(size)
+            if chunk:
+                chunks.append(chunk)
+                size -= len(chunk) if size > 0 else 0
+                if size == 0:
+                    break
+            else:
+                self.handles.pop(0)
+        return b"".join(chunks)
+
+
+def _numbered(row: Mapping[str, Any], templates: Sequence[str]) -> list[Any]:
+    """Row values named by ``templates``: a plain name once, a template with ``{n}`` for
+    n = 1, 2, ... while the row has it."""
+    values: list[Any] = []
+    for template in templates:
+        if "{n}" not in template:
+            values.append(row.get(template))
+            continue
+        number = 1
+        while row.get(template.format(n=number)) not in (None, ""):
+            values.append(row[template.format(n=number)])
+            number += 1
+    return values
+
+
+def _path_key(path: str) -> str:
+    return PurePosixPath(str(path).lower().replace("\\", "/")).as_posix().lstrip("./")
+
+
+def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
+    """Table rows joined with the images they name, read from archives in one pass.
+
+    ``include`` names the tables (jsonl, one row per line) and ``options.linked`` the images:
+    ``archives`` are patterns of tar(.gz) files (``multipart``: together one archive that was cut
+    into parts), ``sequence`` the row's media in order (``images``: field names, ``{n}`` standing
+    for 1, 2, ... while the row has it; ``texts`` likewise). An archive member belongs to a row
+    when the row's path is the member's name or its tail (case-insensitive: ``a/b.jpg`` is
+    ``data/a/B.JPG``). A row is yielded, with ``images`` and ``texts`` lists, as soon as its
+    last image has been read, and dropped when more than ``pending`` of its images wait unmatched
+    (the archive keeps a row's images apart); a row whose image is never found is skipped.
+    """
+    spec = source.options["linked"]
+    wanted: dict[str, tuple[int, int]] = {}
+    rows: dict[int, dict[str, Any]] = {}
+    for table in shards.names():
+        with shards.open(table) as handle:
+            for line in handle.read().decode("utf-8").split("\n"):
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                paths = _numbered(row, spec["sequence"]["images"])
+                if not paths or any(not isinstance(path, str) for path in paths):
+                    continue
+                number = len(rows)
+                rows[number] = {
+                    "row": row,
+                    "paths": paths,
+                    "found": {},
+                    "texts": _numbered(row, spec["sequence"].get("texts", ())),
+                }
+                for position, path in enumerate(paths):
+                    wanted[_path_key(path)] = (number, position)
+    names = shards.names(spec["archives"])
+    pending_limit = spec.get("pending", 4096)
+    partial: dict[int, None] = {}  # rows with some image read, oldest first
+    waiting = 0  # images read for rows that are not complete
+    with ExitStack() as stack:
+        handles = [stack.enter_context(shards.open(name)) for name in names]
+        streams = [Concatenated(handles)] if spec.get("multipart") else handles
+        for stream in streams:
+            with tarfile.open(fileobj=stream, mode="r|*") as tar:
+                for member in tar:
+                    if not member.isfile():
+                        continue
+                    parts = _path_key(member.name).split("/")
+                    target = next(
+                        (
+                            wanted[key]
+                            for key in ("/".join(parts[start:]) for start in range(len(parts)))
+                            if key in wanted
+                        ),
+                        None,
+                    )
+                    if target is None:
+                        continue
+                    number, position = target
+                    entry = rows[number]
+                    entry["found"][position] = tar.extractfile(member).read()
+                    if len(entry["found"]) == len(entry["paths"]):
+                        record = {
+                            "__key__": entry["row"].get("id") or str(number),
+                            **entry["row"],
+                            "images": [entry["found"][i] for i in range(len(entry["paths"]))],
+                            "texts": entry["texts"],
+                        }
+                        del rows[number]
+                        partial.pop(number, None)
+                        waiting -= len(entry["paths"]) - 1
+                        yield record
+                    else:
+                        partial[number] = None
+                        waiting += 1
+                        if waiting > pending_limit:
+                            # Too many images wait for partners that are not coming.
+                            oldest = next(iter(partial))
+                            waiting -= len(rows[oldest]["found"])
+                            rows[oldest]["found"] = {}
+                            del partial[oldest]
+
+
 def _zip_members(handle: BinaryIO) -> Iterator[tuple[str, Callable[[], bytes]]]:
     archive = zipfile.ZipFile(handle)
     for info in archive.infolist():  # archive order: sequential reads
@@ -855,44 +1047,48 @@ def write_image(
     return path
 
 
-def write_image_pair(
-    original: bytes, edited: bytes, out: Path, stem: str, *, max_side: int = MAX_SIDE
-) -> tuple[Path, Path] | None:
-    """An image and its edit scaled identically (lossless, so unedited pixels stay equal)."""
+ASPECT_TOLERANCE = 0.03
+
+
+def _aligned(images: Sequence[Any]) -> list[Any]:
+    """The original and its successive edits at the size of the first edit.
+
+    An editing model returns its own size (MagicBrush: 1024 px for a 500 px photo), so a
+    version of another size but the same shape (aspect ratio within ``ASPECT_TOLERANCE``) is
+    resized to it. A version of another shape ends the chain; if that is the original, nothing
+    is left.
+    """
     from PIL import Image
 
-    try:
-        images = [Image.open(io.BytesIO(data)).convert("RGB") for data in (original, edited)]
-    except (OSError, ValueError, Image.DecompressionBombError):
-        return None
-    if images[0].size != images[1].size or min(images[0].size) < 32:
-        return None
-    out.mkdir(parents=True, exist_ok=True)
-    paths = []
-    for name, image in zip(("original", "edited"), images, strict=True):
-        image.thumbnail((max_side, max_side))
-        paths.append(out / f"{stem}-{name}.png")
-        image.save(paths[-1])
-    return paths[0], paths[1]
+    if len(images) < 2:
+        return []
+    width, height = images[1].size
+    aligned = []
+    for image in images:
+        if image.size != (width, height):
+            if abs(image.width / image.height - width / height) > ASPECT_TOLERANCE * width / height:
+                break
+            image = image.resize((width, height), Image.Resampling.LANCZOS)
+        aligned.append(image)
+    return aligned if len(aligned) >= 2 and min(width, height) >= 32 else []
 
 
 def write_image_chain(
     frames: Sequence[bytes], out: Path, stem: str, *, max_side: int = MAX_SIDE
 ) -> list[Path] | None:
-    """The original and each successive edit scaled identically (lossless). The chain stops at
-    the first version that cannot follow its predecessor (undecodable or another size)."""
+    """An original and each successive edit, scaled identically and saved losslessly (so
+    unedited pixels stay equal). The chain stops at the first version that is undecodable or
+    cannot follow its predecessor (``_aligned``)."""
     from PIL import Image
 
     images = []
     for data in frames:
         try:
-            image = Image.open(io.BytesIO(data)).convert("RGB")
+            images.append(Image.open(io.BytesIO(data)).convert("RGB"))
         except (OSError, ValueError, Image.DecompressionBombError):
             break
-        if images and image.size != images[0].size:
-            break
-        images.append(image)
-    if len(images) < 2 or min(images[0].size) < 32:
+    images = _aligned(images)
+    if not images:
         return None
     out.mkdir(parents=True, exist_ok=True)
     paths = []
@@ -901,6 +1097,19 @@ def write_image_chain(
         paths.append(out / f"{stem}-{index}.png")
         image.save(paths[-1])
     return paths
+
+
+def write_image_pair(
+    original: bytes, edited: bytes, out: Path, stem: str, *, max_side: int = MAX_SIDE
+) -> tuple[Path, Path] | None:
+    """An image and its edit scaled identically (lossless, so unedited pixels stay equal)."""
+    paths = write_image_chain((original, edited), out, stem, max_side=max_side)
+    if paths is None or len(paths) != 2:
+        return None
+    named = (out / f"{stem}-original.png", out / f"{stem}-edited.png")
+    for path, target in zip(paths, named, strict=True):
+        path.replace(target)
+    return named
 
 
 def _ffmpeg(*args: str) -> None:
@@ -1122,6 +1331,96 @@ def image_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> lis
         if image
         else []
     )
+
+
+def audio_caption_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    caption = _text_label(source, record, "caption")
+    if caption is None or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    audio = _speech_file(source, record, out, _stem(clip_id))
+    return [{"id": clip_id, "family": family, "audio": audio, "caption": caption}] if audio else []
+
+
+_USER_ROLES = frozenset(("human", "user"))
+_ASSISTANT_ROLES = frozenset(("gpt", "assistant", "model"))
+_IMAGE_TAG = re.compile(r"\s*<image(?:_\d+)?>\s*")
+
+
+def _clean_turn(text: Any) -> str | None:
+    """A turn's text without ``<image>`` placeholders; None if nothing is left."""
+    if not isinstance(text, str):
+        return None
+    text = _IMAGE_TAG.sub(" ", text).strip()
+    return text or None
+
+
+def conversation(source: OpenSource, record: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """The ``(question, answer)`` turns of a record, whichever way the publisher stored them.
+
+    ``options.format`` is ``pairs`` (a list of ``{user, assistant}`` mappings, the keys named by
+    ``options.user_key`` / ``options.assistant_key``), ``messages`` (a list of role/text
+    mappings: ``from``/``value`` or ``role``/``content``; a turn that does not alternate user,
+    assistant ends the conversation) or ``parallel`` (the ``question`` and ``answer`` fields
+    are equally long lists, or single strings). ``options.max_turns`` cuts a longer one and
+    ``options.min_answer_chars`` drops a turn with a shorter answer (and every later one).
+    """
+    layout = source.options.get("format", "pairs")
+    turns: list[tuple[str, str]] = []
+    if layout == "parallel":
+        questions, answers = (_list_label(source, record, role) for role in ("question", "answer"))
+        pairs = list(zip(questions, answers, strict=False))
+    elif layout == "pairs":
+        user, assistant = (
+            source.options.get("user_key", "user"),
+            source.options.get("assistant_key", "assistant"),
+        )
+        pairs = [
+            (turn.get(user), turn.get(assistant))
+            for turn in _list_label(source, record, "turns")
+            if isinstance(turn, Mapping)
+        ]
+    elif layout == "messages":
+        messages = [m for m in _list_label(source, record, "turns") if isinstance(m, Mapping)]
+        role = lambda m: str(m.get("from") or m.get("role") or "").lower()  # noqa: E731
+        text = lambda m: m.get("value") if "value" in m else m.get("content")  # noqa: E731
+        if messages and role(messages[0]) == "system":
+            messages = messages[1:]
+        pairs = [
+            (text(a), text(b))
+            for a, b in zip(messages[0::2], messages[1::2], strict=False)
+            if role(a) in _USER_ROLES and role(b) in _ASSISTANT_ROLES
+        ]
+    else:
+        raise ValueError(f"{source.source_id}: unknown conversation format {layout!r}")
+    for question, answer in pairs:
+        question, answer = _clean_turn(question), _clean_turn(answer)
+        if (
+            question is None
+            or answer is None
+            or len(answer) < source.options.get("min_answer_chars", 1)
+        ):
+            break
+        turns.append((question, answer))
+    return turns[: source.options.get("max_turns", 8)]
+
+
+def question_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A conversation about one image (a record with several images is skipped)."""
+    images = _list_label(source, record, "image")
+    turns = conversation(source, record)
+    payload = blob(images[0]) if len(images) == 1 else None
+    if not turns or payload is None or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    image = write_image(
+        payload, out, _stem(clip_id), max_side=source.options.get("max_side", MAX_SIDE)
+    )
+    return [{"id": clip_id, "family": family, "image": image, "turns": turns}] if image else []
 
 
 def picture_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> list[dict[str, Any]]:
@@ -1501,6 +1800,16 @@ TASKS = {
         image_clips,
     ),
     "picture": Task(frozenset({"image_identity"}), _plain(picture_episodes), picture_clips),
+    "image_questions": Task(
+        frozenset({"image_description", "image_identity"}),
+        _plain(question_episodes),
+        question_clips,
+    ),
+    "captioned_audio": Task(
+        frozenset({"audio_description", "audio_identity"}),
+        _plain(audio_caption_episodes),
+        audio_caption_clips,
+    ),
     "image_edit": Task(
         frozenset({"image_edit"}),
         lambda media, source, clip, reference: edit_episodes(
@@ -1675,6 +1984,7 @@ CONTAINERS: dict[str, Callable[[OpenSource, Shards], Iterator[dict[str, Any]]]] 
     "parquet": parquet_records,
     "webdataset": webdataset_records,
     "archive": archive_records,
+    "linked": linked_records,
 }
 CLIP_READERS: dict[str, Callable[[OpenSource, Shards, Path, int], Iterator[dict[str, Any]]]] = {
     "fleurs": read_fleurs,
