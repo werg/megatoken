@@ -207,7 +207,10 @@ def compare(args: argparse.Namespace) -> None:
     report = {"items": {k: {m: len(v) for m, v in g.items()} for k, g in splits.items()}}
     for variant in args.variants:
         torch.manual_seed(args.seed)
-        config = load_model_config(args.model, semantic_dim=768, media_readout=variant)
+        # Only the media path trains here: the vocabulary is the byte codec's.
+        config = load_model_config(
+            args.model, semantic_dim=768, media_readout=variant, vocab_size=256
+        )
         model = build_model(config, ByteCodec.byte_fallback()).to(device)
         install_realizers(model, str(args.packs), device=device)
         params = _trainable(model)
