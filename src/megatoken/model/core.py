@@ -16,6 +16,7 @@ from torch.utils.checkpoint import checkpoint
 
 from megatoken.contracts import ROLE_TO_ID
 
+from .adapters import AdapterBank, AdapterPlan
 from .attention import AttentionFeatures, AttentionRead, KVProjection, join_attention
 from .blocks import DenseFacetBlock
 from .config import ModelConfig
@@ -145,6 +146,7 @@ class CentralProcessor(nn.Module):
         modality_ids: Tensor | None = None,
         history_track_ids: Tensor | None = None,
         attention_mask: Tensor | None = None,
+        adapters: AdapterPlan | None = None,
     ) -> Tensor:
         # A meridian may contain several complete 32-facet megatokens.  The
         # original one-event shape remains exactly the same, so singleton
@@ -196,6 +198,7 @@ class CentralProcessor(nn.Module):
                 else self.memory
             )
             enabled = self.config.checkpoint_stages if checkpointing is None else checkpointing
+            source = facets
             if enabled and self.training and torch.is_grad_enabled():
                 # Pin captured intermediates per layer for exact checkpoint replay.
                 facets = checkpoint(
@@ -224,6 +227,8 @@ class CentralProcessor(nn.Module):
                     query_track_ids=live_tracks,
                     query_key_mask=attention_mask,
                 )
+            if adapters is not None:
+                facets = facets + adapters.delta(source, index)
             # Stage i publishes only a short-lived, position-rotated KV for i+1.
             # Neither these projections nor their tensors enter KVHistory.
             if index < len(self.temporary_memories):
@@ -289,6 +294,7 @@ class FacetedCore(nn.Module):
         nn.init.normal_(self.initial_facets, std=0.02)
         nn.init.normal_(self.stage_codes, std=0.02)
         self.central = CentralProcessor(c)
+        self.adapters = AdapterBank(c)
         self.effort_embedding = nn.Embedding(len(EFFORTS), c.facet_dim)
         nn.init.normal_(self.effort_embedding.weight, std=0.02)
         self.control_injection = nn.Linear(c.control_dim, c.facet_dim, bias=False)
@@ -317,9 +323,10 @@ class FacetedCore(nn.Module):
         yield from self.media_encoder.parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
-        """C and its KV projections."""
+        """C, its KV projections and its adapters."""
         yield self.initial_facets
         yield from self.central.parameters()
+        yield from self.adapters.owners["c"].parameters()
 
     def predictor_parameters(self) -> Iterator[nn.Parameter]:
         """All P owners; excludes E, C, R/U."""
@@ -331,6 +338,7 @@ class FacetedCore(nn.Module):
             self.p_bank,
             self.stages,
             self.p_router,
+            self.adapters.owners["p"],
         ):
             yield from module.parameters()
 
@@ -339,7 +347,8 @@ class FacetedCore(nn.Module):
         yield from self.control_encoder.parameters()
 
     def realizer_parameters(self) -> Iterator[nn.Parameter]:
-        """Core-owned U decoder parameters."""
+        """Core-owned U decoder parameters and R's adapters."""
+        yield from self.adapters.owners["r"].parameters()
         yield self.u_gate
         yield self.lexical_gate
         for module in (self.u_bank, self.u_always, self.u_router, self.u_norm, self.lexical_norm):
@@ -834,7 +843,7 @@ class FacetedCore(nn.Module):
         previous = self._routing_losses
         self._routing_losses = []
         # Auxiliary branches also stay out of the global router-balance replay.
-        routers = (self.p_router, self.u_router)
+        routers = (self.p_router, self.u_router, *self.adapters.owners.values())
         recorders = [router.balance_recorder for router in routers]
         for router in routers:
             router.balance_recorder = None

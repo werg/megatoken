@@ -62,6 +62,9 @@ def test_export_preserves_the_canonical_facet_policy_and_recurrent_state_exactly
         any(old in name for old in ("posterior", "carry", "alignment")) for name in weights
     )
     assert metadata["training_heads"] is False and metadata["packs_fingerprint"] is None
+    # The adapter mixture's experts and controllers are served weights.
+    adapters = {f"core.adapters.{name}" for name in original.core.adapters.state_dict()}
+    assert adapters <= weights.keys()
     engine = InferenceEngine(directory, device="cpu")
     # The sparse bank ships beside the weights and is the trained one.
     assert engine.model.transducer.bank.bank_id == original.transducer.bank.bank_id

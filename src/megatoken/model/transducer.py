@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 from torch import Tensor, nn
@@ -24,6 +24,7 @@ from megatoken.generation.embedding import EmbeddingRealizer, EmbeddingSpec
 from megatoken.memory.transducer import Lookup, SearchAgenda, TransducerBank
 from megatoken.memory.transducer_packing import pack_fp4, straight_through
 
+from .adapters import ADAPTER_DROPOUT, AdapterMixture
 from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK
 from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
 from .multitrack import MultiTrackState, ObservedEvent
@@ -286,6 +287,20 @@ class NativeTransducer(nn.Module):
         prefix = self.prefix_head(state.final[0, 0].mean(dim=0).to(self.prefix_head.weight.dtype))
         return state, self.bank.initial_agenda(prefix.float())
 
+    def mixture(
+        self, found: Lookup, *, overlay: float, training: bool, generator: torch.Generator | None
+    ) -> AdapterMixture:
+        """The adapter mixture one lookup asks for, from the value its knowledge event reads.
+
+        Its strength is one minus the sink's share of that value. A hindsight
+        overlay is knowledge too, so only the bank's own part can be the sink.
+        Training drops a lookup's whole mixture with probability ``ADAPTER_DROPOUT``.
+        """
+        strength = 1 - (1 - overlay) * found.sink_weight
+        if training and float(torch.rand((), generator=generator)) < ADAPTER_DROPOUT:
+            strength = strength * 0
+        return self.core.adapters.select(found.value, strength)
+
     def boundary(
         self,
         multi,
@@ -333,6 +348,11 @@ class NativeTransducer(nn.Module):
         if found is None:
             return state, None
         block = self.readout(found.value, query, found.landing, core=self.core)
+        # From the knowledge event on, every meridian runs under this lookup's mixture.
+        queried = replace(
+            queried,
+            adapters=self.mixture(found, overlay=overlay, training=training, generator=generator),
+        )
         committed = multi.tracks.advance_group(
             queried,
             block[:, None],
