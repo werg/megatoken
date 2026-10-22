@@ -129,6 +129,7 @@ class Lookup:
     landing: Tensor
     bank_value: Tensor
     bank_landing: Tensor
+    bank_landing_raw: Tensor
     weights: Tensor
     sink_weight: Tensor
     pairs: tuple[tuple[int, int], ...]
@@ -420,7 +421,7 @@ class TransducerBank(nn.Module):
             value = (1 - overlay) * bank_value + overlay * hindsight.float()
             landed = unit((1 - overlay) * bank_landing + overlay * h_destination)
         return Lookup(
-            value, landed, bank_value, unit(bank_landing), weights, w_sink,
+            value, landed, bank_value, unit(bank_landing), bank_landing, weights, w_sink,
             tuple(pairs), edge_weights, q, agenda.current, h_destination
         )
 
