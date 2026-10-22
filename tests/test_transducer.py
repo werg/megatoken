@@ -335,3 +335,49 @@ def test_growth_split_carries_optimizer_summaries_and_retirement_cleans_them():
     assert (row, "key") not in optimizer.fields
     assert row not in optimizer.last_write and row not in bank.rows
     assert (row + 1, "key") in optimizer.fields
+
+
+def test_native_cancel_after_readout_rolls_back_every_published_event():
+    core = FacetedCore(ModelConfig.tiny())
+    bank = small_bank()
+    native = NativeTransducer(core, bank).eval()
+    state, agenda, _ = native.start({"request": "atomic cancellation"})
+    before = agenda.lookups
+    cached = list(agenda.neighborhoods)
+    calls = iter((False, True))
+    rolled_back, lookup = native.boundary(state, agenda, cancelled=lambda: next(calls))
+    assert lookup is None and rolled_back is state
+    assert agenda.lookups == before
+    assert agenda.neighborhoods == cached
+
+
+def test_v10_serving_scheduler_atomic_timeout_and_exact_session_restore():
+    from megatoken.model.multitrack import ObservedEvent
+    from megatoken.transducer_service import TransducerInferenceEngine
+
+    core = FacetedCore(ModelConfig.tiny())
+    bank = small_bank()
+    service = TransducerInferenceEngine(NativeTransducer(core, bank))
+    session = service.new_session({"task": "serving"})
+    assert session.agenda.lookups == 1
+    with pytest.raises(ValueError, match="external"):
+        service.observe(
+            session,
+            [ObservedEvent("__transducer_hindsight__", "text", b"future")],
+        )
+    result = service.observe(
+        session,
+        [ObservedEvent("user", "text", b"message")],
+        completed_turn=True,
+        deadline=float("-inf"),
+    )
+    assert result is None
+    assert session.agenda.lookups == 1
+    assert session.state.meridians_seen.item() == 4
+    snapshot = service.state_snapshot(session)
+    loaded = service.restore_session(snapshot)
+    assert loaded.scheduler.lookups == session.scheduler.lookups
+    assert torch.equal(loaded.state.history.keys, session.state.history.keys)
+    assert loaded.agenda.neighborhoods == session.agenda.neighborhoods
+    with pytest.raises(ValueError, match="bank"):
+        service.restore_session({**snapshot, "bank_id": "another-bank"})

@@ -8,6 +8,7 @@ The packed departure scan is the reference for a device-specific kernel.
 from __future__ import annotations
 
 import math
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -165,6 +166,7 @@ class TransducerBank(nn.Module):
         self.base_location = nn.Parameter(torch.randn(g.location_dim) * 0.01)
         self.metadata_location = nn.Linear(g.query_dim, g.location_dim, bias=False)
         self.rows: dict[int, PackedEdge] = {}
+        self.bank_id = uuid.uuid4().hex
         self.next_edge_id = 1
         self.version = 0
         self.learned_values = False
@@ -459,6 +461,7 @@ class TransducerBank(nn.Module):
     def state_snapshot(self) -> dict[str, Any]:
         return {
             "identity": self.identity,
+            "bank_id": self.bank_id,
             "geometry": vars(self.geometry),
             "version": self.version,
             "next_edge_id": self.next_edge_id,
@@ -491,6 +494,7 @@ class TransducerBank(nn.Module):
         if min(loaded, default=1) <= 0 or next_id <= max(loaded, default=0):
             raise ValueError("Invalid canonical edge ID high-water mark")
         self.rows = loaded
+        self.bank_id = str(data.get("bank_id", uuid.uuid4().hex))
         self.next_edge_id = next_id
         self.learned_values = bool(data["learned_values"])
         self.version = int(data["version"])

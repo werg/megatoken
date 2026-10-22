@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
@@ -248,12 +249,23 @@ class NativeTransducer(nn.Module):
         hindsight: Tensor | None = None,
         overlay: float = 0.0,
         exploration_seed: int = 0,
+        cancelled: Callable[[], bool] | None = None,
     ) -> tuple[MultiTrackState, Lookup | None]:
         """One serialized query and one knowledge commit, with atomic agenda publication."""
         if state.batch_size != 1 or state.device != self.bank.device:
             raise ValueError("Native lookup is one session on the bank/model device")
-        if agenda.lookups >= self.bank.geometry.max_lookups:
+        if agenda.lookups >= self.bank.geometry.max_lookups or (
+            cancelled is not None and cancelled()
+        ):
             return state, None
+        # Stage the entire lookup transaction away from the published agenda.
+        # A timeout, failing native C pass or stale bank never changes its cursor.
+        working_agenda = SearchAgenda(
+            list(agenda.locations),
+            list(agenda.neighborhoods),
+            agenda.version,
+            agenda.lookups,
+        )
         predicted = self.tracks.predict_group(state, tracks=(RETRIEVAL_QUERY_TRACK,))
         if training:
             selected = predicted + torch.randn_like(predicted) * self.query_log_std.exp()
@@ -270,7 +282,7 @@ class NativeTransducer(nn.Module):
         )
         found = self.bank.lookup(
             query,
-            agenda,
+            working_agenda,
             training=training,
             hindsight=hindsight,
             overlay=overlay,
@@ -278,7 +290,7 @@ class NativeTransducer(nn.Module):
         )
         if found is None:
             return state, None
-        realized = self.readout(found.value, query, agenda.current, core=self.core)
+        realized = self.readout(found.value, query, working_agenda.current, core=self.core)
         committed = self.tracks.advance_group(
             queried,
             realized[:, None],
@@ -287,7 +299,13 @@ class NativeTransducer(nn.Module):
                 (1, 1), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
             ),
         )
-        self.bank.commit(agenda, found)
+        if cancelled is not None and cancelled():
+            return state, None
+        self.bank.commit(working_agenda, found)
+        agenda.locations = working_agenda.locations
+        agenda.neighborhoods = working_agenda.neighborhoods
+        agenda.lookups = working_agenda.lookups
+        agenda.version = working_agenda.version
         return committed, found
 
     def start(self, metadata: dict[str, object]) -> tuple[MultiTrackState, SearchAgenda, Lookup]:
