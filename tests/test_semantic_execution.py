@@ -295,25 +295,33 @@ def test_fragmented_json_request_stays_one_logical_action_and_delivery():
             "id": "",
             "mode": "observed",
             "loss": "none",
-            "events": [{"track": "t0", "record": line(
-                "observe", {"id": "e2", "effect": "fx1", "result": ["num", 2]}
-            )}],
+            "events": [
+                {
+                    "track": "t0",
+                    "record": line("observe", {"id": "e2", "effect": "fx1", "result": ["num", 2]}),
+                }
+            ],
         },
         {
             "id": "",
             "mode": "generated",
             "loss": "semantic",
-            "events": [{"track": "t0", "record": line(
-                "return", {"id": "e3", "dependsOn": ["e2"], "result": ["num", 2]}
-            )}],
+            "events": [
+                {
+                    "track": "t0",
+                    "record": line(
+                        "return", {"id": "e3", "dependsOn": ["e2"], "result": ["num", 2]}
+                    ),
+                }
+            ],
         },
         {
             "id": "",
             "mode": "generated",
             "loss": "semantic",
-            "events": [{"track": "t0", "record": line(
-                "end", {"invocation": "f1", "kind": "return"}
-            )}],
+            "events": [
+                {"track": "t0", "record": line("end", {"invocation": "f1", "kind": "return"})}
+            ],
         },
     ]
     _reindex(groups)
