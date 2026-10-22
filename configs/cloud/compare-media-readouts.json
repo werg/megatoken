@@ -1,0 +1,51 @@
+{
+ "schema": "megatoken.cloud-job/1",
+ "id": "compare-media-readouts",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "resources": {
+  "cpu": "8",
+  "memory": "32Gi",
+  "gpu": 1
+ },
+ "lifetime_hours": 12,
+ "pip": [
+  "Pillow",
+  "diffusers==0.41.0",
+  "librosa",
+  "pocket-tts>=4.0.1,<5",
+  "pyarrow",
+  "soundfile",
+  "torchcodec>=0.12,<1",
+  "transformers==5.20.2"
+ ],
+ "inputs": [
+  {
+   "path": "inputs/librispeech/test.clean.parquet",
+   "url": "https://huggingface.co/datasets/openslr/librispeech_asr/resolve/71cacbfb7e2354c4226d01e70d77d5fca3d04ba1/all/test.clean/0000.parquet",
+   "sha256": "7113aa4c3cf963fb54697145719a7725f984c8836d1c494a554cbb9f1a017df0"
+  },
+  {
+   "path": "inputs/flickr/images_flickr_1k_test.zip",
+   "url": "https://huggingface.co/datasets/nlphuji/flickr_1k_test_image_text_retrieval/resolve/c4a4cdc67b77fce148b45484a067957bf75ec4c3/images_flickr_1k_test.zip",
+   "sha256": "b0fa9970cc1680a9334818b9da151a62024772b72b961e1454eb6e9866dd7cee"
+  },
+  {
+   "path": "inputs/ucf101/UCF101_subset.tar.gz",
+   "url": "https://huggingface.co/datasets/sayakpaul/ucf101-subset/resolve/b9984b8d2a95e4a1879e1b071e9433858d0bc24a/UCF101_subset.tar.gz",
+   "sha256": "e9fcc76af48d320be88c5265f2e0576ecd615956976f6ce4742fdf2b042b71eb"
+  },
+  {
+   "path": "inputs/hotpot/train-00000-of-00002.parquet",
+   "url": "https://huggingface.co/datasets/hotpotqa/hotpot_qa/resolve/1908d6afbbead072334abe2965f91bd2709910ab/distractor/train-00000-of-00002.parquet",
+   "sha256": "76d3bb3048a7cc73c1958107c0c5872a00d7e7d00c105b81e92f6769e7822e68"
+  }
+ ],
+ "command": [
+  "bash",
+  "-c",
+  "set -eo pipefail; export HF_TOKEN=\"$(cat \"$MEGATOKEN_CW_SECRETS/hf-token\")\"; command -v ffmpeg >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null); mkdir -p /work/out/readouts; python scripts/acquire_packs.py --root /work/packs | tee /work/out/readouts/acquire.json; python scripts/compare_media_readouts.py prepare --packs /work/packs/lock.json --output /work/prep --librispeech /work/inputs/librispeech/test.clean.parquet --flickr /work/inputs/flickr/images_flickr_1k_test.zip --ucf /work/inputs/ucf101/UCF101_subset.tar.gz --hotpot /work/inputs/hotpot --per-modality 400 | tail -3; python scripts/compare_media_readouts.py compare --root /work/prep --packs /work/packs/lock.json --output /work/out/readouts/report.json --steps 1500 --batch 16 --eval-every 250 --eval-items 32 | tee /work/out/readouts/compare.log"
+ ],
+ "outputs": [
+  "out/readouts"
+ ]
+}
