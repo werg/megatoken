@@ -106,11 +106,21 @@ def test_a_missing_published_file_is_named():
 def test_committed_run_files_are_valid_and_their_listings_exist(tmp_path):
     for path in sorted((ROOT / "configs/cloud").glob("prepare-full-*.json")):
         spec = cloud_prepare.validate(json.loads(path.read_text()))
-        assert (ROOT / spec["sources"]).is_file() and (ROOT / spec["listing"]).is_file(), path
-        assert (ROOT / spec["review_config"]).is_file(), path
-        manifest = json.loads((ROOT / spec["sources"]).read_text())
-        listing = json.loads((ROOT / spec["listing"]).read_text())
-        assert {s["source_id"] for s in manifest["sources"] if s["format"] == "hf"} <= set(listing)
+        assert (ROOT / spec["listing"]).is_file(), path
+        if cloud_prepare.is_media(spec):
+            sources = cloud_prepare.media_sources(spec)
+            listing = json.loads((ROOT / spec["listing"]).read_text())
+            from megatoken.data.media_sharding import FILE_READERS
+
+            assert {i for i, s in sources.items() if s.reader in FILE_READERS} <= set(listing), path
+        else:
+            assert (ROOT / spec["sources"]).is_file(), path
+            assert (ROOT / spec["review_config"]).is_file(), path
+            manifest = json.loads((ROOT / spec["sources"]).read_text())
+            listing = json.loads((ROOT / spec["listing"]).read_text())
+            assert {s["source_id"] for s in manifest["sources"] if s["format"] == "hf"} <= set(
+                listing
+            )
         cloud_prepare.shard_plan(spec, ROOT)  # no shard is empty
         for job in cloud_prepare_jobs(spec, path, tmp_path):
             cloud.validate(job)
