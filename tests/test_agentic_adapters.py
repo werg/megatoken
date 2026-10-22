@@ -95,6 +95,24 @@ def test_hermes_result_count_must_match_the_calls():
         adapt(row, "hermes_tools")
 
 
+def test_results_sent_one_tool_message_each_answer_parallel_calls_in_turn():
+    calls = "".join(
+        f'<tool_call>{{"name": "f", "arguments": {{"a": {i}}}}}</tool_call>' for i in range(2)
+    )
+    row = hermes_row(calls)
+    row["conversations"] += [
+        {"from": "tool", "value": "<tool_response>1</tool_response>"},
+        {"from": "tool", "value": "<tool_response>2</tool_response>"},
+        {"from": "gpt", "value": "both"},
+    ]
+    episode = adapt(row, "hermes_tools")
+    assert [r.payload for r in episode.records if r.result_of] == [b"1", b"2"]
+    assert linked(episode)
+    row["conversations"].pop(-2)  # the second result never arrives
+    with pytest.raises(SchemaError, match="partly answered"):
+        adapt(row, "hermes_tools")
+
+
 def test_python_call_syntax_in_content_and_in_a_field_with_one_result_per_call():
     toolace = {
         "system": "You compose functions.",

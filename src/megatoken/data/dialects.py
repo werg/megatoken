@@ -93,13 +93,20 @@ class _Ledger:
 
     def __init__(self) -> None:
         self.pending: deque[str] = deque()
+        self.unfinished = False
 
     def issue(self, turn: int, count: int) -> list[str]:
         ids = [f"call-{turn}-{index}" for index in range(count)]
         self.pending.extend(ids)
         return ids
 
-    def answer(self, count: int) -> list[str]:
+    def answer(self, count: int, *, in_parts: bool = False) -> list[str]:
+        """Pair ``count`` results with calls. Only a source that sends one tool message per
+        result may answer fewer calls than are pending (``in_parts``); the rest must follow."""
+        if in_parts and 0 < count < len(self.pending):
+            self.unfinished = True
+            return [self.pending.popleft() for _ in range(count)]
+        self.unfinished = False
         if count != len(self.pending):
             raise SchemaError(
                 f"{count} tool result(s) for {len(self.pending)} pending call(s); results are "
@@ -167,6 +174,10 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
         out.append({"role": "system", "content": system})  # a prompt kept outside the turns
     for turn, message in enumerate(messages):
         role, text = role_of(message), _text(message)
+        if ledger.unfinished and ledger.pending and role != "tool":
+            raise SchemaError(
+                f"The dialogue moves on with {len(ledger.pending)} call(s) only partly answered"
+            )
         if role == "assistant" and "<tool_call>" in text:
             # With one capture group the split alternates prose, call, prose, call, ...
             pieces = _TAGGED["call"].split(text)
@@ -187,7 +198,7 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
             and not _TAGGED["response"].sub("", text).strip()
         ):
             bodies = _TAGGED["response"].findall(text)
-            ids = ledger.answer(len(bodies))
+            ids = ledger.answer(len(bodies), in_parts=role == "tool")
             results = [_result(i, body) for i, body in zip(ids, bodies, strict=True)]
             out.append({**message, "role": "tool", "content": results})
         else:
