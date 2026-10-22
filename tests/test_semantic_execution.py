@@ -184,7 +184,6 @@ def test_local_diagnostics_never_impersonate_independently_admitted_data():
         adapt_semantic_execution(example)
 
 
-
 def test_jsonl_converter_never_labels_diagnostic_episodes_admitted(tmp_path):
     import subprocess
     import sys
