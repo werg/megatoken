@@ -56,6 +56,32 @@ production verified stream, a separate independent admission certifier,
 operation-level evidence, and free-running-model correctness checks are still
 required.
 
+## Complete host requests and fragmented causal records
+
+The initial supported external codec is `canonical-json/1` with the exact
+`demo.readAsync/1`, `demo.readNumber/1`, and `demo.store/1` signatures.
+A request record carries `codec`, `signature`, `operation`, `payload`
+(the complete serialized JSON arguments), and `arguments` (the matching
+materialized array). Requests with inconsistent bytes, unknown schema versions,
+unresolved values, duplicate effects, or an observation without a preceding
+committed request are rejected.
+
+A request or source can span physical `value-open`, `value-part`, and
+`value-close` chunks. Import preserves one model meridian per physical
+chunk, groups their `PhysicalRecord` parts under one logical identity, and
+uses the final close event as the producer. Every part of a fragmented request
+belongs to the same `LogicalAction`, with its hash over the complete original
+physical bytes; a delivered environment result refers to the completed action
+and its execution ID. Observed source and input fragments stay user-context
+records even if they occupy more than two meridians.
+
+The dedicated [pinned tracer contract workflow](../.github/workflows/semantic-contract.yml)
+generates real training-js/1 traces from a fixed tracer commit, converts them
+through this adapter, and verifies exact record payload bytes, native
+meridians, and `admitted=0`. It uses a byte-fallback debug codec, so passing
+this workflow is a schema/visibility regression check, **not** proof of actual
+production-codec fit, JavaScript conformance, or learned-model correctness.
+
 ## Guarantees and gates
 
 - Strict validation rejects unknown grammar versions, improper loss masks,
