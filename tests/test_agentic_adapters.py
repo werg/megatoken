@@ -560,3 +560,159 @@ def test_a_row_level_language_does_not_turn_every_message_into_that_language():
     row["messages"][1] = {"role": "user", "content": "x = 1", "language": "python"}
     tagged = adapt(row, "openhands_xml", "verified_trajectories", allow_pending_final_action=True)
     assert any("python" in r.chunk_languages for r in tagged.records if r.role == "user")
+
+
+def adapt_mapped(row, adapter, stream, field_map, **options):
+    return adapt_row(row, adapter, replace(context(stream, **options), field_map=field_map))
+
+
+def test_capitalised_roles_mean_the_same_as_lowercase_ones():
+    row = {
+        "conversations": [
+            {"from": "User", "value": "hi"},
+            {"from": "Assistant", "value": "hello"},
+        ]
+    }
+    episode = adapt(row, "chat", "chat")
+    assert [r.role for r in episode.records] == ["user", "assistant"]
+    assert [r.policy_mask for r in episode.records] == [False, True]
+
+
+def test_anthropic_text_and_alternating_strings_become_messages():
+    chosen = "\n\nHuman: Hi\n\nAssistant: Hello there\n\nHuman: Bye\n\nAssistant: Goodbye"
+    mapped = {"messages": "chosen"}
+    episode = adapt_mapped({"chosen": chosen}, "human_assistant_text", "chat", mapped)
+    assert [(r.role, r.policy_mask) for r in episode.records] == [
+        ("user", False),
+        ("assistant", True),
+        ("user", False),
+        ("assistant", True),
+    ]
+    with pytest.raises(SchemaError, match="before the first"):
+        adapt_mapped(
+            {"chosen": "preamble\n\nHuman: Hi\n\nAssistant: ok"},
+            "human_assistant_text",
+            "chat",
+            mapped,
+        )
+    episode = adapt({"data": ["q", "a", "q2", "a2"], "id": "u1"}, "alternating_turns", "chat")
+    assert [r.role for r in episode.records] == ["user", "assistant", "user", "assistant"]
+    with pytest.raises(SchemaError, match="list of strings"):
+        adapt({"data": [{"role": "user"}]}, "alternating_turns", "chat")
+
+
+def test_a_reply_kept_apart_from_its_prompt_turns_is_appended_with_its_reasoning():
+    split = {
+        "conversation": [{"role": "user", "content": "q"}],
+        "generated_message": {
+            "role": "assistant",
+            "content": "the answer",
+            "reasoning_content": "think first",
+            "tool_calls": [],
+        },
+    }
+    reply = adapt(split, "prompt_and_reply", "chat").records[-1]
+    assert reply.policy_mask and reply.payload == b"<think>\nthink first\n</think>\n\nthe answer"
+    columns = {
+        "conversation": [{"role": "user", "content": "q"}],
+        "reasoning": "r",
+        "answer": "a",
+    }
+    assert adapt(columns, "prompt_and_reply", "chat").records[-1].payload.endswith(b"\n\na")
+    both = {
+        "prompt": [{"role": "user", "content": "q"}],
+        "completion": [{"role": "assistant", "content": "a"}],
+    }
+    assert [r.role for r in adapt(both, "prompt_completion", "chat").records] == [
+        "user",
+        "assistant",
+    ]
+
+
+def test_reasoning_kept_in_its_own_message_field_is_spelled_inline_and_scored():
+    row = {
+        "messages": [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": None,
+                "reasoning_content": "plan the call",
+                "tool_calls": [
+                    {"id": "c1", "type": "function", "function": {"name": "f", "arguments": "{}"}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+            {"role": "assistant", "content": "done", "reasoning_content": " "},
+        ]
+    }
+    episode = adapt(row, "chat", "tool_use", observation_provenance="executed")
+    texts = [r for r in episode.records if not r.action_id and not r.result_of]
+    assert b"<think>\nplan the call\n</think>\n\n" in [r.payload for r in texts]
+    # A blank trace adds nothing.
+    assert texts[-1].role == "assistant" and texts[-1].payload == b"done"
+
+
+def test_hyphenated_tool_result_blocks_with_output_values_pair_with_their_call():
+    call = {"id": "c1", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+    row = {
+        "instance_id": "i1",
+        "repo": "o/r",
+        "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "reading", "tool_calls": [call]},
+            {
+                "role": "tool",
+                "content": [
+                    {
+                        "type": "tool-result",
+                        "toolCallId": "c1",
+                        "toolName": "read",
+                        "output": {"type": "text", "value": "file text"},
+                    }
+                ],
+            },
+            {"role": "assistant", "content": "done"},
+        ],
+    }
+    episode = adapt(row, "open_swe", "executed_trajectories", assume_outcome="success")
+    result = next(r for r in episode.records if r.result_of)
+    assert result.payload == b"file text" and result.provenance == "executed"
+    assert linked(episode)
+
+
+def test_openai_wrapped_tools_and_declined_queries_in_the_xlam_shape():
+    tools = json.dumps(
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": "f",
+                    "description": "d",
+                    "parameters": {"type": "object", "properties": {"a": {"type": "string"}}},
+                },
+            }
+        ]
+    )
+    answered = {"query": "q", "answers": '[{"name": "f", "arguments": {"a": "x"}}]', "tools": tools}
+    episode = adapt(answered, "xlam_calls", "tool_use", allow_pending_final_action=True)
+    assert json.loads(episode.tools_json)[0]["parameters"]["properties"] == {
+        "a": {"type": "string"}
+    }
+    declined = {"query": "q", "answers": "The query cannot be answered.", "tools": tools}
+    episode = adapt(declined, "xlam_calls", "recovery_clarification")
+    assert episode.records[-1].payload == b"The query cannot be answered."
+    assert not any(r.action_id for r in episode.records)
+
+
+def test_glaive_first_release_keeps_system_prompt_and_chat_in_one_string():
+    function = '{"name": "f", "description": "d", "parameters": {"type": "object"}}'
+    sample = (
+        f"SYSTEM: You have functions.\n{function}\n"
+        "USER: go\n"
+        'ASSISTANT: <functioncall> {"name": "f", "arguments": \'{"a": 1}\'} <|endoftext|>\n'
+        'FUNCTION RESPONSE: {"v": 1}\n'
+        "ASSISTANT: done <|endoftext|>"
+    )
+    episode = adapt_mapped({"sample": sample}, "glaive_tools", "tool_use", {"messages": "sample"})
+    assert any(r.action_id for r in episode.records)
+    assert linked(episode)
