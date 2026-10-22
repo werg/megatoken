@@ -1,8 +1,8 @@
 # Continuous State Transducer: the selected v10 design
 
 **Decision:** build this architecture and run it as one integrated training system.  
-**Status:** implemented behind the `transducer` model override (see §10), not yet trained. **Updated:** 22 October 2026.  
-**Reviewed repository:** [88df397](https://github.com/werg/megatoken/commit/88df3978c68dcfd3ef00de12b6e513c57c92be46). The [v9 implementation ledger](retrieval-memory-implementation-status.md) remains the account of running code. The [quantization and optimizer research](kb-quantization-optimizer-research.md) records the evidence and alternatives considered; **this document makes the decisions and takes precedence over its experimental roadmap**.
+**Status:** implemented and always on (see §10), not yet trained. **Updated:** 22 October 2026.  
+**Reviewed repository:** [88df397](https://github.com/werg/megatoken/commit/88df3978c68dcfd3ef00de12b6e513c57c92be46). The [quantization and optimizer research](kb-quantization-optimizer-research.md) records the evidence and alternatives considered; **this document makes the decisions and takes precedence over its experimental roadmap**.
 
 ## 1. One architecture, one run
 
@@ -23,7 +23,7 @@ Replace point/pair semantic memory with a **continuous-state transducer**. Each 
 | Evolution | Successful hindsight entries are written out as new edges for the whole run; splits (write dispersion, then gradient coherence) add capacity; removal by utility and the byte budget |
 | Distributed ownership | DiLoCo learners update locally; one coordinator merges and changes structure; late submissions are age-weighted, not rejected; **no outer KB momentum** |
 
-Literal-document retrieval (source RAG) stays for exact passages and citations.
+The transducer is the only retrieval. The earlier plan kept literal-document retrieval (source RAG) for exact passages and citations; it was removed together with the rest of the v9 stack (§10).
 
 ## 2. Retrieval and state movement
 
@@ -296,10 +296,10 @@ Target architecture **v10**, new packed-edge layout, and new retrieval-event/che
 | Transducer and agenda search | `memory/`: packed rows with destinations and write masses, the session agenda with distinct-location appends and cached 1,024-nearest departure shortlists, exact departure scan, per-location query modulation, pair softmax, value/destination mixtures and rank-band exploration |
 | Native model integration | `model/config.py`, `core.py`, `multitrack.py`: search state, reserved knowledge track, shared-U readout, one normal C commit; per-track masking modes with an explicit group/meridian/track mask; the reserved training-only hindsight track (full and group-inverse masks) and its hindsight realizer on C emitting FP4 bank-format values |
 | Training data and recurrence | `data/`, `training/engine.py`, `meridians.py`: metadata prefix, first retrieval boundary, latency-boundary schedule with artificial boundaries, four-group credit and causal labels; hindsight pass, mask curriculum, warm-up, overlay schedule with hindsight steering, hindsight-only sequences, sink-only exclusion, validation cadence and the switch |
-| Sparse optimizer and growth | `memory/optimizer.py`, `growth.py`, `training/bank.py`: block algorithm, bounded master cache, hindsight write and write-out, utility, dispersion and sketch statistics, split, remove and the budget rule |
-| Distributed execution | `training/diloco_kb.py`, checkpoint/runtime owners: age-weighted deltas, write-mass value blending and statistics without outer KB momentum, written-out row reconciliation (replacing learner demand forwarding), the switch, packed publication and exact resume |
+| Sparse optimizer and growth | `memory/transducer_optimizer.py`, `transducer_growth.py`, `training/transducer.py`: block algorithm, bounded master cache, hindsight write and write-out, utility, dispersion and sketch statistics, split, remove and the budget rule |
+| Distributed execution | `training/transducer_diloco.py`, `transducer_sync.py`, checkpoint/runtime owners: age-weighted deltas, write-mass value blending and statistics without outer KB momentum, written-out row reconciliation (replacing learner demand forwarding), the switch, packed publication and exact resume |
 
-Delete the **v10** direct semantic-KV projector, semantic KB LoRA controllers, point/pair dependence and writer-reproduction launch requirements. The v9 source and relation writers (`training/hindsight.py`, `hindsight_native.py`) are superseded by the hindsight track. Ordinary transformer KV, source RAG, native parameter ownership and exact action tapes stay. Do not modify v9 runtime versions or supported launch commands in this documentation commit; update them together when implementation lands.
+The direct semantic-KV projector, semantic KB LoRA controllers, point/pair dependence and writer-reproduction launch requirements are deleted. The hindsight track supersedes the v9 source and relation writers, which are deleted too. Ordinary transformer KV, native parameter ownership and exact action tapes stay.
 
 Build a small executable reference of this same design, fix its correctness failures, then run the identical path at scale.
 
@@ -328,7 +328,8 @@ During training log continuation loss, multi-hop completion, rare-task retention
 
 Where the code had to decide something this plan leaves open, it decided as follows.
 
-- **Switching it on.** `ModelConfig.transducer` (with the `transducer_*` geometry fields) attaches `model.transducer`. Such a run trains the transducer instead of the v9 free-KB bank; v9 stays the default and is not yet deleted. Synchronous multi-rank runs are refused: a sparse bank has one owner, so scale-out is decoupled DiLoCo learners.
+- **Always on; v9 deleted.** Every model builds `model.transducer` from its `transducer_*` geometry fields; there is no switch. The whole v9 stack is gone: the free KB and its sparse sync, source RAG with its catalog and search index, the semantic K/V projector, memory LoRA controllers, the source/relation writers and the embedding-alignment sidecars. The encoder's embedding head stays, trained by the encode-and-reconstruct stage.
+- **Synchronous ranks.** torchrun ranks are learners of one canonical bank kept on rank 0: every 32 steps their rounds are gathered there, merged exactly as DiLoCo rounds are, and the change set is broadcast back. A multi-rank checkpoint holds the canonical bank; on resume each rank's working copy restarts from it, so up to 31 steps of unmerged sparse progress are not carried over.
 - **Removal clock.** During warm-up the bank's output never reaches the loss ($lpha=1$), so utility cannot be observed and every early write-out would look useless. The Remove and Budget rules therefore count an edge's age from the later of its birth and the overlay's start.
 - **Where lookups run.** A lookup planned after meridian $m$ executes just before meridian $m+1$ is committed, under that meridian's gradient mode, so the lookup preceding the first scored meridian of a window is trained. A boundary after a window's last meridian serves nothing in that window and is not planned.
 - **Hindsight pass positions.** The pass gives each event its own temporal position. With one time per slot, the C/P attention sink's logit is added exactly as a mask column, so it stays position-free.

@@ -831,7 +831,7 @@ Do not add private transformer copies, bespoke agent messages, or a separate com
 
 Retrieval returns ordinary evidence events. Encode them through the same E/C path, retain provenance and exact source assets, and let all cooperating tracks attend to their KV.
 
-Implement a retrieval projection from facet-derived semantic features, its training/evaluation recipe, and one working retrieval index/service adapter. Measure held-out evidence retrieval and downstream answer grounding; the existing reconstruction representation is not assumed to be an optimal nearest-neighbor index. The index remains external storage, not another transformer history.
+The model's own long-term memory is not an external index: it is the learned bank of packed edges of the continuous-state transducer ([plan](continuous-state-transducer-plan.md)).
 
 Retrieved text remains source evidence, not a control override. Existing roles and public-control rules should make that distinction explicit.
 
@@ -1134,7 +1134,7 @@ Codec, renderer, control, chunking, model, and tape identities travel together t
 | G08 | Visual understanding | Shared image/video stem and reduction; real image/clip input, temporal answers, event order, and entity/event retention; complete 8/16/32-second evaluation with source-family split integrity |
 | G09 | Visual realization and editing | Trained causal image/short-video generation, style control, explicit-reference editing, continuation, requested/predicted shape-duration handling, and conditioning-use checks meet the declared media-quality envelope |
 | G10 | Joint audiovisual realization | Audio/video co-selected in one meridian and realized through the coupled path; semantic consistency, continuation, common-clock timing, fine event synchronization, and speech/lip synchronization pass on held-out paired data |
-| G11 | Retrieval, workers, and concurrent tools | Working trained retrieval projection/index adapter and grounded answers; actual overlapping calls, out-of-order results, lease/conflict handling, idempotent retries, worker/critic dependencies, provenance, close/drain/cancel behavior, and chronological replay |
+| G11 | Retrieval evidence, workers, and concurrent tools | Retrieved evidence enters as ordinary observations with provenance and answers are grounded in it; actual overlapping calls, out-of-order results, lease/conflict handling, idempotent retries, worker/critic dependencies, provenance, close/drain/cancel behavior, and chronological replay |
 | G12 | Text/media speculation | Enabled isolated branches, provisional speech/video prefixes, revision-checked atomic acceptance, stale cancellation, interruption recovery, no pre-acceptance dispatch or post-delivery rollback, complete attempt receipts, and passing latency/wasted-work comparisons |
 | G13 | Latent-policy RL | At least one genuine nonzero policy update on verified outcomes through the nonspeculative grouped collector; complete raw action/observation accounting, same-weight density/materialization replay, and unchanged frozen E/C/R/codec/realizer-control weights and optimizer slots |
 | G14 | Replay, resume, and migration | Exact raw groups including invalid/empty peers; immutable selection plus materialization receipts; same-version resume, export/reload, legacy tape materialization, required compatible Adam/Muon-state migration, and a verified subsequent update |

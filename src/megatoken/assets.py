@@ -199,7 +199,7 @@ def bake_checkpoint(
     """Create a new parity-checked checkpoint with import assets removed."""
     from megatoken.loading import build_model
     from megatoken.model.config import ModelConfig
-    from megatoken.training.checkpoint import load_checkpoint, save_checkpoint
+    from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
     from megatoken.training.optimizer import MasterAdamW
 
     payload, metadata = load_checkpoint(checkpoint)
@@ -219,12 +219,21 @@ def bake_checkpoint(
             "optimizer": optimizer.state_dict(),
             "engram_bake": report,
         }
+        bank = metadata.pop("transducer_checkpoint", None)
+
+        def carry_bank(stage: Path) -> dict[str, Any]:
+            if bank is None:
+                return {}
+            shutil.copyfile(resolve_checkpoint(checkpoint) / bank["file"], stage / bank["file"])
+            return {"transducer_checkpoint": bank}
+
         path = save_checkpoint(
             output,
             f"{payload['train_config']['phase']}-{payload['global_step']:09d}-baked",
             saved,
             {**metadata, "engram_bake": report},
             pinned=True,
+            attachments=carry_bank,
         )
         return {"checkpoint": str(path), **report}
     finally:

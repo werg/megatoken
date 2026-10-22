@@ -13,10 +13,11 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from retrieval_fixture import retrieval_train_config
 from torch import nn
+from training_fixture import tiny_train_config
 
-from megatoken.training.checkpoint import load_checkpoint
+from megatoken.training import transducer_sync
+from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint
 from megatoken.training.config import TrainConfig
 from megatoken.training.distributed import DistributedContext
 from megatoken.training.engine import train
@@ -169,6 +170,8 @@ def _gradient_worker(rank: int, rendezvous: str, output_path: str) -> None:
 
 def _engine_worker(rank: int, rendezvous: str, config_dict: dict, output_path: str) -> None:
     _start_group(rank, rendezvous)
+    # Exchange a shared-bank round after every step.
+    transducer_sync.LOCAL_STEPS = 1
     try:
         config = TrainConfig.from_dict(config_dict)
         first = train(config)
@@ -214,7 +217,7 @@ def test_two_rank_variable_mask_gradient_and_master_update_matches_combined_batc
 )
 def test_two_rank_full_engine_checkpoint_resume_and_phase_transition(tmp_path):
     torch.set_num_threads(1)
-    config = retrieval_train_config(
+    config = tiny_train_config(
         tmp_path,
         microbatch_episodes=1,
         accumulate_scored=1,
@@ -245,4 +248,9 @@ def test_two_rank_full_engine_checkpoint_resume_and_phase_transition(tmp_path):
             == payload["counters"]["D"] + payload["counters"]["reconstruction_tokens"]
         )
         assert metadata["global_step"] == rank0[name]["global_step"]
+        saved = torch.load(
+            resolve_checkpoint(rank0[name]["checkpoint"]) / "transducer.pt", weights_only=True
+        )
+        # One merged round per step, counted across the resume.
+        assert saved["rounds"]["version"] == metadata["global_step"]
     assert rank0["transitioned"]["complete"]

@@ -414,7 +414,7 @@ actual record bytes; supervised P counts both passes' actual free decoder target
 These units cannot be compared as if they were interchangeable.
 
 For latent-only RL, call `freeze_decoder_for_rl()` after constructing or loading
-the optimizer. It freezes E, all C and KV/memory owners, and R/U, and clears their
+the optimizer. It freezes E, all C owners, and R/U, and clears their
 gradients. P, its control path, and the Gaussian scale remain trainable. Freezing
 E, C/KV and R preserves exact historical reconstruction and materialization
 for fixed raw tapes while P's density changes. R itself does not read C;

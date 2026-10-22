@@ -2,7 +2,7 @@
 
 import pytest
 import torch
-from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
+from training_fixture import MODEL_OVERRIDES, tiny_train_config
 
 from megatoken.data import Episode, Lineage, PhysicalRecord, WindowConfig, iter_windows
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
@@ -44,7 +44,7 @@ def fixture_episode():
 
 
 def train_config(root, mode):
-    return retrieval_train_config(
+    return tiny_train_config(
         root,
         phase="B0" if mode == "bootstrap" else "P1",
         representation_mode=mode,
@@ -118,13 +118,14 @@ def test_grouped_global_ledger_and_selected_recurrence(mode, monkeypatch, tmp_pa
         config,
         torch.device("cpu"),
         0,
-        retrieval_aux(config, supervised=False),
     )
     ledger.finish()
     assert metrics["grouped_supervised_meridians"] == 2
     assert metrics["grouped_selected_events"] == 3
-    assert seen[1][0] is seen[0][1]
-    assert seen[0][1].history.slots == 4 * model.config.n_facets
+    # The bank lookup between meridians extends the state the next one starts from.
+    assert seen[1][0].history.slots >= seen[0][1].history.slots
+    # Four facet slots per meridian step, plus the bank's metadata and lookup slots.
+    assert seen[0][1].history.slots > 4 * model.config.n_facets
     assert seen[0][1].raw.grad is not None
     assert model.core.frontend.facet_queries.grad is not None
     assert batch_counters([batch]).P == 2 * len(b"onetwothree")
@@ -158,13 +159,13 @@ def test_media_payload_is_not_silently_trained_as_text(tmp_path):
 
 
 def test_grouped_episode_runs_in_existing_training_checkpoint_loop(tmp_path):
-    from retrieval_fixture import retrieval_train_config
+    from training_fixture import tiny_train_config
 
     from megatoken.training.checkpoint import load_checkpoint
     from megatoken.training.engine import train
 
     torch.set_num_threads(1)
-    config = retrieval_train_config(
+    config = tiny_train_config(
         tmp_path,
         phase="P1",
         representation_mode="recurrent",
@@ -248,7 +249,6 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
         config,
         torch.device("cpu"),
         0,
-        retrieval_aux(config, supervised=False),
     )
     ledger.finish()
     assert len(selected) == 1 and selected[0][0]

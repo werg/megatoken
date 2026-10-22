@@ -146,8 +146,11 @@ def serve_multitrack_jsonl(
             if op == "open":
                 if len(sessions) >= max_sessions:
                     raise ValueError("Session capacity reached")
+                metadata = request.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    raise ValueError("Session metadata must be a JSON object")
                 session_id = uuid.uuid4().hex
-                sessions[session_id] = runtime.open()
+                sessions[session_id] = runtime.open(metadata)
                 answer = {
                     "session": session_id,
                     "architecture_version": engine.model.config.architecture_version,

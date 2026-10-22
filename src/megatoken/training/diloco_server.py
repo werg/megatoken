@@ -62,20 +62,16 @@ def initialize_coordinator(
     grace_seconds: float = 8.0,
     max_staleness: int = 2,
     token_budget: int = 0,
-    kb: dict | None = None,
-    max_kb_update_bytes: int = 256 << 20,
-    transducer: dict | None = None,
+    transducer: dict,
+    transducer_state: dict | None = None,
     max_transducer_round_bytes: int = 1 << 30,
 ) -> dict:
     """Initialize a new run; never silently overwrite an existing trajectory.
 
-    ``kb`` holds :func:`megatoken.training.diloco_kb.initialize_kb` keyword
-    arguments for live free-KB phases; the coordinator then owns the canonical bank.
-    ``transducer`` ({"geometry": ..., "evidence_from": ...}) makes it the
-    canonical owner of a v10 transducer bank instead.
+    ``transducer`` ({"geometry": ..., "evidence_from": ...}) makes the
+    coordinator the canonical owner of the run's transducer bank;
+    ``transducer_state`` (a checkpoint's ``transducer.pt``) seeds that bank.
     """
-    if kb is not None and transducer is not None:
-        raise ValueError("A run owns either a v9 free KB or a v10 transducer bank")
     root = Path(root)
     if (
         not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", run_id)
@@ -84,7 +80,7 @@ def initialize_coordinator(
         or not 0 <= max_staleness <= 32
         or token_budget < 0
         or not (0 < outer_lr <= 4 and 0 <= outer_momentum < 1)
-        or max_kb_update_bytes < 1024
+        or max_transducer_round_bytes < 1024
     ):
         raise ValueError("Invalid DiLoCo coordinator configuration")
     if root.exists() and any(root.iterdir()):
@@ -108,16 +104,10 @@ def initialize_coordinator(
         "dataset_fingerprint": dataset_fingerprint,
         "parameter_identity": parameter_identity(masters),
         "fragments": [item.to_dict() for item in fragments],
-        "kb": None,
-        "max_kb_update_bytes": max_kb_update_bytes,
         "transducer": transducer,
         "max_transducer_round_bytes": max_transducer_round_bytes,
     }
     try:
-        if kb is not None:
-            from megatoken.training.diloco_kb import initialize_kb
-
-            manifest["kb"] = initialize_kb(root, **kb)
         manifest["fingerprint"] = content_hash(manifest)
         with atomic_binary_writer(root / "bootstrap.pt") as handle:
             torch.save({"model": {k: v.detach().cpu() for k, v in model_state.items()}}, handle)
@@ -134,6 +124,18 @@ def initialize_coordinator(
                 metadata={"version": "0"},
             )
         write_json(root / "progress.json", {"workers": {}, "leases": {}, "merges": 0})
+        if transducer_state is not None:
+            from megatoken.training.transducer_sync import TransducerHost
+
+            host = TransducerHost(
+                root,
+                transducer,
+                workers=workers,
+                min_quorum=min_quorum,
+                grace_seconds=grace_seconds,
+            )
+            host.seed(transducer_state)
+            host.persist()
         # Manifest is the last write: a run is discoverable only when complete.
         write_json(root / "manifest.json", manifest)
     except BaseException:
@@ -155,31 +157,15 @@ class Coordinator:
         self.progress = strict_json_loads((self.root / "progress.json").read_bytes())
         self.lock = threading.RLock()
         self.quorum_since: dict[int, float] = {}
-        self.kb = None
-        if self.manifest.get("kb") is not None:
-            from megatoken.training.diloco_kb import KBCoordinator
+        from megatoken.training.transducer_sync import TransducerHost
 
-            self.kb = KBCoordinator(
-                self.root,
-                self.manifest["kb"],
-                outer_lr=self.manifest["outer_lr"],
-                outer_momentum=self.manifest["outer_momentum"],
-                max_staleness=self.manifest["max_staleness"],
-                min_quorum=self.manifest["min_quorum"],
-                workers=self.manifest["workers"],
-                grace_seconds=self.manifest["grace_seconds"],
-            )
-        self.transducer = None
-        if self.manifest.get("transducer") is not None:
-            from megatoken.training.transducer_sync import TransducerHost
-
-            self.transducer = TransducerHost(
-                self.root,
-                self.manifest["transducer"],
-                workers=self.manifest["workers"],
-                min_quorum=self.manifest["min_quorum"],
-                grace_seconds=self.manifest["grace_seconds"],
-            )
+        self.transducer = TransducerHost(
+            self.root,
+            self.manifest["transducer"],
+            workers=self.manifest["workers"],
+            min_quorum=self.manifest["min_quorum"],
+            grace_seconds=self.manifest["grace_seconds"],
+        )
         self._sync_public()
         # A queued quorum surviving a restart gets an immediate opportunity to merge.
         self.tick()
@@ -264,10 +250,7 @@ class Coordinator:
                 ),
                 "merges": self.progress["merges"],
                 "versions": [self._version(f.index) for f in self.fragments],
-                "kb_version": None if self.kb is None else self.kb.version(),
-                "transducer_version": (
-                    None if self.transducer is None else self.transducer.version()
-                ),
+                "transducer_version": self.transducer.version(),
                 "live_workers": sum(
                     x["expires"] >= time.time() for x in self.progress["leases"].values()
                 ),
@@ -401,54 +384,23 @@ class Coordinator:
         self.progress["merges"] += 1
         self._write_progress()
 
-    def submit_kb(
-        self,
-        worker: int,
-        session: str,
-        sequence: int,
-        base_version: int,
-        steps: int,
-        tokens: int,
-        incoming: Path,
-    ) -> dict:
-        with self.lock:
-            self._lease_valid(worker, session)
-            if self.kb is None:
-                raise ValueError("This coordinator run does not own a free KB")
-            return self.kb.submit(
-                worker,
-                sequence,
-                base_version,
-                steps,
-                tokens,
-                incoming,
-                Conflict,
-            )
-
     def submit_transducer(
         self, worker: int, session: str, sequence: int, base_version: int, incoming: Path
     ) -> dict:
         with self.lock:
             self._lease_valid(worker, session)
-            if self.transducer is None:
-                raise ValueError("This coordinator run does not own a transducer bank")
             return self.transducer.submit(worker, sequence, base_version, incoming, Conflict)
 
     def transducer_validation(self, worker: int, session: str, step: int, loss: float) -> dict:
         with self.lock:
             self._lease_valid(worker, session)
-            if self.transducer is None:
-                raise ValueError("This coordinator run does not own a transducer bank")
             return self.transducer.record_validation(step, loss)
 
     def tick(self) -> None:
         with self.lock:
             for fragment in self.fragments:
                 self._try_merge(fragment.index)
-            if self.kb is not None:
-                self.kb.try_merge()
-            if self.transducer is not None:
-                self.transducer.try_merge()
+            self.transducer.try_merge()
 
 
 def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> None:
@@ -553,22 +505,7 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                     self._json(200, coordinator.status())
                 elif parsed.path == "/v1/bootstrap":
                     self._file(coordinator.root / "bootstrap.pt")
-                elif parsed.path == "/v1/kb":
-                    if coordinator.kb is None:
-                        raise ValueError("This coordinator run does not own a free KB")
-                    with coordinator.lock:
-                        version, path = coordinator.kb.published()
-                        unchanged = parse_qs(parsed.query).get("after") == [str(version)]
-                        file = None if unchanged else path.open("rb")
-                    if unchanged:
-                        self.send_response(204)
-                        self.send_header("Content-Length", "0")
-                        self.end_headers()
-                    else:
-                        self._stream_file(file, version, header="X-KB-Version")
                 elif parsed.path in ("/v1/transducer", "/v1/transducer/changes"):
-                    if coordinator.transducer is None:
-                        raise ValueError("This coordinator run does not own a transducer bank")
                     from megatoken.training.transducer_sync import ChangesExpired
 
                     after = int(parse_qs(parsed.query).get("after", ["-1"])[0])
@@ -644,43 +581,6 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                         result = coordinator.submit(index, *self._update_headers(), filename)
                     finally:
                         filename.unlink(missing_ok=True)
-                elif parsed.path == "/v1/kb/changes":
-                    # POST: the body lists the learner's locally trained row IDs.
-                    if coordinator.kb is None:
-                        raise ValueError("This coordinator run does not own a free KB")
-                    from megatoken.training.diloco_kb import KBChangesExpired
-
-                    value = self._read_json(16 << 20)
-                    exports = coordinator.root / "kb" / "exports"
-                    exports.mkdir(exist_ok=True)
-                    fd, name = tempfile.mkstemp(dir=exports, suffix=".sqlite")
-                    os.close(fd)
-                    target = Path(name)
-                    try:
-                        with coordinator.lock:
-                            try:
-                                version = coordinator.kb.export_changes(
-                                    int(value["after"]),
-                                    target,
-                                    records=tuple(value.get("records", ())),
-                                    relations=tuple(value.get("relations", ())),
-                                )
-                            except KBChangesExpired as exc:
-                                self._json(410, {"error": str(exc)})
-                                return
-                        if version is None:
-                            self.send_response(204)
-                            self.send_header("Content-Length", "0")
-                            self.end_headers()
-                        else:
-                            self._stream_file(
-                                target.open("rb"),
-                                version,
-                                header="X-KB-Version",
-                            )
-                    finally:
-                        target.unlink(missing_ok=True)
-                    return
                 elif parsed.path == "/v1/transducer/rounds":
                     filename = self._receive(
                         coordinator.manifest.get("max_transducer_round_bytes", 1 << 30)
@@ -700,14 +600,6 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                         int(value["step"]),
                         float(value["loss"]),
                     )
-                elif parsed.path == "/v1/kb/updates":
-                    filename = self._receive(
-                        coordinator.manifest.get("max_kb_update_bytes", 256 << 20)
-                    )
-                    try:
-                        result = coordinator.submit_kb(*self._update_headers(), filename)
-                    finally:
-                        filename.unlink(missing_ok=True)
                 else:
                     self._json(404, {"error": "Unknown endpoint"})
                     return

@@ -41,7 +41,7 @@ def test_launch_interfaces_parse_explicit_modes():
         [
             "train",
             "--config",
-            "configs/train/retrieval-coherence.example.yaml",
+            "configs/train/coherence.example.yaml",
             "--no-require-blackwell",
             "--compile",
             "--expert-backend",

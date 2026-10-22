@@ -1,6 +1,6 @@
 """Serving sessions for the v10 transducer: one agenda per session, native C history.
 
-No teacher, v9 point/pair KB or training hindsight exists on this path. A
+No teacher or training hindsight exists on this path. A
 query/knowledge pair is one cancellable transaction: on timeout or
 cancellation neither the agenda nor the native state changes. Only ordinary
 meridians (observed or generated) schedule lookups; every call on a session
@@ -14,7 +14,6 @@ import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
 
 import torch
 
@@ -39,17 +38,15 @@ class TransducerSession:
 
 
 class TransducerInferenceEngine:
-    """Owns serving sessions for one generator with an attached transducer."""
+    """Owns serving sessions for one multitrack generator and its transducer."""
 
-    def __init__(self, model: Any) -> None:
-        if model.transducer is None:
-            raise ValueError("This model has no v10 transducer")
-        self.model = model.eval()
+    def __init__(self, multi: MultiTrackGenerator) -> None:
+        model = multi.generator.eval()
         self.native = model.transducer
         self.bank = self.native.bank
         if model.core.initial_facets.device != self.bank.device:
             raise ValueError("The v10 model and packed bank must be on one device")
-        self.multi = MultiTrackGenerator(model)
+        self.multi = multi
 
     def _check(self, session: TransducerSession) -> None:
         if session.owner != id(self):

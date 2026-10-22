@@ -14,7 +14,7 @@ from pathlib import Path
 
 import torch
 
-from megatoken.training.checkpoint import save_checkpoint
+from megatoken.training.checkpoint import save_checkpoint, transducer_attachment
 from megatoken.training.diloco_protocol import Fragment, load_tensors, training_identity
 from megatoken.training.diloco_server import _metadata
 
@@ -56,15 +56,16 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
         snapshot[name] = value.to(snapshot[name].dtype)
     # The global FP32 masters seed the next phase's coordinator (diloco init --resume).
     from megatoken.io import sha256_file
-    from megatoken.memory.recipe import RetrievalRecipe
+    from megatoken.training.transducer_sync import TransducerHost
 
-    retrieval = {
-        "retrieval_sidecar_sha256": sha256_file(Path(config.retrieval_sidecar)),
-        "retrieval_document_sha256": sha256_file(Path(config.retrieval_document_sidecar)),
-        "retrieval_recipe_fingerprint": RetrievalRecipe.load(
-            config.retrieval_memory_recipe
-        ).fingerprint,
-    }
+    host = TransducerHost(
+        root,
+        manifest["transducer"],
+        workers=manifest["workers"],
+        min_quorum=manifest["min_quorum"],
+        grace_seconds=manifest["grace_seconds"],
+    )
+
     name = f"outer-{max(versions):09d}-{int(time.time())}"
     directory = save_checkpoint(
         output,
@@ -75,7 +76,6 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
             "train_config": asdict(config),
             "codec_fingerprint": manifest["codec_fingerprint"],
             "packs_fingerprint": sha256_file(config.packs) if config.packs else None,
-            **retrieval,
             "export_only": True,
             "master_weights": params,
             "outer_fragment_versions": versions,
@@ -90,5 +90,6 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
             "outer_fragment_versions": versions,
         },
         pinned=True,
+        attachments=transducer_attachment(host.checkpoint_state),
     )
     return {"checkpoint": str(directory), "versions": versions, "export_only": True}

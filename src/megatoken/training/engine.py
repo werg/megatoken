@@ -9,7 +9,6 @@ an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
 from __future__ import annotations
 
 import dataclasses
-import json
 import os
 import shutil
 import signal
@@ -34,8 +33,14 @@ from megatoken.loading import (
     restore_weights,
 )
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
+from megatoken.teacher import PINNED_TEACHER
 from megatoken.tensors import byte_tensor
-from megatoken.training.autoencode import AutoencodePlan, FeatureSampler, autoencode_losses
+from megatoken.training.autoencode import (
+    AutoencodePlan,
+    FeatureSampler,
+    autoencode_losses,
+    embedding_center,
+)
 from megatoken.training.checkpoint import (
     CheckpointWriter,
     commit_checkpoint,
@@ -43,6 +48,7 @@ from megatoken.training.checkpoint import (
     resolve_checkpoint,
     snapshot_to_cpu,
     stage_checkpoint,
+    transducer_attachment,
 )
 from megatoken.training.config import DEFAULT_LOSS_WEIGHTS, TrainConfig
 from megatoken.training.diloco_client import DecoupledWorker
@@ -70,6 +76,8 @@ from megatoken.training.stream import (
     MixtureWindowStream,
     WindowStream,
 )
+from megatoken.training.transducer import TransducerTrainer
+from megatoken.training.transducer_sync import RankRounds, TransducerSync, install_published
 
 
 def ingest_records(
@@ -195,7 +203,7 @@ def prepare_batches(
     """Only native grouped-meridian episodes are valid training examples.
 
     Earlier ungrouped/action fallback batching is removed, rather than silently
-    applying a different loss/history schedule without retrieval-memory.
+    applying a different loss/history schedule.
     """
     result: list[MeridianPreparedBatch] = []
     histories: dict[int, NativeHistory] = {}
@@ -210,8 +218,7 @@ def prepare_batches(
         episode = item.episode
         if not episode.meridians:
             raise ValueError(
-                "Training requires causal native meridians and retrieval sidecar; "
-                "reprepare this old ungrouped episode"
+                "Training requires causal native meridians; reprepare this old ungrouped episode"
             )
         if any(
             len(record.payload) > config.max_record_bytes
@@ -296,59 +303,53 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     return result
 
 
-def bank_only_loss(
-    model: Any,
-    config: TrainConfig,
-    codec: Any,
-    step: int,
-    *,
-    recipe: Any,
-    queries: dict,
-    documents: dict,
-) -> float:
-    """Held-out continuation loss with every lookup reading the bank alone."""
-    from megatoken.training.gates import heldout_forward
+def bank_only_loss(model: Any, config: TrainConfig, codec: Any, step: int) -> float:
+    """Held-out weighted per-position loss with every lookup reading the bank alone.
+
+    The identical training forward runs without updates on the validation
+    split; the model is in eval mode, so lookups take no hindsight.
+    """
+    from itertools import islice
+
+    from megatoken.data import iter_windows
+    from megatoken.training.stream import EpisodeWindow
 
     validation = PreparedDataset(config.dataset, split="validation")
     rng = capture_rng()
+    sums: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    was_training = model.training
+    model.eval()
     try:
-        result = heldout_forward(
-            model,
-            config,
-            codec,
-            validation,
-            recipe=recipe,
-            queries=queries,
-            documents=documents,
-            max_episodes=config.eval_episodes,
-            model_version=step,
-        )
+        device = model.core.initial_facets.device
+        windows_config = window_config(config)
+        for episode in islice(validation.iter_episodes(), config.eval_episodes):
+            windows = [
+                EpisodeWindow(episode, window)
+                for window in iter_windows(episode, codec, windows_config)
+            ]
+            for batch in prepare_batches(model, windows, config):
+                ledger = LossLedger(dict(batch.counts), dict(batch.counts), config.loss_weights)
+                with torch.no_grad():
+                    forward_meridian_batch(
+                        model, batch, ledger, config, device, step, differentiate=False
+                    )
+                ledger.finish()
+                for name, value in ledger.sums.items():
+                    sums[name] = sums.get(name, 0.0) + float(value)
+                for name, count in batch.counts.items():
+                    counts[name] = counts.get(name, 0) + int(count)
     finally:
+        model.train(was_training)
         validation.close()
         restore_rng(rng)
-    total = sum(
-        config.loss_weights.get(name, 0.0) * result.per_token(name)
-        for name, count in result.counts.items()
-        if count
+    return float(
+        sum(
+            config.loss_weights.get(name, 0.0) * sums.get(name, 0.0) / count
+            for name, count in counts.items()
+            if count
+        )
     )
-    return float(total)
-
-
-def _stage_bank(source: Path, target: Path) -> None:
-    """Consistent SQLite copy (WAL/journal aware), atomically published."""
-    import sqlite3
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    staging = target.with_name(target.name + ".staging")
-    staging.unlink(missing_ok=True)
-    reader = sqlite3.connect(f"file:{source.resolve().as_posix()}?mode=ro", uri=True)
-    writer = sqlite3.connect(staging)
-    try:
-        reader.backup(writer)
-    finally:
-        writer.close()
-        reader.close()
-    os.replace(staging, target)
 
 
 def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transition: bool) -> None:
@@ -386,19 +387,6 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "deterministic",
             "gradient_checkpointing",
             "representation_mode",
-            "retrieval_sidecar",
-            "retrieval_document_sidecar",
-            "retrieval_memory_recipe",
-            "retrieval_bank",
-            "retrieval_source_assets_root",
-            "retrieval_ivf_centroids",
-            "retrieval_ivf_sha256",
-            "retrieval_gate_receipt",
-            "retrieval_sparse_lr",
-            "retrieval_growth_every",
-            "retrieval_growth_budget",
-            "retrieval_kv_dropout",
-            "retrieval_lora_dropout",
             "router_balance_mode",
             "trainable",
             "text_anchors",
@@ -447,10 +435,7 @@ def train(
     diloco = None
     checkpoint_writer = None
     optimizer = None
-    bank_owner = None
     transducer = None
-    kb_sync = None
-    kb_version = None
     dataset = stream = None
     old_handlers = {}
     stop_requested = False
@@ -478,84 +463,6 @@ def train(
             "checkpoint_stages": config.gradient_checkpointing,
         }
         model_config = load_model_config(config.model, **overrides)
-        from megatoken.data.document_embeddings import read_document_sidecar
-        from megatoken.data.retrieval import read_sidecar
-        from megatoken.memory.recipe import RetrievalRecipe
-
-        retrieval_recipe = RetrievalRecipe.load(config.retrieval_memory_recipe)
-        retrieval_examples = {}
-        # Activation checkpointing and the expert kernel are runtime choices,
-        # not pinned geometry.
-        runtime_only = ("checkpoint_stages", "expert_backend")
-        if {k: v for k, v in retrieval_recipe.model.to_dict().items() if k not in runtime_only} != {
-            k: v for k, v in model_config.to_dict().items() if k not in runtime_only
-        }:
-            raise ValueError("Training model differs from pinned recipe geometry")
-        phase_stages = {
-            "coherence_embedding": {"B0", "MB", "P1"},
-            "progressive_warmup": {"M1"},
-            "free_kb_pretraining": {"M2", "LC", "S", "D"},
-        }
-        if config.phase not in phase_stages.get(retrieval_recipe.phase, set()):
-            raise ValueError(
-                f"Native training stage {config.phase} is not in the mandatory "
-                f"{retrieval_recipe.phase} retrieval-memory curriculum"
-            )
-        from megatoken.teacher import PINNED_TEACHER
-
-        if retrieval_recipe.space.teacher != PINNED_TEACHER:
-            raise ValueError("The retrieval space must be the pinned EmbeddingGemma2 teacher's")
-        if retrieval_recipe.growth.partition_id.startswith("PIN_"):
-            raise ValueError("Pin the data partition before training")
-        if retrieval_recipe.phase != "coherence_embedding":
-            if (
-                retrieval_recipe.phase
-                not in {
-                    "progressive_warmup",
-                    "free_kb_pretraining",
-                }
-                or not (config.retrieval_bank or model_config.transducer)
-                or not config.retrieval_gate_receipt
-            ):
-                raise ValueError("Live free-KB phases require a bank and phase gate")
-            from megatoken.memory.recipe import GateReceipt, validate_gate
-
-            gate = json.loads(Path(config.retrieval_gate_receipt).read_text())
-            receipt = GateReceipt(**{**gate, "successful": tuple(gate["successful"])})
-            if receipt.phase != retrieval_recipe.phase:
-                raise ValueError("Retrieval phase gate must match training phase")
-            validate_gate(retrieval_recipe, receipt)
-        elif config.retrieval_bank:
-            raise ValueError("Coherence embedding bootstrap must not train free-KB rows")
-        for example in read_sidecar(config.retrieval_sidecar):
-            identity = (example.episode_id, example.event_id)
-            if identity in retrieval_examples:
-                raise ValueError("Duplicate retrieval event identity")
-            if example.query.space_fingerprint != retrieval_recipe.space.fingerprint:
-                raise ValueError("Sidecar semantic space differs from recipe")
-            if example.teacher_target is None or (
-                len(example.teacher_target) != retrieval_recipe.space.dimension
-            ):
-                raise ValueError("Teacher query target is missing or wrong width")
-            # Reject legacy sidecars that contain a teacher query target
-            # but no causal main request. Training on answer facets would
-            # turn the retrieval realizer into an answer embedding head.
-            example.request_content()
-            retrieval_examples[identity] = example
-        if not retrieval_examples:
-            raise ValueError("A mandatory retrieval query training sidecar cannot be empty")
-        document_examples = {}
-        for item in read_document_sidecar(config.retrieval_document_sidecar):
-            identity = (item.episode_id, item.event_id)
-            if identity in document_examples:
-                raise ValueError("Duplicate document teacher assignment")
-            if len(item.teacher_target) != retrieval_recipe.space.dimension:
-                raise ValueError("Document teacher uses a different semantic-space dimension")
-            document_examples[identity] = item
-        if not document_examples:
-            raise ValueError("Document-role E/R distillation requires prepared original chunks")
-        retrieval_sidecar_sha = sha256_file(Path(config.retrieval_sidecar))
-        document_sidecar_sha = sha256_file(Path(config.retrieval_document_sidecar))
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
@@ -572,12 +479,6 @@ def train(
         if resume:
             payload, _ = load_checkpoint(resume, map_location="cpu")
             _resume_compatible(payload["train_config"], config, phase_transition)
-            if not phase_transition and (
-                payload.get("retrieval_sidecar_sha256", "") != retrieval_sidecar_sha
-                or payload.get("retrieval_document_sha256", "") != document_sidecar_sha
-                or payload.get("retrieval_recipe_fingerprint", "") != (retrieval_recipe.fingerprint)
-            ):
-                raise ValueError("Exact resume changed retrieval supervision or recipe identity")
             if payload["codec_fingerprint"] != codec.fingerprint:
                 raise ValueError("Checkpoint codec identity differs")
             if payload["model_config"] != model_config.to_dict():
@@ -591,160 +492,28 @@ def train(
             from megatoken.assets import install_engram_asset
 
             install_engram_asset(model, config.engram_import)
-        if model.transducer is not None:
-            if config.retrieval_bank:
-                raise ValueError("A v10 transducer replaces the v9 free-KB bank")
-            if config.decoupled is None and context.world_size != 1:
-                raise ValueError(
-                    "Synchronous ranks cannot share one sparse transducer bank; "
-                    "run decoupled DiLoCo learners instead"
-                )
-            from megatoken.training.transducer import TransducerTrainer
-
-            transducer = TransducerTrainer(
-                model.transducer,
-                worker=config.decoupled.resolved_worker_id if config.decoupled else 0,
-                provisional=config.decoupled is not None,
+        # Synchronous ranks are learners of one canonical bank merged on rank 0.
+        transducer = TransducerTrainer(
+            model.transducer,
+            worker=config.decoupled.resolved_worker_id if config.decoupled else context.rank,
+            provisional=config.decoupled is not None or context.world_size > 1,
+        )
+        rank_rounds = None
+        if context.world_size > 1:
+            rank_rounds = RankRounds(transducer, context)
+        if resume:
+            saved = torch.load(
+                resolve_checkpoint(resume) / "transducer.pt", map_location="cpu", weights_only=True
             )
-            if resume:
-                transducer.load_state_dict(
-                    torch.load(
-                        resolve_checkpoint(resume) / "transducer.pt",
-                        map_location="cpu",
-                        weights_only=True,
-                    )
-                )
-        if config.retrieval_bank:
-            from megatoken.memory.recipe import open_bank_for_recipe, validate_checkpoint
-            from megatoken.training.bank import BankTrainingOwner
-
-            bank_path = Path(config.retrieval_bank)
-            if config.decoupled is not None:
-                # Decoupled learners train a local copy of the coordinator's
-                # canonical bank; the coordinator alone allocates rows.
-                bank_path = output / "diloco" / "kb.sqlite"
-                bank_path.parent.mkdir(parents=True, exist_ok=True)
-                if payload is not None:
-                    restored = bank_path.with_name(bank_path.name + ".restore")
-                    shutil.copyfile(resolve_checkpoint(resume) / "kb.sqlite", restored)
-                    os.replace(restored, bank_path)
-                else:
-                    from megatoken.training.diloco_client import fetch_kb_snapshot
-
-                    kb_version = fetch_kb_snapshot(config.decoupled, bank_path)
+            if rank_rounds is not None:
+                rank_rounds.load_state_dict(saved)
+            elif "canonical" in saved:
+                # A multi-owner bank (ranks or coordinator); this learner's statistics restart.
+                transducer.bank.load_snapshot(saved["bank"])
+                transducer.sequences = int(saved.get("sequences", 0))
             else:
-                # The configured bank is an immutable input. Each run trains its own
-                # copy: exact resume and phase transitions continue the checkpoint's
-                # jointly trained bank, and only the first live phase starts from
-                # retrieval_bank. Aborted runs can never corrupt an input bank.
-                bank_path = output / "kb.sqlite"
-                error = None
-                if context.is_primary:
-                    try:
-                        carried = (
-                            resolve_checkpoint(resume) / "kb.sqlite"
-                            if payload is not None
-                            else None
-                        )
-                        if carried is not None and carried.is_file():
-                            _stage_bank(carried, bank_path)
-                        elif payload is not None and not phase_transition:
-                            raise FileNotFoundError("Exact resume checkpoint lacks its KB snapshot")
-                        elif not Path(config.retrieval_bank).is_file():
-                            raise FileNotFoundError(
-                                "Live KB must be source-populated before training"
-                            )
-                        else:
-                            _stage_bank(Path(config.retrieval_bank), bank_path)
-                    except BaseException as exc:
-                        error = f"{type(exc).__name__}: {exc}"
-                failures = context.all_gather_object(error)
-                if any(failures):
-                    raise RuntimeError(f"Run KB staging failed: {failures}")
-                context.barrier()
-            bank = open_bank_for_recipe(retrieval_recipe, bank_path)
-            try:
-                ready = bank.growth_state("readiness", {})
-                if not (ready.get("coherence") and ready.get("embeddings")):
-                    raise RuntimeError(
-                        "Free-KB training requires verified coherence/embedding readiness"
-                    )
-                if payload is not None and not phase_transition:
-                    snapshot = resolve_checkpoint(resume) / "kb.sqlite"
-                    validate_checkpoint(
-                        retrieval_recipe,
-                        snapshot,
-                        model_checkpoint_id=resolve_checkpoint(resume).name,
-                    )
-                    with open_bank_for_recipe(
-                        retrieval_recipe,
-                        snapshot,
-                        readonly=True,
-                    ) as pinned:
-                        if (
-                            bank.database_id != pinned.database_id
-                            or bank.revisions() != pinned.revisions()
-                        ):
-                            raise RuntimeError(
-                                "Live KB revisions differ from exact-resume snapshot; "
-                                "restore the matching SQLite snapshot explicitly"
-                            )
-                if not config.retrieval_source_assets_root:
-                    raise ValueError(
-                        "Native free-KB pretraining requires pinned original source "
-                        "assets to ingest RAG evidence through E/C"
-                    )
-                from megatoken.training.source_features import NativeSourceFeatures
-
-                source_features = NativeSourceFeatures(
-                    model,
-                    config.retrieval_source_assets_root,
-                    max_chunk_bytes=retrieval_recipe.max_source_bytes,
-                    strict_hash=True,
-                )
-                centroids = None
-                if config.retrieval_ivf_centroids:
-                    if (
-                        sha256_file(Path(config.retrieval_ivf_centroids))
-                        != config.retrieval_ivf_sha256
-                    ):
-                        raise ValueError("Learned IVF centroid artifact SHA256 mismatch")
-                    import numpy as np
-
-                    centroids = np.load(
-                        config.retrieval_ivf_centroids,
-                        allow_pickle=False,
-                    )
-                elif (
-                    bank.db.execute(
-                        "SELECT COUNT(*) FROM records WHERE collection='source' AND active=1"
-                    ).fetchone()[0]
-                    > 10000
-                ):
-                    raise ValueError(
-                        "Large training corpora require pinned disk-IVF centroids "
-                        "instead of unbounded exact-source scans"
-                    )
-
-                def make_bank_owner(opened):
-                    return BankTrainingOwner(
-                        opened,
-                        retrieval_recipe,
-                        device=context.device,
-                        sparse_lr=config.retrieval_sparse_lr,
-                        source_features=source_features,
-                        centroids=centroids,
-                    )
-
-                bank_owner = make_bank_owner(bank)
-            except BaseException:
-                bank.close()
-                raise
+                transducer.load_state_dict(saved)
         context.broadcast_model(model)
-        if bank_owner is not None:
-            from megatoken.training.bank import assert_shared_bank_snapshot
-
-            assert_shared_bank_snapshot(bank_owner, context)
         phase = dataclasses.replace(
             PHASES[config.phase],
             budget=config.budget or PHASES[config.phase].budget,
@@ -796,15 +565,12 @@ def train(
                     f"Stage {config.phase} trains encode-and-reconstruct on prepared "
                     "feature items, but the dataset has none"
                 )
+            store = TensorAssetStore(config.media_root or config.dataset)
             autoencode = (
                 plan,
                 sampler,
-                TensorAssetStore(config.media_root or config.dataset),
-                torch.tensor(
-                    retrieval_recipe.embedding_centers["document"],
-                    device=context.device,
-                    dtype=torch.float32,
-                ),
+                store,
+                embedding_center(sampler, store).to(context.device),
             )
         chunking = ChunkingConfig.from_identity(dataset.manifest["chunking"], codec)
         chunking_identity = chunking.identity(codec)
@@ -862,28 +628,13 @@ def train(
                 train_identity=training_identity(config),
                 dataset_fingerprint=content_hash(dataset.manifest),
             )
-            if bank_owner is not None:
-                from megatoken.training.diloco_kb import KBSync
-
-                kb_settings = diloco.manifest.get("kb") or {}
-                if (
-                    kb_settings.get("database_id") != bank_owner.bank.database_id
-                    or kb_settings.get("recipe_fingerprint") != retrieval_recipe.fingerprint
-                    or kb_settings.get("centroids_sha256") != config.retrieval_ivf_sha256
-                ):
-                    raise ValueError("Learner KB, recipe or IVF identity differs from syncer")
-                kb_sync = KBSync(
-                    version=kb_version if kb_version is not None else 0,
-                    wire_dtype=config.decoupled.wire_dtype,
-                    local_steps=config.decoupled.local_steps,
-                )
-                diloco.attach_kb(kb_sync)
-            if transducer is not None:
-                from megatoken.training.transducer_sync import TransducerSync
-
-                diloco.attach_transducer(TransducerSync())
+            diloco.attach_transducer(TransducerSync())
             if payload is None:
                 diloco.bootstrap(model, optimizer)
+                # Start from the coordinator's canonical bank, not an empty one.
+                fetched = diloco.fetch_transducer(-1)
+                if fetched is not None:
+                    install_published(transducer, diloco.transducer, fetched[2], fetched[1])
         global_step = 0
         consumed = 0
         counters = Counters()
@@ -934,26 +685,9 @@ def train(
 
         checkpoint_writer = CheckpointWriter()
 
-        def memory_attachment(stage: Path, name: str) -> dict[str, Any]:
-            if transducer is not None:
-                path = stage / "transducer.pt"
-                torch.save(snapshot_to_cpu(transducer.state_dict()), path)
-                return {"transducer_checkpoint": {"file": path.name, "sha256": sha256_file(path)}}
-            if bank_owner is None:
-                return {}
-            from megatoken.memory.recipe import checkpoint_bank
-
-            growth = bank_owner.bank.growth_state("last_growth", {})
-            manifest = checkpoint_bank(
-                retrieval_recipe,
-                bank_owner.bank,
-                checkpoint_file=stage / "kb.sqlite",
-                model_checkpoint_id=name,
-                optimizer_step=global_step,
-                growth_cursor=content_hash(growth),
-                query_model_snapshot=f"native-p-r:{global_step}:{model_config.routing_version}",
-            )
-            return {"memory_checkpoint": manifest}
+        memory_attachment = transducer_attachment(
+            (transducer if rank_rounds is None else rank_rounds).state_dict
+        )
 
         def checkpoint(label: str, pinned: bool = False) -> str:
             """Snapshot at the step boundary; periodic writes overlap training.
@@ -971,7 +705,7 @@ def train(
                 root = output / "checkpoints"
                 staged = stage_checkpoint(root, name)
                 try:
-                    extra = memory_attachment(staged, name)
+                    extra = memory_attachment(staged)
                     payload = snapshot_to_cpu(
                         {
                             "model": model.state_dict(),
@@ -980,9 +714,6 @@ def train(
                             "model_config": model_config.to_dict(),
                             "train_config": asdict(config),
                             "codec_fingerprint": codec.fingerprint,
-                            "retrieval_sidecar_sha256": retrieval_sidecar_sha,
-                            "retrieval_document_sha256": document_sidecar_sha,
-                            "retrieval_recipe_fingerprint": retrieval_recipe.fingerprint,
                             "packs_fingerprint": packs_fingerprint,
                             "chunking": chunking_identity,
                             "rank_state": rank_state,
@@ -1074,25 +805,6 @@ def train(
                 key: sum(batch.counts[key] for batch in batches) for key in DEFAULT_LOSS_WEIGHTS
             }
             global_counts = context.sum_counts(local_counts)
-            retrieval_local = sum(
-                (b.windows[0].episode.episode_id, r.record.record_id) in retrieval_examples
-                for b in batches
-                if isinstance(b, MeridianPreparedBatch)
-                for step in b.steps
-                if step.generated
-                for r in step.records
-            )
-            retrieval_denom = context.sum_counts({"retrieval_queries": retrieval_local})[
-                "retrieval_queries"
-            ]
-            doc_local = sum(
-                (b.windows[0].episode.episode_id, r.record.record_id) in document_examples
-                for b in batches
-                for step in b.steps
-                if not step.generated
-                for r in step.records
-            )
-            document_denom = context.sum_counts({"document_chunks": doc_local})["document_chunks"]
             anchor_local = (
                 0
                 if text_anchors is None
@@ -1140,14 +852,6 @@ def train(
                         if text_anchors is None
                         else (text_anchors, anchor_denom, config.text_anchor_weight)
                     ),
-                    retrieval_aux=(
-                        retrieval_examples,
-                        retrieval_recipe,
-                        retrieval_denom,
-                        bank_owner,
-                        document_examples,
-                        document_denom,
-                    ),
                     transducer=transducer,
                 )
                 for key, value in diagnostics_batch.items():
@@ -1165,15 +869,14 @@ def train(
                 )
                 model.core.p_router.balance_recorder = None
                 model.core.u_router.balance_recorder = None
-            if transducer is not None:
-                step_diagnostics.update(transducer.after_backward(global_step + 1))
+            step_diagnostics.update(transducer.after_backward(global_step + 1))
             if autoencode is not None:
                 plan, sampler, store, center = autoencode
                 terms = autoencode_losses(
                     model,
                     sampler.draw(plan.items),
                     store,
-                    space_fingerprint=retrieval_recipe.space.fingerprint,
+                    space_fingerprint=PINNED_TEACHER,
                     center=center,
                 )
                 totals = context.sum_counts({name: count for name, (_, count) in terms.items()})
@@ -1193,63 +896,13 @@ def train(
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)
-            if bank_owner is not None and bank_owner.source_features is not None:
-                bank_owner.source_features.invalidate_after_step()
             optimizer_seconds = time.perf_counter() - optimizer_started
             global_step += 1
-            if transducer is not None:
-                step_metrics.update(transducer.barrier(global_step, evolve=diloco is None))
-            if bank_owner is not None:
-                from megatoken.training.bank import (
-                    synchronize_query_demand,
-                    synchronize_sparse_rows,
-                )
-
-                if kb_sync is not None:
-                    kb_sync.capture(bank_owner.sparse.leaves)
-                step_metrics["memory_sparse_updated"] = synchronize_sparse_rows(
-                    bank_owner,
-                    context,
-                    optimizer_step=global_step,
-                    max_norm=config.grad_clip,
-                )
-                if kb_sync is not None:
-                    # The DiLoCo coordinator records demand and owns all growth.
-                    kb_sync.add_demand(list(bank_owner.pending_demand))
-                    bank_owner.pending_demand.clear()
-                else:
-                    # Growth allocates from published demand; publish every step so
-                    # pending demand never accumulates between growth barriers.
-                    step_metrics["memory_demand_published"] = synchronize_query_demand(
-                        bank_owner,
-                        context,
-                    )
-                if kb_sync is None and global_step % config.retrieval_growth_every == 0:
-                    error = None
-                    grown = 0
-                    if context.is_primary:
-                        try:
-                            scopes = tuple(
-                                sorted(
-                                    {
-                                        a.query_teacher_inputs.ranges[0].scope
-                                        for a in retrieval_examples.values()
-                                    }
-                                )
-                            )
-                            grown = bank_owner.grow_at_barrier(
-                                scopes=scopes,
-                                step=global_step,
-                                budget=config.retrieval_growth_budget,
-                            )
-                        except BaseException as exc:
-                            error = f"{type(exc).__name__}: {exc}"
-                    failures = context.all_gather_object(error)
-                    if any(failures):
-                        raise RuntimeError(f"Memory growth transaction failed: {failures}")
-                    context.barrier()
-                    step_metrics["memory_grown"] = grown
-                assert_shared_bank_snapshot(bank_owner, context)
+            step_metrics.update(
+                transducer.barrier(global_step, evolve=diloco is None and rank_rounds is None)
+            )
+            if rank_rounds is not None:
+                step_metrics.update(rank_rounds.step(global_step))
             updates_this_run += 1
             consumed += getattr(global_work, phase.meter)
             counters.add(global_work)
@@ -1258,7 +911,6 @@ def train(
                     optimizer,
                     steps=global_step,
                     tokens=getattr(global_work, phase.meter),
-                    bank=None if bank_owner is None else bank_owner.bank,
                     transducer=transducer,
                 )
                 if diloco is not None
@@ -1266,30 +918,7 @@ def train(
             )
             ready = diloco_metrics.pop("transducer_ready", None)
             if ready is not None:
-                from megatoken.training.transducer_sync import install_published
-
                 install_published(transducer, diloco.transducer, ready[2], ready[1])
-            snapshot = diloco_metrics.pop("kb_snapshot", None)
-            if snapshot is not None:
-                from megatoken.memory.recipe import open_bank_for_recipe
-                from megatoken.training.diloco_kb import apply_changes, install_snapshot
-
-                # Between optimizer steps: no selected leaves or open transactions.
-                version, downloaded, kind = snapshot
-                residuals = kb_sync.residuals(bank_owner.bank)
-                overwritten = None
-                if kind == "changes":
-                    try:
-                        applied, overwritten = apply_changes(bank_owner.bank, downloaded)
-                    finally:
-                        downloaded.unlink(missing_ok=True)
-                    if applied != version:
-                        raise RuntimeError("KB change set version differs from its header")
-                else:
-                    bank_owner.bank.close()
-                    install_snapshot(downloaded, bank_path)
-                    bank_owner = make_bank_owner(open_bank_for_recipe(retrieval_recipe, bank_path))
-                kb_sync.installed(version, bank_owner.bank, residuals, overwritten, bank_owner.ivf)
             model.core.set_model_version(global_step)
             local_sums = ledger.sums
             merged_sums = context.all_gather_object(local_sums)
@@ -1387,17 +1016,11 @@ def train(
                 context.barrier()
                 restore_rng(rng)
                 model.train()
-            if transducer is not None and transducer.switch_due(global_step):
-                loss = bank_only_loss(
-                    model,
-                    config,
-                    codec,
-                    global_step,
-                    recipe=retrieval_recipe,
-                    queries=retrieval_examples,
-                    documents=document_examples,
-                )
-                if diloco is None:
+            if transducer.switch_due(global_step):
+                loss = bank_only_loss(model, config, codec, global_step)
+                if rank_rounds is not None:
+                    rank_rounds.record_validation(global_step, loss)
+                elif diloco is None:
                     if transducer.record_validation(global_step, loss):
                         logger.log("transducer_switch", global_step=global_step)
                 elif config.decoupled.resolved_worker_id == 0:
@@ -1438,6 +1061,4 @@ def train(
             stream.close()
         if dataset is not None:
             dataset.close()
-        if bank_owner is not None:
-            bank_owner.bank.close()
         context.close()

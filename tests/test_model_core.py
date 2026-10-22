@@ -426,9 +426,6 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
     # by the multitrack, media and memory tests.
     conditional = (
         "media_encoder.",
-        "memory_projector.",
-        "memory_adapters.",
-        "memory_seed.",
         "central.modality_embedding.",
     )
     assert [

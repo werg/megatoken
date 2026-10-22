@@ -15,9 +15,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 
 from megatoken.contracts import ROLE_TO_ID
-from megatoken.memory.semantic import MemoryKVProjector
 
-from .adapters import MemoryAdapters
 from .attention import AttentionFeatures, AttentionRead, KVProjection, join_attention
 from .blocks import DenseFacetBlock
 from .config import ModelConfig
@@ -146,9 +144,6 @@ class CentralProcessor(nn.Module):
         track_ids: Tensor | None = None,
         modality_ids: Tensor | None = None,
         history_track_ids: Tensor | None = None,
-        external_kb: AttentionFeatures | None = None,
-        memory_snapshot=None,
-        memory_adapters: MemoryAdapters | None = None,
         attention_mask: Tensor | None = None,
     ) -> Tensor:
         # A meridian may contain several complete 32-facet megatokens.  The
@@ -186,8 +181,6 @@ class CentralProcessor(nn.Module):
             )
             facets = facets + modality_features
         projected = AttentionFeatures(history.keys, history.values, history.mask, history_track_ids)
-        if external_kb is not None:
-            projected = join_attention(external_kb, projected)
         if attention_mask is not None and attention_mask.shape != (
             raw.shape[0],
             raw.shape[1],
@@ -230,14 +223,6 @@ class CentralProcessor(nn.Module):
                     slot_codes=addresses,
                     query_track_ids=live_tracks,
                     query_key_mask=attention_mask,
-                )
-            if memory_adapters is not None and memory_snapshot is not None:
-                facets = memory_adapters.apply(
-                    facets,
-                    module="c",
-                    stage=index + 1,
-                    track_ids=live_tracks,
-                    snapshot=memory_snapshot,
                 )
             # Stage i publishes only a short-lived, position-rotated KV for i+1.
             # Neither these projections nor their tensors enter KVHistory.
@@ -324,23 +309,6 @@ class FacetedCore(nn.Module):
         self.lexical_gate = nn.Parameter(torch.tensor(-2.0))
         for name, tensor in self._pair_topology().items():
             self.register_buffer(name, tensor, persistent=False)
-        self.memory_projector = MemoryKVProjector(
-            c.semantic_value_dim,
-            c.facet_dim,
-            c.kv_heads,
-            c.attention_head_dim,
-            c.n_facets,
-        )
-        self.memory_adapters = MemoryAdapters(
-            width=c.facet_dim,
-            value_dim=c.semantic_value_dim,
-            experts=c.memory_lora_experts,
-            rank=c.memory_lora_rank,
-            topk=c.memory_lora_topk,
-            max_tracks=c.max_tracks,
-            max_stage=max(c.central_layers, c.prediction_layers) + 1,
-        )
-        self.memory_seed = nn.Linear(c.semantic_value_dim, c.facet_dim, bias=False)
         self._routing_losses: list[tuple[Tensor, Tensor]] = []
 
     def encoder_parameters(self) -> Iterator[nn.Parameter]:
@@ -349,18 +317,12 @@ class FacetedCore(nn.Module):
         yield from self.media_encoder.parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
-        """C, the KV projector, the C adapter family and the shared memory controller.
-
-        The controller is shared by C, P and R selections; it is pinned with C
-        so a latent-only RL update cannot move the fixed C/R materialization map.
-        """
+        """C and its KV projections."""
         yield self.initial_facets
         yield from self.central.parameters()
-        yield from self.memory_projector.parameters()
-        yield from self.memory_adapters.module_parameters("c")
 
     def predictor_parameters(self) -> Iterator[nn.Parameter]:
-        """All P owners incl. its memory seed and adapter family; excludes E, C, R/U."""
+        """All P owners; excludes E, C, R/U."""
         yield self.stage_codes
         for module in (
             self.control_injection,
@@ -369,22 +331,19 @@ class FacetedCore(nn.Module):
             self.p_bank,
             self.stages,
             self.p_router,
-            self.memory_seed,
         ):
             yield from module.parameters()
-        yield from self.memory_adapters.module_parameters("p")
 
     def control_parameters(self) -> Iterator[nn.Parameter]:
         """Public-control encoder read by P and by every media realizer (R side)."""
         yield from self.control_encoder.parameters()
 
     def realizer_parameters(self) -> Iterator[nn.Parameter]:
-        """Core-owned U decoder parameters and the R adapter family."""
+        """Core-owned U decoder parameters."""
         yield self.u_gate
         yield self.lexical_gate
         for module in (self.u_bank, self.u_always, self.u_router, self.u_norm, self.lexical_norm):
             yield from module.parameters()
-        yield from self.memory_adapters.module_parameters("r")
 
     def compile_kernels(self, mode: str = "default") -> None:
         """Compile tensor operators without hiding state transitions or cache writes."""

@@ -1,20 +1,10 @@
-# Target methodology: DiLoCo decoupled learners for the mandatory coherence +
-# query-embedding phase (no freely allocated KB rows yet). Neural parameters,
-# including E/C/P/R, the native KV projector and memory LoRA experts, synchronize
-# through the coordinator. Live free-KB phases stay gated until the coordinator
-# KB row-sync protocol exists (see docs/retrieval-memory-implementation-status.md).
-# All PIN_* artifact identities must be filled in after original data preparation;
-# every worker must see byte-identical sidecars and recipe (checked by train identity).
+# Target methodology: DiLoCo decoupled learners for base pretraining (P1).
+# Neural parameters synchronize through the coordinator as fragments; the
+# transducer bank's sparse rows are merged there in 32-step rounds.
+# All PIN_* artifact identities must be filled in after original data preparation.
 phase: P1
-output: /work/runs/retrieval-coherence-diloco
+output: /work/runs/diloco-p1
 model: 32x512
-model_overrides:
-  semantic_dim: 768
-  semantic_value_dim: 256
-  max_kb_positions: 4
-  memory_lora_experts: 4
-  memory_lora_rank: 8
-  memory_lora_topk: 2
 dataset: PIN_PREPARED_CAUSAL_MERIDIAN_EPISODES
 codec: PIN_RAW_CODEC_DIRECTORY
 device: cuda
@@ -35,11 +25,7 @@ scored_decisions: 4
 effort: 6
 eval_every: 0
 checkpoint_every: 100
-retrieval_sidecar: PIN_VERIFIED_CAUSAL_RETRIEVAL_SIDECAR_JSONL
-retrieval_document_sidecar: PIN_TEACHER_DOCUMENT_EMBEDDINGS_JSONL
-retrieval_memory_recipe: PIN_PHASE_MATCHED_RECIPE_JSON
 router_balance_mode: global
-router_replay_assignments: 262144
 gradient_checkpointing: true
 compile: false
 use_stage_mixture: false

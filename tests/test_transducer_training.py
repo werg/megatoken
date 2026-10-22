@@ -10,9 +10,8 @@ import urllib.error
 import urllib.request
 
 import pytest
-import retrieval_fixture
 import torch
-from retrieval_fixture import retrieval_train_config
+from training_fixture import tiny_train_config
 
 from megatoken.data import PreparedDataset
 from megatoken.generation.codec import ByteCodec
@@ -28,32 +27,14 @@ from megatoken.training.engine import train
 from megatoken.training.schedule import PHASES
 from megatoken.training.transducer import HindsightSchedule
 
-TRANSDUCER = {
-    "transducer": True,
-    "transducer_location_dim": 8,
-    "transducer_query_dim": 16,
-    "transducer_value_rows": 4,
-    "transducer_neighbors": 4,
-    "transducer_selected": 4,
-    "transducer_exploration": 1,
-    "transducer_max_lookups": 16,
-    "transducer_max_edges": 256,
-    "transducer_byte_budget": 10**6,
-}
-
 
 @pytest.fixture
-def transducer_overrides(monkeypatch):
+def single_thread():
     torch.set_num_threads(1)
-    monkeypatch.setattr(
-        retrieval_fixture,
-        "MODEL_OVERRIDES",
-        {**retrieval_fixture.MODEL_OVERRIDES, **TRANSDUCER},
-    )
 
 
-def test_engine_trains_checkpoints_and_resumes_the_bank(tmp_path, transducer_overrides):
-    config = retrieval_train_config(tmp_path, max_steps=2, checkpoint_every=1)
+def test_engine_trains_checkpoints_and_resumes_the_bank(tmp_path, single_thread):
+    config = tiny_train_config(tmp_path, max_steps=2, checkpoint_every=1)
     first = train(config)
     _, metadata = load_checkpoint(first["checkpoint"])
     assert metadata["transducer_checkpoint"]["file"] == "transducer.pt"
@@ -65,7 +46,7 @@ def test_engine_trains_checkpoints_and_resumes_the_bank(tmp_path, transducer_ove
     assert trained.model.transducer.bank.bank_id == saved["bank"]["bank_id"]
 
 
-def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, transducer_overrides):
+def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, single_thread):
     monkeypatch.setattr(transducer_diloco, "LOCAL_STEPS", 1)
     codec = ByteCodec.byte_fallback()
     with socket.socket() as sock:
@@ -85,7 +66,7 @@ def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, transducer
         timeout_seconds=30,
         max_offline_steps=20,
     )
-    config = retrieval_train_config(
+    config = tiny_train_config(
         tmp_path, output=str(tmp_path / "runs"), max_steps=3, decoupled=settings
     )
     with PreparedDataset(config.dataset) as prepared:
@@ -100,6 +81,17 @@ def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, transducer
         },
     )
     model = build_model(model_config, codec, device="cpu", precision="fp32")
+    # A seeded canonical bank, as a phase transition leaves it.
+    g = model_config.transducer_geometry
+    seeded = model.transducer.bank.add_edges(
+        departure=torch.randn(3, g.location_dim),
+        key=torch.randn(3, g.query_dim),
+        value=torch.randn(3, g.value_dim),
+        destination=torch.randn(3, g.location_dim),
+        bias=torch.zeros(3),
+        write_mass=torch.ones(3),
+        step=0,
+    )
     root = tmp_path / "coordinator"
     initialize_coordinator(
         root,
@@ -121,6 +113,7 @@ def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, transducer
             "geometry": dict(vars(model_config.transducer_geometry)),
             "evidence_from": HindsightSchedule().warmup_steps,
         },
+        transducer_state={"bank": model.transducer.bank.state_snapshot()},
     )
     server = multiprocessing.get_context("spawn").Process(
         target=serve_coordinator, args=(str(root), "127.0.0.1", port, token)
@@ -143,6 +136,9 @@ def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, transducer
         result = train(config)
         state, _ = load_checkpoint(result["checkpoint"])
         assert state["diloco"]["transducer"]["sequence"] >= 2
+        # The learner started from the coordinator's bank, not an empty one.
+        trained = load_trained(result["checkpoint"])
+        assert set(seeded.tolist()) <= set(trained.model.transducer.bank.edge_ids().tolist())
         for _ in range(50):
             request = urllib.request.Request(f"http://127.0.0.1:{port}/v1/status", headers=headers)
             with urllib.request.urlopen(request, timeout=5) as response:

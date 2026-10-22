@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 import torch
 from media_support import install_fake_realizers, prepared_record
-from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
+from training_fixture import MODEL_OVERRIDES, tiny_train_config
 
 from megatoken.controls import resolve_event_control
 from megatoken.data.concordance import (
@@ -211,7 +211,7 @@ def test_image_creation_target_enters_existing_grouped_loss_ledger(tmp_path):
     model = install_fake_realizers(
         build_model(ModelConfig.tiny(**MODEL_OVERRIDES), ByteCodec.byte_fallback())
     )
-    config = retrieval_train_config(
+    config = tiny_train_config(
         tmp_path / "retrieval",
         phase="B0",
         budget_meter="G",
@@ -239,7 +239,6 @@ def test_image_creation_target_enters_existing_grouped_loss_ledger(tmp_path):
         config,
         torch.device("cpu"),
         0,
-        retrieval_aux(config, supervised=False),
     )
     ledger.finish()
     assert model.media_realizers.packs["sana"].condition.project.weight.grad is not None

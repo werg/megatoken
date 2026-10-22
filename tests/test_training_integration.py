@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 import torch
-from retrieval_fixture import retrieval_train_config
+from training_fixture import tiny_train_config
 
 from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.engine import train
@@ -13,7 +13,7 @@ from megatoken.training.engine import train
 @pytest.fixture
 def training_config(tmp_path):
     torch.set_num_threads(1)
-    return retrieval_train_config(tmp_path, gradient_checkpointing=True)
+    return tiny_train_config(tmp_path, gradient_checkpointing=True)
 
 
 def assert_equal_tree(left, right):

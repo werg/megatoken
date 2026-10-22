@@ -81,17 +81,11 @@ def training_identity(config: Any) -> str:
         "router_balance_mode",
         "trainable",
         "text_anchor_weight",
-        "retrieval_kv_dropout",
-        "retrieval_lora_dropout",
     )
     identity: dict[str, Any] = {name: getattr(config, name) for name in fields}
-    # Retrieval supervision is identified by content, not by per-sandbox paths.
+    # Pinned inputs are identified by content, not by per-sandbox paths.
     from megatoken.io import sha256_file
-    from megatoken.memory.recipe import RetrievalRecipe
 
-    identity["retrieval_recipe"] = RetrievalRecipe.load(config.retrieval_memory_recipe).fingerprint
-    identity["retrieval_sidecar"] = sha256_file(Path(config.retrieval_sidecar))
-    identity["retrieval_document_sidecar"] = sha256_file(Path(config.retrieval_document_sidecar))
     for name in ("packs", "text_anchors"):
         path = getattr(config, name)
         if path:

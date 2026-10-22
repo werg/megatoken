@@ -1,58 +1,43 @@
 # Decoupled DiLoCo on CoreWeave GPU sandboxes
 
-DiLoCo is the **target training methodology** for megatoken. It runs the same
-mandatory retrieval-memory architecture as the torchrun trainer: every learner
-loads the identical pinned recipe and query/document sidecars, and the coordinator
-rejects any worker whose sidecar or recipe content differs. All neural parameters
-(E/C/P/R, native KB KV projector, memory LoRA experts) synchronize as fragments.
+DiLoCo is the **target training methodology** for megatoken. It trains the same
+model as the torchrun trainer, including the always-on continuous-state
+transducer ([continuous-state-transducer-plan.md](continuous-state-transducer-plan.md)):
+every learner builds the identical model and codec identity, and the coordinator
+rejects any worker whose identity differs. All neural parameters (E/C/P/R)
+synchronize as fragments.
 
-**Phase coverage:** every phase. The coherence + embedding phase (`B0`/`P1`)
-has no live bank and syncs only fragments. For live free-KB phases (`M1`+), set
-`retrieval_bank` in the config before `megatoken diloco init`; the coordinator
-copies that gate-ready bank and becomes its single owner (see below and
-[configs/train/retrieval-free-kb-diloco.example.yaml](../configs/train/retrieval-free-kb-diloco.example.yaml)).
+**Phase coverage:** every phase. The transducer's learned sparse bank of packed
+edges does not fit the fragment protocol, so the coordinator owns the canonical
+bank (`megatoken.training.transducer_sync`, `megatoken.training.transducer_diloco`)
+and `megatoken diloco init` records its geometry. Synchronous torchrun ranks share
+the bank the same way, merged on rank 0.
 
-### Free-KB row sync
+### Transducer bank sync
 
-Free-KB rows are sparse, dynamically allocated SQLite records, so they use
-their own protocol (`megatoken.training.diloco_kb`) next to fragments:
+Bank rows are sparse, dynamically allocated records, so they use their own
+protocol next to fragments:
 
-- **Ownership:** the coordinator holds `kb/canonical.sqlite` and alone grows
-  rows and assigns IDs. Learners never grow locally; they forward query demand.
-- **Learners:** each downloads the published snapshot to
-  `<output>/worker-NN/diloco/kb.sqlite`, trains it with local sparse Adam, and
-  every `local_steps` uploads `baseline - current` for each touched row field
-  (baseline = the row's anchor: its last installed canonical value, or the
-  value it was last uploaded at) plus its demand.
-- **Merge:** per row field, contributions from the learners that touched it
-  are weighted like fragments and applied with per-row outer Nesterov momentum.
-  Rows retired on the canonical bank are skipped. Demand is recorded, growth
-  runs (`retrieval_growth_budget` per merge), and rows, version and the
-  per-worker sequence ledger commit in one SQLite transaction.
-- **Staleness/duplicates:** bases older than `max_staleness` get HTTP 409 and
-  the learner reinstalls; replayed sequences are idempotent.
-- **Overlapped rounds:** learners never pause for a round. Installing a newer
-  canonical version (rows or fragments) carries over the progress trained
-  since the anchor: `new = global + (current - anchor)`. The steps run while a
-  round was in flight are kept and become exactly the next upload, so nothing
-  is double-counted or discarded. For rows, only rows the change set actually
-  replaced get the residual re-applied.
-- **Incremental pulls:** triggers on the canonical bank log every changed
-  primary key under the version being produced. Whenever the coordinator
-  reports a newer version, a learner POSTs its base version and the row IDs it trained; the
-  coordinator returns only rows changed since that base plus those trained rows
-  (with postings and `meta`). The learner upserts them in one transaction, which
-  leaves its synchronized tables identical to the canonical bank while keeping
-  its own sparse Adam moments. Transfer cost scales with the merge, not the bank.
-- **Snapshots:** a stripped full snapshot (no coordinator state or learner
-  moments) is built lazily, only for bootstrap and for learners whose base
-  predates the retained change history (`retained_versions`, default 1024;
-  HTTP 410 triggers the fallback).
-- **Endpoints:** `GET /v1/kb?after=VERSION` (snapshot), `POST /v1/kb/changes`,
-  `POST /v1/kb/updates`; `status` reports `kb_version`. Uploads are capped by
-  `max_kb_update_bytes` (256 MiB).
-
-Known limit: outer momentum is applied only to rows touched in a merge.
+- **Ownership:** the coordinator alone allocates canonical edge IDs, merges,
+  adopts new edges and changes structure. Learners hold a local copy of the
+  newest published bank and never allocate canonical IDs.
+- **Rounds:** each learner trains its copy for 32 local steps, then uploads one
+  round: per-field deltas against the rows it started from, its hindsight write
+  masses and packed mean values, the optimizer and structural statistics it
+  added, and its provisional new edges as packed rows.
+- **Merge:** late rounds are age-weighted (a round that is `k` versions behind
+  counts `2^(-k/8)`), not rejected, and there is no outer momentum on the bank.
+  The coordinator combines near-duplicate new edges from different learners,
+  packs them, evolves structure and publishes a change set.
+- **Incremental pulls:** the coordinator keeps the last 64 versions of changed
+  rows; a learner that is further behind downloads the whole bank. A learner
+  installs a newer version between optimizer steps, and the published rows become
+  its new round base. Transfer cost scales with the merge, not the bank.
+- **Persistence:** the coordinator persists its full bank state every 16 merges;
+  after a coordinator restart, learners re-base from a snapshot.
+- **Endpoints:** `GET /v1/transducer?after=VERSION` (snapshot), `GET /v1/transducer/changes?after=VERSION`,
+  `POST /v1/transducer/rounds`; `status` reports `transducer_version`. Uploads
+  are capped by `max_transducer_round_bytes` (1 GiB).
 
 Its goal is useful multi-GPU pretraining with no GPU-to-GPU
 interconnect. The design follows [Decoupled DiLoCo](https://arxiv.org/abs/2604.21428):
@@ -77,8 +62,8 @@ proprietary orchestration infrastructure or its adaptive performance controller.
   NVIDIA RTX PRO 6000 Blackwell Server Edition (96 GB) per sandbox**, so each
   learner is one sandbox. [CoreWeave GPU docs](https://docs.coreweave.com/products/sandboxes/serverless/gpu-sandboxes).
 - A CUDA-sm_120-capable image (the repository `Dockerfile` builds on NVIDIA NGC
-  CUDA/PyTorch; [configs/cloud/qa-p1.json](../configs/cloud/qa-p1.json) uses an
-  NGC PyTorch image) and prepared data, built in the cloud as described below.
+  CUDA/PyTorch; [configs/cloud/verify-packs.json](../configs/cloud/verify-packs.json)
+  uses an NGC PyTorch image) and prepared data, built in the cloud as described below.
 - Optional: `decoupled.checkpoint_s3` (remote learner checkpoints) needs your own
   S3-compatible bucket, `pip install -e '.[storage]'` in the learner image
   (`pip` field of the run file) and AWS credentials that you supply to the
@@ -93,12 +78,12 @@ file (`megatoken.cloud-diloco/1`, JSON):
 ```json
 {
   "schema": "megatoken.cloud-diloco/1",
-  "id": "qa-p1",
+  "id": "diloco-p1",
   "image": "nvcr.io/nvidia/pytorch:26.09-py3",
   "lifetime_hours": 24,
   "pip": ["pyarrow"],
   "workers": 4,
-  "config": "configs/train/qa-pilot-p1-diloco.yaml",
+  "config": "configs/train/diloco-coreweave.example.yaml",
   "data": {"peer": "<sandbox id>", "prefixes": ["out/corpus/datasets/rc-train"]},
   "coordinator": {"resources": {"cpu": "8", "memory": "32Gi"}, "args": ["--quorum", "3"]},
   "learners": {"resources": {"cpu": "8", "memory": "32Gi", "gpu": 1}}
@@ -109,8 +94,8 @@ file (`megatoken.cloud-diloco/1`, JSON):
   Its `coordinator_url` is filled in inside each sandbox
   (`python -m megatoken.cloud_diloco derive`), and `decoupled.workers` **must
   equal** `workers` or the sandbox fails. Use
-  [configs/train/retrieval-coherence-diloco-coreweave.example.yaml](../configs/train/retrieval-coherence-diloco-coreweave.example.yaml)
-  as the template; its paths (dataset, codec, sidecars) must point at where the
+  [configs/train/diloco-coreweave.example.yaml](../configs/train/diloco-coreweave.example.yaml)
+  as the template; its paths (dataset, codec) must point at where the
   data lands under `/work`.
 - `workers` is 1..64. Learner resources must request one GPU.
 - `coordinator.args` are passed to `megatoken diloco init`: `--quorum`,
@@ -151,7 +136,7 @@ any learner failed, `finish` stops all sandboxes, **refuses to export** and
 reports the failed learners. Otherwise it signals the coordinator, which stops
 serving and runs `megatoken diloco export` into `out/export`; that export is
 collected into `DIR/coordinator` and all sandboxes are stopped. The export (the
-global FP32 masters, `export_only`) is the seed of the next phase.
+global FP32 masters and the canonical bank `transducer.pt`, `export_only`) is the seed of the next phase.
 
 Status of scale: the path has been smoke-tested end to end on CoreWeave with two
 GPU learners, a CPU coordinator and a tiny model, with one outer merge applied
@@ -196,7 +181,7 @@ HTTPS gateway is HTTP/2 and lowercases header names.
 
 Build the data with a normal `megatoken.cloud` job
 (`python -m megatoken.cloud launch JOB.json`, see
-[configs/cloud/qa-p1.json](../configs/cloud/qa-p1.json)); do not `collect` it
+[configs/cloud/verify-packs.json](../configs/cloud/verify-packs.json)); do not `collect` it
 until the DiLoCo run no longer needs its outputs, since collecting releases it.
 
 **Lifetime.** `lifetime_hours` applies to every sandbox of the run and cannot
@@ -216,8 +201,8 @@ be extended on a running sandbox; the platform maximum is 720 hours (30 days).
 - Worker checkpoints preserve the model, hybrid optimizer, exact data cursor,
   RNG, local counters, fragment baseline tensors, versions, pending
   submissions, and the actual pending delta payloads. With `checkpoint_s3`, S3 latest
-  pointers are published only after every checkpoint file (weights, metadata and, for
-  free-KB phases, the learner's `kb.sqlite` and its manifest) is uploaded.
+  pointers are published only after every checkpoint file (weights, metadata and the learner's
+  `transducer.pt` bank) is uploaded.
   Restores verify each file's checksum before publishing locally.
 - Periodic checkpoints are snapshotted to host memory at the step boundary and
   written and uploaded on a background lane while training continues (one in

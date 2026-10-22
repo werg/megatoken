@@ -31,16 +31,10 @@ from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.structure import ActionSpec
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.io import strict_json_loads
-from megatoken.memory.contracts import NativeKVLayout
-from megatoken.memory.semantic import (
-    KBContext,
-    MemoryMaterialization,
-    independently_drop_memory,
-)
 from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
-from .config import RESERVED_TRACKS, RETRIEVAL_QUERY_TRACK
+from .config import RESERVED_TRACKS
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .media import MediaOutputSpec, MediaTrainTarget, validate_public_media_spec
 from .relations import SelectedRelation
@@ -50,7 +44,7 @@ from .state import KVHistory, RealizationContext, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v10"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v11"
 
 
 @dataclass(frozen=True)
@@ -102,7 +96,6 @@ class MultiTrackState:
     model_version: int
     routing_version: int
     geometry: tuple[int, ...]
-    kb: KBContext | None = None
 
     @property
     def batch_size(self) -> int:
@@ -122,7 +115,6 @@ class MultiTrackState:
             raw=self.raw.detach(),
             final=None if self.final is None else self.final.detach(),
             history=self.history.detach(),
-            kb=None if self.kb is None else self.kb.detach(),
         )
 
 
@@ -154,30 +146,6 @@ class MultiTrackCore:
             model_version=state.model_version,
             routing_version=state.routing_version,
             geometry=state.geometry,
-            kb=KBContext(
-                NativeKVLayout(
-                    self.core.config.n_facets,
-                    self.core.config.kv_heads,
-                    self.core.config.attention_head_dim,
-                    "native-facets-v8",
-                    "memory-kv-v1",
-                ),
-                max_positions=self.core.config.max_kb_positions,
-            ),
-        )
-
-    def materialize_memory(self, state: MultiTrackState) -> MemoryMaterialization | None:
-        """Bounded local rematerialization once per native group transaction."""
-        if state.kb is None or not state.kb.groups:
-            return None
-        if self.core.memory_projector is None:
-            raise RuntimeError("The native model has no registered memory projector")
-        return state.kb.materialize(
-            age=state.meridians_seen,
-            projector=self.core.memory_projector,
-            slot_codes=self.core.central.slot_codes(),
-            dtype=state.history.keys.dtype,
-            batch_size=state.batch_size,
         )
 
     def _validate(self, state: MultiTrackState) -> None:
@@ -217,15 +185,6 @@ class MultiTrackCore:
             raise ValueError("History exceeds its full-block capacity")
         if state.final is None and state.meridian_sizes:
             raise ValueError("Only initial state may lack processed features")
-        if state.kb is None:
-            raise ValueError("Every v8 multitrack state requires a KB context, even when empty")
-        if state.kb is not None and (
-            state.kb.layout.facets != f
-            or state.kb.layout.kv_heads != core.config.kv_heads
-            or state.kb.layout.head_dim != core.config.attention_head_dim
-            or state.kb.max_positions != core.config.max_kb_positions
-        ):
-            raise ValueError("KB context layout disagrees with native facet geometry")
 
     @staticmethod
     def _names(tracks: Sequence[str], count: int) -> tuple[str, ...]:
@@ -290,7 +249,6 @@ class MultiTrackCore:
         tracks: Sequence[str],
         role_ids: Tensor,
         modalities: Sequence[str] | None = None,
-        memory_snapshot: MemoryMaterialization | None = None,
     ) -> MultiTrackState:
         """Jointly integrate selected blocks and commit one complete meridian."""
         self._validate(state)
@@ -328,8 +286,6 @@ class MultiTrackCore:
         modality_ids = torch.tensor(
             [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
         ).expand(state.batch_size, -1)
-        if memory_snapshot is None:
-            memory_snapshot = self.materialize_memory(state)
         final = self.core.central(
             raw.flatten(1, 2),
             state.history,
@@ -338,9 +294,6 @@ class MultiTrackCore:
             track_ids=track_ids,
             modality_ids=modality_ids,
             history_track_ids=state.history_tracks.repeat_interleave(c.n_facets, dim=1),
-            external_kb=None if memory_snapshot is None else memory_snapshot.features,
-            memory_snapshot=memory_snapshot,
-            memory_adapters=self.core.memory_adapters,
         )
         history, retained = self._history_for(state, events)
         next_history = self.core.central.write(final, history, state.meridians_seen)
@@ -363,7 +316,6 @@ class MultiTrackCore:
             model_version=state.model_version,
             routing_version=state.routing_version,
             geometry=state.geometry,
-            kb=state.kb,
         )
 
     def observe_group(
@@ -429,11 +381,7 @@ class MultiTrackCore:
             encoder_grad=encoder_grad,
         )
 
-    def _predict_seed(
-        self,
-        state: MultiTrackState,
-        memory_snapshot: MemoryMaterialization | None = None,
-    ) -> Tensor:
+    def _predict_seed(self, state: MultiTrackState) -> Tensor:
         if state.final is None:
             # Match singleton startup: the sentinel is processed locally, not
             # appended to history and not exposed as an observation.
@@ -442,19 +390,6 @@ class MultiTrackCore:
                 state.history,
                 state.frontier_roles[:, 0],
                 state.meridians_seen,
-                external_kb=None if memory_snapshot is None else memory_snapshot.features,
-                memory_snapshot=memory_snapshot,
-                memory_adapters=self.core.memory_adapters,
-                track_ids=(
-                    None
-                    if memory_snapshot is None
-                    else torch.zeros(state.batch_size, 1, dtype=torch.long, device=state.device)
-                ),
-                history_track_ids=(
-                    None
-                    if memory_snapshot is None
-                    else state.history_tracks.repeat_interleave(self.core.config.n_facets, dim=1)
-                ),
             )
             return self.core.remix(final)
         return self.core.remix(state.final.mean(dim=1))
@@ -467,7 +402,6 @@ class MultiTrackCore:
         control: Tensor | None = None,
         effort: int = 6,
         modalities: Sequence[str] | None = None,
-        memory_snapshot: MemoryMaterialization | None = None,
     ) -> Tensor:
         """Read-only *joint* prediction from all previously committed tracks.
 
@@ -486,9 +420,7 @@ class MultiTrackCore:
             or control.device != state.device
         ):
             raise ValueError("Expected one control vector per requested event")
-        if memory_snapshot is None:
-            memory_snapshot = self.materialize_memory(state)
-        base = self._predict_seed(state, memory_snapshot)
+        base = self._predict_seed(state)
         track_ids, _ = self._track_indices(state, tracks)
         modality_names = tuple(modalities) if modalities is not None else ("text",) * events
         if len(modality_names) != events or any(x not in MODALITY_IDS for x in modality_names):
@@ -511,13 +443,6 @@ class MultiTrackCore:
             offsets = self.core.control_injection(track_control.to(facets.dtype))
             facets = facets + offsets[None, :, None]
         facets = facets + self.core.effort_embedding.weight[EFFORTS.index(effort)]
-        if memory_snapshot is not None and self.core.memory_seed is not None:
-            facets = (
-                facets
-                + self.core.memory_seed(
-                    memory_snapshot.summary.to(self.core.memory_seed.weight.dtype)
-                )[:, None, None]
-            )
         stages = tuple(range(1, self.core.config.prediction_layers + 1))
         nrows = sum(self.core._row_counts(f, effort))
         routes = self.core.p_router.compile(
@@ -536,7 +461,6 @@ class MultiTrackCore:
                 effort,
                 state,
                 track_ids,
-                memory_snapshot=memory_snapshot,
             )
         return facets
 
@@ -548,8 +472,6 @@ class MultiTrackCore:
         effort: int,
         state: MultiTrackState,
         track_ids: Tensor,
-        *,
-        memory_snapshot: MemoryMaterialization | None = None,
     ) -> Tensor:
         core = self.core
         batch, events, f, d = facets.shape
@@ -575,8 +497,6 @@ class MultiTrackCore:
             if time is not None
             else None
         )
-        if time is not None and memory_snapshot is not None:
-            history = join_attention(memory_snapshot.features, history)
         keys = join_attention(current_kv, history)
         mixed = wrapper.attention.read(
             joined,
@@ -615,14 +535,6 @@ class MultiTrackCore:
                 core.pair_reduction_degree[stage - 1, update, EFFORTS.index(effort)],
             )
             begin += count
-        if memory_snapshot is not None and core.memory_adapters is not None:
-            individual = core.memory_adapters.apply(
-                individual.reshape(batch, events * f, d),
-                module="p",
-                stage=stage,
-                track_ids=slot_tracks,
-                snapshot=memory_snapshot,
-            ).reshape(batch * events, f, d)
         return individual.reshape(batch, events, f, d)
 
     def realization_context(self, state: MultiTrackState, event: int) -> RealizationContext:
@@ -652,7 +564,6 @@ class GroupActionTape:
     modalities: tuple[str, ...] = ()
     effort: int = 6
     event_log_probs: tuple[float, ...] = ()
-    memory_snapshot_id: str = ""
     renderer_seeds: tuple[int, ...] = ()
     pack_fingerprints: tuple[str, ...] = ()
 
@@ -717,7 +628,6 @@ class GroupActionTape:
             behavior_log_prob=self.behavior_log_prob,
             effort=self.effort,
             event_log_probs=self.event_log_probs,
-            memory_snapshot_id=self.memory_snapshot_id,
             renderer_seeds=self.renderer_seeds,
             pack_fingerprints=self.pack_fingerprints,
             payloads=[base64.b64encode(b).decode("ascii") for b in self.payloads],
@@ -749,7 +659,6 @@ class GroupActionTape:
             behavior_log_prob=float(value["behavior_log_prob"]),
             effort=int(value["effort"]),
             event_log_probs=tuple(map(float, value["event_log_probs"])),
-            memory_snapshot_id=value["memory_snapshot_id"],
             renderer_seeds=tuple(value["renderer_seeds"]),
             pack_fingerprints=tuple(value["pack_fingerprints"]),
             payloads=tuple(map(decode, value["payloads"])),
@@ -796,8 +705,6 @@ class _GroupedTeacherReadout(nn.Module):
         raw: Tensor,
         plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
         control: Tensor | None = None,
-        memory_snapshot: MemoryMaterialization | None = None,
-        track_ids: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
         if raw.ndim != 4 or raw.shape[1] != len(plans):
             raise ValueError("Realization needs one canonical facet block per target")
@@ -807,19 +714,6 @@ class _GroupedTeacherReadout(nn.Module):
         counts = {name: 0 for name in names}
         for index, plan in enumerate(plans):
             selected = raw[:, index]
-            if memory_snapshot is not None and self.core.memory_adapters is not None:
-                slots = (
-                    None
-                    if track_ids is None
-                    else track_ids[:, index : index + 1].expand(-1, selected.shape[1])
-                )
-                selected = self.core.memory_adapters.apply(
-                    selected,
-                    module="r",
-                    stage=0,
-                    track_ids=slots,
-                    snapshot=memory_snapshot,
-                )
             context = self.core.prepare_realization(selected)
             if isinstance(plan, MediaTrainTarget):
                 family = "audio" if plan.modality == "audio" else "visual"
@@ -841,31 +735,8 @@ class _GroupedTeacherReadout(nn.Module):
         raw: Tensor,
         plans: tuple[PreparedTargets | PreparedAction | MediaTrainTarget, ...],
         control: Tensor | None = None,
-        memory_snapshot: MemoryMaterialization | None = None,
-        track_ids: Tensor | None = None,
     ) -> dict[str, tuple[Tensor, int]]:
-        return self.losses_for_selected(raw, plans, control, memory_snapshot, track_ids)
-
-
-def retrieval_control_payload(
-    *, main_request: bytes, purpose: str, space_fingerprint: str
-) -> bytes:
-    """Exactly the same causal P conditioning in serving, training and replay."""
-    if (
-        not isinstance(main_request, bytes)
-        or not main_request
-        or not purpose
-        or not space_fingerprint
-    ):
-        raise ValueError("Retrieval controls require nonempty request/purpose/space")
-    return (
-        b"<main_request>\n"
-        + main_request
-        + b"\n<retrieval_purpose>\n"
-        + purpose.encode("utf-8")
-        + b"\n<semantic_space>\n"
-        + space_fingerprint.encode("ascii")
-    )
+        return self.losses_for_selected(raw, plans, control)
 
 
 class MultiTrackGenerator:
@@ -959,8 +830,6 @@ class MultiTrackGenerator:
         specs: Sequence[ActionSpec | MediaOutputSpec],
         control: Tensor | None,
         *,
-        memory_snapshot: MemoryMaterialization | None = None,
-        track_ids: Tensor | None = None,
         seeds: Sequence[int] | None = None,
     ) -> tuple[
         tuple[bytes, ...], tuple[tuple[int, ...], ...], tuple[bool, ...], tuple[Tensor | None, ...]
@@ -970,20 +839,6 @@ class MultiTrackGenerator:
             raise ValueError("Renderer seeds must identify each selected event")
         for index, spec in enumerate(specs):
             selected = raw[:, index]
-            adapters = self.generator.core.memory_adapters
-            if adapters is not None and memory_snapshot is not None:
-                event_tracks = (
-                    None
-                    if track_ids is None
-                    else track_ids[:, index : index + 1].expand(-1, selected.shape[1])
-                )
-                selected = adapters.apply(
-                    selected,
-                    module="r",
-                    stage=0,
-                    track_ids=event_tracks,
-                    snapshot=memory_snapshot,
-                )
             context = self.generator.core.prepare_realization(selected)
             if isinstance(spec, ActionSpec):
                 decoded = self.generator.decoder(self.generator.core, context, spec)
@@ -1035,7 +890,6 @@ class MultiTrackGenerator:
         effort: int = 6,
         teacher_forced_action: bool = False,
         generator: torch.Generator | None = None,
-        memory_dropout: tuple[float, float] = (0.0, 0.0),
         relations: Sequence[tuple[str, int, int, float]] = (),
         semantic_relations: Sequence[SelectedRelation] = (),
     ) -> GroupSupervisedResult:
@@ -1075,22 +929,12 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         control = self._controls(controls, state.device)
-        memory_snapshot = self.tracks.materialize_memory(state)
-        if memory_dropout != (0.0, 0.0):
-            if not self.generator.training:
-                raise RuntimeError("Memory dropout is training-only")
-            memory_snapshot = independently_drop_memory(
-                memory_snapshot,
-                kv_rate=memory_dropout[0],
-                lora_rate=memory_dropout[1],
-            )
         mean = self.tracks.predict_group(
             state,
             tracks=names,
             control=control,
             effort=effort,
             modalities=modalities,
-            memory_snapshot=memory_snapshot,
         )
         prior = self.generator.facet_distribution(mean)
         sampled = self._sample_policy(prior, names, generator)
@@ -1102,7 +946,6 @@ class MultiTrackGenerator:
                 tracks=names,
                 role_ids=roles,
                 modalities=modalities,
-                memory_snapshot=memory_snapshot,
             )
             if mode == "recurrent"
             else None
@@ -1125,14 +968,11 @@ class MultiTrackGenerator:
         readout = _GroupedTeacherReadout(
             core, self.generator.decoder, self.generator.media_realizers
         )
-        track_ids = self.tracks._track_indices(state, names)[0]
-        prior_terms = readout.losses_for_selected(
-            sampled, plans, control, memory_snapshot, track_ids
-        )
+        prior_terms = readout.losses_for_selected(sampled, plans, control)
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
-                recon_terms = readout(codec_sample, plans, control, memory_snapshot, track_ids)
+                recon_terms = readout(codec_sample, plans, control)
             continuation = target_raw
             correspondence = q.detach().kl(prior).sum()
         else:
@@ -1147,8 +987,6 @@ class MultiTrackGenerator:
                         codec_sample,
                         plans,
                         None if control is None else control.detach(),
-                        memory_snapshot,
-                        track_ids,
                     ),
                 )
             correspondence = mean.float().sum() * 0
@@ -1186,7 +1024,6 @@ class MultiTrackGenerator:
                 tracks=names,
                 role_ids=roles,
                 modalities=modalities,
-                memory_snapshot=memory_snapshot,
             )
         )
         zero = mean.float().sum() * 0
@@ -1364,14 +1201,12 @@ class MultiTrackGenerator:
         core.routing_aux_loss(clear=True)
         encoded = self._controls(payloads, state.device)
         modalities = tuple("text" if isinstance(x, ActionSpec) else x.modality for x in plans)
-        memory_snapshot = self.tracks.materialize_memory(state)
         mean = self.tracks.predict_group(
             state,
             tracks=names,
             control=encoded,
             effort=effort,
             modalities=modalities,
-            memory_snapshot=memory_snapshot,
         )
         gaussian = self.generator.facet_distribution(mean)
         raw = self._sample_policy(gaussian, names, generator)
@@ -1386,15 +1221,12 @@ class MultiTrackGenerator:
             raw,
             plans,
             encoded,
-            memory_snapshot=memory_snapshot,
-            track_ids=self.tracks._track_indices(state, names)[0],
             seeds=seeds,
         )
         committed = self.tracks.advance_group(
             state,
             raw,
             tracks=names,
-            memory_snapshot=memory_snapshot,
             role_ids=torch.tensor([roles], device=state.device, dtype=torch.long),
             modalities=modalities,
         )
@@ -1421,7 +1253,6 @@ class MultiTrackGenerator:
             behavior_log_prob=float(density),
             effort=effort,
             event_log_probs=tuple(float(x) for x in event_densities[0]),
-            memory_snapshot_id="" if memory_snapshot is None else memory_snapshot.identity,
             renderer_seeds=seeds,
             pack_fingerprints=pack_fingerprints,
             payloads=output,
@@ -1430,60 +1261,6 @@ class MultiTrackGenerator:
         )
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)
-
-    def retrieve_embedding(
-        self,
-        state: MultiTrackState,
-        *,
-        main_request: bytes,
-        purpose: str,
-        space_fingerprint: str,
-        effort: int = 6,
-        generator: torch.Generator | None = None,
-    ) -> tuple[Tensor, MultiTrackState, Tensor]:
-        """A single causal P query event; R reads its SELECTED raw action.
-
-        The retrieval purpose, request and semantic-space spec condition P
-        before sampling. No teacher or online vector ingestion is required.
-        """
-        from megatoken.generation.embedding import EmbeddingSpec
-
-        realizer = self.generator.embedding_realizer
-        if realizer is None or not space_fingerprint or not purpose or not main_request:
-            raise ValueError("An enabled embedding R and explicit causal request are required")
-        names = (RETRIEVAL_QUERY_TRACK,)
-        payload = retrieval_control_payload(
-            main_request=main_request,
-            purpose=purpose,
-            space_fingerprint=space_fingerprint,
-        )
-        encoded = self._controls((payload,), state.device)
-        snapshot = self.tracks.materialize_memory(state)
-        mean = self.tracks.predict_group(
-            state,
-            tracks=names,
-            control=encoded,
-            effort=effort,
-            memory_snapshot=snapshot,
-        )
-        selected = self.generator.facet_distribution(mean).sample(generator)
-        vector = realizer(
-            selected[:, 0], EmbeddingSpec(space_fingerprint, "query", realizer.dimension)
-        )
-        # Every selected query is a native committed action, including B0.
-        updated = self.tracks.advance_group(
-            state,
-            selected,
-            tracks=names,
-            role_ids=torch.full(
-                (state.batch_size, 1),
-                ROLE_IDS["assistant"],
-                dtype=torch.long,
-                device=state.device,
-            ),
-            memory_snapshot=snapshot,
-        )
-        return vector, updated, selected
 
     @torch.no_grad()
     def replay_group(
@@ -1516,17 +1293,12 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         encoded = self._controls(tape.controls, state.device)
-        memory_snapshot = self.tracks.materialize_memory(state)
-        snapshot_id = "" if memory_snapshot is None else memory_snapshot.identity
-        if tape.memory_snapshot_id != snapshot_id:
-            raise ValueError("Historical KB materialization differs from recorded action")
         mean = self.tracks.predict_group(
             state,
             tracks=tape.tracks,
             control=encoded,
             effort=effort,
             modalities=tape.modalities,
-            memory_snapshot=memory_snapshot,
         )
         raw = tape.raw(state.device)
         if tuple(raw.shape[1:]) != tuple(mean.shape[1:]):
@@ -1560,15 +1332,12 @@ class MultiTrackGenerator:
             raw,
             plans,
             encoded,
-            memory_snapshot=memory_snapshot,
-            track_ids=self.tracks._track_indices(state, tape.tracks)[0],
             seeds=seeds,
         )
         committed = self.tracks.advance_group(
             state,
             raw,
             tracks=tape.tracks,
-            memory_snapshot=memory_snapshot,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
             modalities=tape.modalities,
         )
@@ -1597,10 +1366,6 @@ class MultiTrackGenerator:
             raise ValueError("Recorded policy codec differs")
         if effort is not None and effort != tape.effort:
             raise ValueError("Recorded policy effort differs")
-        snapshot = self.tracks.materialize_memory(state)
-        snapshot_id = "" if snapshot is None else snapshot.identity
-        if tape.memory_snapshot_id != snapshot_id:
-            raise ValueError("Policy score cannot use refreshed historical KB controls")
         encoded = self._controls(tape.controls, state.device)
         predicted = self.tracks.predict_group(
             state,
@@ -1608,7 +1373,6 @@ class MultiTrackGenerator:
             control=encoded,
             effort=tape.effort,
             modalities=tape.modalities,
-            memory_snapshot=snapshot,
         )
         selected = tape.raw(state.device).detach()
         log_prob = self.generator.facet_distribution(predicted).log_prob(selected).sum()
@@ -1618,7 +1382,6 @@ class MultiTrackGenerator:
             tracks=tape.tracks,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
             modalities=tape.modalities,
-            memory_snapshot=snapshot,
         )
         return log_prob, next_state
 

@@ -143,18 +143,18 @@ def load_trained(
         phase_transition=False,
     )
     model.core.set_model_version(payload["global_step"])
-    if model.transducer is not None:
-        # Serving needs only the packed bank; optimizer and growth state stay behind.
-        import torch
+    bank = metadata.get("transducer_checkpoint")
+    if bank is None:
+        raise ValueError("Checkpoint lacks its transducer bank")
+    # Serving needs only the packed bank; optimizer and growth state stay behind.
+    import torch
 
-        from megatoken.training.checkpoint import resolve_checkpoint
+    from megatoken.training.checkpoint import resolve_checkpoint
 
-        state = torch.load(
-            resolve_checkpoint(checkpoint) / metadata["transducer_checkpoint"]["file"],
-            map_location="cpu",
-            weights_only=True,
-        )
-        model.transducer.bank.load_snapshot(state["bank"])
+    state = torch.load(
+        resolve_checkpoint(checkpoint) / bank["file"], map_location="cpu", weights_only=True
+    )
+    model.transducer.bank.load_snapshot(state["bank"])
     return TrainedModel(model, codec, payload, metadata)
 
 

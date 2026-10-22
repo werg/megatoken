@@ -34,9 +34,6 @@ use_stage_mixture: true
 trainable: media_bridge
 text_anchors: PIN_TEXT_ANCHORS_JSONL
 text_anchor_weight: 0.1
-retrieval_sidecar: PIN_QUERY_RETRIEVAL_TEACHER_SIDECAR
-retrieval_document_sidecar: PIN_DOCUMENT_RETRIEVAL_TEACHER_SIDECAR
-retrieval_memory_recipe: PIN_P1_RETRIEVAL_MEMORY_RECIPE
 inner_optimizer: muon
 decoupled:
   run_id: PIN_MEDIA_BRIDGE_RUN_ID

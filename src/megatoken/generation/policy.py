@@ -14,6 +14,7 @@ from torch import Tensor, nn
 from megatoken.controls import encode_controls
 from megatoken.model.media import MediaRealizers
 from megatoken.model.relations import RelationProjection
+from megatoken.teacher import EMBEDDING_WIDTH
 from megatoken.tensors import byte_tensor
 
 from .codec import ByteCodec
@@ -77,17 +78,13 @@ class FacetedGenerator(nn.Module):
         from .embedding import EmbeddingRealizer
 
         self.embedding_realizer = EmbeddingRealizer(
-            self.config.n_facets, self.config.facet_dim, self.config.semantic_dim
+            self.config.n_facets, self.config.facet_dim, EMBEDDING_WIDTH
         )
         self.relations = RelationProjection(self.config.facet_dim)
-        self.transducer = None
-        if self.config.transducer:
-            from megatoken.memory.transducer import TransducerBank
-            from megatoken.model.transducer import NativeTransducer
+        from megatoken.memory.transducer import TransducerBank
+        from megatoken.model.transducer import NativeTransducer
 
-            self.transducer = NativeTransducer(
-                core, TransducerBank(self.config.transducer_geometry)
-            )
+        self.transducer = NativeTransducer(core, TransducerBank(self.config.transducer_geometry))
 
     @property
     def latent_dimensions(self) -> int:
@@ -575,13 +572,20 @@ class FacetedGenerator(nn.Module):
 
     def parameter_owners(self) -> dict[str, tuple[nn.Parameter, ...]]:
         """Disjoint owner groups (E, C, P, R) covering every parameter exactly once."""
+        transducer = self.transducer
         groups = {
-            "E": (self.core.encoder_parameters(),),
+            # The knowledge readout encodes an observation, like E does.
+            "E": (self.core.encoder_parameters(), transducer.readout.parameters()),
             "C": (self.core.central_parameters(),),
+            # Queries, the search and the training-only hindsight head are policy-side.
             "P": (
                 self.core.predictor_parameters(),
                 self.facet_distribution.parameters(),
                 self.relations.parameters(),
+                transducer.query_realizer.parameters(),
+                transducer.prefix_head.parameters(),
+                transducer.bank.parameters(),
+                transducer.hindsight_realizer.parameters(),
             ),
             "R": (
                 self.decoder.parameters(),
@@ -608,7 +612,7 @@ class FacetedGenerator(nn.Module):
         return owners
 
     def deterministic_decoder_parameters(self):
-        """E, C (with the shared memory controller) and R: the fixed latent-RL action map."""
+        """E, C and R: the fixed latent-RL action map."""
         owners = self.parameter_owners()
         yield from chain(owners["E"], owners["C"], owners["R"])
 

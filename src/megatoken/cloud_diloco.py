@@ -4,10 +4,10 @@ A run file (``megatoken.cloud-diloco/1``, JSON) names the training config (a rep
 path whose ``decoupled`` block describes the run), the worker count, the data
 and both roles' resources:
 
-    {"schema": "megatoken.cloud-diloco/1", "id": "qa-p1", "image": "...",
+    {"schema": "megatoken.cloud-diloco/1", "id": "p1", "image": "...",
      "lifetime_hours": 24, "pip": ["pyarrow"], "workers": 4,
-     "config": "configs/train/qa-pilot-p1-diloco.yaml",
-     "data": {"peer": "<sandbox id>", "prefixes": ["out/corpus/datasets/rc-train"]},
+     "config": "configs/train/diloco-coreweave.example.yaml",
+     "data": {"peer": "<sandbox id>", "prefixes": ["out/datasets/train"]},
      "coordinator": {"resources": {"cpu": "8", "memory": "32Gi"}, "args": ["--quorum", "3"]},
      "learners": {"resources": {"cpu": "8", "memory": "32Gi", "gpu": 1}}}
 

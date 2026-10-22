@@ -1,8 +1,4 @@
-"""Safe tensor-only snapshots of the causal v10 multitrack history.
-
-Reconstruct KBContext from the current model rather than deserializing legacy
-point/pair memory objects from a pickled checkpoint.
-"""
+"""Safe tensor-only snapshots of the causal v10 multitrack history."""
 
 from __future__ import annotations
 
@@ -17,8 +13,6 @@ CAUSAL_STATE_IDENTITY = "v10-native-causal-session"
 
 def snapshot_causal_state(state: MultiTrackState) -> dict[str, Any]:
     """Save all native history and frontier tensors for weights-only restoration."""
-    if state.kb is None or state.kb.groups:
-        raise ValueError("A v10 causal snapshot cannot contain v9 point/pair memory")
 
     def cpu(value):
         return None if value is None else value.detach().cpu().clone()

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import torch
@@ -26,7 +26,6 @@ from megatoken.data.media_assets import (
     TensorAssetStore,
 )
 from megatoken.data.schema import EncodedRecord
-from megatoken.generation.embedding import EmbeddingSpec, alignment_distance
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
@@ -436,9 +435,8 @@ def _transducer_sequence(
     differentiate: bool,
 ):
     """Plan the window's lookups and, in training, run its hindsight pass once."""
-    if model.training and (trainer is None or not differentiate):
-        raise ValueError("Transducer training needs the run's trainer and a backward")
     if trainer is None:
+        # Evaluation, or a caller outside the engine: lookups go to a scratch owner.
         from megatoken.training.transducer import TransducerTrainer
 
         trainer = TransducerTrainer(model.transducer)
@@ -457,14 +455,6 @@ def _transducer_sequence(
     return sequence
 
 
-@dataclass
-class RetrievalProbe:
-    """Student semantic vectors produced by a forward, keyed by (episode, event)."""
-
-    queries: dict[tuple[str, str], torch.Tensor] = field(default_factory=dict)
-    documents: dict[tuple[str, str], torch.Tensor] = field(default_factory=dict)
-
-
 def forward_meridian_batch(
     model: Any,
     batch: MeridianPreparedBatch,
@@ -472,21 +462,18 @@ def forward_meridian_batch(
     config: Any,
     device: torch.device,
     model_version: int,
-    retrieval_aux,
     *,
     text_anchors=None,
     differentiate: bool = True,
-    probe: RetrievalProbe | None = None,
     transducer=None,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
     No second optimizer, stream cursor, history, or parameter owner is created.
     Held-out evaluation runs the identical forward with ``differentiate=False``
-    (under ``torch.no_grad``); ``probe`` collects the realized query and
-    document vectors. A model with a v10 transducer looks up at the window's
-    planned boundaries; ``transducer`` is the run's ``TransducerTrainer``
-    (evaluation without one reads the bank alone).
+    (under ``torch.no_grad``). The transducer looks up at the window's planned
+    boundaries; ``transducer`` is the run's ``TransducerTrainer`` (evaluation
+    without one reads the bank alone).
     """
     from megatoken.training.engine import episode_control_payload
 
@@ -497,8 +484,6 @@ def forward_meridian_batch(
         # The core owner is versioned by the outer training loop.
         raise ValueError("Meridian trainer received a stale model version")
     payload = episode_control_payload(batch.windows[0].episode)
-    if retrieval_aux is None:
-        raise ValueError("Native training cannot omit its retrieval-memory supervision")
     from megatoken.controls import causal_step_payloads, resolve_event_control
     from megatoken.model.relations import SelectedRelation
 
@@ -506,38 +491,22 @@ def forward_meridian_batch(
     event_by_record = {
         event.record_id: event for meridian in episode.meridians for event in meridian.events
     }
-    # The causal clock counts recorded (external) meridians only. Query and RAG
-    # meridians the trainer inserts advance the native positional counter, not
-    # this clock, so sidecar availability never depends on live retrieval
-    # results or on how much prefix a window replays. Serving uses the same
-    # clock (TrackSession.causal_clock).
-    causal_clock = {meridian.meridian_id: index for index, meridian in enumerate(episode.meridians)}
     losses = []
-    retrieval_losses = []
-    if retrieval_aux[3] is not None:
-        from megatoken.memory.retrieval import RetrievalSession
-
-        source_coverage = RetrievalSession()
-    else:
-        source_coverage = None
     metrics: dict[str, float | torch.Tensor] = {
         "grouped_training_windows": 1,
         "grouped_supervised_meridians": 0,
         "grouped_selected_events": 0,
         "grouped_native_replays": 0,
     }
-    sequence = None
-    if model.transducer is not None:
-        sequence = _transducer_sequence(
-            model, batch, transducer, store, device, model_version, differentiate
-        )
-        state = sequence.begin(multi, state, _metadata(episode))
-        metrics["transducer_lookups"] = sequence.planned
+    sequence = _transducer_sequence(
+        model, batch, transducer, store, device, model_version, differentiate
+    )
+    state = sequence.begin(multi, state, _metadata(episode))
+    metrics["transducer_lookups"] = sequence.planned
     meridian_index = 0
     with torch.no_grad():
         for step in batch.prefix:
-            if sequence is not None:
-                state = sequence.before_meridian(multi, state, meridian_index, effort=batch.effort)
+            state = sequence.before_meridian(multi, state, meridian_index, effort=batch.effort)
             meridian_index += 1
             state, replayed = _preceding_native(multi, state, batch.native_history, step)
             metrics["grouped_native_replays"] += replayed
@@ -570,8 +539,7 @@ def forward_meridian_batch(
                     metrics.get("text_anchor_mse_sum", 0.0) + anchor.detach()
                 )
                 metrics["text_anchors"] = metrics.get("text_anchors", 0) + 1
-        if sequence is not None:
-            state = sequence.before_meridian(multi, state, meridian_index, effort=batch.effort)
+        state = sequence.before_meridian(multi, state, meridian_index, effort=batch.effort)
         meridian_index += 1
         state, replayed = _preceding_native(multi, state, batch.native_history, step)
         metrics["grouped_native_replays"] += replayed
@@ -600,93 +568,6 @@ def forward_meridian_batch(
                 plan.resolve(store, device) if isinstance(plan, MediaPlan) else plan
                 for plan in step.plans
             )
-            if retrieval_aux is None:
-                raise RuntimeError("Retrieval pretraining supervision is mandatory")
-            examples, recipe, global_count, bank_owner = retrieval_aux[:4]
-            for entry in step.records:
-                annotation = examples.get(
-                    (
-                        batch.windows[0].episode.episode_id,
-                        entry.record.record_id,
-                    )
-                )
-                if annotation is None:
-                    continue
-                clock = causal_clock[step.meridian_id]
-                if annotation.query.meridian != clock:
-                    raise ValueError(
-                        "Query sidecar meridian must be the causal clock: the index of "
-                        "the answering meridian among the episode's recorded meridians"
-                    )
-                if global_count <= 0:
-                    raise RuntimeError("Retrieval query supervision requires global events")
-                teacher = torch.tensor(
-                    annotation.teacher_target, device=device, dtype=torch.float32
-                )[None]
-                # Sample P on a dedicated retrieval track, with the
-                # PRE-ANSWER causal state and explicit request/purpose/space.
-                # Do not mislabel answer-event raw facets as query actions.
-                main_request = annotation.request_content()
-                # The request is not simply an arbitrary hashed sidecar
-                # string: it must occur in the actual already-committed
-                # episode prefix. A future label/answer cannot masquerade
-                # as a query-control payload.
-                if not any(
-                    item.payload == main_request and item.role in {"user", "system"}
-                    for item in batch.windows[0].episode.records[: step.offsets[0]]
-                ):
-                    raise ValueError("Retrieval main request is absent from causal episode prefix")
-                before_query = state
-                predicted, queried, selected = multi.retrieve_embedding(
-                    state,
-                    main_request=main_request,
-                    purpose=annotation.query.purpose,
-                    space_fingerprint=recipe.space.fingerprint,
-                    effort=batch.effort,
-                )
-                if selected.shape[1] != 1:
-                    raise RuntimeError("Retrieval R must use one selected raw P event")
-                if int(queried.meridians_seen[0]) != (int(before_query.meridians_seen[0]) + 1):
-                    raise RuntimeError("Every retrieval query must commit one native meridian")
-                state = queried
-                if bank_owner is not None:
-                    selected_bank = bank_owner.read(
-                        queried,
-                        predicted,
-                        annotation,
-                        global_count=global_count,
-                        clock=clock,
-                        multi=multi,
-                        coverage=source_coverage,
-                    )
-                    state = selected_bank.state
-                    retrieval_losses.append(selected_bank.loss)
-                    for metric, count in (
-                        ("kb_source_candidates", selected_bank.source_hits),
-                        ("kb_memory_candidates", selected_bank.memory_hits),
-                        ("kb_admitted_groups", selected_bank.memory_groups),
-                        ("kb_source_value_examples", selected_bank.source_value_examples),
-                        ("kb_source_committed", selected_bank.source_committed),
-                        ("kb_source_bytes_committed", selected_bank.source_bytes),
-                    ):
-                        metrics[metric] = metrics.get(metric, 0) + count
-                # The teacher is a coordinate target, never P input.
-                if probe is not None:
-                    probe.queries[(annotation.episode_id, annotation.event_id)] = (
-                        predicted.detach()[0].float().cpu()
-                    )
-                distance = alignment_distance(
-                    predicted, teacher, _center(recipe, "query", device)
-                ).sum()
-                retrieval_losses.append(
-                    recipe.loss_weights.get("embedding", 0.0) * distance / global_count
-                )
-                metrics["retrieval_embedding_sum"] = (
-                    metrics.get("retrieval_embedding_sum", 0.0) + distance.detach()
-                )
-                metrics["retrieval_embedding_count"] = (
-                    metrics.get("retrieval_embedding_count", 0) + 1
-                )
             result = multi.supervised_meridian(
                 state,
                 tracks=step.tracks,
@@ -711,11 +592,6 @@ def forward_meridian_batch(
                 ),
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
-                memory_dropout=(
-                    (config.retrieval_kv_dropout, config.retrieval_lora_dropout)
-                    if retrieval_aux[3] is not None
-                    else (0.0, 0.0)
-                ),
                 relations=step.relations,
                 semantic_relations=tuple(SelectedRelation(*rel) for rel in step.semantic_relations),
             )
@@ -728,66 +604,14 @@ def forward_meridian_batch(
                     value.detach() if isinstance(value, torch.Tensor) else value
                 )
         else:
-            examples, recipe, _, _, documents, global_docs = retrieval_aux
-            matches = [
-                documents.get(
-                    (
-                        batch.windows[0].episode.episode_id,
-                        entry.record.record_id,
-                    )
-                )
-                for entry in step.records
-            ]
             source_raw = _actual_raw(
                 model,
                 step,
                 batch.native_history,
                 store,
                 device,
-                encoder_grad=(
-                    config.representation_training == "bootstrap"
-                    or any(x is not None for x in matches)
-                ),
+                encoder_grad=config.representation_training == "bootstrap",
             )
-            for index, item in enumerate(matches):
-                if item is None:
-                    continue
-                if (
-                    step.modalities[index] != "text"
-                    or step.records[index].record.role != "document"
-                ):
-                    raise ValueError(
-                        "Document R targets must attach to real original-source events"
-                    )
-                item.validate_event(
-                    payload=step.records[index].payload,
-                    clock=causal_clock[step.meridian_id],
-                )
-                if global_docs < 1:
-                    raise RuntimeError("Document teacher has no globally planned loss count")
-                target = torch.as_tensor(item.teacher_target, device=device, dtype=torch.float32)[
-                    None
-                ]
-                output = model.embedding_realizer(
-                    source_raw[:, index],
-                    EmbeddingSpec(recipe.space.fingerprint, "document", recipe.space.dimension),
-                )
-                if probe is not None:
-                    probe.documents[(item.episode_id, item.event_id)] = (
-                        output.detach()[0].float().cpu()
-                    )
-                distance = alignment_distance(
-                    output, target, _center(recipe, "document", device)
-                ).sum()
-                retrieval_losses.append(
-                    recipe.loss_weights.get("document_embedding", 0.0) * distance / global_docs
-                )
-                metrics["retrieval_document_embedding_sum"] = (
-                    metrics.get("retrieval_document_embedding_sum", 0.0) + distance.detach()
-                )
-                metrics["retrieval_document_embedding_count"] = (
-                    metrics.get("retrieval_document_embedding_count", 0) + 1
-                )
             state = multi.tracks.advance_group(
                 state,
                 source_raw,
@@ -795,6 +619,6 @@ def forward_meridian_batch(
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
                 modalities=step.modalities,
             )
-    if differentiate and (losses or retrieval_losses):
-        torch.stack([*losses, *retrieval_losses]).sum().backward()
+    if differentiate and losses:
+        torch.stack(losses).sum().backward()
     return metrics

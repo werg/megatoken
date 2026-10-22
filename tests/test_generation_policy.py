@@ -805,12 +805,11 @@ def test_owner_groups_partition_every_parameter_exactly_once(model):
             assert id(parameter) not in seen, (owner, seen[id(parameter)])
             seen[id(parameter)] = owner
     assert seen.keys() == {id(p) for p in model.parameters()}
-    adapters = model.core.memory_adapters
     owner_of = lambda p: seen[id(p)]  # noqa: E731
-    assert owner_of(model.core.memory_seed.weight) == "P"
-    assert owner_of(adapters.families["p"].a) == "P"
-    assert owner_of(adapters.families["r"].a) == "R"
-    assert owner_of(adapters.families["c"].a) == "C"
+    transducer = model.transducer
+    assert owner_of(transducer.bank.modulation) == "P"
+    assert owner_of(next(transducer.query_realizer.parameters())) == "P"
+    assert owner_of(transducer.readout.row_identifiers) == "E"
     assert (
         owner_of(
             model.embedding_realizer.query.weight
@@ -821,14 +820,9 @@ def test_owner_groups_partition_every_parameter_exactly_once(model):
     )
 
 
-def test_rl_freeze_leaves_p_side_memory_trainable(model):
+def test_rl_freeze_leaves_p_side_retrieval_trainable(model):
     model.freeze_decoder_for_rl()
-    assert model.core.memory_seed.weight.requires_grad
-    assert model.core.memory_adapters.families["p"].a.requires_grad
-    assert not model.core.memory_adapters.families["c"].a.requires_grad
-    assert not model.core.memory_adapters.families["r"].a.requires_grad
-    # Latent RL adapts how P selects memory experts; C/R selection stays pinned.
-    controllers = model.core.memory_adapters.controllers
-    assert all(p.requires_grad for p in controllers["p"].parameters())
-    assert not any(p.requires_grad for p in controllers["c"].parameters())
-    assert not any(p.requires_grad for p in controllers["r"].parameters())
+    # Latent RL adapts how P queries the transducer; the knowledge readout stays pinned.
+    assert model.transducer.query_realizer.query.weight.requires_grad
+    assert model.transducer.bank.modulation.requires_grad
+    assert not model.transducer.readout.row_identifiers.requires_grad

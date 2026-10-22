@@ -65,6 +65,14 @@ class DistributedContext:
         dist.all_gather_object(result, value)
         return result
 
+    def broadcast_object(self, value: Any) -> Any:
+        """Rank 0's ``value`` on every rank."""
+        if self.world_size == 1:
+            return value
+        box = [value]
+        dist.broadcast_object_list(box, src=0)
+        return box[0]
+
     def sum_tensors(self, values: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         keys = sorted(values)
         if not keys:

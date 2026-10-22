@@ -28,18 +28,6 @@ from megatoken.training.transducer_diloco import (
 )
 from megatoken.training.transducer_sync import TransducerHost, TransducerSync, install_published
 
-TRANSDUCER = {
-    "transducer": True,
-    "transducer_location_dim": 8,
-    "transducer_query_dim": 16,
-    "transducer_value_rows": 4,
-    "transducer_neighbors": 4,
-    "transducer_selected": 4,
-    "transducer_exploration": 1,
-    "transducer_max_lookups": 16,
-    "transducer_max_edges": 256,
-    "transducer_byte_budget": 10**6,
-}
 GEOMETRY = TransducerGeometry(
     location_dim=8,
     query_dim=16,
@@ -55,7 +43,7 @@ GEOMETRY = TransducerGeometry(
 
 def tiny_model():
     torch.manual_seed(0)
-    model = build_model(ModelConfig.tiny(**TRANSDUCER), ByteCodec.byte_fallback())
+    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
     return model.train()
 
 
@@ -94,8 +82,6 @@ def test_reserved_tracks_never_use_user_slots():
     ids, registry = multi.tracks._track_indices(state, RESERVED_TRACKS)
     cap = model.config.max_tracks
     assert ids[0].tolist() == [cap + i for i in range(len(RESERVED_TRACKS))] and registry == ()
-    controller = model.core.memory_adapters.controllers["c"]
-    assert controller.track_preference.num_embeddings == cap + len(RESERVED_TRACKS)
 
 
 def test_native_lookup_hindsight_and_parameter_ownership():
@@ -329,7 +315,7 @@ def test_serving_session_cancels_cleanly_and_restores():
 
     model = tiny_model()
     add_random(model.transducer.bank, 12)
-    engine = TransducerInferenceEngine(model)
+    engine = TransducerInferenceEngine(MultiTrackGenerator(model))
     session = engine.new_session({"task": "chat"})
     assert session.agenda.lookups == 1
     before = (session.state.meridians_seen.clone(), session.agenda.lookups)

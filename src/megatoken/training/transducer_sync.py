@@ -9,6 +9,7 @@ archives of tensors and plain values only, loaded with ``weights_only=True``.
 
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 import time
@@ -24,8 +25,10 @@ from megatoken.memory.transducer import TransducerBank, TransducerGeometry
 from megatoken.memory.transducer_growth import TransducerGrowth
 from megatoken.memory.transducer_optimizer import BlockScaleDescent
 
+from .checkpoint import snapshot_to_cpu
 from .transducer_diloco import (
     COORDINATOR_WORKER,
+    LOCAL_STEPS,
     ChangeSet,
     LearnerRound,
     TransducerCoordinator,
@@ -49,8 +52,72 @@ def _load(path: Path) -> dict:
         return torch.load(handle, map_location="cpu", weights_only=True)
 
 
-class TransducerHost:
-    """The coordinator's canonical bank, its pending rounds and its publications."""
+class CanonicalBank:
+    """The run's canonical bank and its merging coordinator, kept on the CPU."""
+
+    def __init__(self, geometry: TransducerGeometry, *, evidence_from: int) -> None:
+        self.bank = TransducerBank(geometry)
+        self.optimizer = BlockScaleDescent(self.bank, worker=COORDINATOR_WORKER)
+        self.growth = TransducerGrowth(self.bank, optimizer=self.optimizer)
+        self.coordinator = TransducerCoordinator(
+            self.bank, self.optimizer, self.growth, evidence_from=evidence_from
+        )
+
+    def version(self) -> int:
+        return self.coordinator.version
+
+    def state_dict(self) -> dict:
+        return {
+            "bank": self.bank.state_snapshot(),
+            "optimizer": self.optimizer.state_dict(),
+            "growth": self.growth.state_dict(),
+            "coordinator": self.coordinator.state_dict(),
+        }
+
+    def checkpoint_state(self) -> dict:
+        """The ``transducer.pt`` layout: the served bank plus the canonical statistics."""
+        state = self.state_dict()
+        return {"bank": state.pop("bank"), "canonical": state}
+
+    def load_state_dict(self, state: dict) -> None:
+        self.bank.load_snapshot(state["bank"])
+        self.optimizer.load_state_dict(state["optimizer"])
+        self.growth.load_state_dict(state["growth"])
+        self.coordinator.load_state_dict(state["coordinator"])
+
+    def seed(self, state: dict) -> None:
+        """Start a new run from a checkpoint's bank, keeping canonical statistics if any.
+
+        Coordinator versions, ledgers and switch history belong to the old run.
+        """
+        self.bank.load_snapshot(state["bank"])
+        if "canonical" in state:
+            self.optimizer.load_state_dict(state["canonical"]["optimizer"])
+            self.growth.load_state_dict(state["canonical"]["growth"])
+
+    def merge_or_skip(self) -> bool:
+        try:
+            self.coordinator.merge()
+        except (ValueError, FloatingPointError, RuntimeError) as error:
+            # The failing rounds were consumed; learners re-base on the next version.
+            print(f"transducer merge failed and was skipped: {error}", flush=True)
+            return False
+        return True
+
+
+def _pack(value: dict) -> bytes:
+    # Plain pickling cannot carry FP8 storages between processes; torch archives can.
+    buffer = io.BytesIO()
+    torch.save(snapshot_to_cpu(value), buffer)
+    return buffer.getvalue()
+
+
+def _unpack(data: bytes) -> dict:
+    return torch.load(io.BytesIO(data), map_location="cpu", weights_only=True)
+
+
+class TransducerHost(CanonicalBank):
+    """The DiLoCo coordinator's canonical bank, its pending rounds and its publications."""
 
     def __init__(
         self,
@@ -62,43 +129,24 @@ class TransducerHost:
         grace_seconds: float,
         persist_every: int = 16,
     ) -> None:
+        super().__init__(
+            TransducerGeometry(**settings["geometry"]),
+            evidence_from=int(settings["evidence_from"]),
+        )
         self.root = Path(root) / "transducer"
         self.root.mkdir(parents=True, exist_ok=True)
         self.workers = workers
         self.min_quorum = min_quorum
         self.grace_seconds = grace_seconds
         self.persist_every = persist_every
-        self.bank = TransducerBank(TransducerGeometry(**settings["geometry"]))
-        self.optimizer = BlockScaleDescent(self.bank, worker=COORDINATOR_WORKER)
-        self.growth = TransducerGrowth(self.bank, optimizer=self.optimizer)
-        self.coordinator = TransducerCoordinator(
-            self.bank, self.optimizer, self.growth, evidence_from=int(settings["evidence_from"])
-        )
         self.quorum_since: float | None = None
         self.published_version = -1
         state = self.root / "state.pt"
         if state.exists():
-            self._restore(_load(state))
-
-    def version(self) -> int:
-        return self.coordinator.version
-
-    def _restore(self, state: dict) -> None:
-        self.bank.load_snapshot(state["bank"])
-        self.optimizer.load_state_dict(state["optimizer"])
-        self.growth.load_state_dict(state["growth"])
-        self.coordinator.load_state_dict(state["coordinator"])
+            self.load_state_dict(_load(state))
 
     def persist(self) -> None:
-        _save(
-            self.root / "state.pt",
-            {
-                "bank": self.bank.state_snapshot(),
-                "optimizer": self.optimizer.state_dict(),
-                "growth": self.growth.state_dict(),
-                "coordinator": self.coordinator.state_dict(),
-            },
-        )
+        _save(self.root / "state.pt", self.state_dict())
 
     def submit(self, worker: int, sequence: int, base_version: int, incoming: Path, conflict):
         submission = LearnerRound.from_state(_load(incoming))
@@ -129,11 +177,7 @@ class TransducerHost:
         if pending < self.workers and time.monotonic() - self.quorum_since < self.grace_seconds:
             return False
         self.quorum_since = None
-        try:
-            self.coordinator.merge()
-        except (ValueError, FloatingPointError, RuntimeError) as error:
-            # The failing rounds were consumed; learners re-base on the next version.
-            print(f"transducer merge failed and was skipped: {error}", flush=True)
+        if not self.merge_or_skip():
             return False
         if self.version() % self.persist_every == 0:
             self.persist()
@@ -242,3 +286,74 @@ def submit_round(trainer: Any, sync: TransducerSync, *, worker: int, step: int) 
         examples=examples,
         step=step,
     )
+
+
+class RankRounds:
+    """Synchronous data-parallel ranks sharing one bank through in-process rounds.
+
+    Each rank trains its copy as a provisional learner. Every 32 steps all
+    ranks' rounds are gathered on rank 0, merged there by the canonical
+    coordinator exactly as decoupled learners' rounds are, and the resulting
+    change set is broadcast back and installed by every rank. Checkpoints hold
+    the canonical bank; a resumed rank restarts its learner copy from it.
+    """
+
+    def __init__(self, trainer: Any, context: Any) -> None:
+        self.trainer = trainer
+        self.context = context
+        self.sync = TransducerSync()
+        self.canonical: CanonicalBank | None = None
+        if context.is_primary:
+            self.canonical = CanonicalBank(
+                trainer.bank.geometry, evidence_from=trainer.schedule.warmup_steps
+            )
+            self.canonical.bank.load_snapshot(trainer.bank.state_snapshot())
+
+    def step(self, step: int) -> dict[str, int]:
+        """Exchange one round at every 32-step boundary (a collective on every rank)."""
+        if step % LOCAL_STEPS:
+            return {}
+        submission = submit_round(self.trainer, self.sync, worker=self.context.rank, step=step)
+        rounds = self.context.all_gather_object(_pack(submission.state_dict()))
+        changes = None
+        if self.canonical is not None:
+            for packed in rounds:
+                self.canonical.coordinator.submit(LearnerRound.from_state(_unpack(packed)))
+            self.canonical.merge_or_skip()
+            changes = _pack(
+                self.canonical.coordinator.changes_since(self.sync.version).state_dict()
+            )
+        changes = ChangeSet(**_unpack(self.context.broadcast_object(changes)))
+        trainer = self.trainer
+        install_changes(trainer.bank, trainer.optimizer, trainer.growth, changes)
+        self.sync.version = changes.version
+        return {"transducer_version": changes.version}
+
+    def record_validation(self, step: int, loss: float) -> None:
+        """Rank 0's bank-only loss feeds the canonical switch rule."""
+        if self.canonical is not None:
+            self.canonical.coordinator.record_validation(step, loss)
+
+    def state_dict(self) -> dict:
+        """The canonical state (rank 0 only) plus the shared round cursor."""
+        if self.canonical is None:
+            raise RuntimeError("Only rank 0 holds the canonical bank")
+        return {
+            **self.canonical.checkpoint_state(),
+            "sequences": self.trainer.sequences,
+            "rounds": self.sync.state_dict(),
+        }
+
+    def load_state_dict(self, state: dict) -> None:
+        """Exact resume of a multi-rank run, or a new run seeded from any checkpoint."""
+        self.trainer.bank.load_snapshot(state["bank"])
+        self.trainer.sequences = int(state.get("sequences", 0))
+        resumed = "rounds" in state
+        if resumed:
+            self.sync.load_state_dict(state["rounds"])
+        if self.canonical is None:
+            return
+        if resumed:
+            self.canonical.load_state_dict({"bank": state["bank"], **state["canonical"]})
+        else:
+            self.canonical.seed(state)

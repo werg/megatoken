@@ -687,9 +687,6 @@ def config(**overrides):
         model="tiny",
         phase="B0",
         budget=64,
-        retrieval_sidecar="query.jsonl",
-        retrieval_document_sidecar="document.jsonl",
-        retrieval_memory_recipe="recipe.json",
     )
     settings.update(overrides)
     return TrainConfig(**settings)

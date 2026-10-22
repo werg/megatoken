@@ -19,6 +19,9 @@ from megatoken.multitrack_service import serve_multitrack_jsonl
 from megatoken.teacher import PINNED_TEACHER
 from tests.media_support import features, install_fake_realizers
 
+# Opening commits the metadata prefix, then the first lookup's query and knowledge events.
+OPENED = 3
+
 
 def _runtime():
     torch.manual_seed(27)
@@ -65,7 +68,7 @@ def test_accept_commits_whole_meridian_and_delivery_cannot_reverse():
     )
     accepted = runtime.accept(session, draft)
     assert session.revision == 1
-    assert session.state.meridian_sizes == (1,)
+    assert session.state.meridian_sizes == (1,) * (OPENED + 1)
     assert accepted.tape.tracks == ("answer",)
     runtime.record_delivery(session, "answer:0", 10, complete=False)
     runtime.record_delivery(session, "answer:0", 20, complete=True)
@@ -76,6 +79,7 @@ def test_accept_commits_whole_meridian_and_delivery_cannot_reverse():
 def test_parallel_tool_result_is_not_committed_automatically():
     _, runtime = _runtime()
     session = runtime.open()
+    opened = session.state.history.slots
     pool = ConcurrentToolRunner(2)
     try:
         pool.submit("fetch-1", lambda: b"one")
@@ -83,7 +87,7 @@ def test_parallel_tool_result_is_not_committed_automatically():
         for task in pool.pending.values():
             task.result(timeout=5)
         assert pool.collect_ready() == {"fetch-1": b"one", "fetch-2": b"two"}
-        assert session.state.history.slots == 0
+        assert session.state.history.slots == opened
         runtime.observe(
             session,
             (
@@ -91,7 +95,7 @@ def test_parallel_tool_result_is_not_committed_automatically():
                 ObservedEvent("tool-2", "text", b"two", role_id=3),
             ),
         )
-        assert session.state.meridian_sizes == (2,)
+        assert session.state.meridian_sizes[OPENED:] == (2,)
     finally:
         pool.close()
 
@@ -158,8 +162,8 @@ def test_jsonl_multitrack_roundtrip():
 
     rows = _serve(model, requests)
     assert len(rows) == 4 and all(row["ok"] for row in rows)
-    assert rows[1]["next_meridian"] == 1
-    assert rows[1]["events_seen"] == 2
+    assert rows[1]["next_meridian"] == OPENED + 1
+    assert rows[1]["events_seen"] == OPENED + 2
     generated = rows[2]
     voice, still = generated["outputs"][1:]
     assert voice["shape"] == [64] and still["shape"] == [1, 3, 16, 16]
@@ -177,10 +181,10 @@ def test_jsonl_multitrack_roundtrip():
         generated["tape"]["pack_fingerprints"][1:]
     )
     assert "tape_payload" not in generated["outputs"][0]
-    assert rows[3]["meridians"] == 2
-    assert rows[3]["retained_meridians"] == 2
-    assert rows[3]["events_seen"] == 5
-    assert rows[3]["retained_events"] == 5
+    assert rows[3]["meridians"] == OPENED + 2
+    assert rows[3]["retained_meridians"] == OPENED + 2
+    assert rows[3]["events_seen"] == OPENED + 5
+    assert rows[3]["retained_events"] == OPENED + 5
 
 
 def test_jsonl_media_must_be_pinned_features():
@@ -212,7 +216,7 @@ def test_jsonl_media_must_be_pinned_features():
     assert [row["ok"] for row in rows] == [True, False, False, False, True]
     assert "different teacher" in rows[1]["error"]
     assert "ordered" in rows[3]["error"]  # raw PCM is not an observation
-    assert rows[4]["events_seen"] == 0  # nothing was committed
+    assert rows[4]["events_seen"] == OPENED  # nothing was committed
 
 
 def test_jsonl_speculative_media_is_provisional_until_accepted():
@@ -238,5 +242,5 @@ def test_jsonl_speculative_media_is_provisional_until_accepted():
     assert all(row["ok"] for row in rows)
     assert rows[1]["provisional"] is True
     assert rows[1]["outputs"][0]["shape"] == [64]
-    assert rows[2]["pending"] is True and rows[2]["retained_events"] == 0
-    assert rows[4]["pending"] is False and rows[4]["retained_events"] == 1
+    assert rows[2]["pending"] is True and rows[2]["retained_events"] == OPENED
+    assert rows[4]["pending"] is False and rows[4]["retained_events"] == OPENED + 1
