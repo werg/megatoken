@@ -188,7 +188,9 @@ class CentralProcessor(nn.Module):
         if external_kb is not None:
             projected = join_attention(external_kb, projected)
         if attention_mask is not None and attention_mask.shape != (
-            raw.shape[0], raw.shape[1], projected.keys.shape[2] + raw.shape[1]
+            raw.shape[0],
+            raw.shape[1],
+            projected.keys.shape[2] + raw.shape[1],
         ):
             raise ValueError("C attention mask must address all native query/key facets")
         temporary = None
