@@ -211,6 +211,7 @@ class CentralProcessor(nn.Module):
                         temporal_positions=positions,
                         slot_codes=addresses,
                         query_track_ids=live_tracks,
+                        query_key_mask=attention_mask,
                     ),
                     facets,
                     use_reentrant=False,
