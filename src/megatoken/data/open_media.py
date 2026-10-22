@@ -850,20 +850,54 @@ def webdataset_records(source: OpenSource, shards: Shards) -> Iterator[dict[str,
                 yield {"__key__": key, **_sample(group)}
 
 
+class _Derived(dict):
+    """A table row that also answers ``<field>__name`` (the last path component of a string
+    field) and ``<field>__stem`` (that without its extension), for ``key`` templates."""
+
+    def __missing__(self, key: str) -> str:
+        field, _, kind = key.rpartition("__")
+        if kind in ("name", "stem") and field in self:
+            path = PurePosixPath(str(self[field]))
+            return path.name if kind == "name" else path.stem
+        raise KeyError(key)
+
+
+def _table_rows(handle: BinaryIO, path: str, names: Sequence[str] | None) -> Iterable[dict]:
+    """Rows of a table: a csv, a JSON array of objects, or JSON lines (whatever its name says)."""
+    text = io.TextIOWrapper(handle, encoding="utf-8", newline="")
+    if not path.endswith((".json", ".jsonl")):
+        return csv.DictReader(text, fieldnames=names)
+    first = text.read(1)
+    while first.isspace():
+        first = text.read(1)
+    rest = first + text.read()
+    if first == "[":
+        return json.loads(rest)
+    # JSON lines end at "\n" only; str.splitlines would also cut inside a string at U+2028.
+    return (json.loads(line) for line in rest.split("\n") if line.strip())
+
+
 def _table(shards: Shards, spec: Mapping[str, Any], wanted: Iterable[str]) -> dict[str, dict]:
-    """Rows of a csv/jsonl file keyed by the ``key`` template (a ``str.format`` over the row)."""
+    """Rows of a csv/json/jsonl file keyed by the ``key`` template (a ``str.format`` over the
+    row, which also offers ``<field>__name`` and ``<field>__stem`` of path fields).
+
+    ``path`` may name several files. Rows sharing a key replace one another, except that the
+    fields listed in ``merge`` (lists) are joined in file order: one video asked about in many
+    rows keeps all its conversations.
+    """
     rows: dict[str, dict] = {}
-    with shards.open(spec["path"]) as handle:
-        text = io.TextIOWrapper(handle, encoding="utf-8", newline="")
-        if spec["path"].endswith(".jsonl"):
-            lines: Iterable[dict] = (json.loads(line) for line in text if line.strip())
-        else:
-            names = spec.get("names")
-            lines = csv.DictReader(text, fieldnames=names)
-        for row in lines:
-            for name in spec.get("ints", ()):
-                row[name] = int(row[name])
-            rows[spec["key"].format(**row)] = {name: row.get(name) for name in wanted}
+    wanted = list(wanted)
+    for path in [spec["path"]] if isinstance(spec["path"], str) else spec["path"]:
+        with shards.open(path) as handle:
+            for row in _table_rows(handle, path, spec.get("names")):
+                for name in spec.get("ints", ()):
+                    row[name] = int(row[name])
+                key = spec["key"].format_map(_Derived(row))
+                kept = {name: row.get(name) for name in wanted}
+                if key in rows and spec.get("merge"):
+                    for name in spec["merge"]:
+                        kept[name] = [*(rows[key][name] or ()), *(kept[name] or ())]
+                rows[key] = kept
     return rows
 
 

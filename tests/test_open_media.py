@@ -1524,3 +1524,71 @@ def test_captioned_clips_and_conversations_about_video_give_video_description(tm
     asked = next(e for e in episodes if e.stream == "video_description")
     assert [r.payload for r in asked.records[1:]] == [b"What moves?", b"A pattern."]
     assert not list((tmp_path / "work").rglob("*.mp4"))
+
+
+def test_tables_may_be_json_arrays_with_path_keys_and_rows_sharing_a_key_may_merge(tmp_path, media):
+    """LLaVA-Video-178K shape: a JSON array whose rows name a video by a path inside the tar,
+    several rows (conversations) for the same video."""
+    source = make_source(
+        "videoqa",
+        "image_questions",
+        "archive",
+        columns={"image": "member", "turns": "conversations", "id": "__key__"},
+        include=("images/*.tar",),
+        options={
+            "format": "messages",
+            "table": {
+                "path": "qa.json",
+                "key": "{video__name}",
+                "columns": ["conversations"],
+                "merge": ["conversations"],
+            },
+        },
+    )
+    folder = _local(tmp_path, "videoqa")
+    (folder / "images").mkdir()
+    rows = [
+        {
+            "video": "academic/clips/a.png",
+            "conversations": [
+                {"from": "human", "value": "<image>\nWhat is this?"},
+                {"from": "gpt", "value": "A square."},
+            ],
+        },
+        {
+            "video": "other/path/a.png",
+            "conversations": [
+                {"from": "human", "value": "What colour?"},
+                {"from": "gpt", "value": "Blue."},
+            ],
+        },
+        {"video": "academic/clips/b.png", "conversations": []},
+    ]
+    (folder / "qa.json").write_text(json.dumps(rows))
+    _tar(folder / "images/0.tar", {"x/a.png": _image(1), "x/b.png": _image(2)})
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_description": 1, "image_identity": 1}
+    chat = next(e for e in episodes if e.stream == "image_description")
+    assert [r.payload for r in chat.records[1:]] == [
+        b"What is this?",
+        b"A square.",
+        b"What colour?",
+        b"Blue.",
+    ]
+
+
+def test_json_lines_in_a_file_named_json_are_read_line_by_line(tmp_path):
+    from megatoken.data.open_media import _table
+
+    source = make_source("t")
+    folder = _local(tmp_path, "t")
+    (folder / "t.json").write_text(
+        '{"location": "data_aug2/x_1.wav", "caption": "Slow piano"}\n'
+        '{"location": "data/y.wav", "caption": "Fast drums"}\n'
+    )
+    rows = _table(
+        Shards(source, tmp_path / "inputs"),
+        {"path": "t.json", "key": "{location__name}"},
+        ["caption"],
+    )
+    assert rows == {"x_1.wav": {"caption": "Slow piano"}, "y.wav": {"caption": "Fast drums"}}
