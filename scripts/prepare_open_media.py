@@ -65,7 +65,9 @@ def main() -> None:
     parser.add_argument("--root", type=Path, required=True, help="Prepared dataset root (new)")
     parser.add_argument("--codec", required=True)
     parser.add_argument("--work", type=Path, required=True, help="Scratch for the clips in flight")
-    parser.add_argument("--inputs", type=Path, help="Local copies of sources: <inputs>/<source_id>/")
+    parser.add_argument(
+        "--inputs", type=Path, help="Local copies of sources: <inputs>/<source_id>/"
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--count", action="append", default=[], metavar="SOURCE=N")
     parser.add_argument("--procedural", action="append", default=[], metavar="SOURCE=N")
@@ -79,7 +81,8 @@ def main() -> None:
     if args.count:
         counts = {key: int(value) for key, value in _pairs(args.count, parser, "--count").items()}
         procedural = {
-            key: int(value) for key, value in _pairs(args.procedural, parser, "--procedural").items()
+            key: int(value)
+            for key, value in _pairs(args.procedural, parser, "--procedural").items()
         }
         options: dict[str, dict] = {}
     else:
@@ -90,7 +93,9 @@ def main() -> None:
         options.setdefault(source_id, {})[key] = json.loads(value)
     unknown = (set(counts) | set(procedural) | set(options)) - set(SOURCES)
     if unknown:
-        parser.error(f"Unknown media sources {sorted(unknown)}; see configs/data/sources.media.json")
+        parser.error(
+            f"Unknown media sources {sorted(unknown)}; see configs/data/sources.media.json"
+        )
     index, _, total = args.shard_slice.partition("/")
     shard_slice = (int(index), int(total))
     if not 0 <= shard_slice[0] < shard_slice[1]:
@@ -127,7 +132,10 @@ def main() -> None:
                     tally[episode.stream] += 1
                     if sum(tally.values()) % 100 == 0:
                         print(json.dumps(tally, sort_keys=True), flush=True)
-                print(json.dumps({"finished": source_id, "streams": tally}, sort_keys=True), flush=True)
+                print(
+                    json.dumps({"finished": source_id, "streams": tally}, sort_keys=True),
+                    flush=True,
+                )
         dedup.freeze()
         export_prepared(
             dedup,

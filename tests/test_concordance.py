@@ -78,6 +78,38 @@ def test_standard_asr_compiles_with_causal_distinct_request(tmp_path):
     assert episode.lineage.frozen_split == "train"
 
 
+def test_speech_translation_needs_no_translated_speech(tmp_path):
+    store = TensorAssetStore(tmp_path)
+    speech = prepared_record(store, "audio", seed=3, target=False)
+    spoken = prepared_record(store, "audio", seed=4)
+
+    def bundle(*extra):
+        return AlignedBundle(
+            "pair",
+            Lineage("pair", "r1", "sentence-1", frozen_split="train"),
+            (
+                BundleArtifact("s", "source_speech", "audio", media=speech),
+                BundleArtifact("t", "translated_text", "text", payload=b"Good morning."),
+                *extra,
+            ),
+            "explicit-verified-terms",
+            "teacher-features-v1",
+            "human-reviewed",
+        )
+
+    (text_only,) = standard_views(bundle())
+    assert (text_only.family, text_only.view_id) == ("speech_translation", "direct-translation")
+    assert [e.track_id for e in text_only.groups[1].events] == ["translation"]
+    (joint,) = standard_views(
+        bundle(BundleArtifact("ts", "translated_speech", "audio", media=spoken))
+    )
+    assert joint.view_id == "direct-joint-translation"
+    assert [e.track_id for e in joint.groups[1].events] == ["translation", "translated_speech"]
+    assert len(joint.relations) == 2 and len(text_only.relations) == 1
+    episode = compile_task(bundle(), text_only)
+    assert episode.stream == "speech_translation" and len(episode.meridians) == 2
+
+
 def test_same_step_output_peer_cannot_be_named_as_a_current_reference(tmp_path):
     bundle = _bundle(tmp_path)
     view = TaskView(

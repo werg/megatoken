@@ -959,6 +959,15 @@ def test_every_media_source_is_built_by_exactly_one_scale_job():
     assert set(built) == set(SOURCES)
 
 
+def test_job_option_overrides_name_real_sources_and_languages():
+    for name in MEDIA_JOBS:
+        command = _job(name)["command"][-1]
+        for source_id, key, value in re.findall(r"--option '(\w+)\.(\w+)=(.*?)'", command):
+            assert source_id in _counts(_job(name)) and key in SOURCES[source_id].options
+            if key == "languages":
+                assert set(json.loads(value)) <= set(SOURCES[source_id].options["languages"])
+
+
 def test_sources_that_need_the_hub_account_to_accept_terms_run_in_their_own_job():
     for name in MEDIA_JOBS:
         sources = set(_counts(_job(name)))
