@@ -201,6 +201,7 @@ class TransducerTrainingOwner:
         if lookup is not None:
             lookup.value.retain_grad()
             lookup.landing.retain_grad()
+            lookup.bank_landing_raw.retain_grad()
             self.pending.append(PendingBoundary(
                 lookup, hindsight, sink_only, alpha, step
             ))
@@ -215,7 +216,7 @@ class TransducerTrainingOwner:
             gradient_value = lookup.value.grad
             if gradient_value is None:
                 raise RuntimeError("Future loss did not differentiate the knowledge readout")
-            gradient_location = lookup.landing.grad
+            gradient_location = lookup.bank_landing_raw.grad
             if gradient_location is None:
                 gradient_location = torch.zeros_like(lookup.landing)
             self.growth.observe(
