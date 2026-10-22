@@ -120,7 +120,7 @@ PROFILES: dict[str, AdapterProfile] = {
         kind="document", fields=_fields(text="content"), require_parent=True, content_kind="code"
     ),
     "smoltalk2": AdapterProfile(fields=_fields(messages="messages")),
-    "nemotron_chat_v4": AdapterProfile(require_turn_mask=True),
+    "nemotron_chat": AdapterProfile(require_turn_mask=True),
     "nemotron_agentic_v4": AdapterProfile(observation_provenance="simulated"),
     "open_swe": AdapterProfile(
         trajectory=True,

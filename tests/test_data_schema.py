@@ -141,14 +141,14 @@ def test_masks_follow_original_message_turns_and_hide_outcomes():
             "gold_outcome": "SECRET_GOLD",
         },
     }
-    context = AdapterContext("chat-v4", "abc", "local", "chat", max_record_bytes=3)
-    episode = adapt_row(row, "nemotron_chat_v4", context)
+    context = AdapterContext("chat-v3", "abc", "local", "chat", max_record_bytes=3)
+    episode = adapt_row(row, "nemotron_chat", context)
     assert {record.turn_index for record in episode.records if record.policy_mask} == {3}
     assert b"SECRET_GOLD" not in b"".join(record.payload for record in episode.records)
     assert "SECRET_GOLD" in episode.supervision.annotations_json
     row["metadata"]["train_turns_mask"] = [True]
     with pytest.raises(SchemaError, match="one boolean"):
-        adapt_row(row, "nemotron_chat_v4", context)
+        adapt_row(row, "nemotron_chat", context)
     with pytest.raises(ValueError, match="Only assistant"):
         PhysicalRecord("x", "tool", b"observation", policy_mask=True)
 
