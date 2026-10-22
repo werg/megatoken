@@ -248,3 +248,91 @@ def test_native_metadata_query_and_knowledge_are_committed_once():
     assert state.meridians_seen.item() == 3
     assert len(state.track_registry) == 1  # metadata; query/knowledge reserved
     assert state.frontier_tracks == ("__transducer_knowledge__",)
+
+
+
+def test_transducer_allocator_rejects_reuse_after_retirement_and_restore():
+    bank = small_bank()
+    first = edge(bank, departure=(1, 0, 0, 0))
+    bank.retire(first)
+    second = edge(bank, departure=(1, 0, 0, 0))
+    assert second == first + 1
+    snapshot = bank.state_snapshot()
+    restored = small_bank()
+    restored.load_snapshot(snapshot)
+    restored.retire(second)
+    assert edge(restored, departure=(1, 0, 0, 0)) == second + 1
+    with pytest.raises(ValueError, match="high-water"):
+        restored.load_snapshot({**snapshot, "next_edge_id": second})
+
+
+def test_bank_rejects_stale_lookup_without_mutating_agenda():
+    bank = small_bank()
+    agenda = bank.agenda_from_location(torch.tensor([1.0, 0, 0, 0]))
+    lookup = bank.lookup(torch.ones(8), agenda)
+    assert lookup is not None
+    edge(bank, departure=(1, 0, 0, 0))
+    with pytest.raises(RuntimeError, match="Stale"):
+        bank.commit(agenda, lookup)
+    assert agenda.lookups == 0 and len(agenda.locations) == 1
+
+
+def test_coordinator_accepts_late_unduplicated_rounds_and_new_statistics():
+    from megatoken.memory.transducer_growth import EdgeEvidence
+
+    bank = small_bank()
+    row = edge(bank, departure=(1, 0, 0, 0))
+    optimizer = BlockScaleDescent(bank)
+    growth = TransducerGrowth(bank)
+    coordinator = TransducerCoordinator(bank, optimizer, growth)
+    incoming = WorkerRound(
+        0,
+        2,
+        0,
+        10,
+        optimizer_increments={(row, "key"): (torch.tensor([4.0]), 2.0)},
+        structural_increments={row: EdgeEvidence(utility=2.0, visits=4.0)},
+    )
+    assert coordinator.submit(incoming)
+    coordinator.merge(step=32)
+    assert optimizer.fields[row, "key"].count == pytest.approx(2.0)
+    assert optimizer.fields[row, "key"].squared_sums.item() == pytest.approx(4.0)
+    assert growth.evidence[row].utility == pytest.approx(2.0)
+    late = WorkerRound(0, 1, 0, 10)
+    assert coordinator.submit(late)
+    coordinator.merge(step=64)
+    assert not coordinator.submit(late)
+    assert not coordinator.submit(incoming)
+    state = coordinator.state_dict()
+    restored = TransducerCoordinator(bank, optimizer, growth)
+    restored.load_state_dict(state)
+    assert not restored.submit(late)
+
+
+def test_growth_split_carries_optimizer_summaries_and_retirement_cleans_them():
+    from megatoken.memory.transducer_growth import EdgeEvidence
+    from megatoken.memory.transducer_optimizer import FieldStatistics
+
+    bank = small_bank()
+    row = bank.add_edge(
+        departure=torch.tensor([1.0, 0, 0, 0]),
+        key=torch.tensor([1.0, 0, 0, 0, 0, 0, 0, 0]),
+        value=torch.ones(128),
+        destination=torch.tensor([0.0, 1, 0, 0]),
+        write_mass=8.0,
+    )
+    optimizer = BlockScaleDescent(bank)
+    growth = TransducerGrowth(bank, optimizer=optimizer)
+    optimizer.fields[row, "key"] = FieldStatistics(torch.tensor([6.0]), 8.0, 1)
+    optimizer.last_write[row] = 1
+    growth.evidence[row] = EdgeEvidence(utility=4.0, visits=64.0, dispersion=1000.0)
+    assert growth._split(row, 2) == (row, row + 1)
+    for edge_id in (row, row + 1):
+        assert optimizer.fields[edge_id, "key"].count == pytest.approx(4.0)
+        assert optimizer.fields[edge_id, "key"].squared_sums.item() == pytest.approx(3.0)
+        assert optimizer.last_write[edge_id] == 1
+    assert bank.next_edge_id == row + 2
+    growth._retire(row)
+    assert (row, "key") not in optimizer.fields
+    assert row not in optimizer.last_write and row not in bank.rows
+    assert (row + 1, "key") in optimizer.fields

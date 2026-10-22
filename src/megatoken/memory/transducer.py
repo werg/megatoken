@@ -140,6 +140,7 @@ class Lookup:
     query: Tensor
     start: Tensor
     hindsight_destination: Tensor | None
+    bank_version: int
 
     @property
     def candidates(self) -> tuple[int, ...]:
@@ -164,6 +165,7 @@ class TransducerBank(nn.Module):
         self.base_location = nn.Parameter(torch.randn(g.location_dim) * 0.01)
         self.metadata_location = nn.Linear(g.query_dim, g.location_dim, bias=False)
         self.rows: dict[int, PackedEdge] = {}
+        self.next_edge_id = 1
         self.version = 0
         self.learned_values = False
         self._masters: dict[tuple[int, str], Tensor] = {}
@@ -217,9 +219,9 @@ class TransducerBank(nn.Module):
             map(int, (departure.numel(), key.numel(), value.numel(), destination.numel()))
         ) != (g.location_dim, g.query_dim, g.value_dim, g.location_dim):
             raise ValueError("Edge field dimensions do not match v10 geometry")
-        edge_id = max(self.rows, default=0) + 1 if id is None else id
-        if edge_id <= 0 or edge_id in self.rows:
-            raise ValueError("Edge IDs must be unique positive canonical IDs")
+        edge_id = self.next_edge_id if id is None else id
+        if edge_id < self.next_edge_id or edge_id in self.rows:
+            raise ValueError("Canonical edge IDs must increase and never be reused")
         row = PackedEdge(
             edge_id,
             pack_fp8(
@@ -241,6 +243,7 @@ class TransducerBank(nn.Module):
         if self.packed_bytes + row.nbytes > g.byte_budget:
             raise RuntimeError("Packed-byte budget exceeded")
         self.rows[edge_id] = row
+        self.next_edge_id = edge_id + 1
         self._invalidate()
         return edge_id
 
@@ -435,12 +438,15 @@ class TransducerBank(nn.Module):
             q,
             agenda.current,
             h_destination,
+            self.version,
         )
 
     def commit(self, agenda: SearchAgenda, lookup: Lookup) -> bool:
         """Commit atomically after C accepted the knowledge event."""
         if agenda.lookups >= self.geometry.max_lookups:
             raise RuntimeError("Lookup cap reached before publication")
+        if lookup.bank_version != self.version or agenda.version != self.version:
+            raise RuntimeError("Stale transducer lookup cannot commit across a bank publication")
         agenda.lookups += 1
         location = lookup.landing
         if max(float(unit(s.detach()) @ unit(location.detach())) for s in agenda.locations) >= 0.99:
@@ -455,6 +461,7 @@ class TransducerBank(nn.Module):
             "identity": self.identity,
             "geometry": vars(self.geometry),
             "version": self.version,
+            "next_edge_id": self.next_edge_id,
             "learned_values": self.learned_values,
             "rows": [self.rows[k].to_dict() for k in sorted(self.rows)],
         }
@@ -476,7 +483,15 @@ class TransducerBank(nn.Module):
             for row in loaded.values()
         ):
             raise ValueError("Incompatible packed-edge geometry")
+        if len(loaded) > self.geometry.max_edges or sum(r.nbytes for r in loaded.values()) > (
+            self.geometry.byte_budget
+        ):
+            raise ValueError("Snapshot exceeds canonical edge or byte budget")
+        next_id = int(data.get("next_edge_id", max(loaded, default=0) + 1))
+        if min(loaded, default=1) <= 0 or next_id <= max(loaded, default=0):
+            raise ValueError("Invalid canonical edge ID high-water mark")
         self.rows = loaded
+        self.next_edge_id = next_id
         self.learned_values = bool(data["learned_values"])
         self.version = int(data["version"])
         self._masters.clear()

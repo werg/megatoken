@@ -154,6 +154,7 @@ class TransducerTrainingOwner:
             raise ValueError("Transducer training components must share one bank")
         self.optimizer = optimizer
         self.growth = growth
+        self.growth.optimizer = optimizer
         self.coordinator = coordinator
         self.schedule = HindsightSchedule()
         self.pending: list[PendingBoundary] = []
@@ -247,7 +248,10 @@ class TransducerTrainingOwner:
     def optimizer_barrier(self, step: int) -> dict[str, int]:
         if self.pending:
             raise RuntimeError("Backward evidence must be collected before publication")
-        return self.optimizer.step(step)
+        updated = self.optimizer.step(step)
+        if step % TransducerCoordinator.local_steps == 0 and self.coordinator is None:
+            self.growth.begin_round()
+        return updated
 
     def checkpoint(
         self,

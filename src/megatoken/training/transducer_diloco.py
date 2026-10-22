@@ -13,7 +13,7 @@ from torch import Tensor
 
 from megatoken.memory.transducer import PackedEdge, TransducerBank
 from megatoken.memory.transducer_growth import EdgeEvidence, TransducerGrowth
-from megatoken.memory.transducer_optimizer import BlockScaleDescent
+from megatoken.memory.transducer_optimizer import BlockScaleDescent, FieldStatistics
 from megatoken.memory.transducer_packing import pack_fp4, pack_fp8, rounding_seed, unit
 
 
@@ -56,15 +56,16 @@ class TransducerCoordinator:
         self.bank = bank
         self.optimizer = optimizer
         self.growth = growth
+        self.growth.optimizer = optimizer
         self.version = 0
-        self.ledger: dict[int, int] = {}
+        self.ledger: dict[int, set[int]] = {}
         self.pending: list[WorkerRound] = []
         self.learned = bank.learned_values
         self.validation: list[tuple[int, float]] = []
         self.switch_step: int | None = None
 
     def submit(self, round_: WorkerRound) -> bool:
-        if round_.sequence <= self.ledger.get(round_.worker, -1) or any(
+        if round_.sequence in self.ledger.get(round_.worker, set()) or any(
             (old.worker, old.sequence) == (round_.worker, round_.sequence) for old in self.pending
         ):
             return False
@@ -78,6 +79,8 @@ class TransducerCoordinator:
             raise ValueError("Switch validation occurs on exactly 1024-step boundaries")
         if not torch.isfinite(torch.tensor(bank_only_loss)):
             raise FloatingPointError("Invalid bank-only continuation loss")
+        if self.pending:
+            raise RuntimeError("Learned-value switch requires a published, complete round")
         if self.validation and step <= self.validation[-1][0]:
             raise ValueError("Validation steps must increase")
         self.validation.append((step, bank_only_loss))
@@ -116,8 +119,8 @@ class TransducerCoordinator:
             d, k = unit(row.departure.decode()), unit(row.key.decode())
             matched = False
             for cluster in clusters:
-                lead, original_worker, _ = cluster[0]
-                if original_worker == worker:
+                lead, _, _ = cluster[0]
+                if worker in {item[1] for item in cluster}:
                     continue
                 if (
                     float(d @ unit(lead.departure.decode())) >= 0.9
@@ -204,22 +207,49 @@ class TransducerCoordinator:
                         aged = write.mass * weight / submission.examples
                         written.setdefault(edge_id, []).append((aged, write.mean.decode()))
             for identity, (sums, count) in submission.optimizer_increments.items():
-                if identity not in self.optimizer.fields or identity[0] not in self.bank.rows:
+                if identity[0] not in self.bank.rows:
                     continue
-                slot = self.optimizer.fields[identity]
+                incoming = sums.detach().float().cpu()
+                if not bool(torch.isfinite(incoming).all()) or not (0 <= count < float("inf")):
+                    raise ValueError("Nonfinite or negative optimizer summary")
+                slot = self.optimizer.fields.get(identity)
+                if slot is None:
+                    slot = FieldStatistics(torch.zeros_like(incoming), last_step=step)
+                    self.optimizer.fields[identity] = slot
+                if incoming.shape != slot.squared_sums.shape:
+                    raise ValueError("Optimizer summary has an incompatible block geometry")
+                elapsed = step - slot.last_step
+                if elapsed < 0:
+                    raise ValueError("Optimizer summary clock moved backwards")
+                decay = 2 ** (-elapsed / 4096)
+                slot.squared_sums = slot.squared_sums * decay
+                slot.count *= decay
                 discount = weight / submission.examples
-                slot.squared_sums += sums.detach().cpu() * discount
+                slot.squared_sums += incoming * discount
                 slot.count += count * discount
+                slot.last_step = step
             for edge_id, incoming in submission.structural_increments.items():
                 if edge_id not in self.bank.rows:
                     continue
-                slot = self.growth.evidence.setdefault(edge_id, EdgeEvidence())
+                slot = self.growth.evidence.setdefault(
+                    edge_id, EdgeEvidence(last_step=step)
+                )
+                age = step - slot.last_step
+                if age < 0:
+                    raise ValueError("Structural evidence clock moved backwards")
+                decay = 2 ** (-age / 16384)
+                slot.utility *= decay
+                slot.visits *= decay
+                slot.dispersion *= decay
+                slot.sketch *= decay
+                slot.energy *= decay
                 discount = weight / submission.examples
                 slot.utility += incoming.utility * discount
                 slot.visits += incoming.visits * discount
                 slot.dispersion += incoming.dispersion * discount
                 slot.sketch += incoming.sketch.cpu() * discount
                 slot.energy += incoming.energy * discount
+                slot.last_step = step
         for (edge_id, name), delta in deltas.items():
             previous = self.bank.field(edge_id, name)
             target = previous.cpu() + delta / denominator
@@ -257,16 +287,19 @@ class TransducerCoordinator:
             self.optimizer.last_write[edge_id] = step
         adopted = self._merge_provisional(workers)
         for submission in workers:
-            self.ledger[submission.worker] = submission.sequence
+            self.ledger.setdefault(submission.worker, set()).add(submission.sequence)
         self.pending = []
         self.version += 1
         self.bank._masters.clear()
         self.bank._invalidate()
+        evolution = self.growth.evolve(step)
+        self.growth.begin_round()
         return {
             "submitted": len(workers),
             "fields": len(deltas),
             "written": len(written),
             "adopted": adopted,
+            **evolution,
         }
 
     def state_dict(self) -> dict:
@@ -274,7 +307,7 @@ class TransducerCoordinator:
             raise RuntimeError("Checkpoint only after a fully merged coordinator round")
         return {
             "version": self.version,
-            "ledger": self.ledger.copy(),
+            "ledger": {worker: sorted(sequences) for worker, sequences in self.ledger.items()},
             "learned": self.learned,
             "validation": self.validation.copy(),
             "switch_step": self.switch_step,
@@ -287,7 +320,10 @@ class TransducerCoordinator:
         if bool(snapshot["learned"]) != self.bank.learned_values:
             raise ValueError("Coordinator and bank value phases disagree")
         self.version = int(snapshot["version"])
-        self.ledger = {int(k): int(v) for k, v in snapshot["ledger"].items()}
+        self.ledger = {
+            int(k): ({int(v)} if isinstance(v, int) else set(map(int, v)))
+            for k, v in snapshot["ledger"].items()
+        }
         self.learned = bool(snapshot["learned"])
         self.validation = [(int(s), float(v)) for s, v in snapshot["validation"]]
         self.switch_step = snapshot["switch_step"]

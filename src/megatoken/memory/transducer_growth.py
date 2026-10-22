@@ -9,6 +9,7 @@ import torch
 from torch import Tensor
 
 from .transducer import Lookup, TransducerBank
+from .transducer_optimizer import BlockScaleDescent
 from .transducer_packing import pack_fp8, rounding_seed, unit
 
 
@@ -41,8 +42,17 @@ class EdgeEvidence:
 class TransducerGrowth:
     """Uses existing forward/backward evidence, not a separate growth query or replay."""
 
-    def __init__(self, bank: TransducerBank, *, max_writeouts: int = 512) -> None:
+    def __init__(
+        self,
+        bank: TransducerBank,
+        *,
+        max_writeouts: int = 512,
+        optimizer: BlockScaleDescent | None = None,
+    ) -> None:
+        if optimizer is not None and optimizer.bank is not bank:
+            raise ValueError("Growth optimizer must own the same canonical bank")
         self.bank = bank
+        self.optimizer = optimizer
         self.max_writeouts = max_writeouts
         self.writeouts = 0
         self.evidence: dict[int, EdgeEvidence] = {}
@@ -50,6 +60,17 @@ class TransducerGrowth:
 
     def begin_round(self) -> None:
         self.writeouts = 0
+
+    def _retire(self, edge_id: int) -> None:
+        self.bank.retire(edge_id)
+        self.evidence.pop(edge_id, None)
+        if self.optimizer is not None:
+            for identity in list(self.optimizer.fields):
+                if identity[0] == edge_id:
+                    del self.optimizer.fields[identity]
+            self.optimizer.last_write.pop(edge_id, None)
+            self.optimizer.write_accumulators.pop(edge_id, None)
+            self.optimizer.lru.pop(edge_id, None)
 
     def _projection(self, width: int) -> Tensor:
         if width not in self._random_maps:
@@ -191,7 +212,7 @@ class TransducerGrowth:
         d_noise = unit(d_noise - torch.dot(departure, d_noise) * departure)
         key_a, key_b = unit(key + 0.01 * k_noise), unit(key - 0.01 * k_noise)
         dep_a, dep_b = unit(departure + 0.01 * d_noise), unit(departure - 0.01 * d_noise)
-        new_id = max(bank.rows) + 1
+        new_id = bank.next_edge_id
         half = row.write_mass / 2
         bias = row.bias - math.log(2)
         evidence = self.evidence.pop(edge_id, EdgeEvidence(last_step=step)).half()
@@ -212,6 +233,17 @@ class TransducerGrowth:
         )
         self.evidence[edge_id] = evidence
         self.evidence[new_id] = replace(evidence, sketch=evidence.sketch.clone())
+        if self.optimizer is not None:
+            for (current, field), state in list(self.optimizer.fields.items()):
+                if current == edge_id:
+                    state.squared_sums = state.squared_sums / 2
+                    state.count /= 2
+                    self.optimizer.fields[new_id, field] = replace(
+                        state, squared_sums=state.squared_sums.clone()
+                    )
+            if edge_id in self.optimizer.last_write:
+                self.optimizer.last_write[new_id] = self.optimizer.last_write[edge_id]
+        bank.next_edge_id = new_id + 1
         bank._masters = {key: value for key, value in bank._masters.items() if key[0] != edge_id}
         bank._invalidate()
         return edge_id, new_id
@@ -230,8 +262,7 @@ class TransducerGrowth:
         )
         removed = 0
         for _, edge_id in removable:
-            self.bank.retire(edge_id)
-            self.evidence.pop(edge_id, None)
+            self._retire(edge_id)
             removed += 1
         split_candidates: list[int] = []
         bank = self.bank
@@ -270,8 +301,7 @@ class TransducerGrowth:
             for edge_id in eligible:
                 if bank.packed_bytes <= 0.9 * bank.geometry.byte_budget:
                     break
-                bank.retire(edge_id)
-                self.evidence.pop(edge_id, None)
+                self._retire(edge_id)
                 removed += 1
         return {"removed": removed, "split": splits}
 
