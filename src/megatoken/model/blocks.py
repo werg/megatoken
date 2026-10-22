@@ -93,8 +93,9 @@ class DenseFacetBlock(nn.Module):
                 slot_codes=slot_codes,
                 query_track_ids=query_track_ids,
                 query_key_mask=(
-                    None if query_key_mask is None
-                    else query_key_mask[..., -temporary.keys.shape[2]:]
+                    None
+                    if query_key_mask is None
+                    else query_key_mask[..., -temporary.keys.shape[2] :]
                 ),
             )
             facets = facets + self.temporary_gate.sigmoid() * response
