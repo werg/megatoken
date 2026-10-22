@@ -23,8 +23,14 @@ from megatoken.training.transducer_diloco import TransducerCoordinator, WorkerRo
 
 def small_bank(**overrides: int) -> TransducerBank:
     values = dict(
-        location_dim=4, query_dim=8, value_dim=128, neighbors=2,
-        selected=2, exploration=0, max_edges=100, byte_budget=100000,
+        location_dim=4,
+        query_dim=8,
+        value_dim=128,
+        neighbors=2,
+        selected=2,
+        exploration=0,
+        max_edges=100,
+        byte_budget=100000,
     )
     values.update(overrides)
     return TransducerBank(TransducerGeometry(**values))
@@ -188,9 +194,7 @@ def test_causal_full_and_group_inverse_masks_and_sink_survive_empty_keys():
     )
     assert inverse[0, 0].tolist() == [True, True, True, True]
     assert inverse[0, 3].tolist() == [False, False, True, True]
-    causal = event_attention_mask(
-        groups=groups, meridians=meridians, tracks=tracks
-    )
+    causal = event_attention_mask(groups=groups, meridians=meridians, tracks=tracks)
     assert causal[0, 0].tolist() == [True, False, False, False]
     assert event_attention_mask(
         groups=groups, meridians=meridians, tracks=tracks, mode="full"
@@ -203,9 +207,7 @@ def test_causal_full_and_group_inverse_masks_and_sink_survive_empty_keys():
     out.sum().backward()
     assert att.sink_value.grad is not None
     with pytest.raises(ValueError):
-        event_attention_mask(
-            groups=groups, meridians=meridians, tracks=tracks, mode="unknown"
-        )
+        event_attention_mask(groups=groups, meridians=meridians, tracks=tracks, mode="unknown")
 
 
 def test_hindsight_realizer_sink_only_roundtrips_in_fp4():
@@ -220,9 +222,7 @@ def test_hindsight_realizer_sink_only_roundtrips_in_fp4():
 
 def test_training_schedule_and_no_recursive_internal_retrieval():
     schedule = HindsightSchedule()
-    assert [schedule.stage(s) for s in (0, 4096, 8192)] == [
-        "full", "gap1", "gap2"
-    ]
+    assert [schedule.stage(s) for s in (0, 4096, 8192)] == ["full", "gap1", "gap2"]
     assert schedule.overlay(0, 3, learned=False) == 1
     assert schedule.overlay(16384, 3, learned=False) == 1
     assert schedule.overlay(81920, 1, learned=True) == 0
