@@ -701,7 +701,17 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def install_hub_retries() -> None:
+    """Hub reads wait out rate limits (see ``megatoken.hub``) when the Hub client is installed."""
+    try:
+        from megatoken.hub import install
+    except ImportError:  # httpx and huggingface_hub come with the optional "data" extra.
+        return
+    install()
+
+
 def main(argv: list[str] | None = None) -> int:
+    install_hub_retries()
     root = parser()
     args = root.parse_args(argv)
     try:

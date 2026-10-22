@@ -108,6 +108,9 @@ def acquire(root: Path, inventory: dict, *, token: str | None = None) -> dict:
 
 
 def main() -> None:
+    from megatoken.hub import install
+
+    install()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--inventory", type=Path, default=Path("configs/packs/inventory.json"))

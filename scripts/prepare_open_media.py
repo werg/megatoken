@@ -60,6 +60,9 @@ def _pairs(values: list[str], parser: argparse.ArgumentParser, flag: str) -> dic
 
 
 def main() -> None:
+    from megatoken.hub import install
+
+    install()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--packs", required=True, help="Locked pack manifest")
     parser.add_argument("--root", type=Path, required=True, help="Prepared dataset root (new)")

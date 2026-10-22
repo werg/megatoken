@@ -112,6 +112,9 @@ def restore(source: Path, output: Path, found: dict[str, tuple[str | None, str]]
 
 
 def main() -> None:
+    from megatoken.hub import install
+
+    install()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True, help="The released data/chat.jsonl")
     parser.add_argument("--output", type=Path, required=True)

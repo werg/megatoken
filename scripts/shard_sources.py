@@ -28,6 +28,9 @@ from megatoken.data.sharding import plan_shards, read_listings
 
 
 def main() -> None:
+    from megatoken.hub import install
+
+    install()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("output", type=Path)
