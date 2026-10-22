@@ -619,6 +619,9 @@ def test_a_reply_kept_apart_from_its_prompt_turns_is_appended_with_its_reasoning
         "answer": "a",
     }
     assert adapt(columns, "prompt_and_reply", "chat").records[-1].payload.endswith(b"\n\na")
+    flagged = {"input": [{"role": "user", "content": "q"}], "output": "a", "reasoning": "on"}
+    plain = adapt_mapped(flagged, "prompt_and_reply", "chat", {"messages": "input"})
+    assert plain.records[-1].payload == b"a"
     both = {
         "prompt": [{"role": "user", "content": "q"}],
         "completion": [{"role": "assistant", "content": "a"}],
@@ -650,34 +653,6 @@ def test_reasoning_kept_in_its_own_message_field_is_spelled_inline_and_scored():
     assert b"<think>\nplan the call\n</think>\n\n" in [r.payload for r in texts]
     # A blank trace adds nothing.
     assert texts[-1].role == "assistant" and texts[-1].payload == b"done"
-
-
-def test_hyphenated_tool_result_blocks_with_output_values_pair_with_their_call():
-    call = {"id": "c1", "type": "function", "function": {"name": "read", "arguments": "{}"}}
-    row = {
-        "instance_id": "i1",
-        "repo": "o/r",
-        "messages": [
-            {"role": "user", "content": "go"},
-            {"role": "assistant", "content": "reading", "tool_calls": [call]},
-            {
-                "role": "tool",
-                "content": [
-                    {
-                        "type": "tool-result",
-                        "toolCallId": "c1",
-                        "toolName": "read",
-                        "output": {"type": "text", "value": "file text"},
-                    }
-                ],
-            },
-            {"role": "assistant", "content": "done"},
-        ],
-    }
-    episode = adapt(row, "open_swe", "executed_trajectories", assume_outcome="success")
-    result = next(r for r in episode.records if r.result_of)
-    assert result.payload == b"file text" and result.provenance == "executed"
-    assert linked(episode)
 
 
 def test_openai_wrapped_tools_and_declined_queries_in_the_xlam_shape():

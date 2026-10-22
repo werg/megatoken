@@ -1439,3 +1439,724 @@ the FLEURS files and the pilot's other media files are streamed from the Hub rat
 hashed job inputs; FineVideo, Common Voice and CoVoST 2 are now sources (FineVideo gated, Common
 Voice through the `fixie-ai/common_voice_17_0` mirror, CoVoST 2 through `fixie-ai/covost2`), and
 OpenVid-1M is read for video identity from its zip parts.
+
+## More chat, reasoning and agent data
+
+The first agentic manifest (`sources.agentic.json`, above) leaves the chat, reasoning and
+tool-use streams far below what the stage plan asks for. This section adds a second sweep:
+417 further open sources and 23 sources that need a click on the Hub. Coverage of coding
+agents, terminal agents and code-execution traces is a separate piece of work; a few
+such sources that were added before that split are listed under "Coding sources kept" and are
+not extended here.
+
+### How the sweep was done
+
+1. About 13,800 candidate dataset repositories were collected from the Hub by running about 95
+   search terms (chat, instruction, reasoning, distill, tool, function calling, agent,
+   trajectory, multi-turn, per-language names and so on) sorted by downloads and by likes, plus
+   the full dataset lists of about 110 organisations that publish training data.
+2. About 540 repositories were read by hand or by a helper agent: the card, the file list, the
+   column names, and a few real rows. 215 of them were written down as skipped with a reason.
+3. For each kept source the maintainer's policy was applied: public data only, nothing
+   generated here, any licence accepted if it is recorded accurately, so every entry carries the
+   licence text from the card, `approved: true`, `reviewed_by` Gabriel Pickard and
+   `reviewed_at` 2026-10-22.
+4. Every source is pinned to a 40-character revision of its repository. For each, a data file
+   was requested from the Hub with the project token to prove read access; the 23 that return
+   HTTP 403 are in the gated manifest.
+5. Each source has a size estimate (rows, bytes divided by four as tokens) written in its
+   `notes`, and a first-run row cap in `max_rows`.
+
+The manifests are `configs/data/sources.agentic-more.json` (417 sources over 250 repositories)
+and `configs/data/sources.agentic-more-gated.json` (23 sources over 9 repositories). Source ids
+do not clash with any earlier manifest. The cloud job that prepares the open manifest is
+`configs/cloud/prepare-agentic-more.json`.
+
+### New readers
+
+The existing readers cover most shapes. These were added, each with a tiny-fixture test in
+`tests/test_agentic_adapters.py`:
+
+- Role names are case-folded, so `User` and `Assistant` are read like `user` and `assistant`.
+- **Reasoning stored beside the answer.** A message-level `reasoning_content` string is put
+  in front of the assistant text as `<think>` ... `</think>`, exactly how existing chat
+  sources that already inline their thinking are read. Reasoning is therefore trained on or
+  masked together with the answer, by the same rule as before. A reasoning field that is a
+  separate column of the row is used only by `prompt_and_reply` (below), and only together with
+  the `answer` column.
+- `human_assistant_text`: the Anthropic helpfulness and harmlessness format, one string with
+  `Human:` and `Assistant:` turns separated by blank lines.
+- `alternating_turns`: a list of bare strings, the first spoken by the user, then alternating
+  (UltraChat, SODA).
+- `prompt_and_reply`: one prompt column and one reply column. The reply is read from the first
+  present of `generated_message`, `teacher_response`, `answer` or `output`.
+- `turn_pairs` also accepts `input`/`output` and `human`/`assistant` pairs (MOSS).
+- `prompt_completion`: a list of prompt messages plus a list of completion messages.
+- Function-calling readers: OpenAI-wrapped tool lists are accepted by the xLAM reader, a row
+  whose `answers` text is not JSON becomes a plain assistant message (an answer that declines
+  to call a tool), and Glaive's first release (one string holding the system prompt and chat)
+  is split at the first `USER:` line.
+
+Tool results stay separate records. Sources whose tools ran for real (Toucan's MCP servers,
+the ADP web agents, Jupyter kernels) are marked `executed`; sources whose results were written
+by a model (Glaive, xLAM, APIGen, ToolACE-style sets) are marked `simulated`. Training masks
+fall only on assistant turns in every new source.
+
+### What was added
+
+Counts are rows of the open manifest by stream. Tokens are the sum of the per-source "unique
+tokens" below (bytes divided by four, taken from the dataset sizes on the Hub, so it counts
+the same prompt again whenever two sources share it). Read them as ceilings, not as the
+deduplicated size.
+
+| Stream | Sources | Tokens before deduplication |
+| --- | --- | --- |
+| chat | 156 | 121.9B |
+| synthetic_reasoning | 167 | 799.7B |
+| synthetic_code_dialogue | 28 | 22.6B |
+| tool_use | 23 | 7.2B |
+| typed_exact_instructions | 10 | 1.5B |
+| executed_trajectories | 20 | 27.6B |
+| verified_trajectories | 3 | 2.2B |
+| environment_trajectories | 9 | 0.7B |
+| recovery_clarification | 1 | 1.5M |
+
+Notable sources:
+
+- **Reasoning**: the NVIDIA Nemotron families (Cascade SFT stages 1 and 2 and Cascade-2,
+  Math v2, SFT-Math v3 and v4, Post-Training v1 math and science, v2 code, math, science and
+  multilingual, OpenMathReasoning, OpenScience, OpenCodeReasoning), the AM-Team distills of
+  DeepSeek-R1, Qwen3 and thinking models, OpenThoughts2-1M, OpenR1-Math, Mixture-of-Thoughts,
+  open-r1 codeforces traces, Glaive reasoning, Ring-lite, rStar-Coder, MegaScience, Dolci
+  (OLMo 3) think SFT, and several community distills of GLM, Kimi and DeepSeek.
+- **Chat**: Magpie variants, Hermes-3, ShareGPT-GPT4, WizardLM V2, the four Anthropic HH-RLHF
+  preference sets (chosen replies only), UltraChat full, LMSYS-Chat-1M with DeepSeek-V3
+  answers (non-gated copy), LMSYS GPT-5 responses, Tulu v2, WildChat-1M, Aya, Nemotron
+  multilingual, Daring-Anteater, Infinity-Instruct variants.
+- **Tool use**: Toucan with Kimi-K2, gpt-oss and Qwen3 teachers (calls executed against
+  real MCP servers), Synth-APIGen, Glaive function calling v1, the SmolTalk2 tool splits.
+- **Agents (non-coding)**: the Agent Data Protocol web collection, ETO, UltraData-SFT-Agent,
+  jupyter-agent rows that were run on a real kernel.
+- **Restricted licences** are recorded, not hidden: AM-DeepSeek-R1 (research use), Updesh
+  (Microsoft Research licence), KodCode, LaMini, Canarim and AceMath (non-commercial).
+
+Per-stream source tables, generated from the manifest:
+
+
+#### chat (open, 156 sources, 121.9B)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `sharegpt-v3-cleaned` | `shibing624/sharegpt_gpt4` | cc-by-4.0 | 8,000 | 82M |
+| `sharegpt-gpt4-6k` | `shibing624/sharegpt_gpt4` | cc-by-4.0 | 8,000 | 22M |
+| `wizardlm-evol-instruct-v2` | `WizardLMTeam/WizardLM_evol_instruct_V2_196k` | mit | 8,000 | 87M |
+| `samantha-1-1` | `QuixiAI/samantha-data` | apache-2.0 | 8,000 | 5.0M |
+| `dolphin-flan1m-gpt4` | `QuixiAI/dolphin` | apache-2.0 | 8,000 | 360M |
+| `dolphin-flan5m-gpt35` | `QuixiAI/dolphin` | apache-2.0 | 8,000 | 1.1B |
+| `open-instruct-uncensored-tulu` | `QuixiAI/open-instruct-uncensored` | apache-2.0 | 8,000 | 250M |
+| `hermes-3-dataset` | `NousResearch/Hermes-3-Dataset` | apache-2.0 | 8,000 | 400M |
+| `alpaca-cleaned` | `yahma/alpaca-cleaned` | cc-by-4.0 | 8,000 | 9.0M |
+| `smoltalk-systemchats-30k` | `HuggingFaceTB/smoltalk` (systemchats-30k) | not stated for this subset on the  | 8,000 | 18M |
+| `smoltalk-longalign` | `HuggingFaceTB/smoltalk` (longalign) | apache-2.0 | 8,000 | 28M |
+| `smoltalk-explore-instruct-rewriting` | `HuggingFaceTB/smoltalk` (explore-instruct-rewriting) | not stated on the card | 8,000 | 8.0M |
+| `smoltalk-metamathqa-50k` | `HuggingFaceTB/smoltalk` (metamathqa-50k) | mit | 8,000 | 14M |
+| `everyday-conversations-llama31-2k` | `HuggingFaceTB/everyday-conversations-llama3.1-2k` | apache-2.0 | 8,000 | 1.4M |
+| `mosaic-instruct-v3` | `mosaicml/instruct-v3` | cc-by-sa-3.0 | 8,000 | 55M |
+| `vmware-open-instruct` | `VMware/open-instruct` | cc-by-3.0 | 8,000 | 31M |
+| `swype-instruct` | `swype/instruct` | mit | 8,000 | 240M |
+| `finetome-100k` | `mlabonne/FineTome-100k` | not stated on the card | 8,000 | 60M |
+| `magpie-pro-300k-mt` | `HuggingFaceTB/MagPie-Pro-300k-MT` | llama3 | 8,000 | 375M |
+| `lamini-instruction` | `MBZUAI/LaMini-instruction` | cc-by-nc-4.0 | 8,000 | 290M |
+| `lmsys-chat-1m-clean-deepseek` | `OpenLeecher/lmsys_chat_1m_clean` | not stated on the card | 8,000 | 190M |
+| `orpo-dpo-mix-40k-chosen` | `mlabonne/orpo-dpo-mix-40k` | apache-2.0 | 16,000 | 29M |
+| `open-perfectblend` | `mlabonne/open-perfectblend` | apache-2.0 | 8,000 | 740M |
+| `ultrafeedback-argilla-chosen` | `argilla/ultrafeedback-binarized-preferences-cleaned` | mit | 8,000 | 65M |
+| `wizard-vicuna-70k-unfiltered` | `QuixiAI/wizard_vicuna_70k_unfiltered` | apache-2.0 | 8,000 | 35M |
+| `self-instruct-82k` | `hakurei/open-instruct-v1` | apache-2.0 | 8,000 | 6.0M |
+| `magpie-llama33-pro-1m` | `Magpie-Align/Magpie-Llama-3.3-Pro-1M-v0.1` | llama3.3 | 8,000 | 638M |
+| `magpie-llama3-pro-1m` | `Magpie-Align/Llama-3-Magpie-Pro-1M-v0.1` | llama3 | 8,000 | 586M |
+| `magpie-llama3-air-3m` | `Magpie-Align/Llama-3-Magpie-Air-3M-v0.1` | llama3 | 8,000 | 1.6B |
+| `magpie-qwen2-pro-1m` | `Magpie-Align/Magpie-Qwen2-Pro-1M-v0.1` | not stated on the card | 8,000 | 390M |
+| `magpie-qwen2-air-3m` | `Magpie-Align/Magpie-Qwen2-Air-3M-v0.1` | not stated on the card | 8,000 | 1.2B |
+| `magpie-pro-mt-300k` | `Magpie-Align/Magpie-Pro-MT-300K-v0.1` | llama3 | 8,000 | 390M |
+| `magpie-llama31-pro-mt-300k-filtered` | `Magpie-Align/Magpie-Llama-3.1-Pro-MT-300K-Filtered` | llama3.1 | 8,000 | 367M |
+| `magpie-gemma2-pro-200k-filtered` | `Magpie-Align/Magpie-Gemma2-Pro-200K-Filtered` | not stated on the card | 8,000 | 101M |
+| `magpie-phi3-pro-300k-filtered` | `Magpie-Align/Magpie-Phi3-Pro-300K-Filtered` | not stated on the card | 8,000 | 216M |
+| `magpielm-sft-550k` | `Magpie-Align/MagpieLM-SFT-Data-v0.1` | llama3.1 | 8,000 | 287M |
+| `magpie-qwen2-pro-200k-chinese` | `Magpie-Align/Magpie-Qwen2-Pro-200K-Chinese` | not stated on the card | 8,000 | 87M |
+| `magpie-qwen25-coder-pro-300k` | `Magpie-Align/Magpie-Qwen2.5-Coder-Pro-300K-v0.1` | other | 8,000 | 180M |
+| `magpie-qwen25-math-pro-300k` | `Magpie-Align/Magpie-Qwen2.5-Math-Pro-300K-v0.1` | not stated on the card | 8,000 | 175M |
+| `magpie-zoo-gemma2-27b` | `Magpie-Align/Magpie-100K-Generator-Zoo` | llama3.1 | 8,000 | 67M |
+| `magpie-ultra-v1-filtered` | `argilla/magpie-ultra-v1.0` (filtered) | not stated on the card | 8,000 | 1.0B |
+| `magpie-ultra-v01` | `argilla/magpie-ultra-v0.1` | llama3.1 | 8,000 | 28M |
+| `kalo-opus-instruct-22k` | `anthracite-org/kalo-opus-instruct-22k-no-refusal` | apache-2.0 | 8,000 | 20M |
+| `claude-multiround-chat-30k` | `Norquinal/claude_multiround_chat_30k` | not stated on the card | 8,000 | 30M |
+| `gpt4o-writing-prompts` | `Gryphe/ChatGPT-4o-Writing-Prompts` | unknown | 8,000 | 7.0M |
+| `longwriter-6k` | `zai-org/LongWriter-6k` | apache-2.0 | 8,000 | 37M |
+| `longalign-10k` | `zai-org/LongAlign-10k` | not stated on the card | 3,000 | 160M |
+| `longcite-45k` | `zai-org/LongCite-45k` | apache-2.0 | 3,000 | 1.4B |
+| `wildchat-creative-writing-10k` | `sam-paech/wildchat_creative_writing_annotated_10k` | not stated on the card | 8,000 | 14M |
+| `creative-writing-sft-50k` | `stindardlogic/creative-writing-sft-50k` | apache-2.0 | 8,000 | 15M |
+| `bitext-customer-support` | `bitext/Bitext-customer-support-llm-chatbot-training-dataset` | cdla-sharing-1.0 | 8,000 | 5.0M |
+| `counsel-chat` | `nbertagnolli/counsel-chat` | not stated on the card | 8,000 | 1.0M |
+| `korean-safe-conversation` | `jojo0217/korean_safe_conversation` | apache-2.0 | 8,000 | 4.0M |
+| `math-orca-math-200k` | `microsoft/orca-math-word-problems-200k` | mit | 8,000 | 39M |
+| `math-metamathqa` | `meta-math/MetaMathQA` | mit | 8,000 | 55M |
+| `math-mathinstruct` | `TIGER-Lab/MathInstruct` | mit | 8,000 | 47M |
+| `math-math-plus` | `TIGER-Lab/MATH-plus` | mit | 8,000 | 180M |
+| `math-webinstruct-sub` | `TIGER-Lab/WebInstructSub` | apache-2.0 | 8,000 | 520M |
+| `math-gsm-instructions` | `qwedsacf/grade-school-math-instructions` | not stated on the card | 8,000 | 1.2M |
+| `math-numinamath-tir` | `AI-MO/NuminaMath-TIR` | apache-2.0 | 8,000 | 40M |
+| `math-numinamath-1.5` | `AI-MO/NuminaMath-1.5` | apache-2.0 | 8,000 | 330M |
+| `math-aops-instruct` | `DeepStudentLlama/AoPS-Instruct` (default) | mit | 8,000 | 317M |
+| `code-stack-exchange-instruction` | `ArmelR/stack-exchange-instruction` | not stated on the card | 8,000 | 2.0B |
+| `math-metamath-qwen2-verified` | `yingyingzhang/metamath-qwen2-math` | apache-2.0 | 8,000 | 130M |
+| `math-numina-qwen2-verified` | `yingyingzhang/metamath-qwen2-math` | apache-2.0 | 8,000 | 235M |
+| `sci-trendyol-cybersecurity` | `Trendyol/Trendyol-Cybersecurity-Instruction-Tuning-Dataset` | apache-2.0 | 8,000 | 35M |
+| `daring-anteater` | `nvidia/Daring-Anteater` | cc-by-4.0 | 8,000 | 240M |
+| `nemotron-ifchat-v1-chat-if` | `nvidia/Nemotron-Instruction-Following-Chat-v1` | odc-by-1.0 | 8,000 | 1.5B |
+| `nemotron-ifchat-v2-reasoning-off` | `nvidia/Nemotron-SFT-Instruction-Following-Chat-v2` | odc-by | 8,000 | 1.4B |
+| `nemotron-ifchat-v2-reasoning-on` | `nvidia/Nemotron-SFT-Instruction-Following-Chat-v2` | odc-by | 8,000 | 1.4B |
+| `nemotron-sft-safety-v2` | `nvidia/Nemotron-SFT-Safety-v2` | cc-by-4.0 | 8,000 | 70M |
+| `nemotron-sft-bbq-v1` | `nvidia/Nemotron-SFT-BBQ-v1` | openmdw-1.1 | 8,000 | 1.2M |
+| `nemotron-sft-long-context-transduction-v1` | `nvidia/Nemotron-SFT-Long-Context-Transduction-v1` | openmdw-1.1 | 8,000 | 300M |
+| `nemotron-sft-long-context-translation-pg19-v1` | `nvidia/Nemotron-SFT-Long-Context-Translation-PG19-v1` | openmdw-1.1 | 4,335 | 555M |
+| `nemotron-multilingual-v1-de` | `nvidia/Nemotron-SFT-Multilingual-v1` | cc-by-4.0 | 8,000 | 660M |
+| `nemotron-multilingual-v1-es` | `nvidia/Nemotron-SFT-Multilingual-v1` | cc-by-4.0 | 8,000 | 484M |
+| `nemotron-multilingual-v1-fr` | `nvidia/Nemotron-SFT-Multilingual-v1` | cc-by-4.0 | 8,000 | 494M |
+| `nemotron-multilingual-v1-it` | `nvidia/Nemotron-SFT-Multilingual-v1` | cc-by-4.0 | 8,000 | 611M |
+| `nemotron-multilingual-v1-ja` | `nvidia/Nemotron-SFT-Multilingual-v1` | cc-by-4.0 | 8,000 | 526M |
+| `nemotron-multilingual-v1-zh` | `nvidia/Nemotron-SFT-Multilingual-v1` | cc-by-4.0 | 8,000 | 428M |
+| `nemotron-multilingual-v2-hi` | `nvidia/Nemotron-SFT-Multilingual-v2` | cc-by-4.0 | 8,000 | 67M |
+| `nemotron-multilingual-v2-ja` | `nvidia/Nemotron-SFT-Multilingual-v2` | cc-by-4.0 | 8,000 | 67M |
+| `nemotron-multilingual-v2-ko` | `nvidia/Nemotron-SFT-Multilingual-v2` | cc-by-4.0 | 8,000 | 64M |
+| `nemotron-multilingual-v2-pt` | `nvidia/Nemotron-SFT-Multilingual-v2` | cc-by-4.0 | 8,000 | 76M |
+| `helpsteer2-rated-responses` | `nvidia/HelpSteer2` | cc-by-4.0 | 11,500 | 8.0M |
+| `aegis2-safe-responses` | `nvidia/Aegis-AI-Content-Safety-Dataset-2.0` | cc-by-4.0 | 40,000 | 2.0M |
+| `coconot-original-train` | `allenai/coconot` (original) | AI2 ImpACT low-risk artifact licen | 8,000 | 1.5M |
+| `prosocial-dialog` | `allenai/prosocial-dialog` | cc-by-4.0 | 8,000 | 12M |
+| `sciriff-4096` | `allenai/SciRIFF` (4096) | odc-by | 8,000 | 97M |
+| `tulu-v2-sft-mixture` | `allenai/tulu-v2-sft-mixture` | odc-by | 8,000 | 310M |
+| `wildchat-1m` | `allenai/WildChat-1M` | odc-by | 9,000 | 600M |
+| `nemotron-pt-v2-code` | `nvidia/Nemotron-Post-Training-Dataset-v2` | cc-by-4.0 | 3,000 | 245M |
+| `nemotron-pt-v2-math` | `nvidia/Nemotron-Post-Training-Dataset-v2` | cc-by-4.0 | 3,000 | 127M |
+| `nemotron-pt-v2-stem` | `nvidia/Nemotron-Post-Training-Dataset-v2` | cc-by-4.0 | 3,000 | 202M |
+| `cascade2-chat` | `nvidia/Nemotron-Cascade-2-SFT-Data` (chat) | nvidia-open-model-license | 8,000 | 53.2B |
+| `cascade2-safety` | `nvidia/Nemotron-Cascade-2-SFT-Data` (safety) | nvidia-open-model-license | 3,570 | 4.0M |
+| `smoltalk2-smoltalk-multilingual-8languages-lang-5-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 3,000 | 167M |
+| `smoltalk2-table-gpt-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | mit | 3,000 | 11M |
+| `smoltalk2-longalign-64k-context-lang-annotated-lang-6-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 3,000 | 96M |
+| `dolphin-r1-nonreasoning` | `QuixiAI/dolphin-r1` | apache-2.0 | 3,000 | 346M |
+| `finance-agentic-sft-v1` | `nvidia/Nemotron-SFT-Agentic-Finance-v1` | openmdw-1.1 | 8,000 | 5.0M |
+| `glaive-rag-v1` | `glaiveai/RAG-v1` | apache-2.0 | 8,000 | 68M |
+| `aya-dataset-human` | `CohereLabs/aya_dataset` | apache-2.0 | 8,000 | 47M |
+| `aya-collection-translated-dolly` | `CohereLabs/aya_collection` | apache-2.0 | 8,000 | 470M |
+| `aya-collection-japanese-instruct` | `CohereLabs/aya_collection` | apache-2.0 | 8,000 | 170M |
+| `updesh-g-generative` | `microsoft/Updesh_beta` | microsoft-research-license | 8,000 | 7.5B |
+| `updesh-r-translated` | `microsoft/Updesh_beta` | microsoft-research-license | 8,000 | 13.0B |
+| `dolci-instruct-sft-translated-12lang` | `openeurollm/Dolci-Instruct-SFT-translated` | apache-2.0 | 8,000 | 6.0B |
+| `smoltalk-chinese` | `opencsg/smoltalk-chinese` | apache-2.0 | 8,000 | 370M |
+| `belle-school-math-0.25m` | `BelleGroup/school_math_0.25M` | gpl-3.0 | 8,000 | 30M |
+| `coig-cqia` | `m-a-p/COIG-CQIA` | not stated on the card | 8,000 | 35M |
+| `coig-kun` | `m-a-p/COIG-Kun` | not stated on the card | 8,000 | 132M |
+| `coig-translated-flan` | `BAAI/COIG` | apache-2.0 | 8,000 | 9.0M |
+| `mxode-zh-magpie` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 329M |
+| `mxode-zh-firefly` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 554M |
+| `mxode-zh-chinese-medical` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 407M |
+| `mxode-zh-industryinstruction` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 79M |
+| `mxode-zh-stem` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 102M |
+| `mxode-zh-agri-qa` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 307M |
+| `mxode-zh-infinity-zh` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 130M |
+| `mxode-zh-neo-sft-phase2` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 22M |
+| `mxode-zh-stackoverflow-c` | `Mxode/Chinese-Instruct` | cc-by-sa-4.0 | 8,000 | 108M |
+| `alpaca-gpt4-zh` | `shibing624/alpaca-zh` | cc-by-4.0 | 8,000 | 8.0M |
+| `evol-instruct-chinese-gpt4` | `FreedomIntelligence/Evol-Instruct-Chinese-GPT4` | not stated on the card | 8,000 | 29M |
+| `evol-instruct-hindi` | `FreedomIntelligence/evol-instruct-hindi` | not stated on the card | 8,000 | 60M |
+| `alpaca-gpt4-arabic` | `FreedomIntelligence/alpaca-gpt4-arabic` | apache-2.0 | 8,000 | 14M |
+| `huatuogpt2-sft-gpt4-140k` | `FreedomIntelligence/HuatuoGPT2-SFT-GPT4-140K` | apache-2.0 | 8,000 | 55M |
+| `huatuogpt-sft-v1` | `FreedomIntelligence/HuatuoGPT-sft-data-v1` | apache-2.0 | 8,000 | 82M |
+| `ru-turbo-alpaca` | `IlyaGusev/ru_turbo_alpaca` | cc-by-4.0 | 8,000 | 10M |
+| `russian-dialogues-den4ik` | `Den4ikAI/russian_dialogues` | mit | 8,000 | 65M |
+| `alpaca-spanish` | `bertin-project/alpaca-spanish` | cc-by-4.0 | 8,000 | 5.0M |
+| `turkce-atlas-instruct` | `AlicanKiraz0/Turkce-Atlas-Instruct` | mit | 8,000 | 118M |
+| `instructurca` | `turkish-nlp-suite/InstrucTurca` | cc-by-sa-4.0 | 8,000 | 1.0B |
+| `hh-rlhf-49k-ja` | `kunishou/hh-rlhf-49k-ja` | mit | 8,000 | 15M |
+| `canarim-instruct-ptbr` | `dominguesm/Canarim-Instruct-PTBR-Dataset` | cc-by-nc-4.0 | 8,000 | 23M |
+| `chatdoctor-healthcaremagic-100k` | `lavita/ChatDoctor-HealthCareMagic-100k` | not stated on the card | 8,000 | 31M |
+| `ai-medical-chatbot` | `ruslanmv/ai-medical-chatbot` | not stated on the card | 8,000 | 70M |
+| `alpacare-medinstruct-52k` | `lavita/AlpaCare-MedInstruct-52k` | not stated on the card | 8,000 | 16M |
+| `disc-med-sft` | `Flmc/DISC-Med-SFT` | apache-2.0 | 8,000 | 185M |
+| `disc-law-sft-pair` | `ShengbinYue/DISC-Law-SFT` | apache-2.0 | 8,000 | 78M |
+| `finance-alpaca` | `gbharti/finance-alpaca` | mit | 8,000 | 10M |
+| `anthropic-hh-harmless-base-chosen` | `Anthropic/hh-rlhf` | mit | 8,000 | 6.7M |
+| `anthropic-hh-helpful-base-chosen` | `Anthropic/hh-rlhf` | mit | 8,000 | 8.6M |
+| `anthropic-hh-helpful-online-chosen` | `Anthropic/hh-rlhf` | mit | 8,000 | 10M |
+| `anthropic-hh-helpful-rejection-sampled-chosen` | `Anthropic/hh-rlhf` | mit | 8,000 | 13M |
+| `lmsys-gpt5-chat-response` | `ytz20/LMSYS-Chat-GPT-5-Chat-Response` | cc-by-4.0 | 8,000 | 95M |
+| `ultrachat-full-1p4m` | `stingning/ultrachat` | mit | 8,000 | 1.9B |
+| `nebius-deepseek-v3-infinity-instruct` | `nebius/DeepSeek-V3-Infinity-Instruct-0625` | cc-by-4.0 | 8,000 | 672M |
+| `nebius-gpt-oss-120b-infinity-instruct` | `nebius/gpt-oss-120b-Infinity-Instruct-0625` | cc-by-4.0 | 8,000 | 1.7B |
+| `soda-dialogues` | `allenai/soda` | cc-by-4.0 | 8,000 | 190M |
+| `llama-nemotron-sft-chat` | `nvidia/Llama-Nemotron-Post-Training-Dataset` (SFT) | cc-by-4.0 | 8,000 | 64M |
+| `llama-nemotron-sft-safety` | `nvidia/Llama-Nemotron-Post-Training-Dataset` (SFT) | cc-by-4.0 | 8,000 | 14M |
+| `acemath-general-sft-stage2` | `nvidia/AceMath-Instruct-Training-Data` | cc-by-nc-4.0 | 3,000 | 1.2B |
+| `sft-datablend-v1` | `nvidia/sft_datablend_v1` | cc-by-4.0 | 8,000 | 67M |
+| `moss-003-sft` | `YeungNLP/moss-003-sft-data` | not stated on the card | 8,000 | 2.1B |
+| `sharegpt-zh-en-90k` | `shareAI/ShareGPT-Chinese-English-90k` | apache-2.0 | 8,000 | 230M |
+
+#### synthetic_reasoning (open, 167 sources, 799.7B)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `code-kodcode-sft-r1` | `KodCode/KodCode-V1-SFT-R1` (default) | cc-by-nc-4.0 | 3,000 | 1.1B |
+| `sci-datascience-instruct-science` | `RUC-DataLab/DataScience-Instruct-500K` | mit | 3,000 | 50M |
+| `nemotron-pt-v1-math` | `nvidia/Nemotron-Post-Training-Dataset-v1` | cc-by-4.0 | 3,000 | 19.8B |
+| `nemotron-pt-v1-stem` | `nvidia/Nemotron-Post-Training-Dataset-v1` | cc-by-4.0 | 3,000 | 82.4B |
+| `nemotron-pt-v2-multilingual-ja` | `nvidia/Nemotron-Post-Training-Dataset-v2` | cc-by-4.0 | 3,000 | 4.5B |
+| `nemotron-pt-v2-multilingual-de` | `nvidia/Nemotron-Post-Training-Dataset-v2` | cc-by-4.0 | 3,000 | 4.7B |
+| `nemotron-pt-v2-multilingual-it` | `nvidia/Nemotron-Post-Training-Dataset-v2` | cc-by-4.0 | 3,000 | 4.7B |
+| `nemotron-pt-v2-multilingual-es` | `nvidia/Nemotron-Post-Training-Dataset-v2` | cc-by-4.0 | 3,000 | 4.1B |
+| `nemotron-pt-v2-multilingual-fr` | `nvidia/Nemotron-Post-Training-Dataset-v2` | cc-by-4.0 | 3,000 | 4.6B |
+| `cascade-s1-math` | `nvidia/Nemotron-Cascade-SFT-Stage-1` (math) | cc-by-4.0 | 3,000 | 15.4B |
+| `cascade-s1-code` | `nvidia/Nemotron-Cascade-SFT-Stage-1` (code) | cc-by-4.0 | 3,000 | 9.0B |
+| `cascade-s1-science` | `nvidia/Nemotron-Cascade-SFT-Stage-1` (science) | cc-by-4.0 | 3,000 | 1.3B |
+| `cascade-s1-general` | `nvidia/Nemotron-Cascade-SFT-Stage-1` (general) | cc-by-4.0 | 3,000 | 2.1B |
+| `cascade-s2-math` | `nvidia/Nemotron-Cascade-SFT-Stage-2` (math) | cc-by-4.0 | 3,000 | 18.4B |
+| `cascade-s2-code` | `nvidia/Nemotron-Cascade-SFT-Stage-2` (code) | cc-by-4.0 | 3,000 | 16.0B |
+| `cascade-s2-science` | `nvidia/Nemotron-Cascade-SFT-Stage-2` (science) | cc-by-4.0 | 3,000 | 2.3B |
+| `cascade-s2-general` | `nvidia/Nemotron-Cascade-SFT-Stage-2` (general) | cc-by-4.0 | 3,000 | 6.0B |
+| `cascade2-math-notool` | `nvidia/Nemotron-Cascade-2-SFT-Data` (math) | nvidia-open-model-license | 3,000 | 29.9B |
+| `cascade2-math-proof` | `nvidia/Nemotron-Cascade-2-SFT-Data` (math) | nvidia-open-model-license | 3,000 | 14.0B |
+| `cascade2-science` | `nvidia/Nemotron-Cascade-2-SFT-Data` (science) | nvidia-open-model-license | 3,000 | 11.6B |
+| `nemotron-math-v2-high` | `nvidia/Nemotron-Math-v2` | cc-by-4.0 | 3,000 | 37.8B |
+| `nemotron-math-v2-medium` | `nvidia/Nemotron-Math-v2` | cc-by-4.0 | 3,000 | 9.9B |
+| `nemotron-math-v2-low` | `nvidia/Nemotron-Math-v2` | cc-by-4.0 | 3,000 | 3.0B |
+| `nemotron-sft-math-v3` | `nvidia/Nemotron-SFT-Math-v3` | cc-by-4.0 | 3,000 | 38.5B |
+| `nemotron-sft-math-v4` | `nvidia/Nemotron-SFT-Math-v4` | cc-by-4.0 | 3,000 | 7.3B |
+| `nemotron-math-proofs-v1-lean` | `nvidia/Nemotron-Math-Proofs-v1` | cc-by-sa-4.0 | 4,500 | 7.4B |
+| `nemotron-math-proofs-v2` | `nvidia/Nemotron-Math-Proofs-v2` | cc-by-4.0 | 3,000 | 4.3B |
+| `nemotron-math-proofs-v3-sft` | `nvidia/Nemotron-Math-Proofs-v3-SFT` | cc-by-4.0 | 3,000 | 32.7B |
+| `nemotron-science-v1-mcq` | `nvidia/Nemotron-Science-v1` | cc-by-4.0 | 3,000 | 316M |
+| `nemotron-science-v1-rqa` | `nvidia/Nemotron-Science-v1` | cc-by-4.0 | 3,000 | 204M |
+| `nemotron-sft-science-v2-syn-mcq` | `nvidia/Nemotron-SFT-Science-v2` (syn_mcq) | cc-by-sa-4.0 | 3,000 | 142M |
+| `nemotron-sft-science-v2-rqa` | `nvidia/Nemotron-SFT-Science-v2` (rqa) | cc-by-sa-4.0 | 3,000 | 2.4B |
+| `nemotron-sft-science-v2-so` | `nvidia/Nemotron-SFT-Science-v2` (so) | cc-by-sa-4.0 | 3,000 | 4.0B |
+| `nemotron-sft-science-v2-vendor` | `nvidia/Nemotron-SFT-Science-v2` (vendor) | cc-by-sa-4.0 | 3,000 | 6.7B |
+| `openscience-q25-32b-10` | `nvidia/OpenScience` (OS-Q2.5-32B-10) | cc-by-4.0 | 3,000 | 10.6B |
+| `openscience-q25-72b-10` | `nvidia/OpenScience` (OS-Q2.5-72B-10) | cc-by-4.0 | 3,000 | 8.8B |
+| `openscience-q25-32b-4` | `nvidia/OpenScience` (OS-Q2.5-32B-4) | cc-by-4.0 | 3,000 | 241M |
+| `openscience-q3-235b-4` | `nvidia/OpenScience` (OS-Q3-235B-4) | cc-by-4.0 | 3,000 | 665M |
+| `openscience-reasoning-2` | `nvidia/OpenScienceReasoning-2` | cc-by-4.0 | 3,000 | 7.4B |
+| `openmathreasoning-cot` | `nvidia/OpenMathReasoning` | cc-by-4.0 | 3,000 | 17.9B |
+| `openmathreasoning-tir` | `nvidia/OpenMathReasoning` | cc-by-4.0 | 3,000 | 8.9B |
+| `openmathreasoning-genselect` | `nvidia/OpenMathReasoning` | cc-by-4.0 | 3,000 | 1.7B |
+| `openmathinstruct-1-correct` | `nvidia/OpenMathInstruct-1` | nvidia-license | 3,000 | 332M |
+| `nemotron-prismmath` | `nvidia/Nemotron-PrismMath` | cc-by-4.0 | 3,000 | 4.3B |
+| `opencodereasoning-split0` | `nvidia/OpenCodeReasoning` (split_0) | cc-by-4.0 | 3,000 | 2.1B |
+| `nemotron-competitive-programming-v1-cpp` | `nvidia/Nemotron-Competitive-Programming-v1` | cc-by-4.0 | 10,000 | 3.6B |
+| `nemotron-competitive-programming-v1-infinibyte` | `nvidia/Nemotron-Competitive-Programming-v1` | cc-by-4.0 | 3,000 | 12.4B |
+| `nemotron-sft-competitive-programming-v2-cpp` | `nvidia/Nemotron-SFT-Competitive-Programming-v2` (default) | cc-by-4.0 | 3,000 | 11.8B |
+| `nemotron-sft-competitive-programming-v2-python` | `nvidia/Nemotron-SFT-Competitive-Programming-v2` (default) | cc-by-4.0 | 3,000 | 12.0B |
+| `nemotron-sft-competitive-programming-v2-text-to-sql` | `nvidia/Nemotron-SFT-Competitive-Programming-v2` (default) | cc-by-4.0 | 3,000 | 293M |
+| `arc-agi-large-reasoning-notools` | `nvidia/Nemotron-SFT-ARC-AGI-v1` (large_reasoning_no_tools) | cc-by-4.0 | 3,000 | 2.1B |
+| `finance-document-grounded-reasoning` | `nvidia/Nemotron-SFT-Finance-Document-Grounded-Reasoning-v1` | openmdw-1.1 | 3,000 | 253M |
+| `openr1-math-default` | `open-r1/OpenR1-Math-220k` (default) | apache-2.0 | 3,000 | 474M |
+| `openr1-math-extended` | `open-r1/OpenR1-Math-220k` (extended) | apache-2.0 | 3,000 | 313M |
+| `mot-code` | `open-r1/Mixture-of-Thoughts` (code) | not stated on the card | 3,000 | 968M |
+| `mot-science` | `open-r1/Mixture-of-Thoughts` (science) | not stated on the card | 3,000 | 398M |
+| `codeforces-cots-solutions` | `open-r1/codeforces-cots` (solutions) | odc-by-1.0 | 3,158 | 515M |
+| `codeforces-cots-solutions-py` | `open-r1/codeforces-cots` (solutions_py) | odc-by-1.0 | 3,158 | 96M |
+| `codeforces-cots-solutions-w-editorials` | `open-r1/codeforces-cots` (solutions_w_editorials) | odc-by-1.0 | 3,158 | 330M |
+| `codeforces-cots-solutions-w-editorials-py` | `open-r1/codeforces-cots` (solutions_w_editorials_py) | odc-by-1.0 | 3,158 | 134M |
+| `codeforces-cots-checker-interactor` | `open-r1/codeforces-cots` (checker_interactor) | odc-by-1.0 | 3,000 | 114M |
+| `codeforces-cots-test-input-generator` | `open-r1/codeforces-cots` (test_input_generator) | odc-by-1.0 | 3,000 | 242M |
+| `openthoughts2-1m` | `open-thoughts/OpenThoughts2-1M` | apache-2.0 | 3,000 | 4.2B |
+| `reasoning-tulu-chatml-580k` | `HuggingFaceTB/reasoning_tulu_chatml_580k_all_lengths` | not stated | 3,000 | 1.2B |
+| `am-r1-0528-math` | `a-m-team/AM-DeepSeek-R1-0528-Distilled` | research use only | 3,000 | 3.7B |
+| `am-r1-0528-code` | `a-m-team/AM-DeepSeek-R1-0528-Distilled` | research use only | 3,000 | 2.5B |
+| `am-r1-0528-science` | `a-m-team/AM-DeepSeek-R1-0528-Distilled` | research use only | 3,000 | 512M |
+| `am-r1-0528-other` | `a-m-team/AM-DeepSeek-R1-0528-Distilled` | research use only | 3,000 | 2.1B |
+| `am-r1-0528-multiturn` | `a-m-team/AM-DeepSeek-R1-0528-Distilled` | research use only | 3,000 | 804M |
+| `am-qwen3-math` | `a-m-team/AM-Qwen3-Distilled` | research use only | 3,000 | 1.7B |
+| `am-qwen3-code` | `a-m-team/AM-Qwen3-Distilled` | research use only | 3,000 | 1.8B |
+| `am-qwen3-other` | `a-m-team/AM-Qwen3-Distilled` | research use only | 3,000 | 1.7B |
+| `am-qwen3-multiturn` | `a-m-team/AM-Qwen3-Distilled` | research use only | 3,000 | 430M |
+| `am-thinking-math` | `a-m-team/AM-Thinking-v1-Distilled` | research use only | 3,000 | 1.4B |
+| `am-thinking-code` | `a-m-team/AM-Thinking-v1-Distilled` | research use only | 3,000 | 1.6B |
+| `am-r1-distilled-0p5m` | `a-m-team/AM-DeepSeek-R1-Distilled-1.4M` | cc-by-nc-4.0 | 3,000 | 1.8B |
+| `am-r1-distilled-0p9m` | `a-m-team/AM-DeepSeek-R1-Distilled-1.4M` | cc-by-nc-4.0 | 3,000 | 2.4B |
+| `am-40m-r1-math` | `a-m-team/AM-DeepSeek-Distilled-40M` | cc-by-nc-4.0 | 3,000 | 2.5B |
+| `am-40m-r1-code` | `a-m-team/AM-DeepSeek-Distilled-40M` | cc-by-nc-4.0 | 3,000 | 2.8B |
+| `am-40m-r1-science` | `a-m-team/AM-DeepSeek-Distilled-40M` | cc-by-nc-4.0 | 3,000 | 183M |
+| `am-40m-r1-other` | `a-m-team/AM-DeepSeek-Distilled-40M` | cc-by-nc-4.0 | 3,000 | 3.1B |
+| `smoltalk2-aya-dataset-qwen3-32b-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 3,000 | 19M |
+| `smoltalk2-longalign-64k-qwen3-32b-yarn-131k-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 3,000 | 136M |
+| `smoltalk2-smoltalk-multilingual8-qwen3-32b-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 3,000 | 552M |
+| `smoltalk2-smoltalk-systemchats-qwen3-32b-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 3,000 | 30M |
+| `smoltalk2-table-gpt-qwen3-32b-think` | `HuggingFaceTB/smoltalk2` (SFT) | mit | 3,000 | 26M |
+| `smoltalk2-smoltalk-everyday-convs-reasoning-qwen3-32b-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 2,057 | 3.0M |
+| `magpie-reasoning-v1-150k` | `Magpie-Align/Magpie-Reasoning-V1-150K` | llama3 | 3,000 | 76M |
+| `magpie-reasoning-v1-150k-cot-r1-llama70b` | `Magpie-Align/Magpie-Reasoning-V1-150K-CoT-Deepseek-R1-Llama-70B` | research only: Tongyi Qianwen lice | 3,000 | 306M |
+| `magpie-reasoning-v2-250k-cot-r1-llama70b` | `Magpie-Align/Magpie-Reasoning-V2-250K-CoT-Deepseek-R1-Llama-70B` | llama3.3 | 3,000 | 452M |
+| `magpie-reasoning-v2-250k-cot-qwq` | `Magpie-Align/Magpie-Reasoning-V2-250K-CoT-QwQ` | llama3.1 | 3,000 | 509M |
+| `dolci-think-sft-7b` | `allenai/Dolci-Think-SFT-7B` | odc-by-1.0 | 3,000 | 19.4B |
+| `dolci-think-sft-32b` | `allenai/Dolci-Think-SFT-32B` | odc-by-1.0 | 3,000 | 19.4B |
+| `dolci-think-python` | `allenai/Dolci-Think-SFT-Python` | odc-by-1.0 | 3,659 | 4.5B |
+| `dolci-think-translated-cs` | `openeurollm/Dolci-Think-SFT-translated` (cs) | apache-2.0 | 4,989 | 328M |
+| `dolci-think-translated-de` | `openeurollm/Dolci-Think-SFT-translated` (de) | apache-2.0 | 5,225 | 399M |
+| `dolci-think-translated-el` | `openeurollm/Dolci-Think-SFT-translated` (el) | apache-2.0 | 5,882 | 316M |
+| `dolci-think-translated-es` | `openeurollm/Dolci-Think-SFT-translated` (es) | apache-2.0 | 5,450 | 237M |
+| `dolci-think-translated-fi` | `openeurollm/Dolci-Think-SFT-translated` (fi) | apache-2.0 | 4,953 | 444M |
+| `dolci-think-translated-fr` | `openeurollm/Dolci-Think-SFT-translated` (fr) | apache-2.0 | 5,348 | 361M |
+| `dolci-think-translated-it` | `openeurollm/Dolci-Think-SFT-translated` (it) | apache-2.0 | 3,338 | 1.1B |
+| `dolci-think-translated-nl` | `openeurollm/Dolci-Think-SFT-translated` (nl) | apache-2.0 | 3,368 | 960M |
+| `dolci-think-translated-pl` | `openeurollm/Dolci-Think-SFT-translated` (pl) | apache-2.0 | 3,368 | 899M |
+| `dolci-think-translated-ro` | `openeurollm/Dolci-Think-SFT-translated` (ro) | apache-2.0 | 3,387 | 786M |
+| `dolci-think-translated-sv` | `openeurollm/Dolci-Think-SFT-translated` (sv) | apache-2.0 | 3,370 | 822M |
+| `dolci-think-translated-uk` | `openeurollm/Dolci-Think-SFT-translated` (uk) | apache-2.0 | 3,424 | 1.0B |
+| `numinamath-qwq-cot-5m` | `PrimeIntellect/NuminaMath-QwQ-CoT-5M` | mit | 7,264 | 2.5B |
+| `synthetic-1-sft` | `PrimeIntellect/SYNTHETIC-1-SFT-Data` | apache-2.0 | 3,000 | 2.1B |
+| `synthetic-2-sft-verified` | `PrimeIntellect/SYNTHETIC-2-SFT-verified` | apache-2.0 | 3,000 | 661M |
+| `big-reasoning-traces` | `allenai/big-reasoning-traces` (DeepSeek) | permissive mix | 3,000 | 2.5B |
+| `r1-distill-sft-v0` | `ServiceNow-AI/R1-Distill-SFT` (v0) | cc-by-nc-sa-4.0 | 3,000 | 188M |
+| `r1-distill-sft-v1` | `ServiceNow-AI/R1-Distill-SFT` (v1) | cc-by-nc-sa-4.0 | 3,000 | 2.9B |
+| `glaive-reasoning-v1-20m` | `glaiveai/reasoning-v1-20m` | apache-2.0 | 3,000 | 35.8B |
+| `openo1-sft` | `O1-OPEN/OpenO1-SFT` | apache-2.0 | 3,000 | 93M |
+| `eurus-2-sft` | `PRIME-RL/Eurus-2-SFT-Data` | mit | 3,000 | 110M |
+| `deepmath-103k-r1-solution-1` | `zwhe99/DeepMath-103K` | mit | 3,000 | 330M |
+| `deepmath-103k-r1-solution-2` | `zwhe99/DeepMath-103K` | mit | 3,000 | 364M |
+| `deepmath-103k-r1-solution-3` | `zwhe99/DeepMath-103K` | mit | 3,000 | 331M |
+| `skunkworks-reasoning-001` | `SkunkworksAI/reasoning-0.01` | apache-2.0 | 3,000 | 9.0M |
+| `ring-lite-sft` | `inclusionAI/Ring-lite-sft-data` | apache-2.0 | 3,000 | 45.0B |
+| `superior-reasoning-gptoss-stage1` | `Alibaba-Apsara/Superior-Reasoning-SFT-gpt-oss-120b` (stage1) | cc-by-4.0 | 3,000 | 1.1B |
+| `superior-reasoning-gptoss-stage2` | `Alibaba-Apsara/Superior-Reasoning-SFT-gpt-oss-120b` (stage2) | cc-by-4.0 | 3,000 | 5.0B |
+| `rstar-coder-synthetic-sft` | `microsoft/rStar-Coder` (synthetic_sft) | cc-by-4.0 | 3,000 | 5.1B |
+| `rstar-coder-seed-sft` | `microsoft/rStar-Coder` (seed_sft) | cc-by-4.0 | 18,000 | 1.2B |
+| `megascience` | `MegaScience/MegaScience` | cc-by-nc-sa-4.0 | 3,000 | 850M |
+| `webinstruct-cft-600k` | `TIGER-Lab/WebInstruct-CFT` (WebInstruct-CFT-600K) | apache-2.0 | 3,000 | 390M |
+| `ultrainteract-sft` | `openbmb/UltraInteract_sft` | mit | 3,000 | 235M |
+| `dart-math-hard` | `hkust-nlp/dart-math-hard` | mit | 3,000 | 233M |
+| `dart-math-uniform` | `hkust-nlp/dart-math-uniform` | mit | 3,000 | 148M |
+| `medical-o1-sft-en` | `FreedomIntelligence/medical-o1-reasoning-SFT` (en) | apache-2.0 | 3,000 | 6.0M |
+| `medical-o1-sft-zh` | `FreedomIntelligence/medical-o1-reasoning-SFT` (zh) | apache-2.0 | 3,000 | 8.0M |
+| `medical-r1-distill-en` | `FreedomIntelligence/Medical-R1-Distill-Data` (en) | apache-2.0 | 3,000 | 8.0M |
+| `openmed-medical-reasoning-mega` | `OpenMed/Medical-Reasoning-SFT-Mega` | apache-2.0 | 3,000 | 2.3B |
+| `ii-medical-reasoning-sft` | `Intelligent-Internet/II-Medical-Reasoning-SFT` | not stated on the card | 3,000 | 5.1B |
+| `glm51-reasoning-main` | `Jackrong/GLM-5.1-Reasoning-1M-Cleaned` (main) | apache-2.0 | 3,000 | 2.4B |
+| `glm51-reasoning-phdscience` | `Jackrong/GLM-5.1-Reasoning-1M-Cleaned` (PHD-Science) | apache-2.0 | 3,000 | 460M |
+| `glm51-reasoning-multilingualstem` | `Jackrong/GLM-5.1-Reasoning-1M-Cleaned` (Multilingual-STEM) | apache-2.0 | 3,000 | 514M |
+| `glm51-reasoning-math` | `Jackrong/GLM-5.1-Reasoning-1M-Cleaned` (Math) | apache-2.0 | 3,000 | 623M |
+| `kimik25-reasoning-generaldistillation` | `Jackrong/Kimi-K2.5-Reasoning-1M-Cleaned` (General-Distillation) | apache-2.0 | 3,000 | 1.8B |
+| `kimik25-reasoning-phdscience` | `Jackrong/Kimi-K2.5-Reasoning-1M-Cleaned` (PHD-Science) | apache-2.0 | 3,000 | 337M |
+| `kimik25-reasoning-generalmath` | `Jackrong/Kimi-K2.5-Reasoning-1M-Cleaned` (General-Math) | apache-2.0 | 3,000 | 925M |
+| `kimik25-reasoning-multilingualstem` | `Jackrong/Kimi-K2.5-Reasoning-1M-Cleaned` (MultilingualSTEM) | apache-2.0 | 3,000 | 417M |
+| `dsv4pro-distilled-math` | `Jackrong/DeepSeek-V4-Pro-Distilled-200K` (Math) | cc-by-4.0 | 3,000 | 6.5B |
+| `dsv4pro-distilled-stem` | `Jackrong/DeepSeek-V4-Pro-Distilled-200K` (STEM) | cc-by-4.0 | 3,000 | 800M |
+| `claude-distills` | `clzoro/Claude-Distills` | mit | 3,000 | 230M |
+| `congliu-chinese-r1-distill-110k` | `Congliu/Chinese-DeepSeek-R1-Distill-data-110k` | apache-2.0 | 3,000 | 70M |
+| `lightblue-multilingual-r1-llama70b` | `lightblue/reasoning-multilingual-R1-Llama-70B-train` | apache-2.0 | 3,000 | 6.0M |
+| `tiny-aya-multilingual-reasoning` | `CohereLabs/tiny-aya-l2-thinker-multilingual-reasoning` | cc-by-nc-4.0 | 3,000 | 110M |
+| `fineproofs-sft` | `lm-provers/FineProofs-SFT` (all) | apache-2.0 | 3,000 | 160M |
+| `galaxymind-stem-reasoning-complex` | `galaxyMindAiLabs/stem-reasoning-complex` | apache-2.0 | 3,000 | 1.0B |
+| `goedel-prover-v2-sft` | `Goedel-LM/SFT_dataset_v2` | apache-2.0 | 3,000 | 4.0B |
+| `smoltalk-multilingual8-qwen3` | `HuggingFaceTB/smoltalk-multilingual8-Qwen3-32B-main-gen` (all_formatted_lang_5_no_qwen) | not stated on the card | 3,000 | 450M |
+| `nemotron-v2-decontam-multilingual-de` | `openeurollm/Nemotron-Post-Training-Dataset-v2-decontaminated` | cc-by-4.0 | 3,000 | 4.7B |
+| `nemotron-v2-decontam-multilingual-es` | `openeurollm/Nemotron-Post-Training-Dataset-v2-decontaminated` | cc-by-4.0 | 3,000 | 4.1B |
+| `nemotron-v2-decontam-multilingual-fr` | `openeurollm/Nemotron-Post-Training-Dataset-v2-decontaminated` | cc-by-4.0 | 3,000 | 4.5B |
+| `nemotron-v2-decontam-multilingual-it` | `openeurollm/Nemotron-Post-Training-Dataset-v2-decontaminated` | cc-by-4.0 | 3,000 | 4.7B |
+| `nemotron-v2-decontam-multilingual-ja` | `openeurollm/Nemotron-Post-Training-Dataset-v2-decontaminated` | cc-by-4.0 | 3,000 | 4.5B |
+| `chinese-deepseek-r1-110k-sft` | `Congliu/Chinese-DeepSeek-R1-Distill-data-110k-SFT` | apache-2.0 | 3,000 | 160M |
+| `llama-nemotron-sft-science` | `nvidia/Llama-Nemotron-Post-Training-Dataset` (SFT) | cc-by-4.0 | 3,000 | 1.5B |
+| `llama-nemotron-sft-code-v1` | `nvidia/Llama-Nemotron-Post-Training-Dataset` (SFT) | cc-by-4.0 | 3,000 | 7.7B |
+| `llama-nemotron-sft-code-v1.1` | `nvidia/Llama-Nemotron-Post-Training-Dataset` (SFT) | cc-by-4.0 | 3,000 | 4.4B |
+| `llama-nemotron-sft-math-v1` | `nvidia/Llama-Nemotron-Post-Training-Dataset` (SFT) | cc-by-4.0 | 3,000 | 8.5B |
+| `llama-nemotron-sft-math-v1.1` | `nvidia/Llama-Nemotron-Post-Training-Dataset` (SFT) | cc-by-4.0 | 3,000 | 10.3B |
+| `acemath-math-sft` | `nvidia/AceMath-Instruct-Training-Data` | cc-by-nc-4.0 | 3,000 | 1.0B |
+| `acemath-general-sft-stage1` | `nvidia/AceMath-Instruct-Training-Data` | cc-by-nc-4.0 | 3,000 | 1.3B |
+| `dolphin-r1-reasoning-deepseek` | `QuixiAI/dolphin-r1` | apache-2.0 | 3,000 | 900M |
+| `dolphin-r1-reasoning-flash` | `QuixiAI/dolphin-r1` | apache-2.0 | 3,000 | 820M |
+
+#### typed_exact_instructions (open, 10 sources, 1.5B)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `nemotron-ifchat-v1-structured-outputs` | `nvidia/Nemotron-Instruction-Following-Chat-v1` | cc-by-4.0 | 8,000 | 13M |
+| `if-sft-data-verified` | `allenai/IF_sft_data_verified` | not stated on the card | 8,000 | 20M |
+| `cascade-s2-instruction-following` | `nvidia/Nemotron-Cascade-SFT-Stage-2` (instruction-following) | cc-by-4.0 | 3,000 | 183M |
+| `cascade2-instruction-following` | `nvidia/Nemotron-Cascade-2-SFT-Data` (instruction_following) | nvidia-open-model-license | 3,000 | 889M |
+| `am-r1-0528-if` | `a-m-team/AM-DeepSeek-R1-0528-Distilled` | research use only | 3,000 | 115M |
+| `am-qwen3-if` | `a-m-team/AM-Qwen3-Distilled` | research use only | 3,000 | 94M |
+| `am-40m-r1-if` | `a-m-team/AM-DeepSeek-Distilled-40M` | cc-by-nc-4.0 | 3,000 | 117M |
+| `smoltalk2-multi-turn-reasoning-if-think` | `HuggingFaceTB/smoltalk2` (SFT) | odc-by-1.0 | 3,000 | 98M |
+| `smoltalk2-tulu-3-sft-personas-instruction-following-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | odc-by-1.0 | 3,000 | 14M |
+| `hermes-json-mode` | `interstellarninja/hermes-function-calling-v1` | apache-2.0 | 8,000 | 2.0M |
+
+#### tool_use (open, 23 sources, 7.2B)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `smoltalk-apigen-80k` | `HuggingFaceTB/smoltalk` (apigen-80k) | cc-by-4.0 | 8,000 | 15M |
+| `cascade-s2-tool-calling` | `nvidia/Nemotron-Cascade-SFT-Stage-2` (tool_calling) | cc-by-4.0 | 3,000 | 1.7B |
+| `arc-agi-large-tools-noreasoning` | `nvidia/Nemotron-SFT-ARC-AGI-v1` (large_tools_no_reasoning) | cc-by-4.0 | 2,500 | 7.0M |
+| `smoltalk2-smolagents-toolcalling-traces-think` | `HuggingFaceTB/smoltalk2` (SFT) | not stated | 3,000 | 64M |
+| `smoltalk2-hermes-function-calling-v1-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 3,000 | 11M |
+| `smoltalk2-xlam-traces-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | cc-by-4.0 | 3,000 | 29M |
+| `ultradata-agent-tool-use` | `openbmb/UltraData-SFT-Agent-2609` (Tool-Use) | apache-2.0 | 3,000 | 170M |
+| `swe-qa-pro-sft` | `TIGER-Lab/SWE-QA-Pro-SFT-Trajectories` | mit | 1,000 | 16M |
+| `synth-apigen-v0.1` | `argilla/Synth-APIGen-v0.1` | apache-2.0 | 14,000 | 8.0M |
+| `synth-apigen-qwen-exec` | `plaguss/synth-apigen-qwen-exec` | not stated on the card | 15,000 | 3.0M |
+| `synth-apigen-llama-exec` | `plaguss/synth-apigen-llama-exec` | not stated on the card | 9,500 | 7.0M |
+| `hermes-tool-use-multiturn-reasoning` | `interstellarninja/tool-use-multiturn-reasoning` | apache-2.0 | 8,000 | 33M |
+| `hermes-xlam-validated` | `interstellarninja/xlam_hermes_validated` | not stated on the card | 2,325 | 3.3M |
+| `hermes-thinking-v1` | `Jofthomas/hermes-function-calling-thinking-V1` | not stated on the card | 3,570 | 3.9M |
+| `dolci-think-hybrid-tool-use-sa` | `allenai/Dolci-Think-SFT-Olmo-Hybrid-Tool-Use-SA` | cc-by-sa-4.0 | 1,597 | 10M |
+| `pythonic-function-calling` | `driaforall/pythonic-function-calling` | not stated on the card | 8,000 | 35M |
+| `api-bank-train` | `liminghao1630/API-Bank` | mit | 8,000 | 14M |
+| `glaive-fc-v1` | `glaiveai/glaive-function-calling` | apache-2.0 | 8,000 | 26M |
+| `toucan-kimi-k2` | `Agent-Ark/Toucan-1.5M` (Kimi-K2) | apache-2.0 | 20,000 | 650M |
+| `toucan-oss` | `Agent-Ark/Toucan-1.5M` (OSS) | apache-2.0 | 15,500 | 1.4B |
+| `toucan-qwen3` | `Agent-Ark/Toucan-1.5M` (Qwen3) | apache-2.0 | 12,000 | 840M |
+| `xlam-r1-cot` | `AymanTarig/function-calling-v0.2-with-r1-cot` | not stated on the card | 8,000 | 60M |
+| `adp2-miroverse` | `neulab/adp-v2` | cc-by-nc-4.0 | 800 | 2.0B |
+
+#### recovery_clarification (open, 1 sources, 1.5M)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `synth-apigen-unanswerable` | `argilla/Synth-APIGen-v0.1` | apache-2.0 | 6,000 | 1.5M |
+
+#### environment_trajectories (open, 9 sources, 706M)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `adp-go-browse-wa` | `neulab/agent-data-collection` | mit | 1,500 | 130M |
+| `adp-nnetnav-wa` | `neulab/agent-data-collection` | apache-2.0 | 500 | 120M |
+| `adp-nnetnav-live` | `neulab/agent-data-collection` | apache-2.0 | 400 | 250M |
+| `adp-synatra` | `neulab/agent-data-collection` | cc-by-sa-4.0 | 3,000 | 100M |
+| `adp2-mind2web` | `neulab/adp-v2` | cc-by-4.0 | 1,500 | 85M |
+| `adp2-webarena-successful` | `neulab/adp-v2` | other | 530 | 10M |
+| `agent-eto-webshop` | `agent-eto/eto-sft-trajectory` | apache-2.0 | 1,823 | 2.5M |
+| `agent-eto-scienceworld` | `agent-eto/eto-sft-trajectory` | apache-2.0 | 1,482 | 3.5M |
+| `agent-eto-alfworld` | `agent-eto/eto-sft-trajectory` | apache-2.0 | 3,118 | 4.5M |
+
+#### executed_trajectories (open, 20 sources, 27.6B)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `arc-agi-large-reasoning-tools` | `nvidia/Nemotron-SFT-ARC-AGI-v1` (large_reasoning_and_tools) | cc-by-4.0 | 1,000 | 1.0B |
+| `ultradata-agent-search` | `openbmb/UltraData-SFT-Agent-2609` (Search-Agent) | apache-2.0 | 2,000 | 390M |
+| `ultradata-agent-code` | `openbmb/UltraData-SFT-Agent-2609` (Code-Agent) | apache-2.0 | 1,000 | 3.7B |
+| `ultradata-agent-general` | `openbmb/UltraData-SFT-Agent-2609` (General-Agent) | apache-2.0 | 1,000 | 8.5B |
+| `swe-next-sft` | `TIGER-Lab/SWE-Next-SFT-Trajectories` | mit | 2,000 | 50M |
+| `scale-swe-distilled` | `AweAI-Team/Scale-SWE-Distilled` | cc-by-4.0 | 2,000 | 3.5B |
+| `terminaltraj-20k` | `m-a-p/TerminalTraj` | not stated on the card | 2,000 | 135M |
+| `sera-lite-t2-glm46` | `allenai/Sera-4.6-Lite-T2` | odc-by | 1,500 | 1.1B |
+| `tmax-sft-qwen36-success` | `allenai/tmax-sft` (skill_tax_20260505_2.2k_combined_balanced_thinking_only_success) | odc-by | 3,000 | 19M |
+| `otagent-sft-100k` | `open-thoughts/OpenThoughts-Agent-SFT-100K` | apache-2.0 | 4,000 | 910M |
+| `otagent-sft-coldstart-9k` | `open-thoughts/OpenThoughts-Agent-SFT-ColdStartForRL-10K` | apache-2.0 | 4,000 | 187M |
+| `terminal-lego-traj-8k-4teachers` | `Lego-X/Terminal-Lego-Traj-8k` | none stated | 3,000 | 210M |
+| `tmax-sft-big-ntc-adapters` | `allenai/tmax-sft-big` | odc-by | 3,000 | 1.0B |
+| `toolmind-web-trajectories` | `Nanbeige/ToolMind-Web-QA` | apache-2.0 | 500 | 390M |
+| `adp-openhands-feedback` | `neulab/agent-data-collection` | mit | 200 | 4.0M |
+| `adp-swe-play` | `neulab/agent-data-collection` | see swe-play-trajectories/LICENSE  | 500 | 35M |
+| `adp-mini-coder` | `neulab/agent-data-collection` | see mini-coder/LICENSE in the repo | 1,000 | 1.0B |
+| `adp2-openresearcher` | `neulab/adp-v2` | mit | 800 | 4.8B |
+| `adp2-swe-chat` | `neulab/adp-v2` | odc-by | 500 | 550M |
+| `jupyter-agent-thinking` | `jupyter-agent/jupyter-agent-dataset` | apache-2.0 | 2,600 | 115M |
+
+#### verified_trajectories (open, 3 sources, 2.2B)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `scale-swe-v4pro-41k` | `AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k` | cc-by-4.0 | 2,000 | 1.5B |
+| `denovoswe-filtered` | `AweAI-Team/DeNovoSWE-Trajectory-Filtered` | cc-by-4.0 | 4,500 | 500M |
+| `swe-lego-real-resolved` | `PrimeIntellect/SWE-Lego-Real-Data-Verified` | apache-2.0 | 500 | 231M |
+
+#### synthetic_code_dialogue (open, 28 sources, 22.6B)
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `smoltalk-self-oss-instruct` | `HuggingFaceTB/smoltalk` (self-oss-instruct) | odc-by | 8,000 | 15M |
+| `code-magicoder-oss-instruct` | `ise-uiuc/Magicoder-OSS-Instruct-75K` | mit | 8,000 | 35M |
+| `code-magicoder-evol-instruct` | `ise-uiuc/Magicoder-Evol-Instruct-110K` | apache-2.0 | 8,000 | 61M |
+| `code-nickrosh-evol-instruct-80k` | `nickrosh/Evol-Instruct-Code-80k-v1` | cc-by-nc-sa-4.0 | 8,000 | 30M |
+| `code-codefuse-evol-instruction-66k` | `codefuse-ai/Evol-instruction-66k` | cc-by-nc-sa-4.0 | 8,000 | 33M |
+| `code-selfoss-instruct-sc2-exec` | `bigcode/self-oss-instruct-sc2-exec-filter-50k` | odc-by | 8,000 | 25M |
+| `code-tested-143k-python` | `Vezora/Tested-143k-Python-Alpaca` | apache-2.0 | 8,000 | 70M |
+| `code-instructions-122k` | `TokenBender/code_instructions_122k_alpaca_style` | apache-2.0 | 8,000 | 25M |
+| `code-instructcoder` | `likaixin/InstructCoder` | not stated on the card | 8,000 | 35M |
+| `code-codealpaca-20k` | `HuggingFaceH4/CodeAlpaca_20K` | cc | 8,000 | 1.3M |
+| `code-dolphin-coder-codegen` | `QuixiAI/dolphin-coder` | apache-2.0 | 8,000 | 55M |
+| `code-dolphin-coder-translate` | `QuixiAI/dolphin-coder` | apache-2.0 | 8,000 | 18M |
+| `code-search-net-python-instruct` | `Nan-Do/instructional_code-search-net-python` | apache-2.0 | 8,000 | 113M |
+| `code-opc-sft1-filtered-infinity` | `OpenCoder-LLM/opc-sft-stage1` (filtered_infinity_instruct) | mit | 8,000 | 525M |
+| `code-opc-sft1-realuser` | `OpenCoder-LLM/opc-sft-stage1` (realuser_instruct) | mit | 8,000 | 555M |
+| `code-opc-sft1-largescale-diverse` | `OpenCoder-LLM/opc-sft-stage1` (largescale_diverse_instruct) | mit | 8,000 | 1.6B |
+| `code-opc-sft2-educational` | `OpenCoder-LLM/opc-sft-stage2` (educational_instruct) | mit | 8,000 | 15M |
+| `code-opc-sft2-mceval` | `OpenCoder-LLM/opc-sft-stage2` (mceval_instruct) | mit | 8,000 | 33M |
+| `code-opc-sft2-package` | `OpenCoder-LLM/opc-sft-stage2` (package_instruct) | mit | 8,000 | 158M |
+| `code-code-feedback` | `m-a-p/Code-Feedback` | apache-2.0 | 8,000 | 98M |
+| `code-ling-coder-sft` | `inclusionAI/Ling-Coder-SFT` | apache-2.0 | 8,000 | 3.0B |
+| `code-react-ui-instructions` | `cfahlgren1/react-code-instructions` | mit | 8,000 | 100M |
+| `code-nextcoder-edits` | `microsoft/NextCoderDataset` | mit | 8,000 | 650M |
+| `code-kodcode-sft-4o` | `KodCode/KodCode-V1-SFT-4o` (default) | cc-by-nc-4.0 | 8,000 | 180M |
+| `code-datascience-instruct-analysis` | `RUC-DataLab/DataScience-Instruct-500K` | mit | 3,000 | 130M |
+| `nemotron-sft-competitive-programming-v2-exercism` | `nvidia/Nemotron-SFT-Competitive-Programming-v2` (default) | cc-by-4.0 | 3,000 | 172M |
+| `opencodegeneticinstruct-mixtral` | `nvidia/OpenCodeGeneticInstruct` (mixtral-8x22b-instruct) | cc-by-4.0 | 3,000 | 8.6B |
+| `opencodegeneticinstruct-qwen25` | `nvidia/OpenCodeGeneticInstruct` (qwen2.5-32b-instruct) | cc-by-4.0 | 3,000 | 6.2B |
+
+### Coding sources kept
+
+These sources are coding-agent, terminal-agent or code-execution data, added before that
+work moved to its own owner. They stay in the manifest but are not extended here:
+`swe-next-sft`, `swe-qa-pro-sft`, `scale-swe-v4pro-41k`, `denovoswe-filtered`,
+`scale-swe-distilled`, `sera-lite-t2-glm46`, `tmax-sft-qwen36-success`,
+`tmax-sft-big-ntc-adapters`, `otagent-sft-100k`, `otagent-sft-coldstart-9k` (both partly overlap
+AgentTrove), `swe-lego-real-resolved`, `terminal-lego-traj-8k-4teachers`, `terminaltraj-20k`,
+`adp-swe-play`, `adp-mini-coder`, `adp-openhands-feedback`, `adp2-swe-chat`,
+`jupyter-agent-thinking`, `code-code-feedback`, `code-datascience-instruct-analysis`,
+`math-numinamath-tir`, `ultradata-agent-code`, `ultradata-agent-general`,
+`ultradata-agent-search`, and the 28 code-instruction sources in `synthetic_code_dialogue`.
+`davinci-dev-env-native` and `openswe-trajectories` were looked at and left to that work.
+
+### Sources that need a click on the Hub
+
+`configs/data/sources.agentic-more-gated.json` has 23 sources over 9 repositories whose data
+files return HTTP 403 for the project token. Each is pinned and recorded like the open ones.
+Open each page while signed in and press the agree button, then add the manifest to a
+preparation run:
+
+| Page to open | Sources | Stream | Note |
+| --- | --- | --- | --- |
+| https://huggingface.co/datasets/lmsys/chatbot_arena_conversations | 2 | chat | Small (33k conversations). |
+| https://huggingface.co/datasets/Amod/mental_health_counseling_conversations | 1 | chat | Manual approval, Responsible AI licence. |
+| https://huggingface.co/datasets/allenai/WildChat-nontoxic | 1 | chat | AI2 ImpACT licence. |
+| https://huggingface.co/datasets/allenai/WildChat-4.8M-Full | 1 | chat | Manual approval. |
+| https://huggingface.co/datasets/allenai/wildguardmix | 1 | chat | Includes harmful prompts with refusals. |
+| https://huggingface.co/datasets/allenai/wildjailbreak | 1 | chat | Same. |
+| https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1 | 3 | synthetic_documents | Manual approval; read as plain documents, not dialogues. |
+| https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 | 12 | chat and synthetic_reasoning | The column names were taken from the sibling open set and have not been seen on real rows of this one. |
+| https://huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories | 1 | verified_trajectories | Tool-use trajectories from the Toolathlon benchmark; do not train and evaluate on it. |
+
+The gated manifest's tokens are 15.6B chat, 67.5B reasoning, 0.15B trajectories and 336.6B
+documents. The Toolathlon-Verified set was not added because its card forbids use for training.
+
+### Duplicates between the new sources
+
+Near-duplicate removal happens during preparation, so overlap does not need to be edited out
+of the manifest. The families that repeat the same prompts (so the token sums above overstate
+what is unique) are:
+
+- the AM-Team sets (R1-0528, Qwen3, thinking, 1.4M, 40M);
+- Cascade stage 1 and AceReason (row for row), which also overlap OpenMathReasoning,
+  OpenCodeReasoning and Post-Training v1;
+- the three DeepMath solution sets, which share their questions;
+- Dolci 7B, 32B, Python and synthetic-2; Dolci-translated and Updesh-R are translations of
+  them;
+- the Magpie series, which share prompts across teachers;
+- SmolTalk subsets and SmolTalk itself; Magicoder-Evol and the OpenCoder evolution set;
+  MetaMathQA inside MATH-plus;
+- Nemotron multilingual, which translates the same English problems;
+- WildChat-1M inside the earlier `wildchat-4.8m` source, the Aya human set inside
+  `aya_collection`, and the ADP v2 set inside the first ADP collection;
+- the decontaminated copies in Post-Training v2, which repeat v2 multilingual.
+
+### Preparing these sources
+
+`configs/cloud/prepare-agentic-more.json` is a copy of the first agentic job for this manifest:
+one 16-CPU, 32 GiB sandbox, no GPU, 24 hours. Nothing launches by itself. It splits
+`sources.agentic-more.json` into `AGENTIC_MORE_SHARDS` (16) shards with
+`scripts/scale_source_caps.py`, multiplies every cap by `AGENTIC_MORE_ROW_SCALE` (0.25) and
+writes `out/prepared/agentic-more-<i>`. Set `AGENTIC_MORE_MANIFEST` to prepare a different
+manifest, such as the gated one after the clicks.
+
+The caps sum to 2.26M rows and about 32.5 GB of source text. At the 25 KB per second measured for
+the first manifest, the slowest of 16 shards would take about 22 hours at scale 1 and about
+6 hours at 0.25, which is why 0.25 is the default; raise it only after a smoke run.
+
+Memory is the one real risk. Sources stored as a single JSON array are loaded whole before
+rows are read. Thirteen sources were dropped for being too large for that (among them
+step3.5 flash SFT, Light-R1 stage 1, the Belle sets, the Glaive code assistant). A few that
+remain are between 250 and 450 MB as one array (WizardLM V2, MetaMathQA, Tested-143k) and
+should fit in 32 GiB, but they are the first thing to check if a shard dies.
+
+### What was checked
+
+- `tests/test_agentic_more_sources.py` loads the manifests and checks that every source is
+  pinned to a full revision, carries a recorded licence with `approved: true` and the review
+  fields, has a unique id (also unique against the earlier manifests), names a stream in
+  `stages.json`, and that the cloud job validates. For every source it builds a fixture row in
+  its shape, runs its adapter, and checks the stream, that training masks fall only on assistant (or document) records, and that tool results are marked executed or simulated as recorded.
+- Probing: every source was read from its pinned revision through the real reader for at
+  least 6 to 12 rows when the network allowed (the Hub limits to 1000 requests per five minutes
+  and the uplink was slow). Sources the readers could not parse were either given a new reader
+  above or dropped; the dropped ones are in the next list.
+
+Size figures are approximations from the dataset size on the Hub divided by four. The Dolci 7B
+and 32B figures and the r1-distill figure vary widely, and the Updesh figures are guesses.
+Some community distills claim a teacher model that cannot be checked.
+
+### Considered and not added
+
+- **Screenshot-only GUI agents**: AITW, AndroidControl, GUI-Odyssey, OS-Atlas, Aguvis, OSWorld
+  trajectories, WebSTAR, ProCUA, MolmoWeb. They need images.
+- **Need another reader first** (the best follow-ups): OASST message trees (the top-ranked
+  path is already present), Nemotron-SFT-OpenCode, SWE-chat and pi sessions, agentlogs,
+  MEnvData parallel calls, smolagents tool-calling, the Nemotron-RL pivot sets, ToolBench ReAct
+  (about three quarters of rows rejected by the current ReAct reader), AgentNet, WebLINX,
+  ChatQA, HelpSteer3, CantTalkAboutThis, natural_reasoning, CodeIO, llm-jp thinking
+  (channel markup), the Apertus mix, INTELLECT-3 re-mixes, Cascade-2 XML tool calls,
+  CoT-Collection, roleplay in the Zephyr template, PersonaChat, RAG-Instruct, MOSS-002, and
+  the LlamaFactory reasoning tool-use set (blocks keyed by `value`).
+- **Prompt-only or reward-model sets**, benchmarks and preference pairs whose rejected side is
+  the only answer.
+- **Withheld problem text**: Post-Training v1 code, OpenCodeReasoning (1 and 2) and
+  Competitive-Programming v1 python carry only a reference to the problem text.
+- **Oversized single JSON arrays and row groups**: see the memory note above.
+- **Forbidden or contaminated**: Toolathlon-Verified (card forbids training), Terminal-Bench
+  derived sets (the benchmark's tasks).
+- **Duplicates and subsets** of sources already in an earlier manifest, and tiny single-text sets.
+
+### Unique tokens against what the stage plan reads
+
+For each stream, "unique tokens" are the sum of the manifests (before: the earlier open,
+pilot and first agentic manifests; added: this section, before deduplication). The planned
+columns are tokens the stage plan (`stages.json`) draws for that stream: the mixture share
+times the phase token limit, in billions, for the phases P1, M1, M2 and LC. "Times each token
+is seen" is planned divided by unique after; below 1 the stream never repeats a token, above 1
+it is repeated.
+
+| Stream | Unique before (B) | Added (B) | Unique after (B) | P1 | M1 | M2 | LC | Planned total (B) | Times each token is seen |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| executed_trajectories | 47.2 | 27.62 | 74.83 | 68.0 | 12.6 | 3.2 | 2.0 | 85.8 | 1.15x |
+| verified_trajectories | 20.9 | 2.23 | 23.13 | 20.0 | 4.8 | 19.6 | 2.0 | 46.4 | 2.01x |
+| tool_use | 13.0 | 7.16 | 20.16 | 24.0 | 2.4 | 2.8 | 1.0 | 30.2 | 1.50x |
+| chat | 10.2 | 121.88 | 132.08 | 32.0 | 1.2 | 0.8 | - | 34.0 | 0.26x |
+| synthetic_reasoning | 23.1 | 799.71 | 822.81 | 40.0 | - | - | - | 40.0 | 0.05x |
+| synthetic_code_dialogue | - | 22.55 | 22.55 | 32.0 | - | - | - | 32.0 | 1.42x |
+| environment_trajectories | 0.1 | 0.71 | 0.81 | 0.4 | - | - | - | 0.4 | 0.50x |
+| mixed_quality_episodes | 12.0 | 0.00 | 12.00 | - | - | - | 4.0 | 4.0 | 0.33x |
+| typed_exact_instructions | 0.28 | 1.54 | 1.82 | not planned in tokens | | | | | |
+| recovery_clarification | 0.007 | 0.0015 | 0.01 | not planned in tokens | | | | | |
+
+What this means:
+
+- **Chat and reasoning now far exceed the plan.** The plan reads each unique chat token a
+  quarter of the time and reasoning one twentieth. Deduplication will lower the real numbers (the overlap
+  families above are large), but the gap to the plan is wide enough that the mixture can be
+  chosen by quality rather than by what exists, and the plan's chat and reasoning shares could be
+  raised without repeating data. How much remains is known only after a preparation run.
+- **Tool use** fell from 2.3 to 1.5 passes. It is still repeated; most of its results are
+  simulated (see below).
+- **Executed trajectories** are about enough (1.15 passes); verified trajectories still repeat
+  twice and need coding-side sources from the other worker.
+- **recovery_clarification** (failed-then-fixed runs, asking for missing arguments) is
+  still almost absent: one tiny source added. Planned positions are counted separately.
+
+### Still missing
+
+- Real (executed) tool results outside coding: only the Toucan MCP sets and the web-agent
+  sets provide them. Every other function-calling set here is simulated.
+- Recovery and clarification data.
+- Non-English agent and tool-use traces beyond the Chinese and translated sets.
+- The readers listed under "Need another reader first".

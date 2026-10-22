@@ -49,3 +49,9 @@ licence, each recorded); `sources.agentic-gated.json` holds the ones that need t
 maintainer to accept terms on the Hub or restore withheld prompts first. The cloud job
 `configs/cloud/prepare-agentic-mix.json` prepares the first in eight shards, scaled with
 `AGENTIC_ROW_SCALE`. See "Agentic and chat data" in [`docs/data.md`](../../docs/data.md).
+
+`sources.agentic-more.json` (417 more chat, reasoning, tool-use and agent sources) and
+`sources.agentic-more-gated.json` (23 that need a click on the Hub) come from a second sweep
+of public sets. The cloud job `configs/cloud/prepare-agentic-more.json` prepares the first,
+scaled with `AGENTIC_MORE_ROW_SCALE`. See "More chat, reasoning and agent data" in
+[`docs/data.md`](../../docs/data.md).

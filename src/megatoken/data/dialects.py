@@ -435,19 +435,21 @@ def xlam(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
 
 
 def turn_pairs(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
-    """``[{"input": user, "output": assistant}, ...]`` exchanges (Capybara)."""
+    """Exchanges as ``{"input": user, "output": assistant}`` (Capybara) or ``{"human", "assistant"}`` (MOSS)."""
     if not isinstance(value, list) or not value:
         raise SchemaError("turn pairs must be a nonempty list")
     out: Messages = []
     for pair in value:
-        if not isinstance(pair, Mapping) or not all(
-            isinstance(pair.get(k), str) for k in ("input", "output")
-        ):
+        if not isinstance(pair, Mapping):
+            raise SchemaError("Every exchange must be an object")
+        user, reply = (
+            (pair.get("input"), pair.get("output"))
+            if "input" in pair
+            else (pair.get("human"), pair.get("assistant"))
+        )
+        if not isinstance(user, str) or not isinstance(reply, str):
             raise SchemaError("Every exchange needs string input and output")
-        out += [
-            {"role": "user", "content": pair["input"]},
-            {"role": "assistant", "content": pair["output"]},
-        ]
+        out += [{"role": "user", "content": user}, {"role": "assistant", "content": reply}]
     return out, None
 
 
@@ -483,17 +485,18 @@ def prompt_and_reply(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]
     """The prompt turns in one field and the answer to them in another.
 
     The answer is ``generated_message`` (a message object that may carry
-    ``reasoning_content``), ``teacher_response`` (a string), or an ``answer`` string with
-    its ``reasoning`` beside it.
+    ``reasoning_content``), ``teacher_response`` or ``output`` (strings), or an ``answer``
+    string with its ``reasoning`` text beside it.
     """
     prompt = _messages(value)
-    reply = row.get("generated_message", row.get("teacher_response", row.get("answer")))
+    reply, reasoning = None, None
+    for key in ("generated_message", "teacher_response", "answer", "output"):
+        if row.get(key) is not None:
+            reply = row[key]
+            reasoning = row.get("reasoning") if key == "answer" else None
+            break
     if isinstance(reply, str):
-        reply = {
-            "role": "assistant",
-            "content": reply,
-            "reasoning_content": row.get("reasoning"),
-        }
+        reply = {"role": "assistant", "content": reply, "reasoning_content": reasoning}
     if not isinstance(reply, Mapping) or reply.get("tool_calls") or not reply.get("content"):
         raise SchemaError("The reply must be a message with text and no tool calls")
     return [

@@ -871,14 +871,6 @@ def _with_reasoning(message: Mapping[str, Any], role: str, content: Any) -> Any:
     return f"<think>\n{reasoning.strip()}\n</think>\n\n{content or ''}"
 
 
-def _block_result(block: Mapping[str, Any]) -> Any:
-    """The text of a tool_result block, whether it is ``content`` or ``output.value``."""
-    if "content" in block:
-        return block["content"]
-    output = block.get("output")
-    return output.get("value", "") if isinstance(output, Mapping) else output
-
-
 def _result_id(message: Mapping[str, Any], role: str) -> str | None:
     """The call a result answers, under the spellings published sets use."""
     for key in ("tool_call_id", "tool_use_id"):
@@ -1009,11 +1001,11 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                         transform="canonical-tool-json-v1",
                         parse_hints=block_hints,
                     )
-                elif kind in {"tool_result", "tool-result"}:
+                elif kind == "tool_result":
                     builder.observation(
-                        _bytes(_block_result(block), field_name),
+                        _bytes(block.get("content", ""), field_name),
                         turn=turn,
-                        call_id=block.get("tool_use_id", block.get("toolCallId")),
+                        call_id=block.get("tool_use_id"),
                         source_field=field_name + ".content",
                         parse_hints=block_hints,
                     )
