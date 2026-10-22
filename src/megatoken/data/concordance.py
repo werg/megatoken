@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from megatoken.data.media_assets import (
@@ -894,6 +895,64 @@ def edit_task_view(
         ),
         tuple(relations),
     )
+
+
+def edit_chain_view(
+    *,
+    family: str,
+    view_id: str,
+    original: str,
+    steps: Sequence[tuple[str, str]],
+    preserves_json: str = "{}",
+) -> TaskView:
+    """A multi-turn editing session: the user asks, the model renders the edit, the user asks
+    for a follow-up change to *that result*, and so on.
+
+    ``steps`` is each turn's ``(instruction, edited)`` artifact IDs, in order. Every edited
+    version names the previous result as its exact parent (the first names ``original``); the
+    follow-up requests are observed after the result they refer to, so the model conditions on
+    its own earlier edits. Every turn is one supervised output; a one-step chain is
+    ``edit_task_view``.
+    """
+    if family not in {"image_edit", "speech_edit", "av_edit"} or not steps:
+        raise ValueError("An edit chain needs an editing family and at least one step")
+    first_instruction = steps[0][0]
+    groups = [
+        group(
+            observed(original, "original", "Observe this exact media version as the edit baseline."),
+            observed(first_instruction, "instruction", "Read the verified edit request."),
+        )
+    ]
+    relations: list[Relation] = []
+    previous = original
+    for turn, (instruction, edited) in enumerate(steps, 1):
+        if turn > 1:
+            groups.append(
+                group(
+                    observed(
+                        instruction,
+                        "instruction",
+                        "Read the follow-up request; it changes the latest result.",
+                    )
+                )
+            )
+        groups.append(
+            group(
+                generated(
+                    edited,
+                    "edited_media",
+                    "Apply the requested edit to the latest result, preserving all unaffected content.",
+                    revision=turn,
+                    reference_artifact_ids=(previous,),
+                )
+            )
+        )
+        relations += [
+            Relation("edit_of", edited, previous),
+            Relation("preserves", edited, previous, preserves_json),
+        ]
+        previous = edited
+    return TaskView(view_id, family, tuple(groups), tuple(relations))
 
 
 def manifest_fingerprint(bundle: AlignedBundle, views: tuple[TaskView, ...]) -> str:

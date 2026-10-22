@@ -595,6 +595,132 @@ def test_image_edits_keep_a_session_in_one_family_and_edit_the_exact_original(tm
     assert first.supervision.verification == "model-generated"
 
 
+def _turns(episode):
+    """(role, policy_mask, kind) of each record of an edit episode, text shortened to its words."""
+    return [
+        (
+            r.role,
+            r.policy_mask,
+            "media" if r.media_type.endswith("media-reference+json") else r.payload.decode(),
+        )
+        for r in episode.records
+    ]
+
+
+def test_a_three_step_edit_session_is_one_multi_turn_episode(tmp_path, media):
+    source = make_source(
+        "sessions",
+        "image_edit_chain",
+        columns={
+            "original": "source_img",
+            "edited": "target_img",
+            "instruction": "instruction",
+            "id": "img_id",
+            "family": "img_id",
+        },
+        include=("*.parquet",),
+        options={
+            "session": {"by": "img_id", "order": "turn_index"},
+            "provenance": {"media": "teacher"},
+            "tier": "model-generated",
+        },
+    )
+    # Session 100 has three turns (each turn edits the previous result), delivered out of
+    # order; session 101 has one; session 102's second result has another size, which ends it.
+    chain = [_image(i) for i in (1, 2, 3, 4)]
+    small = _image(5, size=(40, 40))
+    sources = [chain[1], chain[0], chain[2], chain[0], chain[0], chain[1]]
+    results = [chain[2], chain[1], chain[3], chain[3], chain[1], small]
+    parquet.write_table(
+        pa.table(
+            {
+                "img_id": ["100", "100", "100", "101", "102", "102"],
+                "turn_index": [2, 1, 3, 1, 1, 2],
+                "source_img": [{"bytes": data, "path": ""} for data in sources],
+                "target_img": [{"bytes": data, "path": ""} for data in results],
+                "instruction": ["make it red", "add a hat", "add a dog", "remove it", "blur", "x"],
+            }
+        ),
+        _local(tmp_path, "sessions") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_edit": 3}
+    long = next(e for e in episodes if e.lineage.family_id == "sessions:100")
+    assert _turns(long) == [
+        ("user", False, "media"),
+        ("user", False, "add a hat"),
+        ("assistant", True, "media"),
+        ("user", False, "make it red"),
+        ("assistant", True, "media"),
+        ("user", False, "add a dog"),
+        ("assistant", True, "media"),
+    ]
+    assert [len(m.events) for m in long.meridians] == [2, 1, 1, 1, 1, 1]
+    # Each result is the exact parent of the next: three edit dependencies in a line.
+    ids = [r.record_id for r in long.records]
+    assert [(d.writer_id, d.reader_id) for d in long.dependencies] == [
+        (ids[0], ids[2]),
+        (ids[2], ids[4]),
+        (ids[4], ids[6]),
+    ]
+    events = [e for m in long.meridians for e in m.events if e.role == "assistant"]
+    assert [e.request_revision for e in events] == [1, 2, 3]
+    assert [len(e.reference_event_ids) for e in events] == [1, 1, 1]
+    assert events[1].reference_event_ids == (ids[2],)
+    assert long.records[2].provenance == "teacher"
+    assert long.supervision.verification == "model-generated"
+    lengths = sorted(sum(r.policy_mask for r in e.records) for e in episodes)
+    assert lengths == [1, 1, 3]  # the size mismatch ended session 102 after its first turn
+
+
+def test_a_row_holding_a_whole_edit_chain_and_the_video_chain(tmp_path, media):
+    source = make_source(
+        "wholechain",
+        "image_edit_chain",
+        columns={"images": "images", "instruction": "turns", "id": "chain_id"},
+        include=("*.parquet",),
+        options={"max_steps": 2},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "chain_id": ["c1"],
+                "images": [[{"bytes": _image(i), "path": ""} for i in (1, 2, 3, 4)]],
+                "turns": [["add snow", "", "add a sun"]],
+            }
+        ),
+        _local(tmp_path, "wholechain") / "0.parquet",
+    )
+    # The empty second request ends the usable chain after one turn.
+    (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert sum(r.policy_mask for r in episode.records) == 1
+    assert episode.records[1].payload == b"add snow"
+
+
+@ffmpeg
+def test_video_edit_sessions_trim_every_version_alike(tmp_path, media):
+    source = make_source(
+        "vchain",
+        "video_edit_chain",
+        columns={"images": "videos", "instruction": "turns", "id": "chain_id"},
+        include=("*.parquet",),
+        options={"max_seconds": 1.0},
+    )
+    versions = [
+        {"bytes": _video(tmp_path / f"{i}.mp4", 2 + i * 0.1, sound=False).read_bytes()}
+        for i in range(3)
+    ]
+    parquet.write_table(
+        pa.table({"chain_id": ["v"], "videos": [versions], "turns": [["grey", "mirror"]]}),
+        _local(tmp_path, "vchain") / "0.parquet",
+    )
+    (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert episode.stream == "av_edit"
+    assert sum(r.policy_mask for r in episode.records) == 2
+    assert [d.kind for d in episode.dependencies] == ["edit", "edit"]
+    assert not list((tmp_path / "work").rglob("*.mp4"))
+
+
 def test_long_recordings_of_any_sound_are_cropped_to_a_central_excerpt(tmp_path, media):
     source = make_source(
         "music",

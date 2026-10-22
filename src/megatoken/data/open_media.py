@@ -43,7 +43,9 @@ from typing import Any, BinaryIO, Protocol
 from .concordance import (
     AlignedBundle,
     BundleArtifact,
+    TaskView,
     compile_task,
+    edit_chain_view,
     standard_views,
 )
 from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
@@ -268,8 +270,9 @@ def compile_bundle(
     *,
     preprocessing: str,
     tier: str | None = None,
+    views: Sequence[TaskView] | None = None,
 ) -> list[Episode]:
-    """Every standard task view the bundle's labels support."""
+    """Every standard task view the bundle's labels support, or exactly the given ``views``."""
     # Publishers reuse clip IDs (one clip, several captions or labels), so the ID also names
     # the content: identical rows merge in deduplication and different ones stay distinct.
     content = hashlib.sha256(family.encode())
@@ -291,7 +294,7 @@ def compile_bundle(
         preprocessing,
         tier or source.options.get("tier", "publisher-annotated"),
     )
-    return [compile_task(bundle, view) for view in standard_views(bundle)]
+    return [compile_task(bundle, view) for view in views or standard_views(bundle)]
 
 
 def speech_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]) -> list[Episode]:
@@ -454,6 +457,59 @@ def edit_episodes(
     )
 
 
+def chain_episodes(
+    media: Preparer,
+    source: OpenSource,
+    kind: str,
+    clip: Mapping[str, Any],
+    *,
+    provenance: str,
+    tier: str | None = None,
+) -> list[Episode]:
+    """A multi-turn editing session as one episode: the original, then per turn the user's
+    request and the model's edited version, each turn editing the previous result.
+
+    ``clip["frames"]`` is the original followed by each turn's result, ``clip["instructions"]``
+    the request of each turn. ``kind`` is ``image`` or ``av`` (the stream is ``<kind>_edit``).
+    """
+    modality = {"image": "image", "av": "video"}[kind]
+    frames, instructions = clip["frames"], clip["instructions"]
+    if len(frames) != len(instructions) + 1 or not instructions:
+        raise ValueError("An edit chain needs one request per edited version")
+    key = clip["id"]
+    artifacts = [_media(media, _sha(key, "frame", "0"), f"original_{kind}", modality, frames[0])]
+    steps = []
+    for turn, (frame, instruction) in enumerate(zip(frames[1:], instructions, strict=True), 1):
+        ask = _text(source, _sha(key, "ask", str(turn)), f"{kind}_edit_instruction_{turn}", instruction)
+        result = _media(
+            media,
+            _sha(key, "frame", str(turn)),
+            f"edited_{kind}_{turn}",
+            modality,
+            frame,
+            parent_id=steps[-1][1] if steps else artifacts[0].artifact_id,
+            version=f"v{turn}",
+            provenance=provenance,
+        )
+        artifacts += [ask, result]
+        steps.append((ask.artifact_id, result.artifact_id))
+    view = edit_chain_view(
+        family=f"{kind}_edit",
+        view_id=f"verified-{kind}-edit-chain-{len(steps)}",
+        original=artifacts[0].artifact_id,
+        steps=steps,
+    )
+    return compile_bundle(
+        source,
+        f"{source.source_id}:{kind}-edit-chain:{key}",
+        clip["family"],
+        artifacts,
+        preprocessing=f"{source.source_id}-{kind}-edit-chain-v1",
+        tier=tier,
+        views=(view,),
+    )
+
+
 def sound_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]) -> list[Episode]:
     """A recording of any sound -> audio identity (no open set pairs sounds with a task family)."""
     return [
@@ -603,6 +659,7 @@ def _top_level(source: OpenSource) -> list[str]:
         *source.options.get("keep", {}),
         *source.options.get("absent", ()),
         *([source.options["unique"]] if "unique" in source.options else []),
+        *source.options.get("session", {}).values(),
     ]
     names = {
         part.split(".")[0] for spec in specs for part in ([spec] if isinstance(spec, str) else spec)
@@ -807,6 +864,33 @@ def write_image_pair(
     return paths[0], paths[1]
 
 
+def write_image_chain(
+    frames: Sequence[bytes], out: Path, stem: str, *, max_side: int = MAX_SIDE
+) -> list[Path] | None:
+    """The original and each successive edit scaled identically (lossless). The chain stops at
+    the first version that cannot follow its predecessor (undecodable or another size)."""
+    from PIL import Image
+
+    images = []
+    for data in frames:
+        try:
+            image = Image.open(io.BytesIO(data)).convert("RGB")
+        except (OSError, ValueError, Image.DecompressionBombError):
+            break
+        if images and image.size != images[0].size:
+            break
+        images.append(image)
+    if len(images) < 2 or min(images[0].size) < 32:
+        return None
+    out.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for index, image in enumerate(images):
+        image.thumbnail((max_side, max_side))
+        paths.append(out / f"{stem}-{index}.png")
+        image.save(paths[-1])
+    return paths
+
+
 def _ffmpeg(*args: str) -> None:
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", *args], check=True)
 
@@ -894,9 +978,8 @@ def _label(source: OpenSource, record: Mapping[str, Any], role: str) -> Any:
     return field_of(record, source.columns.get(role))
 
 
-def _text_label(source: OpenSource, record: Mapping[str, Any], role: str) -> str | None:
+def _text_value(source: OpenSource, value: Any) -> str | None:
     """A non-empty text label, shaped by the source's options (picking one of a list, cleaning)."""
-    value = _label(source, record, role)
     if isinstance(value, (list, tuple)):
         texts = [item for item in value if isinstance(item, str) and item.strip()]
         value = (
@@ -914,6 +997,10 @@ def _text_label(source: OpenSource, record: Mapping[str, Any], role: str) -> str
     ):
         return None
     return value
+
+
+def _text_label(source: OpenSource, record: Mapping[str, Any], role: str) -> str | None:
+    return _text_value(source, _label(source, record, role))
 
 
 def _empty(value: Any) -> bool:
@@ -1210,6 +1297,100 @@ def video_edit_clips(
     return [{"id": clip_id, "family": family, **paths, "instruction": instruction}]
 
 
+def _list_label(source: OpenSource, record: Mapping[str, Any], role: str) -> list[Any]:
+    """A labelled field as a list: a session's per-turn values, or one value."""
+    value = _label(source, record, role)
+    if value is None:
+        return []
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
+def _chain_inputs(
+    source: OpenSource, record: Mapping[str, Any]
+) -> tuple[list[bytes], list[str]] | None:
+    """The versions (original, then each result) and requests of one editing session.
+
+    Fields are ``original`` (the first version, or every turn's input), ``edited`` (each turn's
+    result) and ``instruction`` (each turn's request), or ``images`` (all versions in order)
+    in place of the first two. ``options.max_steps`` cuts a longer session.
+    """
+    if not _accepts(source, record):
+        return None
+    if "images" in source.columns:
+        versions = [blob(item) for item in _list_label(source, record, "images")]
+    else:
+        versions = [
+            blob(item)
+            for item in (
+                _list_label(source, record, "original")[:1] + _list_label(source, record, "edited")
+            )
+        ]
+    instructions = [_text_value(source, item) for item in _list_label(source, record, "instruction")]
+    steps = min(len(versions) - 1, len(instructions), source.options.get("max_steps", 8))
+    # A session continues only while every version and request is usable.
+    usable = 0
+    while usable < steps and versions[usable + 1] and instructions[usable]:
+        usable += 1
+    if usable < 1 or not versions[0]:
+        return None
+    return versions[: usable + 1], instructions[:usable]
+
+
+def image_chain_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A multi-turn image editing session: the original image, each result and each request."""
+    inputs = _chain_inputs(source, record)
+    if inputs is None:
+        return []
+    clip_id, family = _identity(source, record)
+    paths = write_image_chain(
+        inputs[0], out, _stem(clip_id), max_side=source.options.get("max_side", MAX_SIDE)
+    )
+    if paths is None:
+        return []
+    return [
+        {
+            "id": clip_id,
+            "family": family,
+            "frames": paths,
+            "instructions": inputs[1][: len(paths) - 1],
+        }
+    ]
+
+
+def video_chain_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A multi-turn video editing session; every version is trimmed and scaled identically."""
+    inputs = _chain_inputs(source, record)
+    if inputs is None:
+        return []
+    clip_id, family = _identity(source, record)
+    sources = [
+        _video_source(data, out, f"{_stem(clip_id)}-{index}") for index, data in enumerate(inputs[0])
+    ]
+    try:
+        durations = [probe(path)[0] for path in sources]
+        kept = 1
+        while (
+            kept < len(sources)
+            and min(durations[0], durations[kept]) >= 1.0
+            and abs(durations[0] - durations[kept]) <= 0.5
+        ):
+            kept += 1
+        if kept < 2:
+            return []
+        seconds = min(min(durations[:kept]), source.options.get("max_seconds", 6.0))
+        paths = [out / f"{_stem(clip_id)}-{index}.mp4" for index in range(kept)]
+        for path, video in zip(sources, paths, strict=False):
+            transcode(path, video, seconds=seconds)
+    finally:
+        for path in sources:
+            path.unlink(missing_ok=True)
+    return [{"id": clip_id, "family": family, "frames": paths, "instructions": inputs[1][: kept - 1]}]
+
+
 SPEECH_EDITS = (
     ("Make the speech 6 decibels louder.", ("-af", "volume=6dB,alimiter=limit=0.97")),
     ("Speak 25 percent faster without changing the pitch.", ("-af", "atempo=1.25")),
@@ -1310,6 +1491,13 @@ TASKS = {
         ),
         image_edit_clips,
     ),
+    "image_edit_chain": Task(
+        frozenset({"image_edit"}),
+        lambda media, source, clip, reference: chain_episodes(
+            media, source, "image", clip, provenance=_provenance(source, "media")
+        ),
+        image_chain_clips,
+    ),
     "sound": Task(frozenset({"audio_identity"}), _plain(sound_episodes), sound_clips),
     "av_caption": Task(
         frozenset({"av_creation", "video_identity"}),
@@ -1332,6 +1520,13 @@ TASKS = {
             media, source, "av", clip, provenance=_provenance(source, "media")
         ),
         video_edit_clips,
+    ),
+    "video_edit_chain": Task(
+        frozenset({"av_edit"}),
+        lambda media, source, clip, reference: chain_episodes(
+            media, source, "av", clip, provenance=_provenance(source, "media")
+        ),
+        video_chain_clips,
     ),
 }
 
@@ -1486,9 +1681,39 @@ def read_clips(
             return
 
 
+def sessions(
+    source: OpenSource, records: Iterable[Mapping[str, Any]]
+) -> Iterator[dict[str, Any]]:
+    """Rows that are the turns of one session -> one record whose fields are the turns' lists.
+
+    ``options.session`` is ``{"by": column, "order": column}``: consecutive rows with the same
+    ``by`` value form a session (its column keeps that one value), its turns sorted by ``order``.
+    (A session split across shards
+    is read as two shorter sessions, each valid.)
+    """
+    by, order = source.options["session"]["by"], source.options["session"].get("order")
+    turns: list[Mapping[str, Any]] = []
+
+    def merged() -> dict[str, Any]:
+        rows = sorted(turns, key=lambda row: field_of(row, order)) if order else turns
+        fields = {name: [row.get(name) for row in rows] for name in rows[0]}
+        return {**fields, by: rows[0][by], "__key__": str(rows[0][by])}
+
+    for record in records:
+        if turns and field_of(record, by) != field_of(turns[0], by):
+            yield merged()
+            turns = []
+        turns.append(record)
+    if turns:
+        yield merged()
+
+
 def _materialized(source: OpenSource, shards: Shards, out: Path) -> Iterator[dict[str, Any]]:
     task, unique, seen = TASKS[source.task], source.options.get("unique"), set()
-    for record in CONTAINERS[source.reader](source, shards):
+    records = CONTAINERS[source.reader](source, shards)
+    if "session" in source.options:
+        records = sessions(source, records)
+    for record in records:
         if unique:
             key = field_of(record, unique)
             if key in seen:
@@ -1500,8 +1725,9 @@ def _materialized(source: OpenSource, shards: Shards, out: Path) -> Iterator[dic
 def discard(clip: Mapping[str, Any]) -> None:
     """Delete a clip's local media (it is prepared once its episodes exist)."""
     for value in clip.values():
-        if isinstance(value, Path):
-            value.unlink(missing_ok=True)
+        for path in value if isinstance(value, list) else [value]:
+            if isinstance(path, Path):
+                path.unlink(missing_ok=True)
 
 
 def build_episodes(
