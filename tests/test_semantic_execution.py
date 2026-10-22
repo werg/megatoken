@@ -182,3 +182,33 @@ def test_local_diagnostics_never_impersonate_independently_admitted_data():
     example["sidecar"]["referenceStatus"] = "agreed"
     with pytest.raises(SemanticExecutionError, match="external admission verifier"):
         adapt_semantic_execution(example)
+
+
+
+def test_jsonl_converter_never_labels_diagnostic_episodes_admitted(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from megatoken.data.schema import Episode
+
+    source = tmp_path / "tracer.jsonl"
+    output = tmp_path / "native.jsonl"
+    source.write_text(json.dumps(fixture()) + "\n", encoding="utf-8")
+    script = Path(__file__).resolve().parents[1] / "scripts/import_semantic_execution.py"
+    command = [
+        sys.executable,
+        str(script),
+        "--input",
+        str(source),
+        "--output",
+        str(output),
+        "--diagnostic-byte",
+        "--allow-local",
+    ]
+    complete = subprocess.run(command, capture_output=True, text=True, check=True)
+    assert '"admitted": 0' in complete.stdout
+    episode = Episode.from_dict(json.loads(output.read_text(encoding="utf-8")))
+    assert episode.stream == "semantic_execution"
+    assert episode.supervision.outcome == "unknown"
+    assert all(b"private" not in record.payload for record in episode.records)
