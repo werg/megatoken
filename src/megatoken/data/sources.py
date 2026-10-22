@@ -13,6 +13,8 @@ from typing import Any
 
 from megatoken.io import content_hash, sha256_file, write_json
 
+PARQUET_BATCH_BYTES = 64 << 20
+
 
 @dataclass(frozen=True, slots=True)
 class TermsReview:
@@ -219,11 +221,16 @@ def iter_source_rows(
                 raise RuntimeError("Parquet streaming requires the 'data' extra (pyarrow)") from exc
             reader = parquet.ParquetFile(path)
             for group in range(reader.num_row_groups):
-                count = reader.metadata.row_group(group).num_rows
+                meta = reader.metadata.row_group(group)
+                count = meta.num_rows
                 if row_index + count <= start_row:
                     row_index += count
                     continue
-                for batch in reader.iter_batches(batch_size=128, row_groups=[group]):
+                # Arrow cannot hand back a nested column over 2 GiB in one piece, and long
+                # trajectories reach that within a few rows: keep each batch near 64 MiB.
+                row_bytes = meta.total_byte_size / max(count, 1)
+                batch_size = max(1, min(128, int(PARQUET_BATCH_BYTES / max(row_bytes, 1))))
+                for batch in reader.iter_batches(batch_size=batch_size, row_groups=[group]):
                     for row in batch.to_pylist():
                         if source.max_rows is not None and row_index >= source.max_rows:
                             return

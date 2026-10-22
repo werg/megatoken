@@ -148,3 +148,15 @@ def test_hf_reader_passes_pinned_identity_and_uses_real_local_streaming(
             "data_files": {"train": [source.files[0].path]},
         }
     ]
+
+
+def test_parquet_rows_too_large_to_batch_together_come_back_one_at_a_time(
+    parquet_source, monkeypatch
+):
+    import megatoken.data.sources as sources
+
+    rows, source = parquet_source
+    monkeypatch.setattr(sources, "PARQUET_BATCH_BYTES", 1)
+    expected_rows = list(enumerate(rows[:6]))
+    assert list(iter_source_rows(source)) == expected_rows
+    assert list(iter_source_rows(source, start_row=3)) == expected_rows[3:]
