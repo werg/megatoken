@@ -53,12 +53,10 @@ class TransducerGrowth:
 
     def _projection(self, width: int) -> Tensor:
         if width not in self._random_maps:
-            generator = torch.Generator().manual_seed(rounding_seed(
-                self.bank.geometry.seed, "gradient-sketch", width
-            ))
-            self._random_maps[width] = (
-                torch.randn(64, width, generator=generator) / math.sqrt(64)
+            generator = torch.Generator().manual_seed(
+                rounding_seed(self.bank.geometry.seed, "gradient-sketch", width)
             )
+            self._random_maps[width] = torch.randn(64, width, generator=generator) / math.sqrt(64)
         return self._random_maps[width]
 
     def observe(
@@ -92,9 +90,13 @@ class TransducerGrowth:
             e = unit(row.destination.decode(device=gradient_location.device))
             # F is the unnormalized value/location mixture before
             # differentiable normalization.
-            delta = w / (1 - w) * (
-                torch.dot(gradient_value.float(), lookup.bank_value.detach() - v)
-                + torch.dot(gradient_location.float(), lookup.bank_landing_raw.detach() - e)
+            delta = (
+                w
+                / (1 - w)
+                * (
+                    torch.dot(gradient_value.float(), lookup.bank_value.detach() - v)
+                    + torch.dot(gradient_location.float(), lookup.bank_landing_raw.detach() - e)
+                )
             )
             evidence = self.evidence.setdefault(edge_id, EdgeEvidence(last_step=step))
             age = step - evidence.last_step
@@ -152,9 +154,7 @@ class TransducerGrowth:
             if lookup.pairs
             else 0.0
         )
-        bias = best - float(
-            self.bank.log_beta_location.exp() + self.bank.log_beta_query.exp()
-        )
+        bias = best - float(self.bank.log_beta_location.exp() + self.bank.log_beta_query.exp())
         h = hindsight.detach()
         try:
             edge_id = self.bank.add_edge(
@@ -182,9 +182,9 @@ class TransducerGrowth:
             return None
         key = unit(row.key.decode())
         departure = unit(row.departure.decode())
-        generator = torch.Generator().manual_seed(rounding_seed(
-            bank.geometry.seed, "split", edge_id, step
-        ))
+        generator = torch.Generator().manual_seed(
+            rounding_seed(bank.geometry.seed, "split", edge_id, step)
+        )
         k_noise = torch.randn(key.shape, generator=generator)
         d_noise = torch.randn(departure.shape, generator=generator)
         k_noise = unit(k_noise - torch.dot(key, k_noise) * key)
@@ -212,9 +212,7 @@ class TransducerGrowth:
         )
         self.evidence[edge_id] = evidence
         self.evidence[new_id] = replace(evidence, sketch=evidence.sketch.clone())
-        bank._masters = {
-            key: value for key, value in bank._masters.items() if key[0] != edge_id
-        }
+        bank._masters = {key: value for key, value in bank._masters.items() if key[0] != edge_id}
         bank._invalidate()
         return edge_id, new_id
 
@@ -263,10 +261,11 @@ class TransducerGrowth:
                 splits += 1
         if bank.packed_bytes > 0.95 * bank.geometry.byte_budget:
             eligible = sorted(
-                bank.rows, key=lambda i: (
+                bank.rows,
+                key=lambda i: (
                     self.evidence.get(i, EdgeEvidence()).utility / bank.rows[i].nbytes,
                     i,
-                )
+                ),
             )
             for edge_id in eligible:
                 if bank.packed_bytes <= 0.9 * bank.geometry.byte_budget:
