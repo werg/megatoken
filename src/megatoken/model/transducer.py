@@ -39,16 +39,16 @@ def event_attention_mask(
     """
     if groups.shape != meridians.shape or tracks.shape != groups.shape:
         raise ValueError("Every event needs group, meridian and track metadata")
-    if groups.ndim != 2 or groups.dtype != torch.long or (
-        meridians.dtype != torch.long or tracks.dtype != torch.long
+    if (
+        groups.ndim != 2
+        or groups.dtype != torch.long
+        or (meridians.dtype != torch.long or tracks.dtype != torch.long)
     ):
         raise ValueError("Event metadata must be [batch, events] int64 tensors")
     if bool((groups < 0).any()) or bool((meridians < 0).any()):
         raise ValueError("Event chronology cannot be negative")
     if mode == "full":
-        return torch.ones(
-            (*groups.shape, groups.shape[1]), device=groups.device, dtype=torch.bool
-        )
+        return torch.ones((*groups.shape, groups.shape[1]), device=groups.device, dtype=torch.bool)
     if mode == "group-inverse":
         return groups[:, None, :] >= groups[:, :, None]
     if mode == "causal":
@@ -87,18 +87,18 @@ class WideKnowledgeReadout(nn.Module):
     def forward(
         self, value: Tensor, query: Tensor, location: Tensor, *, core: FacetedCore
     ) -> Tensor:
-        if value.shape != (self.geometry.value_dim,) or query.shape != (
-            self.geometry.query_dim,
-        ) or location.shape != (self.geometry.location_dim,):
+        if (
+            value.shape != (self.geometry.value_dim,)
+            or query.shape != (self.geometry.query_dim,)
+            or location.shape != (self.geometry.location_dim,)
+        ):
             raise ValueError("Knowledge readout requires complete value/query/state vectors")
         condition = self.condition(torch.cat((query, location)).float())
         rows = value.float().reshape(1, self.row_count, self.width)
         rows = self.row_adapter(rows + self.row_identifiers[None])
         rows = rows + condition[None, None]
         # Shared U is registered ONLY on the original FacetedCore owner.
-        context_rows = self.route_input(
-            condition[None, None].expand(1, self.facets, -1)
-        )
+        context_rows = self.route_input(condition[None, None].expand(1, self.facets, -1))
         routed = core.apply_u(rows, RealizationContext(context_rows), level=1)
         sink = self.sink_value[None, None]
         keys = torch.cat((routed, self.sink_key[None, None]), dim=1)
@@ -182,10 +182,16 @@ class NativeTransducer(nn.Module):
         """Training-only inverse C pass with no state/history publication."""
         if not self.training:
             raise RuntimeError("Hindsight may not execute on the serving path")
-        if raw.ndim != 4 or raw.shape[:2] != groups.shape or raw.shape[2:] != (
-            self.core.config.n_facets,
-            self.core.config.facet_dim,
-        ) or roles.shape != groups.shape:
+        if (
+            raw.ndim != 4
+            or raw.shape[:2] != groups.shape
+            or raw.shape[2:]
+            != (
+                self.core.config.n_facets,
+                self.core.config.facet_dim,
+            )
+            or roles.shape != groups.shape
+        ):
             raise ValueError("Hindsight requires recorded ordinary native event blocks")
         if not raw.shape[1]:
             raise ValueError("No ordinary events for hindsight training")
@@ -199,10 +205,12 @@ class NativeTransducer(nn.Module):
         n = self.core.config.n_facets
         facet_mask = event_mask.repeat_interleave(n, dim=1).repeat_interleave(n, dim=2)
         empty = KVHistory(
-            raw.new_empty(raw.shape[0], self.core.config.kv_heads, 0,
-                          self.core.config.attention_head_dim),
-            raw.new_empty(raw.shape[0], self.core.config.kv_heads, 0,
-                          self.core.config.attention_head_dim),
+            raw.new_empty(
+                raw.shape[0], self.core.config.kv_heads, 0, self.core.config.attention_head_dim
+            ),
+            raw.new_empty(
+                raw.shape[0], self.core.config.kv_heads, 0, self.core.config.attention_head_dim
+            ),
         )
         # A separate C computation: no call to write() or advance_group().
         final = self.core.central(
@@ -211,9 +219,7 @@ class NativeTransducer(nn.Module):
             roles,
             torch.zeros(raw.shape[0], device=raw.device, dtype=torch.long),
             track_ids=tracks,
-            history_track_ids=torch.empty(
-                raw.shape[0], 0, device=raw.device, dtype=torch.long
-            ),
+            history_track_ids=torch.empty(raw.shape[0], 0, device=raw.device, dtype=torch.long),
             attention_mask=facet_mask,
         ).reshape_as(raw)
         all_groups = sorted(set(groups[0].tolist()))
@@ -224,9 +230,11 @@ class NativeTransducer(nn.Module):
         for current in all_groups:
             to_read = current + (1 if stage == "gap2" else 0)
             available = groups[0] == to_read
-            source = final[0, available].reshape(-1, self.core.config.facet_dim) if bool(
-                available.any()
-            ) else None
+            source = (
+                final[0, available].reshape(-1, self.core.config.facet_dim)
+                if bool(available.any())
+                else None
+            )
             produced.append(self.hindsight_realizer(source))
             sink_only.append(source is None)
         return HindsightValues(tuple(produced), tuple(sink_only), stage)
@@ -261,8 +269,12 @@ class NativeTransducer(nn.Module):
             ),
         )
         found = self.bank.lookup(
-            query, agenda, training=training, hindsight=hindsight, overlay=overlay,
-            exploration_seed=exploration_seed
+            query,
+            agenda,
+            training=training,
+            hindsight=hindsight,
+            overlay=overlay,
+            exploration_seed=exploration_seed,
         )
         if found is None:
             return state, None
@@ -278,9 +290,7 @@ class NativeTransducer(nn.Module):
         self.bank.commit(agenda, found)
         return committed, found
 
-    def start(
-        self, metadata: dict[str, object]
-    ) -> tuple[MultiTrackState, SearchAgenda, Lookup]:
+    def start(self, metadata: dict[str, object]) -> tuple[MultiTrackState, SearchAgenda, Lookup]:
         """Commit a complete metadata prefix and immediately perform the first lookup."""
         keys = ("request", "task", "topic", "language", "modality", "date", "version")
         normalized = {key: metadata.get(key) for key in keys}
