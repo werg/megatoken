@@ -9,6 +9,7 @@ import hashlib
 import json
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 from torch import nn
@@ -16,19 +17,19 @@ from torch import nn
 from megatoken.data.media_assets import TensorAssetStore
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
-from megatoken.media_teacher import (
+from megatoken.model.config import ModelConfig
+from megatoken.omni.embeddinggemma2 import EmbeddingGemma2
+from megatoken.omni.loader import read_locked_manifest
+from megatoken.teacher import (
     HIDDEN_TAP,
     HIDDEN_WIDTH,
     MAX_TOKENS,
-    PINNED_EXTRACTOR,
+    PINNED_TEACHER,
     PREPROCESSING,
     extractor_id,
     locked_teacher,
     validate_extractor,
 )
-from megatoken.model.config import ModelConfig
-from megatoken.omni.embeddinggemma2_hidden import EmbeddingGemma2HiddenExtractor
-from megatoken.omni.loader import read_locked_manifest
 from megatoken.training.config import TrainConfig
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.text_anchors import TextAnchors, anchor_loss
@@ -87,26 +88,26 @@ def test_extractor_identity_needs_a_revision_and_files_inside_the_snapshot(
 
 
 def test_validate_extractor_accepts_only_the_pinned_family_of_ids():
-    assert validate_extractor(PINNED_EXTRACTOR) == PINNED_EXTRACTOR
+    assert validate_extractor(PINNED_TEACHER) == PINNED_TEACHER
     assert validate_extractor(other_extractor())
     for bad in (
         "",
         None,
         "siglip2:" + "0" * 40,
-        PINNED_EXTRACTOR + ":extra",
-        PINNED_EXTRACTOR.replace(HIDDEN_TAP, "language_model.embedding_projection:output"),
-        PINNED_EXTRACTOR.replace(PREPROCESSING, "chat-fp16-v0"),
-        PINNED_EXTRACTOR.replace(REVISION, "main"),
-        PINNED_EXTRACTOR.upper(),
-        "x" + PINNED_EXTRACTOR,
+        PINNED_TEACHER + ":extra",
+        PINNED_TEACHER.replace(HIDDEN_TAP, "language_model.embedding_projection:output"),
+        PINNED_TEACHER.replace(PREPROCESSING, "chat-fp16-v0"),
+        PINNED_TEACHER.replace(REVISION, "main"),
+        PINNED_TEACHER.upper(),
+        "x" + PINNED_TEACHER,
     ):
         with pytest.raises(ValueError, match="pinned EmbeddingGemma2"):
             validate_extractor(bad)
 
 
 def test_model_config_pins_the_teacher():
-    assert ModelConfig.tiny().media_extractor == PINNED_EXTRACTOR
-    assert ModelConfig().media_extractor == PINNED_EXTRACTOR
+    assert ModelConfig.tiny().media_extractor == PINNED_TEACHER
+    assert ModelConfig().media_extractor == PINNED_TEACHER
     with pytest.raises(ValueError, match="pinned EmbeddingGemma2"):
         ModelConfig.tiny(media_extractor="whistle-v3")
     # A different (still well-formed) teacher is a different model geometry.
@@ -143,7 +144,7 @@ def test_locked_teacher_identity_comes_from_the_verified_manifest(tmp_path):
     assert snapshot == base / "teacher" and validate_extractor(identity) == identity
     base_b, packs_b = read_locked_manifest(str(second))
     assert locked_teacher(base_b, packs_b)[1] == identity  # layout independent
-    assert identity != PINNED_EXTRACTOR  # these are test bytes, not the real checkpoint
+    assert identity != PINNED_TEACHER  # these are test bytes, not the real checkpoint
 
 
 def test_locked_teacher_requires_the_teacher_and_verified_bytes(tmp_path):
@@ -245,79 +246,90 @@ class FakeTeacher(nn.Module):
 
 
 class FakeProcessor:
-    def __init__(self, tokens=7, mask=None):
-        self.tokens, self.mask, self.conversations = tokens, mask, []
+    """Right-pads a batch of conversations to ``tokens`` (or to ``lengths`` per row)."""
 
-    def apply_chat_template(self, conversation, **kwargs):
+    def __init__(self, tokens=7, lengths=None):
+        self.tokens, self.lengths, self.conversations = tokens, lengths, []
+
+    def apply_chat_template(self, conversations, **kwargs):
         assert kwargs["tokenize"] and kwargs["return_dict"] and kwargs["return_tensors"] == "pt"
-        self.conversations.append(conversation)
-        mask = torch.ones(1, self.tokens, dtype=torch.long) if self.mask is None else self.mask
+        assert kwargs["processor_kwargs"] == {"padding": True}
+        self.conversations.extend(conversations)
+        lengths = self.lengths or [self.tokens] * len(conversations)
+        width = max(lengths)
+        mask = torch.tensor([[1] * n + [0] * (width - n) for n in lengths])
         return {
-            "input_ids": torch.arange(mask.shape[1])[None] % 32,
+            "input_ids": torch.arange(width).repeat(len(lengths), 1) % 32,
             "attention_mask": mask,
         }
 
 
 @pytest.mark.parametrize("keyword", [False, True])
-def test_hook_taps_the_unpooled_512_input_of_the_embedding_projection(keyword):
+def test_one_pass_taps_hidden_states_and_pools_the_projection(keyword):
     model = FakeTeacher(keyword=keyword)
-    extractor = EmbeddingGemma2HiddenExtractor(model, FakeProcessor(7), extractor=PINNED_EXTRACTOR)
-    observation = extractor.encode("video", "clip.mp4")
-    expected = model.embed(torch.arange(7)[None] % 32)[0]
+    teacher = EmbeddingGemma2(model, FakeProcessor(7), extractor=PINNED_TEACHER)
+    observation = teacher.encode("video", "clip.mp4")
+    hidden = model.embed(torch.arange(7)[None] % 32)[0]
     assert observation.features.shape == (7, HIDDEN_WIDTH) != (7, 768)
     assert observation.features.dtype == torch.float32 and not observation.features.requires_grad
-    torch.testing.assert_close(observation.features, expected)
-    assert (observation.modality, observation.extractor) == ("video", PINNED_EXTRACTOR)
-    assert not model.language_model.embedding_projection._forward_pre_hooks
+    torch.testing.assert_close(observation.features, hidden)
+    pooled = model.language_model.embedding_projection(hidden).mean(0)
+    torch.testing.assert_close(observation.embedding, torch.nn.functional.normalize(pooled, dim=0))
+    assert (observation.modality, observation.extractor) == ("video", PINNED_TEACHER)
+    assert not model.language_model.embedding_projection._forward_hooks
     assert all(not p.requires_grad for p in model.parameters()) and not model.training
 
 
 def test_hook_survives_a_bf16_teacher_and_keeps_fp32_features():
     model = FakeTeacher().to(torch.bfloat16)
-    result = EmbeddingGemma2HiddenExtractor(
-        model, FakeProcessor(5), extractor=PINNED_EXTRACTOR
-    ).encode("audio", "a.wav")
+    result = EmbeddingGemma2(model, FakeProcessor(5), extractor=PINNED_TEACHER).encode(
+        "audio", "a.wav"
+    )
     assert result.features.dtype == torch.float32 and result.features.shape == (5, HIDDEN_WIDTH)
 
 
-def test_sources_reach_the_processor_by_modality():
+def test_sources_and_prompts_reach_the_processor_by_modality():
     processor = FakeProcessor()
-    extractor = EmbeddingGemma2HiddenExtractor(FakeTeacher(), processor, extractor=PINNED_EXTRACTOR)
-    extractor.encode("text", "hello")
-    extractor.encode("image", "pic.png")
-    text, image = (c[0]["content"][0] for c in processor.conversations)
-    assert text == {"type": "text", "text": "hello"}
-    assert image == {"type": "image", "path": "pic.png"}
+    teacher = EmbeddingGemma2(FakeTeacher(), processor, extractor=PINNED_TEACHER)
+    teacher.encode("text", "hello", prompt="title: none | text: ")
+    teacher.encode("image", "pic.png")
+    teacher.encode("image", "pic.png", prompt="task: search result | query: ")
+    text, image, prompted = (c[0]["content"] for c in processor.conversations)
+    assert text == [{"type": "text", "text": "title: none | text: hello"}]
+    assert image == [{"type": "image", "path": "pic.png"}]
+    assert prompted[0] == {"type": "text", "text": "task: search result | query: "}
     with pytest.raises(ValueError, match="text, audio, image or video"):
-        extractor.encode("document", "x")
+        teacher.encode("document", "x")
 
 
-def test_extractor_rejects_other_heads_padding_and_untapped_forward():
-    with pytest.raises(ValueError, match="512->768"):
-        EmbeddingGemma2HiddenExtractor(
-            FakeTeacher(out_features=512), FakeProcessor(), extractor=PINNED_EXTRACTOR
-        )
-    with pytest.raises(ValueError, match="512->768"):
-        EmbeddingGemma2HiddenExtractor(nn.Linear(2, 2), FakeProcessor(), extractor=PINNED_EXTRACTOR)
-    padded = torch.tensor([[1, 1, 0]])
+def test_padded_batches_keep_only_real_positions():
     model = FakeTeacher()
-    extractor = EmbeddingGemma2HiddenExtractor(
-        model, FakeProcessor(mask=padded), extractor=PINNED_EXTRACTOR
-    )
-    with pytest.raises(ValueError, match="unpadded"):
-        extractor.encode("audio", "a.wav")
-    too_long = EmbeddingGemma2HiddenExtractor(
-        FakeTeacher(), FakeProcessor(MAX_TOKENS + 1), extractor=PINNED_EXTRACTOR
+    teacher = EmbeddingGemma2(model, FakeProcessor(lengths=[3, 5]), extractor=PINNED_TEACHER)
+    short, long = teacher.encode_batch([("text", "a"), ("text", "bbbbb")])
+    assert short.features.shape == (3, HIDDEN_WIDTH) and long.features.shape == (5, HIDDEN_WIDTH)
+    alone = EmbeddingGemma2(model, FakeProcessor(3), extractor=PINNED_TEACHER).encode("text", "a")
+    torch.testing.assert_close(short.embedding, alone.embedding)
+    vectors = EmbeddingGemma2(
+        model, FakeProcessor(lengths=[4]), extractor=PINNED_TEACHER
+    ).embed_texts(["x"], prompt="title: none | text: ")
+    assert vectors.shape == (1, 768) and np.allclose(np.linalg.norm(vectors, axis=1), 1)
+
+
+def test_teacher_rejects_other_heads_overlong_input_and_untapped_forward():
+    with pytest.raises(ValueError, match="512->768"):
+        EmbeddingGemma2(FakeTeacher(out_features=512), FakeProcessor(), extractor=PINNED_TEACHER)
+    with pytest.raises(ValueError, match="512->768"):
+        EmbeddingGemma2(nn.Linear(2, 2), FakeProcessor(), extractor=PINNED_TEACHER)
+    too_long = EmbeddingGemma2(
+        FakeTeacher(), FakeProcessor(MAX_TOKENS + 1), extractor=PINNED_TEACHER
     )
     with pytest.raises(ValueError, match="8192"):
         too_long.encode("text", "long")
     twice = FakeTeacher(calls=2)
     with pytest.raises(RuntimeError, match="exactly once"):
-        EmbeddingGemma2HiddenExtractor(twice, FakeProcessor(), extractor=PINNED_EXTRACTOR).encode(
-            "text", "x"
-        )
+        EmbeddingGemma2(twice, FakeProcessor(), extractor=PINNED_TEACHER).encode("text", "x")
     # A failed tap must not leave the hook installed.
-    assert not twice.language_model.embedding_projection._forward_pre_hooks
+    assert not twice.language_model.embedding_projection._forward_hooks
 
 
 # --- the MediaEncoder: one projection into E --------------------------------------------
@@ -331,10 +343,10 @@ def test_media_encoder_reduces_any_length_to_the_facet_block():
     core = tiny_model().core
     c = core.config
     for tokens in (1, 3, c.n_facets, 9, 40):
-        out = core.encode_media(features(tokens), extractor=PINNED_EXTRACTOR)
+        out = core.encode_media(features(tokens), extractor=PINNED_TEACHER)
         assert out.shape == (1, c.n_facets, c.facet_dim) and torch.isfinite(out).all()
     batch = torch.cat((features(9, seed=1), features(9, seed=2)))
-    assert core.encode_media(batch, extractor=PINNED_EXTRACTOR).shape[0] == 2
+    assert core.encode_media(batch, extractor=PINNED_TEACHER).shape[0] == 2
 
 
 def test_media_encoder_rejects_another_teacher_and_bad_features():
@@ -349,14 +361,14 @@ def test_media_encoder_rejects_another_teacher_and_bad_features():
         torch.ones(1, 6, HIDDEN_WIDTH, dtype=torch.long),
     ):
         with pytest.raises(ValueError, match="device-local"):
-            core.encode_media(bad, extractor=PINNED_EXTRACTOR)
+            core.encode_media(bad, extractor=PINNED_TEACHER)
     for mask in (
         torch.ones(1, 5, dtype=torch.bool),
         torch.ones(1, 6),  # not bool
         torch.zeros(1, 6, dtype=torch.bool),
     ):
         with pytest.raises(ValueError, match="mask"):
-            core.encode_media(good, mask, extractor=PINNED_EXTRACTOR)
+            core.encode_media(good, mask, extractor=PINNED_TEACHER)
 
 
 def test_masked_teacher_positions_cannot_reach_the_facets():
@@ -364,20 +376,20 @@ def test_masked_teacher_positions_cannot_reach_the_facets():
     x = features(12)
     mask = torch.zeros(1, 12, dtype=torch.bool)
     mask[:, :5] = True
-    reference = core.encode_media(x, mask, extractor=PINNED_EXTRACTOR)
+    reference = core.encode_media(x, mask, extractor=PINNED_TEACHER)
     changed = x.clone()
     changed[:, 5:] = 100.0
     torch.testing.assert_close(
-        core.encode_media(changed, mask, extractor=PINNED_EXTRACTOR), reference
+        core.encode_media(changed, mask, extractor=PINNED_TEACHER), reference
     )
-    unmasked = core.encode_media(changed, extractor=PINNED_EXTRACTOR)
+    unmasked = core.encode_media(changed, extractor=PINNED_TEACHER)
     assert not torch.allclose(unmasked, reference)
 
 
 def test_gradient_reaches_the_single_input_projection():
     model = tiny_model()
     core = model.core
-    core.encode_media(features(12), extractor=PINNED_EXTRACTOR).square().sum().backward()
+    core.encode_media(features(12), extractor=PINNED_TEACHER).square().sum().backward()
     projection = core.media_encoder.projection.weight
     assert projection.shape == (core.config.source_dim, HIDDEN_WIDTH)
     assert projection.grad is not None and projection.grad.abs().sum() > 0
@@ -394,7 +406,7 @@ def write_anchors(tmp_path, store, rows):
     return path
 
 
-def anchor_row(store, payload, *, extractor=PINNED_EXTRACTOR, family=None, modality="text"):
+def anchor_row(store, payload, *, extractor=PINNED_TEACHER, family=None, modality="text"):
     key = TextAnchors.key(payload)
     asset = store.put(
         features(9, seed=3)[0].numpy(),
@@ -411,7 +423,7 @@ def test_text_anchor_sidecar_loads_features_for_exact_text(tmp_path):
     anchors = TextAnchors(
         write_anchors(tmp_path, store, [anchor_row(store, b"hello")]),
         store,
-        extractor=PINNED_EXTRACTOR,
+        extractor=PINNED_TEACHER,
     )
     key = TextAnchors.key(b"hello")
     assert key == sha(b"hello") and set(anchors.assets) == {key}
@@ -422,7 +434,7 @@ def test_text_anchor_sidecar_loads_features_for_exact_text(tmp_path):
 def test_text_anchor_sidecar_rejects_foreign_teacher_and_mismatched_text(tmp_path):
     store = TensorAssetStore(tmp_path)
 
-    def load(*rows, extractor=PINNED_EXTRACTOR):
+    def load(*rows, extractor=PINNED_TEACHER):
         return TextAnchors(write_anchors(tmp_path, store, rows), store, extractor=extractor)
 
     with pytest.raises(ValueError, match="different teacher"):
@@ -465,7 +477,7 @@ def test_anchor_loss_is_zero_only_when_both_paths_agree():
     value = anchor_loss(model, payload, x)
     ids = torch.tensor([list(payload)])
     student = model.core.encode_chunk(ids, torch.tensor([len(payload)]))
-    teacher = model.core.encode_media(x, extractor=PINNED_EXTRACTOR)
+    teacher = model.core.encode_media(x, extractor=PINNED_TEACHER)
     torch.testing.assert_close(value, (student - teacher).square().mean())
 
 
@@ -503,7 +515,7 @@ def test_media_bridge_step_changes_only_the_bridge():
     x = features(9, seed=3)
     realizer = model.media_realizers.resident("audio")
     target = torch.randn(1, *LATENT["audio"], generator=torch.Generator().manual_seed(5))
-    loss = realizer.loss(model.core.encode_media(x, extractor=PINNED_EXTRACTOR), target, None)
+    loss = realizer.loss(model.core.encode_media(x, extractor=PINNED_TEACHER), target, None)
     loss = loss + anchor_loss(model, b"anchored text", x)
     optimizer.zero_grad()
     loss.backward()

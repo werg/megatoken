@@ -5,7 +5,7 @@ or execute a pretrained model. A media event is one canonical JSON record that
 references immutable little-endian FP32 arrays under the prepared root:
 
 - ``source``: the observed input, always the pinned EmbeddingGemma2 hidden
-  states of the original media (``megatoken.media_teacher``);
+  states of the original media (``megatoken.teacher``);
 - ``target``: optional supervision for realizing that media, always latents of
   the resident pretrained realizer's own codec (Pocket/Mimi, Sana DC-AE,
   Sana-Video VAE), plus the physical output geometry they decode to.
@@ -26,7 +26,7 @@ from typing import Any, Literal
 import numpy as np
 
 from megatoken.io import atomic_binary_writer, canonical_json, strict_json_loads
-from megatoken.media_teacher import HIDDEN_WIDTH, MAX_TOKENS, validate_extractor
+from megatoken.teacher import HIDDEN_WIDTH, MAX_TOKENS, validate_extractor
 
 MEDIA_RECORD_TYPE = "application/vnd.megatoken.media-reference+json"
 MEDIA_RECORD_VERSION = 3

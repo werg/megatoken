@@ -25,16 +25,21 @@ of `google/embeddinggemma-2`, captured at the input of
 audio/vision towers and bidirectional backbone). It is never the pooled
 768-d embedding and never raw PCM or pixels.
 
-- **Identity.** `megatoken.media_teacher.PINNED_EXTRACTOR` names the hub
-  revision, a digest of every snapshot model file (hub `.cache/` bookkeeping
-  excluded), the tap, and the preprocessing policy (`chat-bf16-v1`: the
-  processor's chat template, bf16 weights). `ModelConfig.media_extractor`
-  must equal it; features, checkpoints and tapes from any other teacher are
-  rejected. Changing the teacher is an architecture change.
-- **Extraction.** `omni/embeddinggemma2_hidden.py` loads the snapshot only
-  from a verified pack manifest and returns FP32 `[T, 512]`; sequences longer
-  than 8192 teacher tokens must be split into several events first. Video is
+- **One teacher, every role.** `google/embeddinggemma-2` is the only teacher.
+  One forward pass (`omni/embeddinggemma2.py`, class `EmbeddingGemma2`) yields
+  both these hidden states and the teacher's own sentence embedding (the mean
+  of the projection's 768-wide outputs over all tokens, normalized), which is
+  what retrieval keys and embedding targets are made of
+  (`scripts/prepare_retrieval_corpus.py` uses the same class). Weights load
+  only from the locked pack manifest; nothing is truncated, and inputs over
+  8192 teacher tokens are refused (split them into several events). Video is
   sampled by the processor's own frame policy, so features carry no clock.
+- **Identity.** `megatoken.teacher.PINNED_TEACHER` names the hub revision, a
+  digest of every snapshot model file (hub `.cache/` bookkeeping excluded), the
+  tap, and the preprocessing policy (`chat-bf16-v1`: the processor's chat
+  template, bf16 weights). `ModelConfig.media_extractor` and every retrieval
+  space's `teacher` must equal it; features, banks, checkpoints and tapes from
+  any other teacher are rejected. Changing the teacher is an architecture change.
 - **Model side.** `FacetedCore.encode_media(features, mask, extractor=...)` is
   the single entry point: a trainable `MediaEncoder` projection feeds the same
   E reduction hierarchy as text, so media and text share facet geometry. C
@@ -169,7 +174,7 @@ every event; replay refuses a different realizer pack or drifted output.
 
 Verified on real weights (2026-10-21, `configs/cloud/verify-packs.json`, one RTX
 PRO 6000 Blackwell): packs acquired and locked from the pinned inventory, with
-the teacher identity reproducing `PINNED_EXTRACTOR` from a fresh download; Sana
+the teacher identity reproducing `PINNED_TEACHER` from a fresh download; Sana
 and Sana-Video encode, training loss with gradients to their conditions, and a
 free rollout (image `[1, 1, 3, 256, 256]`, 9-frame video); and `MediaPreparer`
 end to end on synthetic text, image, speech and video (teacher features for all,

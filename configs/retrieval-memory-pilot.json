@@ -3,12 +3,12 @@
   "phase": "coherence_embedding",
   "space": {
     "name": "embeddinggemma2-768-isolated-chunk",
-    "revision": "pilot-v1",
-    "teacher": "google/embeddinggemma-2",
+    "revision": "pilot-v2",
+    "teacher": "embeddinggemma2:914f7f89142e33e77833254d9c9b90c3cef7303b:dcc342ef4bf5d120eeba035c685d9ced3b435d75f23d95a9a7c2ab77ad1383c9:language_model.embedding_projection:input:chat-bf16-v1",
     "teacher_revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
     "dimension": 768,
-    "document_recipe": "embeddinggemma2 'title: {title} | text: {text}' mean-pool l2 bf16",
-    "query_recipe": "embeddinggemma2 'task: question answering | query: {q}' mean-pool l2 bf16",
+    "document_recipe": "title: {title} | text: {text}",
+    "query_recipe": "task: question answering | query: {query}",
     "context_recipe": "isolated-chunk-v1",
     "normalized": true
   },

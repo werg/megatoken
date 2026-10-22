@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor, nn
 
-from megatoken.media_teacher import HIDDEN_WIDTH
+from megatoken.teacher import HIDDEN_WIDTH
 
 from .config import ModelConfig
 from .layers import RMSNorm
@@ -125,7 +125,7 @@ class MediaEncoder(nn.Module):
     """The only media input: pinned teacher hidden states -> the shared E hierarchy.
 
     Audio, image and video arrive as ordered frozen EmbeddingGemma2 states
-    ``[B, T, 512]`` (cached offline; see ``megatoken.media_teacher``). One learned
+    ``[B, T, 512]`` (cached offline; see ``megatoken.teacher``). One learned
     projection maps them to ``source_dim``; the same pair reductions and facet
     readout as text then produce the event's raw facets. Modality reaches C/P
     through the modality embedding, not through separate stems.

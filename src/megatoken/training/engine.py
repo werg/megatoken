@@ -462,10 +462,12 @@ def train(
                 f"Native training stage {config.phase} is not in the mandatory "
                 f"{retrieval_recipe.phase} retrieval-memory curriculum"
             )
-        if retrieval_recipe.space.teacher_revision.startswith(
-            "PIN_"
-        ) or retrieval_recipe.growth.partition_id.startswith("PIN_"):
-            raise ValueError("Pin teacher and data partition before training")
+        from megatoken.teacher import PINNED_TEACHER
+
+        if retrieval_recipe.space.teacher != PINNED_TEACHER:
+            raise ValueError("The retrieval space must be the pinned EmbeddingGemma2 teacher's")
+        if retrieval_recipe.growth.partition_id.startswith("PIN_"):
+            raise ValueError("Pin the data partition before training")
         if retrieval_recipe.phase != "coherence_embedding":
             if (
                 retrieval_recipe.phase

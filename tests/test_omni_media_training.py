@@ -12,15 +12,15 @@ from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAs
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, encode_record
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
-from megatoken.media_teacher import PINNED_EXTRACTOR
 from megatoken.model import ModelConfig
+from megatoken.teacher import PINNED_TEACHER
 from megatoken.training.engine import batch_counters, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
 
 CODEC = ByteCodec.byte_fallback()
-OTHER_TEACHER = PINNED_EXTRACTOR.replace("914f7f89", "0" * 8)
+OTHER_TEACHER = PINNED_TEACHER.replace("914f7f89", "0" * 8)
 
 
 def _generated(name, modality, record, turn=1):
@@ -282,7 +282,7 @@ def test_video_training_is_one_32_facet_megatoken(tmp_path, mode):
     assert _condition_grad(model, "sana_video").abs().sum() > 0
     # 40 teacher tokens are reduced to the one canonical facet block.
     raw = model.core.encode_media(
-        torch.from_numpy(store.load(clip.source))[None], extractor=PINNED_EXTRACTOR
+        torch.from_numpy(store.load(clip.source))[None], extractor=PINNED_TEACHER
     )
     assert raw.shape == (1, model.config.n_facets, model.config.facet_dim)
 

@@ -15,12 +15,12 @@ from megatoken.data.media_assets import (
     OutputGeometry,
     TensorAssetStore,
 )
-from megatoken.media_teacher import PINNED_EXTRACTOR
 from megatoken.model.media import MediaOutputSpec, validate_public_media_spec
+from megatoken.teacher import PINNED_TEACHER
 from megatoken.training.meridians import MediaPlan, _media_plan
 
 MODEL = SimpleNamespace(
-    config=SimpleNamespace(media_extractor=PINNED_EXTRACTOR, n_facets=32, facet_dim=512)
+    config=SimpleNamespace(media_extractor=PINNED_TEACHER, n_facets=32, facet_dim=512)
 )
 TRAIN = SimpleNamespace(representation_training="recurrent")
 
@@ -87,7 +87,7 @@ def test_plan_rejects_other_modality_and_other_teacher(tmp_path):
     with pytest.raises(ValueError, match="modality"):
         _media_plan(MODEL, _entry(record), "video", TRAIN)
     other = SimpleNamespace(
-        config=replace_namespace(MODEL.config, media_extractor=PINNED_EXTRACTOR[::-1])
+        config=replace_namespace(MODEL.config, media_extractor=PINNED_TEACHER[::-1])
     )
     with pytest.raises(ValueError, match="different teacher"):
         _media_plan(other, _entry(record), "image", TRAIN)
@@ -166,7 +166,7 @@ def test_codec_latents_declare_the_realizer_native_clock_and_rank(tmp_path):
             np.zeros((12, 512)),
             modality="audio",
             kind="features",
-            extractor=PINNED_EXTRACTOR,
+            extractor=PINNED_TEACHER,
             source_family=family,
             sample_rate=16000,
         )
@@ -175,7 +175,7 @@ def test_codec_latents_declare_the_realizer_native_clock_and_rank(tmp_path):
             np.zeros((12, 16)),
             modality="audio",
             kind="features",
-            extractor=PINNED_EXTRACTOR,
+            extractor=PINNED_TEACHER,
             source_family=family,
         )
 

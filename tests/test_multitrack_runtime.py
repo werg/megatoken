@@ -11,12 +11,12 @@ import torch
 from megatoken.generation.codec import ByteCodec
 from megatoken.generation.policy import FacetedGenerator
 from megatoken.generation.structure import ActionSpec
-from megatoken.media_teacher import PINNED_EXTRACTOR
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.multitrack_runtime import ConcurrentToolRunner, MultiTrackRuntime
 from megatoken.multitrack_service import serve_multitrack_jsonl
+from megatoken.teacher import PINNED_TEACHER
 from tests.media_support import features, install_fake_realizers
 
 
@@ -96,7 +96,7 @@ def test_parallel_tool_result_is_not_committed_automatically():
         pool.close()
 
 
-def _feature_event(track, tokens=9, seed=0, extractor=PINNED_EXTRACTOR):
+def _feature_event(track, tokens=9, seed=0, extractor=PINNED_TEACHER):
     values = features(tokens, seed=seed)[0].numpy().astype("<f4")
     return {
         "track": track,
@@ -203,7 +203,7 @@ def test_jsonl_media_must_be_pinned_features():
                 "modality": "audio",
                 "payload_f32_b64": raw_pcm,
                 "shape": [1, 2400],
-                "extractor": PINNED_EXTRACTOR,
+                "extractor": PINNED_TEACHER,
             },
         )
         yield _line({"op": "status", "id": 5, "session": sid})

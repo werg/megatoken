@@ -58,7 +58,7 @@ class ObservedEvent:
     """One available input to commit in a shared meridian.
 
     Text is its exact bytes. Audio, image and video are ordered pinned teacher
-    hidden states ``[1, T, 512]`` (``megatoken.media_teacher``), never raw media.
+    hidden states ``[1, T, 512]`` (``megatoken.teacher``), never raw media.
     """
 
     track: str

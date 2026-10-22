@@ -11,7 +11,6 @@ from megatoken.generation.codec import ByteCodec
 from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.policy import FacetedGenerator
 from megatoken.generation.structure import ActionSpec
-from megatoken.media_teacher import PINNED_EXTRACTOR
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import (
@@ -20,6 +19,7 @@ from megatoken.model.multitrack import (
     ObservedEvent,
 )
 from megatoken.model.state import RealizationContext
+from megatoken.teacher import PINNED_TEACHER
 from tests.media_support import LATENT, features, install_fake_realizers
 
 AUDIO = MediaOutputSpec("audio", sample_count=256, sample_rate=24000)
@@ -42,7 +42,7 @@ def _media_target(model, modality, spec, *, seed=0, mode="bootstrap"):
         modality,
         spec,
         features(seed=seed),
-        PINNED_EXTRACTOR,
+        PINNED_TEACHER,
         torch.randn(1, *LATENT[modality], generator=generator),
         None,
         model.media_realizers.resident(modality).identity,
@@ -59,9 +59,9 @@ def test_heterogeneous_ingestion_one_meridian():
     state = service.tracks.initial_state(1)
     observations = [
         ObservedEvent("user", "text", b"Describe the clip"),
-        ObservedEvent("mic", "audio", features(20, seed=1), extractor=PINNED_EXTRACTOR),
-        ObservedEvent("camera", "video", features(33, seed=2), extractor=PINNED_EXTRACTOR),
-        ObservedEvent("photo", "image", features(7, seed=3), extractor=PINNED_EXTRACTOR),
+        ObservedEvent("mic", "audio", features(20, seed=1), extractor=PINNED_TEACHER),
+        ObservedEvent("camera", "video", features(33, seed=2), extractor=PINNED_TEACHER),
+        ObservedEvent("photo", "image", features(7, seed=3), extractor=PINNED_TEACHER),
     ]
     next_state = service.tracks.observe_group(state, observations)
     assert next_state.raw.shape == (1, 4, core.config.n_facets, core.config.facet_dim)
@@ -77,15 +77,15 @@ def test_media_events_are_only_pinned_teacher_features():
     with pytest.raises(TypeError, match="pinned"):
         ObservedEvent("mic", "audio", features(), extractor="")
     with pytest.raises(TypeError, match="pinned"):
-        ObservedEvent("mic", "audio", b"pcm", extractor=PINNED_EXTRACTOR)
+        ObservedEvent("mic", "audio", b"pcm", extractor=PINNED_TEACHER)
     with pytest.raises(ValueError, match="ordered"):
-        ObservedEvent("mic", "audio", torch.zeros(1, 2400), extractor=PINNED_EXTRACTOR)
+        ObservedEvent("mic", "audio", torch.zeros(1, 2400), extractor=PINNED_TEACHER)
     with pytest.raises(ValueError, match="ordered"):
-        ObservedEvent("cam", "video", torch.rand(1, 2, 3, 16, 16), extractor=PINNED_EXTRACTOR)
+        ObservedEvent("cam", "video", torch.rand(1, 2, 3, 16, 16), extractor=PINNED_TEACHER)
     with pytest.raises(TypeError, match="exact bytes"):
-        ObservedEvent("user", "text", b"hi", extractor=PINNED_EXTRACTOR)
+        ObservedEvent("user", "text", b"hi", extractor=PINNED_TEACHER)
     with pytest.raises(ValueError, match="Unsupported"):
-        ObservedEvent("doc", "document", features(), extractor=PINNED_EXTRACTOR)
+        ObservedEvent("doc", "document", features(), extractor=PINNED_TEACHER)
     # A different teacher or a wrong feature width is refused at the model boundary.
     with pytest.raises(ValueError, match="different teacher"):
         service.tracks.observe_group(
@@ -94,7 +94,7 @@ def test_media_events_are_only_pinned_teacher_features():
     with pytest.raises(ValueError, match="512"):
         service.tracks.observe_group(
             state,
-            [ObservedEvent("mic", "audio", features()[..., :-1], extractor=PINNED_EXTRACTOR)],
+            [ObservedEvent("mic", "audio", features()[..., :-1], extractor=PINNED_TEACHER)],
         )
 
 
@@ -106,7 +106,7 @@ def test_modality_reaches_the_model_through_embedding_not_a_separate_stem():
     state = service.tracks.initial_state(1)
     by_modality = {
         modality: service.tracks.observe_group(
-            state, [ObservedEvent("t", modality, event, extractor=PINNED_EXTRACTOR)]
+            state, [ObservedEvent("t", modality, event, extractor=PINNED_TEACHER)]
         )
         for modality in ("audio", "image", "video")
     }
@@ -324,15 +324,15 @@ def test_media_features_reduce_through_the_shared_e_hierarchy():
     )
     try:
         # At most n_facets tokens need no pair reduction; longer sequences halve.
-        short = core.encode_media(features(n, seed=1), extractor=PINNED_EXTRACTOR)
+        short = core.encode_media(features(n, seed=1), extractor=PINNED_TEACHER)
         assert reductions == []
-        long = core.encode_media(features(8 * n, seed=1), extractor=PINNED_EXTRACTOR)
+        long = core.encode_media(features(8 * n, seed=1), extractor=PINNED_TEACHER)
     finally:
         hook.remove()
     assert reductions[0] == 8 * n and len(reductions) == 3
     assert short.shape == long.shape == (1, n, core.config.facet_dim)
     # The module is exactly the public encode_media path.
-    direct = core.media_encoder(core, features(8 * n, seed=1), extractor=PINNED_EXTRACTOR)
+    direct = core.media_encoder(core, features(8 * n, seed=1), extractor=PINNED_TEACHER)
     torch.testing.assert_close(direct, long, atol=0, rtol=0)
 
 
@@ -341,18 +341,18 @@ def test_media_feature_mask_and_pin_validation():
     source = features(10, seed=6)
     valid = torch.zeros(1, 10, dtype=torch.bool)
     valid[:, :6] = True
-    base = core.encode_media(source, valid, extractor=PINNED_EXTRACTOR)
+    base = core.encode_media(source, valid, extractor=PINNED_TEACHER)
     changed = source.clone()
     changed[:, 6:] += 100.0
     torch.testing.assert_close(
-        base, core.encode_media(changed, valid, extractor=PINNED_EXTRACTOR), atol=0, rtol=0
+        base, core.encode_media(changed, valid, extractor=PINNED_TEACHER), atol=0, rtol=0
     )
     with pytest.raises(ValueError, match="mask"):
-        core.encode_media(source, torch.zeros_like(valid), extractor=PINNED_EXTRACTOR)
+        core.encode_media(source, torch.zeros_like(valid), extractor=PINNED_TEACHER)
     with pytest.raises(ValueError, match="mask"):
-        core.encode_media(source, valid[:, :5], extractor=PINNED_EXTRACTOR)
+        core.encode_media(source, valid[:, :5], extractor=PINNED_TEACHER)
     with pytest.raises(ValueError, match="different teacher"):
         core.encode_media(source, extractor="unpinned")
     with pytest.raises(ValueError, match="512"):
-        core.encode_media(source[..., :-1], extractor=PINNED_EXTRACTOR)
-    assert core.media_encoder.extractor == PINNED_EXTRACTOR == core.config.media_extractor
+        core.encode_media(source[..., :-1], extractor=PINNED_TEACHER)
+    assert core.media_encoder.extractor == PINNED_TEACHER == core.config.media_extractor
