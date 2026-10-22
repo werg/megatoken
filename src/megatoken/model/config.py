@@ -36,6 +36,11 @@ class ModelConfig:
     # megatoken/teacher.py). Part of the geometry, so feature caches from a
     # different teacher can never resume into this model.
     media_extractor: str = PINNED_TEACHER
+    # How teacher states become 32 facets: "halving" reuses E's pair reductions
+    # and readout; "attention" has 32 learned queries attend over every teacher
+    # token at once. Under measurement (scripts/compare_media_readouts.py); the
+    # loser is removed.
+    media_readout: str = "halving"
     byte_dim: int = 8
     source_stride: int = 8
     ngram_dim: int = 16
@@ -130,6 +135,8 @@ class ModelConfig:
         if self.ngram_rows <= self.exact_rows:
             raise ValueError("ngram_rows must leave space for the hashed fallback")
         validate_extractor(self.media_extractor)
+        if self.media_readout not in ("halving", "attention"):
+            raise ValueError("media_readout is halving or attention")
         if min(self.semantic_dim, self.semantic_value_dim, self.max_kb_positions) <= 0:
             raise ValueError(
                 "Retrieval embedding, free semantic memory and full-facet KB "
@@ -176,6 +183,7 @@ class ModelConfig:
             self.kv_heads,
             self.attention_head_dim,
             self.media_extractor,
+            self.media_readout,
             self.semantic_dim,
             self.semantic_value_dim,
             self.max_kb_positions,
