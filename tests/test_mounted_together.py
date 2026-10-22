@@ -95,13 +95,11 @@ def test_the_service_adds_files_to_both_and_opens_a_session_on_both(tmp_path):
     _notes(root)
     collection_root = reading_root(tmp_path)
     model = tiny_model()
-
-    class Engine:
-        device = torch.device("cpu")
-        config = model.config
-
-    engine = Engine()
-    engine.model = model
+    runtime = MultiTrackRuntime(
+        MultiTrackGenerator(model),
+        collections={"main": collection_root / COLLECTION},
+        preparer=lambda: FakePreparer(root / "prepared"),
+    )
 
     def requests(results):
         yield json.dumps({"op": "kb_create", "id": 1, "name": "mine"}) + "\n"
@@ -127,14 +125,7 @@ def test_the_service_adds_files_to_both_and_opens_a_session_on_both(tmp_path):
         )
 
     results = io.StringIO()
-    serve_multitrack_jsonl(
-        engine,
-        requests(results),
-        results,
-        collections={"main": collection_root / COLLECTION},
-        kb_root=root,
-        preparer=lambda: FakePreparer(root / "prepared"),
-    )
+    serve_multitrack_jsonl(runtime, requests(results), results, kb_root=root)
     by_id = {row["id"]: row for row in map(json.loads, results.getvalue().splitlines())}
     assert by_id[2]["collection"] == {"name": "main", "added": 2}
     assert by_id[2]["base"]["added"] == 2 and by_id[2]["base"]["edges"] == 2

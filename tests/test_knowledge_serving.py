@@ -170,15 +170,10 @@ def test_serving_looks_up_exactly_as_training_does_across_bases(tmp_path):
 # ------------------------------------------------------------------ the protocol
 
 
-def _serve(model, requests, **options):
-    class Engine:
-        device = torch.device("cpu")
-        config = model.config
-
-    engine = Engine()
-    engine.model = model
+def _serve(model, requests, *, kb_root=None, **options):
+    runtime = MultiTrackRuntime(MultiTrackGenerator(model), **options)
     results = io.StringIO()
-    serve_multitrack_jsonl(engine, requests(results), results, **options)
+    serve_multitrack_jsonl(runtime, requests(results), results, kb_root=kb_root)
     return [json.loads(line) for line in results.getvalue().splitlines()]
 
 
@@ -238,11 +233,11 @@ def test_knowledge_operations_are_off_without_a_root():
 
 
 def test_kb_build_and_inspect_write_a_base_that_the_model_it_was_built_for_mounts(tmp_path, capsys):
-    from test_inference import checkpoint_model
     from test_reading_base import reading_dataset
+    from test_served import checkpoint_model
 
     from megatoken.cli import main
-    from megatoken.inference import InferenceEngine, export_served
+    from megatoken.served import ServedBundle, export_served
 
     _, checkpoint = checkpoint_model(tmp_path / "checkpoint")
     bundle = tmp_path / "served"
@@ -265,8 +260,7 @@ def test_kb_build_and_inspect_write_a_base_that_the_model_it_was_built_for_mount
     assert main(["kb", "inspect", str(twin)]) == 0
     assert json.loads(capsys.readouterr().out)["identity"] == shown["identity"]
     # The model it was built for opens it; the identity it carries is that model's.
-    engine = InferenceEngine(bundle, device="cpu")
-    runtime = MultiTrackRuntime(MultiTrackGenerator(engine.model))
+    runtime = MultiTrackRuntime(MultiTrackGenerator(ServedBundle(bundle, device="cpu").model))
     base = runtime.memory.open_base("demo", out)
     assert base.edge_count == 9 and runtime.memory.identity == shown["identity"]
     session = runtime.open({"task": "base_reading"}, bases={"demo": 1.0})

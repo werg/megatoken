@@ -17,7 +17,7 @@ from megatoken.loading import build_model, parameter_report
 from megatoken.model.adapters import ADAPTER_DROPOUT, OWNERS
 from megatoken.model.config import ModelConfig
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
-from megatoken.model.transducer import metadata_payload
+from megatoken.model.transducer import metadata_payload, real_boundary
 from megatoken.training.diloco_protocol import plan_fragments
 from megatoken.training.distributed import DistributedContext
 from megatoken.training.losses import LossLedger
@@ -110,14 +110,23 @@ def test_the_mixture_follows_each_lookup_and_persists_across_meridians_and_track
 def test_serving_and_training_apply_the_same_mixture():
     model = memory_model().eval()
     multi = MultiTrackGenerator(model)
-    user, tool = ROLE_TO_ID["user"], ROLE_TO_ID["tool"]
-    script = [("user", user), ("tool", tool), ("user", user), ("tool", tool), ("user", user)]
+    system, user, tool = (ROLE_TO_ID[name] for name in ("system", "user", "tool"))
+    script = [
+        ("system", system),
+        ("tool", tool),
+        ("user", user),
+        ("tool", tool),
+        ("system", system),
+    ]
     engine = TransducerInferenceEngine(multi)
     session = engine.new_session({"task": "chat"})
     for track, role in script:
         engine.observe(session, [ObservedEvent(track, "text", b"x", role_id=role)])
     trainer = TransducerTrainer(model.transducer)
-    meridians = [Meridian((track,), (role,), ("text",), role == tool) for track, role in script]
+    meridians = [
+        Meridian((track,), (role,), ("text",), real_boundary([role], [True]))
+        for track, role in script
+    ]
     sequence = trainer.sequence(meridians, step=0)
     state = sequence.begin(multi, multi.tracks.initial_state(1), metadata_payload({"task": "chat"}))
     with torch.no_grad():
@@ -126,7 +135,7 @@ def test_serving_and_training_apply_the_same_mixture():
             state = multi.tracks.observe_group(
                 state, [ObservedEvent(track, "text", b"x", role_id=role)]
             )
-        assert sequence.lookups == session.agenda.lookups == 3
+        assert sequence.lookups == session.agenda.lookups == 4
         served, trained = session.state, state
         assert float(trained.adapters.strength) > 0
         torch.testing.assert_close(served.adapters.logits, trained.adapters.logits)

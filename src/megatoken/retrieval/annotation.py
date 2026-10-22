@@ -9,8 +9,8 @@ the episode's supervision annotations (``annotations_json["retrieval"]``) say:
   it (a stored tensor asset in the prepared root), the target of the query head;
 - ``positives``: the identities of the collection items that support the answer.
 
-The question is also the ``request`` field of the session's metadata, so the first
-lookup, right after the metadata, can already search for what it needs.
+The annotated lookup is the one right after the user's question: a finished user
+message is a lookup boundary, so that lookup has read the question.
 """
 
 from __future__ import annotations

@@ -1,7 +1,8 @@
 """Training and measuring the query side of retrieval.
 
-When an episode annotates its first lookup (``megatoken.retrieval.annotation``),
-the 768-wide query the embedding head read from that lookup's query block is
+When an episode annotates its question (``megatoken.retrieval.annotation``), the
+768-wide query the embedding head read from the query block of the lookup right after
+the question (a finished user message is a lookup boundary) is
 trained by two losses, one count each per annotated window:
 
 - **query alignment**: the query matches the teacher's embedding of the question,

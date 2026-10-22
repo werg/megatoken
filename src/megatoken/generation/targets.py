@@ -6,18 +6,20 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from megatoken.contracts import LOSS_NAMES, ROLE_TO_ID
 
 from .codec import ByteCodec
 from .structure import (
-    TAPE_VERSION,
     ActionSpec,
-    ActionTape,
     CopySource,
     FieldSpec,
     strict_json_loads,
 )
+
+if TYPE_CHECKING:
+    from megatoken.model.multitrack import GroupActionTape
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,7 @@ class PreparedTargets:
     scored_positions: int
     roles: tuple[int, ...]
     representation_mode: str = "bootstrap"
-    native_tapes: tuple[ActionTape | None, ...] = ()
+    native_tapes: tuple[GroupActionTape | None, ...] = ()
 
     @property
     def mode(self) -> str:
@@ -55,7 +57,7 @@ class PreparedAction:
     scored_positions: int
     role_id: int = 2
     representation_mode: str = "bootstrap"
-    native_tape: ActionTape | None = None
+    native_tape: GroupActionTape | None = None
 
     @property
     def mode(self) -> str:
@@ -163,27 +165,31 @@ def _denominators(
 def _native_pairs(codec, config, payloads, ids, roles, tapes):
     """Accept only saved actions that actually materialized the supervised bytes.
 
-    This is a target label, never a prior input. Chronological linkage to the
-    episode's record cursor is additionally checked by NativeHistory upstream.
+    This is a target label, never a prior input: a one-event group tape from a rollout.
+    Chronological linkage to the episode's record cursor is additionally checked by
+    NativeHistory upstream.
     """
+    from megatoken.model.multitrack import GroupActionTape
+
     tapes = (None,) * len(payloads) if tapes is None else tuple(tapes)
     if len(tapes) != len(payloads):
         raise ValueError("native_tapes must identify every target batch row")
     for payload, tokens, role, tape in zip(payloads, ids, roles, tapes, strict=True):
         if tape is None:
             continue
-        if not isinstance(tape, ActionTape) or tape.version != TAPE_VERSION:
-            raise ValueError("native alignment requires a current complete ActionTape")
+        if not isinstance(tape, GroupActionTape) or len(tape.tracks) != 1:
+            raise ValueError("native alignment requires a current single-event group tape")
         if tape.codec_fingerprint != codec.fingerprint or tape.facet_shape != (
+            1,
             config.n_facets,
             config.facet_dim,
         ):
             raise ValueError("native alignment codec or facet geometry differs")
         if (
-            not tape.valid
-            or tape.payload != payload
-            or tape.emitted_ids != tuple(tokens)
-            or tape.role_id != role
+            not tape.valid[0]
+            or tape.payloads[0] != payload
+            or tape.emitted_ids[0] != tuple(tokens)
+            or tape.roles[0] != role
         ):
             raise ValueError(
                 "native alignment must match the actual valid output bytes, IDs and role"

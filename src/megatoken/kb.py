@@ -197,9 +197,9 @@ def _load_model(args: argparse.Namespace):
     device = "cuda" if args.device == "auto" and torch.cuda.is_available() else args.device
     device = "cpu" if device == "auto" else device
     if (path / "manifest.json").exists():
-        from megatoken.inference import InferenceEngine
+        from megatoken.served import ServedBundle
 
-        return InferenceEngine(path, packs=args.packs, device=device).model
+        return ServedBundle(path, packs=args.packs, device=device).model
     from megatoken.loading import load_trained
 
     return load_trained(path, device=device, codec_path=args.codec, packs=args.packs).model.eval()

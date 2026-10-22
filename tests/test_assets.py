@@ -9,9 +9,9 @@ from training_fixture import tiny_train_config
 from megatoken.assets import bake_checkpoint, extract_engram, install_engram_asset
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.generation.codec import ByteCodec
-from megatoken.inference import export_served
 from megatoken.loading import build_model, load_model_config
 from megatoken.runtime import capture_rng
+from megatoken.served import export_served
 from megatoken.training.checkpoint import load_checkpoint, save_checkpoint, transducer_attachment
 from megatoken.training.optimizer import MasterAdamW
 

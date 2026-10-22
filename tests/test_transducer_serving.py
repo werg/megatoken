@@ -50,8 +50,8 @@ def test_serving_and_training_plan_the_same_lookups_from_roles():
     # "generate" is a sampled assistant meridian, the rest are observed events.
     # "name/i" is part i of a two-part message: only the last part ends it.
     script = [
-        "user", "user", "generate/0", "generate/1", "user", "tool", "document", "assistant/0",
-        "assistant/1", "user", "environment", "user", "user", "user", "user", "user", "user",
+        "user", "user/0", "user/1", "generate/0", "generate/1", "user", "tool", "document",
+        "assistant/0", "assistant/1", "user", "environment", "user", "user", "user", "user", "user", "user",
         "user", "user", "user", "generate", "user",
     ]  # fmt: skip
     runtime = _runtime()
@@ -89,11 +89,19 @@ def test_boundary_depends_on_roles_and_part_index_not_on_scoring():
     assert _boundary_meridian(_step(("assistant",))).real_boundary
     assert not _boundary_meridian(_step(("assistant",), part=(0, 2))).real_boundary
     assert not _boundary_meridian(_step(("assistant", "user"))).real_boundary
+    # A finished user message is a boundary (the lookup after it has read the question)
+    # and is the one that "asks"; a user message still arriving in parts is not.
+    asked = _boundary_meridian(_step(("user",)))
+    assert asked.real_boundary and asked.asked
+    assert not _boundary_meridian(_step(("user",), part=(0, 2))).real_boundary
+    assert not _boundary_meridian(_step(("assistant",))).asked
     assert all(
         _boundary_meridian(_step((role,), part=(0, 2))).real_boundary
         for role in ("tool", "document", "environment")
     )
-    assert not real_boundary([ROLE_TO_ID["user"]], [True])
+    assert real_boundary([ROLE_TO_ID["user"]], [True])
+    assert not real_boundary([ROLE_TO_ID["user"]], [False])
+    assert not real_boundary([ROLE_TO_ID["system"]], [True])
 
 
 def test_a_failed_lookup_leaves_the_session_untouched_and_retryable(monkeypatch):
@@ -172,3 +180,17 @@ def test_the_hindsight_head_is_training_only():
     assert hindsight and totals["training_only"] == hindsight
     assert totals["served"] == parameter_report(served)["totals"]["served"]
     assert parameter_report(served)["totals"]["training_only"] == 0
+
+
+def test_a_window_scores_the_question_lookup_only_if_it_falls_before_its_own_meridians():
+    from megatoken.training.meridians import _question_scored
+
+    asked, answer, later = _step(("user",)), _step(("assistant",)), _step(("assistant",))
+    assert _question_scored((), (asked, answer))
+    # The lookup before the first scored meridian is trained, though the question is replayed.
+    assert _question_scored((asked,), (answer,))
+    # A window that starts after the lookup replays it without gradient; with no question, or
+    # the question last, there is no lookup after it to score.
+    assert not _question_scored((asked, answer), (later,))
+    assert not _question_scored((), (answer, asked))
+    assert not _question_scored((), (answer, later))

@@ -252,7 +252,7 @@ contract.
   extends a built collection (new items are posted to their nearest cell) and
   `collection info` reports it. A serving process with a preparer adds files to a mounted
   collection while it runs (`MultiTrackRuntime.add_files(paths, collection=...)`, the `add_files` operation of
-  `serve-multitrack --collection NAME=DIR --packs ...`); sessions find them from their next
+  `serve --collection NAME=DIR --packs ...`); sessions find them from their next
   lookup.
 - **At a lookup.** The query block P samples on the query track also goes through the
   embedding head's query role, giving a 768-wide query; no teacher runs. All mounted
@@ -264,10 +264,11 @@ contract.
   lookup, even midway through the items, leaves the session untouched. Training and serving
   run the same code (`model/sources.py`), and a served session lists what it retrieved with
   each item's original file reference.
-- **A request for the first lookup.** The first lookup happens right after the metadata, so
-  pass the question as the metadata's `request` field when a collection may answer it
-  (`open({"request": question})`); training shows that field for every
-  reading-from-a-collection episode.
+- **The question needs no special field.** A finished user message is a lookup boundary
+  (the same rule in training and serving), so the lookup right after the question has read it
+  and searches for what it asks. The first lookup, right after the metadata, comes before
+  anything was asked; `open({"request": question})` can still give it one (`request` is an
+  ordinary optional metadata field).
 
 ## Verified, and not established
 

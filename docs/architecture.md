@@ -23,9 +23,10 @@ C does not participate in the current output realization.
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
 Architecture version **10** (`ARCHITECTURE_VERSION`) defines the currently supported
-core and grouped state. The grouped action tape is `GroupActionTape` v10
-(`fmt-multitrack-facets-v10`); the single-event text tape keeps its
-`fmt-canonical-facets-v8` identifier. Checkpoints require v10 weights and the
+core and grouped state. The one tape that serving, collection and training exchange is
+`GroupActionTape` (`fmt-multitrack-facets-v12`); a single-track draw is a group of one event.
+The decoder-level single-event tape `fmt-canonical-facets-v8` is only the output of the
+single-track diagnostic sampler. Checkpoints require v10 weights and the
 locked pack manifest's fingerprint; dataset schema version 3 remains.
 The legacy CLI names `recurrent32` and `compact32` still select the corresponding
 fresh-construction geometry, not old checkpoint semantics.
@@ -287,8 +288,8 @@ window. It is never converted into a public control, history event, serving/RL
 input, or tape source; remaining supervised windows retain ordinary causal
 conditioning. See [training.md](training.md) for the explicit teacher mixture.
 
-Every `fmt-canonical-facets-v8` tape owns its control source and complete FP32 raw
-draw. Density scoring re-encodes those controls and requires a matching conditional
+Every group tape owns its control sources and the complete FP32 raw
+draw of each event. Density scoring re-encodes those controls and requires a matching conditional
 materialization. Fixed raw-history replay skips P and runs only E for observations
 and C for each selected input. Both use the same versioned history chronology.
 Serving separates textual `control_seed` from the Gaussian RNG's numeric `seed`.

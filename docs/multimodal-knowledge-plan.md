@@ -107,7 +107,7 @@ not grow.
 - **A user's base** is built the same way while the model serves: the runtime
   accepts "add these files to knowledge base X", writes their entries, and from
   then on sessions that mount X can find them. Nothing is retrained. In the
-  multitrack JSONL service (`serve-multitrack --kb-root DIR`, every path inside `DIR`):
+  multitrack JSONL service (`serve --kb-root DIR`, every path inside `DIR`):
   `kb_create`, `kb_save`, `kb_open`, `kb_list`, `kb_close`, and `open` takes `bases`
   (name to blend weight) and `trained_weight`. Files are added by `add_files`
   (`paths`, with a `base`, a source `collection`, or both; see §3).
@@ -230,11 +230,14 @@ contract is in [media.md](media.md#retrieving-the-original-items), the training 
   embedding of an item is used as is. The centered distance is a training device; the
   collection stores the mean teacher embedding of the queries it was built for, and the
   query loss is centered on it.
-- **The first lookup needs the question.** Lookups follow metadata, source results and
-  assistant turns, not a user message, so the question travels as the metadata's
-  `request` field and the first lookup, right after the metadata, searches with it.
-  The reading episodes always show `request`; training keeps its usual random dropout of
-  the other fields.
+- **The lookup after the question has read it.** Lookups follow the metadata, finished
+  user messages, finished assistant turns, source results and the interval, in training and
+  serving alike (`real_boundary`). The question is an ordinary user message, so the
+  lookup right after it searches with it; nothing is smuggled into the metadata, whose
+  `request` stays an ordinary optional field (the first lookup, right after the metadata,
+  comes before anything was asked). The annotated lookup is the one after the episode's
+  first finished user message, and a window scores it only if it falls before one of the
+  window's own meridians.
 - **Ranking** is a softmax over cosine / 0.05 of the retrieved candidates (16 deep), the
   annotated items (scored even if the index missed them) and a null entry at the score
   threshold; unannotated candidates only share the normalization.
@@ -244,9 +247,8 @@ contract is in [media.md](media.md#retrieving-the-original-items), the training 
   the held-out episodes search only their own split's items.
 
 Left for later: a mounted collection for streams other than the annotated one (so a model
-learns to use a collection that no annotation points at); a lookup after a completed
-user message (today only the metadata, source results, assistant turns and the interval
-trigger lookups); threshold and `max_sources` tuning on measured recall.
+learns to use a collection that no annotation points at); threshold and `max_sources`
+tuning on measured recall.
 
 ## 4. Adapter mixture chosen by the knowledge bases
 
@@ -335,9 +337,9 @@ of multiple bases, so they are built first and in parallel.
 ### The reading-from-a-base stream (built)
 
 `base_reading` episodes (`scripts/prepare_base_reading.py`, from HotpotQA / MuSiQue
-paragraphs, DOCCI photos and LibriSpeech clips) have three turns: the user's question,
-a short assistant turn ("Let me check the knowledge base.") and the scored answer. The
-assistant turn closes a turn, so a lookup falls between the question and the answer. The
+paragraphs, DOCCI photos and LibriSpeech clips) have two turns: the user's question
+and the scored answer. A finished question is a lookup boundary, so a lookup falls between
+the question and the answer. The
 reference items are not in the episode's records: they are declared in the episode
 (`knowledge_items`) and the trainer reads each one alone with the current ingest heads,
 writes them into a small base of their own, and mounts it beside the trained base. So

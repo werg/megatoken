@@ -15,7 +15,6 @@ from training_fixture import prepare_dataset, tiny_train_config
 from megatoken.contracts import ROLE_TO_ID
 from megatoken.data import Lineage, PhysicalRecord, WindowConfig, iter_windows
 from megatoken.data.knowledge import (
-    LOOKUP_TURN,
     STREAM,
     declared_items,
     episode_items,
@@ -108,15 +107,14 @@ def train_config(tmp_path, **overrides):
 # ------------------------------------------------------------ the episodes
 
 
-def test_a_reading_episode_holds_the_question_a_lookup_turn_and_the_answer(tmp_path):
+def test_a_reading_episode_holds_the_question_and_the_answer(tmp_path):
     store = TensorAssetStore(tmp_path)
     episode = reading_episode(store, 1)
     assert [(r.role, r.policy_mask) for r in episode.records] == [
         ("user", False),
         ("assistant", True),
-        ("assistant", True),
     ]
-    assert episode.records[1].payload == LOOKUP_TURN.encode() and episode.stream == STREAM
+    assert episode.stream == STREAM
     assert not any(r.media_type == MEDIA_RECORD_TYPE for r in episode.records)  # none in context
     assert [row["part"] for row in declared_items(episode)] == [0, 1, 2]
     items = episode_items(episode, store, episode_metadata(episode))
@@ -125,9 +123,9 @@ def test_a_reading_episode_holds_the_question_a_lookup_turn_and_the_answer(tmp_p
     }
     assert all(i.modality == "compressed_text" for i in items)
     assert episode_metadata(episode)["task"] == STREAM
-    # The completed assistant turn is a boundary: a lookup falls between question and answer.
+    # The finished question is a boundary: a lookup falls between question and answer.
     steps = [_boundary_meridian(_step(r)) for r in episode.records]
-    assert plan_boundaries(steps, max_lookups=16, generator=None) == [1, 0, 1]
+    assert plan_boundaries(steps, max_lookups=16, generator=None) == [1, 1]
     with pytest.raises(ValueError, match="at least one item"):
         knowledge_episode("x", "q", "a", [], Lineage(STREAM, "v1", "f"))
 
@@ -406,7 +404,7 @@ def test_the_producer_builds_documents_and_media_episodes_with_declared_items(tm
         "answer": "The Seine",
     }
     episode = module.document_episode(task, compressor)
-    assert episode.stream == STREAM and len(episode.records) == 3
+    assert episode.stream == STREAM and len(episode.records) == 2
     parts = declared_items(episode)
     assert len(parts) > 1 and [p["part"] for p in parts] == list(range(len(parts)))
     assert {p["document"] for p in parts} == {"document"}
@@ -423,5 +421,5 @@ def test_the_producer_builds_documents_and_media_episodes_with_declared_items(tm
     )
     assert photo.records[0].payload.endswith(b"A red door.")  # the cue names the photo
     assert speech.records[0].payload.endswith(b"one two three four five")
-    assert photo.records[2].payload == b"A red door. It is old."
+    assert photo.records[1].payload == b"A red door. It is old."
     assert [r["document"] for r in declared_items(photo)] == [""]

@@ -575,6 +575,12 @@ class GroupActionTape:
             .reshape(1, *self.facet_shape)
         )
 
+    def single_raw(self, device: torch.device) -> Tensor:
+        """The raw facets of a one-event tape: ``[1, facets, width]``."""
+        if len(self.tracks) != 1:
+            raise ValueError("Only a single-event tape has one raw facet block")
+        return self.raw(device)[:, 0]
+
     def to_json(self) -> str:
         value = dict(
             version=self.version,
@@ -1007,13 +1013,7 @@ class MultiTrackGenerator:
                     if tape is None:
                         actual.append(target_raw[:, index].detach())
                     else:
-                        actual.append(
-                            torch.as_tensor(
-                                tape.facet_array().copy(),
-                                dtype=torch.float32,
-                                device=state.device,
-                            ).reshape_as(target_raw[:, index])
-                        )
+                        actual.append(tape.single_raw(state.device))
                 continuation = torch.stack(actual, dim=1)
             else:
                 continuation = sampled
@@ -1087,11 +1087,7 @@ class MultiTrackGenerator:
                     else None
                 )
                 if tape is not None:
-                    actual = torch.as_tensor(
-                        tape.facet_array().copy(),
-                        dtype=torch.float32,
-                        device=state.device,
-                    ).reshape_as(target_raw[:, index])
+                    actual = tape.single_raw(state.device)
                     alignment = alignment + (target_raw[:, index].float() - actual).square().sum()
                     native_count += 1
         sums["encoder_alignment"] = alignment

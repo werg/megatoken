@@ -153,12 +153,11 @@ def test_the_jsonl_service_mounts_collections_reports_originals_and_adds_files(t
     model = tiny_model()
     (tmp_path / "new.txt").write_text("A fact that arrived while serving.")
 
-    class Engine:
-        device = torch.device("cpu")
-        config = model.config
-
-    engine = Engine()
-    engine.model = model
+    runtime = MultiTrackRuntime(
+        MultiTrackGenerator(model),
+        collections={"main": root / COLLECTION},
+        preparer=lambda: FakePreparer(tmp_path / "scratch"),
+    )
 
     def requests(results):
         yield (
@@ -175,13 +174,7 @@ def test_the_jsonl_service_mounts_collections_reports_originals_and_adds_files(t
         yield json.dumps({"op": "open", "id": 1, "effort": 1, "max_sources": 3}) + "\n"
 
     results = io.StringIO()
-    serve_multitrack_jsonl(
-        engine,
-        requests(results),
-        results,
-        collections={"main": root / COLLECTION},
-        preparer=lambda: FakePreparer(tmp_path / "scratch"),
-    )
+    serve_multitrack_jsonl(runtime, requests(results), results)
     added, opened = [json.loads(line) for line in results.getvalue().splitlines()]
     assert added["ok"] and added["collection"] == {"name": "main", "added": 1}
     assert opened["ok"] and len(opened["retrieved"]) == 3
@@ -204,3 +197,24 @@ def test_retrieval_is_deterministic_and_reads_only_the_past(tmp_path):
     assert first_lookup(plain.memory.sources.log) == first_lookup(busy.memory.sources.log)
     again = serving_runtime(model, root).open(metadata, effort=1)
     assert first_lookup(again.memory.sources.log) == first_lookup(plain.memory.sources.log)
+
+
+def test_the_generate_command_reads_a_mounted_collection_after_the_question(tmp_path, capsys):
+    from test_served import checkpoint_model
+
+    from megatoken.cli import main
+    from megatoken.served import export_served
+
+    _, checkpoint = checkpoint_model(tmp_path / "checkpoint")
+    bundle = tmp_path / "served"
+    export_served(checkpoint, bundle)
+    root = reading_root(tmp_path / "corpus")
+    argv = ["generate", "--model", str(bundle), "--device", "cpu", "--effort", "1"]
+    argv += ["--prompt", "What is the code word of task 1?", "--max-tokens", "4"]
+    assert main([*argv, "--collection", f"main={root / COLLECTION}"]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    # The threshold is open: the lookup after the metadata, and the one after the finished
+    # question, each observed passages. The session says which original files they came from.
+    assert {item["lookup"] for item in answer["retrieved"]} >= {0, 1}
+    assert all(item["collection"] == "main" and item["origin"] for item in answer["retrieved"])
+    assert answer["tape"]["tracks"] == ["assistant"]
