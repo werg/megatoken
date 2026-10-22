@@ -21,6 +21,13 @@ SOURCE.KEY=JSON`` overrides a source option (for example the FLEURS languages); 
 multiplies every count and ``--shard-slice I/N`` reads only every N-th file from the I-th, so
 N jobs can build disjoint parts of one source. Without ``--count`` the pilot sizes below are used.
 Streams that no open dataset supplies are listed in docs/data.md.
+
+Full volume (``megatoken.cloud_prepare`` with a media run file) gives each sandbox shards of
+``data/media_sharding.py``. ``--shard-spec FILE`` names the sources, files and stripes of one
+shard and reads all of them; with ``--ingest-only`` the run stops after deduplicating inside the
+shard and leaves ``digest.sqlite`` (for ``megatoken reconcile``) beside the shard's
+``preparation.sqlite`` and its media assets. The same call with ``--decisions FILE`` (that
+shard's verdicts from ``reconcile``) and no reading applies the verdicts and writes the root.
 """
 
 from __future__ import annotations
@@ -47,6 +54,7 @@ PILOT_COUNTS = {
 }
 PILOT_PROCEDURAL = {"librispeech_asr": 600, "rekadaily_processed": 600}
 PILOT_OPTIONS = {"fleurs": {"languages": ["de_de", "fr_fr", "es_419", "it_it"]}}
+FULL = 1 << 62  # a shard reads every clip of its files
 
 
 def _pairs(values: list[str], parser: argparse.ArgumentParser, flag: str) -> dict[str, str]:
@@ -64,10 +72,12 @@ def main() -> None:
 
     install()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--packs", required=True, help="Locked pack manifest")
+    parser.add_argument("--packs", help="Locked pack manifest (not needed with --decisions)")
     parser.add_argument("--root", type=Path, required=True, help="Prepared dataset root (new)")
     parser.add_argument("--codec", required=True)
-    parser.add_argument("--work", type=Path, required=True, help="Scratch for the clips in flight")
+    parser.add_argument(
+        "--work", type=Path, help="Scratch for the clips in flight (not needed with --decisions)"
+    )
     parser.add_argument(
         "--inputs", type=Path, help="Local copies of sources: <inputs>/<source_id>/"
     )
@@ -78,10 +88,24 @@ def main() -> None:
     parser.add_argument("--scale", type=float, default=1.0)
     parser.add_argument("--shard-slice", default="0/1", metavar="I/N")
     parser.add_argument("--validation-fraction", type=float, default=0.05)
+    parser.add_argument("--shard-spec", type=Path, help="JSON: this shard's sources and files")
+    parser.add_argument("--ingest-only", action="store_true", help="stop at digest.sqlite")
+    parser.add_argument("--decisions", type=Path, help="this shard's verdicts from 'reconcile'")
     args = parser.parse_args()
     if (args.root / "manifest.json").exists():
         parser.error("Prepared manifest already exists; prepared data is immutable")
-    if args.count:
+    if (args.ingest_only or args.decisions) and not args.shard_spec:
+        parser.error("--ingest-only and --decisions need --shard-spec")
+    if args.ingest_only and args.decisions:
+        parser.error("A shard is either ingested or finished with decisions, not both")
+    if args.shard_spec and (args.count or args.procedural or args.shard_slice != "0/1"):
+        parser.error("--shard-spec replaces --count, --procedural and --shard-slice")
+    shard = json.loads(args.shard_spec.read_text()) if args.shard_spec else None
+    if shard is not None:
+        counts = {source_id: FULL for source_id in shard}
+        procedural = {}
+        options = {source_id: dict(entry.get("options", {})) for source_id, entry in shard.items()}
+    elif args.count:
         counts = {key: int(value) for key, value in _pairs(args.count, parser, "--count").items()}
         procedural = {
             key: int(value)
@@ -94,6 +118,8 @@ def main() -> None:
     for name, value in _pairs(args.option, parser, "--option").items():
         source_id, _, key = name.partition(".")
         options.setdefault(source_id, {})[key] = json.loads(value)
+    if shard is not None and not shard:
+        parser.error("The shard spec names no sources")
     unknown = (set(counts) | set(procedural) | set(options)) - set(SOURCES)
     if unknown:
         parser.error(
@@ -109,7 +135,15 @@ def main() -> None:
     }
     for source in sources.values():
         source.terms.require_approval()
-    media = CachingPreparer(MediaPreparer(args.packs, args.root, device=args.device))
+    if args.decisions is None and (args.packs is None or args.work is None):
+        parser.error("--packs and --work are required to read the sources")
+    if args.ingest_only:
+        if (args.root / "digest.sqlite").exists():
+            print(json.dumps({"digest": "already written"}))
+            return
+        # A retry starts the shard over: its assets are content addressed and kept.
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            (args.root / f"preparation.sqlite{suffix}").unlink(missing_ok=True)
     codec = load_codec(args.codec)
     dedup = DedupStore(
         args.root / "preparation.sqlite",
@@ -120,26 +154,37 @@ def main() -> None:
     )
     tally: Counter[str] = Counter()
     try:
-        with dedup.transaction():
-            for source_id, source in sources.items():
-                for episode in source_episodes(
-                    media,
-                    source,
-                    count=round(counts[source_id] * args.scale),
-                    procedural=round(procedural.get(source_id, 0) * args.scale),
-                    work=args.work,
-                    inputs=args.inputs,
-                    shard_slice=shard_slice,
-                ):
-                    dedup.add(episode, codec)
-                    tally[episode.stream] += 1
-                    if sum(tally.values()) % 100 == 0:
-                        print(json.dumps(tally, sort_keys=True), flush=True)
-                print(
-                    json.dumps({"finished": source_id, "streams": tally}, sort_keys=True),
-                    flush=True,
-                )
-        dedup.freeze()
+        if args.decisions is None:
+            media = CachingPreparer(MediaPreparer(args.packs, args.root, device=args.device))
+            with dedup.transaction():
+                for source_id, source in sources.items():
+                    entry = shard[source_id] if shard is not None else {}
+                    for episode in source_episodes(
+                        media,
+                        source,
+                        count=round(counts[source_id] * args.scale),
+                        procedural=round(procedural.get(source_id, 0) * args.scale),
+                        procedural_every=entry.get("procedural_every", 0),
+                        work=args.work,
+                        inputs=args.inputs,
+                        shard_slice=shard_slice,
+                        files=entry.get("files"),
+                        stripe=tuple(entry["stripe"]) if entry.get("stripe") else None,
+                    ):
+                        dedup.add(episode, codec)
+                        tally[episode.stream] += 1
+                        if sum(tally.values()) % 100 == 0:
+                            print(json.dumps(tally, sort_keys=True), flush=True)
+                    print(
+                        json.dumps({"finished": source_id, "streams": tally}, sort_keys=True),
+                        flush=True,
+                    )
+            if args.ingest_only:
+                print(json.dumps({"digest": dedup.write_digest(args.root / "digest.sqlite")}))
+                return
+            dedup.freeze()
+        else:
+            dedup.apply_decisions(args.decisions)
         export_prepared(
             dedup,
             args.root,

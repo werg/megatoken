@@ -919,7 +919,9 @@ def edit_chain_view(
     first_instruction = steps[0][0]
     groups = [
         group(
-            observed(original, "original", "Observe this exact media version as the edit baseline."),
+            observed(
+                original, "original", "Observe this exact media version as the edit baseline."
+            ),
             observed(first_instruction, "instruction", "Read the verified edit request."),
         )
     ]

@@ -30,6 +30,15 @@ the failed sandboxes: the earlier waves stay up, holding the data the redo needs
 every root is finished (or ``stop`` is run). Sandboxes of waves 1 and 2 wait idle for the
 next wave, so the reconcile and finish hours in the run file are billed for all of them.
 
+A run with ``"kind": "media"`` prepares the media sources (``data/media_sharding.py``) the same
+way on GPU sandboxes: ingest runs ``scripts/prepare_open_media.py --shard-spec`` (the teacher
+and the codec encode every clip, so each ingest sandbox has a GPU), reconcile is unchanged,
+and the finish wave runs *inside the ingest sandboxes*: a shard's media assets are far larger
+than its episodes (about a megabyte of float32 per image), so moving them to a fresh sandbox
+would cost more than the GPU idling while reconcile runs. The launcher gives each ingest
+sandbox the address of its shards' verdicts and runs ``finish`` there; the sandbox then serves
+``out/prepared`` (its manifest of served files is refreshed to include the finished roots).
+
   python -m megatoken.cloud_prepare plan RUN.json [--dest DIR]  write and validate every job
   python -m megatoken.cloud_prepare launch RUN.json [--repo .] [--hf-token FILE]
   python -m megatoken.cloud_prepare status RUN_ID
@@ -40,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -66,18 +76,30 @@ PULL_HOURS = 2
 ATTEMPTS = 2  # a shard resumes from its durable cursor, so one retry costs little
 MAX_SHARDS = 99999  # shard numbers are zero-padded to five digits so that they sort
 WAVES = ("ingest", "reconcile", "finish")
+KINDS = ("text", "media")
+# A media run's reconcile sandbox reads digests only; it needs no GPU.
+RECONCILE_RESOURCES = {"cpu": "16", "memory": "32Gi", "gpu": 0}
+FINISH_STATUS = f"{cloud.WORK}/.cloud/finish-status"
+FINISH_INPUTS = f"{cloud.WORK}/.cloud/finish-inputs.json"
+FINISH_LOG = f"{cloud.WORK}/.cloud/finish.log"
 START_THREADS = 8  # sandboxes created at once
+
+
+def is_media(spec: Mapping[str, Any]) -> bool:
+    return spec.get("kind", "text") == "media"
 
 
 def validate(spec: dict[str, Any]) -> dict[str, Any]:
     if spec.get("schema") != SCHEMA:
         raise cloud.CloudError(f"Run schema must be {SCHEMA}")
+    if spec.get("kind", "text") not in KINDS:
+        raise cloud.CloudError(f"kind is one of {KINDS}")
+    media = is_media(spec)
     for key in (
         "id",
         "image",
-        "sources",
+        *(("media_sources",) if media else ("sources", "review_config")),
         "listing",
-        "review_config",
         "resources",
         "sandboxes",
         "shards_per_sandbox",
@@ -91,7 +113,15 @@ def validate(spec: dict[str, Any]) -> dict[str, Any]:
             raise cloud.CloudError(f"{key} must be a positive integer")
     if spec["sandboxes"] * spec["shards_per_sandbox"] > MAX_SHARDS:
         raise cloud.CloudError(f"At most {MAX_SHARDS} shards")
-    if spec["resources"].get("gpu"):
+    if media:
+        sources = spec["media_sources"]
+        if not (
+            sources == "all" or (isinstance(sources, list) and sources and all(map(str, sources)))
+        ):
+            raise cloud.CloudError('media_sources is "all" or a list of media source ids')
+        if spec["resources"].get("gpu") != 1:
+            raise cloud.CloudError("Media preparation encodes on a GPU: resources.gpu must be 1")
+    elif spec["resources"].get("gpu"):
         raise cloud.CloudError("Preparation is CPU-only; drop the gpu")
     if set(spec["hours"]) != {"ingest", "reconcile", "finish"}:
         raise cloud.CloudError("hours is {ingest, reconcile, finish}")
@@ -122,6 +152,12 @@ def shards_of(spec: Mapping[str, Any], sandbox: int) -> range:
     return range(sandbox * each, (sandbox + 1) * each)
 
 
+def shards_dir(spec: Mapping[str, Any]) -> str:
+    """Where ingest leaves each shard: a media shard keeps its assets, so it is built where it
+    is finished (the final root); a text shard moves on to a fresh sandbox."""
+    return PREPARED if is_media(spec) else SHARDS
+
+
 def shard_name(shard: int) -> str:
     return f"{shard:05d}"
 
@@ -142,11 +178,14 @@ _HF_TOKEN = 'export HF_TOKEN="$(cat "$MEGATOKEN_CW_SECRETS/hf-token")"'
 
 def _job(spec: Mapping[str, Any], name: str, wave: str, **fields: Any) -> dict[str, Any]:
     lifetime = lifetimes(spec)[wave]
+    resources = spec["resources"]
+    if is_media(spec) and wave == "reconcile":
+        resources = spec.get("reconcile_resources", RECONCILE_RESOURCES)
     return {
         "schema": cloud.SCHEMA,
         "id": f"{spec['id']}-{name}",
         "image": spec["image"],
-        "resources": spec["resources"],
+        "resources": resources,
         "lifetime_hours": lifetime,
         "pip": spec.get("pip", []),
         "serve_port": PORT,
@@ -157,17 +196,32 @@ def _job(spec: Mapping[str, Any], name: str, wave: str, **fields: Any) -> dict[s
     }
 
 
+_FFMPEG = (
+    "command -v ffmpeg >/dev/null || (apt-get update -qq && "
+    "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null)"
+)
+
+
 def ingest_job(spec: Mapping[str, Any], sandbox: int, spec_path: str) -> dict[str, Any]:
+    ingest = f"python -m megatoken.cloud_prepare ingest --run {spec_path} --sandbox {sandbox}"
+    if is_media(spec):
+        # The teacher and the codec packs are fetched into each GPU sandbox.
+        lines = (
+            _HF_TOKEN,
+            _FFMPEG,
+            f"mkdir -p {cloud.WORK}/packs {cloud.WORK}/out/logs",
+            f"python scripts/acquire_packs.py --root {cloud.WORK}/packs",
+            f"megatoken codec --output {CODEC}",
+            ingest,
+        )
+    else:
+        lines = (_HF_TOKEN, f"megatoken codec --output {CODEC}", ingest)
     return _job(
         spec,
         f"ingest-{sandbox}",
         "ingest",
-        command=_shell(
-            _HF_TOKEN,
-            f"megatoken codec --output {CODEC}",
-            f"python -m megatoken.cloud_prepare ingest --run {spec_path} --sandbox {sandbox}",
-        ),
-        outputs=[SHARDS, "out/logs"],
+        command=_shell(*lines),
+        outputs=[shards_dir(spec), "out/logs"],
     )
 
 
@@ -231,7 +285,9 @@ def digest_inputs(
         url,
         files,
         {
-            f"{SHARDS}/{shard_name(shard)}/digest.sqlite": f"{DIGESTS}/{shard_name(shard)}.sqlite"
+            f"{shards_dir(spec)}/{shard_name(shard)}/digest.sqlite": (
+                f"{DIGESTS}/{shard_name(shard)}.sqlite"
+            )
             for shard in shards_of(spec, sandbox)
         },
     )
@@ -272,10 +328,57 @@ def finish_inputs(
 # ---- inside a sandbox ---------------------------------------------------------------------
 
 
+def media_sources(spec: Mapping[str, Any]) -> dict[str, Any]:
+    """The run's media sources, with the run's option overrides applied (before planning:
+    FLEURS divides by its languages)."""
+    from megatoken.data.media_sharding import all_sources
+
+    chosen = all_sources(None if spec["media_sources"] == "all" else spec["media_sources"])
+    overrides = spec.get("options", {})
+    unknown = set(overrides) - set(chosen)
+    if unknown:
+        raise cloud.CloudError(f"options name sources the run does not build: {sorted(unknown)}")
+    return {
+        source_id: source.with_options(**overrides.get(source_id, {}))
+        for source_id, source in chosen.items()
+    }
+
+
+def media_shard_plan(spec: Mapping[str, Any], root: Path = Path()) -> list[dict[str, Any]]:
+    """Every shard's ``{source_id: {files | stripe, options, procedural_every}}`` entries."""
+    from megatoken.data.media_sharding import plan_media_shards, read_listing
+
+    sources = media_sources(spec)
+    listings = read_listing(sources, root / spec["listing"])
+    shards = plan_media_shards(sources, shard_count(spec), listings)
+    every = spec.get("procedural_every", {})
+    unknown = set(every) - set(sources)
+    if unknown:
+        raise cloud.CloudError(f"procedural_every names unknown sources: {sorted(unknown)}")
+    for shard in shards:
+        for source_id, entry in shard.items():
+            entry["options"] = {
+                **spec.get("options", {}).get(source_id, {}),
+                **entry.get("options", {}),
+            }
+            if source_id in every:
+                entry["procedural_every"] = every[source_id]
+    empty = [index for index, shard in enumerate(shards) if not shard]
+    if empty:
+        raise cloud.CloudError(
+            f"{len(empty)} of {len(shards)} shards would have nothing to read (first: {empty[0]}): "
+            "the sources are too few or too small for this many shards; lower the shard count"
+        )
+    return shards
+
+
 def shard_plan(spec: Mapping[str, Any], root: Path = Path()) -> list[dict[str, Any]]:
     """Every shard's source manifest, the same on every machine (paths are relative to ``root``,
     the repository). A shard with nothing to read would fail its sandbox, so none may be empty."""
     from megatoken.data.sharding import plan_shards, read_listings
+
+    if is_media(spec):
+        return media_shard_plan(spec, root)
 
     manifest = json.loads((root / spec["sources"]).read_text())
     listings = read_listings(manifest, root / spec["listing"])
@@ -298,6 +401,8 @@ def shard_commands(
     scratch = work / "scratch"
     scratch.mkdir(parents=True, exist_ok=True)
     commands = {}
+    if is_media(spec):
+        return media_shard_commands(spec, sandbox, plan, stage=stage, work=work, codec=codec)
     for shard in shards_of(spec, sandbox):
         sources = scratch / f"sources-{shard_name(shard)}.json"
         sources.write_text(json.dumps(plan[shard], indent=1))
@@ -324,6 +429,95 @@ def shard_commands(
         )
         commands[shard] = command
     return commands
+
+
+def media_shard_commands(
+    spec: Mapping[str, Any],
+    sandbox: int,
+    plan: Sequence[Mapping[str, Any]],
+    *,
+    stage: str,
+    work: Path,
+    codec: str,
+) -> dict[int, list[str]]:
+    """The ``prepare_open_media.py`` command of each shard of one sandbox (stage ``ingest``
+    reads the sources and stops at the digest; ``finish`` applies the verdicts). A shard whose
+    root is already written needs no finishing."""
+    scratch = work / "scratch"
+    commands = {}
+    for shard in shards_of(spec, sandbox):
+        root = work / PREPARED / shard_name(shard)
+        if stage == "finish" and (root / "manifest.json").exists():
+            continue
+        shard_spec = scratch / f"media-shard-{shard_name(shard)}.json"
+        shard_spec.write_text(json.dumps(plan[shard], indent=1))
+        command = [
+            sys.executable,
+            "scripts/prepare_open_media.py",
+            *("--root", str(root), "--codec", codec, "--shard-spec", str(shard_spec)),
+        ]
+        if stage == "ingest":
+            command += [
+                *("--packs", f"{work}/packs/lock.json", "--inputs", f"{work}/inputs"),
+                *("--work", str(scratch / shard_name(shard)), "--ingest-only"),
+            ]
+        else:
+            command += ["--decisions", str(work / DECISIONS / _decision_name(shard))]
+        commands[shard] = command
+    return commands
+
+
+def fetch_verdicts(spec: Mapping[str, Any], sandbox: int, work: Path) -> None:
+    """Fetch this sandbox's shards' verdicts from the reconcile sandbox (its address and the
+    files' hashes were written here by the launcher), each checked against its sha256."""
+    import hashlib
+    import urllib.request
+
+    given = json.loads(Path(FINISH_INPUTS.replace(cloud.WORK, str(work), 1)).read_text())
+    token = (Path(os.environ["MEGATOKEN_CW_SECRETS"]) / f"share-{given['peer']}").read_text()
+    wanted = {
+        f"{DECISIONS_OUT}/{_decision_name(shard)}": f"{DECISIONS}/{_decision_name(shard)}"
+        for shard in shards_of(spec, sandbox)
+    }
+    for published, path in wanted.items():
+        target = work / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        request = urllib.request.Request(
+            f"{given['url']}/{published}", headers={"X-Sandbox-Share-Token": token}
+        )
+        digest = hashlib.sha256()
+        with urllib.request.urlopen(request, timeout=600) as response, target.open("wb") as out:
+            for block in iter(lambda: response.read(1 << 22), b""):
+                digest.update(block)
+                out.write(block)
+        if digest.hexdigest() != given["files"][published]:
+            target.unlink()
+            raise cloud.CloudError(f"{published}: checksum mismatch")
+
+
+def refresh_outputs(work: Path) -> int:
+    """List the finished roots among the sandbox's served files: the bootstrap listed the
+    outputs when ingest ended, before the roots existed. Returns the number of files."""
+    import hashlib
+
+    manifest = work / ".cloud" / "outputs.json"
+    files = json.loads(manifest.read_text())["files"] if manifest.exists() else []
+    kept = [item for item in files if not item["path"].startswith((f"{PREPARED}/", "out/logs/"))]
+    for name in (PREPARED, "out/logs"):
+        for path in sorted(p for p in (work / name).rglob("*") if p.is_file()):
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                for block in iter(lambda: stream.read(1 << 22), b""):
+                    digest.update(block)
+            kept.append(
+                {
+                    "path": str(path.relative_to(work)),
+                    "bytes": path.stat().st_size,
+                    "sha256": digest.hexdigest(),
+                }
+            )
+    manifest.write_text(json.dumps({"files": kept}))
+    return len(kept)
 
 
 def run_shards(commands: Mapping[int, list[str]], processes: int, logs: Path) -> list[int]:
@@ -353,8 +547,13 @@ def run_shards(commands: Mapping[int, list[str]], processes: int, logs: Path) ->
 def _work_command(args: argparse.Namespace, stage: str) -> int:
     spec = validate(json.loads(Path(args.run).read_text()))
     work = Path(args.work)
+    media_finish = is_media(spec) and stage == "finish"
+    if media_finish:
+        fetch_verdicts(spec, args.sandbox, work)
     commands = shard_commands(spec, args.sandbox, stage=stage, work=work, codec=args.codec)
     failed = run_shards(commands, spec["processes"], work / "out" / "logs")
+    if media_finish and not failed:
+        refresh_outputs(work)
     print(json.dumps({"stage": stage, "shards": len(commands), "failed": failed}))
     return 1 if failed else 0
 
@@ -376,7 +575,10 @@ def _load(run_id: str) -> dict[str, Any]:
 
 
 def _everything(run: Mapping[str, Any]) -> list[str]:
-    return [sandbox_id for wave in WAVES for sandbox_id in run["waves"][wave].values()]
+    # A media run's finish wave is its ingest sandboxes again.
+    return list(
+        dict.fromkeys(sandbox_id for wave in WAVES for sandbox_id in run["waves"][wave].values())
+    )
 
 
 def _published(run: Mapping[str, Any], sandbox_id: str) -> tuple[str, str, list[Any]]:
@@ -450,6 +652,72 @@ def _wave(
         )
 
 
+def _finish_in_place(
+    run: dict[str, Any], spec: Mapping[str, Any], spec_path: str, poll: float
+) -> None:
+    """Media's third wave: run ``finish`` inside each ingest sandbox, which still holds its
+    shards' assets, once the verdicts exist. Only the verdicts' address and hashes are sent
+    here (the sandbox fetches the files from the reconcile sandbox, behind its share token).
+
+    The command runs in the background of the sandbox and is polled through short commands, as
+    sandbox calls are cut after a few minutes. A failed sandbox keeps its log, stays up and is
+    redone by the next ``launch``; sandboxes already finished are left alone.
+    """
+    waves = run["waves"]
+    reconcile = _published(run, waves["reconcile"]["0"])
+    running: dict[str, Any] = {}
+    for index in range(spec["sandboxes"]):
+        if str(index) in waves["finish"]:
+            continue
+        sandbox = cloud._attach(waves["ingest"][str(index)])
+        wanted = {
+            f"{DECISIONS_OUT}/{_decision_name(shard)}": f"{DECISIONS}/{_decision_name(shard)}"
+            for shard in shards_of(spec, index)
+        }
+        files = peer_inputs(reconcile[0], reconcile[1], reconcile[2], wanted)
+        given = {
+            "peer": reconcile[0],
+            "url": reconcile[1],
+            "files": {
+                published: item["sha256"] for published, item in zip(wanted, files, strict=True)
+            },
+        }
+        secrets = f"{cloud.WORK}/.cloud/secrets"
+        sandbox.write_file(
+            f"{secrets}/share-{reconcile[0]}", cloud.share_token(reconcile[0]).encode()
+        ).result()
+        sandbox.write_file(FINISH_INPUTS, json.dumps(given).encode()).result()
+        command = (
+            f"rm -f {FINISH_STATUS}; cd {cloud.WORK}/megatoken && "
+            f"(MEGATOKEN_CW_SECRETS={secrets} python -m megatoken.cloud_prepare finish "
+            f"--run {spec_path} --sandbox {index} > {FINISH_LOG} 2>&1; echo $? > {FINISH_STATUS}) "
+            "> /dev/null 2>&1 &"
+        )
+        sandbox.exec(["bash", "-c", command]).result()
+        running[str(index)] = sandbox
+    failed = []
+    while running:
+        for key, sandbox in list(running.items()):
+            probe = sandbox.exec(["cat", FINISH_STATUS]).result()
+            if probe.returncode != 0:
+                continue
+            del running[key]
+            if probe.stdout.strip() == "0":
+                waves["finish"][key] = waves["ingest"][key]
+            else:
+                failed.append(waves["ingest"][key])
+        _save(run)
+        if running:
+            time.sleep(poll)
+    if failed:
+        _keep_logs(run, failed, FINISH_LOG)
+        raise cloud.CloudError(
+            f"finish failed in {failed}; logs are under {_run_path(run['id']).with_suffix('.logs')}. "
+            "The sandboxes are still running and bill until the run is stopped "
+            f"({sys.argv[0]} stop {run['id']}); fix the cause and launch again to redo only them."
+        )
+
+
 def launch(
     path: Path, repo: Path, *, hf_token: Path | None = None, poll: float = 300
 ) -> dict[str, Any]:
@@ -462,8 +730,9 @@ def launch(
     spec_path = str(path.resolve().relative_to(repo.resolve()))
     if not (repo / spec["listing"]).exists():
         raise cloud.CloudError(
-            f"{spec['listing']} is missing: build it once with scripts/shard_sources.py --listing "
-            "and commit it, so every sandbox plans the same shards"
+            f"{spec['listing']} is missing: build it once with "
+            f"{'scripts/shard_media.py --listing' if is_media(spec) else 'scripts/shard_sources.py --listing'}"
+            " and commit it, so every sandbox plans the same shards"
         )
     shard_plan(spec, repo)
     token = (hf_token or Path.home() / ".cache/huggingface/token").read_bytes().strip()
@@ -497,40 +766,45 @@ def launch(
         else:
             reconcile = {}
         _wave(run, "reconcile", reconcile, repo, secrets, snapshot, poll)
-        finish = {}
-        for index in range(spec["sandboxes"]):
-            if str(index) not in waves["finish"]:
-                finish[str(index)] = finish_job(
-                    spec,
-                    index,
-                    finish_inputs(
+        if is_media(spec):
+            _finish_in_place(run, spec, spec_path, poll)
+        else:
+            finish = {}
+            for index in range(spec["sandboxes"]):
+                if str(index) not in waves["finish"]:
+                    finish[str(index)] = finish_job(
                         spec,
                         index,
-                        _published(run, waves["ingest"][str(index)]),
-                        _published(run, waves["reconcile"]["0"]),
-                    ),
-                    spec_path,
-                )
-        _wave(run, "finish", finish, repo, secrets, snapshot, poll)
+                        finish_inputs(
+                            spec,
+                            index,
+                            _published(run, waves["ingest"][str(index)]),
+                            _published(run, waves["reconcile"]["0"]),
+                        ),
+                        spec_path,
+                    )
+            _wave(run, "finish", finish, repo, secrets, snapshot, poll)
+    # A media run's ingest sandboxes hold (and serve) the finished roots: only reconcile goes.
     cloud.stop_all(
-        [*waves["ingest"].values(), *waves["reconcile"].values()], "every root is finished"
+        [
+            *([] if is_media(spec) else waves["ingest"].values()),
+            *waves["reconcile"].values(),
+        ],
+        "every root is finished",
     )
     cloud.record({"event": "prepare_finished", "run": spec["id"]})
     return run
 
 
-def _keep_logs(run: Mapping[str, Any], sandbox_ids: Sequence[str]) -> None:
+def _keep_logs(
+    run: Mapping[str, Any], sandbox_ids: Sequence[str], log: str = f"{cloud.WORK}/.cloud/job.log"
+) -> None:
     """Save the tail of each sandbox's log before it stops: logs vanish with the sandbox."""
     logs = _run_path(run["id"]).with_suffix(".logs")
     logs.mkdir(parents=True, exist_ok=True)
     for sandbox_id in sandbox_ids:
         try:
-            tail = (
-                cloud._attach(sandbox_id)
-                .exec(["tail", "-c", "200000", f"{cloud.WORK}/.cloud/job.log"])
-                .result()
-                .stdout
-            )
+            tail = cloud._attach(sandbox_id).exec(["tail", "-c", "200000", log]).result().stdout
             (logs / f"{sandbox_id}.log").write_text(tail)
         except Exception as error:
             print(
@@ -560,7 +834,7 @@ def write_jobs(spec: dict[str, Any], spec_path: str, destination: Path) -> list[
     validate(spec)
     sha = "0" * 64
     ingest_files = [
-        {"path": f"{SHARDS}/{shard_name(s)}/{name}.sqlite", "sha256": sha}
+        {"path": f"{shards_dir(spec)}/{shard_name(s)}/{name}.sqlite", "sha256": sha}
         for s in range(shard_count(spec))
         for name in ("digest", "preparation")
     ]
@@ -579,7 +853,7 @@ def write_jobs(spec: dict[str, Any], spec_path: str, destination: Path) -> list[
             )
         ],
     )
-    for i in range(spec["sandboxes"]):
+    for i in range(0 if is_media(spec) else spec["sandboxes"]):
         jobs[f"finish-{i}"] = finish_job(
             spec,
             i,

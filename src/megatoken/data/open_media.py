@@ -480,7 +480,9 @@ def chain_episodes(
     artifacts = [_media(media, _sha(key, "frame", "0"), f"original_{kind}", modality, frames[0])]
     steps = []
     for turn, (frame, instruction) in enumerate(zip(frames[1:], instructions, strict=True), 1):
-        ask = _text(source, _sha(key, "ask", str(turn)), f"{kind}_edit_instruction_{turn}", instruction)
+        ask = _text(
+            source, _sha(key, "ask", str(turn)), f"{kind}_edit_instruction_{turn}", instruction
+        )
         result = _media(
             media,
             _sha(key, "frame", str(turn)),
@@ -569,10 +571,17 @@ class Shards:
     """
 
     def __init__(
-        self, source: OpenSource, inputs: Path | None = None, shard_slice: tuple[int, int] = (0, 1)
+        self,
+        source: OpenSource,
+        inputs: Path | None = None,
+        shard_slice: tuple[int, int] = (0, 1),
+        files: Sequence[str] | None = None,
+        stripe: tuple[int, int] | None = None,
     ):
         self.source = source
         self.shard_slice = shard_slice
+        self.files = files
+        self.stripe = stripe
         local = inputs / source.source_id if inputs else None
         self.local = local if local is not None and local.is_dir() else None
         self._fs: Any = None
@@ -591,8 +600,11 @@ class Shards:
         """Repository paths matching the source's ``include`` patterns, in a fixed order.
 
         ``shard_slice`` (index, count) keeps every count-th path from index, so several jobs can
-        each build a disjoint part of one source.
+        each build a disjoint part of one source; ``files`` names exactly the paths to read
+        (a shard of ``data/media_sharding.py``).
         """
+        if self.files is not None and patterns is None:
+            return list(self.files)[self.shard_slice[0] :: self.shard_slice[1]]
         found: list[str] = []
         for pattern in patterns or self.source.include:
             if self.local is not None:
@@ -1325,7 +1337,9 @@ def _chain_inputs(
                 _list_label(source, record, "original")[:1] + _list_label(source, record, "edited")
             )
         ]
-    instructions = [_text_value(source, item) for item in _list_label(source, record, "instruction")]
+    instructions = [
+        _text_value(source, item) for item in _list_label(source, record, "instruction")
+    ]
     steps = min(len(versions) - 1, len(instructions), source.options.get("max_steps", 8))
     # A session continues only while every version and request is usable.
     usable = 0
@@ -1368,7 +1382,8 @@ def video_chain_clips(
         return []
     clip_id, family = _identity(source, record)
     sources = [
-        _video_source(data, out, f"{_stem(clip_id)}-{index}") for index, data in enumerate(inputs[0])
+        _video_source(data, out, f"{_stem(clip_id)}-{index}")
+        for index, data in enumerate(inputs[0])
     ]
     try:
         durations = [probe(path)[0] for path in sources]
@@ -1388,7 +1403,9 @@ def video_chain_clips(
     finally:
         for path in sources:
             path.unlink(missing_ok=True)
-    return [{"id": clip_id, "family": family, "frames": paths, "instructions": inputs[1][: kept - 1]}]
+    return [
+        {"id": clip_id, "family": family, "frames": paths, "instructions": inputs[1][: kept - 1]}
+    ]
 
 
 SPEECH_EDITS = (
@@ -1681,9 +1698,7 @@ def read_clips(
             return
 
 
-def sessions(
-    source: OpenSource, records: Iterable[Mapping[str, Any]]
-) -> Iterator[dict[str, Any]]:
+def sessions(source: OpenSource, records: Iterable[Mapping[str, Any]]) -> Iterator[dict[str, Any]]:
     """Rows that are the turns of one session -> one record whose fields are the turns' lists.
 
     ``options.session`` is ``{"by": column, "order": column}``: consecutive rows with the same
@@ -1713,6 +1728,10 @@ def _materialized(source: OpenSource, shards: Shards, out: Path) -> Iterator[dic
     records = CONTAINERS[source.reader](source, shards)
     if "session" in source.options:
         records = sessions(source, records)
+    if shards.stripe is not None:
+        # Every n-th record of all the files: the share of a source too big to divide by file.
+        index, count = shards.stripe
+        records = (record for number, record in enumerate(records) if number % count == index)
     for record in records:
         if unique:
             key = field_of(record, unique)
@@ -1737,14 +1756,19 @@ def build_episodes(
     *,
     work: Path,
     procedural: int = 0,
+    procedural_every: int = 0,
 ) -> Iterator[Episode]:
-    """The episodes of each clip, then one procedural edit for each of the first ``procedural``."""
+    """The episodes of each clip, then one procedural edit for each of the first ``procedural``
+    and for every ``procedural_every``-th clip (chosen by clip id, so shards agree)."""
     task = TASKS[source.task]
     references: dict[str, Mapping[str, Any]] = {}
     for index, clip in enumerate(clips):
         reference = references.get(clip["family"]) if task.reference else None
         yield from task.episodes(media, source, clip, reference)
-        if index < procedural and task.procedural:
+        if task.procedural and (
+            index < procedural
+            or (procedural_every and int(_sha(clip["id"]), 16) % procedural_every == 0)
+        ):
             make = speech_edit if task.procedural == "speech" else video_edit
             edit = make(clip, work / "edits")
             yield from edit_episodes(
@@ -1774,13 +1798,22 @@ def source_episodes(
     count: int,
     work: Path,
     procedural: int = 0,
+    procedural_every: int = 0,
     inputs: Path | None = None,
     shard_slice: tuple[int, int] = (0, 1),
+    files: Sequence[str] | None = None,
+    stripe: tuple[int, int] | None = None,
 ) -> Iterator[Episode]:
-    """Every episode of ``count`` clips of one approved source."""
+    """Every episode of ``count`` clips of one approved source (``files`` and ``stripe``: the
+    part of it that one shard of ``data/media_sharding.py`` reads)."""
     source.terms.require_approval()
-    shards = Shards(source, inputs, shard_slice)
+    shards = Shards(source, inputs, shard_slice, files, stripe)
     out = work / source.source_id
     yield from build_episodes(
-        media, source, read_clips(source, shards, out, count), work=out, procedural=procedural
+        media,
+        source,
+        read_clips(source, shards, out, count),
+        work=out,
+        procedural=procedural,
+        procedural_every=procedural_every,
     )
