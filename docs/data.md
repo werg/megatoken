@@ -485,6 +485,449 @@ sha256 was computed from the downloads.
 - **Scale**: counts in the job are pilot sizes; DOCCI (about 9.6k training photos) and
   MagicBrush (about 8.8k turns) cap their streams well below the plan.
 
+## Agentic and chat data
+
+The open-licence pilot above fills every stream with a few thousand episodes. This section
+records the much larger agent-trajectory, tool-use, chat and reasoning sources added after
+it, how each is turned into episodes, how the stage plan now leans on them, and what is
+still short. Licences are the ones printed on each publisher's dataset card, read on
+2026-10-22 (a card is not legal advice); every source is recorded in
+`configs/data/sources.agentic.json` with `approved: true`, `reviewed_by: Gabriel Pickard`,
+`reviewed_at: 2026-10-22`. No source was left out for its licence. Non-commercial,
+share-alike, research-only and model-licence terms are named in the tables below and in each
+entry's `terms.notes`, so a release decision can filter on them.
+
+Sources are pinned to a 40-character dataset commit. Row counts and token counts come from
+the cards and file sizes (token counts are our estimate at about four bytes per token,
+rounded, taken after the filter described for each source). Each source was read through
+its real adapter on its first 12 to 150 rows from the pinned revision; the pass rate, and
+what the rejects were, is in "What was checked".
+
+### Why the stage plan moved
+
+Raw web text and generic synthetic documents are cheap but teach no tool use, no
+multi-step recovery and no use of an executed result. Agent trajectories are the opposite:
+each assistant action is scored and each environment reply is context that is not scored.
+The plan therefore moves share from raw text towards four agent streams and chat:
+
+| Stream | What it holds |
+| --- | --- |
+| `executed_trajectories` | Long agent runs in a real sandbox (shell, editor, tests). The outcome is either recorded by the publisher or, for curated releases, assumed successful (see "Outcome labels"). |
+| `verified_trajectories` | Runs whose hidden tests passed. The training engine refuses this stream unless every episode carries a recorded passing verdict, so only sources filtered to passing rows go here. |
+| `tool_use` | Function-calling conversations: tool definitions, calls, results, a final answer. Results are mostly simulated; executed ones are labelled as such. |
+| `environment_trajectories` | Short text-game or web-shop style tasks (AgentInstruct, AgentBank, AgentTraj-L). Tiny but diverse. |
+| `chat` | General assistant conversations. |
+
+Share changes (each phase sums to 1; shares not listed are unchanged, including every media
+share and `long_document_reading`):
+
+**P1** (400B tokens)
+
+| Stream | Before | After |
+| --- | --- | --- |
+| executed_trajectories | 4.1% | 17% |
+| verified_trajectories | - | 5% |
+| tool_use | - | 6% |
+| environment_trajectories | - | 0.1% |
+| chat | 2.05% | 8% |
+| synthetic_reasoning | 6.15% | 10% |
+| natural_documents | 16.4% | 7% |
+| synthetic_documents | 20.5% | 9% |
+| natural_code | 12.3% | 8% |
+| synthetic_code_rewrite | 12.3% | 3.9% |
+| synthetic_code_dialogue | 8.2% | 8% |
+
+Raw and generic web text (`natural_documents` plus `synthetic_documents`) falls from 36.9% to
+14% (two points went to reading from a knowledge base and from a source collection); the
+three agent streams plus environment tasks rise from 4.1% to 28.1%.
+`synthetic_code_rewrite` still has no source (see "Still missing" above) and keeps a smaller
+share until one exists.
+
+**M1** (60B): `executed_trajectories` 9.3% to 21%, new `verified_trajectories` 8%,
+`tool_use` 4%, `chat` 2%; paid for by `issue_pr_sequences` 37.9% to 28.4%,
+`connected_repositories` 18.6% to 13% and `base_replay` 18.6% to 8%.
+
+**M2** (40B): `verified_trajectories` 46.5% to 49%, new `executed_trajectories` 8%,
+`tool_use` 7%, `chat` 2%; paid for by `grounded_artifacts` 18.6% to 9% and `base_replay`
+14% to 4.05%.
+
+**LC** (20B): new `executed_trajectories` 10%, `verified_trajectories` 10%, `tool_use` 5%;
+paid for by `long_verified_dependencies` 47.5% to 40%, `long_natural_code_replay` 23.75% to
+10% and `mixed_quality_episodes` 23.75% to 20%.
+
+**S** (2B scored positions): `verified_successful_multiturn` 57% to 46%, new `tool_use`
+6% and `chat` 5%, `typed_exact_instructions` 9.5% to 14%; `natural_document_replay`
+4.75% to 2%, `tested_artifacts` 9.5% to 8%.
+
+### Unique tokens against planned exposure
+
+The plan only helps if the data exists. "Unique tokens" is what the pinned sources hold
+after their filters (a lower bound on what can be prepared; the first-run caps below
+prepare far less). "Planned" is the share times the phase budget. The last column says how
+many times each unique token would be seen if the plan ran as written; above about 4 it
+is time to find more data or lower the share.
+
+| Stream | Unique tokens (B) | P1 | M1 | M2 | LC | Planned total (B) | Times each token is seen |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| executed_trajectories | 47.2 | 68.0 | 12.6 | 3.2 | 2.0 | 85.8 | 1.8x |
+| verified_trajectories | 20.9 | 20.0 | 4.8 | 19.6 | 2.0 | 46.4 | 2.2x |
+| tool_use | 13.0 | 24.0 | 2.4 | 2.8 | 1.0 | 30.2 | 2.3x |
+| chat | 10.2 | 32.0 | 1.2 | 0.8 | - | 34.0 | 3.3x |
+| synthetic_reasoning | 23.1 | 40.0 | - | - | - | 40.0 | 1.7x |
+| mixed_quality_episodes | 12.0 | - | - | - | 4.0 | 4.0 | 0.3x |
+| environment_trajectories | 0.1 | 0.4 | - | - | - | 0.4 | 4.0x |
+
+S (scored positions, not tokens): `recovery_clarification` plans 0.28B positions from a
+source of about 7M tokens (When2Call), roughly 40 passes over the same 15,000 rows. That is
+the worst mismatch in the plan; the stream needs generated or collected recovery
+episodes. `typed_exact_instructions` has about 0.28B tokens against 0.28B positions
+planned. `verified_successful_multiturn` re-reads the same pinned verified sets as
+`verified_trajectories` through second manifest entries (`s-verified-*`), so it adds no
+unique tokens.
+
+Gated sources that need the maintainer's click (next section) would add about 12B tokens
+of chat. Exposure of the chat stream drops to about 1.5x if they are accepted and prepared.
+
+### How rows become episodes
+
+One adapter profile per data shape (`PROFILES` in `data/adapters.py`); converters for the
+tool-call spellings live in `data/dialects.py` and all return the same Anthropic-style
+blocks (`tool_use` and `tool_result`), so one pairing routine decides which call a result
+answers. Calls are assistant records; every tool result is its own `tool` record that is
+never trained on. Policy masks fall only on assistant turns the source marks as trained
+(or all assistant turns when it marks none), never on a result, a system prompt or a user.
+
+| Profile | Shape it reads | Used for |
+| --- | --- | --- |
+| `open_swe` | OpenAI chat messages with `tool_calls` and `tool` replies | Open-SWE, Nemotron SWE sets, SWE-Hero, ReBench, CoderForge, SWE-Gym |
+| `orchard_swe` | the same, with Orchard's metadata | Orchard |
+| `openhands_xml` | calls written as `<function=...>` blocks in assistant text | R2E-Gym, SWE-Dev, SWE-smith |
+| `swe_agent_fenced`, `mini_swe_agent` | an action in a fenced code block, result in the next user turn | Nebius SWE-agent, SWE-smith variants |
+| `codeact_agent` | `<execute>` blocks | CodeActInstruct |
+| `agent_trove`, `nemotron_terminal` | JSON batches of terminal keystrokes | AgentTrove, Nemotron-Terminal |
+| `nemotron_agentic_v4` | OpenAI tool-calling messages with a tool list | Nemotron agentic sets, ToolMind |
+| `hermes_tools` | `<tool_call>` / `<tool_response>` tags in text | Hermes function calling |
+| `python_call_tools` | `[f(a=1)]` call text, or Dolci's separate `function_calls` field | ToolACE, Dolci |
+| `glaive_tools` | Glaive's `SYSTEM:/USER:/ASSISTANT:/FUNCTION RESPONSE:` text dump | Glaive function calling |
+| `xlam_calls` | a query, a tool list and the expected calls (no result) | xLAM |
+| `simulated_tool_roles`, `mcp_tools` | `function_call` / `observation` or `tool_call` / `tool_response` roles | APIGen-MT, Toucan |
+| `react_agent` | Thought/Action replies and environment replies as turns | AgentInstruct, AgentBank, AgentTraj-L, Agent-FLAN |
+| `turn_pairs` | input/output pairs per turn | Capybara |
+| `chat`, `artifact` | plain messages, or a prompt and a response | the rest |
+
+Rules that apply everywhere:
+
+- **Executed or simulated.** Each profile states whether tool results came from running
+  something (`executed`), or from a model playing the tool (`simulated`), or are
+  unknown. APIGen-MT, Glaive, Hermes, ToolACE, xLAM, Dolci and Nemotron agentic tool sets
+  are simulated; Toucan calls were executed against real MCP servers; SWE and terminal
+  traces are executed. Agent-FLAN states nothing, so it is `unknown`. The training
+  engine's executed-observation requirement is switched on for the SWE and terminal
+  sources only.
+- **Structured results.** A tool result that arrives as an object or list is stored as
+  canonical JSON, with the transformation recorded as `canonical-json-v1`.
+- **Strict pairing.** A result must answer exactly one earlier call. Call IDs are used where
+  the source has them; sources without IDs set `positional_call_ids`, which pairs results
+  to calls in order. A reused ID, an orphan result or an answer to no call rejects the row.
+- **Withheld prompts.** A row whose first user turn is null or empty is rejected with
+  "a source that withholds prompts must be restored first" instead of training on a
+  conversation with its question missing.
+- **Tool schemas.** Null fields and Python type names (`str`, `List[float]`, `"int, optional"`)
+  in tool definitions are cleaned to JSON Schema; unusable ones reject only that row.
+
+#### Outcome labels
+
+| Label | When it is used | Verification recorded | Streams it may enter |
+| --- | --- | --- | --- |
+| success, `publisher_tests` | the source records a passing hidden test and we kept only passing rows (row filter) | the publisher's tests | `verified_trajectories`, `verified_successful_multiturn` |
+| success, `publisher_curated` | the whole release is the publisher's kept, successful runs but carries no per-row verdict (`assume_outcome: "success"`) | curated, not verified | `executed_trajectories` only |
+| failure or success, `publisher_tests` | the source records a mix (Open-SWE-Traces) | the publisher's tests | `executed_trajectories`; failed turns need explicit recovery masks |
+| unknown | the source says nothing | none | allowed in `executed_trajectories` only when `admit_unknown_outcome` is set (AgentTrove, Nemotron-Terminal); chat and tool use do not need an outcome |
+
+A curated release is never relabelled as verified, so the engine's refusal of unverified
+episodes in the verified streams still protects them.
+
+### Sources by stream
+
+First-run caps count rows read from the start of the pinned data (before filters), so
+filtered sources carry larger caps: roughly 17% of Nebius SWE-agent rows, 48% of ReBench
+rows, 43% of each SWE-smith variant, 8% of SWE-Gym rows and 70% of Orchard rows pass
+their filters. "Unique tokens" is for the whole filtered source, not the cap.
+
+#### executed_trajectories
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `open-swe-traces` | `nvidia/Open-SWE-Traces` (v1.2) | cc-by-4.0 | 800 | 3B |
+| `agent-trove-terminus2` | `open-thoughts/AgentTrove` | apache-2.0 | 3,000 | 20B |
+| `nemotron-terminal-easy` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_easy) | cc-by-4.0 | 1,000 | 350M |
+| `nemotron-terminal-medium` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_medium) | cc-by-4.0 | 1,500 | 1.2B |
+| `nemotron-terminal-mixed` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_mixed) | cc-by-4.0 | 500 | 30M |
+| `nemotron-swe-v3` | `nvidia/Nemotron-SFT-SWE-v3` | cc-by-4.0 | 800 | 12B |
+| `nemotron-swe-v2-openhands` | `nvidia/Nemotron-SFT-SWE-v2` | cc-by-4.0 | 500 | 3.2B |
+| `nemotron-swe-v35-opencode` | `nvidia/Nemotron-SFT-SWE-v3.5` | cc-by-4.0 | 500 | 250M |
+| `nemotron-swe-v1-r2e` | `nvidia/Nemotron-SWE-v1` | cc-by-4.0 | 500 | 3B |
+| `swe-hero` | `nvidia/SWE-Hero-openhands-trajectories` | cc-by-4.0 | 500 | 2.5B |
+| `swe-smith-mini` | `Kwai-Klear/SWE-smith-mini_swe_agent_plus-trajectories-66k` | mit | 500 | 1.3B |
+| `r2egym-sft` | `R2E-Gym/R2EGym-SFT-Trajectories` | none on the card | 800 | 60M |
+| `swe-dev` | `zai-org/SWE-Dev-train` | none on the card | 500 | 250M |
+| `codeact-instruct` | `xingyaoww/code-act` | apache-2.0 | 3,000 | 10M |
+
+#### mixed_quality_episodes
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `swe-zero-openhands` | `nvidia/SWE-Zero-openhands-trajectories` | cc-by-4.0 | 500 | 12B |
+
+#### verified_trajectories
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `orchard-swe-verified` | `microsoft/Orchard` (swe) | mit | 1,400 | 7B |
+| `coderforge-reward1` | `togethercomputer/CoderForge-Preview` (trajectories) | per row (Apache-2.0 in the sampled rows); none on the card | 1,000 | 9B |
+| `rebench-openhands` | `nebius/SWE-rebench-openhands-trajectories` | cc-by-4.0 | 2,000 | 3.2B |
+| `swe-agent-nebius` | `nebius/SWE-agent-trajectories` | cc-by-4.0 | 6,000 | 250M |
+| `swe-smith-tool` | `SWE-bench/SWE-smith-trajectories` (tool) | mit | 1,200 | 500M |
+| `swe-smith-xml` | `SWE-bench/SWE-smith-trajectories` (xml) | mit | 1,200 | 500M |
+| `swe-smith-ticks` | `SWE-bench/SWE-smith-trajectories` (ticks) | mit | 1,200 | 450M |
+| `swegym-sampled` | `SWE-Gym/OpenHands-Sampled-Trajectories` | none on the card | 6,055 | 20M |
+
+#### tool_use
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `nemotron-agentic-v4-tools` | `nvidia/Nemotron-SFT-Agentic-v4` (default) | openmdw-1.1 | 3,000 | 1.5B |
+| `nemotron-agentic-v4-knowledge` | `nvidia/Nemotron-SFT-Agentic-v4` (default) | openmdw-1.1 | 1,500 | 1B |
+| `nemotron-agentic-v1-tools` | `nvidia/Nemotron-Agentic-v1` | cc-by-4.0 | 3,000 | 1.4B |
+| `nemotron-agentic-v1-interactive` | `nvidia/Nemotron-Agentic-v1` | cc-by-4.0 | 2,000 | 110M |
+| `nemotron-agentic-v2-tools` | `nvidia/Nemotron-SFT-Agentic-v2` | cc-by-4.0 | 3,000 | 3.7B |
+| `nemotron-agentic-v2-interactive` | `nvidia/Nemotron-SFT-Agentic-v2` | cc-by-4.0 | 2,000 | 1.5B |
+| `nemotron-agentic-v2-search` | `nvidia/Nemotron-SFT-Agentic-v2` | cc-by-4.0 | 1,500 | 150M |
+| `nemotron-pt-v1-tool-calling` | `nvidia/Nemotron-Post-Training-Dataset-v1` | cc-by-4.0 | 3,000 | 1.6B |
+| `toucan-sft` | `Agent-Ark/Toucan-1.5M` (SFT) | apache-2.0 | 3,000 | 340M |
+| `hermes-reasoning-tool-use` | `interstellarninja/hermes_reasoning_tool_use` | apache-2.0 | 5,000 | 100M |
+| `toolmind-graphsyn` | `Nanbeige/ToolMind` | apache-2.0 | 5,000 | 600M |
+| `hermes-func-calling` | `NousResearch/hermes-function-calling-v1` | apache-2.0 | 3,000 | 7M |
+| `hermes-func-calling-single` | `NousResearch/hermes-function-calling-v1` | apache-2.0 | 3,000 | 5M |
+| `hermes-glaive-5k` | `NousResearch/hermes-function-calling-v1` | apache-2.0 | 3,000 | 5M |
+| `glaive-fc-v2` | `glaiveai/glaive-function-calling-v2` | apache-2.0 | 8,000 | 70M |
+| `toolace` | `Team-ACE/ToolACE` | apache-2.0 | 11,000 | 9M |
+| `xlam-60k` | `Salesforce/xlam-function-calling-60k` | cc-by-4.0 | 8,000 | 25M |
+| `apigen-mt-5k` | `Salesforce/APIGen-MT-5k` | cc-by-nc-4.0 | 5,000 | 35M |
+| `dolci-tool-use` | `allenai/Dolci-Instruct-SFT-Tool-Use` | odc-by | 4,000 | 650M |
+| `dolci-tool-use-sa` | `allenai/Dolci-Instruct-SFT-Tool-Use-SA` | cc-by-sa-4.0 | 2,000 | 100M |
+| `agent-flan-toolbench` | `internlm/Agent-FLAN` | apache-2.0 | 5,000 | 30M |
+| `orca-agentinstruct-tool-use` | `microsoft/orca-agentinstruct-1M-v1` | cdla-permissive-2.0 | 5,000 | 40M |
+
+#### recovery_clarification
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `when2call-sft` | `nvidia/When2Call` | cc-by-4.0 | 15,000 | 7M |
+
+#### environment_trajectories
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `agentinstruct-os` | `zai-org/AgentInstruct` | none on the card | 300 | 1M |
+| `agentinstruct-db` | `zai-org/AgentInstruct` | none on the card | 600 | 1M |
+| `agentinstruct-alfworld` | `zai-org/AgentInstruct` | none on the card | 400 | 1M |
+| `agentinstruct-webshop` | `zai-org/AgentInstruct` | none on the card | 400 | 1M |
+| `agentinstruct-kg` | `zai-org/AgentInstruct` | none on the card | 400 | 2M |
+| `agentinstruct-mind2web` | `zai-org/AgentInstruct` | none on the card | 200 | 1M |
+| `agenttraj-l` | `AgentGym/AgentTraj-L` | none on the card | 20,000 | 30M |
+| `agentbank-alfworld` | `Solaris99/AgentBank` (alfworld) | apache-2.0 | 4,000 | 3M |
+| `agentbank-webshop` | `Solaris99/AgentBank` (webshop) | apache-2.0 | 6,000 | 6M |
+| `agentbank-webarena` | `Solaris99/AgentBank` (webarena) | apache-2.0 | 700 | 2M |
+| `agentbank-mind2web` | `Solaris99/AgentBank` (mind2web) | apache-2.0 | 5,000 | 3M |
+| `agentbank-intercode-bash` | `Solaris99/AgentBank` (intercode_bash) | apache-2.0 | 500 | 0.2M |
+| `agentbank-intercode-sql` | `Solaris99/AgentBank` (intercode_sql) | apache-2.0 | 3,000 | 2M |
+| `agentbank-apps` | `Solaris99/AgentBank` (apps) | apache-2.0 | 5,000 | 3M |
+| `agentbank-hotpotqa` | `Solaris99/AgentBank` (hotpotqa) | apache-2.0 | 5,000 | 2M |
+| `agent-flan-agentinstruct` | `internlm/Agent-FLAN` | apache-2.0 | 5,000 | 2M |
+| `orca-agentinstruct-webagent` | `microsoft/orca-agentinstruct-1M-v1` | cdla-permissive-2.0 | 20,000 | 40M |
+
+#### chat
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `tulu3-sft-mixture` | `allenai/tulu-3-sft-mixture` | odc-by (mixture; some subsets are non-commercial) | 8,000 | 700M |
+| `openhermes-2.5` | `HuggingFaceTB/OpenHermes-2.5-H4` | none on the card (mixture of GPT-4 generated sets) | 8,000 | 450M |
+| `ultrachat-200k` | `HuggingFaceH4/ultrachat_200k` | mit | 8,000 | 350M |
+| `wildchat-4.8m` | `allenai/WildChat-4.8M` | odc-by | 8,000 | 2.5B |
+| `magpie-llama31-pro-1m` | `Magpie-Align/Magpie-Llama-3.1-Pro-1M-v0.1` | llama3.1 | 8,000 | 1B |
+| `magpie-qwen25-pro-1m` | `Magpie-Align/Magpie-Qwen2.5-Pro-1M-v0.1` | none on the card (Qwen2.5-72B-Instruct outputs) | 8,000 | 1B |
+| `slimorca-dedup` | `Open-Orca/SlimOrca-Dedup` | mit | 8,000 | 250M |
+| `capybara` | `LDJnr/Capybara` | apache-2.0 | 8,000 | 20M |
+| `no-robots` | `HuggingFaceH4/no_robots` | cc-by-nc-4.0 | 8,000 | 4M |
+| `dolly-15k` | `databricks/databricks-dolly-15k` | cc-by-sa-3.0 | 8,000 | 4M |
+| `openorca-gpt4` | `Open-Orca/OpenOrca` | mit | 8,000 | 450M |
+| `orca-agentinstruct-chat` | `microsoft/orca-agentinstruct-1M-v1` | cdla-permissive-2.0 | 8,000 | 500M |
+| `dolci-instruct-sft` | `allenai/Dolci-Instruct-SFT` | odc-by (mixture) | 8,000 | 1.8B |
+| `smol-smoltalk` | `HuggingFaceTB/smol-smoltalk` | apache-2.0 | 8,000 | 450M |
+| `chat-v3-instruction-following` | `nvidia/Nemotron-SFT-Instruction-Following-Chat-v3` (default) | odc-by / cc-by-4.0 / apache-2.0 (per card) | 8,000 | 800M |
+
+#### synthetic_reasoning
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `openthoughts3` | `open-thoughts/OpenThoughts3-1.2M` | apache-2.0 | 3,000 | 15B |
+| `miromind-m1-sft` | `miromind-ai/MiroMind-M1-SFT-719K` | apache-2.0 | 3,000 | 3B |
+| `bespoke-stratos-17k` | `bespokelabs/Bespoke-Stratos-17k` | apache-2.0 | 3,000 | 250M |
+| `numinamath-cot` | `AI-MO/NuminaMath-CoT` | apache-2.0 | 3,000 | 450M |
+| `am-thinking-other` | `a-m-team/AM-Thinking-v1-Distilled` | research use only (custom terms on the card) | 2,000 | 3.5B |
+| `am-thinking-multiturn` | `a-m-team/AM-Thinking-v1-Distilled` | research use only (custom terms on the card) | 2,000 | 900M |
+
+#### typed_exact_instructions
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `am-thinking-if` | `a-m-team/AM-Thinking-v1-Distilled` | research use only (custom terms on the card) | 2,000 | 280M |
+| `s-typed-xlam` | `Salesforce/xlam-function-calling-60k` | cc-by-4.0 | 2,000 | - |
+| `s-typed-toolace` | `Team-ACE/ToolACE` | apache-2.0 | 2,000 | - |
+| `s-typed-hermes` | `NousResearch/hermes-function-calling-v1` | apache-2.0 | 2,000 | - |
+| `s-typed-agentic-v4` | `nvidia/Nemotron-SFT-Agentic-v4` (default) | openmdw-1.1 | 1,500 | - |
+
+#### verified_successful_multiturn
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `s-verified-coderforge` | `togethercomputer/CoderForge-Preview` (trajectories) | per row (Apache-2.0 in the sampled rows); none on the card | 500 | - |
+| `s-verified-rebench` | `nebius/SWE-rebench-openhands-trajectories` | cc-by-4.0 | 1,000 | - |
+| `s-verified-swe-smith` | `SWE-bench/SWE-smith-trajectories` (tool) | mit | 1,000 | - |
+| `s-verified-orchard` | `microsoft/Orchard` (swe) | mit | 700 | - |
+
+### Sources that need the maintainer, and ones with withheld prompts
+
+`configs/data/sources.agentic-gated.json` holds six chat sources kept out of the main
+manifest because the first run cannot read them. They are fully pinned and recorded, so
+once the blocker is cleared they are added to a preparation run unchanged.
+
+| Source id | Dataset | Blocker |
+| --- | --- | --- |
+| `lmsys-chat-1m` | `lmsys/lmsys-chat-1m` | Gated: the token has not accepted the LMSYS-Chat-1M agreement (HTTP 403). Accept it on the dataset page. |
+| `infinity-instruct-7m`, `infinity-instruct-gen` | `BAAI/Infinity-Instruct` (configurations `7M` and `Gen`) | Gated: accept the terms on the dataset page (CC-BY-SA-4.0 once accepted). |
+| `nemotron-pt-v2-chat` | `nvidia/Nemotron-Post-Training-Dataset-v2` (split `chat`) | Gated: accept the terms on the dataset page (CC-BY-4.0 once accepted). |
+| `chat-v3-chat` | `nvidia/Nemotron-SFT-Instruction-Following-Chat-v3` (`data/chat.jsonl`, 17 GB) | The publisher withholds the first user turn of rows seeded from LMSYS-Chat-1M or WildChat-1M. `configs/cloud/restore-chat-v3-prompts.json` runs the publisher's restore script and writes a ready-to-use manifest, but it needs the LMSYS agreement accepted first. The restore job has not been run. |
+| `nemotron-pt-v1-chat` | `nvidia/Nemotron-Post-Training-Dataset-v1` (chat) | Every first user turn is empty (checked on the first file: 93,328 of 93,328 rows); the card says to restore them from LMSYS-Chat-1M and supplies no matching key. |
+
+Also behind terms the token has not accepted, and not used: `lmsys/chatbot_arena_conversations`,
+`cx-cmu/agent_trajectories` (content unknown) and `nvidia/Nemotron-Pretraining-SFT-v1`
+(manual approval, custom licence). `Salesforce/xlam-function-calling-60k` is auto-gated and
+the token already has access. `miromind-ai/MiroVerse-v0.1` is also accessible; it is
+non-commercial and was not needed.
+
+### Considered and not added
+
+- **Mind2Web and WebLINX raw releases**: page-element tasks, not conversations, and
+  non-commercial; the AgentInstruct and AgentBank conversions of Mind2Web are in.
+- **ToolBench / ToolLLaMA original**: one 2 GB JSON array that cannot be streamed, and the
+  mirrors found are either queries only or column-oriented. Agent-FLAN carries the
+  ToolBench conversations.
+- **OpenHermes-2.5 original**: a 1.9 GB JSON array; the Hugging Face parquet copy
+  (`HuggingFaceTB/OpenHermes-2.5-H4`) is used instead.
+- **Toucan, Kimi-K2, Qwen3 and OSS configurations**: each uses its generator's own call
+  syntax (Python-repr strings, a `function` role) rather than the standard one; only the
+  clean SFT configuration is in.
+- **Nemotron terminal `dataset_adapters` files** (code, math, swe): each file is one row
+  group over 2 GB uncompressed, which the streaming reader cannot decode; the skill-based
+  synthetic task configurations are used.
+- **Orchard `gui`**, AndroidControl and other screenshot sets: need images, not text.
+- **CC-Bench** (370 rows, Claude Code format), **Llama-Nemotron SFT chat** (input/output
+  shape) and **OpenThoughts-Agent** (a subset of AgentTrove): little or nothing new.
+- **Nemotron-Cascade-SFT-SWE and Nemotron-SFT-SWE-v2 agentless splits**: single-turn
+  patches, better placed in `synthetic_code_dialogue`; left for that stream.
+
+### Preparing the sources
+
+Preparation is single-threaded per process and dominated by sentence segmentation of long
+agent traces: about 25 KB of source text per second on SWE trajectories (3 to 8 s per
+150 KB trace). One process cannot prepare a useful amount, so
+`configs/cloud/prepare-agentic-mix.json` (one 16-CPU, 32 GiB sandbox, no GPU, nothing
+launches by itself) splits `sources.agentic.json` into `AGENTIC_SHARDS` (8) pieces with
+`scripts/scale_source_caps.py`, which assigns the costliest sources first to the lightest
+shard, and runs one `megatoken prepare --reject-invalid` per shard into
+`out/prepared/agentic-<i>`.
+
+Parser review decides whether a trajectory is usable, so it was checked end to end on real
+rows (a 15-source run of 20 to 40 rows each). Every agent trajectory was first held out in
+the review queue, for two reasons that are now fixed:
+
+- A row-level `language` column (Open-SWE-Traces has `language: python`) was handed to the
+  parser for every message, so system prompts, questions and answers were read as Python and
+  failed with `low_syntax_coverage`. In conversation profiles only a message's own hints and
+  the source options now set the language, file name or MIME type.
+- A terminal action written as `<think>...</think>` followed by a JSON call was parsed as one
+  JSON document. Only a payload that starts with `{` is treated as JSON now, and the terminal
+  adapter reads the call after the thinking block.
+
+Even then a long trajectory has hundreds of chunks and one prose-and-code chunk that the
+grammar reads badly would hold out the whole episode. `configs/data/parser-review.agentic.json`
+is the default review policy without `low_syntax_coverage`; the cloud job passes it with
+`--parser-review-config`. Every other fault (parser crashes, exhausted budgets, ambiguous
+chat framing) is still held out, and the chunk keeps its diagnostic on the record. The
+default policy for other manifests is unchanged. The language fix also applies to the
+pilot's `open-swe-v12` entry in `sources.open.json`, which was hit by it.
+
+With both fixes and the agentic review policy, a real preparation run over 8 of these
+sources (Open-SWE-Traces, Terminal-Corpus easy, Orchard, Nebius SWE-agent, CodeActInstruct,
+ToolACE, Toucan, Tulu 3; 3 to 30 rows each) accepted 62 episodes with about 233,000 tokens of
+executed transcript and 191,000 tokens in recorded passing runs. It held out one terminal row
+(`depth_budget_exhausted`, a genuine parser limit) and rejected 3 rows (one with too few
+scored positions, two ToolACE calls whose arguments are not Python literals).
+
+The manifest's caps are a first real run: about 364,000 rows read, about 1.5B tokens of
+prepared text (estimated at 4 bytes per token), roughly 8 hours of wall clock on 8
+processes. Caps count rows read before filters, so the filtered SWE sources carry large
+caps for few kept rows. To prepare more, set `AGENTIC_ROW_SCALE` (it multiplies every
+cap and keeps the leading rows identical, so a run at 0.25 is a quarter-length smoke test
+and a run at 8 reads eight times as many rows from the same pinned revisions). The sandbox's
+24-hour lifetime and ~0.5 MB/s uplink mean prepared roots should be collected from the
+sandbox, not rebuilt locally.
+
+Rows the adapters reject are counted and skipped (`--reject-invalid`). Expect rejects
+for: a missing or withheld first prompt, a tool call whose result is missing or reused,
+tool schemas that are not valid JSON Schema, and traces too short to score (fewer than
+16 scored positions for agent streams, 4 for the rest). About one row in twelve of
+CoderForge and APIGen-MT is rejected by the segmenter ("Parser diagnostic is outside the
+original source"); it is raised by the chunking step after the adapter has accepted the
+row, and has not been investigated.
+
+The earlier pilot entries for `open-swe-v12`, `agent-trove` and `terminal-corpus` in
+`sources.open.json` are left as they were. They lose many rows because they set neither
+`allow_pending_final_action` (traces that end on a call with no result) nor positional
+call IDs. The new manifest re-pins `open-swe-traces` and AgentTrove at the same revisions
+with those options. The pilot's `terminal-corpus` entry reads the `dataset_adapters`
+files, which the streaming reader cannot decode (see above), so the new manifest reads the
+skill-based configurations instead. Do not prepare both manifests for the same stream.
+
+### What was checked
+
+Each source was streamed from its pinned revision through its own adapter on its first
+12 rows (more for filtered sources; Nebius SWE-agent: 17 of 150 pass its filter, SWE-Gym:
+11 of 149 pass). All sources produced episodes for every row that passed its filter,
+with these exceptions: CoderForge 11 of 12 and APIGen-MT 11 of 12 (the segmenter message
+above), SWE-Gym 1 of 12 passing rows rejected (a reused tool call ID in the source), and
+the withheld-prompt sources moved to the gated manifest. Open-SWE-Traces produced 8
+passing and 4 failed trajectories out of 12; the failed ones keep their failed outcome and
+carry no training mask until a recovery mask is given. Offline, `tests/test_agentic_adapters.py`
+checks every dialect on tiny fixtures, and `tests/test_agentic_sources.py` builds a fixture
+row in each source's shape, runs the adapter named in the manifest, and checks the stream,
+masks, result provenance and outcome label.
+
+### Still missing for these streams
+
+- **recovery_clarification** has 7M unique tokens against 0.28B planned positions (about
+  40 passes); it needs more recovery data (failed-then-fixed runs, asking for missing
+  arguments).
+- **environment_trajectories** is only 0.1B tokens (4 passes in P1). It is deliberately a
+  small share.
+- **Executed tool results from real APIs.** Most tool-use results are simulated; only
+  Toucan's MCP calls were executed.
+- **Failure and recovery in SWE traces.** Only Open-SWE-Traces records failed runs;
+  everywhere else the failed attempts were already filtered out by the publisher.
+- **synthetic_code_rewrite** (above) remains unsourced.
+
 ## Freeze ancestry, deduplicate, then split
 
 Preparation spools normalized episodes and source cursors to SQLite. It performs

@@ -1,0 +1,31 @@
+{
+ "schema": "megatoken.cloud-job/1",
+ "id": "prepare-agentic-mix",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "resources": {
+  "cpu": "16",
+  "memory": "32Gi",
+  "gpu": 0
+ },
+ "lifetime_hours": 24,
+ "env": {
+  "AGENTIC_ROW_SCALE": "1",
+  "AGENTIC_SHARDS": "8"
+ },
+ "pip": [
+  "datasets>=3,<5",
+  "huggingface-hub>=0.28,<2",
+  "pyarrow",
+  "regex>=2024.11",
+  "tokenizers>=0.21,<1",
+  "zstandard>=0.23,<1"
+ ],
+ "command": [
+  "bash",
+  "-c",
+  "set -eo pipefail; export HF_TOKEN=\"$(cat \"$MEGATOKEN_CW_SECRETS/hf-token\")\"; mkdir -p /work/out/prepared /work/scratch; megatoken codec --output /work/codec | tee /work/out/prepared/codec.json; pids=(); for i in $(seq 0 $((AGENTIC_SHARDS-1))); do python scripts/scale_source_caps.py configs/data/sources.agentic.json /work/scratch/sources.agentic-$i.json --scale \"$AGENTIC_ROW_SCALE\" --shard \"$i/$AGENTIC_SHARDS\" | tee -a /work/out/prepared/shards.log; megatoken prepare --sources /work/scratch/sources.agentic-$i.json --output /work/out/prepared/agentic-$i --codec /work/codec --parser-review-config configs/data/parser-review.agentic.json --reject-invalid > /work/out/prepared/agentic-$i.log 2>&1 & pids+=($!); done; failed=0; for i in $(seq 0 $((AGENTIC_SHARDS-1))); do wait ${pids[$i]} || true; grep -q '\"complete\": true' /work/out/prepared/agentic-$i/manifest.json || { echo \"shard $i did not finish\"; tail -5 /work/out/prepared/agentic-$i.log; failed=1; }; done; exit $failed"
+ ],
+ "outputs": [
+  "out/prepared"
+ ]
+}

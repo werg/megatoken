@@ -179,6 +179,10 @@ def iter_source_rows(
         }
         if source.files:
             kwargs["data_files"] = {source.split: [item.path for item in source.files]}
+        if source.options.get("read_batch_rows"):
+            # Parquet rows that are megabytes long overflow Arrow's 2 GiB list offsets when read
+            # in the file's own (large) batches; a smaller batch reads the same rows.
+            kwargs["batch_size"] = int(source.options["read_batch_rows"])
         dataset = load_dataset(**kwargs)
         # datasets 4.8.5 Arrow skip can repeat fully skipped Parquet row groups.
         # Count actual emitted rows so persisted logical cursors stay exact.

@@ -1,0 +1,3317 @@
+{
+  "schema_version": 1,
+  "metadata_checked_at": "2026-10-22",
+  "sources": [
+    {
+      "source_id": "open-swe-traces",
+      "uri": "hf://datasets/nvidia/Open-SWE-Traces",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "executed_trajectories",
+      "revision": "1db674173119d71df45c22007af99e214600711a",
+      "subset": "v1.2",
+      "split": "openhands",
+      "max_rows": 800,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Open-SWE-Traces",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Open-SWE-Traces",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Group by repository and instance_id across versions. resolved=1 is publisher-tested; failed turns need explicit recovery masks. Preserve raw tools and call IDs."
+    },
+    {
+      "source_id": "agent-trove-terminus2",
+      "uri": "hf://datasets/open-thoughts/AgentTrove",
+      "format": "hf",
+      "adapter": "agent_trove",
+      "stream": "executed_trajectories",
+      "revision": "b395a4307a2bc9950a90dc899438f149e115fc60",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/open-thoughts/AgentTrove",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "id": [
+          "trajectory_id",
+          "trial_name",
+          "sandbox_id"
+        ],
+        "task": [
+          "task_id",
+          "task_name"
+        ],
+        "family": [
+          "task_id",
+          "task_name",
+          "trial_name"
+        ],
+        "outcome": "reward"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "admit_unknown_outcome": true,
+        "read_batch_rows": 32,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/open-thoughts/AgentTrove",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Read original messages, never Marin-rendered gold outcome labels. reward is publisher outcome, not uniformly hidden-test verification. Terminus-2 actions are parsed as complete JSON batches."
+    },
+    {
+      "source_id": "nemotron-terminal-easy",
+      "uri": "hf://datasets/nvidia/Nemotron-Terminal-Corpus",
+      "format": "hf",
+      "adapter": "nemotron_terminal",
+      "stream": "executed_trajectories",
+      "revision": "a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9",
+      "subset": "skill_based_easy",
+      "split": "train",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "task": [
+          "task",
+          "task_id",
+          "run_id"
+        ],
+        "family": [
+          "task",
+          "task_id"
+        ],
+        "messages": "conversations"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Skill-based synthetic terminal tasks (easy); the dataset_adapters configuration is not used because each of its files is one row group over 2 GB, which the streaming reader cannot decode."
+    },
+    {
+      "source_id": "nemotron-terminal-medium",
+      "uri": "hf://datasets/nvidia/Nemotron-Terminal-Corpus",
+      "format": "hf",
+      "adapter": "nemotron_terminal",
+      "stream": "executed_trajectories",
+      "revision": "a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9",
+      "subset": "skill_based_medium",
+      "split": "train",
+      "max_rows": 1500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "task": [
+          "task",
+          "task_id",
+          "run_id"
+        ],
+        "family": [
+          "task",
+          "task_id"
+        ],
+        "messages": "conversations"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Skill-based synthetic terminal tasks (medium); the dataset_adapters configuration is not used because each of its files is one row group over 2 GB, which the streaming reader cannot decode."
+    },
+    {
+      "source_id": "nemotron-terminal-mixed",
+      "uri": "hf://datasets/nvidia/Nemotron-Terminal-Corpus",
+      "format": "hf",
+      "adapter": "nemotron_terminal",
+      "stream": "executed_trajectories",
+      "revision": "a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9",
+      "subset": "skill_based_mixed",
+      "split": "train",
+      "max_rows": 500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "task": [
+          "task",
+          "task_id",
+          "run_id"
+        ],
+        "family": [
+          "task",
+          "task_id"
+        ],
+        "messages": "conversations"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Skill-based synthetic terminal tasks (mixed); the dataset_adapters configuration is not used because each of its files is one row group over 2 GB, which the streaming reader cannot decode."
+    },
+    {
+      "source_id": "nemotron-swe-v3",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-SWE-v3",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "executed_trajectories",
+      "revision": "3f73de64c1fe928a8f538fe45ccc10c228cc4c6a",
+      "subset": null,
+      "split": "train",
+      "max_rows": 800,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-SWE-v3",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0, plus Apache-2.0, MIT, BSD-3 and BSD-2 for repository content; OpenHands, SWE-agent and mini-SWE-agent harnesses; Qwen3-Coder-480B generated."
+      },
+      "field_map": {
+        "family": [
+          "instance_id",
+          "uuid"
+        ]
+      },
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-SWE-v3",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Curated for SFT by the publisher without a per-row outcome label: recorded as publisher_curated success, never as verified. reasoning_content is not imported."
+    },
+    {
+      "source_id": "nemotron-swe-v2-openhands",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-SWE-v2",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "executed_trajectories",
+      "revision": "bd151f3f2d89c4804dda0083d912bd9f6a0a9fb7",
+      "subset": null,
+      "split": "train",
+      "max_rows": 500,
+      "files": [
+        {
+          "path": "data/swe.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-SWE-v2",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0, plus Apache-2.0, MIT, BSD-3 and BSD-2 for repository content; Qwen3-Coder-480B generated."
+      },
+      "field_map": {
+        "family": [
+          "metadata.instance_id",
+          "metadata.uuid",
+          "uuid"
+        ]
+      },
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-SWE-v2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Only data/swe.jsonl (the agentic half); the agentless half is a separate source."
+    },
+    {
+      "source_id": "nemotron-swe-v35-opencode",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-SWE-v3.5",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "executed_trajectories",
+      "revision": "ad64129216649f86179a759a6df65d0975c5df07",
+      "subset": null,
+      "split": "train",
+      "max_rows": 500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-SWE-v3.5",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0, plus Apache-2.0, MIT, BSD-3 and BSD-2 for repository content; OpenCode harness."
+      },
+      "field_map": {
+        "family": [
+          "uuid"
+        ]
+      },
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-SWE-v3.5",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "nemotron-swe-v1-r2e",
+      "uri": "hf://datasets/nvidia/Nemotron-SWE-v1",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "executed_trajectories",
+      "revision": "0fe17a965b297a9c943a59050a14c42d5f0083ce",
+      "subset": null,
+      "split": "train",
+      "max_rows": 500,
+      "files": [
+        {
+          "path": "data/r2e_gym.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SWE-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "family": [
+          "repo",
+          "uuid"
+        ]
+      },
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SWE-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swe-hero",
+      "uri": "hf://datasets/nvidia/SWE-Hero-openhands-trajectories",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "executed_trajectories",
+      "revision": "150bc119e52c647216fce285fd801f16b6fd745b",
+      "subset": null,
+      "split": "train",
+      "max_rows": 500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/SWE-Hero-openhands-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "messages": "trajectory",
+        "family": [
+          "instance_id"
+        ]
+      },
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/SWE-Hero-openhands-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swe-zero-openhands",
+      "uri": "hf://datasets/nvidia/SWE-Zero-openhands-trajectories",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "mixed_quality_episodes",
+      "revision": "7b3cd106d00f60918e722d33a1d74bc67072a7ea",
+      "subset": null,
+      "split": "train",
+      "max_rows": 500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/SWE-Zero-openhands-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "messages": "trajectory",
+        "family": [
+          "instance_id"
+        ]
+      },
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/SWE-Zero-openhands-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swe-smith-mini",
+      "uri": "hf://datasets/Kwai-Klear/SWE-smith-mini_swe_agent_plus-trajectories-66k",
+      "format": "hf",
+      "adapter": "mini_swe_agent",
+      "stream": "executed_trajectories",
+      "revision": "750b2c11239fd5e32f97e6cfb9bf80fb9a9a2983",
+      "subset": null,
+      "split": "train",
+      "max_rows": 500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/Kwai-Klear/SWE-smith-mini_swe_agent_plus-trajectories-66k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT."
+      },
+      "field_map": {
+        "family": "instance_id"
+      },
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Kwai-Klear/SWE-smith-mini_swe_agent_plus-trajectories-66k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "r2egym-sft",
+      "uri": "hf://datasets/R2E-Gym/R2EGym-SFT-Trajectories",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "executed_trajectories",
+      "revision": "63ab4eb37668f8be0104133c21d896bedbcf8404",
+      "subset": null,
+      "split": "train",
+      "max_rows": 800,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/R2E-Gym/R2EGym-SFT-Trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card; R2E-Gym itself is Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/R2E-Gym/R2EGym-SFT-Trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swe-dev",
+      "uri": "hf://datasets/zai-org/SWE-Dev-train",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "executed_trajectories",
+      "revision": "5888e5864886590ead78a69b6e60490a0d89a594",
+      "subset": null,
+      "split": "sft",
+      "max_rows": 500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/zai-org/SWE-Dev-train",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card."
+      },
+      "field_map": {
+        "messages": "input"
+      },
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/zai-org/SWE-Dev-train",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "codeact-instruct",
+      "uri": "hf://datasets/xingyaoww/code-act",
+      "format": "hf",
+      "adapter": "codeact_agent",
+      "stream": "executed_trajectories",
+      "revision": "afba34367a8609a1d0044eded531548ab71a58cf",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "data/codeact-00000-of-00001-41e65239aebc832c.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/xingyaoww/code-act",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "assume_outcome": "success",
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/xingyaoww/code-act",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "orchard-swe-verified",
+      "uri": "hf://datasets/microsoft/Orchard",
+      "format": "hf",
+      "adapter": "orchard_swe",
+      "stream": "verified_trajectories",
+      "revision": "70c05ec1f20f823ae6adc60374922e9271bb74e2",
+      "subset": "swe",
+      "split": "train",
+      "max_rows": 1400,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/microsoft/Orchard",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "metadata.verify_status",
+            "op": "eq",
+            "value": "resolved"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/microsoft/Orchard",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Only the resolved rollouts (the patch passed the hidden test suite); the gui subset holds screenshots and is not text."
+    },
+    {
+      "source_id": "coderforge-reward1",
+      "uri": "hf://datasets/togethercomputer/CoderForge-Preview",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "verified_trajectories",
+      "revision": "060fca96cf723b2ebab3181e9e59fafd273df3cb",
+      "subset": "trajectories",
+      "split": "filtered_reward1",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "per row (Apache-2.0 in the sampled rows); none on the card",
+        "license_url": "https://huggingface.co/datasets/togethercomputer/CoderForge-Preview",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "The card names no licence; each row carries its own license field (Apache-2.0 in the rows sampled)."
+      },
+      "field_map": {
+        "outcome": "reward",
+        "family": "trajectory_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/togethercomputer/CoderForge-Preview",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "rebench-openhands",
+      "uri": "hf://datasets/nebius/SWE-rebench-openhands-trajectories",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "verified_trajectories",
+      "revision": "35455389ab51bf5e2306bfd436ef72d0f98bf882",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0; Qwen3-Coder-480B generated."
+      },
+      "field_map": {
+        "messages": "trajectory",
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swe-agent-nebius",
+      "uri": "hf://datasets/nebius/SWE-agent-trajectories",
+      "format": "hf",
+      "adapter": "swe_agent_fenced",
+      "stream": "verified_trajectories",
+      "revision": "68195a1450865274106246d0d0296a1d6807b88e",
+      "subset": null,
+      "split": "train",
+      "max_rows": 6000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nebius/SWE-agent-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "row_filters": [
+          {
+            "path": "target",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nebius/SWE-agent-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swe-smith-tool",
+      "uri": "hf://datasets/SWE-bench/SWE-smith-trajectories",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "verified_trajectories",
+      "revision": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4",
+      "subset": "tool",
+      "split": "train",
+      "max_rows": 1200,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT."
+      },
+      "field_map": {
+        "outcome": "resolved",
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swe-smith-xml",
+      "uri": "hf://datasets/SWE-bench/SWE-smith-trajectories",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "verified_trajectories",
+      "revision": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4",
+      "subset": "xml",
+      "split": "train",
+      "max_rows": 1200,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT."
+      },
+      "field_map": {
+        "outcome": "resolved",
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swe-smith-ticks",
+      "uri": "hf://datasets/SWE-bench/SWE-smith-trajectories",
+      "format": "hf",
+      "adapter": "swe_agent_fenced",
+      "stream": "verified_trajectories",
+      "revision": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4",
+      "subset": "ticks",
+      "split": "train",
+      "max_rows": 1200,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT."
+      },
+      "field_map": {
+        "messages": "messages",
+        "outcome": "resolved",
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "swegym-sampled",
+      "uri": "hf://datasets/SWE-Gym/OpenHands-Sampled-Trajectories",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "verified_trajectories",
+      "revision": "baf3a4e4bff514d48ddc08a93a2ade5c126212c7",
+      "subset": null,
+      "split": "train.raw",
+      "max_rows": 6055,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/SWE-Gym/OpenHands-Sampled-Trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card; SWE-Gym itself is MIT."
+      },
+      "field_map": {
+        "outcome": "resolved",
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/SWE-Gym/OpenHands-Sampled-Trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "nemotron-agentic-v4-tools",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-Agentic-v4",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "a4593a26ea83a700035bbe0ec1edc9ef3810669d",
+      "subset": "default",
+      "split": "tool_calling",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "openmdw-1.1",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: OpenMDW-1.1."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Synthetic/simulated observations are separate from executed provenance. Knowledge backend/document corpus is not provided."
+    },
+    {
+      "source_id": "nemotron-agentic-v4-knowledge",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-Agentic-v4",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "a4593a26ea83a700035bbe0ec1edc9ef3810669d",
+      "subset": "default",
+      "split": "knowledge_agent",
+      "max_rows": 1500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "openmdw-1.1",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: OpenMDW-1.1."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Synthetic/simulated observations are separate from executed provenance. Knowledge backend/document corpus is not provided."
+    },
+    {
+      "source_id": "nemotron-agentic-v1-tools",
+      "uri": "hf://datasets/nvidia/Nemotron-Agentic-v1",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "650d590978ca35c8f1ecea2faf136e5fac421b62",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "data/tool_calling.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Agentic-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0 (Apache-2.0 for the Glaive-derived part). Simulated user, agent and tool backend."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Agentic-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "nemotron-agentic-v1-interactive",
+      "uri": "hf://datasets/nvidia/Nemotron-Agentic-v1",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "650d590978ca35c8f1ecea2faf136e5fac421b62",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "data/interactive_agent.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Agentic-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0. Simulated user, agent and tool backend."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Agentic-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "nemotron-agentic-v2-tools",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-Agentic-v2",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "7c804833427f633ccd53b582dbf02525fd680f78",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "data/tool_calling.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "nemotron-agentic-v2-interactive",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-Agentic-v2",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "7c804833427f633ccd53b582dbf02525fd680f78",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "data/interactive_agent.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "nemotron-agentic-v2-search",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-Agentic-v2",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "7c804833427f633ccd53b582dbf02525fd680f78",
+      "subset": null,
+      "split": "train",
+      "max_rows": 1500,
+      "files": [
+        {
+          "path": "data/search.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "nemotron-pt-v1-tool-calling",
+      "uri": "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "74e23eb6f830fef4a9e96a92f6f6262214cbb9a8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "data/tool-00000-of-00013.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "toucan-sft",
+      "uri": "hf://datasets/Agent-Ark/Toucan-1.5M",
+      "format": "hf",
+      "adapter": "mcp_tools",
+      "stream": "tool_use",
+      "revision": "0df3cf37f2abefb380370cfb02eabea2a35ae782",
+      "subset": "SFT",
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Agent-Ark/Toucan-1.5M",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0. Calls were executed against real MCP servers."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Agent-Ark/Toucan-1.5M",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "hermes-reasoning-tool-use",
+      "uri": "hf://datasets/interstellarninja/hermes_reasoning_tool_use",
+      "format": "hf",
+      "adapter": "hermes_tools",
+      "stream": "tool_use",
+      "revision": "c27e454925db6295b160d20ad8a756aa75bfdb77",
+      "subset": null,
+      "split": "train",
+      "max_rows": 5000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/interstellarninja/hermes_reasoning_tool_use",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0. Hermes-format tool use with reasoning, simulated tool responses."
+      },
+      "field_map": {
+        "family": "task"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/interstellarninja/hermes_reasoning_tool_use",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "toolmind-graphsyn",
+      "uri": "hf://datasets/Nanbeige/ToolMind",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "tool_use",
+      "revision": "8020ed1c03c367e4eb720ac3828ab4b0b95d8baf",
+      "subset": null,
+      "split": "train",
+      "max_rows": 5000,
+      "files": [
+        {
+          "path": "graph_syn_datasets/graphsyn.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Nanbeige/ToolMind",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0. Function-graph synthesized user, assistant and tool simulation with turn-level filtering."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Nanbeige/ToolMind",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "hermes-func-calling",
+      "uri": "hf://datasets/NousResearch/hermes-function-calling-v1",
+      "format": "hf",
+      "adapter": "hermes_tools",
+      "stream": "tool_use",
+      "revision": "dae3e1d28cfbcf4b915c04ea1e072030529b4bda",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "func-calling.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "hermes-func-calling-single",
+      "uri": "hf://datasets/NousResearch/hermes-function-calling-v1",
+      "format": "hf",
+      "adapter": "hermes_tools",
+      "stream": "tool_use",
+      "revision": "dae3e1d28cfbcf4b915c04ea1e072030529b4bda",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "func-calling-singleturn.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "hermes-glaive-5k",
+      "uri": "hf://datasets/NousResearch/hermes-function-calling-v1",
+      "format": "hf",
+      "adapter": "hermes_tools",
+      "stream": "tool_use",
+      "revision": "dae3e1d28cfbcf4b915c04ea1e072030529b4bda",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "glaive-function-calling-5k.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "glaive-fc-v2",
+      "uri": "hf://datasets/glaiveai/glaive-function-calling-v2",
+      "format": "hf",
+      "adapter": "glaive_tools",
+      "stream": "tool_use",
+      "revision": "e7f4b6456019f5d8bcb991ef0dd67d8ff23221ac",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "glaive-function-calling-v2.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "toolace",
+      "uri": "hf://datasets/Team-ACE/ToolACE",
+      "format": "hf",
+      "adapter": "python_call_tools",
+      "stream": "tool_use",
+      "revision": "6bda777c88d21e5a204703c1ee45597a8fa4f734",
+      "subset": null,
+      "split": "train",
+      "max_rows": 11000,
+      "files": [
+        {
+          "path": "data.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Team-ACE/ToolACE",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Team-ACE/ToolACE",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "xlam-60k",
+      "uri": "hf://datasets/Salesforce/xlam-function-calling-60k",
+      "format": "hf",
+      "adapter": "xlam_calls",
+      "stream": "tool_use",
+      "revision": "26d14ebfe18b1f7b524bd39b404b50af5dc97866",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "xlam_function_calling_60k.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0 (auto-gated: the token already has access). Queries with their calls and no executed results."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "apigen-mt-5k",
+      "uri": "hf://datasets/Salesforce/APIGen-MT-5k",
+      "format": "hf",
+      "adapter": "simulated_tool_roles",
+      "stream": "tool_use",
+      "revision": "abc4a517d67c541f85f6470cbd8fd3186b36830e",
+      "subset": null,
+      "split": "train",
+      "max_rows": 5000,
+      "files": [
+        {
+          "path": "apigen-mt_5k.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-nc-4.0",
+        "license_url": "https://huggingface.co/datasets/Salesforce/APIGen-MT-5k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY-NC 4.0 (non-commercial); simulated human and tool backends."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Salesforce/APIGen-MT-5k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "dolci-tool-use",
+      "uri": "hf://datasets/allenai/Dolci-Instruct-SFT-Tool-Use",
+      "format": "hf",
+      "adapter": "python_call_tools",
+      "stream": "tool_use",
+      "revision": "dc042846f0f2de0f15eedae3d6ced04223ed47eb",
+      "subset": null,
+      "split": "train",
+      "max_rows": 4000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by",
+        "license_url": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT-Tool-Use",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card text: licensed ODC-BY, for research and educational use under Ai2's responsible use guidelines."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT-Tool-Use",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "dolci-tool-use-sa",
+      "uri": "hf://datasets/allenai/Dolci-Instruct-SFT-Tool-Use-SA",
+      "format": "hf",
+      "adapter": "python_call_tools",
+      "stream": "tool_use",
+      "revision": "21456eced24a739c062e9a117ebdc6c3c05da448",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-sa-4.0",
+        "license_url": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT-Tool-Use-SA",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY-SA 4.0 (share-alike)."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT-Tool-Use-SA",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "when2call-sft",
+      "uri": "hf://datasets/nvidia/When2Call",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "recovery_clarification",
+      "revision": "0582f7749df63a96fdc3070932e83e72396ace53",
+      "subset": null,
+      "split": "train",
+      "max_rows": 15000,
+      "files": [
+        {
+          "path": "train/when2call_train_sft.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/When2Call",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/When2Call",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentinstruct-os",
+      "uri": "hf://datasets/zai-org/AgentInstruct",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "e252cf78ced8a0ea5f62cfd591784cdbbddbac8a",
+      "subset": null,
+      "split": "os",
+      "max_rows": 300,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentinstruct-db",
+      "uri": "hf://datasets/zai-org/AgentInstruct",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "e252cf78ced8a0ea5f62cfd591784cdbbddbac8a",
+      "subset": null,
+      "split": "db",
+      "max_rows": 600,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentinstruct-alfworld",
+      "uri": "hf://datasets/zai-org/AgentInstruct",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "e252cf78ced8a0ea5f62cfd591784cdbbddbac8a",
+      "subset": null,
+      "split": "alfworld",
+      "max_rows": 400,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentinstruct-webshop",
+      "uri": "hf://datasets/zai-org/AgentInstruct",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "e252cf78ced8a0ea5f62cfd591784cdbbddbac8a",
+      "subset": null,
+      "split": "webshop",
+      "max_rows": 400,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentinstruct-kg",
+      "uri": "hf://datasets/zai-org/AgentInstruct",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "e252cf78ced8a0ea5f62cfd591784cdbbddbac8a",
+      "subset": null,
+      "split": "kg",
+      "max_rows": 400,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentinstruct-mind2web",
+      "uri": "hf://datasets/zai-org/AgentInstruct",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "e252cf78ced8a0ea5f62cfd591784cdbbddbac8a",
+      "subset": null,
+      "split": "mind2web",
+      "max_rows": 200,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/zai-org/AgentInstruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agenttraj-l",
+      "uri": "hf://datasets/AgentGym/AgentTraj-L",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "cb518f5359f0b635a6b8c0c5cbf0469939a927c7",
+      "subset": null,
+      "split": "train",
+      "max_rows": 20000,
+      "files": [
+        {
+          "path": "alfworld_train.json"
+        },
+        {
+          "path": "babyai_train.json"
+        },
+        {
+          "path": "lmrlgym_maze_train.json"
+        },
+        {
+          "path": "lmrlgym_wordle_train.json"
+        },
+        {
+          "path": "sciworld_train.json"
+        },
+        {
+          "path": "sqlgym_train.json"
+        },
+        {
+          "path": "textcraft_train.json"
+        },
+        {
+          "path": "tool_movie_train.json"
+        },
+        {
+          "path": "tool_todo_train.json"
+        },
+        {
+          "path": "tool_weather_train.json"
+        },
+        {
+          "path": "webshop_train.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the dataset card",
+        "license_url": "https://huggingface.co/datasets/AgentGym/AgentTraj-L",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card; AgentGym is MIT on GitHub."
+      },
+      "field_map": {
+        "family": "item_id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/AgentGym/AgentTraj-L",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentbank-alfworld",
+      "uri": "hf://datasets/Solaris99/AgentBank",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "6d718ff70e64b6c82236b839075763a4d5187180",
+      "subset": "alfworld",
+      "split": "train",
+      "max_rows": 4000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Solaris99/AgentBank",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentbank-webshop",
+      "uri": "hf://datasets/Solaris99/AgentBank",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "6d718ff70e64b6c82236b839075763a4d5187180",
+      "subset": "webshop",
+      "split": "train",
+      "max_rows": 6000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Solaris99/AgentBank",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentbank-webarena",
+      "uri": "hf://datasets/Solaris99/AgentBank",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "6d718ff70e64b6c82236b839075763a4d5187180",
+      "subset": "webarena",
+      "split": "train",
+      "max_rows": 700,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Solaris99/AgentBank",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentbank-mind2web",
+      "uri": "hf://datasets/Solaris99/AgentBank",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "6d718ff70e64b6c82236b839075763a4d5187180",
+      "subset": "mind2web",
+      "split": "train",
+      "max_rows": 5000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Solaris99/AgentBank",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentbank-intercode-bash",
+      "uri": "hf://datasets/Solaris99/AgentBank",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "6d718ff70e64b6c82236b839075763a4d5187180",
+      "subset": "intercode_bash",
+      "split": "train",
+      "max_rows": 500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Solaris99/AgentBank",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentbank-intercode-sql",
+      "uri": "hf://datasets/Solaris99/AgentBank",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "6d718ff70e64b6c82236b839075763a4d5187180",
+      "subset": "intercode_sql",
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Solaris99/AgentBank",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentbank-apps",
+      "uri": "hf://datasets/Solaris99/AgentBank",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "6d718ff70e64b6c82236b839075763a4d5187180",
+      "subset": "apps",
+      "split": "train",
+      "max_rows": 5000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Solaris99/AgentBank",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agentbank-hotpotqa",
+      "uri": "hf://datasets/Solaris99/AgentBank",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "6d718ff70e64b6c82236b839075763a4d5187180",
+      "subset": "hotpotqa",
+      "split": "train",
+      "max_rows": 5000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Solaris99/AgentBank",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agent-flan-agentinstruct",
+      "uri": "hf://datasets/internlm/Agent-FLAN",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "8b25999e795a58b264fcb51e8746edb2faee9161",
+      "subset": null,
+      "split": "train",
+      "max_rows": 5000,
+      "files": [
+        {
+          "path": "data/agent_instruct_react.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "messages": "conversation",
+        "family": "id"
+      },
+      "options": {
+        "observation_provenance": "unknown",
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/internlm/Agent-FLAN",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "agent-flan-toolbench",
+      "uri": "hf://datasets/internlm/Agent-FLAN",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "tool_use",
+      "revision": "8b25999e795a58b264fcb51e8746edb2faee9161",
+      "subset": null,
+      "split": "train",
+      "max_rows": 5000,
+      "files": [
+        {
+          "path": "data/toolbench_tflan_60p_r10r5u7.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN."
+      },
+      "field_map": {
+        "messages": "conversation",
+        "family": "id"
+      },
+      "options": {
+        "observation_provenance": "unknown",
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/internlm/Agent-FLAN",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "tulu3-sft-mixture",
+      "uri": "hf://datasets/allenai/tulu-3-sft-mixture",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "b14afda60f1bbebe55d5d2fa1e4df5042f97f8be",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by (mixture; some subsets are non-commercial)",
+        "license_url": "https://huggingface.co/datasets/allenai/tulu-3-sft-mixture",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: ODC-BY-1.0 for the collection; different licences apply to subsets and some portions are non-commercial (for example No Robots, CC-BY-NC-4.0)."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/tulu-3-sft-mixture",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "openhermes-2.5",
+      "uri": "hf://datasets/HuggingFaceTB/OpenHermes-2.5-H4",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "fc0677f7a22faca3de3cd82a99406f3207e7a061",
+      "subset": null,
+      "split": "train_sft",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the card (mixture of GPT-4 generated sets)",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceTB/OpenHermes-2.5-H4",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Hugging Face's re-upload of teknium/OpenHermes-2.5 as messages (the original is one 1.9 GB JSON array that cannot be streamed); neither card names a licence."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceTB/OpenHermes-2.5-H4",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "ultrachat-200k",
+      "uri": "hf://datasets/HuggingFaceH4/ultrachat_200k",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "8049631c405ae6576f93f445c6b8166f76f5505a",
+      "subset": null,
+      "split": "train_sft",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT; ChatGPT generated."
+      },
+      "field_map": {
+        "family": "prompt_id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "wildchat-4.8m",
+      "uri": "hf://datasets/allenai/WildChat-4.8M",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "c827c6df8fcf008219ffaffa4d1dd77491099367",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by",
+        "license_url": "https://huggingface.co/datasets/allenai/WildChat-4.8M",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: ODC-BY. Real user conversations with GPT models; the toxic ones are filtered out here."
+      },
+      "field_map": {
+        "messages": "conversation",
+        "family": "conversation_hash"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "toxic",
+            "op": "eq",
+            "value": false
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/WildChat-4.8M",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "magpie-llama31-pro-1m",
+      "uri": "hf://datasets/Magpie-Align/Magpie-Llama-3.1-Pro-1M-v0.1",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "c09b89226af769a2d134ab1e579f21dacafb39f6",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "llama3.1",
+        "license_url": "https://huggingface.co/datasets/Magpie-Align/Magpie-Llama-3.1-Pro-1M-v0.1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: follow the Meta Llama 3.1 Community License (outputs of Llama-3.1-70B-Instruct)."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Magpie-Align/Magpie-Llama-3.1-Pro-1M-v0.1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "magpie-qwen25-pro-1m",
+      "uri": "hf://datasets/Magpie-Align/Magpie-Qwen2.5-Pro-1M-v0.1",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "f5016129bee9db9c93e260f008c71834c36e20eb",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "not stated on the card (Qwen2.5-72B-Instruct outputs)",
+        "license_url": "https://huggingface.co/datasets/Magpie-Align/Magpie-Qwen2.5-Pro-1M-v0.1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card; outputs of Qwen2.5-72B-Instruct, so the Qwen licence terms may follow."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Magpie-Align/Magpie-Qwen2.5-Pro-1M-v0.1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "slimorca-dedup",
+      "uri": "hf://datasets/Open-Orca/SlimOrca-Dedup",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "bd7d445aa1ff695fb7e223bf3b5b321e075f244e",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/Open-Orca/SlimOrca-Dedup",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT; GPT-4 completions of FLAN prompts."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Open-Orca/SlimOrca-Dedup",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "capybara",
+      "uri": "hf://datasets/LDJnr/Capybara",
+      "format": "hf",
+      "adapter": "turn_pairs",
+      "stream": "chat",
+      "revision": "c2bc39ac72f24748f60f5fb55b77e08fb0660ba6",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "CapybaraPure_Decontaminated.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/LDJnr/Capybara",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/LDJnr/Capybara",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "no-robots",
+      "uri": "hf://datasets/HuggingFaceH4/no_robots",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "e6f9a4ac5c37faeb744ba9ecf0473184d7f8105b",
+      "subset": null,
+      "split": "train_sft",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-nc-4.0",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceH4/no_robots",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY-NC 4.0 (non-commercial); human written."
+      },
+      "field_map": {
+        "family": "prompt_id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceH4/no_robots",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "dolly-15k",
+      "uri": "hf://datasets/databricks/databricks-dolly-15k",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "chat",
+      "revision": "bdd27f4d94b9c1f951818a7da7fd7aeea5dbff1a",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "databricks-dolly-15k.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-sa-3.0",
+        "license_url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY-SA 3.0 (share-alike); human written by Databricks employees."
+      },
+      "field_map": {
+        "prompt": "instruction",
+        "target": "response",
+        "document": "context"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/databricks/databricks-dolly-15k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "openorca-gpt4",
+      "uri": "hf://datasets/Open-Orca/OpenOrca",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "chat",
+      "revision": "e9c87b4abb2609913751f9b26553fdb9c061796c",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "1M-GPT4-Augmented.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/Open-Orca/OpenOrca",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT; GPT-4 completions of FLAN prompts."
+      },
+      "field_map": {
+        "prompt": "question",
+        "target": "response",
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Open-Orca/OpenOrca",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "orca-agentinstruct-chat",
+      "uri": "hf://datasets/microsoft/orca-agentinstruct-1M-v1",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "86d609183249ff8037eae33d76ebca3af9390ea8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "data/analytical_reasoning-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/brain_teaser-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/creative_content-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/fermi-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/fs_cot_flow-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/mcq-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/rag-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/rc-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/struct2text_flow-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/text_classification-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/text_extraction-00000-of-00001.parquet"
+        },
+        {
+          "path": "data/text_modification-00000-of-00001.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cdla-permissive-2.0",
+        "license_url": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "orca-agentinstruct-tool-use",
+      "uri": "hf://datasets/microsoft/orca-agentinstruct-1M-v1",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "tool_use",
+      "revision": "86d609183249ff8037eae33d76ebca3af9390ea8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 5000,
+      "files": [
+        {
+          "path": "data/tool_use-00000-of-00001.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cdla-permissive-2.0",
+        "license_url": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "orca-agentinstruct-webagent",
+      "uri": "hf://datasets/microsoft/orca-agentinstruct-1M-v1",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "environment_trajectories",
+      "revision": "86d609183249ff8037eae33d76ebca3af9390ea8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 20000,
+      "files": [
+        {
+          "path": "data/webagent_flow-00000-of-00001.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cdla-permissive-2.0",
+        "license_url": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "dolci-instruct-sft",
+      "uri": "hf://datasets/allenai/Dolci-Instruct-SFT",
+      "format": "hf",
+      "adapter": "python_call_tools",
+      "stream": "chat",
+      "revision": "bd3c8f3a9b2cc5a9682e44b96ddd0bb2ff027221",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by (mixture)",
+        "license_url": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: ODC-BY; a mixture whose parts keep their own terms (see the Olmo 3 data cards)."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "smol-smoltalk",
+      "uri": "hf://datasets/HuggingFaceTB/smol-smoltalk",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "f73fe857d519ff6ac5af2ea67c4d3834da7b8bcc",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceTB/smol-smoltalk",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceTB/smol-smoltalk",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "chat-v3-instruction-following",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
+      "format": "hf",
+      "adapter": "nemotron_chat",
+      "stream": "chat",
+      "revision": "be3b3e04ef605ac9d3f8f35b9d5a632f4a3a3402",
+      "subset": "default",
+      "split": "instruction_following",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by / cc-by-4.0 / apache-2.0 (per card)",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: ODC-By, CC BY 4.0 and Apache-2.0 apply to different parts."
+      },
+      "field_map": {
+        "mask": "metadata.train_turns"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Version 4 was withdrawn from the Hub. Only the instruction_following split: the chat split withholds its LMSYS and WildChat seed prompts (null content). Trains only the turns metadata.train_turns marks."
+    },
+    {
+      "source_id": "openthoughts3",
+      "uri": "hf://datasets/open-thoughts/OpenThoughts3-1.2M",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "61bcf9d4eb38b30295efc2021227a63cc5bb34c8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/open-thoughts/OpenThoughts3-1.2M",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0; QwQ-32B reasoning traces."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/open-thoughts/OpenThoughts3-1.2M",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "miromind-m1-sft",
+      "uri": "hf://datasets/miromind-ai/MiroMind-M1-SFT-719K",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "synthetic_reasoning",
+      "revision": "0cfe6100fef757a885b521e2255178a7e742eece",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/miromind-ai/MiroMind-M1-SFT-719K",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "prompt": "question",
+        "target": "response",
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/miromind-ai/MiroMind-M1-SFT-719K",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "bespoke-stratos-17k",
+      "uri": "hf://datasets/bespokelabs/Bespoke-Stratos-17k",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "9e9adba943911a9fc44dffcb30aaa18dc96ae6df",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/bespokelabs/Bespoke-Stratos-17k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/bespokelabs/Bespoke-Stratos-17k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "numinamath-cot",
+      "uri": "hf://datasets/AI-MO/NuminaMath-CoT",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "9d8d210c9f6a36c8f3cd84045668c9b7800ef517",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/AI-MO/NuminaMath-CoT",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/AI-MO/NuminaMath-CoT",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "am-thinking-other",
+      "uri": "hf://datasets/a-m-team/AM-Thinking-v1-Distilled",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "186b575b5cc2113f8ba81d4f4ac9ae2494633829",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "other.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "research use only (custom terms on the card)",
+        "license_url": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "am-thinking-multiturn",
+      "uri": "hf://datasets/a-m-team/AM-Thinking-v1-Distilled",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "186b575b5cc2113f8ba81d4f4ac9ae2494633829",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "multiturn.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "research use only (custom terms on the card)",
+        "license_url": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "am-thinking-if",
+      "uri": "hf://datasets/a-m-team/AM-Thinking-v1-Distilled",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "typed_exact_instructions",
+      "revision": "186b575b5cc2113f8ba81d4f4ac9ae2494633829",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "if.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "research use only (custom terms on the card)",
+        "license_url": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "s-verified-coderforge",
+      "uri": "hf://datasets/togethercomputer/CoderForge-Preview",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "verified_successful_multiturn",
+      "revision": "060fca96cf723b2ebab3181e9e59fafd273df3cb",
+      "subset": "trajectories",
+      "split": "filtered_reward1",
+      "max_rows": 500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "per row (Apache-2.0 in the sampled rows); none on the card",
+        "license_url": "https://huggingface.co/datasets/togethercomputer/CoderForge-Preview",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "The card names no licence; each row carries its own license field (Apache-2.0 in the rows sampled)."
+      },
+      "field_map": {
+        "outcome": "reward",
+        "family": "trajectory_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/togethercomputer/CoderForge-Preview",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "s-verified-rebench",
+      "uri": "hf://datasets/nebius/SWE-rebench-openhands-trajectories",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "verified_successful_multiturn",
+      "revision": "35455389ab51bf5e2306bfd436ef72d0f98bf882",
+      "subset": null,
+      "split": "train",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0; Qwen3-Coder-480B generated."
+      },
+      "field_map": {
+        "messages": "trajectory",
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "s-verified-swe-smith",
+      "uri": "hf://datasets/SWE-bench/SWE-smith-trajectories",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "verified_successful_multiturn",
+      "revision": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4",
+      "subset": "tool",
+      "split": "train",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT."
+      },
+      "field_map": {
+        "outcome": "resolved",
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "s-verified-orchard",
+      "uri": "hf://datasets/microsoft/Orchard",
+      "format": "hf",
+      "adapter": "orchard_swe",
+      "stream": "verified_successful_multiturn",
+      "revision": "70c05ec1f20f823ae6adc60374922e9271bb74e2",
+      "subset": "swe",
+      "split": "train",
+      "max_rows": 700,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/microsoft/Orchard",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: MIT."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "metadata.verify_status",
+            "op": "eq",
+            "value": "resolved"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/microsoft/Orchard",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Only the resolved rollouts (the patch passed the hidden test suite); the gui subset holds screenshots and is not text."
+    },
+    {
+      "source_id": "s-typed-xlam",
+      "uri": "hf://datasets/Salesforce/xlam-function-calling-60k",
+      "format": "hf",
+      "adapter": "xlam_calls",
+      "stream": "typed_exact_instructions",
+      "revision": "26d14ebfe18b1f7b524bd39b404b50af5dc97866",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "xlam_function_calling_60k.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0 (auto-gated: the token already has access). Queries with their calls and no executed results."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "s-typed-toolace",
+      "uri": "hf://datasets/Team-ACE/ToolACE",
+      "format": "hf",
+      "adapter": "python_call_tools",
+      "stream": "typed_exact_instructions",
+      "revision": "6bda777c88d21e5a204703c1ee45597a8fa4f734",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "data.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Team-ACE/ToolACE",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Team-ACE/ToolACE",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "s-typed-hermes",
+      "uri": "hf://datasets/NousResearch/hermes-function-calling-v1",
+      "format": "hf",
+      "adapter": "hermes_tools",
+      "stream": "typed_exact_instructions",
+      "revision": "dae3e1d28cfbcf4b915c04ea1e072030529b4bda",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "func-calling-singleturn.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "s-typed-agentic-v4",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-Agentic-v4",
+      "format": "hf",
+      "adapter": "nemotron_agentic_v4",
+      "stream": "typed_exact_instructions",
+      "revision": "a4593a26ea83a700035bbe0ec1edc9ef3810669d",
+      "subset": "default",
+      "split": "tool_calling",
+      "max_rows": 1500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "openmdw-1.1",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: OpenMDW-1.1."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Synthetic/simulated observations are separate from executed provenance. Knowledge backend/document corpus is not provided."
+    }
+  ]
+}

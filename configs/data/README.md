@@ -43,3 +43,9 @@ versioned evaluation set before production preparation.
 (licences read from each dataset card, recorded in `terms`, approval left to the maintainer);
 the cloud job `configs/cloud/prepare-open-mix.json` prepares them together with the open
 media datasets. See "Open-licence pilot mix" in [`docs/data.md`](../../docs/data.md).
+
+`sources.agentic.json` holds the agent-trajectory, tool-use, chat and reasoning sources (any
+licence, each recorded); `sources.agentic-gated.json` holds the ones that need the
+maintainer to accept terms on the Hub or restore withheld prompts first. The cloud job
+`configs/cloud/prepare-agentic-mix.json` prepares the first in eight shards, scaled with
+`AGENTIC_ROW_SCALE`. See "Agentic and chat data" in [`docs/data.md`](../../docs/data.md).

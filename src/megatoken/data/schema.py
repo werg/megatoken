@@ -8,6 +8,7 @@ decoded source-field bytes, not character offsets in a JSON transport file.
 from __future__ import annotations
 
 import base64
+import datetime
 import hashlib
 import json
 import math
@@ -36,9 +37,21 @@ class Codec(Protocol):
     def decode(self, ids: Sequence[int]) -> bytes: ...
 
 
+def _json_default(value: Any) -> str:
+    # Columnar sources deliver timestamps as datetimes; the ISO form is their canonical text.
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
 def canonical_json(value: Any) -> str:
     return json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+        default=_json_default,
     )
 
 
@@ -842,7 +855,10 @@ def make_records(
             payload,
             codec,
             policy,
-            content_kind="json" if action_id is not None else content_kind,
+            # A native call is a JSON object; an action written as prose around a call is not.
+            content_kind="json"
+            if action_id is not None and payload.lstrip().startswith(b"{")
+            else content_kind,
             language=language,
             filename=filename,
             mime_type=mime_type,

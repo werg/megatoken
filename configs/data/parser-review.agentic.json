@@ -1,0 +1,32 @@
+{
+  "enabled": true,
+  "review_incomplete_syntax": false,
+  "review_recovered_syntax": false,
+  "review_unknown_languages": false,
+  "hard_codes": [
+    "native_parser_error",
+    "native_parser_timeout",
+    "native_parser_crash",
+    "native_parser_exception",
+    "parser_worker_error",
+    "parser_worker_timeout",
+    "parser_worker_crash",
+    "parser_output_invalid",
+    "invalid_parser_evidence",
+    "parser_provider_not_serializable",
+    "invalid_injection_range",
+    "crossing_protected_regions",
+    "document_parser_error",
+    "document_parser_unavailable",
+    "icu_refinement_failed",
+    "chat_ambiguous_template",
+    "chat_unknown_template",
+    "chat_unrecognized_header",
+    "chat_unframed_tail",
+    "chat_frame_limit",
+    "chat_missing_dependency_ids",
+    "mandatory_boundary_crosses_token",
+    "mandatory_token_crossing",
+    "parser_budget_exhausted"
+  ]
+}
