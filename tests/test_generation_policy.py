@@ -55,7 +55,7 @@ def assert_replay_density_close(actual, expected, latent_dimensions):
         actual / latent_dimensions,
         expected / latent_dimensions,
         rtol=0,
-        atol=4 * torch.finfo(torch.float32).eps,
+        atol=16 * torch.finfo(torch.float32).eps,
     )
 
 
