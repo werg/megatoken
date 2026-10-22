@@ -47,6 +47,11 @@ jobs:
         run: |
           python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
           python -m pip install -e '.[train,data,dev]'
+      - name: Diagnose v10 formatting
+        run: |
+          echo TRANSducer_FORMAT_BEGIN
+          python -m ruff format --diff src/megatoken/memory/transducer*.py src/megatoken/model/transducer.py src/megatoken/model/attention.py src/megatoken/model/blocks.py src/megatoken/model/core.py src/megatoken/model/multitrack.py src/megatoken/model/config.py src/megatoken/training/transducer*.py tests/test_transducer.py || true
+          echo TRANSducer_FORMAT_END
       - name: Lint and validate shell entrypoints
         run: |
           python -m ruff check src tests scripts
