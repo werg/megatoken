@@ -212,3 +212,23 @@ def test_jsonl_converter_never_labels_diagnostic_episodes_admitted(tmp_path):
     assert episode.stream == "semantic_execution"
     assert episode.supervision.outcome == "unknown"
     assert all(b"private" not in record.payload for record in episode.records)
+
+
+def test_native_preparation_preserves_semantic_groups_and_exact_target_bytes():
+    from megatoken.data.adapters import AdapterContext, adapt_row
+
+    episode, _ = adapt_semantic_execution(fixture(), allow_local=True)
+    context = AdapterContext(
+        source_id="tracer",
+        revision="pinned-v1",
+        uri="local://semantic-execution",
+        stream="semantic_execution",
+        options={"preserve_native_stream": True},
+        codec=ByteCodec.byte_fallback(),
+    )
+    prepared = adapt_row(episode.to_dict(), "native", context)
+    assert prepared.stream == "semantic_execution"
+    assert prepared.meridians == episode.meridians
+    assert prepared.dependencies == episode.dependencies
+    assert [x.payload for x in prepared.records] == [x.payload for x in episode.records]
+    assert prepared.supervision.outcome == "unknown"
