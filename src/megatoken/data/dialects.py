@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import json
+import keyword
 import re
 from collections import deque
 from collections.abc import Callable, Mapping
@@ -126,7 +127,11 @@ _TAGGED = {
 def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     """``<tool_call>{json}</tool_call>`` in assistant text, ``<tool_response>`` results."""
     ledger, out = _Ledger(), []
-    for turn, message in enumerate(_messages(value)):
+    messages = _messages(value)
+    system = row.get("system_prompt", row.get("system"))
+    if isinstance(system, str) and system.strip() and role_of(messages[0]) != "system":
+        out.append({"role": "system", "content": system})  # a prompt kept outside the turns
+    for turn, message in enumerate(messages):
         role, text = role_of(message), _text(message)
         if role == "assistant" and "<tool_call>" in text:
             # With one capture group the split alternates prose, call, prose, call, ...
@@ -142,7 +147,13 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
                 else:
                     blocks += _blocks(piece, [])
             out.append({**message, "role": "assistant", "content": blocks})
-        elif role == "tool" and "<tool_response>" in text:
+        elif (role == "tool" and "<tool_response>" in text) or (
+            # Qwen-style templates deliver results as a user turn made of response blocks only.
+            role == "user"
+            and ledger.pending
+            and text.lstrip().startswith("<tool_response>")
+            and not _TAGGED["response"].sub("", text).strip()
+        ):
             bodies = _TAGGED["response"].findall(text)
             ids = ledger.answer(len(bodies))
             results = [_result(i, body) for i, body in zip(ids, bodies, strict=True)]
@@ -176,30 +187,72 @@ def _split_top(text: str, separators: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
-_CALL = re.compile(r"^([^()=\[\]]+?)\s*\((.*)\)$", re.DOTALL)
 _LOOKS_LIKE_CALLS = re.compile(r"^\[\s*[\w .\-/:]+\(")
+# Tool names with other characters (``Q&A Notifications``): a call only if every call parses.
+_RELAXED_CALLS = re.compile(r"^\[\s*[^\[\]=()]+\(")
+
+
+_JSON_NAMES = {"true": True, "false": False, "null": None}
+_KEYWORD_PREFIX = "kw__"
+_KEYWORD_ARG = re.compile(r"(?<![\w\"'])(" + "|".join(keyword.kwlist) + r")\s*=(?!=)")
+
+
+class _JsonNames(ast.NodeTransformer):
+    """Some sets write JSON's ``true``/``false``/``null`` inside Python call syntax."""
+
+    def visit_Name(self, node: ast.Name) -> ast.AST:
+        if node.id in _JSON_NAMES:
+            return ast.copy_location(ast.Constant(_JSON_NAMES[node.id]), node)
+        return node
 
 
 def _python_call(segment: str) -> tuple[str, dict[str, Any]]:
-    match = _CALL.match(segment.strip())
-    if match is None:
+    """``name(a=1, b="x")``; a tool name may itself contain parentheses (``Feed (Video) V2(a=1)``),
+    so each ``(`` is tried as the start of the arguments, leftmost first."""
+    text = segment.strip()
+    failed = None
+    if text.endswith(")"):
+        for start, char in enumerate(text):
+            name = text[:start].strip()
+            if char != "(" or not name or any(c in name for c in "=[]"):
+                continue
+            try:
+                source = text[start + 1 : -1]
+                try:
+                    tree = ast.parse(f"f({source})", mode="eval").body
+                except SyntaxError:
+                    # Parameters named after Python keywords (``from=``, ``in=``) are legal here.
+                    renamed = _KEYWORD_ARG.sub(lambda m: f"{_KEYWORD_PREFIX}{m.group(1)}=", source)
+                    tree = ast.parse(f"f({renamed})", mode="eval").body
+                if tree.args or any(k.arg is None for k in tree.keywords):
+                    raise ValueError("arguments must all be keyword=value")
+                return name, {
+                    k.arg.removeprefix(_KEYWORD_PREFIX): ast.literal_eval(
+                        _JsonNames().visit(k.value)
+                    )
+                    for k in tree.keywords
+                }
+            except (SyntaxError, ValueError, MemoryError, RecursionError):
+                failed = failed or name
+    if failed is None:
         raise SchemaError("A call must look like name(argument=value, ...)")
-    name, source = match.group(1).strip(), match.group(2)
-    try:
-        tree = ast.parse(f"f({source})", mode="eval").body
-        if not isinstance(tree, ast.Call) or tree.args or any(k.arg is None for k in tree.keywords):
-            raise SchemaError("Call arguments must all be keyword=value")
-        return name, {k.arg: ast.literal_eval(k.value) for k in tree.keywords}
-    except (SyntaxError, ValueError, MemoryError, RecursionError) as exc:
-        raise SchemaError(f"Call arguments are not literals: {name}(...)") from exc
+    raise SchemaError(f"Call arguments are not literals: {failed}(...)")
 
 
 def _bracketed_calls(text: str) -> list[tuple[str, dict[str, Any]]] | None:
     """``[f(a=1), g(b=2)]`` as the whole text; None when the text is ordinary prose."""
     stripped = text.strip()
-    if not (stripped.endswith("]") and _LOOKS_LIKE_CALLS.match(stripped)):
+    if not (stripped.endswith("]") and stripped.startswith("[")):
         return None
-    return [_python_call(segment) for segment in _split_top(stripped[1:-1], ",")]
+    strict = _LOOKS_LIKE_CALLS.match(stripped) is not None
+    if not strict and _RELAXED_CALLS.match(stripped) is None:
+        return None
+    try:
+        return [_python_call(segment) for segment in _split_top(stripped[1:-1], ",")]
+    except SchemaError:
+        if strict:
+            raise
+        return None  # bracketed prose that merely looks like a call
 
 
 def _line_calls(text: str) -> list[tuple[str, dict[str, Any]]]:
@@ -240,7 +293,7 @@ def python_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
         calls, prose = None, text
         if role == "assistant":
             field = message.get("function_calls")
-            if isinstance(field, str) and field.strip():
+            if isinstance(field, str) and field.strip() not in {"", "null", "None"}:
                 calls = _line_calls(field)
             elif (calls := _bracketed_calls(text)) is not None:
                 prose = ""  # the content is the call syntax itself
@@ -516,7 +569,74 @@ def prompt_completion(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any
     return [*_messages(value), *completion], row.get("tools")
 
 
+def _harmony_text(message: Mapping[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(block.get("text") or "" for block in content if isinstance(block, Mapping))
+
+
+def _harmony_tools(messages: list[Mapping[str, Any]]) -> list[dict[str, Any]] | None:
+    """Function schemas declared by the system message's tool namespaces, named ``namespace.tool``."""
+    tools = []
+    for message in messages:
+        if message.get("role") != "system" or not isinstance(message.get("content"), list):
+            continue
+        for block in message["content"]:
+            namespaces = block.get("tools") if isinstance(block, Mapping) else None
+            for space, spec in (namespaces or {}).items():
+                for tool in (spec or {}).get("tools") or ():
+                    tools.append(
+                        {
+                            "name": f"{space}.{tool['name']}",
+                            "description": tool.get("description") or "",
+                            "parameters": tool.get("parameters") or {"type": "object"},
+                        }
+                    )
+    return tools or None
+
+
+def harmony(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """OpenAI harmony conversations (gpt-oss traces): messages with ``channel``, ``recipient`` and
+    ``content`` as a list of text blocks.
+
+    An assistant message addressed to a tool (``recipient`` ``browser.search``) is a call whose
+    text is the JSON arguments; the next ``tool`` message is its result. Analysis and final
+    channels are ordinary assistant text; a system message that only configures channels and
+    tool namespaces carries no text and is dropped (its tools are returned).
+    """
+    messages = _messages(value)
+    ledger, out = _Ledger(), []
+    for turn, message in enumerate(messages):
+        role, text = role_of(message), _harmony_text(message)
+        recipient = message.get("recipient")
+        if (
+            role == "assistant"
+            and isinstance(recipient, str)
+            and recipient not in {"", "all", "assistant"}
+        ):
+            try:
+                arguments = json.loads(text)
+            except json.JSONDecodeError:
+                arguments = None
+            if not isinstance(arguments, dict):
+                arguments = {"input": text}
+            (call_id,) = ledger.issue(turn, 1)
+            out.append({"role": "assistant", "content": [_use(call_id, recipient, arguments)]})
+        elif role == "tool":
+            if not ledger.pending:
+                raise SchemaError("A tool message answers no pending call")
+            # Parallel calls come one message each; their results follow in the same order.
+            out.append({"role": "tool", "content": [_result(ledger.pending.popleft(), text)]})
+        elif text.strip():
+            out.append({"role": role, "content": text})
+    return out, _harmony_tools(messages)
+
+
 DIALECTS: dict[str, Dialect] = {
+    "harmony": harmony,
     "hermes": hermes,
     "python_calls": python_calls,
     "role_calls": role_calls,

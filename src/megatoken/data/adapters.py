@@ -197,6 +197,8 @@ PROFILES: dict[str, AdapterProfile] = {
     # Tool dialogues with an LLM-simulated tool backend.
     "hermes_tools": AdapterProfile(observation_provenance="simulated", dialect="hermes"),
     "python_call_tools": AdapterProfile(observation_provenance="simulated", dialect="python_calls"),
+    # gpt-oss traces of a browsing agent whose search and page tools really ran.
+    "harmony_tools": AdapterProfile(observation_provenance="executed", dialect="harmony"),
     "glaive_tools": AdapterProfile(
         observation_provenance="simulated",
         dialect="glaive",

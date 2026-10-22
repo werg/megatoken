@@ -8,9 +8,9 @@ import pytest
 
 from megatoken.data.parsing import registry
 from megatoken.data.parsing.documents import scan_markdown, scan_markup_fallback
-from megatoken.data.parsing.engine import SourceView, parse_content
-from megatoken.data.parsing.syntax import scan_syntax
-from megatoken.data.parsing.types import ParseLimits
+from megatoken.data.parsing.engine import SourceView, _Engine, parse_content
+from megatoken.data.parsing.syntax import Scan, scan_syntax
+from megatoken.data.parsing.types import Diagnostic, ParseLimits, ParseResult
 
 LIMITS = ParseLimits(isolate_native=False)
 
@@ -335,6 +335,20 @@ def test_source_views_compose_without_decoding_or_dropping_original_coordinates(
     assert child.position(7, end=True) == 12
     with pytest.raises(ValueError, match="sorted, disjoint"):
         view.subview(((2, 5), (1, 3)))
+
+
+def test_an_empty_diagnostic_at_a_seam_between_source_ranges_stays_inside_the_source():
+    # A grammar's inserted missing token in JavaScript inside quoted HTML sits exactly at the seam
+    # between two ranges; it used to map to a start after its end and reject the whole tool result.
+    payload = b"> abc\r\n> def\r\n"
+    view = SourceView.original(payload).subview(((2, 7), (9, 14)))
+    engine = _Engine(payload, LIMITS, "fallback", None, False, None)
+    scan = Scan(
+        ParseResult(diagnostics=[Diagnostic("missing_syntax", 5, 5, "tree_sitter:javascript", ";")])
+    )
+    engine.merge(scan, view, 0)
+    engine.result.validate(len(payload))
+    assert [(d.start, d.end) for d in engine.result.diagnostics] == [(7, 7)]
 
 
 def test_commonmark_fallback_maps_cr_only_fences_and_recovers_unclosed_blocks():

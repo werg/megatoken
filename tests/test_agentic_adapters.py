@@ -691,3 +691,110 @@ def test_glaive_first_release_keeps_system_prompt_and_chat_in_one_string():
     episode = adapt_mapped({"sample": sample}, "glaive_tools", "tool_use", {"messages": "sample"})
     assert any(r.action_id for r in episode.records)
     assert linked(episode)
+
+
+def test_python_calls_with_odd_tool_names_json_literals_and_keyword_parameters():
+    # Shapes seen in ToolACE and Dolci: parentheses and ampersands in tool names, a parameter
+    # called ``from``, ``true``/``null`` inside Python call syntax, and a ``"null"`` call field.
+    toolace = {
+        "conversations": [
+            {"from": "user", "value": "q"},
+            {
+                "from": "assistant",
+                "value": '[User Feed (Video Posts) V2(username="a"), '
+                'Q&A Notifications(from="2025-01-01", n=3)]',
+            },
+            {"from": "tool", "value": json.dumps([{"results": 1}, {"results": 2}])},
+            {"from": "assistant", "value": "done"},
+        ]
+    }
+    episode = adapt(toolace, "python_call_tools")
+    assert [a.tool_name for a in episode.actions] == [
+        "User Feed (Video Posts) V2",
+        "Q&A Notifications",
+    ]
+    assert json.loads(episode.actions[1].arguments_json) == {"from": "2025-01-01", "n": 3}
+    dolci = {
+        "messages": [
+            {"role": "user", "content": "q", "function_calls": "null"},
+            {
+                "role": "assistant",
+                "content": None,
+                "function_calls": 'api.v1_search(keyword=null, strict=true, code="3000")',
+            },
+            {"role": "environment", "content": '{"r": 1}'},
+            {"role": "assistant", "content": "ok", "function_calls": "null"},
+        ]
+    }
+    episode = adapt(dolci, "python_call_tools")
+    assert json.loads(episode.actions[0].arguments_json) == {
+        "keyword": None,
+        "strict": True,
+        "code": "3000",
+    }
+    assert linked(episode)
+    # Bracketed prose that is not a call is still prose.
+    prose = {
+        "conversations": [
+            {"from": "user", "value": "q"},
+            {"from": "assistant", "value": "[Tip & trick (see docs)]"},
+        ]
+    }
+    assert not adapt(prose, "python_call_tools").actions
+
+
+def test_qwen_style_search_traces_put_results_in_user_turns_and_the_prompt_in_a_column():
+    call = '{"name": "search", "arguments": {"query": "x"}}'
+    row = {
+        "system_prompt": "You are a deep search assistant.",
+        "messages": [
+            {"role": "user", "content": "Question?"},
+            {
+                "role": "assistant",
+                "content": f"<think>hm</think>\n\n<tool_call>\n{call}\n</tool_call>",
+            },
+            {"role": "user", "content": "<tool_response>\nresult text\n</tool_response>"},
+            {"role": "assistant", "content": "<think>ok</think>\n\n<answer>42</answer>"},
+        ],
+    }
+    episode = adapt(row, "hermes_tools", observation_provenance="executed")
+    assert [a.tool_name for a in episode.actions] == ["search"] and linked(episode)
+    assert episode.records[0].role == "system"
+    assert [r.provenance for r in episode.records if r.result_of] == ["executed"]
+    # A user turn that merely mentions the tag is not a result.
+    chatty = {"messages": [{"role": "user", "content": "what is <tool_response> for?"}]}
+    assert not adapt(chatty, "hermes_tools").actions
+
+
+def test_harmony_traces_pair_parallel_calls_in_order_and_drop_empty_system_configuration():
+    def message(role, text, **rest):
+        return {
+            "role": role,
+            "content": [{"text": text}],
+            "channel": None,
+            "recipient": None,
+        } | rest
+
+    schema = {"type": "object", "properties": {"query": {"type": "string"}, "cursor": None}}
+    tools = {"browser": {"tools": [{"name": "search", "description": "d", "parameters": schema}]}}
+    row = {
+        "messages": [
+            {"role": "system", "content": [{"text": None, "tools": tools}]},
+            message("developer", "You are a research agent."),
+            message("user", "Question"),
+            message("assistant", "thinking", channel="analysis"),
+            message("assistant", '{"query": "a"}', channel="analysis", recipient="browser.search"),
+            message("assistant", '{"query": "b"}', channel="analysis", recipient="browser.search"),
+            message("tool", "result a", name="browser.search", recipient="assistant"),
+            message("tool", "result b", name="browser.search", recipient="assistant"),
+            message("assistant", "Answer", channel="final"),
+        ]
+    }
+    episode = adapt(row, "harmony_tools")
+    assert [a.tool_name for a in episode.actions] == ["browser.search", "browser.search"]
+    assert [json.loads(a.arguments_json)["query"] for a in episode.actions] == ["a", "b"]
+    assert [r.payload for r in episode.records if r.result_of] == [b"result a", b"result b"]
+    assert linked(episode) and json.loads(episode.tools_json)[0]["name"] == "browser.search"
+    broken = {"messages": row["messages"][:3] + [message("tool", "stray", name="browser.open")]}
+    with pytest.raises(SchemaError, match="no pending call"):
+        adapt(broken, "harmony_tools")

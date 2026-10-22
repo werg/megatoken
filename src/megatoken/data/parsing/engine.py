@@ -247,14 +247,13 @@ class _Engine:
                 )
             )
         for diagnostic in scan.result.diagnostics:
+            start, end = view.position(diagnostic.start), view.position(diagnostic.end, end=True)
+            if end < start:
+                # An empty diagnostic (a grammar's inserted missing token) at the seam between
+                # two source ranges: like a cut there, it belongs to the end of the earlier one.
+                start = end
             self.record(
-                Diagnostic(
-                    diagnostic.code,
-                    view.position(diagnostic.start),
-                    view.position(diagnostic.end, end=True),
-                    diagnostic.parser,
-                    diagnostic.detail,
-                )
+                Diagnostic(diagnostic.code, start, end, diagnostic.parser, diagnostic.detail)
             )
 
     def prose(self, view: SourceView, depth: int) -> None:
