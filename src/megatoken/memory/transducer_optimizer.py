@@ -63,9 +63,7 @@ class BlockScaleDescent:
 
     @staticmethod
     def _blocks(values: Tensor) -> Tensor:
-        return torch.stack(
-            [piece.square().mean() for piece in values.float().split(256)]
-        )
+        return torch.stack([piece.square().mean() for piece in values.float().split(256)])
 
     def _prior(self, field: str, blocks: int) -> Tensor:
         if field not in self.priors:
@@ -131,13 +129,9 @@ class BlockScaleDescent:
                 raise ValueError("Write clocks must be monotonic")
             old_mass = row.write_mass * 2 ** (-age / 16384)
             new_mass = old_mass + accumulator.mass
-            updated = (
-                row.value.decode() * old_mass + accumulator.weighted_sum
-            ) / new_mass
+            updated = (row.value.decode() * old_mass + accumulator.weighted_sum) / new_mass
             self._publish(edge_id, "value", updated, step)
-            self.bank.rows[edge_id] = replace(
-                self.bank.rows[edge_id], write_mass=new_mass
-            )
+            self.bank.rows[edge_id] = replace(self.bank.rows[edge_id], write_mass=new_mass)
             self.last_write[edge_id] = step
             written += 1
         self.write_accumulators.clear()
@@ -149,9 +143,7 @@ class BlockScaleDescent:
             raise ValueError("KB optimizer steps must increase strictly")
         touched: dict[str, list[Tensor]] = {}
         updated = 0
-        selected = {
-            i for (i, _), leaf in self.bank._masters.items() if leaf.grad is not None
-        }
+        selected = {i for (i, _), leaf in self.bank._masters.items() if leaf.grad is not None}
         if len(selected) > self.capacity:
             raise RuntimeError("Active sparse backward window exceeds FP32 cache capacity")
         for (edge_id, name), leaf in list(self.bank._masters.items()):
@@ -279,8 +271,7 @@ class BlockScaleDescent:
         self.step_number = int(state["step"])
         self.prior_step = int(state["prior_step"])
         self.priors = {
-            key: torch.tensor(value, dtype=torch.float32)
-            for key, value in state["priors"].items()
+            key: torch.tensor(value, dtype=torch.float32) for key, value in state["priors"].items()
         }
         self.fields = {}
         for key, value in state["fields"].items():
@@ -295,7 +286,8 @@ class BlockScaleDescent:
                 raise ValueError("Checkpoint master references a retired edge")
             self.bank._masters[int(edge), name] = (
                 torch.tensor(values, dtype=torch.float32, device=self.bank.device)
-                .detach().requires_grad_()
+                .detach()
+                .requires_grad_()
             )
         self.lru = OrderedDict((int(edge), None) for edge in state["lru"])
         if len(self.lru) > self.capacity:
