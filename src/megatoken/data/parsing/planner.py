@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ..token_offsets import token_edges
 from .config import ChunkingConfig
 from .types import Boundary, Diagnostic, ParseResult, Region
 
@@ -72,22 +73,7 @@ class TokenIndex:
     @classmethod
     def encode(cls, payload: bytes, codec: Codec) -> TokenIndex:
         ids = tuple(codec.encode(payload))
-        pieces: dict[int, bytes] = {}
-        offsets = [0]
-        for token in ids:
-            if token not in pieces:
-                piece = codec.decode([token])
-                if not isinstance(piece, bytes) or not piece:
-                    raise ValueError("The raw codec must have nonempty byte-exact tokens")
-                pieces[token] = piece
-            piece = pieces[token]
-            start = offsets[-1]
-            if payload[start : start + len(piece)] != piece:
-                raise ValueError("The raw codec must have byte-exact compositional tokens")
-            offsets.append(start + len(piece))
-        if offsets[-1] != len(payload):
-            raise ValueError("The raw codec must preserve every source byte")
-        return cls(payload, ids, tuple(offsets))
+        return cls(payload, ids, tuple(token_edges(payload, ids, codec).tolist()))
 
     def count(self, start: int, end: int) -> int:
         if end <= start:

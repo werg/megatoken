@@ -30,6 +30,8 @@ SOURCE = b'def greet(name):\n    """Hello. Welcome back."""\n    return name + "
 def isolated_registry(monkeypatch):
     workers.close_parser_worker()
     monkeypatch.setattr(registry, "_providers", {})
+    # Fault injection repeats one payload; only the dedicated cache tests remember scans.
+    monkeypatch.setattr(workers, "_CACHED_SCANS", 0)
     yield
     workers.close_parser_worker()
 
@@ -563,3 +565,22 @@ def test_hung_native_worker_dies_if_its_owner_is_killed():
         owner.wait(timeout=3)
         owner.stdout.close()
         owner.stderr.close()
+
+
+def test_repeated_payload_is_answered_without_a_round_trip(monkeypatch):
+    monkeypatch.setattr(workers, "_CACHED_SCANS", 8)
+    first = workers.scan_syntax_isolated(SOURCE, "python", LIMITS)
+    assert "tree_sitter:python" in first.result.parsers
+    monkeypatch.setattr(
+        workers._worker, "call", lambda payload, timeout: pytest.fail("round trip for a repeat")
+    )
+    assert workers.scan_syntax_isolated(SOURCE, "python", LIMITS) is first
+    with pytest.raises(pytest.fail.Exception):
+        workers.scan_syntax_isolated(SOURCE + b"x = 1\n", "python", LIMITS)
+
+
+def test_a_language_without_a_grammar_never_starts_the_worker():
+    result = workers.scan_syntax_isolated(b"plain words", "no-such-grammar", LIMITS)
+    assert not any(name.startswith("tree_sitter:") for name in result.result.parsers)
+    assert "grammar_unavailable" in diagnostic_codes(result)
+    assert workers._worker is None

@@ -147,9 +147,16 @@ class ChunkingConfig:
     def fingerprint(self) -> str:
         return content_hash({"config": self.to_dict(), "parsers": self.parser_identity()})
 
-    def identity(self, codec: Codec) -> dict[str, Any]:
+    def _identity(self, codec: Codec) -> dict[str, Any]:
         providers = tuple((item.name, item.version) for item in parser_provider_specs())
-        return copy.deepcopy(_identity(self, codec.fingerprint, providers))
+        return _identity(self, codec.fingerprint, providers)
+
+    def identity(self, codec: Codec) -> dict[str, Any]:
+        return copy.deepcopy(self._identity(codec))
+
+    def identity_fingerprint(self, codec: Codec) -> str:
+        """``identity(codec)["fingerprint"]`` without copying the identity."""
+        return self._identity(codec)["fingerprint"]
 
     @classmethod
     def from_identity(cls, identity: dict[str, Any], codec: Codec) -> ChunkingConfig:

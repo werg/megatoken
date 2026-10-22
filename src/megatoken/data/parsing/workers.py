@@ -12,6 +12,7 @@ application code. This is crash isolation, not a security sandbox for providers.
 from __future__ import annotations
 
 import atexit
+import collections
 import os
 import pickle
 import queue
@@ -37,6 +38,8 @@ _PROTOCOL_VERSION = 1
 _OWNER_ENV = "MEGATOKEN_PARSER_OWNER_PID"
 _LOG_LIMIT = 1 << 20  # The worker's stderr log is emptied before a request when it passes this.
 _LOG_TAIL = 400  # Bytes of that log quoted in a failure diagnostic.
+_CACHED_PAYLOAD = 4096  # Largest payload whose scan is remembered, and how many are.
+_CACHED_SCANS = 1024
 
 
 class _ProviderError(RuntimeError):
@@ -91,6 +94,9 @@ class _Worker:
         self.requests: queue.Queue[_Request | None] = queue.Queue()
         self.ready = threading.Event()
         self.closed = threading.Event()
+        # Parsing is deterministic: a payload scanned before (agent traces repeat file views
+        # and command output constantly) is answered from here, for as long as this worker lives.
+        self.scans: collections.OrderedDict[tuple, Scan] = collections.OrderedDict()
         self.close_lock = threading.Lock()
         self.startup_error: Exception | None = None
         self.process: subprocess.Popen | None = None
@@ -401,8 +407,16 @@ def scan_syntax_isolated(
     ``__main__`` script. Concurrent threads share one serialized worker.
     """
     global _worker
+    from .registry import grammar_available
+
     if not isinstance(payload, bytes):
         raise TypeError("Isolated syntax parsing requires bytes")
+    if backend != "fallback" and not grammar_available(language):
+        # Without a grammar nothing native runs: the lexical fallback and its
+        # diagnostic come back immediately, with no round trip to the worker.
+        from .syntax import scan_syntax
+
+        return scan_syntax(payload, language, limits, backend)
     try:
         providers = _provider_snapshot()
     except (pickle.PickleError, AttributeError, TypeError, _ProviderError) as error:
@@ -429,8 +443,18 @@ def scan_syntax_isolated(
                 if previous is not None:
                     previous.close()
                 _worker = _Worker(providers)
-            result = _worker.call(request, limits.worker_timeout_ms / 1000)
-            return _validate_scan(result, len(payload), limits)
+            key = payload, language, limits, backend
+            if key in _worker.scans:
+                _worker.scans.move_to_end(key)
+                return _worker.scans[key]
+            result = _validate_scan(
+                _worker.call(request, limits.worker_timeout_ms / 1000), len(payload), limits
+            )
+            if _CACHED_SCANS and len(payload) <= _CACHED_PAYLOAD:
+                _worker.scans[key] = result
+                if len(_worker.scans) > _CACHED_SCANS:
+                    _worker.scans.popitem(last=False)
+            return result
         except (OSError, EOFError, ValueError, RuntimeError, pickle.PickleError) as error:
             previous, _worker = _worker, None
             exit_code = (

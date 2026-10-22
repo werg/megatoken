@@ -27,46 +27,54 @@ def _parse_bytes(value: Any, field: str) -> bytes:
     return decoded
 
 
-@lru_cache(maxsize=256)
+def _validate_json_content(validator, content_schema, instance, subschema):
+    # JSON Schema normally treats contentSchema as an annotation. FMT's
+    # explicit tool-envelope contract validates decoded JSON strings here so
+    # OpenAI-style arguments cannot evade the inner tool parameter schema.
+    import jsonschema
+
+    if not isinstance(instance, str) or subschema.get("contentMediaType") != "application/json":
+        return
+    try:
+        decoded = strict_json_loads(instance)
+    except (ValueError, UnicodeError) as exc:
+        yield jsonschema.ValidationError(
+            f"encoded tool arguments are not JSON: {type(exc).__name__}"
+        )
+        return
+    yield from validator.descend(decoded, content_schema)
+
+
+def _check_refs(value) -> None:
+    if isinstance(value, dict):
+        reference = value.get("$ref")
+        if reference is not None and not reference.startswith("#"):
+            raise ValueError(
+                "tool schemas must bundle references locally; network schema resolution is disabled"
+            )
+        for child in value.values():
+            _check_refs(child)
+    elif isinstance(value, list):
+        for child in value:
+            _check_refs(child)
+
+
+@lru_cache(maxsize=None)
+def _validator_type(base):
+    """Each JSON Schema draft's validator class with the tool-envelope content rule (built once)."""
+    import jsonschema
+
+    return jsonschema.validators.extend(base, {"contentSchema": _validate_json_content})
+
+
+# Real corpora reuse the same function definitions across many rows.
+@lru_cache(maxsize=4096)
 def _validator(schema_text: str):
     import jsonschema
 
     schema = strict_json_loads(schema_text)
-
-    def check_refs(value):
-        if isinstance(value, dict):
-            reference = value.get("$ref")
-            if reference is not None and not reference.startswith("#"):
-                raise ValueError(
-                    "tool schemas must bundle references locally; network schema resolution is disabled"
-                )
-            for child in value.values():
-                check_refs(child)
-        elif isinstance(value, list):
-            for child in value:
-                check_refs(child)
-
-    check_refs(schema)
-    validator_type = jsonschema.validators.validator_for(schema)
-
-    def validate_json_content(validator, content_schema, instance, subschema):
-        # JSON Schema normally treats contentSchema as an annotation. FMT's
-        # explicit tool-envelope contract validates decoded JSON strings here so
-        # OpenAI-style arguments cannot evade the inner tool parameter schema.
-        if not isinstance(instance, str) or subschema.get("contentMediaType") != "application/json":
-            return
-        try:
-            decoded = strict_json_loads(instance)
-        except (ValueError, UnicodeError) as exc:
-            yield jsonschema.ValidationError(
-                f"encoded tool arguments are not JSON: {type(exc).__name__}"
-            )
-            return
-        yield from validator.descend(decoded, content_schema)
-
-    validator_type = jsonschema.validators.extend(
-        validator_type, {"contentSchema": validate_json_content}
-    )
+    _check_refs(schema)
+    validator_type = _validator_type(jsonschema.validators.validator_for(schema))
     validator_type.check_schema(schema)
     return validator_type(schema)
 

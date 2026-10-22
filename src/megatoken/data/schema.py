@@ -14,12 +14,16 @@ import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
+from functools import lru_cache
 from typing import Any, Literal, Protocol
+
+import numpy as np
 
 from megatoken.contracts import ROLE_TO_ID
 
 from .chunking import ChunkingConfig, segment_bytes
 from .media_assets import MEDIA_RECORD_TYPE
+from .token_offsets import token_edges
 
 SCHEMA_VERSION = 3
 Role = Literal["system", "user", "assistant", "tool", "document", "environment"]
@@ -686,7 +690,6 @@ class EncodedRecord:
     record: PhysicalRecord
     token_ids: tuple[int, ...]
     free_mask: tuple[bool, ...]
-    token_spans: tuple[ByteSpan, ...]
     codec_fingerprint: str
     transcript_tokens: int
 
@@ -723,7 +726,7 @@ def encode_record(record: PhysicalRecord, codec: Codec) -> EncodedRecord:
             or (record.emitted_free_mask is not None or record.free_spans is not None)
         ):
             raise ValueError("Media references cannot carry lexical token labels")
-        return EncodedRecord(record, (), (), (), codec.fingerprint, media.source.shape[0])
+        return EncodedRecord(record, (), (), codec.fingerprint, media.source.shape[0])
     if record.media_type.split("/", 1)[0] in {"audio", "image", "video"}:
         raise ValueError(
             "Raw media payloads must be converted to canonical media asset references "
@@ -736,12 +739,12 @@ def encode_record(record: PhysicalRecord, codec: Codec) -> EncodedRecord:
         assert ids is not None
     else:
         ids = tuple(codec.encode(record.payload))
-    if codec.decode(ids) != record.payload:
-        raise ValueError("Codec/emitted IDs do not reproduce the original bytes")
+    # Also proves that every token sits exactly at its edge and spells the payload.
+    edges = token_edges(record.payload, ids, codec)
     if record.cached_ids is not None:
         # Preparation encodes the original logical field once, then partitions
         # its reference IDs. These chunks keep U independent of chunk size.
-        if codec.decode(record.cached_ids) != record.payload:
+        if ids is not record.cached_ids and codec.decode(record.cached_ids) != record.payload:
             raise ValueError("Reference meter IDs do not reproduce the original bytes")
         transcript_tokens = len(record.cached_ids)
     elif record.emitted_ids is not None:
@@ -751,27 +754,15 @@ def encode_record(record: PhysicalRecord, codec: Codec) -> EncodedRecord:
         transcript_tokens = len(reference_ids)
     else:
         transcript_tokens = len(ids)
-    spans = []
-    offset = 0
-    for token in ids:
-        piece = codec.decode([token])
-        if not piece or record.payload[offset : offset + len(piece)] != piece:
-            raise ValueError("The raw meter requires nonempty, compositional token bytes")
-        spans.append(ByteSpan(offset, offset + len(piece)))
-        offset += len(piece)
-    if offset != len(record.payload):
-        raise ValueError("Token byte spans do not cover the physical record")
-    allowed_spans = record.free_spans
-    mask = tuple(
-        record.policy_mask
-        and (
-            allowed_spans is None
-            or any(span.contains(token.start, token.end) for span in allowed_spans)
-        )
-        and (record.emitted_free_mask is None or record.emitted_free_mask[index])
-        for index, token in enumerate(spans)
-    )
-    return EncodedRecord(record, ids, mask, tuple(spans), codec.fingerprint, transcript_tokens)
+    mask = np.full(len(ids), record.policy_mask, dtype=bool)
+    if record.policy_mask and record.free_spans is not None:
+        inside = np.zeros(len(ids), dtype=bool)
+        for span in record.free_spans:
+            inside |= (edges[:-1] >= span.start) & (edges[1:] <= span.end)
+        mask &= inside
+    if record.emitted_free_mask is not None:
+        mask &= np.array(record.emitted_free_mask, dtype=bool)
+    return EncodedRecord(record, ids, tuple(mask.tolist()), codec.fingerprint, transcript_tokens)
 
 
 def encode_episode(episode: Episode, codec: Codec) -> tuple[EncodedRecord, ...]:
@@ -802,6 +793,12 @@ def split_payload(payload: bytes, max_bytes: int) -> Iterable[tuple[int, bytes]]
                 end = safe
         yield offset, payload[offset:end]
         offset = end
+
+
+@lru_cache(maxsize=64)
+def _field_policy(config: ChunkingConfig, max_tokens: int | None, max_bytes: int) -> ChunkingConfig:
+    """The policy for one field's physical limits; every field of a source shares a few."""
+    return config.with_hard_limit(max_tokens or config.hard_max_tokens, max_bytes=max_bytes)
 
 
 def make_records(
@@ -850,8 +847,7 @@ def make_records(
             raise ValueError("Semantic chunking requires the explicit reference codec")
         pieces = list(split_payload(payload, max_bytes))
     else:
-        policy = chunking or ChunkingConfig()
-        policy = policy.with_hard_limit(max_tokens or policy.hard_max_tokens, max_bytes=max_bytes)
+        policy = _field_policy(chunking or ChunkingConfig(), max_tokens, max_bytes)
         semantic_chunks = segment_bytes(
             payload,
             codec,
@@ -868,7 +864,7 @@ def make_records(
         )
         pieces = [(item.byte_start, item.payload) for item in semantic_chunks]
         token_chunks = [item.token_ids for item in semantic_chunks]
-        chunking_fingerprint = policy.identity(codec)["fingerprint"]
+        chunking_fingerprint = policy.identity_fingerprint(codec)
     result = []
     for index, (offset, chunk) in enumerate(pieces):
         local_spans = (
