@@ -148,6 +148,7 @@ class CentralProcessor(nn.Module):
         external_kb: AttentionFeatures | None = None,
         memory_snapshot=None,
         memory_adapters: MemoryAdapters | None = None,
+        attention_mask: Tensor | None = None,
     ) -> Tensor:
         # A meridian may contain several complete 32-facet megatokens.  The
         # original one-event shape remains exactly the same, so singleton
@@ -186,6 +187,10 @@ class CentralProcessor(nn.Module):
         projected = AttentionFeatures(history.keys, history.values, history.mask, history_track_ids)
         if external_kb is not None:
             projected = join_attention(external_kb, projected)
+        if attention_mask is not None and attention_mask.shape != (
+            raw.shape[0], raw.shape[1], projected.keys.shape[2] + raw.shape[1]
+        ):
+            raise ValueError("C attention mask must address all native query/key facets")
         temporary = None
         for index, layer in enumerate(self.layers):
             facets = facets + self.layer_codes[index]
@@ -220,6 +225,7 @@ class CentralProcessor(nn.Module):
                     temporal_positions=positions,
                     slot_codes=addresses,
                     query_track_ids=live_tracks,
+                    query_key_mask=attention_mask,
                 )
             if memory_adapters is not None and memory_snapshot is not None:
                 facets = memory_adapters.apply(
