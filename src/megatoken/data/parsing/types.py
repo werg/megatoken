@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,23 +69,37 @@ class ParseResult:
 
     def extend(self, other: ParseResult, *, offset: int = 0, depth: int = 0) -> None:
         """Merge independently parsed content without changing its source bytes."""
-        self.boundaries.extend(
-            replace(item, offset=item.offset + offset, depth=item.depth + depth)
-            for item in other.boundaries
-        )
-        self.regions.extend(
-            replace(
-                item,
-                start=item.start + offset,
-                end=item.end + offset,
-                depth=item.depth + depth,
+        if offset == 0 and depth == 0:
+            # Evidence is immutable, so unshifted items are shared, not copied.
+            self.boundaries.extend(other.boundaries)
+            self.regions.extend(other.regions)
+            self.diagnostics.extend(other.diagnostics)
+        else:
+            self.boundaries.extend(
+                Boundary(
+                    item.offset + offset, item.kind, item.depth + depth, item.source, item.mandatory
+                )
+                for item in other.boundaries
             )
-            for item in other.regions
-        )
-        self.diagnostics.extend(
-            replace(item, start=item.start + offset, end=item.end + offset)
-            for item in other.diagnostics
-        )
+            self.regions.extend(
+                Region(
+                    item.start + offset,
+                    item.end + offset,
+                    item.kind,
+                    item.language,
+                    item.depth + depth,
+                    item.protect,
+                    item.source,
+                    item.path,
+                )
+                for item in other.regions
+            )
+            self.diagnostics.extend(
+                Diagnostic(
+                    item.code, item.start + offset, item.end + offset, item.parser, item.detail
+                )
+                for item in other.diagnostics
+            )
         self.parsers.update(other.parsers)
         self.languages.update(other.languages)
 

@@ -509,6 +509,15 @@ def _bundled_language(language: str) -> Any:
         raise ParserUnavailable(f"Cannot load bundled grammar {language!r}: {exc}") from exc
 
 
+def grammar_available(language: str) -> bool:
+    """Whether ``get_parser`` can name a grammar for ``language`` (no parser is created)."""
+    canonical = canonical_language(language)
+    with _lock:
+        if any(canonical in provider.languages for provider in _providers.values()):
+            return True
+    return canonical in bundled_languages()
+
+
 def get_parser(language: str) -> Any:
     """Get an independent native parser, without downloads or shared mutable parse state."""
     canonical = canonical_language(language)

@@ -27,7 +27,7 @@ from .prose import analyze_prose
 from .registry import bundled_languages, canonical_language, parser_provider_specs, resolve_language
 from .syntax import Injection, Scan, scan_generic, scan_syntax
 from .tabular import DELIMITERS, scan_delimited
-from .types import Diagnostic, ParseLimits, ParseResult, Region
+from .types import Boundary, Diagnostic, ParseLimits, ParseResult, Region
 
 ENGINE_VERSION = "recursive-content-v1"
 _MAX_DIAGNOSTICS = 256
@@ -89,11 +89,18 @@ class SourceView:
     def offsets(self) -> tuple[int, ...]:
         return tuple(segment.offset for segment in self.segments)
 
+    @cached_property
+    def is_original(self) -> bool:
+        """Whether this view is the whole original document, so positions map to themselves."""
+        return len(self.segments) == 1 and self.segments[0] == _Segment(0, 0, len(self.data))
+
     def position(self, offset: int, *, end: bool = False) -> int:
         if not self.segments:
             return 0
         if not 0 <= offset <= len(self.data):
             raise ValueError("Analysis offset outside source view")
+        if self.is_original:
+            return offset
         index = (
             bisect.bisect_left(self.offsets, offset)
             if end
@@ -214,29 +221,39 @@ class _Engine:
             # A cut at the seam between two source ranges belongs to the end of the
             # earlier one, before the prefix ("# ", "> ") the view dropped.
             self.result.boundaries.append(
-                replace(
-                    boundary,
-                    offset=view.position(boundary.offset, end=True),
-                    depth=depth + boundary.depth,
+                Boundary(
+                    view.position(boundary.offset, end=True),
+                    boundary.kind,
+                    depth + boundary.depth,
+                    boundary.source,
+                    boundary.mandatory,
                 )
             )
+        prefix = f"{view.position(0)}:{view.position(len(view.data), end=True)}:{depth}"
         for region in scan.result.regions:
             if len(self.result.regions) >= self.limits.max_regions:
                 self.diagnostic("region_budget_exhausted", view)
                 break
-            changes = {
-                "start": view.position(region.start),
-                "end": view.position(region.end, end=True),
-                "depth": depth + region.depth,
-            }
-            prefix = f"{view.position(0)}:{view.position(len(view.data), end=True)}:{depth}"
-            self.result.regions.append(replace(region, **changes, path=(prefix, *region.path)))
+            self.result.regions.append(
+                Region(
+                    view.position(region.start),
+                    view.position(region.end, end=True),
+                    region.kind,
+                    region.language,
+                    depth + region.depth,
+                    region.protect,
+                    region.source,
+                    (prefix, *region.path),
+                )
+            )
         for diagnostic in scan.result.diagnostics:
             self.record(
-                replace(
-                    diagnostic,
-                    start=view.position(diagnostic.start),
-                    end=view.position(diagnostic.end, end=True),
+                Diagnostic(
+                    diagnostic.code,
+                    view.position(diagnostic.start),
+                    view.position(diagnostic.end, end=True),
+                    diagnostic.parser,
+                    diagnostic.detail,
                 )
             )
 

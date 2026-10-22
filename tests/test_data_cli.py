@@ -48,6 +48,42 @@ def test_cli_demo_prepare_and_idempotent_resume(tmp_path):
         assert len(list(dataset.iter_episodes(rank=1, world_size=2))) == 2
 
 
+def test_cli_shards_are_ingested_reconciled_and_finished(tmp_path):
+    sources = []
+    for index in range(2):
+        source = tmp_path / f"source-{index}.jsonl"
+        invoke(["demo", "--output", source, "--count", 4, "--max-record-bytes", 64])
+        sources.append(source)
+    common = ["--codec", "byte", "--max-record-tokens", 128]
+    for index, source in enumerate(sources):
+        ingested = invoke(
+            ["prepare", "--demo", source, "--output", tmp_path / f"shard-{index}", "--ingest-only"]
+            + common
+        )
+        assert ingested["digest"].endswith("digest.sqlite")
+    # The two demo corpora are identical, so the second shard is all cross-shard duplicates.
+    summary = invoke(
+        [
+            "reconcile",
+            "--digests",
+            tmp_path / "shard-0" / "digest.sqlite",
+            tmp_path / "shard-1" / "digest.sqlite",
+            "--output",
+            tmp_path / "verdicts",
+        ]
+    )
+    assert summary["accepted"] == 4 and summary["cross_shard_duplicates"] == 4
+    counts = []
+    for index, source in enumerate(sources):
+        finished = invoke(
+            ["prepare", "--demo", source, "--output", tmp_path / f"shard-{index}"]
+            + ["--decisions", tmp_path / "verdicts" / f"decisions-{index:04d}.sqlite"]
+            + common
+        )
+        counts.append(finished["census"]["accepted_episodes"])
+    assert counts == [4, 0]
+
+
 def test_cli_source_pin_does_not_approve_terms(tmp_path):
     source = tmp_path / "external.jsonl"
     source.write_text('{"text":"A locally supplied document."}\n')

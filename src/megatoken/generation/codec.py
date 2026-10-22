@@ -51,6 +51,8 @@ class ByteCodec:
         tokenizer_document: dict | None = None,
     ) -> None:
         self._pieces = tuple(pieces)
+        # Rows that may not occur at a free lexical position are None here.
+        self._lexical = tuple(piece or None for piece in self._pieces)
         self._ids: dict[bytes, int] = {}
         for idx, piece in enumerate(self._pieces):
             if piece:
@@ -216,7 +218,14 @@ class ByteCodec:
         return piece
 
     def decode(self, ids: Iterable[int]) -> bytes:
-        return b"".join(self.token_bytes(idx) for idx in ids)
+        ids = ids if isinstance(ids, (list, tuple)) else tuple(ids)
+        try:
+            if ids and min(ids) < 0:  # a negative ID would index from the end
+                raise IndexError
+            return b"".join(map(self._lexical.__getitem__, ids))
+        except (IndexError, TypeError):
+            # An ID outside the vocabulary or without a lexical piece: name it.
+            return b"".join(self.token_bytes(idx) for idx in ids)
 
     def encode(self, payload: bytes | str) -> list[int]:
         raw = payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)

@@ -1,6 +1,5 @@
 """The agentic and chat manifests: pinned, licence-recorded, and every source readable by its adapter."""
 
-import importlib.util
 import json
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from megatoken.data.adapters import PROFILES, AdapterContext, adapt_row
 from megatoken.data.quality import validate_row_filters
 from megatoken.data.recipes import stage_recipe
 from megatoken.data.review import ParserReviewPolicy
+from megatoken.data.sharding import plan_shards, row_cost
 from megatoken.data.sources import load_source_manifest
 from megatoken.generation.codec import ByteCodec
 
@@ -377,30 +377,16 @@ def test_gated_sources_are_kept_apart_from_the_ones_the_account_can_read():
         assert "gated" in source.terms.notes.lower() or "withheld" in source.terms.notes.lower()
 
 
-def load_scale_script():
-    spec = importlib.util.spec_from_file_location(
-        "scale_source_caps", Path(__file__).parents[1] / "scripts/scale_source_caps.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def test_scaled_caps_keep_the_leading_rows_and_shards_partition_the_manifest():
-    script = load_scale_script()
     manifest = json.loads((CONFIGS / "sources.agentic.json").read_text())
-    doubled = script.scale(manifest, 2)
-    assert [s["max_rows"] for s in doubled["sources"]] == [
-        2 * s["max_rows"] for s in manifest["sources"]
-    ]
-    shards = [script.shard(doubled, i, 8) for i in range(8)]
+    shards = plan_shards(manifest, 8, scale=2)
+    scaled = {s["source_id"]: s["max_rows"] for shard in shards for s in shard["sources"]}
+    assert scaled == {s["source_id"]: 2 * s["max_rows"] for s in manifest["sources"]}
     ids = [s["source_id"] for shard in shards for s in shard["sources"]]
     assert sorted(ids) == sorted(s["source_id"] for s in manifest["sources"])
     # Balanced by estimated text: no shard carries more than twice the average.
-    cost = [sum(script.cost(s) for s in shard["sources"]) for shard in shards]
+    cost = [sum(row_cost(s) for s in shard["sources"]) for shard in shards]
     assert max(cost) <= 2 * sum(cost) / len(cost)
-    with pytest.raises(ValueError):
-        script.shard(doubled, 8, 8)
 
 
 def test_cloud_jobs_read_the_manifests_they_name():

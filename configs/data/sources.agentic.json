@@ -755,8 +755,8 @@
       "adapter": "openhands_xml",
       "stream": "verified_trajectories",
       "revision": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4",
-      "subset": "tool",
-      "split": "train",
+      "subset": "default",
+      "split": "tool",
       "max_rows": 1200,
       "files": [],
       "terms": {
@@ -798,8 +798,8 @@
       "adapter": "openhands_xml",
       "stream": "verified_trajectories",
       "revision": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4",
-      "subset": "xml",
-      "split": "train",
+      "subset": "default",
+      "split": "xml",
       "max_rows": 1200,
       "files": [],
       "terms": {
@@ -841,8 +841,8 @@
       "adapter": "swe_agent_fenced",
       "stream": "verified_trajectories",
       "revision": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4",
-      "subset": "ticks",
-      "split": "train",
+      "subset": "default",
+      "split": "ticks",
       "max_rows": 1200,
       "files": [],
       "terms": {
@@ -2477,7 +2477,7 @@
       "stream": "chat",
       "revision": "e6f9a4ac5c37faeb744ba9ecf0473184d7f8105b",
       "subset": null,
-      "split": "train_sft",
+      "split": "train",
       "max_rows": 8000,
       "files": [],
       "terms": {
@@ -3102,8 +3102,8 @@
       "adapter": "openhands_xml",
       "stream": "verified_successful_multiturn",
       "revision": "08e109b4a59eaeebf80e4675cd125d42e7ac99a4",
-      "subset": "tool",
-      "split": "train",
+      "subset": "default",
+      "split": "tool",
       "max_rows": 1000,
       "files": [],
       "terms": {

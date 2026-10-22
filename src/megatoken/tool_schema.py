@@ -16,7 +16,7 @@ from megatoken.generation.structure import (
 )
 
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=1024)
 def compile_tool_spec(
     tools_json: str,
     max_tokens: int = 1024,

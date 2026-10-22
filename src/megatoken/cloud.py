@@ -420,6 +420,35 @@ def _attach(sandbox_id: str):
     return Sandbox.from_id(sandbox_id, auth=_auth(), data_plane_mode="gateway").result()
 
 
+def outputs_ready(sandbox_id: str) -> bool:
+    """Whether the sandbox's job has ended and its outputs are available."""
+    probe = _attach(sandbox_id).exec(["test", "-f", f"{WORK}/.cloud/outputs-ready"]).result()
+    return probe.returncode == 0
+
+
+def exit_status(sandbox_id: str) -> int | None:
+    """The job's exit status once it has ended (None if it left none)."""
+    text = _attach(sandbox_id).exec(["cat", f"{WORK}/.cloud/exit-status"]).result().stdout.strip()
+    return int(text) if text.lstrip("-").isdigit() else None
+
+
+def stop_all(sandbox_ids: list[str], reason: str, *, grace: float | None = None) -> list[str]:
+    """Stop every sandbox, each on its own: one that fails to stop must not leave the rest
+    billing. Returns the ones that could not be stopped (also printed and recorded)."""
+    failed = []
+    for sandbox_id in sandbox_ids:
+        try:
+            options = {} if grace is None else {"graceful_shutdown_seconds": grace}
+            _attach(sandbox_id).stop(missing_ok=True, **options).result()
+            record({"event": "stop", "sandbox_id": sandbox_id, "reason": reason})
+        except Exception as error:
+            failed.append(sandbox_id)
+            message = f"{type(error).__name__}: {error}"[:400]
+            record({"event": "stop_failed", "sandbox_id": sandbox_id, "error": message})
+            print(f"COULD NOT STOP {sandbox_id} (still billing): {message}", file=sys.stderr)
+    return failed
+
+
 def _stream(sandbox, remote: str, size: int, out, *, attempts: int = 4) -> None:
     """Append one remote file of ``size`` bytes to ``out``, retrying dropped streams."""
     from cwsandbox.exceptions import SandboxError

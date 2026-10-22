@@ -11,6 +11,9 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from ..token_offsets import token_edges
 from .config import ChunkingConfig
 from .types import Boundary, Diagnostic, ParseResult, Region
 
@@ -70,22 +73,7 @@ class TokenIndex:
     @classmethod
     def encode(cls, payload: bytes, codec: Codec) -> TokenIndex:
         ids = tuple(codec.encode(payload))
-        pieces: dict[int, bytes] = {}
-        offsets = [0]
-        for token in ids:
-            if token not in pieces:
-                piece = codec.decode([token])
-                if not isinstance(piece, bytes) or not piece:
-                    raise ValueError("The raw codec must have nonempty byte-exact tokens")
-                pieces[token] = piece
-            piece = pieces[token]
-            start = offsets[-1]
-            if payload[start : start + len(piece)] != piece:
-                raise ValueError("The raw codec must have byte-exact compositional tokens")
-            offsets.append(start + len(piece))
-        if offsets[-1] != len(payload):
-            raise ValueError("The raw codec must preserve every source byte")
-        return cls(payload, ids, tuple(offsets))
+        return cls(payload, ids, tuple(token_edges(payload, ids, codec).tolist()))
 
     def count(self, start: int, end: int) -> int:
         if end <= start:
@@ -127,17 +115,11 @@ def _cost(boundary: Boundary) -> float:
 
 
 def _safe_indices(index: TokenIndex) -> list[int]:
-    payload, offsets = index.payload, index.offsets
-    if payload.isascii():
-        return [
-            i
-            for i, offset in enumerate(offsets)
-            if payload[max(0, offset - 1) : offset + 1] != b"\r\n"
-        ]
-    from .prose import grapheme_offsets
+    from .prose import grapheme_cut_mask
 
-    boundaries = set(grapheme_offsets(payload))
-    return [i for i, offset in enumerate(offsets) if offset in boundaries]
+    mask = grapheme_cut_mask(index.payload)
+    offsets = np.fromiter(index.offsets, dtype=np.int64, count=len(index.offsets))
+    return np.flatnonzero(mask[offsets]).tolist()
 
 
 class _SafeCuts:
@@ -541,6 +523,82 @@ class _TreeDistances:
         return max(0.0, self.cumulative[right] - self.cumulative[left])
 
 
+def _cheapest_cuts(
+    index: TokenIndex,
+    config: ChunkingConfig,
+    candidates: dict[int, Boundary],
+    points: list[int],
+    mandatory_points: list[int],
+    tree: _TreeDistances,
+    whole_json: bool,
+) -> tuple[list[int], float, int]:
+    """The dynamic program over candidate cuts: each point's best next cut, and the total cost.
+
+    Every point scores at most ``planner_max_edges`` outgoing edges, chosen by closeness to
+    the size target and by cheapest boundary. Scores are evaluated for all of a point's
+    edges at once with float64 arrays, in the same order of operations as a scalar loop.
+    """
+    n = len(index.ids)
+    count = len(points)
+    target = config.target_tokens
+    limit = config.planner_max_edges
+    positions = np.array(points, dtype=np.int64)
+    boundary_cost = np.array([_cost(candidates[point]) for point in points], dtype=np.float64)
+    offsets = np.fromiter(index.offsets, dtype=np.int64, count=len(index.offsets))[positions]
+    tree_offsets = np.array(tree.offsets, dtype=np.int64)
+    cumulative = np.array(tree.cumulative, dtype=np.float64)
+    first_after = cumulative[np.searchsorted(tree_offsets, offsets, side="right")]
+    last_before = cumulative[np.searchsorted(tree_offsets, offsets, side="left")]
+    movement_scale = max(1.0, 2.0 * config.tree_distance_budget)
+    total = np.full(count, math.inf)
+    next_point = [-1] * count
+    total[-1] = 0.0
+    edge_count = 0
+    arange = np.arange(count)
+    for i in range(count - 2, -1, -1):
+        start = points[i]
+        hard = min(
+            index.hard_end(start, config),
+            mandatory_points[bisect.bisect_right(mandatory_points, start)],
+        )
+        stop = bisect.bisect_right(points, hard)
+        if stop - i - 1 > limit:
+            span = arange[i + 1 : stop]
+            gap = np.abs(positions[i + 1 : stop] - start - target)
+            by_target = np.lexsort((span, gap))
+            by_structure = np.lexsort((span, gap, boundary_cost[i + 1 : stop]))
+            chosen = {i + 1, stop - 1}
+            chosen.update((by_target[: max(1, limit // 2 - 1)] + i + 1).tolist())
+            for j in (by_structure[:limit] + i + 1).tolist():
+                if len(chosen) >= limit:
+                    break
+                chosen.add(j)
+            options = np.array(sorted(chosen), dtype=np.int64)
+        else:
+            options = arange[i + 1 : stop]
+        ends = positions[options]
+        length = ends - start
+        ratio = length / target
+        distance = np.maximum(0.0, last_before[options] - first_after[i])
+        movement = np.maximum(0.0, distance - config.tree_distance_budget) / movement_scale
+        cost = (ratio - 1.0) ** 2 + boundary_cost[options]
+        cost += config.tree_distance_weight * movement * movement
+        cost += 8.0 * (np.maximum(0, length - config.soft_max_tokens) / target) ** 2
+        cost += 4.0 * np.maximum(0.0, 0.25 - ratio) ** 2
+        # Complete JSON actions may intentionally use the hard capacity.
+        if start == 0 and whole_json:
+            cost[ends == n] = 0.0
+        score = cost + total[options]
+        edges = len(options)
+        edge_count += edges
+        best = np.lexsort((-ends, np.abs(length - target), score))[0]
+        total[i] = score[best]
+        next_point[i] = int(options[best])
+        if not np.isfinite(total[i]):
+            raise RuntimeError("Parser planner failed to make forward progress")
+    return next_point, float(total[0]), edge_count
+
+
 def plan_chunks(index: TokenIndex, parsed: ParseResult, config: ChunkingConfig) -> ChunkPlan:
     n = len(index.ids)
     if not n:
@@ -649,72 +707,12 @@ def plan_chunks(index: TokenIndex, parsed: ParseResult, config: ChunkingConfig) 
     points = sorted(candidates)
     tree = _TreeDistances(parsed.regions, config.code_tree_scale)
     mandatory_points = sorted(mandatory)
-    costs = [math.inf] * len(points)
-    next_point = [-1] * len(points)
-    costs[-1] = 0.0
-    edge_count = 0
-
-    for i in range(len(points) - 2, -1, -1):
-        start = points[i]
-        hard = min(
-            index.hard_end(start, config),
-            mandatory_points[bisect.bisect_right(mandatory_points, start)],
-        )
-        stop = bisect.bisect_right(points, hard)
-        options = list(range(i + 1, stop))
-        if len(options) > config.planner_max_edges:
-            limit = config.planner_max_edges
-            by_target = sorted(
-                options, key=lambda j: (abs(points[j] - start - config.target_tokens), j)
-            )
-            by_structure = sorted(
-                options,
-                key=lambda j: (
-                    _cost(candidates[points[j]]),
-                    abs(points[j] - start - config.target_tokens),
-                    j,
-                ),
-            )
-            chosen = {options[0], options[-1]}
-            chosen.update(by_target[: max(1, limit // 2 - 1)])
-            for j in by_structure:
-                if len(chosen) >= limit:
-                    break
-                chosen.add(j)
-            options = sorted(chosen)
-        best_key = (math.inf, math.inf, 0)
-        for j in options:
-            end = points[j]
-            length = end - start
-            ratio = length / config.target_tokens
-            distance = tree.between(index.offsets[start], index.offsets[end])
-            # Normalize an excursion by its ascent and descent. Raw AST edge
-            # counts otherwise overwhelm the size objective and turn every
-            # short function into a separate megatoken.
-            movement = max(0.0, distance - config.tree_distance_budget) / max(
-                1.0, 2.0 * config.tree_distance_budget
-            )
-            cost = (ratio - 1.0) ** 2 + _cost(candidates[end])
-            cost += config.tree_distance_weight * movement * movement
-            cost += 8.0 * (max(0, length - config.soft_max_tokens) / config.target_tokens) ** 2
-            cost += 4.0 * max(0.0, 0.25 - ratio) ** 2
-            # Complete JSON actions may intentionally use the hard capacity.
-            if (
-                start == 0
-                and end == n
-                and any(
-                    r.kind == "json" and r.start == 0 and r.end == len(index.payload)
-                    for r in parsed.regions
-                )
-            ):
-                cost = 0.0
-            key = (cost + costs[j], abs(length - config.target_tokens), -end)
-            edge_count += 1
-            if key < best_key:
-                best_key = key
-                costs[i], next_point[i] = key[0], j
-        if next_point[i] < 0:
-            raise RuntimeError("Parser planner failed to make forward progress")
+    whole_json = any(
+        r.kind == "json" and r.start == 0 and r.end == len(index.payload) for r in parsed.regions
+    )
+    next_point, total_cost, edge_count = _cheapest_cuts(
+        index, config, candidates, points, mandatory_points, tree, whole_json
+    )
 
     chunks = []
     cursor = 0
@@ -753,4 +751,4 @@ def plan_chunks(index: TokenIndex, parsed: ParseResult, config: ChunkingConfig) 
             )
         )
         cursor = following
-    return ChunkPlan(tuple(chunks), costs[0], len(points), edge_count)
+    return ChunkPlan(tuple(chunks), total_cost, len(points), edge_count)

@@ -196,7 +196,7 @@ def _stoppable(monkeypatch, failing=()):
 
 def test_every_sandbox_is_stopped_even_when_one_will_not_stop(monkeypatch, capsys):
     stopped = _stoppable(monkeypatch, failing={"b"})
-    failed = cloud_diloco._stop_all(["a", "b", "c"], "launch failed")
+    failed = cloud.stop_all(["a", "b", "c"], "launch failed")
     assert stopped == ["a", "c"] and failed == ["b"]
     assert "COULD NOT STOP b" in capsys.readouterr().err
 
@@ -231,7 +231,7 @@ def test_launch_fails_fast_when_the_coordinator_exits_and_stops_everything(tmp_p
         raise OSError("connection refused")
 
     monkeypatch.setattr(cloud_diloco, "_status", unreachable)
-    monkeypatch.setattr(cloud_diloco, "_exited", lambda sandbox_id: True)
+    monkeypatch.setattr(cloud, "outputs_ready", lambda sandbox_id: True)
     monkeypatch.setattr(cloud_diloco.time, "sleep", lambda _: pytest.fail("kept waiting"))
     with pytest.raises(cloud.CloudError, match="exited before it became ready"):
         cloud_diloco.launch(run, repo)

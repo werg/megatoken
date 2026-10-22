@@ -27,7 +27,7 @@ from .collection import (
     TeacherResponse,
 )
 from .compression import CompressionPolicy
-from .dedup import DedupConfig, DedupStore
+from .dedup import DedupConfig, DedupStore, reconcile
 from .demo import write_demo_source
 from .prepare import prepare_sources
 from .review import ParserReviewPolicy, ParserReviewQueue
@@ -174,7 +174,7 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
             )
     config = DedupConfig(**read_mapping(args.dedup_config)) if args.dedup_config else DedupConfig()
     quarantine = read_mapping(args.benchmark_quarantine) if args.benchmark_quarantine else None
-    with prepare_sources(
+    dataset = prepare_sources(
         manifest,
         args.output,
         _codec(args.codec),
@@ -191,7 +191,12 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
         else CompressionPolicy(min_bytes=args.compress_min_bytes),
         teacher_packs=args.teacher_packs,
         progress=_log,
-    ) as dataset:
+        ingest_only=args.ingest_only,
+        decisions=args.decisions,
+    )
+    if dataset is None:
+        return {"output": args.output, "digest": str(Path(args.output) / "digest.sqlite")}
+    with dataset:
         return {
             "output": str(dataset.root),
             "fingerprint": dataset.manifest["fingerprint"],
@@ -202,6 +207,10 @@ def _prepare(args: argparse.Namespace) -> dict[str, Any]:
             "chunking_stats": dataset.manifest["chunking_stats"],
             "parser_review": dataset.manifest["parser_review"],
         }
+
+
+def _reconcile(args: argparse.Namespace) -> dict[str, Any]:
+    return reconcile(args.digests, args.output)
 
 
 def _terms(args: argparse.Namespace) -> TermsReview:
@@ -529,7 +538,26 @@ def add_data_commands(subparsers: argparse._SubParsersAction) -> None:
         "EmbeddingGemma2 features instead of byte chunks (needs --teacher-packs)",
     )
     prepare.add_argument("--teacher-packs", help="Locked pack manifest with EmbeddingGemma2")
+    prepare.add_argument(
+        "--ingest-only",
+        action="store_true",
+        help="Read and deduplicate this shard, write its digest, and stop (see 'reconcile')",
+    )
+    prepare.add_argument(
+        "--decisions",
+        help="This shard's decisions-<i>.sqlite from 'reconcile'; finishes an --ingest-only shard",
+    )
     prepare.set_defaults(func=_prepare)
+
+    joined = subparsers.add_parser(
+        "reconcile",
+        help="Join shards prepared with --ingest-only: global duplicates, families and splits",
+    )
+    joined.add_argument(
+        "--digests", nargs="+", required=True, help="Each shard's digest.sqlite, in a fixed order"
+    )
+    joined.add_argument("--output", required=True, help="Directory for the per-shard decisions")
+    joined.set_defaults(func=_reconcile)
 
     chunks = subparsers.add_parser(
         "chunks", help="Inspect recursive parsing, grammar coverage, and parser repair tasks"

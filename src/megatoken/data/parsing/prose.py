@@ -24,11 +24,11 @@ from itertools import chain, islice
 from types import ModuleType
 from typing import Literal
 
+import numpy as np
 from uniseg import unidata_version
-from uniseg.graphemecluster import grapheme_cluster_boundaries
-from uniseg.sentencebreak import SentenceBreak, sentence_boundaries, sentence_break
-from uniseg.wordbreak import word_boundaries
+from uniseg.sentencebreak import SentenceBreak, sentence_break
 
+from .segmentation import grapheme_unsafe, sentence_boundaries, word_boundaries
 from .types import Boundary, Diagnostic, ParseLimits, ParseResult, Region
 
 PROSE_RULES_VERSION = "unicode-prose-v1"
@@ -94,6 +94,9 @@ _ESCAPE = re.compile(
 )
 
 
+_OFFSET_DTYPE = {"I": np.uint32, "Q": np.uint64}
+
+
 @dataclass(frozen=True, slots=True)
 class _TextView:
     text: str
@@ -104,19 +107,15 @@ class _TextView:
         text = payload.decode("utf-8", errors="surrogateescape")
         if payload.isascii():
             return cls(text, range(len(payload) + 1))
+        # Each undecodable byte became one escaped surrogate and stays one byte long.
+        codepoints = np.frombuffer(text.encode("utf-32-le", "surrogatepass"), dtype="<u4")
+        widths = np.where(
+            (codepoints >= 0xDC80) & (codepoints <= 0xDCFF),
+            1,
+            1 + (codepoints >= 0x80) + (codepoints >= 0x800) + (codepoints >= 0x10000),
+        )
         offsets = array("I" if len(payload) < 2**32 else "Q", [0])
-        position = 0
-        for character in text:
-            codepoint = ord(character)
-            if codepoint < 0x80 or 0xDC80 <= codepoint <= 0xDCFF:
-                position += 1
-            elif codepoint < 0x800:
-                position += 2
-            elif codepoint < 0x10000:
-                position += 3
-            else:
-                position += 4
-            offsets.append(position)
+        offsets.frombytes(np.cumsum(widths, dtype=_OFFSET_DTYPE[offsets.typecode]).tobytes())
         return cls(text, offsets)
 
 
@@ -130,24 +129,16 @@ def _valid_runs(text: str) -> Iterable[tuple[int, int]]:
         yield cursor, len(text)
 
 
-def _grapheme_indices(text: str) -> Iterable[int]:
-    """Never send surrogateescaped bytes into a Unicode segmentation engine."""
-    yield 0
-    if text.isascii():
-        for index in range(1, len(text) + 1):
-            if index == len(text) or text[index - 1 : index + 1] != "\r\n":
-                yield index
-        return
-    cursor = 0
+def _grapheme_unsafe(text: str) -> set[int]:
+    """The indices strictly inside a grapheme cluster, which no cut may use.
+
+    Every other index is a boundary. Invalid bytes are independent atoms, while
+    valid neighboring runs retain the full Unicode grapheme guarantees.
+    """
+    unsafe: set[int] = set()
     for first, last in _valid_runs(text):
-        # Invalid bytes are independent atoms, while valid neighboring runs
-        # retain the full Unicode grapheme guarantees.
-        yield from range(cursor + 1, first + 1)
-        yield from (
-            first + index for index in grapheme_cluster_boundaries(text[first:last]) if index > 0
-        )
-        cursor = last
-    yield from range(cursor + 1, len(text) + 1)
+        unsafe.update(first + index for index in grapheme_unsafe(text[first:last]))
+    return unsafe
 
 
 def grapheme_offsets(payload: bytes) -> tuple[int, ...]:
@@ -157,8 +148,22 @@ def grapheme_offsets(payload: bytes) -> tuple[int, ...]:
     still exceed a caller's hard byte/token budget; that caller must explicitly
     report any unavoidable smaller cut rather than pretending it was safe.
     """
+    return tuple(np.flatnonzero(grapheme_cut_mask(payload)).tolist())
+
+
+def grapheme_cut_mask(payload: bytes) -> np.ndarray:
+    """``mask[offset]`` is true when cutting ``payload`` at byte ``offset`` splits no grapheme."""
     view = _TextView.from_bytes(payload)
-    return tuple(view.byte_offsets[index] for index in _grapheme_indices(view.text))
+    if payload.isascii():
+        mask = np.ones(len(payload) + 1, dtype=bool)
+    else:
+        mask = np.zeros(len(payload) + 1, dtype=bool)
+        mask[np.frombuffer(view.byte_offsets, dtype=_OFFSET_DTYPE[view.byte_offsets.typecode])] = (
+            True
+        )
+    for index in _grapheme_unsafe(view.text):
+        mask[view.byte_offsets[index]] = False
+    return mask
 
 
 def _load_icu() -> ModuleType:
@@ -348,9 +353,7 @@ class _CutSafety:
         self.ends: list[int] = []
         for _, end, _ in protected:
             self.ends.append(max(end, self.ends[-1] if self.ends else 0))
-        # ASCII has one grapheme per byte except CRLF. Avoid allocating an
-        # O(n) set for this common case and for pathological long identifiers.
-        self.graphemes = None if text.isascii() else set(_grapheme_indices(text))
+        self.unsafe = _grapheme_unsafe(text)
 
     def safe(self, offset: int) -> bool:
         if not 0 < offset <= len(self.text):
@@ -358,9 +361,7 @@ class _CutSafety:
         index = bisect_right(self.starts, offset - 1) - 1
         if index >= 0 and offset < self.ends[index]:
             return False
-        if self.graphemes is not None:
-            return offset in self.graphemes
-        return offset == len(self.text) or self.text[offset - 1 : offset + 1] != "\r\n"
+        return offset not in self.unsafe
 
 
 def _icu_indices(
