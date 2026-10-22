@@ -22,13 +22,16 @@ from typing import Any
 
 import torch
 
-from megatoken.data.knowledge import FilePreparer, prepare_files
+from megatoken.data.knowledge import FilePreparer, PreparedFile, knowledge_items
 from megatoken.kb import add_items, model_identity, new_base, open_base
 from megatoken.memory.knowledge import KnowledgeBase
 from megatoken.memory.transducer import Lookup, SearchAgenda
 from megatoken.model.config import RESERVED_TRACKS
 from megatoken.model.multitrack import MultiTrackGenerator, MultiTrackState, ObservedEvent
 from megatoken.model.transducer import metadata_payload, real_boundary
+from megatoken.retrieval.collection import SourceCollection
+from megatoken.retrieval.ingest import FileIngest
+from megatoken.retrieval.session import DEFAULT_MAX_SOURCES, SourceSession
 from megatoken.training.transducer import BoundaryScheduler
 
 
@@ -39,19 +42,38 @@ class TransducerSession:
     agenda: SearchAgenda
     scheduler: BoundaryScheduler
     owner: int
+    sources: SourceSession | None = None
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
+@dataclass
+class AddedFiles:
+    """What ``add_files`` added: new collection items, and the entry ids written into a base."""
+
+    collection: int = 0
+    base: list[int] = field(default_factory=list)
+
+
 class TransducerInferenceEngine:
-    """Owns serving sessions for one multitrack generator and its transducer."""
+    """Owns serving sessions for one multitrack generator and its transducer.
+
+    ``collections`` maps names to source collection directories, mounted for the
+    engine's life; a session searches the ones it names (default: all). Knowledge
+    bases are opened or created by name (``open_base``, ``create_base``) and each
+    session mounts the ones it names with blend weights. A ``preparer`` (called once,
+    when first needed; ``megatoken.data.media_prepare.MediaPreparer``) lets the engine
+    add files to its collections and writable bases; without one collections are
+    mounted read-only.
+    """
 
     def __init__(
         self,
         multi: MultiTrackGenerator,
         *,
+        collections: Mapping[str, str | Path] | None = None,
         preparer: Callable[[], FilePreparer] | None = None,
     ) -> None:
-        """``preparer`` (called once, when first needed) prepares files to add to a base."""
+        """``preparer`` (called once, when first needed) prepares files to add."""
         model = multi.generator.eval()
         self.native = model.transducer
         self.bank = self.native.bank
@@ -62,6 +84,12 @@ class TransducerInferenceEngine:
         self._preparer_factory = preparer
         self._preparer: FilePreparer | None = None
         self._identity: dict[str, Any] | None = None
+        self.collections = {
+            name: SourceCollection.open(
+                path, writable=preparer is not None, teacher=model.config.media_extractor
+            )
+            for name, path in (collections or {}).items()
+        }
 
     # ---------------------------------------------------------- knowledge bases
 
@@ -99,20 +127,43 @@ class TransducerInferenceEngine:
     @torch.inference_mode()
     def add_files(
         self,
-        name: str,
         paths: Sequence[str | Path],
         *,
+        collection: str | None = None,
+        base: str | None = None,
         metadata: Mapping[str, object] | None = None,
-    ) -> list[int]:
-        """Prepare files with the existing media preparation, then write them into base ``name``."""
-        base = self.bases[name]
+    ) -> AddedFiles:
+        """Prepare files once and add them to a source collection and/or a knowledge base.
+
+        Each file is read by the teacher with the existing media preparation, and what that
+        gives is shared by both destinations. Sessions that mount either find the new items
+        from their next lookup; no weight changes. ``metadata`` files the base's entries
+        (task, topic, language, date); a collection keeps only the original file.
+        """
+        if collection is None and base is None:
+            raise ValueError("Adding files needs a collection, a knowledge base, or both")
+        if collection is not None and collection not in self.collections:
+            raise ValueError(f"No mounted collection named {collection!r}")
+        if base is not None and base not in self.bases:
+            raise ValueError(f"No open knowledge base named {base!r}")
         if self._preparer_factory is None:
             raise ValueError("Adding files needs the media preparer (serve with the pack manifest)")
+        if base is not None and not self.bases[base].writable:
+            raise RuntimeError(f"Knowledge base {base!r} is read-only")
         if self._preparer is None:
             self._preparer = self._preparer_factory()
-        items = prepare_files(paths, self._preparer, metadata=metadata)
-        with base.lock:
-            return add_items(base, self.multi.generator, self.multi, items)
+        files = [PreparedFile(path, self._preparer) for path in paths]
+        added = AddedFiles()
+        if collection is not None:
+            added.collection = FileIngest(self.collections[collection], self._preparer).add_files(
+                files
+            )
+        if base is not None:
+            target = self.bases[base]
+            items = knowledge_items(files, metadata=metadata)
+            with target.lock:
+                added.base = add_items(target, self.multi.generator, self.multi, items)
+        return added
 
     def _check(self, session: TransducerSession) -> None:
         if session.owner != id(self):
@@ -131,11 +182,16 @@ class TransducerInferenceEngine:
         effort: int = 6,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
+        collections: Sequence[str] | None = None,
+        max_sources: int = DEFAULT_MAX_SOURCES,
+        threshold: float | None = None,
     ) -> TransducerSession:
         """Commit the metadata prefix, then the first lookup, before any answer.
 
         ``bases`` maps open base names to blend weights (0 leaves one out);
-        ``trained`` is the trained base's weight.
+        ``trained`` is the trained base's weight. The session searches ``collections``
+        (default: every mounted one) and observes up to ``max_sources`` items per
+        lookup above ``threshold`` (default: each collection's own).
         """
         try:
             mounts = {name: (self.bases[name], weight) for name, weight in (bases or {}).items()}
@@ -149,7 +205,15 @@ class TransducerInferenceEngine:
             mounted=self.bank.mount(mounts, trained=trained),
         )
         scheduler = BoundaryScheduler(max_lookups=self.bank.geometry.max_lookups)
-        session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self))
+        names = list(self.collections if collections is None else collections)
+        if unknown := [n for n in names if n not in self.collections]:
+            raise ValueError(f"No mounted collection named {unknown[0]!r}")
+        sources = (
+            SourceSession({n: self.collections[n] for n in names}, max_sources, threshold)
+            if names
+            else None
+        )
+        session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self), sources)
         if scheduler.first_metadata():
             with session.lock:
                 session.state, _ = self._run(session, state, effort, deadline, cancelled)
@@ -231,7 +295,12 @@ class TransducerInferenceEngine:
                     for _, lock in sorted(filling.items()):
                         locks.enter_context(lock)
                     state, lookup = self.native.boundary(
-                        self.multi, state, session.agenda, effort=effort, cancelled=stopped
+                        self.multi,
+                        state,
+                        session.agenda,
+                        effort=effort,
+                        cancelled=stopped,
+                        sources=session.sources,
                     )
         finally:
             session.scheduler.finish(committed=lookup is not None)

@@ -209,11 +209,65 @@ sizes never become token weights.
 
 ## Serving and replay
 
-`generation/multitrack_service.py` accepts media as pinned teacher features
+`multitrack_service.py` accepts media as pinned teacher features
 (`features`, `extractor`) and returns realized bytes plus a `tape_payload`: a
 `media-sha256-v1` digest binding the output bytes to the realizer identity
 and seed. `GroupActionTape` v10 records renderer seeds and pack identities for
 every event; replay refuses a different realizer pack or drifted output.
+
+## Retrieving the original items
+
+A model that can observe a picture, a recording or a passage can also be handed the
+original again: a **source collection** (`megatoken.retrieval`) holds items of any
+medium, each with one search key, and a lookup can pull the best ones into the
+session. The design is in
+[multimodal-knowledge-plan.md](multimodal-knowledge-plan.md) section 3; this is the
+contract.
+
+- **One key space.** The key of an item is the teacher's own pooled 768-wide embedding
+  of it (the `embedding` asset every prepared item already carries), taken raw: EmbeddingGemma2
+  embeds text, images, audio and video into one space, so a photo, a recording and a
+  paragraph about the same thing lie near each other. Search is by cosine on these unit
+  vectors. The embedding head is trained toward the same raw vectors (its loss is centered, the
+  head's output is not), so the student's query and the stored keys are directly
+  comparable and nothing is centered at search time.
+- **Items.** A short passage (at most 4,096 bytes) is kept as its exact bytes. A longer
+  text is cut into the teacher's own pieces, each kept as its teacher features and
+  observed as compressed text. An image, a clip or a recording is kept as its teacher
+  features. Every item also keeps its original file reference (a path, or the hash of the
+  original for items taken from a prepared root).
+- **Index.** A directory with one SQLite file: the catalog, the float keys and an
+  inverted-file index (spherical k-means cells, int8 copies of the keys in a covering
+  cell index). Only the cell centres are in memory. A search ranks the probed cells by the
+  int8 codes and reads float keys only until the exact top-k is certain by the
+  quantization error bound, so its result equals exact rescoring of the probed cells; at
+  build the probe count is calibrated to the smallest that matches exact search at 97%
+  (on noisy copies of the keys, standing in for a student's imperfect queries).
+- **Building.** `megatoken collection build --name X --output DIR --items ...` takes
+  prepared dataset roots (their feature items as they are, `--split train` by default) and
+  raw files or folders. Raw files go through the preparation path above (`MediaPreparer`
+  and the teacher, so `--packs` is required): media become teacher features and an
+  embedding, text gets the document prompt, long text is cut into pieces. The command then
+  fits the cells and calibrates the probe count. `collection add --path DIR --items ...`
+  extends a built collection (new items are posted to their nearest cell) and
+  `collection info` reports it. A serving process with a preparer adds files to a mounted
+  collection while it runs (`MultiTrackRuntime.add_files(paths, collection=...)`, the `add_files` operation of
+  `serve-multitrack --collection NAME=DIR --packs ...`); sessions find them from their next
+  lookup.
+- **At a lookup.** The query block P samples on the query track also goes through the
+  embedding head's query role, giving a 768-wide query; no teacher runs. All mounted
+  collections are searched; up to `max_sources` (2) unobserved items scoring at least the
+  threshold (0.5 on the raw cosine unless the collection or the session sets another) are
+  observed right after the knowledge event, one meridian each, as events of their own
+  medium on the knowledge track with the role of a document: text as bytes, media and long
+  text as their stored features. A session never observes an item twice. Cancelling a
+  lookup, even midway through the items, leaves the session untouched. Training and serving
+  run the same code (`model/sources.py`), and a served session lists what it retrieved with
+  each item's original file reference.
+- **A request for the first lookup.** The first lookup happens right after the metadata, so
+  pass the question as the metadata's `request` field when a collection may answer it
+  (`open({"request": question})`); training shows that field for every
+  reading-from-a-collection episode.
 
 ## Verified, and not established
 

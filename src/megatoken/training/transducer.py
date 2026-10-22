@@ -31,6 +31,7 @@ from megatoken.memory.transducer_growth import TransducerGrowth, WriteOut
 from megatoken.memory.transducer_optimizer import BlockScaleDescent
 from megatoken.model.multitrack import MultiTrackState
 from megatoken.model.transducer import HindsightValues, NativeTransducer, OrdinaryEvents
+from megatoken.retrieval.session import Search, SourceSession
 
 from .reading_base import ReadingBase
 from .transducer_diloco import LOCAL_STEPS, SWITCH_EVERY, SwitchRule
@@ -213,12 +214,14 @@ class TransducerTrainer:
         step: int,
         generator: torch.Generator | None = None,
         mounted: tuple[Mounted, ...] | None = None,
+        sources: SourceSession | None = None,
     ) -> TransducerSequence:
         """Plan one training window (or a bank-only evaluation window when not training).
 
         ``mounted`` are the bases the window searches (default: the trained base alone).
         A window that mounts others learns nothing into the trained base: what those
-        bases hold is not to be memorized by it.
+        bases hold is not to be memorized by it. ``sources`` are the collections the
+        window's session has mounted.
         """
         training = self.native.training
         lookups = plan_boundaries(
@@ -228,7 +231,13 @@ class TransducerTrainer:
         )
         if not training:
             return TransducerSequence(
-                self, lookups, step, alpha=0.0, hindsight=False, mounted=mounted
+                self,
+                lookups,
+                step,
+                alpha=0.0,
+                hindsight=False,
+                mounted=mounted,
+                sources=sources,
             )
         sequence = self.sequences
         self.sequences += 1
@@ -241,6 +250,7 @@ class TransducerTrainer:
             hindsight=self.schedule.computes_hindsight(step, sequence, learned=learned),
             generator=generator,
             mounted=mounted,
+            sources=sources,
         )
 
     def after_backward(self, step: int) -> dict[str, int]:
@@ -372,6 +382,7 @@ class TransducerSequence:
         hindsight: bool,
         generator: torch.Generator | None = None,
         mounted: tuple[Mounted, ...] | None = None,
+        sources: SourceSession | None = None,
     ) -> None:
         self.trainer = trainer
         self.native = trainer.native
@@ -386,6 +397,9 @@ class TransducerSequence:
         self.queries: list[Tensor] = []  # the unit query of every lookup performed
         self.agenda: SearchAgenda | None = None
         self.lookups = 0
+        self.sources = sources
+        # The search of the window's first lookup, which the data may annotate.
+        self.first_search: Search | None = None
 
     @property
     def planned(self) -> int:
@@ -501,9 +515,12 @@ class TransducerSequence:
             # With alpha = 1 the bank's output never reaches the loss.
             train_rows=differentiable and alpha < 1,
             effort=effort,
+            sources=self.sources,
         )
         if lookup is None:
             return state
+        if t == 0 and self.sources is not None:
+            self.first_search = self.sources.last
         self.agenda.truncate_credit(CREDIT_GROUPS)
         if differentiable:
             for tensor in (lookup.value, lookup.bank_value, lookup.bank_landing_raw):

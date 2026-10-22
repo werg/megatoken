@@ -424,6 +424,7 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
     conditional = (
         "media_encoder.",
         "central.modality_embedding.",
+        "adapters.",
     )
     assert [
         name

@@ -1,11 +1,11 @@
 # Multimodal knowledge: knowledge bases, retrieval and adapters
 
-**Status:** agreed direction. Built so far: several knowledge bases searched as
-one (§1), writing an entry by reading an item alone (§2), the `megatoken kb`
-commands and per-session mounting while serving, the reading-from-a-base stream and its
-measurement (build steps 3-5, base half, and the base half of step 6). Source retrieval (§3) and
-the adapter mixture (§4) are being built separately. **Date:** 22 October 2026.
-Builds on the [transducer design](continuous-state-transducer-plan.md) (v10).
+**Status:** agreed direction. All of §1-§4 are built: several knowledge bases searched
+as one (§1), writing an entry by reading an item alone (§2), source retrieval (§3) and the
+adapter mixture (§4), with the `megatoken kb` and `megatoken collection` commands, serving
+sessions that mount both kinds, the reading-from-a-base and reading-from-a-collection
+streams and their measurements. **Date:** 22 October 2026. Builds on the
+[transducer design](continuous-state-transducer-plan.md) (v10).
 
 Three parts work from one lookup: **knowledge bases** (the transducer memory,
 several mounted at once), **retrieval** of original items of any medium, and
@@ -33,9 +33,9 @@ What is missing:
    Quoting a passage, showing a picture again or citing a source needs the
    original item, and the earlier literal retrieval (text only) was deleted
    with the v9 stack.
-4. **No adapters.** The earlier stack also chose a mixture of small low-rank
-   adapters from what memory returned and applied it across the network; it
-   was deleted too.
+4. **No adapters** (now built, §4). The earlier stack also chose a mixture of
+   small low-rank adapters from what memory returned and applied it across the
+   network; it was deleted, and §4 brings it back on the transducer lookups.
 
 ## 1. Many knowledge bases, searched as one
 
@@ -108,8 +108,9 @@ not grow.
   accepts "add these files to knowledge base X", writes their entries, and from
   then on sessions that mount X can find them. Nothing is retrained. In the
   multitrack JSONL service (`serve-multitrack --kb-root DIR`, every path inside `DIR`):
-  `kb_create`, `kb_add` (files), `kb_save`, `kb_open`, `kb_list`, `kb_close`, and
-  `open` takes `bases` (name to blend weight) and `trained_weight`.
+  `kb_create`, `kb_save`, `kb_open`, `kb_list`, `kb_close`, and `open` takes `bases`
+  (name to blend weight) and `trained_weight`. Files are added by `add_files`
+  (`paths`, with a `base`, a source `collection`, or both; see §3).
 
 ## 2. Writing an entry by reading the item alone
 
@@ -203,10 +204,12 @@ collections can be mounted, like knowledge bases.
   media as their stored teacher features. The model then reads, quotes,
   describes or regenerates them like anything it observes, and the runtime can
   return the original file. At most a few items per lookup (start with 2).
-- **Adding items.** The same command and runtime call that add files to a
-  knowledge base (§"How knowledge gets into a base") also add them to a source
-  collection: each file is prepared once, giving both its knowledge-base
-  entries and its retrievable original.
+- **Adding items.** One runtime call (`add_files`, in the JSONL service the `add_files`
+  operation) adds files to a knowledge base (§"How knowledge gets into a base"), to a
+  source collection, or to both: each file is read by the teacher once, giving both its
+  knowledge-base entries and its retrievable original. A serving session mounts bases
+  and collections together; one lookup searches both, the base's blend feeds the adapter
+  router and the collection's items are observed after the knowledge event.
 - **Training the query side.** (i) Query alignment: the embedding head's query
   output matches the teacher's embedding of the question, centered as in the
   current embedding-head training. (ii) Ranking: when the data says which item
@@ -216,6 +219,34 @@ collections can be mounted, like knowledge bases.
   retrieved items enter the sequence. A **reading-from-a-collection** stream
   puts the supporting items in a collection instead of the context, so the
   only way to answer is to retrieve them.
+
+**Status: built** (collections, query path, losses, producer, CLI, recall metric; the
+contract is in [media.md](media.md#retrieving-the-original-items), the training in
+[training.md](training.md)). Decisions the text above left open:
+
+- **Keys are the raw teacher embeddings**, not centered ones. The embedding head's output
+  is a raw unit vector (only its loss is centered), so student queries and stored keys
+  are compared directly by cosine, one index serves every medium, and the stored
+  embedding of an item is used as is. The centered distance is a training device; the
+  collection stores the mean teacher embedding of the queries it was built for, and the
+  query loss is centered on it.
+- **The first lookup needs the question.** Lookups follow metadata, source results and
+  assistant turns, not a user message, so the question travels as the metadata's
+  `request` field and the first lookup, right after the metadata, searches with it.
+  The reading episodes always show `request`; training keeps its usual random dropout of
+  the other fields.
+- **Ranking** is a softmax over cosine / 0.05 of the retrieved candidates (16 deep), the
+  annotated items (scored even if the index missed them) and a null entry at the score
+  threshold; unannotated candidates only share the normalization.
+- **Threshold** 0.5 on the raw cosine and `max_sources` 2 are starting values; the
+  threshold is stored per collection and overridable per session.
+- **Reading-from-a-collection data**: one collection per split inside the prepared root;
+  the held-out episodes search only their own split's items.
+
+Left for later: a mounted collection for streams other than the annotated one (so a model
+learns to use a collection that no annotation points at); a lookup after a completed
+user message (today only the metadata, source results, assistant turns and the interval
+trigger lookups); threshold and `max_sources` tuning on measured recall.
 
 ## 4. Adapter mixture chosen by the knowledge bases
 
@@ -243,6 +274,29 @@ input.
   objective. The adapters are ordinary dense parameters and sync through
   DiLoCo like the rest of the model.
 
+**Built** (`model/adapters.py`; see [architecture](architecture.md#the-knowledge-routed-adapter-mixture)).
+The choices the plan left open:
+
+- **Projection.** The router is one linear map from the layer-normalized
+  32,768-wide value straight to the 8 experts (262 thousand weights per owner),
+  not a 16-million-weight projection to facet width first. The map is the
+  learned projection, into the only space routing needs, and the session
+  carries just the resulting 3 x 8 preferences.
+- **Sites.** Every C layer, every P stage and the selected raw block that all
+  realizers read (the one input of text, audio, image and video R) each add
+  the experts' low-rank update of their own input to their output. The experts
+  are one bank per owner, shared by that owner's sites; a stage preference
+  tells the sites apart. The hindsight pass has no mixture.
+- **Strength.** One minus the sink's share of the value the knowledge event
+  reads. A training hindsight overlay counts as knowledge, so the sink's share
+  is its weight times (1 - overlay); at serving this is exactly one minus the
+  sink weight, and a sink-only lookup has strength exactly zero.
+- **Dropout.** A lookup's whole mixture is dropped with probability 0.1 in
+  training, drawn from the window's seeded generator.
+- **Balance.** Each owner's controller joins P's and U's routers in the global
+  router balance (hard top-2 counts per site and track, soft preferences
+  replayed from the detached lookup value).
+
 ## Cost
 
 - One ingest pass per item: one C pass over the item's events, the same as
@@ -257,11 +311,11 @@ input.
 Retrieval (§3) and the adapter mixture (§4) are independent of each other and
 of multiple bases, so they are built first and in parallel.
 
-1. Multimodal source collections: catalog, index, the query path from the
+1. Multimodal source collections (done): catalog, index, the query path from the
    embedding head, observing retrieved items, the query-side losses, and the
    collection CLI.
 2. The adapter bank, its knowledge-base router and its application in C, P
-   and the realizer conditions.
+   and the realizer conditions. **Built.**
 3. **Built.** Several mounted bases in one search: per-base tables, blend weights,
    (base, edge) pairs, the coordinator and checkpoints owning only the trained
    base.
@@ -296,7 +350,9 @@ bases of the last 8 episodes stay mounted, so the right items must be found amon
 others; every 1,024 optimizer steps all of them are dropped and rebuilt on demand, so no
 entry is older than that by more than the heads have moved. They belong to the training
 process and are neither checkpointed nor synced. Stage shares (all taken from the stage's
-natural-text or replay stream so mixtures still sum to one): P1 1%, M1 0.5%, M2 0.5%, LC 1%.
+natural-text or replay stream so mixtures still sum to one): P1 1%, M1 0.5%, M2 0.5%, LC 1%
+(the reading-from-a-collection stream takes a further 1% in every stage, from the same kinds
+of streams).
 
 Measurement: held-out evaluation scores each such window twice, with the window's own
 items mounted (alone, no other episodes' items) and with nothing mounted, and reports

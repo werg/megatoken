@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from .compression import CompressionPolicy, DocumentCompressor
+from .compression import DOCUMENT_PROMPT, CompressionPolicy, DocumentCompressor
 from .media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from .schema import (
     Episode,
@@ -205,33 +205,95 @@ def file_modality(path: Path) -> str:
     return "text"
 
 
-def prepare_files(
-    paths: Iterable[str | Path],
-    preparer: FilePreparer,
-    *,
-    metadata: Mapping[str, object] | None = None,
+class PreparedFile:
+    """One file and what reading it with the teacher gives, each step done at most once.
+
+    A file added to a source collection and to a knowledge base is read once: both take
+    the same media record or the same compressed pieces. ``text`` is the file as text;
+    ``key`` its whole-text teacher embedding (what a collection files a short passage
+    under); ``pieces`` its teacher-sized compressed pieces; ``record`` the features of an
+    image, speech or video file.
+    """
+
+    def __init__(self, path: str | Path, preparer: FilePreparer) -> None:
+        self.path = Path(path)
+        self.preparer = preparer
+        self.modality = file_modality(self.path)
+        self._made: dict[str, Any] = {}
+
+    def _once(self, name: str, make) -> Any:
+        if name not in self._made:
+            self._made[name] = make()
+        return self._made[name]
+
+    @property
+    def text(self) -> bytes:
+        def read() -> bytes:
+            payload = self.path.read_bytes()
+            payload.decode("utf-8")
+            if not payload.strip():
+                raise ValueError(f"{self.path} is empty")
+            return payload
+
+        return self._once("text", read)
+
+    @property
+    def key(self) -> Any:
+        """The teacher's embedding of the whole text, as a document."""
+        return self._once(
+            "key",
+            lambda: self.preparer.teacher.encode(
+                "text", self.text.decode("utf-8"), prompt=DOCUMENT_PROMPT
+            ).embedding.numpy(),
+        )
+
+    @property
+    def pieces(self) -> list[tuple[int, bytes, MediaRecord]]:
+        """``(byte offset, piece, record)`` of the text's compressed pieces, covering every byte."""
+        return self._once(
+            "pieces",
+            lambda: DocumentCompressor(
+                self.preparer.teacher, self.preparer.store, CompressionPolicy(min_bytes=1)
+            ).descriptors(self.text),
+        )
+
+    @property
+    def record(self) -> MediaRecord:
+        """The features of an image, speech or video file."""
+        return self._once(
+            "record", lambda: self.preparer.media(self.modality, self.path, target=False)
+        )
+
+
+def knowledge_items(
+    files: Iterable[PreparedFile], *, metadata: Mapping[str, object] | None = None
 ) -> list[KnowledgeItem]:
-    """Turn files into items with the existing media preparation path.
+    """Items for a knowledge base from prepared files.
 
     A text file becomes the consecutive pieces of one compressed document; an
     image, speech or video file becomes one item. Each item is filed under its
     modality and, unless ``metadata`` says otherwise, its file's name as topic.
     """
     items = []
-    for raw in paths:
-        path = Path(raw)
-        modality = file_modality(path)
-        filed = {"modality": ["text" if modality == "text" else modality], "topic": path.stem}
+    for file in files:
+        filed = {"modality": [file.modality], "topic": file.path.stem}
         filed.update(metadata or {})
-        if modality == "text":
-            compressor = DocumentCompressor(
-                preparer.teacher, preparer.store, CompressionPolicy(min_bytes=1)
-            )
-            for part, (_, _, record) in enumerate(compressor.descriptors(path.read_bytes())):
+        store = file.preparer.store
+        if file.modality == "text":
+            for part, (_, _, record) in enumerate(file.pieces):
                 items.append(
-                    KnowledgeItem(record, preparer.store, filed, path.name, str(path), part)
+                    KnowledgeItem(record, store, filed, file.path.name, str(file.path), part)
                 )
         else:
-            record = preparer.media(modality, path, target=False)
-            items.append(KnowledgeItem(record, preparer.store, filed, path.name))
+            items.append(KnowledgeItem(file.record, store, filed, file.path.name))
     return items
+
+
+def prepare_files(
+    paths: Iterable[str | Path],
+    preparer: FilePreparer,
+    *,
+    metadata: Mapping[str, object] | None = None,
+) -> list[KnowledgeItem]:
+    """Turn files into knowledge base items with the existing media preparation path."""
+    return knowledge_items((PreparedFile(path, preparer) for path in paths), metadata=metadata)

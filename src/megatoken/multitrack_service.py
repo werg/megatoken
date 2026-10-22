@@ -12,10 +12,19 @@ when it is only part of a longer message; only a message's last part closes a tu
 
 Knowledge bases (only when served with a ``kb_root`` directory, which every path
 must lie inside): ``kb_open`` mounts a base file built for this model under a name,
-``kb_create`` starts an empty base a user can fill, ``kb_add`` prepares files and writes
-them into a base (no retraining), ``kb_save`` writes a base to a file, ``kb_close``
-forgets one, ``kb_list`` describes the open ones. ``open`` takes ``bases``, a map of
-base name to blend weight (0 leaves one out), and ``trained_weight``.
+``kb_create`` starts an empty base a user can fill, ``kb_save`` writes a base to a file,
+``kb_close`` forgets one, ``kb_list`` describes the open ones. ``open`` takes ``bases``, a
+map of base name to blend weight (0 leaves one out), and ``trained_weight``.
+
+Source collections are mounted by name (``collections``). ``open`` may name the ones
+a session searches (default: all), ``max_sources`` and ``threshold``; every answer
+that ran lookups lists the items they retrieved and observed (``retrieved``), each
+with the original file it came from.
+
+``add_files`` prepares files (``paths``) once and adds them to a mounted source
+``collection`` and/or an open writable knowledge ``base`` (with optional ``metadata``
+filing its entries), when the service was given a preparer. Sessions that mount either
+find the new items from their next lookup.
 """
 
 from __future__ import annotations
@@ -124,6 +133,24 @@ def _output_spec(value: Mapping[str, object], max_capacity: int):
     )
 
 
+def _retrieved(session: TrackSession, delivered: int) -> tuple[list[dict], int]:
+    """The items retrieved since the last answer, and the new count."""
+    sources = session.memory.sources
+    log = [] if sources is None else sources.log
+    items = [
+        {
+            "lookup": entry.lookup,
+            "collection": entry.collection,
+            "item": entry.item.item_id,
+            "modality": entry.item.modality,
+            "origin": entry.item.origin,
+            "score": entry.score,
+        }
+        for entry in log[delivered:]
+    ]
+    return items, len(log)
+
+
 def _output_response(group, specs):
     outputs = []
     for i, spec in enumerate(specs):
@@ -173,15 +200,6 @@ def _knowledge_op(runtime: MultiTrackRuntime, root: Path | None, op: str, reques
         )
     elif op == "kb_create":
         base = memory.create_base(name)
-    elif op == "kb_add":
-        paths = request.get("files")
-        if not isinstance(paths, list) or not paths:
-            raise ValueError("kb_add needs a nonempty list of files")
-        metadata = request.get("metadata", {})
-        if not isinstance(metadata, dict):
-            raise ValueError("File metadata must be a JSON object")
-        added = memory.add_files(name, [_inside(root, path) for path in paths], metadata=metadata)
-        return {"name": name, "added": len(added), **memory.bases[name].summary()}
     elif op == "kb_save":
         base = memory.bases[name]
         base.save(_inside(root, request.get("path")))
@@ -193,12 +211,36 @@ def _knowledge_op(runtime: MultiTrackRuntime, root: Path | None, op: str, reques
     return {"name": name, **base.summary()}
 
 
+def _add_files(runtime: MultiTrackRuntime, root: Path | None, request: Mapping):
+    """``add_files``: one preparation of each file, added to a collection and/or a base."""
+    paths = request.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
+        raise ValueError("add_files needs a nonempty list of file paths")
+    metadata = request.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("File metadata must be a JSON object")
+    targets = {key: request.get(key) for key in ("collection", "base") if key in request}
+    if not targets or not all(isinstance(v, str) for v in targets.values()):
+        raise ValueError("add_files needs a collection name, a base name, or both")
+    # With a knowledge base root every file must lie inside it.
+    files = paths if root is None else [_inside(root, path) for path in paths]
+    added = runtime.add_files(files, metadata=metadata, **targets)
+    answer: dict[str, object] = {}
+    if "collection" in targets:
+        answer["collection"] = {"name": targets["collection"], "added": added.collection}
+    if "base" in targets:
+        summary = runtime.memory.bases[targets["base"]].summary()
+        answer["base"] = {"added": len(added.base), **summary}
+    return answer
+
+
 def serve_multitrack_jsonl(
     engine: InferenceEngine,
     input_stream: TextIO,
     output_stream: TextIO,
     *,
     max_sessions: int = 32,
+    collections: Mapping[str, str | Path] | None = None,
     kb_root: str | Path | None = None,
     preparer: Callable[[], FilePreparer] | None = None,
 ) -> None:
@@ -210,8 +252,11 @@ def serve_multitrack_jsonl(
     if max_sessions < 1:
         raise ValueError("max_sessions must be positive")
     root = None if kb_root is None else Path(kb_root).resolve()
-    runtime = MultiTrackRuntime(MultiTrackGenerator(engine.model), preparer=preparer)
+    runtime = MultiTrackRuntime(
+        MultiTrackGenerator(engine.model), collections=collections, preparer=preparer
+    )
     sessions: dict[str, TrackSession] = {}
+    delivered: dict[str, int] = {}
 
     for line in input_stream:
         request_id = None
@@ -231,16 +276,24 @@ def serve_multitrack_jsonl(
                 bases = request.get("bases", {})
                 if not isinstance(bases, dict):
                     raise ValueError("Mounted bases must be a JSON object of name to weight")
+                options = {
+                    key: request[key]
+                    for key in ("collections", "max_sources", "threshold")
+                    if key in request
+                }
                 sessions[session_id] = runtime.open(
                     metadata,
                     bases={str(k): float(v) for k, v in bases.items()},
                     trained=float(request.get("trained_weight", 1.0)),
                     effort=int(request.get("effort", 6)),
+                    **options,
                 )
                 answer = {
                     "session": session_id,
                     "architecture_version": engine.model.config.architecture_version,
                 }
+            elif op == "add_files":
+                answer = _add_files(runtime, root, request)
             elif isinstance(op, str) and op.startswith("kb_"):
                 answer = _knowledge_op(runtime, root, op, request)
             else:
@@ -320,9 +373,16 @@ def serve_multitrack_jsonl(
                     }
                 elif op == "close":
                     del sessions[session_id]
+                    delivered.pop(session_id, None)
                     answer = {"closed": session_id}
                 else:
                     raise ValueError("Unknown multitrack operation")
+            if op in {"open", "observe", "generate", "accept"}:
+                retrieved, delivered[session_id] = _retrieved(
+                    sessions[session_id], delivered.get(session_id, 0)
+                )
+                if retrieved:
+                    answer["retrieved"] = retrieved
             response = {"ok": True, **answer}
         except Exception as exc:
             response = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

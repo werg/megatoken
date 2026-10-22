@@ -80,7 +80,7 @@ def test_files_added_while_serving_are_found_by_sessions_that_mount_the_base(tmp
     memory.create_base("mine")
     early = runtime.open({"task": "q"}, bases={"mine": 1.0})  # opened before any file exists
     assert [m.name for m in early.memory.agenda.mounted] == ["trained", "mine"]
-    added = memory.add_files("mine", _files(tmp_path))
+    added = memory.add_files(_files(tmp_path), base="mine").base
     assert len(added) == 2 and memory.bases["mine"].edge_count == 2
     # No weight changed; the next lookup of a session that already mounted the base sees them.
     lookup = memory.observe(early.memory, _tool())
@@ -95,7 +95,7 @@ def test_files_added_while_serving_are_found_by_sessions_that_mount_the_base(tmp
 def test_blend_weights_unknown_names_and_the_trained_weight_per_session(tmp_path):
     runtime = _runtime(tmp_path)
     runtime.memory.create_base("mine")
-    runtime.memory.add_files("mine", _files(tmp_path))
+    runtime.memory.add_files(_files(tmp_path), base="mine")
     off = runtime.open(bases={"mine": 0.0})
     assert [m.name for m in off.memory.agenda.mounted] == ["trained"]
     only = runtime.open(bases={"mine": 2.0}, trained=0.0)
@@ -113,22 +113,22 @@ def test_adding_files_needs_a_writable_base_and_a_preparer(tmp_path):
     runtime = _runtime(tmp_path)
     memory = runtime.memory
     memory.create_base("mine")
-    memory.add_files("mine", _files(tmp_path))
+    memory.add_files(_files(tmp_path), base="mine")
     memory.bases["mine"].save(tmp_path / "mine.kb")
     sealed = memory.open_base("sealed", tmp_path / "mine.kb")
     with pytest.raises(RuntimeError, match="read-only"):
-        memory.add_files("sealed", _files(tmp_path))
+        memory.add_files(_files(tmp_path), base="sealed")
     assert sealed.edge_count == 2
     bare = MultiTrackRuntime(MultiTrackGenerator(runtime.generator.generator))
     bare.memory.create_base("x")
     with pytest.raises(ValueError, match="media preparer"):
-        bare.memory.add_files("x", _files(tmp_path))
+        bare.memory.add_files(_files(tmp_path), base="x")
 
 
 def test_a_base_built_for_other_weights_is_refused(tmp_path):
     runtime = _runtime(tmp_path)
     runtime.memory.create_base("mine")
-    runtime.memory.add_files("mine", _files(tmp_path))
+    runtime.memory.add_files(_files(tmp_path), base="mine")
     runtime.memory.bases["mine"].save(tmp_path / "mine.kb")
     torch.manual_seed(77)
     other = MultiTrackRuntime(
@@ -145,7 +145,7 @@ def test_serving_looks_up_exactly_as_training_does_across_bases(tmp_path):
     runtime = _runtime(tmp_path)
     memory, model = runtime.memory, runtime.generator.generator
     memory.create_base("mine")
-    memory.add_files("mine", _files(tmp_path))
+    memory.add_files(_files(tmp_path), base="mine")
     metadata = {"task": "q", "modality": ["text"]}
     served = memory.new_session(metadata, bases={"mine": 0.5}, effort=1)
     # The training path (an evaluation window) with the same bases mounted, step by step.
@@ -194,12 +194,14 @@ def test_jsonl_protocol_creates_fills_saves_and_mounts_bases_inside_the_root(tmp
 
     def requests(results):
         yield _line({"op": "kb_create", "id": 1, "name": "mine"})
-        yield _line({"op": "kb_add", "id": 2, "name": "mine", "files": ["notes.txt", "photo.png"]})
-        yield _line({"op": "kb_add", "id": 3, "name": "mine", "files": ["../outside.txt"]})
+        yield _line(
+            {"op": "add_files", "id": 2, "base": "mine", "paths": ["notes.txt", "photo.png"]}
+        )
+        yield _line({"op": "add_files", "id": 3, "base": "mine", "paths": ["../outside.txt"]})
         yield _line({"op": "open", "id": 4, "bases": {"mine": 1.0}, "trained_weight": 0.5})
         yield _line({"op": "kb_save", "id": 5, "name": "mine", "path": "mine.kb"})
         yield _line({"op": "kb_open", "id": 6, "name": "again", "path": "mine.kb"})
-        yield _line({"op": "kb_add", "id": 7, "name": "again", "files": ["notes.txt"]})
+        yield _line({"op": "add_files", "id": 7, "base": "again", "paths": ["notes.txt"]})
         yield _line({"op": "kb_list", "id": 8})
         yield _line({"op": "kb_close", "id": 9, "name": "again"})
         yield _line({"op": "kb_nonsense", "id": 10, "name": "mine"})
@@ -207,7 +209,7 @@ def test_jsonl_protocol_creates_fills_saves_and_mounts_bases_inside_the_root(tmp
     rows = _serve(model, requests, kb_root=root, preparer=lambda: StubPreparer(root / "prepared"))
     by_id = {row["id"]: row for row in rows}
     assert by_id[1]["ok"] and by_id[1]["writable"] and by_id[1]["edges"] == 0
-    assert by_id[2]["ok"] and by_id[2]["added"] == 2 and by_id[2]["edges"] == 2
+    assert by_id[2]["ok"] and by_id[2]["base"]["added"] == 2 and by_id[2]["base"]["edges"] == 2
     assert not by_id[3]["ok"] and "outside the knowledge base root" in by_id[3]["error"]
     assert by_id[4]["ok"]
     assert by_id[5]["ok"] and (root / "mine.kb").exists()

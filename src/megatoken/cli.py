@@ -366,26 +366,39 @@ def _serve(args):
 
 
 def _serve_multitrack(args):
+    import tempfile
+
     from megatoken.inference import InferenceEngine
     from megatoken.multitrack_service import serve_multitrack_jsonl
 
+    collections = dict(item.partition("=")[::2] for item in args.collection)
+    if not all(collections.values()):
+        raise ValueError("--collection is NAME=DIRECTORY")
     engine = InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile)
+    scratch = tempfile.TemporaryDirectory()
 
     def preparer():
         from megatoken.data.media_prepare import MediaPreparer
 
-        if not (args.kb_root and args.packs):
-            raise ValueError("Adding files needs --kb-root and the pack manifest (--packs)")
-        return MediaPreparer(args.packs, Path(args.kb_root) / "prepared", device=str(engine.device))
+        if not args.packs:
+            raise ValueError("Adding files needs the pack manifest (--packs)")
+        # Prepared features of a knowledge base's files are kept beside it; a collection
+        # copies what it keeps, so its files are prepared in scratch space.
+        place = Path(args.kb_root) / "prepared" if args.kb_root else Path(scratch.name)
+        return MediaPreparer(args.packs, place, device=str(engine.device))
 
-    serve_multitrack_jsonl(
-        engine,
-        sys.stdin,
-        sys.stdout,
-        max_sessions=args.max_sessions,
-        kb_root=args.kb_root,
-        preparer=preparer,
-    )
+    try:
+        serve_multitrack_jsonl(
+            engine,
+            sys.stdin,
+            sys.stdout,
+            max_sessions=args.max_sessions,
+            collections=collections,
+            kb_root=args.kb_root,
+            preparer=preparer if args.packs and (collections or args.kb_root) else None,
+        )
+    finally:
+        scratch.cleanup()
 
 
 def _engram_extract(args):
@@ -418,6 +431,9 @@ def parser() -> argparse.ArgumentParser:
     from megatoken.data.cli import add_data_commands
 
     add_data_commands(commands)
+    from megatoken.retrieval.cli import add_collection_commands
+
+    add_collection_commands(commands)
     item = commands.add_parser(
         "doctor", help="Validate the installed runtime and real device execution"
     )
@@ -596,6 +612,13 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--device", default="auto")
     item.add_argument("--compile", action="store_true")
     item.add_argument("--max-sessions", type=int, default=32)
+    item.add_argument(
+        "--collection",
+        action="append",
+        default=[],
+        metavar="NAME=DIRECTORY",
+        help="Mount a source collection (repeatable); with --packs, files can be added to it",
+    )
     item.add_argument(
         "--kb-root",
         help="Directory knowledge base files are opened from and saved to; enables the kb_* operations",

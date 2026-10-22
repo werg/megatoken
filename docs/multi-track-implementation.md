@@ -172,11 +172,14 @@ megatoken serve-multitrack --model artifacts/served --packs packs/lock.json --kb
 ```
 
 `kb_open` (`name`, `path`) mounts a base file built for this model, `kb_create`
-(`name`) starts an empty base for a user's files, `kb_add` (`name`, `files`,
-optional `metadata`) prepares files and writes them into it with no retraining,
-`kb_save` (`name`, `path`), `kb_close` and `kb_list`. `open` takes `bases` (base
-name to blend weight; 0 leaves a base out) and `trained_weight`; a session that
-mounts a base finds entries added to it from its next lookup. A base built for
+(`name`) starts an empty base for a user's files, `kb_save` (`name`, `path`), `kb_close`
+and `kb_list`. `open` takes `bases` (base
+name to blend weight; 0 leaves a base out) and `trained_weight`, and the source
+collections the session searches (`collections`, `max_sources`, `threshold`); a session
+that mounts a base or a collection finds what is added to it from its next lookup.
+`add_files` (`paths`, a `base`, a `collection` or both, optional `metadata` filing the
+base's entries) prepares each file once and writes it into a writable base with no
+retraining and/or adds it to a mounted collection. A base built for
 other model weights is refused.
 
 The server does **not** execute model-produced tool commands, download remote

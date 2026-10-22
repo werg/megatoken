@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 from torch import Tensor, nn
@@ -23,11 +23,14 @@ from torch import Tensor, nn
 from megatoken.generation.embedding import EmbeddingRealizer, EmbeddingSpec
 from megatoken.memory.transducer import Lookup, Mounted, SearchAgenda, TransducerBank
 from megatoken.memory.transducer_packing import pack_fp4, straight_through
+from megatoken.retrieval.session import SourceSession
 
+from .adapters import ADAPTER_DROPOUT, AdapterMixture
 from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK
 from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
 from .ingest import IngestedRows, IngestHeads, IngestItem
 from .multitrack import MultiTrackState, ObservedEvent
+from .sources import read_sources
 from .state import KVHistory, RealizationContext
 
 QUERY_SPACE = "transducer-v10-query"
@@ -349,6 +352,20 @@ class NativeTransducer(nn.Module):
         )
         return self.bank.metadata_start(self._prefix(state))
 
+    def mixture(
+        self, found: Lookup, *, overlay: float, training: bool, generator: torch.Generator | None
+    ) -> AdapterMixture:
+        """The adapter mixture one lookup asks for, from the value its knowledge event reads.
+
+        Its strength is one minus the sink's share of that value. A hindsight
+        overlay is knowledge too, so only the bank's own part can be the sink.
+        Training drops a lookup's whole mixture with probability ``ADAPTER_DROPOUT``.
+        """
+        strength = 1 - (1 - overlay) * found.sink_weight
+        if training and float(torch.rand((), generator=generator)) < ADAPTER_DROPOUT:
+            strength = strength * 0
+        return self.core.adapters.select(found.value, strength)
+
     def boundary(
         self,
         multi,
@@ -362,12 +379,17 @@ class NativeTransducer(nn.Module):
         train_rows: bool | None = None,
         effort: int = 6,
         cancelled: Callable[[], bool] | None = None,
+        sources: SourceSession | None = None,
     ) -> tuple[MultiTrackState, Lookup | None]:
         """One serialized query and knowledge commit; the agenda changes only on success.
 
         The query is P's own reparameterized sample on the reserved query
         track, realized by an embedding R. A cancellation or a failure leaves
         both the agenda and the returned state untouched.
+
+        With ``sources``, the same query block is read by the embedding head's
+        query role and the mounted collections are searched; the items chosen are
+        observed after the knowledge event (``model.sources``).
         """
         if state.batch_size != 1 or state.device != self.bank.device:
             raise ValueError("Native lookup is one session on the bank/model device")
@@ -396,14 +418,34 @@ class NativeTransducer(nn.Module):
         if found is None:
             return state, None
         block = self.readout(found.value, query, found.landing, core=self.core)
+        # From the knowledge event on, every meridian runs under this lookup's mixture.
+        queried = replace(
+            queried,
+            adapters=self.mixture(found, overlay=overlay, training=training, generator=generator),
+        )
         committed = multi.tracks.advance_group(
             queried,
             block[:, None],
             tracks=(KNOWLEDGE_TRACK,),
             role_ids=torch.full_like(assistant, ROLE_IDS["document"]),
         )
+        read = None
+        if sources is not None:
+            read = read_sources(
+                multi,
+                committed,
+                sources,
+                selected[:, 0],
+                lookup=agenda.lookups,
+                cancelled=cancelled,
+            )
+            if read is None:
+                return state, None
+            committed = read[0]
         if cancelled and cancelled():
             return state, None
         self.bank.commit(working, found)
         agenda.publish(working)
+        if read is not None:
+            sources.commit(read[1])
         return committed, found
