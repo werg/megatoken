@@ -194,8 +194,11 @@ def identity_episode(record: MediaRecord, family: str | None = None) -> Episode:
         ),
     )
     digest = record.source.source_family
+    # One ID per (media, family): the same media reached through two sources is two
+    # episodes with identical content, which deduplication merges and splits as one.
+    identity = hashlib.sha256(f"{digest}\0{family or digest}".encode()).hexdigest()
     return Episode(
-        f"{modality}-identity-{digest[:24]}",
+        f"{modality}-identity-{identity[:24]}",
         records,
         Lineage(
             "media-identity",

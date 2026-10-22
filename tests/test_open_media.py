@@ -40,6 +40,7 @@ from megatoken.data.open_media import (
     field_of,
     first_sentence,
     frozen_split,
+    identity_episode,
     load_sources,
     probe,
     read_clips,
@@ -1041,3 +1042,15 @@ def test_the_prepare_script_builds_an_immutable_root_from_counts(
         run("--root", str(tmp_path / "new"), "--count", "nonexistent=1")
     with pytest.raises(SystemExit):  # malformed slice
         run("--root", str(tmp_path / "new"), "--shard-slice", "3/2")
+
+
+def test_the_same_media_through_two_sources_is_two_mergeable_episodes(tmp_path: Path) -> None:
+    from megatoken.data import DedupStore
+    from megatoken.generation.codec import ByteCodec
+
+    record = prepared_record(TensorAssetStore(tmp_path), "image", seed=3)
+    first, second = identity_episode(record, "coco:1"), identity_episode(record, "coco-recap:1")
+    assert first.episode_id != second.episode_id
+    with DedupStore(tmp_path / "dedup.sqlite") as store, store.transaction():
+        assert store.add(first, ByteCodec.byte_fallback()) == "accepted_candidate"
+        assert store.add(second, ByteCodec.byte_fallback()) == "duplicate"
