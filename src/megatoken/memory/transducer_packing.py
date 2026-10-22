@@ -45,9 +45,7 @@ def _fp8_bytes(x: Tensor) -> bytes:
 
 
 def _decode_fp8(payload: bytes) -> Tensor:
-    return torch.frombuffer(bytearray(payload), dtype=torch.uint8).view(
-        torch.float8_e4m3fn
-    ).float()
+    return torch.frombuffer(bytearray(payload), dtype=torch.uint8).view(torch.float8_e4m3fn).float()
 
 
 @dataclass(frozen=True)
@@ -136,9 +134,9 @@ def pack_fp8(values: Tensor, *, stochastic_seed: int | None = None) -> PackedFie
         low, high = levels[upper - 1], levels[upper]
         p = ((flat - low) / (high - low)).clamp(0, 1)
         rng = torch.Generator().manual_seed(stochastic_seed)
-        normalized = torch.where(
-            torch.rand(flat.shape, generator=rng) < p, high, low
-        ).reshape_as(normalized)
+        normalized = torch.where(torch.rand(flat.shape, generator=rng) < p, high, low).reshape_as(
+            normalized
+        )
     return PackedField(
         "e4m3",
         x.numel(),
@@ -174,8 +172,9 @@ def pack_fp4(values: Tensor, *, stochastic_seed: int | None = None) -> PackedFie
         code = torch.cat((code, torch.zeros(1, dtype=torch.uint8)))
     bytes4 = code.reshape(-1, 2)
     packed = bytes4[:, 0] | (bytes4[:, 1] << 4)
-    return PackedField("e2m1", x.numel(), packed.numpy().tobytes(), _fp8_bytes(group_scale),
-                       row_scale)
+    return PackedField(
+        "e2m1", x.numel(), packed.numpy().tobytes(), _fp8_bytes(group_scale), row_scale
+    )
 
 
 def straight_through(master: Tensor, packed: PackedField) -> Tensor:
