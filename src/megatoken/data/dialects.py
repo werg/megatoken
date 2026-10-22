@@ -174,7 +174,17 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
         out.append({"role": "system", "content": system})  # a prompt kept outside the turns
     for turn, message in enumerate(messages):
         role, text = role_of(message), _text(message)
-        if ledger.unfinished and ledger.pending and role != "tool":
+        # Qwen-style templates deliver results as a user turn made of response blocks only.
+        blocks_only = (
+            role == "user"
+            and bool(ledger.pending)
+            and text.lstrip().startswith("<tool_response>")
+            and not _TAGGED["response"].sub("", text).strip()
+        )
+        is_result = blocks_only or (
+            role == "tool" and (bool(ledger.pending) or "<tool_response>" in text)
+        )
+        if ledger.unfinished and ledger.pending and not is_result:
             raise SchemaError(
                 f"The dialogue moves on with {len(ledger.pending)} call(s) only partly answered"
             )
@@ -190,15 +200,10 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
                 else:
                     blocks += _blocks(piece, [])
             out.append({**message, "role": "assistant", "content": blocks})
-        elif (role == "tool" and "<tool_response>" in text) or (
-            # Qwen-style templates deliver results as a user turn made of response blocks only.
-            role == "user"
-            and ledger.pending
-            and text.lstrip().startswith("<tool_response>")
-            and not _TAGGED["response"].sub("", text).strip()
-        ):
-            bodies = _TAGGED["response"].findall(text)
-            ids = ledger.answer(len(bodies), in_parts=role == "tool")
+        elif is_result:
+            # A tool message without response tags is one result in the publisher's own words.
+            bodies = _TAGGED["response"].findall(text) if "<tool_response>" in text else [text]
+            ids = ledger.answer(len(bodies), in_parts=True)
             results = [_result(i, body) for i, body in zip(ids, bodies, strict=True)]
             out.append({**message, "role": "tool", "content": results})
         else:
