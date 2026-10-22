@@ -67,6 +67,72 @@ def _validator_type(base):
     return jsonschema.validators.extend(base, {"contentSchema": _validate_json_content})
 
 
+_JSON_TYPES = frozenset({"array", "boolean", "integer", "null", "number", "object", "string"})
+_NUMBER_KEYWORDS = frozenset({"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"})
+_COUNT_KEYWORDS = frozenset({"minLength", "maxLength", "minItems", "maxItems"})
+_SCHEMA_KEYWORDS = frozenset({"items", "additionalProperties", "not", "contentSchema"})
+_SCHEMA_LIST_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
+_TEXT_KEYWORDS = frozenset(
+    {"title", "description", "$comment", "format", "contentMediaType", "contentEncoding"}
+)
+# "example" is no keyword of any vocabulary, so the metaschema leaves its value free.
+_FREE_KEYWORDS = frozenset({"default", "const", "example"})
+_FLAG_KEYWORDS = frozenset({"deprecated", "readOnly", "writeOnly"})
+
+
+def _is_plain_schema(schema: Any) -> bool:
+    """Whether ``schema`` is certainly valid under the 2020-12 metaschema.
+
+    Tool parameter schemas are made of a few common keywords. For those, the metaschema
+    check reduces to the type of each keyword's value, which takes microseconds instead of
+    the milliseconds that resolving the metaschema's dynamic references costs. Any keyword
+    not listed here, or any value that does not plainly fit, answers False and the caller
+    runs the full check, so this never accepts what the metaschema would refuse.
+    """
+    if isinstance(schema, bool):
+        return True
+    if type(schema) is not dict:
+        return False
+    for key, value in schema.items():
+        if key in _TEXT_KEYWORDS:
+            ok = isinstance(value, str)
+        elif key in _FREE_KEYWORDS:
+            ok = True
+        elif key == "type":
+            ok = (isinstance(value, str) and value in _JSON_TYPES) or (
+                type(value) is list
+                and 0 < len(value) == len(set(map(str, value)))
+                and all(isinstance(item, str) and item in _JSON_TYPES for item in value)
+            )
+        elif key == "properties":
+            ok = type(value) is dict and all(_is_plain_schema(item) for item in value.values())
+        elif key == "required":
+            ok = (
+                type(value) is list
+                and all(isinstance(item, str) for item in value)
+                and len(value) == len(set(value))
+            )
+        elif key == "enum":
+            ok = type(value) is list
+        elif key == "examples":
+            ok = type(value) is list
+        elif key in _SCHEMA_KEYWORDS:
+            ok = _is_plain_schema(value)
+        elif key in _SCHEMA_LIST_KEYWORDS:
+            ok = type(value) is list and bool(value) and all(map(_is_plain_schema, value))
+        elif key in _NUMBER_KEYWORDS:
+            ok = type(value) in (int, float)
+        elif key in _COUNT_KEYWORDS:
+            ok = type(value) is int and value >= 0
+        elif key in _FLAG_KEYWORDS:
+            ok = isinstance(value, bool)
+        else:
+            ok = False
+        if not ok:
+            return False
+    return True
+
+
 # Real corpora reuse the same function definitions across many rows.
 @lru_cache(maxsize=4096)
 def _validator(schema_text: str):
@@ -74,8 +140,10 @@ def _validator(schema_text: str):
 
     schema = strict_json_loads(schema_text)
     _check_refs(schema)
-    validator_type = _validator_type(jsonschema.validators.validator_for(schema))
-    validator_type.check_schema(schema)
+    base = jsonschema.validators.validator_for(schema)
+    validator_type = _validator_type(base)
+    if base is not jsonschema.Draft202012Validator or not _is_plain_schema(schema):
+        validator_type.check_schema(schema)
     return validator_type(schema)
 
 
