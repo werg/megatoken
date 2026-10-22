@@ -20,7 +20,7 @@ train = ["torch>=2.10,<2.15", "safetensors>=0.5,<1"]
 # The CoreWeave sandbox client (megatoken.cloud, megatoken.cloud_diloco): stdlib + cwsandbox only.
 cloud = ["cwsandbox>=1.19,<2"]
 storage = ["boto3>=1.42.5,<2"]
-data = ["tokenizers>=0.21,<1", "regex>=2024.11", "huggingface-hub>=0.28,<2", "pyarrow>=18,<24", "datasets>=3,<5", "zstandard>=0.23,<1", "soundfile>=0.12,<1"]
+data = ["tokenizers>=0.21,<1", "regex>=2024.11", "huggingface-hub>=0.28,<2", "pyarrow>=18,<24", "datasets>=3,<5", "zstandard>=0.23,<1", "soundfile>=0.12,<1", "Pillow>=11,<13"]
 dev = ["pytest>=8.3,<9", "ruff>=0.11,<1", "build>=1.2,<2"]
 i18n = ["PyICU>=2.16,<3"]
 # Media preparation and training: the EmbeddingGemma2 teacher and its processor
