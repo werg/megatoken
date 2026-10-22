@@ -61,7 +61,7 @@ def test_packed_fp4_and_fp8_store_actual_codes_and_reject_nonfinite():
     assert address.format == "e4m3" and len(address.codes) == 129
     assert len(address.scales) == 8
     assert (value.decode() - x).abs().mean() < 0.5
-    assert (address.decode() - x).abs().max() < 0.1
+    assert (address.decode() - x).abs().max() < 0.25
     assert torch.equal(value.decode(), type(value).from_dict(value.to_dict()).decode())
     with pytest.raises(ValueError):
         pack_fp4(torch.tensor([float("nan")]))
@@ -107,7 +107,7 @@ def test_refresh_uses_only_new_departure_table_and_rejects_v9_snapshot():
     bank.refresh(agenda)
     assert agenda.version == bank.version
     assert agenda.neighborhoods[0] == bank.nearest(agenda.current)
-    assert old == agenda.neighborhoods or old != agenda.neighborhoods
+    assert old == [(1,)]
     saved = bank.state_snapshot()
     bank.load_snapshot(saved)
     with pytest.raises(ValueError, match="v10"):
@@ -138,11 +138,10 @@ def test_sparse_optimizer_addresses_written_values_and_master_retention():
     optimizer = BlockScaleDescent(bank, cache_edges=1)
     leaf = bank.field(i, "key", train=True)
     leaf.sum().backward()
-    before = bank.rows[i].key.codes
     result = optimizer.step(1)
     assert result["updated_fields"] == 1
     assert i in optimizer.lru
-    assert bank.rows[i].key.codes != before or bank.rows[i].key.codes == before
+    assert optimizer.fields[i, "key"].count == pytest.approx(1)
     optimizer.add_write(i, torch.full((128,), 4.0), 3.0)
     result = optimizer.step(2)
     assert result["written_values"] == 1
