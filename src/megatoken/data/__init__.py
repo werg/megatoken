@@ -26,7 +26,7 @@ from .collection import (
     TeacherRequest,
     TeacherResponse,
 )
-from .dedup import DedupConfig, DedupStore
+from .dedup import DedupConfig, DedupStore, reconcile
 from .demo import make_demo_episodes, write_demo_source
 from .packing import TrainingWindow, WindowConfig, iter_windows
 from .parsing.types import ParseLimits
@@ -73,6 +73,7 @@ __all__ = [
     "segment_with_report",
     "DedupConfig",
     "DedupStore",
+    "reconcile",
     "Dependency",
     "EncodedRecord",
     "Episode",

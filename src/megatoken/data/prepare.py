@@ -51,7 +51,9 @@ def prepare_sources(
     compression: CompressionPolicy | None = None,
     teacher_packs: str | Path | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
-) -> PreparedDataset:
+    ingest_only: bool = False,
+    decisions: str | Path | None = None,
+) -> PreparedDataset | None:
     """Prepare source rows, checking source identity before resuming any cursor.
 
     ``max_record_tokens`` / ``max_record_bytes`` set the hard physical-record
@@ -70,9 +72,18 @@ def prepare_sources(
     results) as teacher features (data/compression.py), with EmbeddingGemma2
     loaded from the ``teacher_packs`` manifest; the features are stored as
     immutable assets under ``output``, which training uses as its media root.
+
+    One run is normally enough. To prepare one manifest's shards on separate machines
+    (``data/sharding.py``), run each with ``ingest_only=True``: it reads and deduplicates
+    its rows within the shard, leaves ``digest.sqlite`` beside ``preparation.sqlite`` and
+    returns ``None``. ``reconcile`` then joins the digests, and running the same call again
+    with that shard's ``decisions`` file applies the global verdicts (splits, cross-shard
+    duplicates, family isolation) in place of the shard-local freeze and writes the root.
     """
     if (compression is None) != (teacher_packs is None):
         raise ValueError("Compressed reading needs both a policy and the teacher pack manifest")
+    if ingest_only and decisions is not None:
+        raise ValueError("A shard is either ingested or finished with decisions, not both")
     dedup = dedup or DedupConfig()
     review = review or ParserReviewPolicy()
     if (
@@ -237,7 +248,13 @@ def prepare_sources(
                         "INSERT INTO source_progress VALUES(?,?,1) ON CONFLICT(source_key) DO UPDATE SET next_row=excluded.next_row,complete=1",
                         (source.fingerprint, last + 1),
                     )
-            store.freeze()
+            if ingest_only:
+                store.write_digest(root / "digest.sqlite")
+                return None
+            if decisions is None:
+                store.freeze()
+            else:
+                store.apply_decisions(decisions)
         store.set_meta("parser_review_summary", canonical_json(review_queue.summary()))
         store.connection.commit()
         receipts = [asdict(source) | {"fingerprint": source.fingerprint} for source in source_list]

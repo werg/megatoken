@@ -11,10 +11,11 @@ from __future__ import annotations
 import hashlib
 import heapq
 import json
+import os
 import sqlite3
 import struct
 from collections.abc import Iterable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -100,6 +101,10 @@ def _pack(values: tuple[int, ...]) -> bytes:
 
 def _unpack(value: bytes) -> set[int]:
     return set(struct.unpack(f"<{len(value) // 8}Q", value))
+
+
+def _unpack_sorted(value: bytes) -> tuple[int, ...]:
+    return struct.unpack(f"<{len(value) // 8}Q", value)
 
 
 class DedupStore:
@@ -313,11 +318,58 @@ class DedupStore:
             encoded = tuple(encode_record(record, codec) for record in episode.records)
         root = self.register_episode_lineage(episode)
         sketch, word_count = _word_hashes(episode, self.config)
+        variant = (
+            f"task:{episode.lineage.task_id}"
+            if episode.lineage.task_id
+            else episode.lineage.family_id
+        )
+        if variant.startswith("repository:"):
+            variant = episode.lineage.raw_sha256 or episode.episode_id
+        return self._admit(
+            episode_id=episode.episode_id,
+            content_sha256=episode.content_sha256,
+            root=root,
+            stream=episode.stream,
+            source_id=episode.lineage.source_id,
+            episode_json=episode_json,
+            sketch=sketch,
+            word_count=word_count,
+            token_count=sum(record.tokens for record in encoded),
+            scored_positions=sum(record.P for record in encoded),
+            assistant_tokens=sum(
+                record.tokens
+                for record in encoded
+                if record.record.role == "assistant" and record.record.policy_mask
+            ),
+            observation_tokens=sum(
+                record.tokens for record in encoded if record.record.role in {"tool", "environment"}
+            ),
+            executed_tokens=sum(
+                record.tokens for record in encoded if record.record.provenance == "executed"
+            ),
+            outcome=episode.supervision.outcome,
+            verified_success=int(episode.supervision.verified_success),
+            created_at=(
+                _utc_timestamp(episode.lineage.created_at) if episode.lineage.created_at else None
+            ),
+            variant_key=variant,
+            inherited_split=episode.lineage.frozen_split,
+            record_shape=json.dumps([[record.tokens, record.positions] for record in encoded]),
+            tagged=bool(episode.supervision.benchmark_tags),
+        )
+
+    def _admit(self, *, root: str, sketch: tuple[int, ...], tagged: bool, **row: Any) -> str:
+        """Compare a measured episode with those already held, then record it.
+
+        Exact duplicates (same transcript) and near duplicates (sketch similarity) join
+        the earlier episode's family and are kept only as duplicates; ``tagged`` marks an
+        episode known to come from a benchmark.
+        """
+        word_count = row["word_count"]
         duplicate = self.connection.execute(
             "SELECT episode_id,family_key FROM episodes WHERE content_sha256=? ORDER BY ordinal LIMIT 1",
-            (episode.content_sha256,),
+            (row["content_sha256"],),
         ).fetchone()
-        reason = None
         duplicate_of = duplicate[0] if duplicate else None
         anchors = [] if duplicate else self._anchors(sketch)
         if duplicate:
@@ -348,20 +400,14 @@ class DedupStore:
                     root = self.register_family((root, other[1]))
                     if duplicate_of is None:
                         duplicate_of = candidate[0]
-        if (
-            episode.supervision.benchmark_tags
+        reason = (
+            "benchmark_contamination"
+            if tagged
             or self.connection.execute(
-                "SELECT 1 FROM benchmarks WHERE key=? AND kind='content'", (episode.content_sha256,)
+                "SELECT 1 FROM benchmarks WHERE key=? AND kind='content'", (row["content_sha256"],)
             ).fetchone()
-        ):
-            reason = "benchmark_contamination"
-        variant = (
-            f"task:{episode.lineage.task_id}"
-            if episode.lineage.task_id
-            else episode.lineage.family_id
+            else None
         )
-        if variant.startswith("repository:"):
-            variant = episode.lineage.raw_sha256 or episode.episode_id
         self.connection.execute(
             """INSERT INTO episodes(
             episode_id,content_sha256,family_key,stream,source_id,episode_json,sketch,word_count,
@@ -370,43 +416,149 @@ class DedupStore:
             record_shape)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                episode.episode_id,
-                episode.content_sha256,
+                row["episode_id"],
+                row["content_sha256"],
                 root,
-                episode.stream,
-                episode.lineage.source_id,
-                episode_json,
+                row["stream"],
+                row["source_id"],
+                row["episode_json"],
                 _pack(sketch),
                 word_count,
-                sum(record.tokens for record in encoded),
-                sum(record.P for record in encoded),
-                sum(
-                    record.tokens
-                    for record in encoded
-                    if record.record.role == "assistant" and record.record.policy_mask
-                ),
-                sum(
-                    record.tokens
-                    for record in encoded
-                    if record.record.role in {"tool", "environment"}
-                ),
-                sum(record.tokens for record in encoded if record.record.provenance == "executed"),
-                episode.supervision.outcome,
-                int(episode.supervision.verified_success),
-                _utc_timestamp(episode.lineage.created_at) if episode.lineage.created_at else None,
+                row["token_count"],
+                row["scored_positions"],
+                row["assistant_tokens"],
+                row["observation_tokens"],
+                row["executed_tokens"],
+                row["outcome"],
+                row["verified_success"],
+                row["created_at"],
                 duplicate_of,
                 reason,
-                variant,
-                episode.lineage.frozen_split,
-                json.dumps([[record.tokens, record.positions] for record in encoded]),
+                row["variant_key"],
+                row["inherited_split"],
+                row["record_shape"],
             ),
         )
         if not duplicate_of:
             self.connection.executemany(
                 "INSERT OR IGNORE INTO anchors VALUES(?,?)",
-                ((anchor, episode.episode_id) for anchor in anchors),
+                ((anchor, row["episode_id"]) for anchor in anchors),
             )
         return "quarantine" if reason else "duplicate" if duplicate_of else "accepted_candidate"
+
+    def write_digest(self, path: str | Path) -> int:
+        """Write what ``reconcile`` needs to compare this store with the other shards' stores.
+
+        Every episode this store holds as an original (not a duplicate of another one it
+        holds) with its sketch and family, the family links, and the benchmark keys; the
+        episode text stays here. Returns the number of episodes written.
+        """
+        self.connection.commit()
+        target = Path(path)
+        partial = target.with_suffix(".partial")
+        partial.unlink(missing_ok=True)
+        self.connection.execute("ATTACH DATABASE ? AS digest", (str(partial),))
+        try:
+            columns = (
+                "ordinal,episode_id,content_sha256,family_key,stream,source_id,sketch,word_count,"
+                "token_count,scored_positions,assistant_tokens,observation_tokens,executed_tokens,"
+                "outcome,verified_success,created_at,quarantine_reason,variant_key,inherited_split,"
+                "record_shape"
+            )
+            self.connection.execute(
+                f"CREATE TABLE digest.episodes AS SELECT {columns} FROM main.episodes "
+                "WHERE duplicate_of IS NULL ORDER BY ordinal"
+            )
+            self.connection.execute(
+                "CREATE TABLE digest.families AS SELECT key,parent FROM main.families WHERE key<>parent"
+            )
+            self.connection.execute(
+                "CREATE TABLE digest.benchmarks AS SELECT * FROM main.benchmarks"
+            )
+            self.connection.execute(
+                "CREATE TABLE digest.meta AS SELECT * FROM main.meta WHERE key='dedup_config'"
+            )
+            count = self.connection.execute("SELECT COUNT(*) FROM digest.episodes").fetchone()[0]
+            self.connection.commit()
+        finally:
+            self.connection.execute("DETACH DATABASE digest")
+        with partial.open("rb") as handle:
+            os.fsync(handle.fileno())
+        os.replace(partial, target)
+        return count
+
+    def apply_decisions(self, path: str | Path) -> None:
+        """Adopt ``reconcile``'s verdicts for this shard instead of freezing it alone.
+
+        Each original episode takes its global duplicate status, quarantine reason, split
+        and family; episodes that were duplicates inside this shard stay excluded.
+        """
+        if self.frozen:
+            raise ValueError("Verdicts must be applied before the families freeze")
+        self.connection.commit()
+        self.connection.execute("ATTACH DATABASE ? AS verdicts", (str(path),))
+        try:
+            missing = self.connection.execute(
+                "SELECT COUNT(*) FROM main.episodes WHERE duplicate_of IS NULL AND episode_id NOT IN "
+                "(SELECT episode_id FROM verdicts.decisions)"
+            ).fetchone()[0]
+            if missing:
+                raise ValueError(
+                    f"{missing} episodes have no verdict; they were not part of the reconciliation"
+                )
+            self.connection.execute(
+                "UPDATE main.episodes SET duplicate_of=d.duplicate_of, "
+                "quarantine_reason=d.quarantine_reason, split=d.split, "
+                "resolved_family=d.resolved_family FROM verdicts.decisions AS d "
+                "WHERE main.episodes.episode_id=d.episode_id"
+            )
+            self.set_meta("families_frozen", "true")
+            self.connection.commit()
+        finally:
+            self.connection.execute("DETACH DATABASE verdicts")
+
+    def _absorb(self, shard: int, row: sqlite3.Row) -> None:
+        """Admit one original episode of another shard's digest (see ``reconcile``)."""
+        tagged = row["quarantine_reason"] == "benchmark_contamination"
+        root = self.register_family((row["family_key"],))
+        if (
+            tagged
+            or self.connection.execute(
+                "SELECT 1 FROM benchmarks WHERE key=? AND kind='content'", (row["content_sha256"],)
+            ).fetchone()
+        ):
+            self.connection.execute("INSERT OR IGNORE INTO benchmarks VALUES(?, 'family')", (root,))
+        name = f"{shard}:{row['episode_id']}"
+        self._admit(
+            episode_id=name,
+            root=root,
+            sketch=tuple(_unpack_sorted(row["sketch"])),
+            tagged=tagged,
+            episode_json="",
+            **{
+                key: row[key]
+                for key in (
+                    "content_sha256",
+                    "stream",
+                    "source_id",
+                    "word_count",
+                    "token_count",
+                    "scored_positions",
+                    "assistant_tokens",
+                    "observation_tokens",
+                    "executed_tokens",
+                    "outcome",
+                    "verified_success",
+                    "created_at",
+                    "variant_key",
+                    "inherited_split",
+                    "record_shape",
+                )
+            },
+        )
+        self.connection.execute(
+            "INSERT INTO origins VALUES(?,?,?)", (name, shard, row["episode_id"])
+        )
 
     def freeze(self) -> None:
         """Resolve complete ancestor components, then assign and propagate splits."""
@@ -548,3 +700,94 @@ class DedupStore:
             "U_definition": "Raw-codec tokens in accepted deduplicated complete transcripts, including shared context.",
             "free_position_candidates_definition": "The static masked target inventory: positions that could carry loss.",
         }
+
+
+# Reconciliation commits after this many replayed episodes.
+COMMIT_EVERY = 4096
+
+
+def reconcile(digests: Sequence[str | Path], output: str | Path) -> dict[str, Any]:
+    """Join separately ingested shards into one set of verdicts, as if one store had read them all.
+
+    Each shard has already removed its own duplicates. This replays every shard's
+    originals, shard by shard in the order given, through the same exact-duplicate and
+    near-duplicate comparison, joins families that share a key or a near duplicate across
+    shards, and freezes splits, benchmark quarantine and per-parent variant caps once over
+    the union. Shard ``i`` gets ``decisions-<i>.sqlite`` in ``output`` for
+    ``DedupStore.apply_decisions``. Only digests are read: no episode text moves.
+    """
+    root = Path(output)
+    root.mkdir(parents=True, exist_ok=True)
+    paths = [Path(item) for item in digests]
+    if not paths:
+        raise ValueError("Reconciliation needs at least one shard digest")
+    configs = set()
+    for path in paths:
+        with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as digest:
+            configs.add(
+                digest.execute("SELECT value FROM meta WHERE key='dedup_config'").fetchone()[0]
+            )
+    if len(configs) != 1:
+        raise ValueError("Shards were prepared with different dedup/split configurations")
+    config = DedupConfig(**json.loads(configs.pop()))
+    joined = root / "reconciled.sqlite"
+    for suffix in ("", "-wal", "-shm"):
+        Path(f"{joined}{suffix}").unlink(missing_ok=True)
+    columns = (
+        "episode_id,content_sha256,family_key,stream,source_id,sketch,word_count,token_count,"
+        "scored_positions,assistant_tokens,observation_tokens,executed_tokens,outcome,"
+        "verified_success,created_at,quarantine_reason,variant_key,inherited_split,record_shape"
+    )
+    with DedupStore(joined, config) as store:
+        store.connection.execute(
+            "CREATE TABLE origins(episode_id TEXT PRIMARY KEY, shard INTEGER NOT NULL, local_id TEXT NOT NULL)"
+        )
+        for shard, path in enumerate(paths):
+            with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as digest:
+                digest.row_factory = sqlite3.Row
+                store.connection.executemany(
+                    "INSERT OR IGNORE INTO benchmarks VALUES(?,?)",
+                    digest.execute("SELECT key,kind FROM benchmarks"),
+                )
+                for key, parent in digest.execute("SELECT key,parent FROM families"):
+                    store.register_family((key, parent))
+                for count, row in enumerate(
+                    digest.execute(f"SELECT {columns} FROM episodes ORDER BY ordinal")
+                ):
+                    store._absorb(shard, row)
+                    if count % COMMIT_EVERY == 0:
+                        store.connection.commit()
+            store.connection.commit()
+        store.freeze()
+        counts = {
+            "shards": len(paths),
+            "episodes": store.connection.execute("SELECT COUNT(*) FROM episodes").fetchone()[0],
+            "cross_shard_duplicates": store.connection.execute(
+                "SELECT COUNT(*) FROM episodes WHERE duplicate_of IS NOT NULL"
+            ).fetchone()[0],
+            "quarantined": store.connection.execute(
+                "SELECT COUNT(*) FROM episodes WHERE quarantine_reason IS NOT NULL"
+            ).fetchone()[0],
+            "accepted": store.connection.execute(
+                "SELECT COUNT(*) FROM episodes WHERE duplicate_of IS NULL AND quarantine_reason IS NULL"
+            ).fetchone()[0],
+        }
+        for shard in range(len(paths)):
+            target = root / f"decisions-{shard:04d}.sqlite"
+            target.unlink(missing_ok=True)
+            store.connection.execute("ATTACH DATABASE ? AS verdicts", (str(target),))
+            try:
+                store.connection.execute(
+                    "CREATE TABLE verdicts.decisions(episode_id TEXT PRIMARY KEY, duplicate_of TEXT, "
+                    "quarantine_reason TEXT, split TEXT, resolved_family TEXT)"
+                )
+                store.connection.execute(
+                    "INSERT INTO verdicts.decisions SELECT o.local_id,e.duplicate_of,"
+                    "e.quarantine_reason,e.split,e.resolved_family FROM main.episodes e "
+                    "JOIN main.origins o USING(episode_id) WHERE o.shard=?",
+                    (shard,),
+                )
+                store.connection.commit()
+            finally:
+                store.connection.execute("DETACH DATABASE verdicts")
+    return counts

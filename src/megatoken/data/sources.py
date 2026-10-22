@@ -58,6 +58,9 @@ class SourceSpec:
     max_rows: int | None = None
     field_map: Mapping[str, str | list[str]] = field(default_factory=dict)
     options: Mapping[str, Any] = field(default_factory=dict)
+    # ``(index, count)``: this shard reads every ``count``-th row, starting at ``index``, of
+    # the rows its files hold. Row numbers stay those of the whole file list.
+    stripe: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         if not all((self.source_id, self.uri, self.adapter, self.stream, self.revision)):
@@ -72,11 +75,18 @@ class SourceSpec:
             )
         if self.max_rows is not None and self.max_rows <= 0:
             raise ValueError("max_rows must be positive, or null for an explicitly unbounded run")
+        if self.stripe is not None:
+            index, count = self.stripe
+            if not (type(index) is int and type(count) is int and 0 <= index < count):
+                raise ValueError("stripe must be (index, count) with 0 <= index < count")
+            object.__setattr__(self, "stripe", (index, count))
 
     @property
     def fingerprint(self) -> str:
         """What is read, not who approved it or where the files sit on this machine."""
         value = asdict(self)
+        if value["stripe"] is None:  # Sources written before striping keep their identity.
+            del value["stripe"]
         value["terms"] = {"license": self.terms.license, "license_url": self.terms.license_url}
         value["files"] = [{**item, "path": Path(item["path"]).name} for item in value["files"]]
         if self.format != "hf":
@@ -134,6 +144,8 @@ class SourceSpec:
                 join["path"] = str((base / location).resolve())
             options["lineage_join"] = join
         obj["options"] = options
+        if obj.get("stripe") is not None:
+            obj["stripe"] = tuple(obj["stripe"])
         return cls(**obj)
 
 
@@ -153,6 +165,19 @@ def load_source_manifest(path: str | Path) -> tuple[SourceSpec, ...]:
 def iter_source_rows(
     source: SourceSpec, *, start_row: int = 0
 ) -> Iterator[tuple[int, dict[str, Any]]]:
+    """Stream deterministic logical rows, only this stripe's if the source has one.
+
+    A stripe is a shard's share of a source too big to split by file: every shard reads
+    the whole file list and keeps its own rows, which keep their global numbers.
+    """
+    rows = _read_rows(source, start_row=start_row)
+    if source.stripe is None:
+        return rows
+    index, count = source.stripe
+    return ((number, row) for number, row in rows if number % count == index)
+
+
+def _read_rows(source: SourceSpec, *, start_row: int) -> Iterator[tuple[int, dict[str, Any]]]:
     """Stream deterministic logical rows; Parquet skips completed row groups.
 
     A Hugging Face streaming resume counts logical rows sequentially. This avoids
