@@ -170,6 +170,7 @@ def main() -> None:
                         shard_slice=shard_slice,
                         files=entry.get("files"),
                         stripe=tuple(entry["stripe"]) if entry.get("stripe") else None,
+                        sizes=entry.get("sizes"),
                     ):
                         dedup.add(episode, codec)
                         tally[episode.stream] += 1

@@ -89,7 +89,7 @@ def test_a_source_with_one_huge_file_is_striped_over_the_shards():
     plan = plan_media_shards(sources, 4, listings)
     stripes = [spec["big"]["stripe"] for spec in plan if "big" in spec]
     assert sorted(stripes) == [[i, 4] for i in range(4)]
-    assert all("files" not in spec["big"] for spec in plan if "big" in spec)
+    assert all(spec["big"]["files"] == ["data/all.parquet"] for spec in plan if "big" in spec)
 
 
 def test_a_linked_source_divides_by_archive_unless_its_archive_is_one_stream():
@@ -129,6 +129,17 @@ def test_the_listing_is_read_from_its_file_when_it_exists(tmp_path):
     path = tmp_path / "files.json"
     path.write_text(json.dumps({"x": [["data/a.parquet", 7]]}))
     assert read_listing({}, path) == {"x": [("data/a.parquet", 7)]}
+
+
+def test_a_source_missing_from_the_listing_is_listed_and_added(tmp_path, monkeypatch):
+    from megatoken.data import media_sharding
+
+    path = tmp_path / "files.json"
+    path.write_text(json.dumps({"x": [["data/a.parquet", 7]]}))
+    monkeypatch.setattr(media_sharding, "list_files", lambda source: [("data/b.parquet", 9)])
+    new = {"y": source("y")}
+    assert read_listing(new, path) == {"x": [("data/a.parquet", 7)], "y": [("data/b.parquet", 9)]}
+    assert json.loads(path.read_text())["y"] == [["data/b.parquet", 9]]
 
 
 # ---- the run file -------------------------------------------------------------------------

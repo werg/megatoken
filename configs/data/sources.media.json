@@ -893,7 +893,8 @@
    },
    "options": {
     "family_pattern": "^(.*)_\\d+\\.flac$",
-    "max_seconds": 20.0
+    "max_seconds": 20.0,
+    "unique": "id"
    },
    "inventory": {
     "items": 1501271,
@@ -947,6 +948,9 @@
     "basis": "Hub dataset viewer rows for the listed languages; paper hours",
     "shards": 104,
     "size_gb": 313.8
+   },
+   "options": {
+    "verbalize": true
    }
   },
   {
@@ -997,7 +1001,8 @@
     "family": "client_id"
    },
    "options": {
-    "max_seconds": 20.0
+    "max_seconds": 20.0,
+    "verbalize": true
    },
    "inventory": {
     "items": 3608534,
@@ -1024,7 +1029,7 @@
    },
    "gated": true,
    "include": [
-    "parquet-data/xl/*.parquet"
+    "parquet-data/xl/train-*.parquet"
    ],
    "columns": {
     "audio": "audio",
@@ -1034,7 +1039,8 @@
    },
    "options": {
     "clean": "gigaspeech",
-    "max_seconds": 20.0
+    "max_seconds": 20.0,
+    "verbalize": true
    },
    "inventory": {
     "items": 8300000,
@@ -1057,19 +1063,16 @@
     "reviewed_at": "2026-10-22",
     "license": "cc-by-4.0 on the card (Emilia-YODAS); the original Emilia part is CC-BY-NC-4.0 under the gate's terms",
     "license_url": "https://huggingface.co/datasets/amphion/Emilia-Dataset",
-    "notes": "In-the-wild speech from podcasts and videos in six languages, pipeline-filtered, with ASR transcripts."
+    "notes": "Emilia, the original half of the Emilia-Large corpus (English, German, French, Chinese, Japanese, Korean); its YODAS half is read from an ungated mirror (emilia_yodas)."
    },
    "gated": true,
    "include": [
-    "Emilia-YODAS/EN/*.tar",
     "Emilia/EN/*.tar",
-    "Emilia-YODAS/DE/*.tar",
-    "Emilia-YODAS/FR/*.tar",
     "Emilia/DE/*.tar",
     "Emilia/FR/*.tar",
     "Emilia/ZH/*.tar",
     "Emilia/JA/*.tar",
-    "Emilia-YODAS/KO/*.tar"
+    "Emilia/KO/*.tar"
    ],
    "columns": {
     "audio": "mp3",
@@ -1082,14 +1085,15 @@
     "provenance": {
      "text": "teacher"
     },
-    "tier": "model-labeled"
+    "tier": "model-labeled",
+    "verbalize": true
    },
    "inventory": {
-    "items": 77600000,
-    "hours": 215600,
-    "basis": "card hours (Emilia-Large, all six languages); items at ~10 s a segment (estimate)",
-    "shards": 4264,
-    "size_gb": 4701.7
+    "items": 36600000,
+    "hours": 101700,
+    "basis": "card hours of Emilia (the non-YODAS half, six languages); items at ~10 s a segment (estimate)",
+    "shards": 2362,
+    "size_gb": 2610
    },
    "caveat": "Gated: the Hub account must accept the terms. Transcripts are Whisper-pipeline output, not human."
   },
@@ -1122,7 +1126,8 @@
     "provenance": {
      "text": "teacher"
     },
-    "tier": "model-labeled"
+    "tier": "model-labeled",
+    "verbalize": true
    },
    "inventory": {
     "items": 40810517,

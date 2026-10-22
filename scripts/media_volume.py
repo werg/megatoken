@@ -19,10 +19,9 @@ from __future__ import annotations
 
 import argparse
 import math
-
-from megatoken.data.media_sharding import CLIP_SECONDS, DEFAULT_CLIP_SECONDS
 from pathlib import Path
 
+from megatoken.data.media_sharding import clip_seconds
 from megatoken.data.open_media import SOURCES, OpenSource, load_sources
 from megatoken.data.recipes import stage_recipe
 
@@ -176,10 +175,7 @@ def prepared_gb(source: OpenSource) -> float:
 
 
 def gpu_hours(source: OpenSource) -> float:
-    seconds = source.options.get(
-        "clip_seconds", CLIP_SECONDS.get(source.task, DEFAULT_CLIP_SECONDS)
-    )
-    return source.inventory.get("items", 0) * seconds / 3600
+    return source.inventory.get("items", 0) * clip_seconds(source) / 3600
 
 
 def sources_table() -> str:
@@ -206,6 +202,62 @@ def sources_table() -> str:
         f"| **total** | | {totals[0]:,.0f} | {totals[1]:,.0f} | {totals[2]:,.0f} | "
         f"{totals[3]:,.0f} | {totals[4]:,.0f} |"
     )
+    return "\n".join(lines)
+
+
+SUMMARY_ROWS = (
+    ("Speech", ("transcription", "verbalization", "translation_text", "translation_pair")),
+    ("Sound and music", ("sound", "captioned_audio", "audio_questions")),
+    ("Images with text", ("captioned_image", "picture", "image_questions")),
+    ("Image edits", ("image_edit", "image_edit_chain")),
+    ("Video", ("av_caption", "av_scenes", "video", "captioned_video", "video_questions")),
+    ("Video edits", ("video_edit", "video_edit_chain")),
+)
+
+
+def summary(sources: dict[str, OpenSource]) -> list[dict[str, float]]:
+    """Per kind of media: sources, clips, audio or video hours, images, repository and prepared
+    size and the estimated GPU hours."""
+    rows = []
+    for _, tasks in SUMMARY_ROWS:
+        row = dict.fromkeys(
+            ("sources", "items", "audio_h", "video_h", "images", "gb", "prepared", "gpu"), 0.0
+        )
+        for source in sources.values():
+            if source.task not in tasks:
+                continue
+            items = source.inventory.get("items", 0)
+            row["sources"] += 1
+            row["items"] += items
+            row["gb"] += source.inventory.get("size_gb", 0)
+            row["prepared"] += prepared_gb(source)
+            row["gpu"] += items * clip_seconds(source) / 3600
+            for modality, seconds in events(source):
+                if modality == "image":
+                    row["images"] += items
+                else:
+                    row[f"{modality}_h"] += items * seconds / 3600
+        rows.append(row)
+    return rows
+
+
+def summary_table(before: dict[str, OpenSource], after: dict[str, OpenSource]) -> str:
+    lines = [
+        "| Kind | Sources before | Sources after | Clips or pairs before | Clips or pairs after "
+        "| Media after | Repository TB after | Prepared TB after (est.) | GPU hours after (est.) |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for (name, _), old, new in zip(SUMMARY_ROWS, summary(before), summary(after), strict=True):
+        media = (
+            f"{new['images']:,.0f} images"
+            if new["images"]
+            else f"{new['audio_h'] + new['video_h']:,.0f} hours"
+        )
+        lines.append(
+            f"| {name} | {old['sources']:.0f} | {new['sources']:.0f} | {old['items']:,.0f} | "
+            f"{new['items']:,.0f} | {media} | {new['gb'] / 1000:,.1f} | "
+            f"{new['prepared'] / 1000:,.1f} | {new['gpu']:,.0f} |"
+        )
     return "\n".join(lines)
 
 
@@ -296,10 +348,16 @@ def gap_table(only: set[str] | None = None) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("table", choices=("sources", "gap", "edits"))
+    parser.add_argument("table", choices=("sources", "gap", "edits", "summary"))
     parser.add_argument("--only", nargs="*", help="limit the gap table to these source ids")
     parser.add_argument(
-        "--manifest", nargs="*", type=Path, help="read these manifests instead of the committed ones"
+        "--baseline", nargs="*", type=Path, help="the manifests before the change, for summary"
+    )
+    parser.add_argument(
+        "--manifest",
+        nargs="*",
+        type=Path,
+        help="read these manifests instead of the committed ones",
     )
     args = parser.parse_args()
     if args.manifest:
@@ -309,6 +367,8 @@ def main() -> None:
         print(sources_table())
     elif args.table == "edits":
         print(edits_table())
+    elif args.table == "summary":
+        print(summary_table(load_sources(*args.baseline), SOURCES))
     else:
         print(gap_table(set(args.only) if args.only else None))
 

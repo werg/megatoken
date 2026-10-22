@@ -1776,3 +1776,97 @@ def test_linked_rows_lose_a_leading_folder_and_a_shard_reads_only_its_archives(t
 
     (record,) = linked_records(source, shard)
     assert record["texts"] == ["edit 2"] and len(record["images"]) == 2
+
+
+def test_a_transcription_source_can_also_be_read_aloud_from_its_transcripts(tmp_path, media):
+    source = make_source(
+        "asr",
+        columns={"audio": "audio", "text": "text", "id": "id"},
+        include=("*.parquet",),
+        options={"verbalize": True},
+    )
+    assert source.streams == ("audio_identity", "speech_edit", "transcription", "verbalization")
+    parquet.write_table(
+        pa.table(
+            {
+                "audio": [{"bytes": _wave(1), "path": "a.flac"}],
+                "text": ["Hello, world."],
+                "id": ["a"],
+            }
+        ),
+        _local(tmp_path, "asr") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"transcription": 1, "verbalization": 1, "audio_identity": 1}
+    said = next(e for e in episodes if e.stream == "verbalization")
+    assert said.records[0].payload == b"Hello, world." and said.records[1].policy_mask
+    assert make_source("plain").streams == ("audio_identity", "speech_edit", "transcription")
+
+
+def test_a_parquet_table_with_nested_turns_links_to_its_images(tmp_path, media):
+    """ImgEdit multi-turn: one row holds a list of turns, each naming its own input and output."""
+    source = make_source(
+        "imgedit",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "data.0.output_images.0"},
+        include=("Parquet/*.parquet",),
+        options={
+            "family_pattern": r"^[^/]+/(\d+_\d+)_\d+/",
+            "linked": {
+                "archives": ["Multiturn/results_a.tar.split.*"],
+                "multipart": True,
+                "sequence": {
+                    "images": [
+                        "data.0.input_images.0",
+                        "data.0.output_images.0",
+                        "data.1.output_images.0",
+                    ],
+                    "texts": ["data.0.prompt", "data.1.prompt"],
+                },
+            },
+        },
+    )
+
+    def turn(prompt, origin, result):
+        return {"input_images": [origin], "output_images": [result], "prompt": prompt}
+
+    chain = "results_a/00087_00016_000166465"
+    folder = _local(tmp_path, "imgedit")
+    (folder / "Parquet").mkdir()
+    (folder / "Multiturn").mkdir()
+    parquet.write_table(
+        pa.table(
+            {
+                "data": [
+                    [
+                        turn(
+                            "replace the lemon with a mango",
+                            f"{chain}/origin_0.png",
+                            f"{chain}/result_0.png",
+                        ),
+                        turn("make it ripe", f"{chain}/origin_1.png", f"{chain}/result_1.png"),
+                        turn("remove it", f"{chain}/origin_2.png", f"{chain}/result_2.png"),
+                    ]
+                ]
+            }
+        ),
+        folder / "Parquet/a.parquet",
+    )
+    members = {
+        f"mnt/data/code/{chain}/{name}.png": _image(number)
+        for number, name in enumerate(
+            ["origin_0", "result_0", "mask_0", "origin_1", "result_1", "origin_2", "result_2"]
+        )
+    }
+    whole = tmp_path / "all.tar"
+    _tar(whole, members)
+    data = whole.read_bytes()
+    cut = len(data) // 2
+    (folder / "Multiturn/results_a.tar.split.000").write_bytes(data[:cut])
+    (folder / "Multiturn/results_a.tar.split.001").write_bytes(data[cut:])
+    (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert episode.stream == "image_edit"
+    assert episode.lineage.family_id == "imgedit:00087_00016"
+    texts = [r.payload for r in episode.records if r.media_type.startswith("text")]
+    assert texts == [b"replace the lemon with a mango", b"make it ripe"]

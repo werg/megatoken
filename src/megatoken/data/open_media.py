@@ -98,7 +98,14 @@ class OpenSource:
     def streams(self) -> tuple[str, ...]:
         """Every stage-plan stream this source can feed (procedural edits included)."""
         task = TASKS[self.task]
-        return tuple(sorted(task.streams | ({task.edit_stream} if task.edit_stream else set())))
+        extra = (
+            {"verbalization"}
+            if self.task == "transcription" and self.options.get("verbalize")
+            else set()
+        )
+        return tuple(
+            sorted(task.streams | extra | ({task.edit_stream} if task.edit_stream else set()))
+        )
 
     def with_options(self, **overrides: Any) -> OpenSource:
         return dataclasses.replace(self, options={**self.options, **overrides})
@@ -318,7 +325,11 @@ def compile_bundle(
 
 
 def speech_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]) -> list[Episode]:
-    """Speech with its verbatim transcript -> transcription episode and audio identity episode."""
+    """Speech with its verbatim transcript -> transcription episode and audio identity episode.
+
+    A source with ``options.verbalize`` (its transcripts are cased and punctuated like written
+    text) also gives the reverse: the transcript read as written text -> that speech.
+    """
     speech = _media(media, _sha(clip["id"], "speech"), "source_speech", "audio", clip["audio"])
     episodes = compile_bundle(
         source,
@@ -327,6 +338,15 @@ def speech_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]
         (speech, _text(source, _sha(clip["id"], "text"), "verbatim_transcript", clip["text"])),
         preprocessing=f"{source.source_id}-speech-v1",
     )
+    if source.options.get("verbalize"):
+        said = _media(media, _sha(clip["id"], "speech"), "speech", "audio", clip["audio"])
+        episodes += compile_bundle(
+            source,
+            f"{source.source_id}:{clip['id']}:said",
+            clip["family"],
+            (_text(source, _sha(clip["id"], "written"), "written_text", clip["text"]), said),
+            preprocessing=f"{source.source_id}-verbalization-v1",
+        )
     return [*episodes, identity_episode(speech.media, clip["family"])]
 
 
@@ -697,11 +717,13 @@ class Shards:
         shard_slice: tuple[int, int] = (0, 1),
         files: Sequence[str] | None = None,
         stripe: tuple[int, int] | None = None,
+        sizes: Mapping[str, int] | None = None,
     ):
         self.source = source
         self.shard_slice = shard_slice
         self.files = files
         self.stripe = stripe
+        self.sizes = sizes or {}
         local = inputs / source.source_id if inputs else None
         self.local = local if local is not None and local.is_dir() else None
         self._fs: Any = None
@@ -745,7 +767,10 @@ class Shards:
             with (self.local / name).open("rb") as handle:
                 yield handle
         else:
-            with self._hub().open(self._remote(name), "rb", block_size=32 << 20) as handle:
+            # A file of a committed listing is opened with its known size: no Hub API call
+            # (the account's calls are shared by every machine of a build).
+            known = {"size": self.sizes[name]} if name in self.sizes else {}
+            with self._hub().open(self._remote(name), "rb", block_size=32 << 20, **known) as handle:
                 yield handle
 
 
@@ -886,7 +911,16 @@ class _Derived(dict):
 
 
 def _table_rows(handle: BinaryIO, path: str, names: Sequence[str] | None) -> Iterable[dict]:
-    """Rows of a table: a csv, a JSON array of objects, or JSON lines (whatever its name says)."""
+    """Rows of a table: a parquet file, a csv, a JSON array of objects, or JSON lines (whatever
+    its name says)."""
+    if path.endswith(".parquet"):
+        import pyarrow.parquet as parquet
+
+        return (
+            row
+            for batch in parquet.ParquetFile(handle).iter_batches(batch_size=1024)
+            for row in batch.to_pylist()
+        )
     text = io.TextIOWrapper(handle, encoding="utf-8", newline="")
     if not path.endswith((".json", ".jsonl")):
         return csv.DictReader(text, fieldnames=names)
@@ -988,17 +1022,17 @@ class Concatenated:
 
 
 def _numbered(row: Mapping[str, Any], templates: Sequence[str]) -> list[Any]:
-    """Row values named by ``templates``: a plain name once, a template with ``{n}`` for
+    """Row values named by ``templates``: a plain (dotted) path once, a template with ``{n}`` for
     n = 1, 2, ... while the row has it."""
     values: list[Any] = []
     for template in templates:
         if "{n}" not in template:
-            found = row.get(template)
+            found = locate(row, template)
             values.extend(found if isinstance(found, list) else [found])
             continue
         number = 1
-        while row.get(template.format(n=number)) not in (None, ""):
-            values.append(row[template.format(n=number)])
+        while locate(row, template.format(n=number)) not in (None, ""):
+            values.append(locate(row, template.format(n=number)))
             number += 1
     return values
 
@@ -1010,7 +1044,8 @@ def _path_key(path: str) -> str:
 def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
     """Table rows joined with the images they name, read from archives in one pass.
 
-    ``include`` names the tables (JSON lines or one JSON array of rows) and ``options.linked`` the images:
+    ``include`` names the tables (parquet, JSON lines or one JSON array of rows) and ``options.linked``
+    the images:
     ``strip`` is a regex removed from the row's paths first (a leading folder the archive lacks),
     ``archives`` are patterns of tar(.gz) files (``multipart``: together one archive that was cut
     into parts), ``sequence`` the row's media in order (``images``: field names, ``{n}`` standing
@@ -1029,7 +1064,9 @@ def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any
             for row in _table_rows(handle, table, None):
                 paths = _numbered(row, spec["sequence"]["images"])
                 if strip is not None:
-                    paths = [strip.sub("", path) if isinstance(path, str) else path for path in paths]
+                    paths = [
+                        strip.sub("", path) if isinstance(path, str) else path for path in paths
+                    ]
                 if not paths or any(not isinstance(path, str) for path in paths):
                     continue
                 number = len(rows)
@@ -1656,7 +1693,9 @@ def image_edit_clips(
 ) -> list[dict[str, Any]]:
     instruction = _text_label(source, record, "instruction")
     original = blob(_label(source, record, "original"))
-    edited = blob(_chosen(source, record) if "choose" in source.options else _label(source, record, "edited"))
+    edited = blob(
+        _chosen(source, record) if "choose" in source.options else _label(source, record, "edited")
+    )
     if instruction is None or original is None or edited is None or not _accepts(source, record):
         return []
     clip_id, family = _identity(source, record)
@@ -2347,11 +2386,12 @@ def source_episodes(
     shard_slice: tuple[int, int] = (0, 1),
     files: Sequence[str] | None = None,
     stripe: tuple[int, int] | None = None,
+    sizes: Mapping[str, int] | None = None,
 ) -> Iterator[Episode]:
-    """Every episode of ``count`` clips of one approved source (``files`` and ``stripe``: the
-    part of it that one shard of ``data/media_sharding.py`` reads)."""
+    """Every episode of ``count`` clips of one approved source (``files``, ``stripe`` and
+    their stored ``sizes``: the part of it that one shard of ``data/media_sharding.py`` reads)."""
     source.terms.require_approval()
-    shards = Shards(source, inputs, shard_slice, files, stripe)
+    shards = Shards(source, inputs, shard_slice, files, stripe, sizes)
     out = work / source.source_id
     yield from build_episodes(
         media,

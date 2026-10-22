@@ -33,24 +33,35 @@ FILE_READERS = ("parquet", "webdataset", "archive", "linked")
 CLIP_SECONDS = {
     "captioned_image": 0.05,
     "picture": 0.05,
+    "image_questions": 0.05,
     "image_edit": 0.1,
-    "image_edit_chain": 0.25,
+    "image_edit_chain": 0.05,  # per image: a session holds its original and each result
     "transcription": 0.025,
     "translation_text": 0.025,
     "translation_pair": 0.05,
     "verbalization": 0.025,
     "sound": 0.03,
+    "captioned_audio": 0.03,
+    "audio_questions": 0.03,
+    "captioned_video": 0.5,
+    "video_questions": 1.0,
     "av_caption": 0.5,
     "av_scenes": 0.5,
     "video": 0.5,
     "video_edit": 1.0,
-    "video_edit_chain": 2.0,
+    "video_edit_chain": 0.5,  # per video, as above
 }
 DEFAULT_CLIP_SECONDS = 0.1
 
 
 def clip_seconds(source: OpenSource) -> float:
-    return source.options.get("clip_seconds", CLIP_SECONDS.get(source.task, DEFAULT_CLIP_SECONDS))
+    seconds = source.options.get(
+        "clip_seconds", CLIP_SECONDS.get(source.task, DEFAULT_CLIP_SECONDS)
+    )
+    if source.task.endswith("_chain"):
+        items = source.inventory.get("items") or 1
+        seconds *= 1 + source.inventory.get("turns", items) / items
+    return seconds
 
 
 def source_items(source: OpenSource) -> float:
@@ -79,18 +90,23 @@ def read_listing(
     sources: Mapping[str, OpenSource], path: str | Path | None
 ) -> dict[str, list[tuple[str, int]]]:
     """Each file-based source's listing, from ``path`` when it exists, else from the Hub (and
-    written to ``path``: commit it so every machine plans from the same lists)."""
+    written to ``path``: commit it so every machine plans from the same lists). A source that
+    the file lacks is listed from the Hub and added to the file."""
+    stored: dict[str, list[tuple[str, int]]] = {}
     if path is not None and Path(path).exists():
-        stored = json.loads(Path(path).read_text())
-        return {key: [(name, int(size)) for name, size in value] for key, value in stored.items()}
-    found = {
-        source_id: list_files(source)
+        raw = json.loads(Path(path).read_text())
+        stored = {key: [(name, int(size)) for name, size in value] for key, value in raw.items()}
+    wanted = {
+        source_id: source
         for source_id, source in sources.items()
-        if source.reader in FILE_READERS
+        if source.reader in FILE_READERS and source_id not in stored
     }
-    if path is not None:
-        Path(path).write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
-    return found
+    if wanted:
+        found = {source_id: list_files(source) for source_id, source in wanted.items()}
+        stored.update(found)
+        if path is not None:
+            Path(path).write_text(json.dumps(stored, indent=1, sort_keys=True) + "\n")
+    return stored
 
 
 def units_of(
@@ -108,7 +124,11 @@ def units_of(
             # Whole-source readers (one archive cut in parts, tables of rows): every shard reads
             # it all and keeps its share of the records.
             stripes = min(count, max(2, math.ceil(seconds / (SPLIT_ABOVE * target))))
-            return [Unit(source.source_id, seconds / stripes, None, (i, stripes)) for i in range(stripes)]
+            names = tuple(name for name, _ in listing) if listing else None
+            return [
+                Unit(source.source_id, seconds / stripes, names, (i, stripes))
+                for i in range(stripes)
+            ]
         return [Unit(source.source_id, seconds)]
     total = sum(size for _, size in listing) or 1
     costs = [seconds * max(size, 1) / total for _, size in listing]
@@ -131,7 +151,7 @@ def plan_media_shards(
     """``count`` shard specs that together read every source once, balanced by estimated work.
 
     A spec maps ``source_id`` to ``{"files": [...]}`` (a source read by file), ``{"stripe":
-    [i, n]}`` (every n-th clip of all its files), ``{"options": {"languages": [...]}}``
+    [i, n], "files": [...]}`` (every n-th clip of all its files), ``{"options": {"languages": [...]}}``
     (FLEURS), or ``{}`` (the whole source).
     """
     if count < 1:
@@ -153,8 +173,16 @@ def plan_media_shards(
                 entry.setdefault("options", {}).setdefault("languages", []).extend(unit.files or ())
             elif unit.stripe is not None:
                 entry["stripe"] = list(unit.stripe)
+                if unit.files:
+                    entry["files"] = list(unit.files)  # all of them: no search at run time
             elif unit.files is not None:
                 entry.setdefault("files", []).extend(unit.files)
+        for source_id, entry in spec.items():
+            if entry.get("files"):
+                # The files' stored sizes travel with the shard, so reading them needs no
+                # Hub call to find out.
+                sizes = dict(listings.get(source_id, ()))
+                entry["sizes"] = {name: sizes[name] for name in entry["files"] if name in sizes}
         plan.append(spec)
     return plan
 

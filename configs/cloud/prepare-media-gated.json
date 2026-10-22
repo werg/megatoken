@@ -27,7 +27,7 @@
  "command": [
   "bash",
   "-c",
-  "set -eo pipefail; export HF_TOKEN=\"$(cat \"$MEGATOKEN_CW_SECRETS/hf-token\")\"; command -v ffmpeg >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null); mkdir -p /work/out/prepared /work/scratch; python scripts/acquire_packs.py --root /work/packs | tee /work/out/prepared/acquire.json; megatoken codec --output /work/codec | tee /work/out/prepared/codec.json; python scripts/prepare_open_media.py --packs /work/packs/lock.json --root /work/out/prepared/media-gated --codec /work/codec --inputs /work/inputs --work /work/scratch --scale 1 --count gigaspeech=10000 --procedural gigaspeech=1000 --count emilia=10000 --count finevideo=6000 --procedural finevideo=2000 2>&1 | tee /work/out/prepared/media-gated.log"
+  "set -eo pipefail; export HF_TOKEN=\"$(cat \"$MEGATOKEN_CW_SECRETS/hf-token\")\"; command -v ffmpeg >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null); mkdir -p /work/out/prepared /work/scratch; python scripts/acquire_packs.py --root /work/packs | tee /work/out/prepared/acquire.json; megatoken codec --output /work/codec | tee /work/out/prepared/codec.json; python scripts/prepare_open_media.py --packs /work/packs/lock.json --root /work/out/prepared/media-gated --codec /work/codec --inputs /work/inputs --work /work/scratch --scale 1 --count gigaspeech=10000 --procedural gigaspeech=1000 --count emilia=10000 --count finevideo=6000 --procedural finevideo=2000 --count multiedit=1500 --count spgispeech=2000 --count ksponspeech=2000 2>&1 | tee /work/out/prepared/media-gated.log"
  ],
  "outputs": [
   "out/prepared"

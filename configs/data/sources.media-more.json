@@ -2381,6 +2381,177 @@
    "caveat": "One 200 GB archive that cannot be divided by file, so a sandbox streams all of it and keeps its share of the rows (stripes)."
   },
   {
+   "source_id": "imgedit_content_memory",
+   "repository": "sysuyy/ImgEdit",
+   "revision": "f8de753484a2b6bd37f135fd20d308b66b09a523",
+   "reader": "linked",
+   "task": "image_edit_chain",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "apache-2.0 (card; the source photos are web images whose licences the card does not address)",
+    "license_url": "https://huggingface.co/datasets/sysuyy/ImgEdit",
+    "notes": "ImgEdit multi-turn, content memory: 30,861 sessions of two chained edits (the user first states a rule for all later edits (that rule is not read), then asks for two edits that refer to the objects before)."
+   },
+   "gated": false,
+   "include": [
+    "Parquet/content_memory_part2.parquet"
+   ],
+   "columns": {
+    "images": "images",
+    "instruction": "texts",
+    "id": "data.1.output_images.0"
+   },
+   "options": {
+    "linked": {
+     "archives": [
+      "Multiturn/results_content_memory_part2.tar.split.*"
+     ],
+     "multipart": true,
+     "sequence": {
+      "images": [
+       "data.1.input_images.0",
+       "data.1.output_images.0",
+       "data.2.output_images.0"
+      ],
+      "texts": [
+       "data.1.prompt",
+       "data.2.prompt"
+      ]
+     }
+    },
+    "family_pattern": "^[^/]+/(\\d+_\\d+)_\\d+/",
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 30861,
+    "basis": "parquet footers; the first two edits of every row",
+    "shards": 27,
+    "size_gb": 270,
+    "turns": 61722,
+    "mean_turns": 2.0
+   },
+   "caveat": "Each session has a third edit that starts again from the first result, not the second; it is left out so every edit applies to the one before. The tar is one 10 GiB-piece archive per subset; edits are machine-written from detections."
+  },
+  {
+   "source_id": "imgedit_content_understanding",
+   "repository": "sysuyy/ImgEdit",
+   "revision": "f8de753484a2b6bd37f135fd20d308b66b09a523",
+   "reader": "linked",
+   "task": "image_edit_chain",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "apache-2.0 (card; the source photos are web images whose licences the card does not address)",
+    "license_url": "https://huggingface.co/datasets/sysuyy/ImgEdit",
+    "notes": "ImgEdit multi-turn, content understanding: 42,139 sessions of two chained edits (three edits that refer back with pronouns (it, them, her))."
+   },
+   "gated": false,
+   "include": [
+    "Parquet/content_understanding_part2.parquet"
+   ],
+   "columns": {
+    "images": "images",
+    "instruction": "texts",
+    "id": "data.0.output_images.0"
+   },
+   "options": {
+    "linked": {
+     "archives": [
+      "Multiturn/results_content_understanding_part2.tar.split.*"
+     ],
+     "multipart": true,
+     "sequence": {
+      "images": [
+       "data.0.input_images.0",
+       "data.0.output_images.0",
+       "data.1.output_images.0"
+      ],
+      "texts": [
+       "data.0.prompt",
+       "data.1.prompt"
+      ]
+     }
+    },
+    "family_pattern": "^[^/]+/(\\d+_\\d+)_\\d+/",
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 42139,
+    "basis": "parquet footers; the first two edits of every row",
+    "shards": 56,
+    "size_gb": 560,
+    "turns": 84278,
+    "mean_turns": 2.0
+   },
+   "caveat": "Each session has a third edit that starts again from the first result, not the second; it is left out so every edit applies to the one before. The tar is one 10 GiB-piece archive per subset; edits are machine-written from detections."
+  },
+  {
+   "source_id": "imgedit_version_backtracking",
+   "repository": "sysuyy/ImgEdit",
+   "revision": "f8de753484a2b6bd37f135fd20d308b66b09a523",
+   "reader": "linked",
+   "task": "image_edit_chain",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "apache-2.0 (card; the source photos are web images whose licences the card does not address)",
+    "license_url": "https://huggingface.co/datasets/sysuyy/ImgEdit",
+    "notes": "ImgEdit multi-turn, version backtracking: 42,023 sessions of two chained edits (edits where the third request withdraws the second and redoes the first)."
+   },
+   "gated": false,
+   "include": [
+    "Parquet/version_backtracking_part0.parquet"
+   ],
+   "columns": {
+    "images": "images",
+    "instruction": "texts",
+    "id": "data.0.output_images.0"
+   },
+   "options": {
+    "linked": {
+     "archives": [
+      "Multiturn/results_version_backtracking_part0.tar.split.*"
+     ],
+     "multipart": true,
+     "sequence": {
+      "images": [
+       "data.0.input_images.0",
+       "data.0.output_images.0",
+       "data.1.output_images.0"
+      ],
+      "texts": [
+       "data.0.prompt",
+       "data.1.prompt"
+      ]
+     }
+    },
+    "family_pattern": "^[^/]+/(\\d+_\\d+)_\\d+/",
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 42023,
+    "basis": "parquet footers; the first two edits of every row",
+    "shards": 56,
+    "size_gb": 560,
+    "turns": 84046,
+    "mean_turns": 2.0
+   },
+   "caveat": "Each session has a third edit that starts again from the first result, not the second; it is left out so every edit applies to the one before. The tar is one 10 GiB-piece archive per subset; edits are machine-written from detections."
+  },
+  {
    "source_id": "ditto_local",
    "repository": "oyyggbond/ditto_local",
    "revision": "68b9ee798f99c676188da85c3f8db21bb5d2240d",
@@ -3015,6 +3186,48 @@
    "caveat": "Edited clips of some subsets have another frame rate than the original; both are cut to their common length."
   },
   {
+   "source_id": "openve_sub",
+   "repository": "SanRiiiii/openve_sub",
+   "revision": "718b4a6d48f7b570a0a8b727e711180206ff026c",
+   "reader": "webdataset",
+   "task": "video_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "none on this repository's card (a third-party repack of OpenVE-3M, cc-by-nc-4.0; the edited clips are generated)",
+    "license_url": "https://huggingface.co/datasets/SanRiiiii/openve_sub",
+    "notes": "OpenVE-3M in tar shards: whole-clip style changes and local object additions, changes and removals (720p, 2-3 seconds), each with the original clip, the edited clip and the request."
+   },
+   "gated": false,
+   "include": [
+    "data/global_style-*.tar",
+    "data/local_add-*.tar",
+    "data/local_change-*.tar",
+    "data/local_remove-*.tar"
+   ],
+   "columns": {
+    "original": "original.mp4",
+    "edited": "edited.mp4",
+    "instruction": "txt",
+    "id": "__key__"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated",
+    "max_seconds": 6.0
+   },
+   "inventory": {
+    "items": 1600000,
+    "basis": "OpenVE-3M table rows of the four categories (two counted, two estimated from file size); the shards may hold more",
+    "shards": 135,
+    "size_gb": 2850
+   },
+   "caveat": "The count is unverified; the shards are about 21 GB each. Background changes are read from their parquet repack instead."
+  },
+  {
    "source_id": "taesiri_image_editing_request",
    "repository": "taesiri/ImageEditingRequestV1",
    "revision": "c2fe83af8d9d6acb8b6af6b52ae0285b976b02fb",
@@ -3136,6 +3349,1092 @@
     "shards": 9,
     "size_gb": 94.5
    }
+  },
+  {
+   "source_id": "yodas_granary_asr_nonen",
+   "repository": "espnet/yodas-granary",
+   "revision": "969944574ea3f37890beaf67ea651e160cfaf043",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-3.0 (card; YouTube videos under Creative Commons, per-video terms)",
+    "license_url": "https://huggingface.co/datasets/espnet/yodas-granary",
+    "notes": "YODAS-Granary speech in 22 languages other than English (Russian, Spanish, Portuguese, French, German, Italian, Dutch, Polish, Ukrainian, Hungarian and more) with Whisper transcripts restored with punctuation."
+   },
+   "gated": false,
+   "include": [
+    "data/bg*/asr_only/*.parquet",
+    "data/cs*/asr_only/*.parquet",
+    "data/da*/asr_only/*.parquet",
+    "data/de*/asr_only/*.parquet",
+    "data/el*/asr_only/*.parquet",
+    "data/es*/asr_only/*.parquet",
+    "data/et*/asr_only/*.parquet",
+    "data/fi*/asr_only/*.parquet",
+    "data/fr*/asr_only/*.parquet",
+    "data/hr*/asr_only/*.parquet",
+    "data/hu*/asr_only/*.parquet",
+    "data/it*/asr_only/*.parquet",
+    "data/lt*/asr_only/*.parquet",
+    "data/lv*/asr_only/*.parquet",
+    "data/nl*/asr_only/*.parquet",
+    "data/pl*/asr_only/*.parquet",
+    "data/pt*/asr_only/*.parquet",
+    "data/ro*/asr_only/*.parquet",
+    "data/ru*/asr_only/*.parquet",
+    "data/sk*/asr_only/*.parquet",
+    "data/sv*/asr_only/*.parquet",
+    "data/uk*/asr_only/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "utt_id",
+    "family": "original_audio_id"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "verbalize": true,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 4752882,
+    "hours": 12000,
+    "basis": "card: sum of the asr_only counts of the 22 languages",
+    "shards": 16557,
+    "size_gb": 478.1
+   },
+   "caveat": "Pseudo-labelled by Whisper and punctuation-restored by an LLM, not human transcripts. Disjoint from the translation split already read."
+  },
+  {
+   "source_id": "yodas_granary_ast_more",
+   "repository": "espnet/yodas-granary",
+   "revision": "969944574ea3f37890beaf67ea651e160cfaf043",
+   "reader": "parquet",
+   "task": "translation_text",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-3.0 (card; YouTube videos under Creative Commons, per-video terms)",
+    "license_url": "https://huggingface.co/datasets/espnet/yodas-granary",
+    "notes": "The eight languages of YODAS-Granary's translation split that the first entry left out (Bulgarian, Danish, Greek, Estonian, Croatian, Lithuanian, Latvian, Slovak)."
+   },
+   "gated": false,
+   "include": [
+    "data/bg*/ast/*.parquet",
+    "data/da*/ast/*.parquet",
+    "data/el*/ast/*.parquet",
+    "data/et*/ast/*.parquet",
+    "data/hr*/ast/*.parquet",
+    "data/lt*/ast/*.parquet",
+    "data/lv*/ast/*.parquet",
+    "data/sk*/ast/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "translation": "translation_en",
+    "id": "utt_id",
+    "family": "original_audio_id"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 38328,
+    "hours": 97,
+    "basis": "card: sum of the ast counts of the eight languages",
+    "shards": 60,
+    "size_gb": 9.0
+   }
+  },
+  {
+   "source_id": "peoples_speech_dirty",
+   "repository": "MLCommons/peoples_speech",
+   "revision": "f10597c5d3d3a63f8b6827701297c3afdf178272",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-2.0, 2.5, 3.0 and 4.0 per recording (the mixed attribution licences of the People's Speech 'dirty' configuration)",
+    "license_url": "https://huggingface.co/datasets/MLCommons/peoples_speech",
+    "notes": "People's Speech, the noisier configuration: 5.5M more English clips whose force-aligned transcripts are sometimes off."
+   },
+   "gated": false,
+   "include": [
+    "dirty/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id"
+   },
+   "options": {
+    "family_pattern": "^(.*)_\\d+\\.flac$",
+    "max_seconds": 20.0,
+    "unique": "id"
+   },
+   "inventory": {
+    "items": 5476898,
+    "hours": 22000,
+    "basis": "card: 5,476,898 train rows",
+    "shards": 3140,
+    "size_gb": 1490.3
+   },
+   "caveat": "A transcript can be wrong for part of its 15 seconds; the first clips of this and the clean configuration share ids, which are skipped when met twice in a shard."
+  },
+  {
+   "source_id": "peoples_speech_sharealike",
+   "repository": "MLCommons/peoples_speech",
+   "revision": "f10597c5d3d3a63f8b6827701297c3afdf178272",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-sa-3.0 and cc-by-sa-4.0 per recording (share-alike)",
+    "license_url": "https://huggingface.co/datasets/MLCommons/peoples_speech",
+    "notes": "People's Speech recordings under share-alike licences (clean and dirty halves)."
+   },
+   "gated": false,
+   "include": [
+    "clean_sa/train-*.parquet",
+    "dirty_sa/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id"
+   },
+   "options": {
+    "family_pattern": "^(.*)_\\d+\\.flac$",
+    "max_seconds": 20.0,
+    "unique": "id"
+   },
+   "inventory": {
+    "items": 805107,
+    "hours": 3200,
+    "basis": "card: 257,093 clean_sa + 548,014 dirty_sa",
+    "shards": 479,
+    "size_gb": 209.0
+   },
+   "caveat": "Share-alike terms apply to what is made from these recordings."
+  },
+  {
+   "source_id": "libriheavy",
+   "repository": "mythicinfinity/libriheavy",
+   "revision": "784858eb1793bfcf2fd859f7a7ce2dae67dfe5f7",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "apache-2.0 (card; the LibriVox recordings are public domain)",
+    "license_url": "https://huggingface.co/datasets/mythicinfinity/libriheavy",
+    "notes": "Libriheavy: 50,800 hours of English audiobook reading with the book's own cased and punctuated text (6,700 speakers)."
+   },
+   "gated": false,
+   "include": [
+    "default/large/**/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text_original",
+    "id": "id",
+    "family": "speaker_id"
+   },
+   "options": {
+    "max_seconds": 30.0,
+    "verbalize": true
+   },
+   "inventory": {
+    "items": 11156740,
+    "hours": 50794,
+    "basis": "datasets-server: 11,156,740 rows in the large configuration",
+    "shards": 2955,
+    "size_gb": 1345.9
+   },
+   "caveat": "Partly the same audiobooks as the Multilingual LibriSpeech English entry. The medium and small configurations are subsets of large and are not read."
+  },
+  {
+   "source_id": "wenetspeech",
+   "repository": "zxsddcs/wenetspeech",
+   "revision": "c2eb3f7d201a2b9efeba8ed8be2a8de662fd98bd",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "mirror's card is empty; WenetSpeech is CC-BY-4.0 (project README)",
+    "license_url": "https://huggingface.co/datasets/zxsddcs/wenetspeech",
+    "notes": "WenetSpeech (L): 10,000 hours of Mandarin from YouTube and podcasts with automatically derived transcripts."
+   },
+   "gated": false,
+   "include": [
+    "L_fixed/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "audio_path"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "family_pattern": "_(Y\\d+)_",
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 13900000,
+    "hours": 10005,
+    "basis": "datasets-server: about 13.9M segments in the L folder",
+    "shards": 1462,
+    "size_gb": 1150.9
+   },
+   "caveat": "Transcripts come from OCR and speech recognition with confidence of 0.95 or more, not from people."
+  },
+  {
+   "source_id": "fleurs_asr",
+   "repository": "google/fleurs",
+   "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0 (card)",
+    "license_url": "https://huggingface.co/datasets/google/fleurs",
+    "notes": "FLEURS read speech in 102 languages with original-case transcripts (the first FLEURS entry only pairs each language with its English reading)."
+   },
+   "gated": false,
+   "include": [
+    "parquet-data/all/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "raw_transcription",
+    "id": "id",
+    "family": "path"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 271798,
+    "hours": 1000,
+    "basis": "card: all configuration, train 271,798 rows",
+    "shards": 57,
+    "size_gb": 223.6
+   },
+   "caveat": "The same sentences as the first FLEURS entry, in every language, with the English reading kept apart."
+  },
+  {
+   "source_id": "ami_ihm",
+   "repository": "edinburghcstr/ami",
+   "revision": "46f28f2503e2ec48f8867a84eef356c70476beab",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0 (card)",
+    "license_url": "https://huggingface.co/datasets/edinburghcstr/ami",
+    "notes": "AMI meetings, close-talk headset microphones: 80 hours of English meeting speech with disfluencies."
+   },
+   "gated": false,
+   "include": [
+    "ihm/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "audio_id",
+    "family": "meeting_id"
+   },
+   "options": {
+    "min_seconds": 1.0,
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 108502,
+    "hours": 80,
+    "basis": "card: ihm train 108,502 rows",
+    "shards": 42,
+    "size_gb": 12.4
+   }
+  },
+  {
+   "source_id": "earnings22",
+   "repository": "distil-whisper/earnings22",
+   "revision": "0a034f9ed86d33a3859d9025d3e621cf243773ab",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-SA-4.0 (the Earnings-22 corpus; the mirror's card states none)",
+    "license_url": "https://huggingface.co/datasets/distil-whisper/earnings22",
+    "notes": "Earnings-22: 119 hours of company earnings calls in accented English, with verbatim punctuated text."
+   },
+   "gated": false,
+   "include": [
+    "chunked/*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "transcription",
+    "id": "segment_id",
+    "family": "file_id"
+   },
+   "options": {
+    "max_seconds": 30.0,
+    "verbalize": true
+   },
+   "inventory": {
+    "items": 57391,
+    "hours": 119,
+    "basis": "card: 57,391 chunked segments",
+    "shards": 38,
+    "size_gb": 24.0
+   }
+  },
+  {
+   "source_id": "tedlium3",
+   "repository": "sanchit-gandhi/tedlium-data",
+   "revision": "8083dbe64f82e17b6be070a02b9239e9b847b6ce",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-NC-ND-3.0 for the TED talks (TED-LIUM 3 licence; the mirror's card is empty)",
+    "license_url": "https://huggingface.co/datasets/sanchit-gandhi/tedlium-data",
+    "notes": "TED-LIUM 3: 452 hours of English TED talks with lower-case transcripts."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id",
+    "family": "speaker_id"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 268263,
+    "hours": 452,
+    "basis": "dataset_info: train 268,263 rows",
+    "shards": 107,
+    "size_gb": 52.1
+   }
+  },
+  {
+   "source_id": "parlaspeech_hr",
+   "repository": "classla/ParlaSpeech-HR",
+   "revision": "b443217d8267a989e9b29febdcddc79c1c44fc62",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0 (CLARIN.SI master record; the Hub card states none)",
+    "license_url": "https://huggingface.co/datasets/classla/ParlaSpeech-HR",
+    "notes": "ParlaSpeech: 867,581 Croatian parliamentary speech segments with word-aligned transcripts."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id",
+    "family": "speaker_name"
+   },
+   "options": {
+    "max_seconds": 30.0
+   },
+   "inventory": {
+    "items": 867581,
+    "basis": "dataset_info: train rows",
+    "size_gb": 179.1
+   },
+   "caveat": "Hours are not on the card."
+  },
+  {
+   "source_id": "parlaspeech_rs",
+   "repository": "classla/ParlaSpeech-RS",
+   "revision": "a806c1fb6e2bfb99c75f4a811b8efe537e70d631",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0 (CLARIN.SI master record; the Hub card states it)",
+    "license_url": "https://huggingface.co/datasets/classla/ParlaSpeech-RS",
+    "notes": "ParlaSpeech: 277,764 Serbian parliamentary speech segments with word-aligned transcripts."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id",
+    "family": "speaker_name"
+   },
+   "options": {
+    "max_seconds": 30.0
+   },
+   "inventory": {
+    "items": 277764,
+    "basis": "dataset_info: train rows",
+    "size_gb": 57.7
+   },
+   "caveat": "Hours are not on the card."
+  },
+  {
+   "source_id": "parlaspeech_cz",
+   "repository": "classla/ParlaSpeech-CZ",
+   "revision": "e85fdee6ab9d364749102d60be21d0196d2420dd",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0 (CLARIN.SI master record; the Hub card states none)",
+    "license_url": "https://huggingface.co/datasets/classla/ParlaSpeech-CZ",
+    "notes": "ParlaSpeech: 711,109 Czech parliamentary speech segments with word-aligned transcripts."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id",
+    "family": "Speaker_name"
+   },
+   "options": {
+    "max_seconds": 30.0
+   },
+   "inventory": {
+    "items": 711109,
+    "basis": "dataset_info: train rows",
+    "size_gb": 156.0
+   },
+   "caveat": "Hours are not on the card."
+  },
+  {
+   "source_id": "parlaspeech_pl",
+   "repository": "classla/ParlaSpeech-PL",
+   "revision": "88887ee82cdb7e3f20e7b29d4c1740d0bc630f41",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC-BY-4.0 (CLARIN.SI master record; the Hub card states none)",
+    "license_url": "https://huggingface.co/datasets/classla/ParlaSpeech-PL",
+    "notes": "ParlaSpeech: 530,773 Polish parliamentary speech segments with word-aligned transcripts."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id",
+    "family": "speaker_name"
+   },
+   "options": {
+    "max_seconds": 30.0
+   },
+   "inventory": {
+    "items": 530773,
+    "basis": "dataset_info: train rows",
+    "size_gb": 60.8
+   },
+   "caveat": "Hours are not on the card."
+  },
+  {
+   "source_id": "mediaspeech",
+   "repository": "ymoslem/MediaSpeech",
+   "revision": "4008a968760f2187b0c5b2b2db965f1283433059",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0 (card)",
+    "license_url": "https://huggingface.co/datasets/ymoslem/MediaSpeech",
+    "notes": "MediaSpeech: 10 hours each of broadcast speech in Arabic, Spanish, French and Turkish."
+   },
+   "gated": false,
+   "include": [
+    "*/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "sentence"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 10023,
+    "hours": 40,
+    "basis": "dataset_info: 10,023 rows",
+    "shards": 8,
+    "size_gb": 2.5
+   }
+  },
+  {
+   "source_id": "mtedx",
+   "repository": "deepdml/mtedx",
+   "revision": "0b97ef40298de2b7ec1c78e76be3969d604aa022",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-nc-nd-4.0 (the TEDx talks' licence)",
+    "license_url": "https://huggingface.co/datasets/deepdml/mtedx",
+    "notes": "Multilingual TEDx: 765 hours of talks in Spanish, French, Portuguese, Italian, Russian, Greek, Arabic and German with transcripts."
+   },
+   "gated": false,
+   "include": [
+    "ar/train-*.parquet",
+    "de/train-*.parquet",
+    "el/train-*.parquet",
+    "es/train-*.parquet",
+    "fr/train-*.parquet",
+    "it/train-*.parquet",
+    "pt/train-*.parquet",
+    "ru/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "transcript",
+    "id": "id",
+    "family": "talk_id"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 411527,
+    "hours": 765,
+    "basis": "dataset_info: ASR train rows of the 8 languages",
+    "shards": 206,
+    "size_gb": 97.3
+   },
+   "caveat": "The size covers the audio configurations only; the translation-pair configurations repeat the same talks."
+  },
+  {
+   "source_id": "cml_tts",
+   "repository": "ylacombe/cml-tts",
+   "revision": "48aedd7a8ea08efc75cae3e81fbefa9720df0812",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0 (card)",
+    "license_url": "https://huggingface.co/datasets/ylacombe/cml-tts",
+    "notes": "CML-TTS: 3,176 hours of audiobook reading in Dutch, French, German, Italian, Polish, Portuguese and Spanish, with the book's cased and punctuated text."
+   },
+   "gated": false,
+   "include": [
+    "dutch/train-*.parquet",
+    "french/train-*.parquet",
+    "german/train-*.parquet",
+    "italian/train-*.parquet",
+    "polish/train-*.parquet",
+    "portuguese/train-*.parquet",
+    "spanish/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "family": "speaker_id"
+   },
+   "options": {
+    "min_seconds": 1.0,
+    "max_seconds": 20.0,
+    "verbalize": true
+   },
+   "inventory": {
+    "items": 1200000,
+    "hours": 3176,
+    "basis": "dataset_info: train rows of the seven languages (about 1.2M)",
+    "size_gb": 560.6
+   },
+   "caveat": "The text is the book's, aligned to the audio; the rows' agreement scores (how much the text matches a recogniser) are not used."
+  },
+  {
+   "source_id": "globe_v3",
+   "repository": "MushanW/GLOBE_V3",
+   "revision": "0eb6d96fca5ef8fc01d0bb4dc1721d0c193f1e72",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc0-1.0 (card)",
+    "license_url": "https://huggingface.co/datasets/MushanW/GLOBE_V3",
+    "notes": "GLOBE v3: 700k clips of Common Voice speech cleaned and re-cut, with accent, age and gender labels and the original sentence."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "common_voice_sentence",
+    "id": "common_voice_sentence_id"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "verbalize": true
+   },
+   "inventory": {
+    "items": 704750,
+    "basis": "dataset_info: train 704,750 rows",
+    "shards": 187,
+    "size_gb": 161.3
+   },
+   "caveat": "Re-cut Common Voice audio: some sentences also occur in the Common Voice entry."
+  },
+  {
+   "source_id": "magpie_speech_orpheus",
+   "repository": "Aratako/Magpie-Speech-Orpheus-125k",
+   "revision": "26d4182dc6bd9eb43d362785bd779b3b2a300927",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "llama3.2 (the Llama 3.2 community licence; speech made by a text-to-speech model)",
+    "license_url": "https://huggingface.co/datasets/Aratako/Magpie-Speech-Orpheus-125k",
+    "notes": "Magpie-Speech-Orpheus: 125k sentences read by a speech synthesiser (307 hours), with the recogniser's check of each."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "id"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 124677,
+    "hours": 307,
+    "basis": "dataset_info: 124,677 rows",
+    "shards": 50,
+    "size_gb": 26.3
+   },
+   "caveat": "Synthetic speech."
+  },
+  {
+   "source_id": "primewords_zh",
+   "repository": "urarik/primewords_chinese_corpus_set_1",
+   "revision": "8707f7051f69077668ee34cb2e201c4edc9649b5",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "none on the card (OpenSLR SLR47: free for research, Apache-2.0 on the index)",
+    "license_url": "https://huggingface.co/datasets/urarik/primewords_chinese_corpus_set_1",
+    "notes": "Primewords Chinese Corpus Set 1: 100 hours of Mandarin read speech."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "sentence"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 45345,
+    "hours": 100,
+    "basis": "dataset_info: train 45,345 rows",
+    "shards": 24,
+    "size_gb": 10.0
+   }
+  },
+  {
+   "source_id": "covost2_en_to_x",
+   "repository": "fixie-ai/covost2",
+   "revision": "17c8c81e331e7a6929118121771a58c7ef7331d8",
+   "reader": "parquet",
+   "task": "translation_text",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "unspecified on this card (CoVoST 2 release: CC0-1.0)",
+    "license_url": "https://huggingface.co/datasets/fixie-ai/covost2",
+    "notes": "CoVoST 2 the other way: English Common Voice speech translated into 15 languages (Arabic, Catalan, Welsh, German, Estonian, Persian, Indonesian, Japanese, Latvian, Mongolian, Slovenian, Swedish, Tamil, Turkish, Chinese)."
+   },
+   "gated": false,
+   "include": [
+    "en_ar/train-*.parquet",
+    "en_ca/train-*.parquet",
+    "en_cy/train-*.parquet",
+    "en_de/train-*.parquet",
+    "en_et/train-*.parquet",
+    "en_fa/train-*.parquet",
+    "en_id/train-*.parquet",
+    "en_ja/train-*.parquet",
+    "en_lv/train-*.parquet",
+    "en_mn/train-*.parquet",
+    "en_sl/train-*.parquet",
+    "en_sv-SE/train-*.parquet",
+    "en_ta/train-*.parquet",
+    "en_tr/train-*.parquet",
+    "en_zh-CN/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "sentence",
+    "translation": "translation",
+    "id": [
+     "id",
+     "translation"
+    ],
+    "family": "client_id"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 4341450,
+    "hours": 6450,
+    "basis": "card: 15 x 289,430 train rows over the same 289,430 English clips",
+    "shards": 120,
+    "size_gb": 185.4
+   },
+   "caveat": "Every clip appears 15 times with a different translation; the clip, not the row, is the unit that is split."
+  },
+  {
+   "source_id": "emilia_yodas",
+   "repository": "TTS-AGI/emilia-yodas",
+   "revision": "613a372ba2cc5ecb6b27ea38a4a0926abb38263d",
+   "reader": "webdataset",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "cc-by-4.0 (card of Emilia-YODAS; YouTube videos under Creative Commons)",
+    "license_url": "https://huggingface.co/datasets/TTS-AGI/emilia-yodas",
+    "notes": "The YODAS half of Emilia (English, German, French, Japanese, Korean, Chinese): 114,000 hours of in-the-wild speech, read from an ungated mirror of the gated Emilia repository."
+   },
+   "gated": false,
+   "include": [
+    "EN/*.tar",
+    "DE/*.tar",
+    "FR/*.tar",
+    "JA/*.tar",
+    "KO/*.tar",
+    "ZH/*.tar"
+   ],
+   "columns": {
+    "audio": "mp3",
+    "text": "json.text",
+    "id": "json.id",
+    "family": "json.speaker"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "verbalize": true,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 41000000,
+    "hours": 113900,
+    "basis": "card hours (113.9k) at ~10 s a segment (estimate)",
+    "shards": 1983,
+    "size_gb": 2135.8
+   },
+   "caveat": "Transcripts are Whisper-pipeline output, not human. A third-party mirror: file names and sizes match the gated original."
+  },
+  {
+   "source_id": "pixmo_cap_images",
+   "repository": "anthracite-org/pixmo-cap-images",
+   "revision": "3e42775eea79dd4874c41379230c7f871b10218e",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "none on the card (PixMo-Cap is ODC-By-1.0; this repack of its images carries no licence text)",
+    "license_url": "https://huggingface.co/datasets/anthracite-org/pixmo-cap-images",
+    "notes": "PixMo-Cap with its images: 707k photos with dense 100-300 word descriptions written from annotators' speech (the official repository only lists image URLs)."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "caption",
+    "id": "image_url"
+   },
+   "options": {
+    "min_chars": 200,
+    "pick": "longest",
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 707647,
+    "basis": "datasets-server: 707,647 rows",
+    "shards": 75,
+    "size_gb": 371.8
+   },
+   "caveat": "A third-party repack; the captions were cleaned up by a language model from human speech."
+  },
+  {
+   "source_id": "art_museums_pd_440k",
+   "repository": "Mitsua/art-museums-pd-440k",
+   "revision": "fba945da78b36262eb9272067197cc28d06cffbf",
+   "reader": "webdataset",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC0 and public domain per object (the records' License field)",
+    "license_url": "https://huggingface.co/datasets/Mitsua/art-museums-pd-440k",
+    "notes": "440k museum object photographs (Art Institute of Chicago, Cleveland, Rijksmuseum and others) with their catalogue keywords as caption."
+   },
+   "gated": false,
+   "include": [
+    "ArtMuseumsPD_*.tar"
+   ],
+   "columns": {
+    "image": "jpg",
+    "caption": "json.captionEn",
+    "id": "json.ImageID"
+   },
+   "options": {
+    "min_chars": 20,
+    "max_side": 1024
+   },
+   "inventory": {
+    "items": 440000,
+    "basis": "name: 440K; 41 tars",
+    "shards": 41,
+    "size_gb": 90.5
+   },
+   "caveat": "Captions are keyword lists built from catalogue fields, not natural sentences."
+  },
+  {
+   "source_id": "swiss_ai_smithsonian",
+   "repository": "swiss-ai/smithsonian",
+   "revision": "99446c524bd64cbe19d959cce7053e8ccbc36586",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC0 / public domain (agency collections; the card)",
+    "license_url": "https://huggingface.co/datasets/swiss-ai/smithsonian",
+    "notes": "Smithsonian collection objects at high resolution with catalogue-grounded descriptions."
+   },
+   "gated": false,
+   "include": [
+    "data/*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "caption",
+    "id": "id"
+   },
+   "options": {
+    "min_chars": 40,
+    "max_side": 1024,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 41837,
+    "basis": "datasets-server: rows",
+    "size_gb": 413.5
+   },
+   "caveat": "Full-resolution images are cut to 1024 px."
+  },
+  {
+   "source_id": "swiss_ai_nasa",
+   "repository": "swiss-ai/nasa",
+   "revision": "baa01c91a38fd13479694290c86073a13819582c",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC0 / public domain (agency collections; the card)",
+    "license_url": "https://huggingface.co/datasets/swiss-ai/nasa",
+    "notes": "NASA images with descriptions."
+   },
+   "gated": false,
+   "include": [
+    "data/*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "caption",
+    "id": "nasa_id"
+   },
+   "options": {
+    "min_chars": 40,
+    "max_side": 1024,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 36997,
+    "basis": "datasets-server: rows",
+    "size_gb": 230.2
+   },
+   "caveat": "Full-resolution images are cut to 1024 px."
+  },
+  {
+   "source_id": "megalith_10m",
+   "repository": "drawthingsai/megalith-10m",
+   "revision": "829c00885e3926118674375b50c41d970aceb5ac",
+   "reader": "webdataset",
+   "task": "picture",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "CC0 (the photographers' dedication; the photos are Flickr images under open licences)",
+    "license_url": "https://huggingface.co/datasets/drawthingsai/megalith-10m",
+    "notes": "Megalith-10M: 9.1M openly licensed Flickr photographs (no captions are read)."
+   },
+   "gated": false,
+   "include": [
+    "*.tar"
+   ],
+   "columns": {
+    "image": "jpg",
+    "id": "json.sha256"
+   },
+   "options": {
+    "max_side": 1024
+   },
+   "inventory": {
+    "items": 9100000,
+    "basis": "shards 00000-00958: about 9.5k successes of 10k attempted each",
+    "shards": 959,
+    "size_gb": 1863.0
+   },
+   "caveat": "Images only: image identity episodes, no captions (the long captions live in a separate repository)."
+  },
+  {
+   "source_id": "llava_next_data",
+   "repository": "lmms-lab/LLaVA-NeXT-Data",
+   "revision": "c8aef391ce214167c4ebc7f06bc05a50dee2e75f",
+   "reader": "parquet",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "mixed (LLaVA-NeXT release: ShareGPT4V, VQA and OCR sets with their own licences; GPT-4V outputs inside)",
+    "license_url": "https://huggingface.co/datasets/lmms-lab/LLaVA-NeXT-Data",
+    "notes": "LLaVA-NeXT instruction data: 779k visual conversations (captions, VQA, OCR, charts)."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "turns": "conversations"
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 779289,
+    "basis": "card: 779,289 rows (rows without an image are skipped)",
+    "shards": 250,
+    "size_gb": 92.1
+   },
+   "caveat": "Overlaps FineVision, which holds most of these sets."
   }
  ]
 }

@@ -52,6 +52,77 @@
     "size_gb": 44.7
    },
    "caveat": "Gated (accept the terms at the repository). The table's file names and fields come from the card, not from a read of the files."
+  },
+  {
+   "source_id": "spgispeech",
+   "repository": "kensho/spgispeech",
+   "revision": "14e69dd3b80e968282ca55d3eb2b39cc9db2b62e",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "Kensho non-commercial research agreement (the card's 'other' licence)",
+    "license_url": "https://huggingface.co/datasets/kensho/spgispeech",
+    "notes": "SPGISpeech: 5,000 hours of company earnings calls with fully formatted (cased, punctuated, numerals) transcripts."
+   },
+   "gated": true,
+   "include": [
+    "L/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "transcript",
+    "id": "wav_filename"
+   },
+   "options": {
+    "max_seconds": 20.0,
+    "verbalize": true
+   },
+   "inventory": {
+    "items": 1926805,
+    "hours": 5000,
+    "basis": "card: L training 1,926,805 rows",
+    "shards": 200,
+    "size_gb": 556.6
+   },
+   "caveat": "Gated: accept the terms at the repository. Columns come from the card, not from a read of the files."
+  },
+  {
+   "source_id": "ksponspeech",
+   "repository": "jp1924/KsponSpeech",
+   "revision": "f2e6ebcd5cfd49152a5362dc141f4a4971b4835c",
+   "reader": "parquet",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-22",
+    "license": "none on the card (AI Hub terms: research use, Korean residents)",
+    "license_url": "https://huggingface.co/datasets/jp1924/KsponSpeech",
+    "notes": "KsponSpeech: 969 hours of Korean spontaneous conversation."
+   },
+   "gated": true,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "sentence",
+    "id": "id"
+   },
+   "options": {
+    "max_seconds": 20.0
+   },
+   "inventory": {
+    "items": 620000,
+    "hours": 969,
+    "basis": "card: train 620,000 rows",
+    "shards": 100,
+    "size_gb": 47.9
+   },
+   "caveat": "Gated: accept the terms at the repository. Columns come from the card, not from a read of the files."
   }
  ]
 }
