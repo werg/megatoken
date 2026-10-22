@@ -234,7 +234,6 @@ def test_native_preparation_preserves_semantic_groups_and_exact_target_bytes():
     assert prepared.supervision.outcome == "unknown"
 
 
-
 def _reindex(groups):
     for index, group in enumerate(groups):
         group["id"] = "m" + str(index + 1)
