@@ -421,7 +421,7 @@ def _add_dependencies(
 ) -> None:
     if kind in ("code", "value-part", "value-open"):
         return
-    earlier = fields.get("dependsOn", ())
+    earlier = fields.get("dependsOn", [])
     if not isinstance(earlier, list) or not all(isinstance(x, str) for x in earlier):
         _fail("Malformed semantic producer dependencies")
     control = fields.get("control")
