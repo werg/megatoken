@@ -24,14 +24,15 @@ from megatoken.generation.embedding import EmbeddingRealizer, EmbeddingSpec
 from megatoken.memory.transducer import Lookup, SearchAgenda, TransducerBank
 from megatoken.memory.transducer_packing import pack_fp4, straight_through
 
-from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, RETRIEVAL_QUERY_TRACK
+from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK
 from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
 from .multitrack import MultiTrackState, ObservedEvent
 from .state import KVHistory, RealizationContext
 
 QUERY_SPACE = "transducer-v10-query"
 METADATA_FIELDS = ("request", "task", "topic", "language", "modality", "date", "version")
-MASK_MODES = ("causal", "full", "group-inverse")
+# Results that arrive from outside the model close the turn that asked for them.
+SOURCE_ROLES = frozenset(ROLE_IDS[name] for name in ("tool", "document", "environment"))
 
 
 def metadata_payload(metadata: dict[str, object]) -> bytes:
@@ -40,25 +41,34 @@ def metadata_payload(metadata: dict[str, object]) -> bytes:
     return json.dumps(normalized, sort_keys=True, ensure_ascii=False).encode()
 
 
-def event_attention_mask(*, groups: Tensor, meridians: Tensor, mode: str = "causal") -> Tensor:
-    """A [batch, query-event, key-event] mask from recorded event metadata.
+def real_boundary(roles: Sequence[int], complete: Sequence[bool]) -> bool:
+    """Whether a lookup is due after one ordinary meridian, from its roles alone.
 
-    ``causal`` sees earlier and same meridians; ``full`` sees everything;
-    ``group-inverse`` sees the event's own retrieval group and every later one.
-    Sink slots are appended by attention itself, so no row is ever empty.
+    A completed assistant turn (every event assistant, each the last part of its
+    message) or the arrival of a tool, document or environment result. Training
+    and serving both ask this, so they plan the same lookups.
     """
-    if groups.shape != meridians.shape or groups.ndim != 2:
-        raise ValueError("Every event needs [batch, events] group and meridian metadata")
-    if groups.dtype != torch.long or meridians.dtype != torch.long:
-        raise ValueError("Event metadata must be int64")
-    if bool((groups < 0).any()) or bool((meridians < 0).any()):
+    turn = all(
+        role == ROLE_IDS["assistant"] and done for role, done in zip(roles, complete, strict=True)
+    )
+    return turn or any(role in SOURCE_ROLES for role in roles)
+
+
+def event_attention_mask(*, groups: Tensor, mode: str) -> Tensor:
+    """A [batch, query-event, key-event] mask from each event's retrieval group.
+
+    ``full`` sees everything; ``group-inverse`` sees the event's own retrieval
+    group and every later one. Sink slots are appended by attention itself, so
+    no row is ever empty.
+    """
+    if groups.ndim != 2 or groups.dtype != torch.long:
+        raise ValueError("Every event needs an int64 [batch, events] retrieval group")
+    if bool((groups < 0).any()):
         raise ValueError("Event chronology cannot be negative")
     if mode == "full":
         return torch.ones((*groups.shape, groups.shape[1]), device=groups.device, dtype=torch.bool)
     if mode == "group-inverse":
         return groups[:, None, :] >= groups[:, :, None]
-    if mode == "causal":
-        return meridians[:, None, :] <= meridians[:, :, None]
     raise ValueError(f"Unknown track attention mode {mode!r}")
 
 
@@ -164,7 +174,6 @@ class HindsightValues:
 
     values: Tensor  # [lookups, value_dim]
     sink_only: Tensor  # [lookups] bool
-    stage: str
 
 
 @dataclass(frozen=True)
@@ -182,7 +191,9 @@ class OrdinaryEvents:
 class NativeTransducer(nn.Module):
     """Query/readout/hindsight heads and the bank, around one shared core owner."""
 
-    def __init__(self, core: FacetedCore, bank: TransducerBank) -> None:
+    def __init__(
+        self, core: FacetedCore, bank: TransducerBank, *, training_heads: bool = True
+    ) -> None:
         super().__init__()
         # Not a submodule: the generator already owns and optimizes the core.
         object.__setattr__(self, "_core", core)
@@ -192,7 +203,8 @@ class NativeTransducer(nn.Module):
         self.query_realizer = EmbeddingRealizer(c.n_facets, c.facet_dim, g.query_dim)
         self.prefix_head = nn.Linear(c.facet_dim, g.query_dim)
         self.readout = WideKnowledgeReadout(core, bank)
-        self.hindsight_realizer = HindsightRealizer(core, bank)
+        # Training-only: a served model neither ships nor counts it.
+        self.hindsight_realizer = HindsightRealizer(core, bank) if training_heads else None
 
     @property
     def core(self) -> FacetedCore:
@@ -208,7 +220,7 @@ class NativeTransducer(nn.Module):
         ``reads[t]`` is the retrieval group lookup t reads (None: past the end).
         Nothing here touches KVHistory, a causal state or the serving path.
         """
-        if not self.training:
+        if not self.training or self.hindsight_realizer is None:
             raise RuntimeError("Hindsight may not execute on the serving path")
         if mode not in ("full", "group-inverse"):
             raise ValueError("Hindsight reads a full or group-inverse pass")
@@ -235,7 +247,7 @@ class NativeTransducer(nn.Module):
         device = raw.device
         track_ids = torch.tensor([[registry.index(t) for t in events.tracks]], device=device)
         modality_ids = torch.tensor([[MODALITY_IDS[m] for m in events.modalities]], device=device)
-        mask = event_attention_mask(groups=events.groups, meridians=events.meridians, mode=mode)
+        mask = event_attention_mask(groups=events.groups, mode=mode)
         facet_mask = mask.repeat_interleave(c.n_facets, 1).repeat_interleave(c.n_facets, 2)
         empty = raw.new_empty(1, c.kv_heads, 0, c.attention_head_dim)
         final = self.core.central(
@@ -252,18 +264,24 @@ class NativeTransducer(nn.Module):
         read = torch.tensor([-1 if r is None else r for r in reads], device=device)
         visible = (slot_groups[None] == read[:, None]) & (read[:, None] >= 0)
         values = self.hindsight_realizer(final, visible)
-        return HindsightValues(values, ~visible.any(dim=1), mode)
+        return HindsightValues(values, ~visible.any(dim=1))
 
     # -------------------------------------------------------------- lookups
 
     def begin(
-        self, multi, state: MultiTrackState, payload: bytes
+        self, multi, state: MultiTrackState, payload: bytes, *, encoder_grad: bool = False
     ) -> tuple[MultiTrackState, SearchAgenda]:
-        """Commit the metadata prefix as the first ordinary event; seed the agenda."""
+        """Commit the metadata prefix as the first ordinary event; seed the agenda.
+
+        ``encoder_grad`` is as for any observed event: only bootstrap training
+        lets E learn from what it observes.
+        """
         if state.batch_size != 1:
             raise ValueError("A transducer session is one independent sequence")
         state = multi.tracks.observe_group(
-            state, [ObservedEvent(METADATA_TRACK, "text", payload, role_id=ROLE_IDS["system"])]
+            state,
+            [ObservedEvent(METADATA_TRACK, "text", payload, role_id=ROLE_IDS["system"])],
+            encoder_grad=encoder_grad,
         )
         prefix = self.prefix_head(state.final[0, 0].mean(dim=0).to(self.prefix_head.weight.dtype))
         return state, self.bank.initial_agenda(prefix.float())
@@ -293,7 +311,7 @@ class NativeTransducer(nn.Module):
         if agenda.lookups >= self.bank.geometry.max_lookups or (cancelled and cancelled()):
             return state, None
         working = agenda.copy()
-        mean = multi.tracks.predict_group(state, tracks=(RETRIEVAL_QUERY_TRACK,), effort=effort)
+        mean = multi.tracks.predict_group(state, tracks=(TRANSDUCER_QUERY_TRACK,), effort=effort)
         # The policy's own reparameterized draw; ``generator`` drives only exploration.
         selected = multi.generator.facet_distribution(mean).sample() if training else mean
         query = self.query_realizer(
@@ -301,7 +319,7 @@ class NativeTransducer(nn.Module):
         )[0]
         assistant = torch.full((1, 1), ROLE_IDS["assistant"], dtype=torch.long, device=state.device)
         queried = multi.tracks.advance_group(
-            state, selected, tracks=(RETRIEVAL_QUERY_TRACK,), role_ids=assistant
+            state, selected, tracks=(TRANSDUCER_QUERY_TRACK,), role_ids=assistant
         )
         found = self.bank.lookup(
             query,

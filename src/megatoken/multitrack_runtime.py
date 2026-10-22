@@ -2,7 +2,9 @@
 
 A session owns its committed multitrack state and its transducer agenda: every
 committed ordinary meridian may make a bank lookup due, served before the
-next one. Ready tool results are observed in later meridians. Speculative branches are copy-on-write and can be rejected
+next one; a completed assistant turn or an arriving tool, document or
+environment result always does. Ready tool results are observed in later
+meridians. Speculative branches are copy-on-write and can be rejected
 without disturbing the committed session. Delivery is an irreversible ledger.
 """
 
@@ -62,16 +64,23 @@ class MultiTrackRuntime:
         self.generator = generator
         self.memory = TransducerInferenceEngine(generator)
 
-    def open(self, metadata: dict[str, object] | None = None) -> TrackSession:
-        """Commit the metadata prefix and the first lookup, before any answer."""
-        return TrackSession(self.memory.new_session(metadata or {}))
+    def open(self, metadata: dict[str, object] | None = None, *, effort: int = 6) -> TrackSession:
+        """Commit the metadata prefix and the first lookup, before any answer.
 
-    def observe(self, session: TrackSession, events: Sequence[ObservedEvent]) -> MultiTrackState:
+        Training shows the model the fields ``task``, ``modality`` and
+        ``version``, each present or absent at random, so pass any of them
+        (``metadata_payload`` lists the rest) or none; unknown fields stay null.
+        """
+        return TrackSession(self.memory.new_session(metadata or {}, effort=effort))
+
+    def observe(
+        self, session: TrackSession, events: Sequence[ObservedEvent], *, effort: int = 6
+    ) -> MultiTrackState:
         """Only already available inputs may become shared causal observations."""
         ready = tuple(events)
         if not ready:
             raise ValueError("A committed meridian must contain one or more events")
-        self.memory.observe(session.memory, ready)
+        self.memory.observe(session.memory, ready, effort=effort)
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, tuple(x.track for x in ready)))
@@ -107,7 +116,10 @@ class MultiTrackRuntime:
         result = branch.result
         if result.tape.meridian_id != int(session.state.meridians_seen[0]):
             raise ValueError("Speculative branch has the wrong causal history")
-        self.memory.generated(session.memory, result.state)
+        # The lookup this meridian makes due thinks as hard as the meridian did.
+        self.memory.generated(
+            session.memory, result.state, result.tape.terminal, effort=result.tape.effort
+        )
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, result.tape.tracks))

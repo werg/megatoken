@@ -9,7 +9,6 @@ import hashlib
 import json
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 import torch
 from torch import nn
@@ -309,10 +308,6 @@ def test_padded_batches_keep_only_real_positions():
     assert short.features.shape == (3, HIDDEN_WIDTH) and long.features.shape == (5, HIDDEN_WIDTH)
     alone = EmbeddingGemma2(model, FakeProcessor(3), extractor=PINNED_TEACHER).encode("text", "a")
     torch.testing.assert_close(short.embedding, alone.embedding)
-    vectors = EmbeddingGemma2(
-        model, FakeProcessor(lengths=[4]), extractor=PINNED_TEACHER
-    ).embed_texts(["x"], prompt="title: none | text: ")
-    assert vectors.shape == (1, 768) and np.allclose(np.linalg.norm(vectors, axis=1), 1)
 
 
 def test_teacher_rejects_other_heads_overlong_input_and_untapped_forward():

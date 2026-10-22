@@ -76,11 +76,14 @@ def commit_checkpoint(
 
 
 def transducer_attachment(state: Callable[[], dict]) -> Callable[[Path], dict[str, Any]]:
-    """Stage the transducer bank (``{"bank": snapshot, ...}``) beside a checkpoint."""
+    """Stage the transducer bank (``{"bank": snapshot, ...}``) beside a checkpoint.
+
+    ``state`` returns private host tensors, so they are written without another copy.
+    """
 
     def attach(stage: Path) -> dict[str, Any]:
         path = stage / "transducer.pt"
-        torch.save(snapshot_to_cpu(state()), path)
+        torch.save(state(), path)
         return {"transducer_checkpoint": {"file": path.name, "sha256": sha256_file(path)}}
 
     return attach
@@ -208,13 +211,12 @@ def load_checkpoint(
     state_path = directory / "state.pt"
     if sha256_file(state_path) != metadata["state_sha256"]:
         raise ValueError(f"Checkpoint payload checksum mismatch at {directory}")
-    transducer = metadata.get("transducer_checkpoint")
-    if transducer is not None:
-        bank_path = directory / transducer["file"]
-        if bank_path.name != transducer["file"] or (
-            not bank_path.is_file() or sha256_file(bank_path) != transducer["sha256"]
-        ):
-            raise ValueError("Checkpoint transducer bank missing or checksum mismatch")
+    transducer = metadata["transducer_checkpoint"]
+    bank_path = directory / transducer["file"]
+    if bank_path.name != transducer["file"] or (
+        not bank_path.is_file() or sha256_file(bank_path) != transducer["sha256"]
+    ):
+        raise ValueError("Checkpoint transducer bank missing or checksum mismatch")
     payload = torch.load(state_path, map_location=map_location, weights_only=True)
     if payload.get("format_version") != FORMAT_VERSION:
         raise ValueError("Unsupported payload format")

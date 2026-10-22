@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from megatoken.runtime import capture_rng, restore_rng, seed_everything
-from megatoken.training.checkpoint import load_checkpoint, save_checkpoint
+from megatoken.training.checkpoint import load_checkpoint, save_checkpoint, transducer_attachment
 from megatoken.training.config import TrainConfig
 from megatoken.training.losses import LossLedger, leave_one_out_advantages
 from megatoken.training.optimizer import MasterAdamW
@@ -70,6 +70,7 @@ def test_optimizer_resume_preserves_next_update(tmp_path):
         "step-00000001",
         {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "rng": capture_rng()},
         {"global_step": 1, "codec": "test"},
+        attachments=transducer_attachment(lambda: {"bank": {}}),
     )
     payload, _ = load_checkpoint(checkpoint)
     resumed = copy.deepcopy(model)

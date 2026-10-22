@@ -99,6 +99,7 @@ def _diloco_initialize(args):
     from megatoken.training.diloco_server import initialize_coordinator
     from megatoken.training.schedule import PHASES
     from megatoken.training.transducer import HindsightSchedule
+    from megatoken.training.transducer_sync import load_transducer_state
 
     config = TrainConfig.load(args.config)
     if config.decoupled is None:
@@ -142,11 +143,7 @@ def _diloco_initialize(args):
             else payload["optimizer"]["master_weights"]
         )
         # The previous phase's bank seeds this coordinator's canonical bank.
-        transducer_state = torch.load(
-            resolve_checkpoint(args.resume) / "transducer.pt",
-            map_location="cpu",
-            weights_only=True,
-        )
+        transducer_state = load_transducer_state(resolve_checkpoint(args.resume))
     elif config.engram_import:
         from megatoken.assets import install_engram_asset
 
@@ -186,9 +183,13 @@ def _diloco_initialize(args):
 
 def _diloco_serve(args):
     import os
+    import signal
+    import sys
 
     from megatoken.training.diloco_server import serve_coordinator
 
+    # Exit through the server's cleanup, which saves the canonical bank.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     serve_coordinator(
         args.root,
         args.host,

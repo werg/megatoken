@@ -78,7 +78,6 @@ class BlockScaleDescent:
         self.priors: dict[str, Tensor] = {}
         self.writes = writes_store(device, g.value_dim)
         # What this learner added since its last DiLoCo submission.
-        self.round_stats = {name: statistics_store(device, self.blocks[name]) for name in FIELDS}
         self.round_writes = writes_store(device, g.value_dim)
         # Packed columns of each field as it was when first stepped this round.
         self.round_origin = self._origin_stores()
@@ -196,7 +195,6 @@ class BlockScaleDescent:
                 grad = grad - tangent * (grad * tangent).sum(-1, keepdim=True)
             squares = _blocks(grad)
             ones = torch.ones(len(edges), device=squares.device)
-            self.fold(self.round_stats[name], edges, squares, ones, step)
             stats = self.fields[name]
             at = self.fold(stats, edges, squares, ones, step)
             variance = (stats.squared_sums[at] + 4 * self._prior(name)) / (
@@ -268,7 +266,6 @@ class BlockScaleDescent:
         ids = [int(edge) for edge in torch.as_tensor(ids).tolist()]
         for store in (
             *self.fields.values(),
-            *self.round_stats.values(),
             *self.round_origin.values(),
             self.writes,
             self.round_writes,
@@ -298,37 +295,23 @@ class BlockScaleDescent:
     def switch_to_learned(self) -> None:
         if len(self.writes):
             raise RuntimeError("Flush written value evidence before switching")
-        if self.bank.learned_values:
-            raise RuntimeError("Value optimizer was already activated")
-        self.bank.learned_values = True
-        self.bank.table.write_mass.zero_()
+        self.bank.switch_to_learned()
         self.round_writes = writes_store(self.bank.device, self.bank.geometry.value_dim)
-        self.bank.masters.clear(("value",))
-        self.bank._changed()
 
-    def take_round(self) -> tuple[dict, dict, RowStore]:
-        """Deltas, statistics and writes since the last call, for a DiLoCo submission.
+    def take_round(self) -> tuple[dict, RowStore]:
+        """Deltas and writes since the last call, for a DiLoCo submission.
 
-        Statistics come back per field as (edge IDs, block squared sums, counts).
         The FP32 masters restart from the next installed bank.
         """
         deltas = self.round_deltas()
-        statistics = {}
-        for name, store in self.round_stats.items():
-            edges = [edge for edge in store.ids() if edge in self.bank]
-            if edges:
-                rows = store.find(edges)
-                statistics[name] = (
-                    torch.tensor(edges, dtype=torch.int64),
-                    store.squared_sums[rows].cpu(),
-                    store.count[rows].cpu(),
-                )
         writes = self.round_writes
-        device, g = self.bank.device, self.bank.geometry
-        self.round_stats = {name: statistics_store(device, self.blocks[name]) for name in FIELDS}
-        self.round_writes = writes_store(device, g.value_dim)
+        self.discard_round()
+        return deltas, writes
+
+    def discard_round(self) -> None:
+        """Forget the round's increments without decoding them (no coordinator wants them)."""
+        self.round_writes = writes_store(self.bank.device, self.bank.geometry.value_dim)
         self.reset_origins()
-        return deltas, statistics, writes
 
     # ------------------------------------------------------------ checkpoint
 
@@ -340,7 +323,6 @@ class BlockScaleDescent:
             "worker": self.worker,
             "priors": {k: v.cpu() for k, v in self.priors.items()},
             "fields": {name: store.state_dict() for name, store in self.fields.items()},
-            "round_stats": {name: store.state_dict() for name, store in self.round_stats.items()},
             "masters": self.bank.masters.state_dict(),
             "writes": self.writes.state_dict(),
             "round_writes": self.round_writes.state_dict(),
@@ -358,7 +340,6 @@ class BlockScaleDescent:
         self.priors = {k: v.to(device) for k, v in state["priors"].items()}
         for target, saved in (
             (self.fields, state["fields"]),
-            (self.round_stats, state["round_stats"]),
             (self.round_origin, state["round_origin"]),
         ):
             for name, store in target.items():

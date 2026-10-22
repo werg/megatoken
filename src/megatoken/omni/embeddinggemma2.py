@@ -23,7 +23,6 @@ import bisect
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import torch
 from torch import Tensor
 
@@ -122,23 +121,6 @@ class EmbeddingGemma2:
             index = bisect.bisect_left(starts, end, lo=index + 1)
         pieces.append(text[start:])
         return pieces
-
-    def embed_texts(
-        self, texts: list[str], *, prompt: str, batch_tokens: int = 32768
-    ) -> np.ndarray:
-        """Unit ``[N, 768]`` embeddings of ``prompt + text``, batched by length."""
-        out = np.zeros((len(texts), EMBEDDING_WIDTH), dtype=np.float32)
-        order = sorted(range(len(texts)), key=lambda i: len(texts[i]))
-        start = 0
-        while start < len(order):
-            # ~3 characters per token sizes a batch of similar lengths.
-            longest = max(1, len(texts[order[min(start + 255, len(order) - 1)]]) // 3)
-            ids = order[start : start + max(1, min(256, batch_tokens // longest))]
-            outputs = self.encode_batch([("text", texts[i]) for i in ids], prompt=prompt)
-            for i, item in zip(ids, outputs, strict=True):
-                out[i] = item.embedding.numpy()
-            start += len(ids)
-        return out
 
     @torch.inference_mode()
     def encode_batch(

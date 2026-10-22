@@ -219,11 +219,9 @@ def bake_checkpoint(
             "optimizer": optimizer.state_dict(),
             "engram_bake": report,
         }
-        bank = metadata.pop("transducer_checkpoint", None)
+        bank = metadata.pop("transducer_checkpoint")
 
         def carry_bank(stage: Path) -> dict[str, Any]:
-            if bank is None:
-                return {}
             shutil.copyfile(resolve_checkpoint(checkpoint) / bank["file"], stage / bank["file"])
             return {"transducer_checkpoint": bank}
 

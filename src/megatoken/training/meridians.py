@@ -29,6 +29,7 @@ from megatoken.data.schema import EncodedRecord
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
+from megatoken.model.transducer import metadata_payload, real_boundary
 from megatoken.tensors import byte_tensor
 from megatoken.tool_schema import (
     compile_tool_spec,
@@ -39,6 +40,7 @@ from megatoken.tool_schema import (
 from megatoken.training.history import NativeHistory
 from megatoken.training.stream import EpisodeWindow
 from megatoken.training.text_anchors import anchor_loss
+from megatoken.training.transducer import Meridian
 
 
 @dataclass(frozen=True)
@@ -401,28 +403,31 @@ def _preceding_native(
     return state, count
 
 
-_SOURCE_ROLES = frozenset((ROLE_TO_ID["tool"], ROLE_TO_ID["document"], ROLE_TO_ID["environment"]))
+METADATA_KEEP = 0.5
 
 
-def _metadata(episode: Any) -> bytes:
-    """The compact metadata prefix available before the first event."""
-    from megatoken.model.transducer import metadata_payload
+def _metadata(episode: Any, seed: int | None) -> bytes:
+    """The compact metadata prefix available before the first event.
 
+    In training each field is kept or dropped at random, so a session opened
+    with partial or no metadata (as serving may) is in distribution; held-out
+    evaluation (``seed=None``) sees every field.
+    """
     # Declared session tracks only: the modalities later events happen to use are future.
     modalities = sorted({track.default_modality for track in episode.tracks})
-    return metadata_payload({"task": episode.stream, "modality": modalities, "version": "v10"})
+    fields = {"task": episode.stream, "modality": modalities, "version": "v10"}
+    if seed is not None:
+        keep = torch.rand(len(fields), generator=torch.Generator().manual_seed(seed + 1))
+        fields = {
+            k: v for (k, v), kept in zip(fields.items(), keep < METADATA_KEEP, strict=True) if kept
+        }
+    return metadata_payload(fields)
 
 
-def _boundary_meridian(step: MeridianStep):
-    """A completed assistant turn or an arriving source result is a real boundary."""
-    from megatoken.training.transducer import Meridian
-
-    completed_turn = step.generated and all(
-        entry.record.role == "assistant" and entry.record.part_index + 1 == entry.record.part_count
-        for entry in step.records
-    )
-    arrived = any(role in _SOURCE_ROLES for role in step.roles)
-    return Meridian(step.tracks, step.roles, step.modalities, completed_turn or arrived)
+def _boundary_meridian(step: MeridianStep) -> Meridian:
+    """Whether a boundary follows is decided by record roles and part indices alone."""
+    complete = [entry.record.part_index + 1 == entry.record.part_count for entry in step.records]
+    return Meridian(step.tracks, step.roles, step.modalities, real_boundary(step.roles, complete))
 
 
 def _transducer_sequence(
@@ -432,12 +437,11 @@ def _transducer_sequence(
     store: TensorAssetStore,
     device: torch.device,
     model_version: int,
-    differentiate: bool,
+    seed: int,
 ):
     """Plan the window's lookups and, in training, run its hindsight pass once."""
     steps = (*batch.prefix, *batch.steps)
     meridians = [_boundary_meridian(step) for step in steps]
-    seed = int(torch.randint(0, 2**62, (1,)))
     sequence = trainer.sequence(
         meridians, step=model_version, generator=torch.Generator().manual_seed(seed)
     )
@@ -493,10 +497,14 @@ def forward_meridian_batch(
         "grouped_selected_events": 0,
         "grouped_native_replays": 0,
     }
-    sequence = _transducer_sequence(
-        model, batch, transducer, store, device, model_version, differentiate
+    seed = int(torch.randint(0, 2**62, (1,)))
+    sequence = _transducer_sequence(model, batch, transducer, store, device, model_version, seed)
+    state = sequence.begin(
+        multi,
+        state,
+        _metadata(episode, seed if transducer.native.training else None),
+        encoder_grad=config.representation_training == "bootstrap",
     )
-    state = sequence.begin(multi, state, _metadata(episode))
     metrics["transducer_lookups"] = sequence.planned
     meridian_index = 0
     with torch.no_grad():

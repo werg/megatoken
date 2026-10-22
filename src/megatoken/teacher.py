@@ -2,10 +2,10 @@
 
 It plays every teacher role: media (and text read in compressed form) enter E
 as the ordered ``[T, 512]`` input of its ``language_model.embedding_projection``,
-and retrieval keys and embedding targets are its pooled 768-d embeddings, both
+and the embedding head's targets are its pooled 768-d embeddings, both
 from one forward pass (``megatoken.omni.embeddinggemma2``). The teacher never
 joins a Megatoken checkpoint; its identity is pinned by the locked pack
-manifest, so a feature cache, a retrieval bank, a model and a serving boundary
+manifest, so a feature cache, the transducer bank, a model and a serving boundary
 agree on exactly the same weights and preprocessing.
 
 Torch-free (outside the omni package): imported by model configuration and data validation.

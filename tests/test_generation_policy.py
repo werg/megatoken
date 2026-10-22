@@ -497,7 +497,7 @@ def test_metrics_are_detached_and_report_both_decoder_passes(model):
 def test_served_export_contains_all_shared_owners_and_is_identical(model):
     served = FacetedGenerator(FacetedCore(model.config), model.codec, training_heads=False)
     weights = model.served_state_dict()
-    assert set(weights) == set(model.state_dict())
+    assert set(weights) == {n for n in model.state_dict() if "hindsight_realizer" not in n}
     assert not any(
         "posterior" in name or "regional" in name or "root_prior" in name or "carry" in name
         for name in weights

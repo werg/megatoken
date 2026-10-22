@@ -12,11 +12,10 @@ from megatoken.teacher import PINNED_TEACHER, validate_extractor
 ARCHITECTURE_VERSION = 10
 # Reserved system tracks. Track ``RESERVED_TRACKS[i]`` occupies index
 # ``max_tracks + i`` and never counts against the user-visible track registry.
-RETRIEVAL_QUERY_TRACK = "__retrieval_query__"
+TRANSDUCER_QUERY_TRACK = "__transducer_query__"
 KNOWLEDGE_TRACK = "__transducer_knowledge__"
-HINDSIGHT_TRACK = "__transducer_hindsight__"
 METADATA_TRACK = "__metadata__"
-RESERVED_TRACKS = (RETRIEVAL_QUERY_TRACK, KNOWLEDGE_TRACK, HINDSIGHT_TRACK, METADATA_TRACK)
+RESERVED_TRACKS = (TRANSDUCER_QUERY_TRACK, KNOWLEDGE_TRACK, METADATA_TRACK)
 
 
 @dataclass(frozen=True)

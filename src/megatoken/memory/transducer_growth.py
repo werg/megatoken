@@ -148,8 +148,12 @@ class TransducerGrowth:
         """Structural increments since the last round, for a DiLoCo submission."""
         ids = sorted(self.round_evidence.row_of)
         rows = self.round_evidence.export(ids, step)
-        self.round_evidence = Evidence(self.bank.device)
+        self.discard_round()
         return rows
+
+    def discard_round(self) -> None:
+        """Forget the round's structural increments without exporting them."""
+        self.round_evidence = Evidence(self.bank.device)
 
     def switch_to_learned(self) -> None:
         """Write dispersion is dropped; the gradient sketch and energy start from zero."""

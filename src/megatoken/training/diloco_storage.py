@@ -39,7 +39,7 @@ class CheckpointStore:
         return f"{self.prefix}/{name}"
 
     def upload(self, checkpoint: str | Path) -> dict:
-        """Upload every checkpoint file (weights, KB snapshot, manifests), then the pointer."""
+        """Upload every checkpoint file (weights, transducer bank, manifests), then the pointer."""
         path = Path(checkpoint)
         meta = path / "metadata.json"
         metadata = json.loads(meta.read_text())
@@ -47,9 +47,9 @@ class CheckpointStore:
             raise ValueError("Checkpoint directory and metadata differ")
         if sha256_file(path / "state.pt") != metadata["state_sha256"]:
             raise ValueError("Refusing to upload corrupted checkpoint")
-        memory = metadata.get("memory_checkpoint")
-        if memory is not None and sha256_file(path / memory["kb_file"]) != memory["kb_sha256"]:
-            raise ValueError("Refusing to upload a corrupted KB snapshot")
+        bank = metadata["transducer_checkpoint"]
+        if sha256_file(path / bank["file"]) != bank["sha256"]:
+            raise ValueError("Refusing to upload a corrupted transducer bank")
         files = {
             file.name: sha256_file(file)
             for file in sorted(path.iterdir())

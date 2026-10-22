@@ -2,8 +2,8 @@
 
 A learner trains its local copy of the newest published bank for 32 local
 steps, then submits one ``LearnerRound``: per-field deltas against the rows it
-started from, its hindsight writes as (mass, packed mean), the optimizer and
-structural statistics it added, and its provisional write-outs as packed rows.
+started from, its hindsight writes as (mass, packed mean), the structural
+evidence it added, and its provisional write-outs as packed rows.
 The coordinator alone allocates canonical IDs, merges with age weight
 2^(-rounds behind / 8), adopts provisional rows (combining near-duplicates from
 different learners), evolves structure and publishes a change set. There is no
@@ -47,7 +47,6 @@ class LearnerRound:
     write_ids: Tensor = field(default_factory=lambda: torch.empty(0, dtype=torch.int64))
     write_mass: Tensor = field(default_factory=lambda: torch.empty(0))
     write_means: dict[str, Tensor] = field(default_factory=dict)  # packed FP4 columns
-    statistics: dict[str, tuple[Tensor, Tensor, Tensor]] = field(default_factory=dict)
     evidence: EvidenceRows | None = None
     provisional: dict[str, Tensor] = field(default_factory=dict)  # packed rows, local IDs
 
@@ -68,10 +67,6 @@ class LearnerRound:
             "write_ids": self.write_ids,
             "write_mass": self.write_mass,
             "write_means": self.write_means,
-            "statistics": {
-                name: {"ids": i, "sums": s, "counts": c}
-                for name, (i, s, c) in self.statistics.items()
-            },
             "evidence": None if self.evidence is None else vars(self.evidence),
             "provisional": self.provisional,
         }
@@ -88,9 +83,6 @@ class LearnerRound:
             write_ids=state["write_ids"],
             write_mass=state["write_mass"],
             write_means=state["write_means"],
-            statistics={
-                name: (v["ids"], v["sums"], v["counts"]) for name, v in state["statistics"].items()
-            },
             evidence=None if state["evidence"] is None else EvidenceRows(**state["evidence"]),
             provisional=state["provisional"],
         )
@@ -108,7 +100,7 @@ def learner_round(
 ) -> LearnerRound:
     """Collect and reset one learner's round contribution (called at a round boundary)."""
     bank = optimizer.bank
-    deltas, statistics, writes = optimizer.take_round()
+    deltas, writes = optimizer.take_round()
     # Each provisional row is sent once, whole; it has no canonical base to differ from.
     provisional_ids = [edge for edge in growth.provisional_ids if edge in bank]
     growth.submitted_ids.extend(provisional_ids)
@@ -146,7 +138,6 @@ def learner_round(
         write_ids=torch.tensor(write_ids, dtype=torch.int64),
         write_mass=write_mass,
         write_means=write_means,
-        statistics=statistics,
         evidence=evidence,
         provisional=bank.export_rows(provisional_ids) if provisional_ids else {},
     )
@@ -233,26 +224,20 @@ def install_changes(
     bank.masters.clear()
     if changes.learned_values and not bank.learned_values:
         optimizer.switch_to_learned()
-    bank.learned_values = changes.learned_values
+        growth.switch_to_learned()
 
 
 class TransducerCoordinator:
     """The canonical owner. Learners submit in any order; one merge per round."""
 
     def __init__(
-        self,
-        bank: TransducerBank,
-        optimizer: BlockScaleDescent,
-        growth: TransducerGrowth,
-        *,
-        evidence_from: int = 0,
+        self, bank: TransducerBank, growth: TransducerGrowth, *, evidence_from: int = 0
     ) -> None:
-        if optimizer.bank is not bank or growth.bank is not bank:
-            raise ValueError("Coordinator components must share the exact bank")
+        if growth.bank is not bank or growth.optimizer is not None:
+            raise ValueError("The coordinator's growth must share its bank and have no optimizer")
         if growth.provisional:
             raise ValueError("The coordinator allocates canonical IDs only")
         self.bank = bank
-        self.optimizer = optimizer
         self.growth = growth
         self.evidence_from = evidence_from
         self.version = 0
@@ -304,9 +289,6 @@ class TransducerCoordinator:
                 or not bool(torch.isfinite(means).all())
             ):
                 raise ValueError("Invalid submitted hindsight writes")
-        for _, sums, counts in submission.statistics.values():
-            if not bool(torch.isfinite(sums).all() & torch.isfinite(counts).all()):
-                raise ValueError("Nonfinite submitted optimizer statistics")
         if submission.provisional:
             rows = submission.provisional
             if bool((rows["ids"] < PROVISIONAL_BASE).any()):
@@ -491,51 +473,36 @@ class TransducerCoordinator:
                 mapping[self.pending[index].worker, local] = edge
         return added, mapping
 
-    def _fold_statistics(self, weights: list[float], mapping: dict[tuple[int, int], int]) -> None:
-        """Fold optimizer and structural increments, age-weighted, into canonical edges."""
+    def _fold_evidence(self, weights: list[float], mapping: dict[tuple[int, int], int]) -> None:
+        """Fold structural evidence increments, age-weighted, into canonical edges."""
         step = self.step
         for submission, weight in zip(self.pending, weights, strict=True):
-
-            def canonical(edge: int, worker: int = submission.worker) -> int | None:
-                edge = mapping.get((worker, edge), edge)
-                return edge if edge in self.bank else None
-
-            scale = weight / submission.examples
-            for name, (ids, sums, counts) in submission.statistics.items():
-                targets = [canonical(edge) for edge in ids.tolist()]
-                keep = [k for k, target in enumerate(targets) if target is not None]
-                if not keep:
-                    continue
-                at = torch.tensor(keep)
-                device = self.bank.device
-                self.optimizer.fold(
-                    self.optimizer.fields[name],
-                    [targets[k] for k in keep],
-                    sums[at].to(device) * scale,
-                    counts[at].to(device) * scale,
-                    step,
-                )
             evidence = submission.evidence
-            if evidence is not None and evidence.ids.numel():
-                targets = [canonical(edge) for edge in evidence.ids.tolist()]
-                keep = torch.tensor([t is not None for t in targets], dtype=torch.bool)
-                if bool(keep.any()):
-                    moved = EvidenceRows(
-                        torch.tensor([t for t in targets if t is not None], dtype=torch.int64),
-                        *(
-                            getattr(evidence, name)[keep]
-                            for name in (
-                                "utility",
-                                "visits",
-                                "dispersion",
-                                "sketch",
-                                "sketch_count",
-                                "energy",
-                                "last_step",
-                            )
-                        ),
+            if evidence is None or not evidence.ids.numel():
+                continue
+            targets = []
+            for edge in evidence.ids.tolist():
+                edge = mapping.get((submission.worker, edge), edge)
+                targets.append(edge if edge in self.bank else None)
+            keep = torch.tensor([t is not None for t in targets], dtype=torch.bool)
+            if not bool(keep.any()):
+                continue
+            moved = EvidenceRows(
+                torch.tensor([t for t in targets if t is not None], dtype=torch.int64),
+                *(
+                    getattr(evidence, name)[keep]
+                    for name in (
+                        "utility",
+                        "visits",
+                        "dispersion",
+                        "sketch",
+                        "sketch_count",
+                        "energy",
+                        "last_step",
                     )
-                    self.growth.evidence.add(moved, step, scale=scale)
+                ),
+            )
+            self.growth.evidence.add(moved, step, scale=weight / submission.examples)
 
     def merge(self) -> dict[str, int]:
         """Merge every pending round atomically, evolve structure, publish a version."""
@@ -561,38 +528,46 @@ class TransducerCoordinator:
             self.pending = []
 
     def _apply(self, weights, deltas, writes, before: set[int], step: int) -> dict[str, int]:
-        changed: set[int] = set()
-        for name, (ids, rows) in deltas.items():
-            if name in ADDRESS_FIELDS:
-                self.bank.publish_addresses(name, ids, rows, step=step, worker=COORDINATOR_WORKER)
-            elif name == "value":
-                self.bank.publish_values(ids, rows, step=step, worker=COORDINATOR_WORKER)
-            else:
-                self.bank.publish_bias(ids, rows.reshape(-1))
-            changed.update(ids.tolist())
+        # The version moves and the touched rows are recorded even if a step below
+        # fails halfway, so learners re-sync whatever the merge already changed.
+        changed = {int(edge) for ids, _ in deltas.values() for edge in ids.tolist()}
         if writes is not None:
-            ids, value, mass = writes
-            self.bank.publish_values(ids, value, step=step, worker=COORDINATOR_WORKER)
-            self.bank.set_write_mass(ids, mass, step=step)
-            changed.update(ids.tolist())
-        added, mapping = self._adopt(weights)
-        self._fold_statistics(weights, mapping)
+            changed.update(writes[0].tolist())
         submitted = len(self.pending)
-        self.version += 1
-        self.bank.masters.clear()
-        evolution = self.growth.evolve(step, evidence_from=self.evidence_from)
-        if self.switch_requested and not self.bank.learned_values:
-            self.optimizer.switch_to_learned()
-            self.growth.switch_to_learned()
-            self.switch_version = self.version
-        self.bank._changed()
-        after = set(self.bank.edge_ids().tolist())
-        retired = before - after
-        # Splits rewrite their parents; every new edge is a change too.
-        changed = (changed | (after - before) | set(evolution.get("touched", ()))) & after
-        self.history[self.version] = (changed, retired)
-        while len(self.history) > CHANGE_HISTORY:
-            self.history.popitem(last=False)
+        added = torch.empty(0, dtype=torch.int64)
+        evolution = {"removed": 0, "split": 0, "touched": ()}
+        try:
+            for name, (ids, rows) in deltas.items():
+                if name in ADDRESS_FIELDS:
+                    self.bank.publish_addresses(
+                        name, ids, rows, step=step, worker=COORDINATOR_WORKER
+                    )
+                elif name == "value":
+                    self.bank.publish_values(ids, rows, step=step, worker=COORDINATOR_WORKER)
+                else:
+                    self.bank.publish_bias(ids, rows.reshape(-1))
+            if writes is not None:
+                ids, value, mass = writes
+                self.bank.publish_values(ids, value, step=step, worker=COORDINATOR_WORKER)
+                self.bank.set_write_mass(ids, mass, step=step)
+            added, mapping = self._adopt(weights)
+            self._fold_evidence(weights, mapping)
+            self.bank.masters.clear()
+            evolution = self.growth.evolve(step, evidence_from=self.evidence_from)
+            if self.switch_requested and not self.bank.learned_values:
+                self.bank.switch_to_learned()
+                self.growth.switch_to_learned()
+                self.switch_version = self.version + 1
+        finally:
+            self.version += 1
+            self.bank._changed()
+            after = set(self.bank.edge_ids().tolist())
+            retired = before - after
+            # Splits rewrite their parents; every new edge is a change too.
+            changed = (changed | (after - before) | set(evolution["touched"])) & after
+            self.history[self.version] = (changed, retired)
+            while len(self.history) > CHANGE_HISTORY:
+                self.history.popitem(last=False)
         return {
             "submitted": submitted,
             "fields": sum(ids.numel() for ids, _ in deltas.values()),

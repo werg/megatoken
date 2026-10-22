@@ -44,7 +44,7 @@ from .state import KVHistory, RealizationContext, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v11"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v12"
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,8 @@ class ObservedEvent:
     role_id: int = ROLE_IDS["user"]
     extractor: str = ""
     valid_mask: Tensor | None = None
+    # False for a part of a longer message whose later parts have not arrived.
+    terminal: bool = True
 
     def __post_init__(self) -> None:
         if self.modality not in MODALITY_IDS:
@@ -561,6 +563,8 @@ class GroupActionTape:
     payloads: tuple[bytes, ...]
     emitted_ids: tuple[tuple[int, ...], ...]
     valid: tuple[bool, ...]
+    # Whether each event ends its message (the decoder's own terminal decision).
+    terminal: tuple[bool, ...]
     modalities: tuple[str, ...] = ()
     effort: int = 6
     event_log_probs: tuple[float, ...] = ()
@@ -582,6 +586,7 @@ class GroupActionTape:
             len(self.payloads),
             len(self.emitted_ids),
             len(self.valid),
+            len(self.terminal),
             len(self.renderer_seeds),
             len(self.pack_fingerprints),
         )
@@ -633,6 +638,7 @@ class GroupActionTape:
             payloads=[base64.b64encode(b).decode("ascii") for b in self.payloads],
             emitted_ids=self.emitted_ids,
             valid=self.valid,
+            terminal=self.terminal,
         )
         return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
@@ -664,6 +670,7 @@ class GroupActionTape:
             payloads=tuple(map(decode, value["payloads"])),
             emitted_ids=tuple(tuple(s) for s in value["emitted_ids"]),
             valid=tuple(value["valid"]),
+            terminal=tuple(value["terminal"]),
         )
 
 
@@ -832,9 +839,13 @@ class MultiTrackGenerator:
         *,
         seeds: Sequence[int] | None = None,
     ) -> tuple[
-        tuple[bytes, ...], tuple[tuple[int, ...], ...], tuple[bool, ...], tuple[Tensor | None, ...]
+        tuple[bytes, ...],
+        tuple[tuple[int, ...], ...],
+        tuple[bool, ...],
+        tuple[bool, ...],
+        tuple[Tensor | None, ...],
     ]:
-        payloads, ids, validity, media = [], [], [], []
+        payloads, ids, validity, terminals, media = [], [], [], [], []
         if seeds is not None and len(seeds) != len(specs):
             raise ValueError("Renderer seeds must identify each selected event")
         for index, spec in enumerate(specs):
@@ -845,6 +856,7 @@ class MultiTrackGenerator:
                 payloads.append(decoded.payload)
                 ids.append(decoded.emitted_ids)
                 validity.append(decoded.valid)
+                terminals.append(decoded.terminal)
                 media.append(None)
             else:
                 validate_public_media_spec(spec)
@@ -877,8 +889,9 @@ class MultiTrackGenerator:
                 )
                 ids.append(())
                 validity.append(True)
+                terminals.append(True)
                 media.append(tensor)
-        return tuple(payloads), tuple(ids), tuple(validity), tuple(media)
+        return tuple(payloads), tuple(ids), tuple(validity), tuple(terminals), tuple(media)
 
     def supervised_meridian(
         self,
@@ -1217,7 +1230,7 @@ class MultiTrackGenerator:
             int(state.meridians_seen[0]),
             tuple(self._spec_id(spec) for spec in plans),
         )
-        output, emitted, valid, media = self._realize(
+        output, emitted, valid, terminal, media = self._realize(
             raw,
             plans,
             encoded,
@@ -1258,6 +1271,7 @@ class MultiTrackGenerator:
             payloads=output,
             emitted_ids=emitted,
             valid=valid,
+            terminal=terminal,
         )
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)
@@ -1328,7 +1342,7 @@ class MultiTrackGenerator:
         )
         if tape.renderer_seeds != seeds:
             raise ValueError("Grouped tape renderer noise identity mismatch")
-        output, emitted, valid, media = self._realize(
+        output, emitted, valid, terminal, media = self._realize(
             raw,
             plans,
             encoded,
@@ -1341,7 +1355,12 @@ class MultiTrackGenerator:
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
             modalities=tape.modalities,
         )
-        if output != tape.payloads or emitted != tape.emitted_ids or valid != tape.valid:
+        if (output, emitted, valid, terminal) != (
+            tape.payloads,
+            tape.emitted_ids,
+            tape.valid,
+            tape.terminal,
+        ):
             raise ValueError("Grouped realization replay mismatch")
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)

@@ -77,7 +77,12 @@ from megatoken.training.stream import (
     WindowStream,
 )
 from megatoken.training.transducer import TransducerTrainer
-from megatoken.training.transducer_sync import RankRounds, TransducerSync, install_published
+from megatoken.training.transducer_sync import (
+    RankRounds,
+    TransducerSync,
+    install_published,
+    resume_transducer,
+)
 
 
 def ingest_records(
@@ -511,17 +516,7 @@ def train(
         if context.world_size > 1:
             rank_rounds = RankRounds(transducer, context)
         if resume:
-            saved = torch.load(
-                resolve_checkpoint(resume) / "transducer.pt", map_location="cpu", weights_only=True
-            )
-            if rank_rounds is not None:
-                rank_rounds.load_state_dict(saved)
-            elif "canonical" in saved:
-                # A multi-owner bank (ranks or coordinator); this learner's statistics restart.
-                transducer.bank.load_snapshot(saved["bank"])
-                transducer.sequences = int(saved.get("sequences", 0))
-            else:
-                transducer.load_state_dict(saved)
+            resume_transducer(transducer, rank_rounds, resolve_checkpoint(resume))
         context.broadcast_model(model)
         phase = dataclasses.replace(
             PHASES[config.phase],
@@ -708,6 +703,8 @@ def train(
                 {"cursor": stream.state_dict(), "rng": capture_rng()}
             )
             name = f"{phase.name}-{global_step:09d}-{label}"
+            if rank_rounds is not None:
+                rank_rounds.flush(global_step)
             if context.is_primary:
                 # Bound host memory to one in-flight snapshot.
                 checkpoint_writer.wait()
@@ -878,7 +875,7 @@ def train(
                 )
                 model.core.p_router.balance_recorder = None
                 model.core.u_router.balance_recorder = None
-            step_diagnostics.update(transducer.after_backward(global_step + 1))
+            step_diagnostics.update(transducer.after_backward(global_step))
             if autoencode is not None:
                 plan, sampler, store, center = autoencode
                 terms = autoencode_losses(

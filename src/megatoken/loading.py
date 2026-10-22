@@ -160,6 +160,8 @@ def load_trained(
 
 def parameter_report(model: torch.nn.Module) -> dict[str, Any]:
     """Count actual unique owners, aliases, and served versus training-only weights."""
+    from megatoken.generation.policy import TRAINING_ONLY_PREFIX
+
     seen: dict[int, str] = {}
     aliases = []
     owners = []
@@ -172,6 +174,8 @@ def parameter_report(model: torch.nn.Module) -> dict[str, Any]:
         seen[identity] = name
         if "import_map" in name or "descriptor_map" in name:
             category = "temporary_import"
+        elif name.startswith(TRAINING_ONLY_PREFIX):
+            category = "training_only"
         else:
             category = "served"
         totals[category] += parameter.numel()

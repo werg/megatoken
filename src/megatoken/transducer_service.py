@@ -3,8 +3,10 @@
 No teacher or training hindsight exists on this path. A
 query/knowledge pair is one cancellable transaction: on timeout or
 cancellation neither the agenda nor the native state changes. Only ordinary
-meridians (observed or generated) schedule lookups; every call on a session
-is serialized by that session's lock.
+meridians (observed or generated) schedule lookups, and the roles of a
+meridian decide whether it is a real boundary, exactly as in training. A
+meridian and the lookup it makes due commit together: an error leaves the
+session as it was. Every call on a session is serialized by that session's lock.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ import torch
 from megatoken.memory.transducer import Lookup, SearchAgenda
 from megatoken.model.config import RESERVED_TRACKS
 from megatoken.model.multitrack import MultiTrackGenerator, MultiTrackState, ObservedEvent
-from megatoken.model.transducer import metadata_payload
+from megatoken.model.transducer import metadata_payload, real_boundary
 from megatoken.model.transducer_state import restore_causal_state, snapshot_causal_state
 from megatoken.training.transducer import BoundaryScheduler
 
@@ -60,6 +62,7 @@ class TransducerInferenceEngine:
         self,
         metadata: dict[str, object],
         *,
+        effort: int = 6,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> TransducerSession:
@@ -70,7 +73,7 @@ class TransducerInferenceEngine:
         session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self))
         if scheduler.first_metadata():
             with session.lock:
-                self._run(session, deadline, cancelled)
+                session.state, _ = self._run(session, state, effort, deadline, cancelled)
         return session
 
     @torch.inference_mode()
@@ -79,7 +82,7 @@ class TransducerInferenceEngine:
         session: TransducerSession,
         events: Sequence[ObservedEvent],
         *,
-        real_boundary: bool = False,
+        effort: int = 6,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> Lookup | None:
@@ -88,60 +91,65 @@ class TransducerInferenceEngine:
             raise ValueError("Only nonempty ordinary meridians may be observed")
         with session.lock:
             self._check(session)
-            session.state = self.multi.tracks.observe_group(session.state, events)
-            return self._after_ordinary(session, real_boundary, deadline, cancelled)
+            state = self.multi.tracks.observe_group(session.state, events)
+            boundary = real_boundary([e.role_id for e in events], [e.terminal for e in events])
+            return self._commit(session, state, boundary, effort, deadline, cancelled)
 
     @torch.inference_mode()
     def generated(
         self,
         session: TransducerSession,
         state: MultiTrackState,
+        terminal: Sequence[bool],
         *,
-        completed_turn: bool = False,
+        effort: int = 6,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> Lookup | None:
-        """Adopt the state after one generated ordinary meridian; it counts like any other."""
+        """Adopt the state after one generated ordinary meridian; it counts like any other.
+
+        ``terminal`` says which of its events end their message (its tape's flags).
+        """
         with session.lock:
             self._check(session)
             if int(state.meridians_seen[0]) != int(session.state.meridians_seen[0]) + 1:
                 raise ValueError("A generated meridian must extend the session by exactly one")
             if any(track in RESERVED_TRACKS for track in state.frontier_tracks):
                 raise ValueError("Internal events are not generated ordinary meridians")
-            session.state = state
-            return self._after_ordinary(session, completed_turn, deadline, cancelled)
+            boundary = real_boundary(state.frontier_roles[0].tolist(), terminal)
+            return self._commit(session, state, boundary, effort, deadline, cancelled)
 
-    def _after_ordinary(self, session, real_boundary, deadline, cancelled) -> Lookup | None:
-        if not session.scheduler.ordinary_commit(real_boundary=real_boundary):
-            return None
-        return self._run(session, deadline, cancelled)
+    def _commit(self, session, state, boundary, effort, deadline, cancelled) -> Lookup | None:
+        """Adopt ``state`` with the lookup it makes due; a failure leaves the session as it was."""
+        scheduler = session.scheduler
+        waited = scheduler.ordinary_since
+        lookup = None
+        try:
+            if scheduler.ordinary_commit(real_boundary=boundary):
+                state, lookup = self._run(session, state, effort, deadline, cancelled)
+        except BaseException:
+            scheduler.ordinary_since = waited
+            raise
+        session.state = state
+        return lookup
 
-    def _run(self, session, deadline, cancelled) -> Lookup | None:
-        """Serve the outstanding lookup, then a deferred one if a boundary arrived meanwhile."""
+    def _run(self, session, state, effort, deadline, cancelled):
+        """Serve one due lookup; a cancelled or failed one is closed without committing."""
 
         def stopped() -> bool:
             return (cancelled is not None and cancelled()) or (
                 deadline is not None and time.monotonic() >= deadline
             )
 
-        result = None
-        while True:
-            try:
-                state, lookup = (
-                    (session.state, None)
-                    if stopped()
-                    else self.native.boundary(
-                        self.multi, session.state, session.agenda, cancelled=stopped
-                    )
+        lookup = None
+        try:
+            if not stopped():
+                state, lookup = self.native.boundary(
+                    self.multi, state, session.agenda, effort=effort, cancelled=stopped
                 )
-            except BaseException:
-                session.scheduler.finish(committed=False)
-                raise
-            if lookup is not None:
-                session.state = state
-                result = lookup
-            if not session.scheduler.finish(committed=lookup is not None):
-                return result
+        finally:
+            session.scheduler.finish(committed=lookup is not None)
+        return state, lookup
 
     def state_snapshot(self, session: TransducerSession) -> dict:
         """Tensor-only session state, independent of Python object identity."""
@@ -152,7 +160,7 @@ class TransducerInferenceEngine:
                 "session_id": session.session_id,
                 "bank_id": self.bank.bank_id,
                 "bank_version": self.bank.version,
-                "scheduler": session.scheduler.state_dict(),
+                "ordinary_since": session.scheduler.ordinary_since,
                 "agenda_locations": [x.detach().cpu().clone() for x in session.agenda.locations],
                 "agenda_state": session.agenda.state.detach().cpu().clone(),
                 "agenda_lookups": session.agenda.lookups,
@@ -165,8 +173,11 @@ class TransducerInferenceEngine:
         if snapshot["bank_id"] != self.bank.bank_id:
             raise ValueError("Session refers to a different canonical v10 bank")
         state = restore_causal_state(self.multi.tracks, snapshot["causal_state"])
-        scheduler = BoundaryScheduler(max_lookups=self.bank.geometry.max_lookups)
-        scheduler.load_state_dict(snapshot["scheduler"])
+        scheduler = BoundaryScheduler(
+            max_lookups=self.bank.geometry.max_lookups,
+            lookups=int(snapshot["agenda_lookups"]),
+            ordinary_since=int(snapshot["ordinary_since"]),
+        )
         if not snapshot["agenda_locations"]:
             raise ValueError("Incomplete transducer session snapshot")
         agenda = self.bank.agenda_from(

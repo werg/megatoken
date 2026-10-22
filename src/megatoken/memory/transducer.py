@@ -545,6 +545,15 @@ class TransducerBank(nn.Module):
     def _changed(self) -> None:
         self.version += 1
 
+    def switch_to_learned(self) -> None:
+        """Values become trained parameters; written-mass bookkeeping ends."""
+        if self.learned_values:
+            raise RuntimeError("Value optimizer was already activated")
+        self.learned_values = True
+        self.table.write_mass.zero_()
+        self.masters.clear(("value",))
+        self._changed()
+
     # ------------------------------------------------------------------ rows
 
     def add_edges(

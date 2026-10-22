@@ -14,6 +14,7 @@ from megatoken.cli import _diloco_initialize
 from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.config import DecoupledConfig
 from megatoken.training.diloco_export import export_coordinator
+from megatoken.training.diloco_server import Coordinator
 from megatoken.training.transducer_sync import TransducerHost
 from tests.media_support import install_fake_realizers
 
@@ -53,8 +54,9 @@ def test_media_phase_coordinator_starts_from_the_text_phase_export(tmp_path, mon
 
     text = tiny_train_config(tmp_path, output=str(tmp_path / "runs"), decoupled=settings("text"))
     text_root = _initialize(tmp_path, text, "text-coordinator")
-    # Give the text phase's canonical bank some learned rows.
-    host = _host(text_root)
+    # Give the text phase's canonical bank some learned rows, as a running coordinator would.
+    coordinator = Coordinator(text_root)
+    host = coordinator.transducer
     g = host.bank.geometry
     learned = host.bank.add_edges(
         departure=torch.randn(5, g.location_dim),
@@ -65,7 +67,7 @@ def test_media_phase_coordinator_starts_from_the_text_phase_export(tmp_path, mon
         write_mass=torch.ones(5),
         step=0,
     )
-    host.persist()
+    coordinator.close()
     checkpoint, text_export = _export(tmp_path, text, text_root, "text-export")
     assert text_export["export_only"] and text_export["packs_fingerprint"] is None
     assert all(value.dtype == torch.float32 for value in text_export["master_weights"].values())

@@ -12,9 +12,11 @@ import hmac
 import json
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -33,10 +35,24 @@ from megatoken.training.diloco_protocol import (
     plan_fragments,
     save_tensors,
 )
+from megatoken.training.transducer_sync import (
+    ChangesExpired,
+    DuplicateRound,
+    StaleRound,
+    TransducerHost,
+)
 
 
 class Conflict(ValueError):
-    """A stale or duplicated submission, or a live worker holding the slot."""
+    """A stale or duplicated submission, or a live worker holding the slot.
+
+    ``detail`` rides along in the 409 body: ``stale`` for a base the coordinator
+    cannot reconcile, ``sequence`` for a duplicate round (the last one it has).
+    """
+
+    def __init__(self, message: str, **detail: object) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 def _metadata(path: Path) -> dict[str, str]:
@@ -125,8 +141,6 @@ def initialize_coordinator(
             )
         write_json(root / "progress.json", {"workers": {}, "leases": {}, "merges": 0})
         if transducer_state is not None:
-            from megatoken.training.transducer_sync import TransducerHost
-
             host = TransducerHost(
                 root,
                 transducer,
@@ -157,8 +171,6 @@ class Coordinator:
         self.progress = strict_json_loads((self.root / "progress.json").read_bytes())
         self.lock = threading.RLock()
         self.quorum_since: dict[int, float] = {}
-        from megatoken.training.transducer_sync import TransducerHost
-
         self.transducer = TransducerHost(
             self.root,
             self.manifest["transducer"],
@@ -251,6 +263,7 @@ class Coordinator:
                 "merges": self.progress["merges"],
                 "versions": [self._version(f.index) for f in self.fragments],
                 "transducer_version": self.transducer.version(),
+                "transducer_skipped_merges": self.transducer.skipped_merges,
                 "live_workers": sum(
                     x["expires"] >= time.time() for x in self.progress["leases"].values()
                 ),
@@ -389,7 +402,12 @@ class Coordinator:
     ) -> dict:
         with self.lock:
             self._lease_valid(worker, session)
-            return self.transducer.submit(worker, sequence, base_version, incoming, Conflict)
+            try:
+                return self.transducer.submit(worker, sequence, base_version, incoming)
+            except StaleRound as exc:
+                raise Conflict(str(exc), stale=True) from exc
+            except DuplicateRound as exc:
+                raise Conflict(str(exc), sequence=exc.sequence) from exc
 
     def transducer_validation(self, worker: int, session: str, step: int, loss: float) -> dict:
         with self.lock:
@@ -401,6 +419,13 @@ class Coordinator:
             for fragment in self.fragments:
                 self._try_merge(fragment.index)
             self.transducer.try_merge()
+
+    def close(self) -> None:
+        """Leave the transducer bank current on disk for the next start or phase export."""
+        with self.lock:
+            if self.transducer.coordinator.pending:
+                self.transducer.merge_or_skip()
+            self.transducer.persist()
 
 
 def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> None:
@@ -461,14 +486,12 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                 raise ValueError("Expected a JSON object")
             return result
 
-        def _update_headers(self) -> tuple[int, str, int, int, int, int]:
+        def _round_headers(self) -> tuple[int, str, int, int]:
             return (
                 int(self.headers["X-Worker"]),
                 str(self.headers["X-Session"]),
                 int(self.headers["X-Sequence"]),
                 int(self.headers["X-Base-Version"]),
-                int(self.headers["X-Steps"]),
-                int(self.headers["X-Tokens"]),
             )
 
         def _receive(self, maximum: int) -> Path:
@@ -506,8 +529,6 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                 elif parsed.path == "/v1/bootstrap":
                     self._file(coordinator.root / "bootstrap.pt")
                 elif parsed.path in ("/v1/transducer", "/v1/transducer/changes"):
-                    from megatoken.training.transducer_sync import ChangesExpired
-
                     after = int(parse_qs(parsed.query).get("after", ["-1"])[0])
                     host = coordinator.transducer
                     temporary = None
@@ -578,7 +599,13 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                     coordinator._path(index)
                     filename = self._receive(coordinator.fragments[index].length * 4 + 8192)
                     try:
-                        result = coordinator.submit(index, *self._update_headers(), filename)
+                        result = coordinator.submit(
+                            index,
+                            *self._round_headers(),
+                            int(self.headers["X-Steps"]),
+                            int(self.headers["X-Tokens"]),
+                            filename,
+                        )
                     finally:
                         filename.unlink(missing_ok=True)
                 elif parsed.path == "/v1/transducer/rounds":
@@ -586,10 +613,7 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                         coordinator.manifest.get("max_transducer_round_bytes", 1 << 30)
                     )
                     try:
-                        worker, session, sequence, base, _, _ = self._update_headers()
-                        result = coordinator.submit_transducer(
-                            worker, session, sequence, base, filename
-                        )
+                        result = coordinator.submit_transducer(*self._round_headers(), filename)
                     finally:
                         filename.unlink(missing_ok=True)
                 elif parsed.path == "/v1/transducer/validation":
@@ -605,7 +629,7 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                     return
                 self._json(200, result)
             except Conflict as exc:
-                self._json(409, {"error": str(exc)})
+                self._json(409, {"error": str(exc), **exc.detail})
             except (KeyError, ValueError, OSError) as exc:
                 self._json(400, {"error": str(exc)})
 
@@ -616,7 +640,12 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
 
     def reconcile() -> None:
         while not stop.wait(1):
-            coordinator.tick()
+            try:
+                coordinator.tick()
+            except Exception:
+                # A failed merge must not end the loop that serves every later round.
+                traceback.print_exc()
+                sys.stderr.flush()
 
     thread = threading.Thread(target=reconcile, daemon=True)
     thread.start()
@@ -626,3 +655,4 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
         stop.set()
         server.server_close()
         thread.join(timeout=2)
+        coordinator.close()

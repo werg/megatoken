@@ -21,6 +21,9 @@ from tests.media_support import features, install_fake_realizers
 
 # Opening commits the metadata prefix, then the first lookup's query and knowledge events.
 OPENED = 3
+# A completed assistant turn or an arriving tool result makes a lookup due: its query
+# and knowledge events.
+LOOKUP = 2
 
 
 def _runtime():
@@ -68,7 +71,7 @@ def test_accept_commits_whole_meridian_and_delivery_cannot_reverse():
     )
     accepted = runtime.accept(session, draft)
     assert session.revision == 1
-    assert session.state.meridian_sizes == (1,) * (OPENED + 1)
+    assert session.state.meridian_sizes == (1,) * (OPENED + 1 + LOOKUP)
     assert accepted.tape.tracks == ("answer",)
     runtime.record_delivery(session, "answer:0", 10, complete=False)
     runtime.record_delivery(session, "answer:0", 20, complete=True)
@@ -95,7 +98,7 @@ def test_parallel_tool_result_is_not_committed_automatically():
                 ObservedEvent("tool-2", "text", b"two", role_id=3),
             ),
         )
-        assert session.state.meridian_sizes[OPENED:] == (2,)
+        assert session.state.meridian_sizes[OPENED:] == (2,) + (1,) * LOOKUP
     finally:
         pool.close()
 
@@ -152,7 +155,7 @@ def test_jsonl_multitrack_roundtrip():
                 "effort": 1,
                 "seed": 11,
                 "outputs": [
-                    {"track": "reply", "modality": "text", "max_tokens": 8},
+                    {"track": "reply", "modality": "text", "max_tokens": 8, "terminal": True},
                     {"track": "voice", "modality": "audio", "sample_count": 64},
                     {"track": "still", "modality": "image", "height": 16, "width": 16},
                 ],
@@ -181,9 +184,9 @@ def test_jsonl_multitrack_roundtrip():
         generated["tape"]["pack_fingerprints"][1:]
     )
     assert "tape_payload" not in generated["outputs"][0]
-    assert rows[3]["meridians"] == OPENED + 2
+    assert rows[3]["meridians"] == OPENED + 2 + LOOKUP
     assert rows[3]["retained_meridians"] == OPENED + 2
-    assert rows[3]["events_seen"] == OPENED + 5
+    assert rows[3]["events_seen"] == OPENED + 5 + LOOKUP
     assert rows[3]["retained_events"] == OPENED + 5
 
 
@@ -243,4 +246,4 @@ def test_jsonl_speculative_media_is_provisional_until_accepted():
     assert rows[1]["provisional"] is True
     assert rows[1]["outputs"][0]["shape"] == [64]
     assert rows[2]["pending"] is True and rows[2]["retained_events"] == OPENED
-    assert rows[4]["pending"] is False and rows[4]["retained_events"] == OPENED + 1
+    assert rows[4]["pending"] is False and rows[4]["retained_events"] == OPENED + 1 + LOOKUP

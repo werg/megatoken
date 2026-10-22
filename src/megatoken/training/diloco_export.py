@@ -3,7 +3,7 @@
 A global DiLoCo synchronizer owns outer momentum, not the independent inner
 optimizer states. Exports are evaluation/inference snapshots and the seed of
 the next phase's coordinator (with their global FP32 masters), NOT restartable
-local-training checkpoints. Pause the coordinator before exporting.
+local-training checkpoints. Stop the coordinator before exporting: stopping saves its bank.
 """
 
 from __future__ import annotations

@@ -49,7 +49,6 @@ class AttentionFeatures:
     values: Tensor
     mask: Tensor | None = None
     track_ids: Tensor | None = None  # Per-slot categorical identity, -1 if unknown.
-    log_strength: Tensor | None = None  # [batch, slots] additive log gate.
 
 
 def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -> AttentionFeatures:
@@ -71,19 +70,6 @@ def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -
                 )
             )
         mask = torch.cat(masks, dim=1)
-    logs = None
-    if history.log_strength is not None or live.log_strength is not None:
-        logs = torch.cat(
-            tuple(
-                item.log_strength.to(live.keys.dtype)
-                if item.log_strength is not None
-                else item.keys.new_zeros(
-                    item.keys.shape[0], item.keys.shape[2], dtype=live.keys.dtype
-                )
-                for item in (history, live)
-            ),
-            dim=1,
-        )
     return AttentionFeatures(
         torch.cat((history.keys.to(live.keys.dtype), live.keys), dim=2),
         torch.cat((history.values.to(live.values.dtype), live.values), dim=2),
@@ -91,7 +77,6 @@ def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -
         None
         if live.track_ids is None or history.track_ids is None
         else torch.cat((history.track_ids, live.track_ids), dim=1),
-        logs,
     )
 
 
@@ -101,8 +86,8 @@ class AttentionRead(nn.Module):
     With ``sink=True`` every head also attends to one learned, position-free
     key/value slot that is never stored in KVHistory and never masked, so no
     query row can be fully masked. No dense mask is built unless something
-    (a validity mask, an explicit query/key mask, KB log-strength or the
-    same-track bias) needs one, which keeps fused attention kernels eligible.
+    (a validity mask, an explicit query/key mask or the same-track
+    bias) needs one, which keeps fused attention kernels eligible.
     """
 
     def __init__(
@@ -185,10 +170,6 @@ class AttentionRead(nn.Module):
                 raise ValueError("Explicit attention mask must identify every query/key pair")
             allowed = query_key_mask if allowed is None else allowed & query_key_mask
         additive = None  # [batch, 1 | heads, 1 | count, slots]
-        if features.log_strength is not None:
-            if features.log_strength.shape != (batch, slots):
-                raise ValueError("Per-slot KB log-strength has wrong attention shape")
-            additive = features.log_strength.to(q.dtype)[:, None, None, :]
         if self.same_track_bias is not None and (
             (query_track_ids is None) != (features.track_ids is None)
         ):

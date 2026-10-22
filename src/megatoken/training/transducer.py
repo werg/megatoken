@@ -36,8 +36,8 @@ class BoundaryScheduler:
     """When a session looks up: after metadata, at real boundaries, and after
     ``interval`` ordinary meridians without one. Internal events never count.
 
-    A real boundary that arrives while a lookup is outstanding is kept and
-    served right after it; a cancelled lookup waits for the next boundary.
+    Each lookup is finished before the next meridian is counted; a cancelled
+    lookup waits for the next boundary.
     """
 
     training: bool = False
@@ -45,8 +45,6 @@ class BoundaryScheduler:
     max_lookups: int = 256
     lookups: int = 0
     ordinary_since: int = 0
-    pending: bool = False
-    deferred: bool = False
     interval: int = ARTIFICIAL_INTERVAL
     _rng: torch.Generator = field(init=False, repr=False)
 
@@ -63,61 +61,19 @@ class BoundaryScheduler:
 
     def first_metadata(self) -> bool:
         """Immediately after the metadata event, before any answer."""
-        return self._begin()
-
-    def _begin(self) -> bool:
-        if self.lookups >= self.max_lookups:
-            return False
-        if self.pending:
-            self.deferred = True
-            return False
-        self.pending = True
-        return True
+        return self.lookups < self.max_lookups
 
     def ordinary_commit(self, *, real_boundary: bool = False) -> bool:
         """Count one committed ordinary meridian (observed or generated)."""
         self.ordinary_since += 1
-        if real_boundary or self.ordinary_since >= self.interval:
-            return self._begin()
-        return False
+        return (real_boundary or self.ordinary_since >= self.interval) and self.first_metadata()
 
-    def finish(self, *, committed: bool) -> bool:
-        """Close the outstanding lookup; returns whether a deferred one starts now."""
-        if not self.pending:
-            raise RuntimeError("No outstanding boundary to finish")
-        self.pending = False
-        # A cancelled lookup waits for the next boundary, not the next meridian.
+    def finish(self, *, committed: bool) -> None:
+        """Close a lookup; a cancelled one waits for the next boundary, not the next meridian."""
         self.ordinary_since = 0
         if committed:
             self.lookups += 1
             self._next_interval()
-        if self.deferred:
-            self.deferred = False
-            return self._begin()
-        return False
-
-    def state_dict(self) -> dict:
-        if self.pending:
-            raise RuntimeError("Snapshot a session only between lookups")
-        return {
-            "training": self.training,
-            "max_lookups": self.max_lookups,
-            "lookups": self.lookups,
-            "ordinary_since": self.ordinary_since,
-            "deferred": self.deferred,
-            "interval": self.interval,
-            "rng": self._rng.get_state(),
-        }
-
-    def load_state_dict(self, state: dict) -> None:
-        if self.training != state["training"] or self.max_lookups != state["max_lookups"]:
-            raise ValueError("Incompatible boundary scheduler state")
-        self.lookups = int(state["lookups"])
-        self.ordinary_since = int(state["ordinary_since"])
-        self.pending = False
-        self.deferred = bool(state["deferred"])
-        self.interval = int(state["interval"])
-        self._rng.set_state(state["rng"])
 
 
 @dataclass(frozen=True)
@@ -330,8 +286,8 @@ class TransducerTrainer:
             evolution = self.growth.evolve(step, evidence_from=self.schedule.warmup_steps)
             # No coordinator consumes round increments here; drop them.
             self.growth.begin_round()
-            self.growth.take_round(step)
-            self.optimizer.take_round()
+            self.growth.discard_round()
+            self.optimizer.discard_round()
             metrics["transducer_removed"] = evolution["removed"]
             metrics["transducer_split"] = evolution["split"]
         return metrics
@@ -437,14 +393,18 @@ class TransducerSequence:
             torch.tensor([owners], device=device),
         )
         stage = schedule.stage(self.step)
-        self.values = self.native.hindsight_pass(
-            events,
-            schedule.reads(self.step, groups[-1] + 1, self.planned),
-            mode="full" if stage == "full" else "group-inverse",
-        )
+        # With no overlay h_t never reaches the loss: it only feeds writes and evidence.
+        with torch.set_grad_enabled(torch.is_grad_enabled() and self.alpha > 0):
+            self.values = self.native.hindsight_pass(
+                events,
+                schedule.reads(self.step, groups[-1] + 1, self.planned),
+                mode="full" if stage == "full" else "group-inverse",
+            )
 
-    def begin(self, multi, state: MultiTrackState, payload: bytes) -> MultiTrackState:
-        state, self.agenda = self.native.begin(multi, state, payload)
+    def begin(
+        self, multi, state: MultiTrackState, payload: bytes, *, encoder_grad: bool = False
+    ) -> MultiTrackState:
+        state, self.agenda = self.native.begin(multi, state, payload, encoder_grad=encoder_grad)
         return state
 
     def before_meridian(

@@ -36,6 +36,11 @@ class RemoteError(RuntimeError):
     def __init__(self, status: int, reason: str) -> None:
         super().__init__(f"DiLoCo coordinator HTTP {status}: {reason}")
         self.status = status
+        try:
+            detail = json.loads(reason)
+        except ValueError:
+            detail = None
+        self.detail: dict = detail if isinstance(detail, dict) else {}
 
 
 class Transport:
@@ -212,6 +217,7 @@ class DecoupledWorker:
         self._poll_cursor = 0
         self.transducer = None
         self.remote_transducer_version: int | None = None
+        self.dropped_transducer_rounds = 0
 
     def attach_transducer(self, sync: Any) -> None:
         """Synchronize transducer rounds through the coordinator (transducer_sync)."""
@@ -373,8 +379,6 @@ class DecoupledWorker:
                 "X-Session": self.session,
                 "X-Sequence": str(entry["sequence"]),
                 "X-Base-Version": str(entry["version"]),
-                "X-Steps": str(entry["steps"]),
-                "X-Tokens": "1",
                 "Content-Type": "application/octet-stream",
             },
         )
@@ -409,8 +413,23 @@ class DecoupledWorker:
                 Path(entry["filename"]).unlink(missing_ok=True)
                 sync.pending = None
             except RemoteError as exc:
-                if exc.status == 409:
-                    # Stale or duplicate: drop it and re-base on the canonical bank.
+                if exc.status in (400, 413):
+                    # The coordinator will never take this round: retrying cannot help.
+                    Path(entry["filename"]).unlink(missing_ok=True)
+                    sync.pending = None
+                    self.dropped_transducer_rounds += 1
+                    self.last_progress_error = str(exc)
+                    print(
+                        f"transducer round {entry['sequence']} rejected and dropped: {exc}",
+                        flush=True,
+                    )
+                elif exc.status == 409 and "sequence" in exc.detail:
+                    # Already merged (or queued): skip past the coordinator's ledger.
+                    Path(entry["filename"]).unlink(missing_ok=True)
+                    sync.pending = None
+                    sync.sequence = max(sync.sequence, int(exc.detail["sequence"]))
+                elif exc.status == 409 and exc.detail.get("stale"):
+                    # Built on a base the coordinator cannot reconcile: re-base on its bank.
                     Path(entry["filename"]).unlink(missing_ok=True)
                     sync.pending = None
                     sync.force_snapshot = True
@@ -447,7 +466,6 @@ class DecoupledWorker:
                 "filename": str(filename),
                 "sequence": submission.sequence,
                 "version": submission.base_version,
-                "steps": LOCAL_STEPS,
                 "future": None,
             }
             sync.pending["future"] = self.control_io.submit(
@@ -639,6 +657,7 @@ class DecoupledWorker:
                 {
                     "transducer_version": self.transducer.version,
                     "transducer_pending": int(self.transducer.pending is not None),
+                    "transducer_dropped": self.dropped_transducer_rounds,
                     "transducer_ready": transducer_ready,
                 }
                 if self.transducer is not None
@@ -686,6 +705,7 @@ class DecoupledWorker:
             "inflight_downloads": len(self.downloads),
             "merges": self.merges,
             "offline_steps": self.offline_steps,
+            "dropped_transducer_rounds": self.dropped_transducer_rounds,
         }
 
     def close(self) -> None:

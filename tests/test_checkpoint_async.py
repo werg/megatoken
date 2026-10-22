@@ -51,7 +51,7 @@ def test_writer_overlaps_the_caller_and_publishes_atomically(tmp_path):
     writer = CheckpointWriter()
     try:
         staged = stage_checkpoint(root, "P1-000000001-periodic")
-        (staged / "kb.sqlite").write_bytes(b"kb")
+        (staged / "transducer.pt").write_bytes(b"bank")
 
         def write():
             release.wait(timeout=30)
@@ -61,6 +61,12 @@ def test_writer_overlaps_the_caller_and_publishes_atomically(tmp_path):
                 staged,
                 {"model": {"w": torch.ones(3)}},
                 {"global_step": 1},
+                extra={
+                    "transducer_checkpoint": {
+                        "file": "transducer.pt",
+                        "sha256": sha256_file(staged / "transducer.pt"),
+                    }
+                },
             )
 
         writer.submit(write)
@@ -71,7 +77,7 @@ def test_writer_overlaps_the_caller_and_publishes_atomically(tmp_path):
         payload, metadata = load_checkpoint(root)
         assert payload["model"]["w"].tolist() == [1.0, 1.0, 1.0]
         assert metadata["global_step"] == 1
-        assert (resolve_checkpoint(root) / "kb.sqlite").read_bytes() == b"kb"
+        assert (resolve_checkpoint(root) / "transducer.pt").read_bytes() == b"bank"
         assert not list(root.glob(".checkpoint-*"))
     finally:
         writer.close()
@@ -106,7 +112,7 @@ class _FakeS3:
         Path(filename).write_bytes(self.objects[f"{bucket}/{key}"])
 
 
-def test_object_store_round_trips_the_kb_snapshot_with_the_weights(tmp_path, monkeypatch):
+def test_object_store_round_trips_the_transducer_bank_with_the_weights(tmp_path, monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "botocore.exceptions",
@@ -115,16 +121,16 @@ def test_object_store_round_trips_the_kb_snapshot_with_the_weights(tmp_path, mon
     root = tmp_path / "checkpoints"
     name = "M2-000000004-periodic"
     staged = stage_checkpoint(root, name)
-    kb = staged / "kb.sqlite"
-    kb.write_bytes(b"canonical rows")
-    (staged / "kb.sqlite.manifest.json").write_text("{}")
+    bank = staged / "transducer.pt"
+    bank.write_bytes(b"canonical rows")
+    (staged / "transducer.manifest.json").write_text("{}")
     source = commit_checkpoint(
         root,
         name,
         staged,
         {"model": {"w": torch.zeros(2)}},
         {"global_step": 4},
-        extra={"memory_checkpoint": {"kb_file": "kb.sqlite", "kb_sha256": sha256_file(kb)}},
+        extra={"transducer_checkpoint": {"file": "transducer.pt", "sha256": sha256_file(bank)}},
     )
     store = CheckpointStore.__new__(CheckpointStore)
     store.bucket, store.prefix, store.s3 = "bucket", "run/worker-00", _FakeS3()
@@ -132,20 +138,20 @@ def test_object_store_round_trips_the_kb_snapshot_with_the_weights(tmp_path, mon
     assert set(pointer["files"]) == {
         "state.pt",
         "metadata.json",
-        "kb.sqlite",
-        "kb.sqlite.manifest.json",
+        "transducer.pt",
+        "transducer.manifest.json",
     }
     # A fresh sandbox has lost its scratch volume entirely.
     shutil.rmtree(root)
     restored = store.restore(root)
     assert restored == root / name
-    assert (restored / "kb.sqlite").read_bytes() == b"canonical rows"
+    assert (restored / "transducer.pt").read_bytes() == b"canonical rows"
     payload, metadata = load_checkpoint(root)
-    assert metadata["memory_checkpoint"]["kb_file"] == "kb.sqlite"
+    assert metadata["transducer_checkpoint"]["file"] == "transducer.pt"
     assert json.loads((root / "latest.json").read_text())["checkpoint"] == name
     # Tampered remote objects are rejected before publication.
     shutil.rmtree(root)
-    store.s3.objects[f"bucket/run/worker-00/{name}/kb.sqlite"] = b"tampered"
-    with pytest.raises(ValueError, match="kb.sqlite checksum mismatch"):
+    store.s3.objects[f"bucket/run/worker-00/{name}/transducer.pt"] = b"tampered"
+    with pytest.raises(ValueError, match="transducer.pt checksum mismatch"):
         store.restore(root)
     assert not (root / name).exists()

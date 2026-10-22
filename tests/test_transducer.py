@@ -2,31 +2,40 @@
 
 from __future__ import annotations
 
+import io
+import types
+
 import pytest
 import torch
 
+from megatoken.contracts import ROLE_TO_ID
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.memory.transducer import TransducerBank, TransducerGeometry
 from megatoken.memory.transducer_growth import PROVISIONAL_BASE, TransducerGrowth
 from megatoken.memory.transducer_optimizer import BlockScaleDescent
 from megatoken.model.attention import AttentionFeatures, AttentionRead
-from megatoken.model.config import RESERVED_TRACKS, RETRIEVAL_QUERY_TRACK, ModelConfig
+from megatoken.model.config import RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK, ModelConfig
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.model.transducer import OrdinaryEvents, metadata_payload
 from megatoken.training.transducer import (
-    BoundaryScheduler,
     HindsightSchedule,
     Meridian,
     TransducerTrainer,
     plan_boundaries,
 )
 from megatoken.training.transducer_diloco import (
+    LOCAL_STEPS,
     TransducerCoordinator,
     install_changes,
     learner_round,
 )
-from megatoken.training.transducer_sync import TransducerHost, TransducerSync, install_published
+from megatoken.training.transducer_sync import (
+    TransducerHost,
+    TransducerSync,
+    _pack,
+    install_published,
+)
 
 GEOMETRY = TransducerGeometry(
     location_dim=8,
@@ -121,7 +130,7 @@ def test_native_lookup_hindsight_and_parameter_ownership():
                 events.raw[:, :1],
                 events.roles[:, :1],
                 ("text",),
-                (RETRIEVAL_QUERY_TRACK,),
+                (TRANSDUCER_QUERY_TRACK,),
                 events.meridians[:, :1],
                 events.groups[:, :1],
             ),
@@ -150,18 +159,6 @@ def test_boundary_plan_starts_after_metadata_and_respects_real_boundaries_and_ca
     starts = [i for i, x in enumerate(sampled) if x]
     gaps = [b - a for a, b in zip(starts, starts[1:], strict=False)]
     assert all(4 <= gap <= 12 for gap in gaps)
-
-
-def test_scheduler_defers_a_boundary_during_a_lookup_and_waits_after_cancel():
-    scheduler = BoundaryScheduler()
-    assert scheduler.first_metadata()
-    assert not scheduler.ordinary_commit(real_boundary=True)  # outstanding: deferred
-    assert scheduler.finish(committed=True)  # the deferred lookup starts now
-    assert not scheduler.finish(committed=False)  # cancelled
-    for _ in range(7):
-        assert not scheduler.ordinary_commit()
-    assert scheduler.ordinary_commit()
-    assert scheduler.lookups == 1
 
 
 def test_hindsight_schedule():
@@ -228,9 +225,8 @@ def test_coordinator_merges_deltas_writes_and_provisional_rows_then_learners_res
     torch.manual_seed(0)
     canonical = TransducerBank(GEOMETRY)
     add_random(canonical, 6)
-    optimizer = BlockScaleDescent(canonical)
-    growth = TransducerGrowth(canonical, optimizer=optimizer)
-    coordinator = TransducerCoordinator(canonical, optimizer, growth)
+    growth = TransducerGrowth(canonical)
+    coordinator = TransducerCoordinator(canonical, growth)
     template = torch.randn(4, GEOMETRY.query_dim)
     rounds = []
     learners = []
@@ -299,7 +295,7 @@ def test_coordinator_host_persists_and_publishes(tmp_path):
     submission = learner_round(opt, gro, worker=0, sequence=1, base_version=0, examples=1, step=1)
     upload = tmp_path / "round.pt"
     torch.save(submission.state_dict(), upload)
-    host.submit(0, 1, 0, upload, RuntimeError)
+    host.submit(0, 1, 0, upload)
     assert host.try_merge() and host.version() == 1
     version, path = host.changes(0)
 
@@ -326,12 +322,13 @@ def test_serving_session_cancels_cleanly_and_restores():
     assert session.agenda.lookups == 1
     before = (session.state.meridians_seen.clone(), session.agenda.lookups)
     events = [ObservedEvent("user", "text", b"hi")]
+    result = [ObservedEvent("tool", "text", b"ok", role_id=ROLE_TO_ID["tool"])]
     for _ in range(7):
         assert engine.observe(session, events, cancelled=lambda: True) is None
-    assert engine.observe(session, events, real_boundary=True, cancelled=lambda: True) is None
+    assert engine.observe(session, result, cancelled=lambda: True) is None
     assert session.agenda.lookups == before[1]
     assert int(session.state.meridians_seen[0]) == int(before[0][0]) + 8
-    lookup = engine.observe(session, events, real_boundary=True)
+    lookup = engine.observe(session, result)
     assert lookup is not None and session.agenda.lookups == 2
     restored = engine.restore_session(engine.state_snapshot(session))
     torch.testing.assert_close(restored.agenda.state, session.agenda.state)
@@ -374,10 +371,7 @@ def test_learner_writes_into_rows_stamped_ahead_of_its_clock():
 def test_malformed_rounds_are_refused_and_failed_merges_are_consumed():
     canonical = TransducerBank(GEOMETRY)
     add_random(canonical, 3)
-    optimizer = BlockScaleDescent(canonical)
-    coordinator = TransducerCoordinator(
-        canonical, optimizer, TransducerGrowth(canonical, optimizer=optimizer)
-    )
+    coordinator = TransducerCoordinator(canonical, TransducerGrowth(canonical))
     bank, opt, gro = learner(canonical, 0)
     give_gradient(bank, 1, "bias", torch.tensor(1.0))
     opt.step(1)
@@ -391,5 +385,148 @@ def test_malformed_rounds_are_refused_and_failed_merges_are_consumed():
     coordinator._adopt = lambda weights: (_ for _ in ()).throw(RuntimeError("boom"))
     with pytest.raises(RuntimeError):
         coordinator.merge()
-    assert not coordinator.pending and coordinator.version == 0
+    assert not coordinator.pending
     assert not coordinator.submit(good)  # consumed, never reapplied
+    # The half-applied merge still moved the version and recorded the rows it touched.
+    assert coordinator.version == 1
+    changes = coordinator.changes_since(0)
+    assert 1 in changes.rows["ids"].tolist()
+    install_changes(bank, opt, gro, changes)
+    torch.testing.assert_close(bank.decode("bias", [1]), canonical.decode("bias", [1]))
+
+
+def test_phase_handoff_seeds_a_fresh_coordinator_whose_merges_succeed(tmp_path):
+    torch.manual_seed(0)
+    settings = {"geometry": dict(vars(GEOMETRY)), "evidence_from": 0}
+
+    def merge_rounds(host, count):
+        bank, opt, gro = learner(host.bank, 0)
+        for sequence in range(1, count + 1):
+            give_gradient(bank, 1, "key", torch.randn(GEOMETRY.query_dim))
+            opt.step(sequence * LOCAL_STEPS)
+            base = host.version()
+            submission = learner_round(
+                opt, gro, worker=0, sequence=sequence, base_version=base, examples=1,
+                step=sequence * LOCAL_STEPS,
+            )  # fmt: skip
+            upload = tmp_path / f"round-{sequence}.pt"
+            torch.save(submission.state_dict(), upload)
+            host.submit(0, sequence, base, upload)
+            assert host.try_merge() and host.version() == base + 1
+            install_changes(bank, opt, gro, host.coordinator.changes_since(base))
+
+    first = TransducerHost(tmp_path / "one", settings, workers=1, min_quorum=1, grace_seconds=0)
+    add_random(first.bank, 6)
+    merge_rounds(first, 2)
+    # What export_coordinator writes and the next phase's coordinator is seeded from.
+    exported = torch.load(io.BytesIO(_pack(first.checkpoint_state())), weights_only=True)
+    second = TransducerHost(tmp_path / "two", settings, workers=1, min_quorum=1, grace_seconds=0)
+    second.seed(exported)
+    assert second.version() == 0 and second.bank.edge_ids().tolist() == [1, 2, 3, 4, 5, 6]
+    merge_rounds(second, 2)
+    assert second.skipped_merges == 0
+
+
+def _worker_with_pending_round(tmp_path, error):
+    from concurrent.futures import Future
+
+    from megatoken.training.diloco_client import DecoupledWorker
+
+    worker = DecoupledWorker.__new__(DecoupledWorker)
+    worker.transducer = TransducerSync(sequence=4)
+    worker.remote_transducer_version = 0
+    worker.dropped_transducer_rounds = 0
+    worker.last_progress_error = ""
+    worker.control_io = types.SimpleNamespace(submit=lambda function, *args: args)
+    upload = tmp_path / "round.pt"
+    upload.write_bytes(b"round")
+    future = Future()
+    future.set_exception(error)
+    worker.transducer.pending = {
+        "filename": str(upload),
+        "sequence": 4,
+        "version": 0,
+        "future": future,
+    }
+    return worker, upload
+
+
+def test_rejected_rounds_are_dropped_and_counted(tmp_path):
+    from megatoken.training.diloco_client import RemoteError
+
+    worker, upload = _worker_with_pending_round(tmp_path, RemoteError(400, '{"error": "bad"}'))
+    errors, ready = worker._transducer_step(1, None)
+    assert (errors, ready) == (0, None)
+    assert worker.transducer.pending is None and not upload.exists()
+    assert worker.dropped_transducer_rounds == 1 and not worker.transducer.force_snapshot
+
+
+def test_duplicate_rounds_skip_ahead_of_the_ledger_and_stale_ones_resnapshot(tmp_path):
+    from megatoken.training.diloco_client import RemoteError
+
+    duplicate = RemoteError(409, '{"error": "Duplicate transducer round", "sequence": 9}')
+    worker, upload = _worker_with_pending_round(tmp_path, duplicate)
+    worker._transducer_step(1, None)
+    assert worker.transducer.sequence == 9 and worker.transducer.pending is None
+    assert not worker.transducer.force_snapshot and not upload.exists()
+
+    stale = RemoteError(409, '{"error": "Stale transducer base", "stale": true}')
+    worker, upload = _worker_with_pending_round(tmp_path, stale)
+    worker._transducer_step(1, None)
+    assert worker.transducer.force_snapshot and worker.transducer.sequence == 4
+    assert worker.transducer.download == (-1,)  # a full snapshot was requested
+
+
+def test_duplicate_and_stale_rounds_are_told_apart_by_the_host(tmp_path):
+    from megatoken.training.transducer_sync import DuplicateRound, StaleRound
+
+    settings = {"geometry": dict(vars(GEOMETRY)), "evidence_from": 0}
+    host = TransducerHost(tmp_path, settings, workers=1, min_quorum=1, grace_seconds=0)
+    add_random(host.bank, 2)
+    bank, opt, gro = learner(host.bank, 0)
+    give_gradient(bank, 1, "bias", torch.tensor(1.0))
+    opt.step(1)
+    upload = tmp_path / "round.pt"
+
+    def send(sequence, base):
+        submission = learner_round(
+            opt, gro, worker=0, sequence=sequence, base_version=base, examples=1, step=1
+        )
+        torch.save(submission.state_dict(), upload)
+        return host.submit(0, sequence, base, upload)
+
+    send(3, 0)
+    with pytest.raises(DuplicateRound) as duplicate:
+        send(3, 0)
+    assert duplicate.value.sequence == 3
+    with pytest.raises(StaleRound):
+        send(4, 7)
+
+
+def test_learned_values_switch_reaches_the_learner_through_changes_and_snapshots(tmp_path):
+    canonical = TransducerBank(GEOMETRY)
+    add_random(canonical, 3)
+    growth = TransducerGrowth(canonical)
+    coordinator = TransducerCoordinator(canonical, growth)
+    changes_bank, changes_opt, changes_gro = learner(canonical, 0)
+    snapshot_bank, snapshot_opt, snapshot_gro = learner(canonical, 1)
+    for evidence in (changes_gro.evidence, snapshot_gro.evidence):
+        evidence.sketch_count[evidence.rows([1], 0)] = 5.0
+    coordinator.switch_requested = True
+    bank, opt, gro = learner(canonical, 2)
+    give_gradient(bank, 1, "bias", torch.tensor(1.0))
+    opt.step(1)
+    assert coordinator.submit(
+        learner_round(opt, gro, worker=2, sequence=1, base_version=0, examples=1, step=1)
+    )
+    coordinator.merge()
+    assert canonical.learned_values
+    install_changes(changes_bank, changes_opt, changes_gro, coordinator.changes_since(0))
+    assert changes_bank.learned_values
+    assert float(changes_gro.evidence.sketch_count.sum()) == 0.0
+    upload = tmp_path / "published.pt"
+    torch.save({"version": 1, "bank": canonical.state_snapshot()}, upload)
+    trainer = types.SimpleNamespace(bank=snapshot_bank, optimizer=snapshot_opt, growth=snapshot_gro)
+    install_published(trainer, TransducerSync(), "snapshot", upload)
+    assert snapshot_bank.learned_values
+    assert float(snapshot_gro.evidence.sketch_count.sum()) == 0.0
