@@ -33,9 +33,29 @@ _TRACE = "semantic-trace/1"
 _LANE = re.compile(r"t[0-7]\Z")
 _ID = re.compile(r"e[1-9]\d*\Z")
 _WORDS = frozenset(
-    ("enter", "value", "branch", "loop", "alloc", "read", "write", "delete",
-     "call", "return", "throw", "await", "resume", "settle", "request",
-     "observe", "code", "end", "value-open", "value-part", "value-close")
+    (
+        "enter",
+        "value",
+        "branch",
+        "loop",
+        "alloc",
+        "read",
+        "write",
+        "delete",
+        "call",
+        "return",
+        "throw",
+        "await",
+        "resume",
+        "settle",
+        "request",
+        "observe",
+        "code",
+        "end",
+        "value-open",
+        "value-part",
+        "value-close",
+    )
 )
 
 
@@ -70,6 +90,7 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
         raise SemanticExecutionError("Malformed trace JSON") from error
     if not isinstance(fields, dict) or not all(isinstance(x, str) for x in fields):
         _fail("Trace fields must have string keys")
+
     # Reject duplicate JSON keys as well as nonstandard NaN/Infinity literals.
     def strict_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         output: dict[str, Any] = {}
@@ -110,7 +131,10 @@ def _validate(
 ) -> tuple[list[dict[str, Any]], list[tuple[str, dict[str, Any]]], dict[str, int]]:
     if public.get("schema") != _PUBLIC or public.get("traceFormat") != _TRACE:
         _fail("Unknown execution or semantic trace format")
-    if public.get("profile") != "training-js/1" or public.get("contextFormat") != "semantic-context/1":
+    if (
+        public.get("profile") != "training-js/1"
+        or public.get("contextFormat") != "semantic-context/1"
+    ):
         _fail("Unsupported JavaScript execution profile")
     if public.get("completionPolicy") != "immediate-return":
         _fail("Completion policy not independently implemented")
@@ -208,7 +232,10 @@ def _validate(
                 _fail("Noncanonical semantic event ID")
             if event_id in completed:
                 _fail("Duplicate semantic producer ID")
-        for prior in (*fields.get("dependsOn", ()), *((fields.get("control"),) if fields.get("control") else ())):
+        for prior in (
+            *fields.get("dependsOn", ()),
+            *((fields.get("control"),) if fields.get("control") else ()),
+        ):
             if not isinstance(prior, str) or prior not in completed or completed[prior] >= index:
                 _fail("Missing or same-meridian/future semantic producer")
         if kind == "request":
@@ -316,9 +343,7 @@ def adapt_semantic_execution(
             )
         if kind == "observe":
             result_of, execution_id = dispatched[fields["effect"]]
-        role = "assistant" if mode == "generated" else (
-            "environment" if index >= 2 else "user"
-        )
+        role = "assistant" if mode == "generated" else ("environment" if index >= 2 else "user")
         record = PhysicalRecord(
             record_id=name,
             role=role,
@@ -331,9 +356,7 @@ def adapt_semantic_execution(
             execution_id=execution_id if result_of else None,
         )
         records.append(record)
-        meridians.append(
-            Meridian(index, (TrackEvent(name, item["track"], "text", index, role),))
-        )
+        meridians.append(Meridian(index, (TrackEvent(name, item["track"], "text", index, role),)))
         if kind == "value-open":
             open_id = fields["id"]
             open_parts = []
@@ -356,9 +379,9 @@ def adapt_semantic_execution(
     if open_id is not None:
         _fail("Unfinished physical semantic value")
     tracks = tuple(TrackSpec("t" + str(i), "assistant") for i in range(8))
-    episode_id = "semantic:" + hashlib.sha256(
-        b"\n".join(record.payload for record in records)
-    ).hexdigest()
+    episode_id = (
+        "semantic:" + hashlib.sha256(b"\n".join(record.payload for record in records)).hexdigest()
+    )
     supervision = Supervision(
         outcome="success" if status == "admitted" else "unknown",
         verification="external_tests" if status == "admitted" else "none",
