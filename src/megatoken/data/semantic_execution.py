@@ -305,7 +305,7 @@ def adapt_semantic_execution(
         source_id="tracing-js-self:" + revision[:16],
         revision=revision,
         family_id=family,
-        repository="werg/tracing-js-self",
+        source_uri="https://github.com/werg/tracing-js-self",
         frozen_split=split,
     )
     records: list[PhysicalRecord] = []
