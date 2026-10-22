@@ -173,9 +173,11 @@ the teacher identity reproducing `PINNED_EXTRACTOR` from a fresh download; Sana
 and Sana-Video encode, training loss with gradients to their conditions, and a
 free rollout (image `[1, 1, 3, 256, 256]`, 9-frame video); and `MediaPreparer`
 end to end on synthetic text, image, speech and video (teacher features for all,
-realizer latents and geometry for image and video). Pocket is not yet verified:
-`kyutai/pocket-tts` is gated, and its terms must be accepted for the account
-whose `HF_TOKEN` acquires it.
+realizer latents and geometry for image and video). Pocket was verified the same
+way on 2026-10-22 (gated repo acquired with `HF_TOKEN` delivered by
+`megatoken.cloud launch --secret hf-token=<file>`): Mimi latents, a training
+loss with gradients to its condition, a one-second 24 kHz rollout, and speech
+preparation (teacher features plus Mimi latents and geometry).
 
 No media-quality, perceptual or GPU-scale training result is implied.
 Rights-cleared media inventories and measured gates per phase are prerequisites
