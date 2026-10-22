@@ -57,7 +57,12 @@ def prepare(args: argparse.Namespace) -> None:
         files.append(("audio", path))
 
     with zipfile.ZipFile(args.flickr) as archive:
-        names = sorted(n for n in archive.namelist() if n.lower().endswith(".jpg"))
+        # The zip also holds a macOS ``__MACOSX/._*.jpg`` metadata stub per image.
+        names = sorted(
+            n
+            for n in archive.namelist()
+            if n.lower().endswith(".jpg") and not Path(n).name.startswith("._")
+        )
         for name in rng.sample(names, min(args.per_modality, len(names))):
             path = raw / Path(name).name
             path.write_bytes(archive.read(name))
