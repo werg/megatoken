@@ -122,7 +122,6 @@ def _text_bytes(text: str) -> bytes:
         raise SemanticExecutionError("Unescaped surrogate in transport record") from error
 
 
-
 _HOST_REQUESTS = {
     "demo.readAsync": ("demo.readAsync/1", 1),
     "demo.readNumber": ("demo.readNumber/1", 1),
