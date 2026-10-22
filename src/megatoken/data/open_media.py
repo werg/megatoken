@@ -270,8 +270,15 @@ def compile_bundle(
     tier: str | None = None,
 ) -> list[Episode]:
     """Every standard task view the bundle's labels support."""
+    # Publishers reuse clip IDs (one clip, several captions or labels), so the ID also names
+    # the content: identical rows merge in deduplication and different ones stay distinct.
+    content = hashlib.sha256(family.encode())
+    for artifact in artifacts:
+        content.update(artifact.label.encode() + b"\0" + artifact.payload)
+        if artifact.media is not None:
+            content.update(artifact.media.to_bytes())
     bundle = AlignedBundle(
-        bundle_id,
+        f"{bundle_id}:{content.hexdigest()[:16]}",
         Lineage(
             source.source_id,
             source.revision,

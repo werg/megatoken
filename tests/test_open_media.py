@@ -1054,3 +1054,33 @@ def test_the_same_media_through_two_sources_is_two_mergeable_episodes(tmp_path: 
     with DedupStore(tmp_path / "dedup.sqlite") as store, store.transaction():
         assert store.add(first, ByteCodec.byte_fallback()) == "accepted_candidate"
         assert store.add(second, ByteCodec.byte_fallback()) == "duplicate"
+
+
+def test_a_reused_clip_id_with_new_content_gives_new_episodes(tmp_path, media):
+    from megatoken.data import DedupStore
+    from megatoken.generation.codec import ByteCodec
+
+    source = make_source(
+        "asr",
+        columns={"audio": "audio", "text": "text", "id": "id", "family": "speaker_id"},
+        include=("*.parquet",),
+    )
+    folder = _local(tmp_path, "asr")
+    audio = {"bytes": _wave(1), "path": "a.flac"}
+    parquet.write_table(
+        pa.table(
+            {
+                "audio": [audio, audio, audio],
+                "text": ["HELLO WORLD", "HELLO THERE", "HELLO WORLD"],
+                "speaker_id": [11, 11, 11],
+                "id": ["11-1-0", "11-1-0", "11-1-0"],
+            }
+        ),
+        folder / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    with DedupStore(tmp_path / "dedup.sqlite") as store, store.transaction():
+        verdicts = [store.add(episode, ByteCodec.byte_fallback()) for episode in episodes]
+    assert "accepted_candidate" in verdicts
+    transcripts = {e.episode_id for e in episodes if e.stream == "transcription"}
+    assert len(transcripts) == 2  # the repeated row merges; the new caption does not

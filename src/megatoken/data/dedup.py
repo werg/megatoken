@@ -311,7 +311,7 @@ class DedupStore:
         if prior_episode:
             if prior_episode[0] != episode_json:
                 raise ValueError(
-                    "An immutable episode ID was reused with changed bytes, masks, or metadata"
+                    f"An immutable episode ID was reused with changed bytes, masks, or metadata: {episode.episode_id}"
                 )
             return "already_present"
         if encoded is None:
