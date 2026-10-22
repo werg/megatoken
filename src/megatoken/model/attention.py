@@ -164,8 +164,9 @@ class AttentionRead(nn.Module):
             if query_key_mask.shape != (batch, count, slots):
                 raise ValueError("Explicit attention mask must identify every query/key pair")
             allowed = allowed & query_key_mask
-        attn_mask = torch.zeros(batch, self.query_heads, count, slots + 1,
-                                dtype=q.dtype, device=q.device)
+        attn_mask = torch.zeros(
+            batch, self.query_heads, count, slots + 1, dtype=q.dtype, device=q.device
+        )
         if slots:
             attn_mask[..., :slots] = attn_mask[..., :slots].masked_fill(
                 ~allowed[:, None], float("-inf")
@@ -184,16 +185,14 @@ class AttentionRead(nn.Module):
             and features.track_ids is not None
         ):
             if query_track_ids.shape != (batch, count) or features.track_ids.shape != (
-                batch, slots
+                batch,
+                slots,
             ):
                 raise ValueError("Attention track IDs must identify every query/key slot")
             same = query_track_ids[:, :, None] == features.track_ids[:, None, :]
-            same = same & (query_track_ids[:, :, None] >= 0) & (
-                features.track_ids[:, None, :] >= 0
-            )
+            same = same & (query_track_ids[:, :, None] >= 0) & (features.track_ids[:, None, :] >= 0)
             bonus = (
-                same[:, None].to(q.dtype)
-                * self.same_track_bias.to(q.dtype)[None, :, None, None]
+                same[:, None].to(q.dtype) * self.same_track_bias.to(q.dtype)[None, :, None, None]
             )
             attn_mask[..., :slots] += bonus
         # The final sink column is always visible, including an empty cache or
@@ -207,6 +206,7 @@ class AttentionRead(nn.Module):
             enable_gqa=self.query_heads != self.kv_heads,
         )
         return self.output(result.transpose(1, 2).reshape(batch, count, -1))
+
 
 def _encode(
     source: Tensor,
