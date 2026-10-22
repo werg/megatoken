@@ -1484,10 +1484,12 @@ def conversation(source: OpenSource, record: Mapping[str, Any]) -> list[tuple[st
         # A multiple-choice question: the options are listed in the question and the answer
         # is the right option's letter and text (the answer field is its index or its text).
         pairs = []
-        for question, options, answer in zip(
-            *(_list_label(source, record, role) for role in ("question", "choices", "answer")),
-            strict=False,
-        ):
+        questions, option_lists, answers = (
+            _list_label(source, record, role) for role in ("question", "choices", "answer")
+        )
+        if option_lists and not isinstance(option_lists[0], (list, tuple)):
+            option_lists = [option_lists]  # one question's options
+        for question, options, answer in zip(questions, option_lists, answers, strict=False):
             options = [str(option) for option in options or ()]
             right = (
                 answer
