@@ -232,3 +232,144 @@ def test_native_preparation_preserves_semantic_groups_and_exact_target_bytes():
     assert prepared.dependencies == episode.dependencies
     assert [x.payload for x in prepared.records] == [x.payload for x in episode.records]
     assert prepared.supervision.outcome == "unknown"
+
+
+
+def _reindex(groups):
+    for index, group in enumerate(groups):
+        group["id"] = "m" + str(index + 1)
+
+
+def _pieces(kind, fields, *, label, mode):
+    target = line(kind, fields)
+    records = [
+        line("value-open", {"id": label, "type": "semantic-record"}),
+        line("value-part", {"id": label, "data": target[: len(target) // 2]}),
+        line("value-part", {"id": label, "data": target[len(target) // 2 :]}),
+        line("value-close", {"id": label}),
+    ]
+    return [
+        {
+            "id": "",
+            "mode": mode,
+            "loss": "semantic" if mode == "generated" else "none",
+            "events": [{"track": "t0", "record": text}],
+        }
+        for text in records
+    ]
+
+
+def test_fragmented_source_and_input_are_still_observed_user_context():
+    candidate = fixture()
+    original = candidate["public"]["groups"]
+    source = original[0]["events"][0]["record"]
+    kind, body = source.split(" ", 1)
+    assert kind == "code"
+    original[:1] = _pieces(kind, json.loads(body), label="record:code", mode="observed")
+    _reindex(original)
+
+    episode, receipt = adapt_semantic_execution(candidate, allow_local=True)
+    assert receipt.observed == 2
+    assert [record.role for record in episode.records[:5]] == ["user"] * 5
+    assert episode.records[5].role == "assistant"
+    assert [record.part_index for record in episode.records[:4]] == [0, 1, 2, 3]
+    assert all(record.part_count == 4 for record in episode.records[:4])
+    assert len({record.logical_id for record in episode.records[:4]}) == 1
+    assert Episode.from_dict(episode.to_dict()) == episode
+
+
+def test_fragmented_json_request_stays_one_logical_action_and_delivery():
+    candidate = fixture()
+    groups = candidate["public"]["groups"]
+    request = {
+        "id": "e1",
+        "effect": "fx1",
+        "operation": "demo.store",
+        "signature": "demo.store/1",
+        "codec": "canonical-json/1",
+        "payload": '["answer",{"n":2}]',
+        "arguments": ["answer", {"n": 2}],
+    }
+    groups[3:] = [
+        *_pieces("request", request, label="e1", mode="generated"),
+        {
+            "id": "",
+            "mode": "observed",
+            "loss": "none",
+            "events": [{"track": "t0", "record": line(
+                "observe", {"id": "e2", "effect": "fx1", "result": ["num", 2]}
+            )}],
+        },
+        {
+            "id": "",
+            "mode": "generated",
+            "loss": "semantic",
+            "events": [{"track": "t0", "record": line(
+                "return", {"id": "e3", "dependsOn": ["e2"], "result": ["num", 2]}
+            )}],
+        },
+        {
+            "id": "",
+            "mode": "generated",
+            "loss": "semantic",
+            "events": [{"track": "t0", "record": line(
+                "end", {"invocation": "f1", "kind": "return"}
+            )}],
+        },
+    ]
+    _reindex(groups)
+    episode, receipt = adapt_semantic_execution(candidate, allow_local=True)
+    assert receipt.actions == 1
+    assert receipt.generated == 4
+    assert receipt.observed == 3
+    (action,) = episode.actions
+    assert action.action_id == "semantic:fx1"
+    assert action.schema_id == "demo.store/1"
+    assert action.record_ids == tuple("semantic:r" + str(i) for i in range(4, 8))
+    assert all(record.action_id == action.action_id for record in episode.records[3:7])
+    assert episode.records[7].role == "environment"
+    assert episode.records[7].result_of == action.action_id
+    assert episode.records[7].execution_id == action.execution_id
+    assert [record.part_index for record in episode.records[3:7]] == [0, 1, 2, 3]
+    assert ("semantic:r8", "semantic:r9") in {
+        (dep.writer_id, dep.reader_id) for dep in episode.dependencies
+    }
+    assert Episode.from_dict(episode.to_dict()) == episode
+
+    tampered = copy.deepcopy(candidate)
+    open_group = tampered["public"]["groups"][4]
+    fragment = json.loads(open_group["events"][0]["record"].split(" ", 1)[1])
+    fragment["data"] = fragment["data"].replace("answer", "forged")
+    open_group["events"][0]["record"] = line("value-part", fragment)
+    with pytest.raises(SemanticExecutionError, match="bytes disagree"):
+        adapt_semantic_execution(tampered, allow_local=True)
+
+
+def test_wrong_external_request_codec_or_shape_is_rejected():
+    document = fixture()
+    groups = document["public"]["groups"]
+    requests = [
+        {
+            "id": "e1",
+            "effect": "fx1",
+            "operation": "demo.readAsync",
+            "signature": "demo.readAsync/1",
+            "codec": "canonical-json/1",
+            "payload": '["key"]',
+            "arguments": ["key"],
+        },
+        {
+            "id": "e1",
+            "effect": "fx1",
+            "operation": "demo.readAsync",
+            "signature": "demo.readAsync/1",
+            "codec": "graph/999",
+            "payload": '["key"]',
+            "arguments": ["key"],
+        },
+    ]
+    for request in requests[1:]:
+        candidate = copy.deepcopy(document)
+        candidate["public"]["groups"][3]["events"][0]["record"] = line("request", request)
+        with pytest.raises(SemanticExecutionError, match="codec"):
+            adapt_semantic_execution(candidate, allow_local=True)
