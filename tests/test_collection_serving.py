@@ -139,3 +139,68 @@ def test_media_items_are_observed_in_their_own_medium_on_the_knowledge_track(tmp
     # Each item is its own meridian after the metadata, the query and the knowledge block.
     assert int(session.state.meridians_seen[0]) == 3 + 3
     assert session.state.frontier_tracks == (KNOWLEDGE_TRACK,)
+
+
+def test_the_jsonl_service_mounts_collections_reports_originals_and_adds_files(tmp_path):
+    import io
+    import json
+
+    from retrieval_support import FakePreparer
+
+    from megatoken.multitrack_service import serve_multitrack_jsonl
+
+    root = reading_root(tmp_path)
+    model = tiny_model()
+    (tmp_path / "new.txt").write_text("A fact that arrived while serving.")
+
+    class Engine:
+        device = torch.device("cpu")
+        config = model.config
+
+    engine = Engine()
+    engine.model = model
+
+    def requests(results):
+        yield (
+            json.dumps(
+                {
+                    "op": "add_files",
+                    "id": 0,
+                    "collection": "main",
+                    "paths": [str(tmp_path / "new.txt")],
+                }
+            )
+            + "\n"
+        )
+        yield json.dumps({"op": "open", "id": 1, "effort": 1, "max_sources": 3}) + "\n"
+
+    results = io.StringIO()
+    serve_multitrack_jsonl(
+        engine,
+        requests(results),
+        results,
+        collections={"main": root / COLLECTION},
+        preparer=FakePreparer(tmp_path / "scratch"),
+    )
+    added, opened = [json.loads(line) for line in results.getvalue().splitlines()]
+    assert added["ok"] and added["added"] == 1
+    assert opened["ok"] and len(opened["retrieved"]) == 3
+    first = opened["retrieved"][0]
+    assert set(first) == {"lookup", "collection", "item", "modality", "origin", "score"}
+    assert first["collection"] == "main" and first["lookup"] == 0
+
+
+def test_retrieval_is_deterministic_and_reads_only_the_past(tmp_path):
+    root = reading_root(tmp_path)
+    model = tiny_model()
+    runtime = serving_runtime(model, root)
+    metadata = {"request": "What is the code word of task 1?"}
+    plain = runtime.open(metadata, effort=1)
+    busy = runtime.open(metadata, effort=1)
+    # Whatever happens afterwards, the first lookup saw only the metadata.
+    runtime.observe(
+        busy, (ObservedEvent("main", "text", b"later", role_id=ROLE_TO_ID["tool"]),), effort=1
+    )
+    assert first_lookup(plain.memory.sources.log) == first_lookup(busy.memory.sources.log)
+    again = serving_runtime(model, root).open(metadata, effort=1)
+    assert first_lookup(again.memory.sources.log) == first_lookup(plain.memory.sources.log)

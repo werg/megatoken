@@ -9,6 +9,12 @@ result makes a memory lookup due, as in training. ``open`` and ``observe``
 take the ``effort`` their lookups run at (default 6); a generation's lookup
 uses the generation's own effort. An event or output may carry ``terminal: false``
 when it is only part of a longer message; only a message's last part closes a turn.
+
+Source collections are mounted by name (``collections``). ``open`` may name the ones
+a session searches (default: all), ``max_sources`` and ``threshold``; every answer
+that ran lookups lists the items they retrieved and observed (``retrieved``), each
+with the original file it came from. ``add_files`` prepares files and adds them to a
+mounted collection, when the service was given a preparer.
 """
 
 from __future__ import annotations
@@ -18,7 +24,8 @@ import json
 import math
 import uuid
 from collections.abc import Mapping
-from typing import TextIO
+from pathlib import Path
+from typing import Any, TextIO
 
 import numpy as np
 import torch
@@ -115,6 +122,24 @@ def _output_spec(value: Mapping[str, object], max_capacity: int):
     )
 
 
+def _retrieved(session: TrackSession, delivered: int) -> tuple[list[dict], int]:
+    """The items retrieved since the last answer, and the new count."""
+    sources = session.memory.sources
+    log = [] if sources is None else sources.log
+    items = [
+        {
+            "lookup": entry.lookup,
+            "collection": entry.collection,
+            "item": entry.item.item_id,
+            "modality": entry.item.modality,
+            "origin": entry.item.origin,
+            "score": entry.score,
+        }
+        for entry in log[delivered:]
+    ]
+    return items, len(log)
+
+
 def _output_response(group, specs):
     outputs = []
     for i, spec in enumerate(specs):
@@ -144,12 +169,17 @@ def serve_multitrack_jsonl(
     output_stream: TextIO,
     *,
     max_sessions: int = 32,
+    collections: Mapping[str, str | Path] | None = None,
+    preparer: Any = None,
 ) -> None:
     """One runtime per weights bundle, many independent shared-track sessions."""
     if max_sessions < 1:
         raise ValueError("max_sessions must be positive")
-    runtime = MultiTrackRuntime(MultiTrackGenerator(engine.model))
+    runtime = MultiTrackRuntime(
+        MultiTrackGenerator(engine.model), collections=collections, preparer=preparer
+    )
     sessions: dict[str, TrackSession] = {}
+    delivered: dict[str, int] = {}
 
     for line in input_stream:
         request_id = None
@@ -166,11 +196,23 @@ def serve_multitrack_jsonl(
                 if not isinstance(metadata, dict):
                     raise ValueError("Session metadata must be a JSON object")
                 session_id = uuid.uuid4().hex
-                sessions[session_id] = runtime.open(metadata, effort=int(request.get("effort", 6)))
+                options = {
+                    key: request[key]
+                    for key in ("collections", "max_sources", "threshold")
+                    if key in request
+                }
+                sessions[session_id] = runtime.open(
+                    metadata, effort=int(request.get("effort", 6)), **options
+                )
                 answer = {
                     "session": session_id,
                     "architecture_version": engine.model.config.architecture_version,
                 }
+            elif op == "add_files":
+                paths = request.get("paths")
+                if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+                    raise ValueError("add_files needs a list of file paths")
+                answer = {"added": runtime.add_files(str(request.get("collection")), paths)}
             else:
                 session_id = request.get("session")
                 if session_id not in sessions:
@@ -248,9 +290,16 @@ def serve_multitrack_jsonl(
                     }
                 elif op == "close":
                     del sessions[session_id]
+                    delivered.pop(session_id, None)
                     answer = {"closed": session_id}
                 else:
                     raise ValueError("Unknown multitrack operation")
+            if op in {"open", "observe", "generate", "accept"}:
+                retrieved, delivered[session_id] = _retrieved(
+                    sessions[session_id], delivered.get(session_id, 0)
+                )
+                if retrieved:
+                    answer["retrieved"] = retrieved
             response = {"ok": True, **answer}
         except Exception as exc:
             response = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

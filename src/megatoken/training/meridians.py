@@ -639,6 +639,8 @@ def forward_meridian_batch(
                 modalities=step.modalities,
             )
     if batch.retrieval is not None and not batch.prefix:
+        if sequence.first_search is None:
+            raise RuntimeError("The annotated first lookup did not run")
         terms, retrieved = retrieval_terms(
             sequence.first_search, sequence.sources, batch.retrieval, store
         )

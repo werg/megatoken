@@ -354,15 +354,33 @@ def _serve(args):
 
 
 def _serve_multitrack(args):
+    import tempfile
+
     from megatoken.inference import InferenceEngine
     from megatoken.multitrack_service import serve_multitrack_jsonl
 
-    serve_multitrack_jsonl(
-        InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile),
-        sys.stdin,
-        sys.stdout,
-        max_sessions=args.max_sessions,
-    )
+    collections = dict(item.partition("=")[::2] for item in args.collection)
+    if not all(collections.values()):
+        raise ValueError("--collection is NAME=DIRECTORY")
+    preparer = scratch = None
+    if collections and args.packs:
+        # With the pack manifest the service can prepare files into its collections.
+        from megatoken.data.media_prepare import MediaPreparer
+
+        scratch = tempfile.TemporaryDirectory()
+        preparer = MediaPreparer(args.packs, scratch.name, device=args.device)
+    try:
+        serve_multitrack_jsonl(
+            InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile),
+            sys.stdin,
+            sys.stdout,
+            max_sessions=args.max_sessions,
+            collections=collections,
+            preparer=preparer,
+        )
+    finally:
+        if scratch is not None:
+            scratch.cleanup()
 
 
 def _engram_extract(args):
@@ -576,6 +594,13 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--device", default="auto")
     item.add_argument("--compile", action="store_true")
     item.add_argument("--max-sessions", type=int, default=32)
+    item.add_argument(
+        "--collection",
+        action="append",
+        default=[],
+        metavar="NAME=DIRECTORY",
+        help="Mount a source collection (repeatable); with --packs, files can be added to it",
+    )
     item.set_defaults(func=_serve_multitrack)
     item = commands.add_parser(
         "engram", help="Optional offline native-table initialization and exact baking"
