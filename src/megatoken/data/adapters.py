@@ -199,6 +199,11 @@ PROFILES: dict[str, AdapterProfile] = {
     "python_call_tools": AdapterProfile(observation_provenance="simulated", dialect="python_calls"),
     # gpt-oss traces of a browsing agent whose search and page tools really ran.
     "harmony_tools": AdapterProfile(observation_provenance="executed", dialect="harmony"),
+    "tool_dict_tools": AdapterProfile(
+        observation_provenance="executed",
+        dialect="tool_dict",
+        fields=_fields(messages="conversation"),
+    ),
     "glaive_tools": AdapterProfile(
         observation_provenance="simulated",
         dialect="glaive",

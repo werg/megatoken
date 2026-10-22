@@ -635,7 +635,40 @@ def harmony(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     return out, _harmony_tools(messages)
 
 
+def tool_dict(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """Browsing-agent logs: ``{"role": "assistant", "content", "tool_call": {"tool", "args"}}`` and
+    ``{"role": "tool", "tool", "content"}``, with the question in a ``question`` column.
+
+    Each tool message answers the oldest call without a result; the last assistant message,
+    which has no ``tool_call``, is the answer.
+    """
+    ledger, out = _Ledger(), []
+    question = row.get("question", row.get("prompt"))
+    if isinstance(question, str) and question.strip():
+        out.append({"role": "user", "content": question})
+    for turn, message in enumerate(_messages(value)):
+        role, text = role_of(message), _text_or_json(message)
+        call = message.get("tool_call")
+        if role == "assistant" and isinstance(call, Mapping):
+            (call_id,) = ledger.issue(turn, 1)
+            args = call.get("args") if call.get("args") is not None else {}
+            out.append(
+                {
+                    "role": "assistant",
+                    "content": _blocks(text, [_use(call_id, call.get("tool"), args)]),
+                }
+            )
+        elif role == "tool":
+            if not ledger.pending:
+                raise SchemaError("A tool message answers no pending call")
+            out.append({"role": "tool", "content": [_result(ledger.pending.popleft(), text)]})
+        else:
+            out.append({"role": role, "content": text})
+    return out, row.get("tools")
+
+
 DIALECTS: dict[str, Dialect] = {
+    "tool_dict": tool_dict,
     "harmony": harmony,
     "hermes": hermes,
     "python_calls": python_calls,
