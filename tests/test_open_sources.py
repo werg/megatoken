@@ -53,15 +53,14 @@ ROWS = {
 }
 
 
-def test_every_source_is_pinned_licensed_and_awaiting_the_maintainers_approval():
+def test_every_source_is_pinned_licensed_and_approved_by_the_maintainer():
     for source in (*SOURCES.values(), *load_source_manifest(CONFIGS / "sources.open-mb.json")):
         assert len(source.revision) == 40 and source.format == "hf"
         assert source.terms.license not in ("", "unreviewed"), source.source_id
         assert source.terms.license_url.startswith("https://"), source.source_id
-        # Approval is the maintainer's decision, never recorded by the tool that pinned it.
-        assert not source.terms.approved and not source.terms.reviewed_by
-        with pytest.raises(ValueError, match="unapproved"):
-            source.validate_local_files()
+        # Approval is the maintainer's decision, recorded with who and when.
+        assert source.terms.approved and source.terms.reviewed_by and source.terms.reviewed_at
+        source.terms.require_approval()
 
 
 def test_streams_cover_the_stage_plan_except_synthetic_code_rewrite():
