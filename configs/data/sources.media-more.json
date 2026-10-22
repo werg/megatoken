@@ -1121,7 +1121,10 @@
    "columns": {
     "image": "image.jpg",
     "caption": "synthetic_caption.txt",
-    "id": "__key__"
+    "id": [
+     "__shard__",
+     "__key__"
+    ]
    },
    "options": {
     "min_chars": 60,
@@ -2207,7 +2210,10 @@
     "original": "1.0.jpg",
     "edited": "2.jpg",
     "instruction": "txt",
-    "id": "__key__"
+    "id": [
+     "__shard__",
+     "__key__"
+    ]
    },
    "options": {
     "provenance": {
@@ -2222,7 +2228,7 @@
     "shards": 1010,
     "size_gb": 4880
    },
-   "caveat": "Sample numbers restart at zero in every archive, so edits of different archives may share a name; the archive path is part of the reader's key. Instructions are English."
+   "caveat": "Sample numbers restart at zero in every archive, so the archive path is part of each sample's ID. Instructions are English."
   },
   {
    "source_id": "seed_data_edit_multi_turn",
@@ -3210,7 +3216,10 @@
     "original": "original.mp4",
     "edited": "edited.mp4",
     "instruction": "txt",
-    "id": "__key__"
+    "id": [
+     "__shard__",
+     "__key__"
+    ]
    },
    "options": {
     "provenance": {

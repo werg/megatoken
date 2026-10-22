@@ -65,3 +65,12 @@ source needs a token that has accepted its terms). The runs that use them are
 of public sets. The cloud job `configs/cloud/prepare-agentic-more.json` prepares the first,
 scaled with `AGENTIC_MORE_ROW_SCALE`. See "More chat, reasoning and agent data" in
 [`docs/data.md`](../../docs/data.md).
+
+`sources.media.json`, `sources.media-more.json` and `sources.media-more-gated.json` list the public
+media sources (images, speech, sound, music, video and their edits; any licence, each recorded; the
+last file needs a click on the Hub). The pilot jobs `configs/cloud/prepare-media-*.json` build a
+slice of each source; `files.media.json` lists every file of the file-based media sources and the
+runs `configs/cloud/prepare-full-media-*.json` build all of them across GPU sandboxes
+(`python -m megatoken.cloud_prepare plan|launch`; `scripts/media_volume.py` computes sizes, costs
+and the gap to the stage plan). See "Scaling the media streams" in
+[`docs/data.md`](../../docs/data.md).

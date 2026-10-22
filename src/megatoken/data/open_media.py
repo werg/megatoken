@@ -851,7 +851,7 @@ def parquet_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, An
             row = 0
             for batch in reader.iter_batches(batch_size=16, columns=wanted):
                 for record in batch.to_pylist():
-                    record["__key__"] = f"{PurePosixPath(name).stem}:{row}"
+                    record["__key__"] = f"{name.removesuffix('.parquet')}:{row}"
                     row += 1
                     yield record
 
@@ -873,9 +873,14 @@ def _sample(group: Mapping[str, bytes]) -> dict[str, Any]:
 
 
 def webdataset_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
-    """Samples of consecutive tar members sharing a key; fields are named by file extension."""
-    for name in shards.names():
-        with shards.open(name) as handle, tarfile.open(fileobj=handle, mode="r|*") as tar:
+    """Samples of consecutive tar members sharing a key; fields are named by file extension.
+
+    ``__key__`` is the sample's name and ``__shard__`` the tar it came from: publishers restart
+    their numbering in every tar, so an ID made of both (``columns.id`` may list several fields)
+    is unique across the source.
+    """
+    for shard in shards.names():
+        with shards.open(shard) as handle, tarfile.open(fileobj=handle, mode="r|*") as tar:
             key: str | None = None
             group: dict[str, bytes] = {}
             for member in tar:
@@ -890,12 +895,12 @@ def webdataset_records(source: OpenSource, shards: Shards) -> Iterator[dict[str,
                     else name.partition(".")
                 )
                 if stem != key and group:
-                    yield {"__key__": key, **_sample(group)}
+                    yield {"__key__": key, "__shard__": shard, **_sample(group)}
                     group = {}
                 key = stem
                 group[extension] = tar.extractfile(member).read()
             if group:
-                yield {"__key__": key, **_sample(group)}
+                yield {"__key__": key, "__shard__": shard, **_sample(group)}
 
 
 class _Derived(dict):

@@ -1636,7 +1636,7 @@ def test_webdataset_keys_may_hold_dots_when_asked(tmp_path):
     from megatoken.data.open_media import webdataset_records
 
     records = list(webdataset_records(source, Shards(source, tmp_path / "inputs")))
-    assert [(r["__key__"], sorted(set(r) - {"__key__"})) for r in records] == [
+    assert [(r["__key__"], sorted(set(r) - {"__key__", "__shard__"})) for r in records] == [
         ("abc.0", ["json", "mp4"]),
         ("abc.1", ["mp4"]),
     ]
@@ -1870,3 +1870,21 @@ def test_a_parquet_table_with_nested_turns_links_to_its_images(tmp_path, media):
     assert episode.lineage.family_id == "imgedit:00087_00016"
     texts = [r.payload for r in episode.records if r.media_type.startswith("text")]
     assert texts == [b"replace the lemon with a mango", b"make it ripe"]
+
+
+def test_samples_numbered_afresh_in_every_tar_get_distinct_ids(tmp_path, media):
+    source = make_source(
+        "wds",
+        "picture",
+        "webdataset",
+        columns={"image": "jpg", "id": ["__shard__", "__key__"]},
+        include=("*.tar",),
+    )
+    folder = _local(tmp_path, "wds")
+    for number in (0, 1):
+        _tar(folder / f"{number}.tar", {"000000000.jpg": _image(number + 1)})
+    from megatoken.data.open_media import Shards, read_clips
+
+    clips = list(read_clips(source, Shards(source, tmp_path / "inputs"), tmp_path / "out", 5))
+    assert [clip["id"] for clip in clips] == ["0.tar-000000000", "1.tar-000000000"]
+    assert len({clip["family"] for clip in clips}) == 2
