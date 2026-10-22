@@ -337,10 +337,11 @@ def test_fragmented_json_request_stays_one_logical_action_and_delivery():
     assert Episode.from_dict(episode.to_dict()) == episode
 
     tampered = copy.deepcopy(candidate)
-    open_group = tampered["public"]["groups"][4]
-    fragment = json.loads(open_group["events"][0]["record"].split(" ", 1)[1])
-    fragment["data"] = fragment["data"].replace("answer", "forged")
-    open_group["events"][0]["record"] = line("value-part", fragment)
+    invalid_request = {**request, "payload": '["forged",{"n":2}]'}
+    tampered["public"]["groups"][3:7] = _pieces(
+        "request", invalid_request, label="e1", mode="generated"
+    )
+    _reindex(tampered["public"]["groups"])
     with pytest.raises(SemanticExecutionError, match="bytes disagree"):
         adapt_semantic_execution(tampered, allow_local=True)
 
