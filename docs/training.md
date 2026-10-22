@@ -240,6 +240,28 @@ stream without validation episodes reports zero windows; a run with none at all
 fails at launch. Synchronous ranks take the windows in turns and merge their sums;
 under DiLoCo only worker 0 evaluates its own weights between syncs.
 
+**Reading from a collection.** The `collection_reading` stream
+(`scripts/prepare_collection_reading.py`) teaches the query side of retrieval
+([media.md](media.md#retrieving-the-original-items)). Its episodes hold only the
+question and the scored answer; the supporting items sit, with every other task's items, in
+a source collection inside the prepared root (`collections/train`, `collections/validation`,
+each built from its own split's tasks). The episode's annotations name the collection, the
+teacher's embedding of the question and the annotated items. The question is also the
+`request` of the session metadata, so the first lookup can search for it. Each window that
+starts its episode scores that first lookup with two losses, one count each:
+`query_alignment` (the embedding head's query matches the teacher's embedding of the
+question, by the centered alignment distance, centered on the collection's stored mean query
+embedding) and `retrieval_ranking` (`-log` of the softmax mass the annotated items take among
+the retrieved candidates, the annotated items and a null entry at the score threshold;
+retrieved items that are not annotated are never labelled negatives). The retrieved items
+enter the sequence, so the continuation loss trains their use. Collections are opened
+read-only in every process and shared by path, so ranks and DiLoCo workers read the same
+files and no collection state is synchronized; the only trained parameter is the existing
+embedding head. The held-out `evaluation` event reports `retrieval`: the share of annotated
+items in the top 10 for the student's query and for the teacher's own query embedding of the
+same question (`student_recall`, `teacher_recall`), per stream and pooled. The stream has a
+1% share in P1, M1, M2, LC and S.
+
 ## Distributed data and gradients
 
 Ranks traverse a common seeded episode permutation in synchronized blocks. Each rank

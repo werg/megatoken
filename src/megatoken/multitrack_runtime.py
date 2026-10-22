@@ -10,9 +10,11 @@ without disturbing the committed session.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -50,18 +52,51 @@ class TrackSession:
 class MultiTrackRuntime:
     """Reference scheduler: one ready meridian at a time, no global track barrier."""
 
-    def __init__(self, generator: MultiTrackGenerator) -> None:
+    def __init__(
+        self,
+        generator: MultiTrackGenerator,
+        *,
+        collections: Mapping[str, str | Path] | None = None,
+        preparer: Any = None,
+    ) -> None:
         self.generator = generator
-        self.memory = TransducerInferenceEngine(generator)
+        self.memory = TransducerInferenceEngine(
+            generator, collections=collections, preparer=preparer
+        )
 
-    def open(self, metadata: dict[str, object] | None = None, *, effort: int = 6) -> TrackSession:
+    def open(
+        self,
+        metadata: dict[str, object] | None = None,
+        *,
+        effort: int = 6,
+        collections: Sequence[str] | None = None,
+        max_sources: int | None = None,
+        threshold: float | None = None,
+    ) -> TrackSession:
         """Commit the metadata prefix and the first lookup, before any answer.
 
         Training shows the model the fields ``task``, ``modality`` and
-        ``version``, each present or absent at random, so pass any of them
+        ``version``, each present or absent at random, and ``request`` (the
+        user's question) when a collection answers it, so pass any of them
         (``metadata_payload`` lists the rest) or none; unknown fields stay null.
+        A session searches the mounted ``collections`` it names (default: all);
+        the items it retrieves are in ``session.memory.sources.log``, each with
+        the original file it came from.
         """
-        return TrackSession(self.memory.new_session(metadata or {}, effort=effort))
+        options = {} if max_sources is None else {"max_sources": max_sources}
+        return TrackSession(
+            self.memory.new_session(
+                metadata or {},
+                effort=effort,
+                collections=collections,
+                threshold=threshold,
+                **options,
+            )
+        )
+
+    def add_files(self, name: str, paths: Sequence[str | Path]) -> int:
+        """Add files to a mounted collection (see ``TransducerInferenceEngine.add_files``)."""
+        return self.memory.add_files(name, paths)
 
     def observe(
         self, session: TrackSession, events: Sequence[ObservedEvent], *, effort: int = 6

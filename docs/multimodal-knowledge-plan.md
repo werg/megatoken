@@ -1,6 +1,6 @@
 # Multimodal knowledge: knowledge bases, retrieval and adapters
 
-**Status:** agreed direction, being built; the adapter mixture (§4) is built. **Date:** 22 October 2026. Builds on
+**Status:** agreed direction. Retrieval (§3) and the adapter mixture (§4) are built; knowledge bases (§1, §2) are being built. **Date:** 22 October 2026. Builds on
 the [transducer design](continuous-state-transducer-plan.md) (v10).
 
 Three parts work from one lookup: **knowledge bases** (the transducer memory,
@@ -149,6 +149,35 @@ collections can be mounted, like knowledge bases.
   puts the supporting items in a collection instead of the context, so the
   only way to answer is to retrieve them.
 
+**Status: built** (collections, query path, losses, producer, CLI, recall metric; the
+contract is in [media.md](media.md#retrieving-the-original-items), the training in
+[training.md](training.md)). Decisions the text above left open:
+
+- **Keys are the raw teacher embeddings**, not centered ones. The embedding head's output
+  is a raw unit vector (only its loss is centered), so student queries and stored keys
+  are compared directly by cosine, one index serves every medium, and the stored
+  embedding of an item is used as is. The centered distance is a training device; the
+  collection stores the mean teacher embedding of the queries it was built for, and the
+  query loss is centered on it.
+- **The first lookup needs the question.** Lookups follow metadata, source results and
+  assistant turns, not a user message, so the question travels as the metadata's
+  `request` field and the first lookup, right after the metadata, searches with it.
+  The reading episodes always show `request`; training keeps its usual random dropout of
+  the other fields.
+- **Ranking** is a softmax over cosine / 0.05 of the retrieved candidates (16 deep), the
+  annotated items (scored even if the index missed them) and a null entry at the score
+  threshold; unannotated candidates only share the normalization.
+- **Threshold** 0.5 on the raw cosine and `max_sources` 2 are starting values; the
+  threshold is stored per collection and overridable per session.
+- **Reading-from-a-collection data**: one collection per split inside the prepared root;
+  the held-out episodes search only their own split's items.
+
+Left for later: a mounted collection for streams other than the annotated one (so a model
+learns to use a collection that no annotation points at); a lookup after a completed
+user message (today only the metadata, source results, assistant turns and the interval
+trigger lookups); threshold and `max_sources` tuning on measured recall; collections shared with the
+knowledge bases of sections 1 and 2 (one preparation pass writing both).
+
 ## 4. Adapter mixture chosen by the knowledge bases
 
 A shared bank of small low-rank adapters (start with 8 experts of rank 8 per
@@ -212,7 +241,7 @@ The choices the plan left open:
 Retrieval (§3) and the adapter mixture (§4) are independent of each other and
 of multiple bases, so they are built first and in parallel.
 
-1. Multimodal source collections: catalog, index, the query path from the
+1. Multimodal source collections (done): catalog, index, the query path from the
    embedding head, observing retrieved items, the query-side losses, and the
    collection CLI.
 2. The adapter bank, its knowledge-base router and its application in C, P

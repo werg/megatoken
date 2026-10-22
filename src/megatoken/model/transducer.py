@@ -23,11 +23,13 @@ from torch import Tensor, nn
 from megatoken.generation.embedding import EmbeddingRealizer, EmbeddingSpec
 from megatoken.memory.transducer import Lookup, SearchAgenda, TransducerBank
 from megatoken.memory.transducer_packing import pack_fp4, straight_through
+from megatoken.retrieval.session import SourceSession
 
 from .adapters import ADAPTER_DROPOUT, AdapterMixture
 from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK
 from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
 from .multitrack import MultiTrackState, ObservedEvent
+from .sources import read_sources
 from .state import KVHistory, RealizationContext
 
 QUERY_SPACE = "transducer-v10-query"
@@ -314,12 +316,17 @@ class NativeTransducer(nn.Module):
         train_rows: bool | None = None,
         effort: int = 6,
         cancelled: Callable[[], bool] | None = None,
+        sources: SourceSession | None = None,
     ) -> tuple[MultiTrackState, Lookup | None]:
         """One serialized query and knowledge commit; the agenda changes only on success.
 
         The query is P's own reparameterized sample on the reserved query
         track, realized by an embedding R. A cancellation or a failure leaves
         both the agenda and the returned state untouched.
+
+        With ``sources``, the same query block is read by the embedding head's
+        query role and the mounted collections are searched; the items chosen are
+        observed after the knowledge event (``model.sources``).
         """
         if state.batch_size != 1 or state.device != self.bank.device:
             raise ValueError("Native lookup is one session on the bank/model device")
@@ -359,8 +366,23 @@ class NativeTransducer(nn.Module):
             tracks=(KNOWLEDGE_TRACK,),
             role_ids=torch.full_like(assistant, ROLE_IDS["document"]),
         )
+        read = None
+        if sources is not None:
+            read = read_sources(
+                multi,
+                committed,
+                sources,
+                selected[:, 0],
+                lookup=agenda.lookups,
+                cancelled=cancelled,
+            )
+            if read is None:
+                return state, None
+            committed = read[0]
         if cancelled and cancelled():
             return state, None
         self.bank.commit(working, found)
         agenda.publish(working)
+        if read is not None:
+            sources.commit(read[1])
         return committed, found

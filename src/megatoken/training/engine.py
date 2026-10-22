@@ -69,6 +69,7 @@ from megatoken.training.metrics import (
     rates,
 )
 from megatoken.training.optimizer import MasterAdamW
+from megatoken.training.retrieval import close_mounted
 from megatoken.training.router_balance import RouterBalanceWindow, balance_routers
 from megatoken.training.stream import (
     EpisodeWindow,
@@ -935,4 +936,5 @@ def train(
             heldout.close()
         if dataset is not None:
             dataset.close()
+        close_mounted()
         context.close()

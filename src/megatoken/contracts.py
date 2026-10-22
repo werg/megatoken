@@ -25,6 +25,11 @@ DEFAULT_LOSS_WEIGHTS = {
     "facet_prediction": 0.1,
     "relation": 0.025,
     "encoder_alignment": 1.0,
+    # Per annotated lookup (``megatoken.training.retrieval``): the 768-wide query
+    # matches the teacher's embedding of the question, and the annotated items
+    # take the softmax mass of the retrieved scores.
+    "query_alignment": 0.5,
+    "retrieval_ranking": 0.25,
     "router_balance": 0.005,
     "router_z": 1e-4,
 }
