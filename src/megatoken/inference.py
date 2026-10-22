@@ -71,7 +71,9 @@ def export_served(
                 source = source / source_metadata["tokenizer_file"]
             shutil.copyfile(source, temporary / "tokenizer.json")
             bundled_codec = "tokenizer.json"
-        durable_files = [temporary / "model.safetensors"]
+        # The sparse bank is not a parameter: it ships beside the weights.
+        torch.save({"bank": model.transducer.bank.state_snapshot()}, temporary / "transducer.pt")
+        durable_files = [temporary / "model.safetensors", temporary / "transducer.pt"]
         if bundled_codec != "byte":
             durable_files.append(temporary / bundled_codec)
         for artifact in durable_files:
@@ -80,6 +82,7 @@ def export_served(
         manifest = {
             "format_version": ARCHITECTURE_VERSION,
             "model_sha256": sha256_file(temporary / "model.safetensors"),
+            "transducer_sha256": sha256_file(temporary / "transducer.pt"),
             "config_sha256": sha256_file(temporary / "model_config.json"),
             "codec_file": bundled_codec,
             "codec_fingerprint": codec.fingerprint,
@@ -148,6 +151,8 @@ class InferenceEngine:
             raise ValueError("Served weights checksum mismatch")
         if sha256_file(directory / "model_config.json") != manifest["config_sha256"]:
             raise ValueError("Served configuration checksum mismatch")
+        if sha256_file(directory / "transducer.pt") != manifest["transducer_sha256"]:
+            raise ValueError("Served transducer bank checksum mismatch")
         self.config = ModelConfig.from_dict(
             json.loads((directory / "model_config.json").read_text())
         )
@@ -184,6 +189,9 @@ class InferenceEngine:
         self.model.load_state_dict(
             load_file(str(directory / "model.safetensors"), device=str(self.device)), strict=True
         )
+        with (directory / "transducer.pt").open("rb") as handle:
+            bank = torch.load(handle, map_location="cpu", weights_only=True)["bank"]
+        self.model.transducer.bank.load_snapshot(bank)
         if parameter_report(self.model)["totals"]["served"] != manifest["parameters"]:
             raise ValueError("Served parameter ownership count differs from the bundle")
         self.model.core.set_model_version(manifest["model_version"])

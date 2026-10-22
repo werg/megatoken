@@ -3,6 +3,12 @@
 Transport media as explicitly shaped little-endian FP32 buffers. The trained
 encoder/realizer weights are loaded from one served Megatoken bundle. No tool
 command is executed by the server; execution remains an external capability.
+
+Observed events carry their ``role``; a ``tool``, ``document`` or ``environment``
+result makes a memory lookup due, as in training. ``open`` and ``observe``
+take the ``effort`` their lookups run at (default 6); a generation's lookup
+uses the generation's own effort. An event or output may carry ``terminal: false``
+when it is only part of a longer message; only a message's last part closes a turn.
 """
 
 from __future__ import annotations
@@ -54,6 +60,14 @@ def _float_tensor(
     return torch.from_numpy(np.frombuffer(data, dtype="<f4").copy()).to(device).reshape(shape)
 
 
+def _terminal(value: Mapping[str, object], default: bool | None) -> bool | None:
+    """The optional ``terminal`` flag: whether the event ends its message."""
+    flag = value.get("terminal", default)
+    if flag is not None and not isinstance(flag, bool):
+        raise ValueError("terminal must be a boolean")
+    return flag
+
+
 def _read_event(value: Mapping[str, object], device: torch.device) -> ObservedEvent:
     modality = value.get("modality", "text")
     track = value.get("track")
@@ -68,6 +82,7 @@ def _read_event(value: Mapping[str, object], device: torch.device) -> ObservedEv
             modality=modality,
             payload=_bytes(value.get("payload_b64", "")),
             role_id=ROLE_TO_ID[role_name],
+            terminal=_terminal(value, True),
         )
     # Media arrives as pinned teacher hidden states [1, tokens, 512], never raw media.
     return ObservedEvent(
@@ -76,6 +91,7 @@ def _read_event(value: Mapping[str, object], device: torch.device) -> ObservedEv
         payload=_float_tensor(value.get("payload_f32_b64", ""), value.get("shape"), device),
         role_id=ROLE_TO_ID[role_name],
         extractor=str(value.get("extractor", "")),
+        terminal=_terminal(value, True),
     )
 
 
@@ -85,7 +101,7 @@ def _output_spec(value: Mapping[str, object], max_capacity: int):
         length = int(value.get("max_tokens", min(256, max_capacity)))
         if not 1 <= length <= max_capacity:
             raise ValueError("Output exceeds the text capacity")
-        return ActionSpec(max_tokens=length)
+        return ActionSpec(max_tokens=length, require_terminal=_terminal(value, None))
     return MediaOutputSpec(
         modality=str(modality),
         sample_count=int(value.get("sample_count", 0)),
@@ -146,8 +162,11 @@ def serve_multitrack_jsonl(
             if op == "open":
                 if len(sessions) >= max_sessions:
                     raise ValueError("Session capacity reached")
+                metadata = request.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    raise ValueError("Session metadata must be a JSON object")
                 session_id = uuid.uuid4().hex
-                sessions[session_id] = runtime.open()
+                sessions[session_id] = runtime.open(metadata, effort=int(request.get("effort", 6)))
                 answer = {
                     "session": session_id,
                     "architecture_version": engine.model.config.architecture_version,
@@ -162,7 +181,7 @@ def serve_multitrack_jsonl(
                     if not isinstance(raw, list) or not raw:
                         raise ValueError("Observation meridian needs an event list")
                     events = [_read_event(value, engine.device) for value in raw]
-                    runtime.observe(session, events)
+                    runtime.observe(session, events, effort=int(request.get("effort", 6)))
                     answer = {
                         "session": session_id,
                         "revision": session.revision,

@@ -10,9 +10,12 @@ from typing import Any
 from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
 ARCHITECTURE_VERSION = 10
-# Reserved system track for retrieval queries. It occupies track index
-# ``max_tracks`` and never counts against the user-visible track registry.
-RETRIEVAL_QUERY_TRACK = "__retrieval_query__"
+# Reserved system tracks. Track ``RESERVED_TRACKS[i]`` occupies index
+# ``max_tracks + i`` and never counts against the user-visible track registry.
+TRANSDUCER_QUERY_TRACK = "__transducer_query__"
+KNOWLEDGE_TRACK = "__transducer_knowledge__"
+METADATA_TRACK = "__metadata__"
+RESERVED_TRACKS = (TRANSDUCER_QUERY_TRACK, KNOWLEDGE_TRACK, METADATA_TRACK)
 
 
 @dataclass(frozen=True)
@@ -68,14 +71,17 @@ class ModelConfig:
     norm_eps: float = 1e-6
     expert_backend: str = "auto"
     checkpoint_stages: bool = False
-    # Mandatory v8 retrieval-memory geometry. Coherence bootstrap starts with
-    # an empty bank, never a model without the retrieval architecture.
-    semantic_dim: int = 768
-    semantic_value_dim: int = 256
-    max_kb_positions: int = 4
-    memory_lora_experts: int = 4
-    memory_lora_rank: int = 8
-    memory_lora_topk: int = 2
+    # The continuous-state transducer memory. Values are ``transducer_value_rows``
+    # native-width rows (64 x 512 = 32,768 at the selected geometry).
+    transducer_location_dim: int = 256
+    transducer_query_dim: int = 1024
+    transducer_value_rows: int = 64
+    transducer_neighbors: int = 1024
+    transducer_selected: int = 32
+    transducer_exploration: int = 2
+    transducer_max_lookups: int = 256
+    transducer_max_edges: int = 1_000_000
+    transducer_byte_budget: int = 24_000_000_000
 
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
@@ -137,17 +143,9 @@ class ModelConfig:
         validate_extractor(self.media_extractor)
         if self.media_readout not in ("halving", "attention"):
             raise ValueError("media_readout is halving or attention")
-        if min(self.semantic_dim, self.semantic_value_dim, self.max_kb_positions) <= 0:
-            raise ValueError(
-                "Retrieval embedding, free semantic memory and full-facet KB "
-                "are required on every model; zero-width legacy modes are removed"
-            )
-        if min(self.memory_lora_experts, self.memory_lora_rank, self.memory_lora_topk) < 1:
-            raise ValueError("LoRA geometry must be positive")
-        if self.memory_lora_topk > self.memory_lora_experts:
-            raise ValueError("LoRA top-k exceeds independent expert count")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
+        _ = self.transducer_geometry  # validates the bank geometry
 
     @property
     def exact_rows(self) -> int:
@@ -167,8 +165,20 @@ class ModelConfig:
         return self.central_layers + self.prediction_layers
 
     @property
-    def reserved_query_track_index(self) -> int:
-        return self.max_tracks
+    def transducer_geometry(self):
+        from megatoken.memory.transducer import TransducerGeometry
+
+        return TransducerGeometry(
+            location_dim=self.transducer_location_dim,
+            query_dim=self.transducer_query_dim,
+            value_dim=self.transducer_value_rows * self.facet_dim,
+            neighbors=self.transducer_neighbors,
+            selected=self.transducer_selected,
+            exploration=self.transducer_exploration,
+            max_lookups=self.transducer_max_lookups,
+            max_edges=self.transducer_max_edges,
+            byte_budget=self.transducer_byte_budget,
+        )
 
     @property
     def state_geometry(self) -> tuple[int, ...]:
@@ -184,12 +194,6 @@ class ModelConfig:
             self.attention_head_dim,
             self.media_extractor,
             self.media_readout,
-            self.semantic_dim,
-            self.semantic_value_dim,
-            self.max_kb_positions,
-            self.memory_lora_experts,
-            self.memory_lora_rank,
-            self.memory_lora_topk,
         )
 
     @classmethod
@@ -219,6 +223,15 @@ class ModelConfig:
             vocab_size=256,
             output_rank=16,
             max_capacity=128,
+            transducer_location_dim=8,
+            transducer_query_dim=16,
+            transducer_value_rows=4,
+            transducer_neighbors=4,
+            transducer_selected=4,
+            transducer_exploration=1,
+            transducer_max_lookups=16,
+            transducer_max_edges=256,
+            transducer_byte_budget=1_000_000,
         )
         values.update(overrides)
         return cls(**values)
@@ -246,19 +259,6 @@ class ModelConfig:
         unknown = set(values) - {field.name for field in fields(cls)}
         if unknown:
             raise ValueError(f"Unknown model configuration fields: {sorted(unknown)}")
-        mandatory = {
-            "semantic_dim",
-            "semantic_value_dim",
-            "max_kb_positions",
-            "memory_lora_experts",
-            "memory_lora_rank",
-            "memory_lora_topk",
-        }
-        if mandatory - set(values):
-            raise ValueError(
-                "Old non-retrieval model geometry is unsupported: "
-                f"missing {sorted(mandatory - set(values))}"
-            )
         values = dict(values)
         if "ngram_orders" in values:
             values["ngram_orders"] = tuple(values["ngram_orders"])

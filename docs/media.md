@@ -29,17 +29,15 @@ audio/vision towers and bidirectional backbone). It is never the pooled
   One forward pass (`omni/embeddinggemma2.py`, class `EmbeddingGemma2`) yields
   both these hidden states and the teacher's own sentence embedding (the mean
   of the projection's 768-wide outputs over all tokens, normalized), which is
-  what retrieval keys and embedding targets are made of
-  (`scripts/prepare_retrieval_corpus.py` uses the same class). Weights load
-  only from the locked pack manifest; nothing is truncated, and inputs over
+  what the embedding-head targets are made of. Weights load only from the locked
+  pack manifest; nothing is truncated, and inputs over
   8192 teacher tokens are refused (split them into several events). Video is
   sampled by the processor's own frame policy, so features carry no clock.
 - **Identity.** `megatoken.teacher.PINNED_TEACHER` names the hub revision, a
   digest of every snapshot model file (hub `.cache/` bookkeeping excluded), the
   tap, and the preprocessing policy (`chat-bf16-v1`: the processor's chat
-  template, bf16 weights). `ModelConfig.media_extractor` and every retrieval
-  space's `teacher` must equal it; features, banks, checkpoints and tapes from
-  any other teacher are rejected. Changing the teacher is an architecture change.
+  template, bf16 weights). `ModelConfig.media_extractor` must equal it; features,
+  checkpoints and tapes from any other teacher are rejected. Changing the teacher is an architecture change.
 - **Model side.** `FacetedCore.encode_media(features, mask, extractor=...)` is
   the single entry point: a trainable `MediaEncoder` projection feeds the same
   E reduction hierarchy as text, so media and text share facet geometry. C

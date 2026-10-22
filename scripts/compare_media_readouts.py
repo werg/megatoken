@@ -100,7 +100,7 @@ def prepare(args: argparse.Namespace) -> None:
         print(json.dumps({"prepared": modality, "file": path.name}), flush=True)
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from prepare_retrieval_corpus import load_hotpot
+    from qa_corpora import load_hotpot
 
     compressor = DocumentCompressor(
         preparer.teacher,
@@ -208,9 +208,7 @@ def compare(args: argparse.Namespace) -> None:
     for variant in args.variants:
         torch.manual_seed(args.seed)
         # Only the media path trains here: the vocabulary is the byte codec's.
-        config = load_model_config(
-            args.model, semantic_dim=768, media_readout=variant, vocab_size=256
-        )
+        config = load_model_config(args.model, media_readout=variant, vocab_size=256)
         model = build_model(config, ByteCodec.byte_fallback()).to(device)
         install_realizers(model, str(args.packs), device=device)
         params = _trainable(model)

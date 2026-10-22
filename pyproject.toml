@@ -30,13 +30,6 @@ media = ["transformers>=5.20,<6", "Pillow>=11,<13", "torchvision>=0.25,<0.30", "
 
 [project.scripts]
 megatoken = "megatoken.cli:main"
-megatoken-memory = "megatoken.memory.recipe:main"
-megatoken-memory-supervision = "megatoken.data.retrieval_cli:main"
-megatoken-memory-writer = "megatoken.training.writer_cli:main"
-megatoken-memory-catalog = "megatoken.memory.catalog_cli:main"
-megatoken-memory-reproduce = "megatoken.memory.reproduction_cli:main"
-megatoken-memory-index = "megatoken.memory.index_cli:main"
-megatoken-memory-centroids = "megatoken.memory.centroids_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/megatoken"]

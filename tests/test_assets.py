@@ -3,8 +3,8 @@ from dataclasses import asdict
 import numpy as np
 import pytest
 import torch
-from retrieval_fixture import retrieval_train_config
 from safetensors.torch import save_file
+from training_fixture import tiny_train_config
 
 from megatoken.assets import bake_checkpoint, extract_engram, install_engram_asset
 from megatoken.data.chunking import ChunkingConfig
@@ -12,7 +12,7 @@ from megatoken.generation.codec import ByteCodec
 from megatoken.inference import export_served
 from megatoken.loading import build_model, load_model_config
 from megatoken.runtime import capture_rng
-from megatoken.training.checkpoint import load_checkpoint, save_checkpoint
+from megatoken.training.checkpoint import load_checkpoint, save_checkpoint, transducer_attachment
 from megatoken.training.optimizer import MasterAdamW
 
 
@@ -36,7 +36,7 @@ def test_offline_engram_extract_install_checkpoint_bake_and_export(tmp_path):
     table.lookup(torch.arange(256)).float().sum().backward()
     optimizer.step()
     optimizer.zero_grad()
-    train_config = retrieval_train_config(tmp_path / "cfg", engram_import=str(asset))
+    train_config = tiny_train_config(tmp_path / "cfg", engram_import=str(asset))
     source = save_checkpoint(
         tmp_path / "input",
         "before",
@@ -53,6 +53,7 @@ def test_offline_engram_extract_install_checkpoint_bake_and_export(tmp_path):
         },
         {"global_step": 1, "phase": "B0"},
         pinned=True,
+        attachments=transducer_attachment(lambda: {"bank": model.transducer.bank.state_snapshot()}),
     )
     optimizer.close()
     with pytest.raises(RuntimeError, match="bake|import"):

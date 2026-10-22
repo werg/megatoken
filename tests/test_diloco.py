@@ -11,6 +11,7 @@ from torch import nn
 
 from megatoken.data import PreparedDataset, WindowConfig, prepare_sources, write_demo_source
 from megatoken.generation.codec import ByteCodec
+from megatoken.model.config import ModelConfig
 from megatoken.training.diloco_protocol import (
     install_fragment,
     load_tensors,
@@ -24,6 +25,11 @@ from megatoken.training.diloco_protocol import (
 from megatoken.training.diloco_server import Conflict, Coordinator, initialize_coordinator
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.stream import IndependentWindowStream
+
+TRANSDUCER = {
+    "geometry": dict(vars(ModelConfig.tiny().transducer_geometry)),
+    "evidence_from": 0,
+}
 
 
 def _coordinator(tmp_path, *, workers=3, quorum=2, max_staleness=0):
@@ -44,6 +50,7 @@ def _coordinator(tmp_path, *, workers=3, quorum=2, max_staleness=0):
         outer_momentum=0,
         grace_seconds=0,
         max_staleness=max_staleness,
+        transducer=TRANSDUCER,
     )
     return Coordinator(tmp_path / "syncer"), baseline, manifest
 
@@ -222,6 +229,7 @@ def test_coordinator_strict_init_never_replaces_committed_run(tmp_path):
             train_identity="objective",
             workers=1,
             min_quorum=1,
+            transducer=TRANSDUCER,
         )
     session = str(uuid.uuid4())
     coordinator.lease(0, session)

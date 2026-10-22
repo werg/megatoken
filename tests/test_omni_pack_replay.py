@@ -35,6 +35,7 @@ def _tape(pack: str):
         payloads=(b"rendered",),
         emitted_ids=((),),
         valid=(True,),
+        terminal=(True,),
     )
 
 

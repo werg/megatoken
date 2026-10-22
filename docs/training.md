@@ -1,4 +1,4 @@
-> **BREAKING MIGRATION NOTICE:** This document retains historical v8 training/background details. Its old `configs/train/*.yaml` stage commands and any optional-memory instructions are **not supported**. Only the phase-gated retrieval-memory curriculum described in [README.md](../README.md) and [retrieval-memory-implementation-status.md](retrieval-memory-implementation-status.md) may launch training.
+> **BREAKING MIGRATION NOTICE:** This document retains historical v8 training/background details. Its old `configs/train/*.yaml` stage commands are **not supported**. Only the phase-gated curriculum described in [README.md](../README.md), with the memory mechanism in [continuous-state-transducer-plan.md](continuous-state-transducer-plan.md), may launch training.
 
 # Training and operations
 
@@ -82,7 +82,7 @@ bytes, invalid draws, and empty draws cannot borrow an alignment target. A nativ
 is supervision only; it is excluded from the prefix before its own prediction.
 
 Observed byte inputs and frontend features used by prospective controls are detached
-from main-model losses in recurrent mode. Control projection, the predictor, C, memory,
+from main-model losses in recurrent mode. Control projection, the predictor, C,
 and R still learn from their own main objectives. E has an independent gradient-clipping
 domain, so a large auxiliary reconstruction or native alignment error cannot scale the
 main-model update. FP32 Adam moments remain owned once per parameter.

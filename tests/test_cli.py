@@ -24,7 +24,7 @@ def test_data_commands_and_help_do_not_require_torch():
 def test_inspect_counts_real_model_owners(capsys):
     assert main(["inspect", "--model", "tiny"]) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["totals"]["served"] > 0 and result["totals"]["training_only"] == 0
+    assert result["totals"]["served"] > 0 and result["totals"]["training_only"] > 0
     assert result["totals"]["all"] == result["totals"]["served"] + result["totals"]["training_only"]
 
 
@@ -41,7 +41,7 @@ def test_launch_interfaces_parse_explicit_modes():
         [
             "train",
             "--config",
-            "configs/train/retrieval-coherence.example.yaml",
+            "configs/train/coherence.example.yaml",
             "--no-require-blackwell",
             "--compile",
             "--expert-backend",

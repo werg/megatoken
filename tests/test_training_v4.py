@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 import torch
-from retrieval_fixture import MODEL_OVERRIDES, make_episode, retrieval_aux, retrieval_train_config
+from training_fixture import MODEL_OVERRIDES, make_episode, tiny_train_config
 
 from megatoken.data import WindowConfig, iter_windows
 from megatoken.generation import ByteCodec
@@ -16,6 +16,7 @@ from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.transducer import TransducerTrainer
 
 
 def window_fixture():
@@ -37,7 +38,7 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
     torch.set_num_threads(1)
     torch.manual_seed(771)
     codec, windows = window_fixture()
-    base = retrieval_train_config(
+    base = tiny_train_config(
         tmp_path,
         phase="P1",
         representation_mode="recurrent",
@@ -52,7 +53,6 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
     reports, optimizers, gradients = [], [], []
     for model, weight in zip(models, (1.0, 1000.0), strict=True):
         config = config_for(base, reconstruction=weight)
-        aux = retrieval_aux(config, supervised=False)
         (batch,) = prepare_batches(model, windows, config)
         assert batch.counts["encoder_alignment"] == 0  # No invented native labels.
         assert batch.counts["facet_prediction"] == 0  # No E-to-forecast pull.
@@ -62,7 +62,15 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
         encoder_ids = {id(parameter) for parameter in model.core.encoder_parameters()}
         torch.manual_seed(639)
         ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
-        forward_meridian_batch(model, batch, ledger, config, torch.device("cpu"), 0, aux)
+        forward_meridian_batch(
+            model,
+            batch,
+            ledger,
+            config,
+            torch.device("cpu"),
+            0,
+            transducer=TransducerTrainer(model.transducer),
+        )
         ledger.finish()
         gradients.append(
             {

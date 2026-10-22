@@ -118,21 +118,6 @@ class TrainConfig:
     grad_clip: float = 1.0
     weight_decay: float = 0.1
     inner_optimizer: str = "adamw"
-    # Required at EVERY phase; coherence bootstrap starts with no free KB rows.
-    # Omission is a configuration error, never a legacy training switch.
-    retrieval_sidecar: str = ""
-    retrieval_document_sidecar: str = ""
-    retrieval_memory_recipe: str = ""
-    retrieval_bank: str | None = None  # required for live warmup/free KB updates
-    retrieval_source_assets_root: str | None = None
-    retrieval_ivf_centroids: str | None = None
-    retrieval_ivf_sha256: str | None = None
-    retrieval_gate_receipt: str | None = None
-    retrieval_sparse_lr: float = 1e-3
-    retrieval_kv_dropout: float = 0.1
-    retrieval_lora_dropout: float = 0.1
-    retrieval_growth_every: int = 100
-    retrieval_growth_budget: int = 32
     router_balance_mode: str = "global"
     decoupled: DecoupledConfig | None = None
     loss_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_LOSS_WEIGHTS))
@@ -148,39 +133,6 @@ class TrainConfig:
             object.__setattr__(self, "decoupled", DecoupledConfig.from_dict(self.decoupled))
         if self.decoupled is not None and not isinstance(self.decoupled, DecoupledConfig):
             raise ValueError("decoupled must be a settings object or mapping")
-        if not (
-            self.retrieval_sidecar
-            and self.retrieval_document_sidecar
-            and self.retrieval_memory_recipe
-        ):
-            raise ValueError(
-                "Every training invocation requires query and document "
-                "embedding sidecars and the pinned retrieval-memory recipe"
-            )
-        if (
-            self.retrieval_sidecar.startswith("PIN_")
-            or self.retrieval_document_sidecar.startswith("PIN_")
-            or self.retrieval_memory_recipe.startswith("PIN_")
-        ):
-            raise ValueError("Pin actual retrieval preparation artifacts before training")
-        # DiLoCo is the target training methodology for every phase: neural
-        # parameters sync as fragments and free-KB rows through diloco_kb.
-        if self.retrieval_source_assets_root and not self.retrieval_bank:
-            raise ValueError("RAG source-feature assets require a live canonical KB")
-        if bool(self.retrieval_ivf_centroids) != bool(self.retrieval_ivf_sha256):
-            raise ValueError("Learned IVF must pin both centroid path and SHA256")
-        if self.retrieval_bank and not self.retrieval_sidecar:
-            raise ValueError("A live KB requires retrieval supervision sidecars")
-        if self.retrieval_bank and not self.retrieval_gate_receipt:
-            raise ValueError("Live KB phases require audited phase gate receipts")
-        if not 0 <= self.retrieval_kv_dropout <= 1 or not (0 <= self.retrieval_lora_dropout <= 1):
-            raise ValueError("Retrieval KV and LoRA dropout must be valid probabilities")
-        if (
-            self.retrieval_sparse_lr <= 0
-            or self.retrieval_growth_every < 1
-            or (self.retrieval_growth_budget < 0)
-        ):
-            raise ValueError("Invalid bounded retrieval sparse LR/growth settings")
         if self.router_balance_mode != "global":
             raise ValueError(
                 "The local router fairness objective is removed; "

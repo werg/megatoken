@@ -2,6 +2,8 @@
 
 **Research checked:** 21 October 2026. **Status:** design and experiment specification, not an implemented or benchmarked optimizer. Companion to the [continuous-state transducer plan](continuous-state-transducer-plan.md).
 
+> **Note (v10):** The knowledge base this note studied (the v9 SQLite free KB, its IVF search index and its sparse row optimizer) was removed. The findings now apply to the transducer's bank of packed edges: the FP8/FP4 block-scaled storage and the momentum-free, discounted block-scale optimizer (`memory/transducer_packing.py`, `memory/transducer_optimizer.py`) come from here, and the [transducer plan](continuous-state-transducer-plan.md) records the decisions taken. Section 2 describes the removed code at a pinned snapshot, the "existing touched-row Adam" and ANN-index passages refer to it, and the bank has no query-key index, so treat those as history and comparison baselines only.
+
 ## 1. Decision
 
 Make **four-bit storage of the large, cold knowledge values** the target. Do not require four-bit arithmetic or four-bit optimizer statistics everywhere. Separate persistent storage, temporary working precision, and compute formats.
@@ -16,7 +18,7 @@ At the reviewed [repository snapshot](https://github.com/werg/megatoken/tree/331
 
 Its bias-correction counter advances on **visits**, while the saved global step is checked for update ordering. Long periods without visits do not age the stored moments. The optimizer rejects rows changed during a training window, which is useful, but is not a solution to changes in the shared model during a long absence. As more rows are eventually visited, the two full moment arrays become a major storage cost.
 
-The [DiLoCo KB protocol](https://github.com/werg/megatoken/blob/331777a0fb569104bfc8b958d8fc734381e8fd65/src/megatoken/training/diloco_kb.py) exchanges changes from a baseline, not individual fresh gradients. Local optimization and coordinator merging therefore need separate semantics. This document changes the proposed successor, not the supported v9 runtime.
+The [DiLoCo KB protocol](https://github.com/werg/megatoken/blob/331777a0fb569104bfc8b958d8fc734381e8fd65/src/megatoken/training/diloco_kb.py) exchanges changes from a baseline, not individual fresh gradients. Local optimization and coordinator merging therefore need separate semantics. This document proposed the successor; the v9 code it describes has since been deleted.
 
 ## 3. What is genuinely relevant in the literature
 
@@ -104,7 +106,7 @@ Inactivity alone is not proof that knowledge has become wrong. Discount optimize
 
 ### Baseline and candidate
 
-First compare momentum-free SGD and row/block-wise AdaGrad against the existing touched-row Adam reference. Then test discounted block-wise adaptation. Use **256 value coordinates per block** as an initial engineering choice, sweep 128/256/512, and handle keys, departures, residuals, and scalar fields separately. Quantizer block size and optimizer block size need not match.
+First compare momentum-free SGD and row/block-wise AdaGrad against a touched-row Adam reference (the removed v9 optimizer). Then test discounted block-wise adaptation. Use **256 value coordinates per block** as an initial engineering choice, sweep 128/256/512, and handle keys, departures, residuals, and scalar fields separately. Quantizer block size and optimizer block size need not match.
 
 The proposed method maintains a squared-gradient summary `S_ib` for each edge/block and an effective observation count `n_i` for each row field. It has **no full first-moment vector**. This removes both most optimizer storage and an old directional estimate that could be misleading on a return visit.
 

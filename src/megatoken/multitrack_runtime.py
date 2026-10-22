@@ -1,7 +1,10 @@
 """One canonical causal runtime for grouped observations and media generation.
 
-A session owns its committed multitrack state. Ready tool results are observed
-in later meridians. Speculative branches are copy-on-write and can be rejected
+A session owns its committed multitrack state and its transducer agenda: every
+committed ordinary meridian may make a bank lookup due, served before the
+next one; a completed assistant turn or an arriving tool, document or
+environment result always does. Ready tool results are observed in later
+meridians. Speculative branches are copy-on-write and can be rejected
 without disturbing the committed session. Delivery is an irreversible ledger.
 """
 
@@ -14,8 +17,6 @@ from dataclasses import dataclass, field
 import torch
 
 from megatoken.generation.structure import ActionSpec
-from megatoken.memory.context import admit_kb, evict_kb
-from megatoken.memory.semantic import AdmittedGroup
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import (
     GroupGeneration,
@@ -23,6 +24,7 @@ from megatoken.model.multitrack import (
     MultiTrackState,
     ObservedEvent,
 )
+from megatoken.transducer_service import TransducerInferenceEngine, TransducerSession
 
 
 @dataclass(frozen=True)
@@ -44,19 +46,15 @@ class Delivery:
 class TrackSession:
     """A single shared-history context, with no private per-agent transformers."""
 
-    state: MultiTrackState
+    memory: TransducerSession
     revision: int = 0
     pending: PendingGroup | None = None
     delivered: dict[str, Delivery] = field(default_factory=dict)
     events: list[tuple[int, tuple[str, ...]]] = field(default_factory=list)
-    retrieval_receipts: list[dict] = field(default_factory=list)
-    # Query and retrieved-source meridians inserted by the retrieval runtime.
-    internal_meridians: int = 0
 
     @property
-    def causal_clock(self) -> int:
-        """External meridians committed: availability/deadline time, shared with training."""
-        return int(self.state.meridians_seen.min()) - self.internal_meridians
+    def state(self) -> MultiTrackState:
+        return self.memory.state
 
 
 class MultiTrackRuntime:
@@ -64,38 +62,28 @@ class MultiTrackRuntime:
 
     def __init__(self, generator: MultiTrackGenerator) -> None:
         self.generator = generator
+        self.memory = TransducerInferenceEngine(generator)
 
-    def open(self) -> TrackSession:
-        return TrackSession(self.generator.tracks.initial_state(1))
+    def open(self, metadata: dict[str, object] | None = None, *, effort: int = 6) -> TrackSession:
+        """Commit the metadata prefix and the first lookup, before any answer.
 
-    def observe(self, session: TrackSession, events: Sequence[ObservedEvent]) -> MultiTrackState:
+        Training shows the model the fields ``task``, ``modality`` and
+        ``version``, each present or absent at random, so pass any of them
+        (``metadata_payload`` lists the rest) or none; unknown fields stay null.
+        """
+        return TrackSession(self.memory.new_session(metadata or {}, effort=effort))
+
+    def observe(
+        self, session: TrackSession, events: Sequence[ObservedEvent], *, effort: int = 6
+    ) -> MultiTrackState:
         """Only already available inputs may become shared causal observations."""
         ready = tuple(events)
         if not ready:
             raise ValueError("A committed meridian must contain one or more events")
-        session.state = self.generator.tracks.observe_group(
-            session.state, ready, encoder_grad=False
-        )
+        self.memory.observe(session.memory, ready, effort=effort)
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, tuple(x.track for x in ready)))
-        return session.state
-
-    def admit_memory(self, session: TrackSession, group: AdmittedGroup) -> MultiTrackState:
-        """Direct KB admission invalidates speculation, not the native event clock."""
-        updated = admit_kb(session.state, group)
-        if updated is not session.state:
-            session.state = updated
-            session.revision += 1
-            session.pending = None
-        return session.state
-
-    def evict_memory(self, session: TrackSession, group_id: str) -> MultiTrackState:
-        updated = evict_kb(session.state, group_id)
-        if updated is not session.state:
-            session.state = updated
-            session.revision += 1
-            session.pending = None
         return session.state
 
     def speculate(
@@ -128,7 +116,10 @@ class MultiTrackRuntime:
         result = branch.result
         if result.tape.meridian_id != int(session.state.meridians_seen[0]):
             raise ValueError("Speculative branch has the wrong causal history")
-        session.state = result.state
+        # The lookup this meridian makes due thinks as hard as the meridian did.
+        self.memory.generated(
+            session.memory, result.state, result.tape.terminal, effort=result.tape.effort
+        )
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, result.tape.tracks))

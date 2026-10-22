@@ -1,85 +1,39 @@
-# Megatoken — required retrieval-memory training
+# Megatoken — causal faceted generation with a continuous-state transducer
 
-**Breaking architecture migration.** Version 9 native retrieval + semantic memory is the **only supported training architecture**. There is no disabled, optional, ungrouped or pre-retrieval training route. Model creation always registers the semantic embedding realizer, the full-native-facet memory K/V projector and independent all-track LoRA controllers, even while the canonical semantic-memory bank is initially empty.
-
-This project is a software prototype, not a pretrained model. Training quality, performance and release fitness have **not** been established. See the [implementation and validation ledger](docs/retrieval-memory-implementation-status.md).
+This project is a software prototype, not a pretrained model. Training quality, performance and release fitness have **not** been established.
 
 ## One architecture
 
-The same selected raw-facet representation powers ordinary E/C/P/R generation and learned retrieval:
+One selected raw-facet representation powers ordinary E/C/P/R generation, and one learned memory sits beside it: the [Continuous State Transducer](docs/continuous-state-transducer-plan.md) (v10, implemented, not yet trained). At chosen boundaries the model emits a query, searches a sparse bank of location-to-location edges with an agenda-wide neighbourhood search, and admits what it finds as extra attention slots ("knowledge megatokens"). Edges carry FP8 routing vectors and 32,768-wide FP4 values; a momentum-free local-scale optimizer trains them, hindsight writes fill them, and error-driven growth adds and splits them. The transducer is always on: there is no switch and no older retrieval stack (the v9 source catalog, search index and embedding-alignment sidecars were removed). The plan takes precedence over the accompanying research survey.
 
-1. **Causal query event:** Condition P on the main request, retrieval purpose and pinned semantic-space identity. Sample its normal raw Gaussian event, realize one typed normalized embedding with asymmetric query/document R, then commit the selected raw event through C.
-2. **Literal evidence:** Retrieve eligible source chunks with incremental MaxSim, deduplicate the original source byte intervals, and admit only successfully fetched/committed bytes through native E/C on reusable source tracks. Source content and original lineage remain immutable.
-3. **Semantic memory:** In a source-supported, progressively grown free memory bank, jointly learn queries, point/source keys, pair dependence, semantic values, strength and lifetime. Mix compatible point/pair semantic values **before** projecting each active group into the complete native F-facet K/V geometry. Admit them directly to a separate bounded KB context segment, not to the native raw frontier.
-4. **C/P/R control:** Use the same admitted semantic mixture for independently parameterized sparse LoRA experts across every track. C, P and R share one transaction snapshot; grouped native meridian clocks advance only when real events commit. Null KB strength must remove the position from attention normalization.
-5. **Training:** Learn useful retrieval jointly with continuation, detached original-source feature-value supervision, teacher-aligned query/document R, query-demand-driven allocation and optimizer-step-global router balance. Preserve exact complete-footprint causal eligibility, sparse row moments and coherent neural/KB snapshot identities.
-6. **Writer handoff:** Only *after* useful free-bank pretraining, freeze the accepted learned coordinates and fit permitted source/pair writers. Fully reconstruct a fresh source+point+pair KB from the immutable original sources, never by quietly continuing with optimized free values. Experience writing comes afterward.
+The bank travels with every checkpoint (`transducer.pt` beside the weights). Under DiLoCo the coordinator owns the canonical bank and merges each learner's 32-step round of sparse changes; synchronous multi-GPU ranks share it the same way, merged on rank 0.
 
-[Architecture and acceptance specification](docs/retrieval-memory-plan.md). [Donor methodology: hindsight-kb@4501647](https://github.com/werg/hindsight-kb/tree/450164784589b2576256b8b0ba3d2ccc89af992d).
+## Prepare, then train
 
-**Selected v10 design (not implemented):** [Continuous State Transducer](docs/continuous-state-transducer-plan.md): agenda-wide neighbourhood search over location-to-location edges, 32,768-wide FP4 values, FP8 routing vectors, shared-MoE knowledge megatokens, a momentum-free local-scale optimizer, and error-driven growth. This is the committed architecture for one integrated run, not an experiment menu. The plan takes precedence over the accompanying research survey; v9 remains the supported implementation until v10 lands.
-
-## Prepare once, train only through the new recipe
-
-Python 3.11/3.12 and the tested native PyTorch runtime are expected. Model defaults use a 1,024-dimensional learned address geometry (the teacher's trained truncation), a separate 256-dimensional semantic value space, and four bounded complete-KV groups; the actual chosen teacher, output dimension, native model checkpoint geometry and reproducible preprocessing must agree in the phase recipe. A deliberate zero-evidence *ablation* is allowed inside this architecture, but does not reinstate a legacy trainer.
+Python 3.11/3.12 and the tested native PyTorch runtime are expected.
 
 ```bash
 python -m pip install -e '.[train,data,dev]'
 megatoken doctor
-python -m pytest -q tests/test_memory_*.py
-
-# Create prepared native-meridian episodes and hash-verified retrieval sidecars.
-# Pin the real teacher weights, original source hashes and learned-space roles.
-megatoken-memory configs/retrieval-memory-pilot.json
+python -m pytest -q tests
 ```
 
-The checked-in recipe and stage configurations deliberately use `PIN_*` placeholders: they **cannot** start training until preparation outputs exist and match. This is safer than silently running on demo data or ungrounded vectors.
-
-The sole supervised training command is:
+The checked-in stage configurations deliberately use `PIN_*` placeholders: they **cannot** start training until preparation outputs (prepared episodes, codec, pack manifest) exist and match. Single node:
 
 ```bash
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/retrieval-coherence.example.yaml
+NPROC_PER_NODE=8 scripts/launch.sh configs/train/coherence.example.yaml
 ```
 
-Provide a filled-in, immutable copy of that config. It must name the checksummed causal query sidecar, phase-matched retrieval recipe, prepared episode dataset, codec, original-source snapshot and model geometry. The trainer rejects ungrouped episodes, missing teacher main-request bytes, incompatible learned spaces and old checkpoints.
+There is **no** implicit launcher default or `megatoken smoke`.
 
-Continue in order with **phase receipts**:
-
-```bash
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/retrieval-warmup.example.yaml \
-  --resume runs/retrieval-coherence/checkpoints --phase-transition
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/retrieval-free-kb.example.yaml \
-  --resume runs/retrieval-warmup/checkpoints --phase-transition
-```
-
-These two phases additionally require the authoritative prepared SQLite KB, source assets, pinned IVF centroids, signed-off readiness/holdout gate receipts and a synchronized neural+KB checkpoint. Query-density growth cannot begin before generator-coherence and query/chunk embedding gates pass. Development/release holdouts, source-family ancestry, sparse updates and index freshness must be verified.
-
-There is **no** `configs/train/b0.yaml`, implicit launcher default or `megatoken smoke`.
-
-**DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` run decoupled learners over the same mandatory retrieval architecture ([configs/train/retrieval-coherence-diloco-coreweave.example.yaml](configs/train/retrieval-coherence-diloco-coreweave.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). Every phase runs decoupled: neural parameters sync as fragments, and in live free-KB phases the coordinator owns the canonical bank and merges learners' sparse row updates ([configs/train/retrieval-free-kb-diloco.example.yaml](configs/train/retrieval-free-kb-diloco.example.yaml)). The old stand-alone `megatoken rl` training command is also retired until the native retrieval-memory experience/writer acceptance gates are implemented.
-
-## Storage and writer utilities
-
-After preparing immutable source chunks and their support identities, use:
-
-```bash
-megatoken-memory-catalog --help
-megatoken-memory-centroids --help
-megatoken-memory-index --help
-megatoken-memory-writer --help
-megatoken-memory-reproduce --help
-```
-
-These are infrastructure commands, not substitutes for the native curriculum. Writer checkpoints have pinned model/free-bank/space identities, and fresh source+point+pair shadow banks are accepted only when all original assignment and causal support checks pass.
-
-See [the preparation/order/status ledger](docs/retrieval-memory-implementation-status.md) for exact artifact dependencies, release blockers, empirical evaluation requirements, known gaps and reproducible validation commands. For hardware-specific setup, see [Blackwell](docs/blackwell.md); prior stand-alone B0/P1/M1/M2 experiments in historical documents are no longer supported launch instructions.
+**DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` run decoupled learners ([configs/train/diloco-coreweave.example.yaml](configs/train/diloco-coreweave.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). Every phase runs decoupled: neural parameters sync as fragments and the coordinator merges the transducer bank's rounds. Each phase is a new coordinator started from the previous phase's export. For hardware-specific setup, see [Blackwell](docs/blackwell.md).
 
 ## Validation contract
 
-A merge/production launch requires: complete CPU and Python-version tests, GPU/native attention gradient and RoPE parity, true multi-rank sparse/global-router equivalence, checkpoint corruption/recovery, full delayed retrieval replay, locality/visibility/negative support checks, teacher source-document and causal-query alignment, valid fresh source/pair writer reproduction, no-memory regressions and new-source task uptake. Passing structural tests does not assert these learned-quality results.
+A production launch requires: complete CPU and Python-version tests, GPU/native attention gradient and RoPE parity, true multi-rank equivalence (dense gradients and the merged bank), checkpoint corruption/recovery, and the learned-quality measurements in the transducer plan. Passing structural tests does not assert learned-quality results.
 
-The development PR stays **draft until verified**, but the architecture is not optional.
+The development PR stays **draft until verified**.
 
 ## Media: one input path, one realization path
 
-Media has exactly one path in and one path out ([docs/media.md](docs/media.md)). Every image, audio or video event enters as the **512-wide EmbeddingGemma2 hidden states** (not its pooled 768-dimensional embedding), extracted offline by the pinned frozen teacher and projected by a trainable `MediaEncoder` into the same E reductions as text; text enters as bytes, except long reference documents and large tool results, which can be read compressed through the same teacher ([docs/compressed-reading.md](docs/compressed-reading.md)); the teacher's pooled embeddings are also the retrieval space. Media leaves through frozen pretrained realizers (Pocket for 24 kHz speech, Sana for images, Sana-Video for video) with trainable `FacetCondition`s, trained on the donors' codec latents. All pretrained weights come from one locked pack manifest written by [scripts/acquire_packs.py](scripts/acquire_packs.py) from the pinned [inventory](configs/packs/inventory.json); install with `pip install -e '.[train,media]'`. Media is part of the stage plan (`src/megatoken/data/stages.json`): a short [media-bridge stage](configs/train/media-bridge.example.yaml) after the codec bootstrap, explicit media and long-document shares in base pretraining, and replay in later stages, each stage a new DiLoCo coordinator started from the previous export. No media-quality or GPU-training results are implied by these contracts.
+Media has exactly one path in and one path out ([docs/media.md](docs/media.md)). Every image, audio or video event enters as the **512-wide EmbeddingGemma2 hidden states** (not its pooled 768-dimensional embedding), extracted offline by the pinned frozen teacher and projected by a trainable `MediaEncoder` into the same E reductions as text; text enters as bytes, except long reference documents and large tool results, which can be read compressed through the same teacher ([docs/compressed-reading.md](docs/compressed-reading.md)); its pooled 768-dimensional embedding is the target of the encoder's embedding head. Media leaves through frozen pretrained realizers (Pocket for 24 kHz speech, Sana for images, Sana-Video for video) with trainable `FacetCondition`s, trained on the donors' codec latents. All pretrained weights come from one locked pack manifest written by [scripts/acquire_packs.py](scripts/acquire_packs.py) from the pinned [inventory](configs/packs/inventory.json); install with `pip install -e '.[train,media]'`. Media is part of the stage plan (`src/megatoken/data/stages.json`): a short [media-bridge stage](configs/train/media-bridge.example.yaml) after the codec bootstrap, explicit media and long-document shares in base pretraining, and replay in later stages, each stage a new DiLoCo coordinator started from the previous export. No media-quality or GPU-training results are implied by these contracts.

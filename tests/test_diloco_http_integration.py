@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 
 import torch
-from retrieval_fixture import retrieval_train_config
+from training_fixture import tiny_train_config
 
 from megatoken.data import PreparedDataset
 from megatoken.generation.codec import ByteCodec
@@ -22,6 +22,7 @@ from megatoken.training.diloco_protocol import training_identity
 from megatoken.training.diloco_server import initialize_coordinator, serve_coordinator
 from megatoken.training.engine import train
 from megatoken.training.schedule import PHASES
+from megatoken.training.transducer import HindsightSchedule
 
 
 def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
@@ -44,7 +45,7 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
         timeout_seconds=30,
         max_offline_steps=20,
     )
-    config = retrieval_train_config(
+    config = tiny_train_config(
         tmp_path,
         output=str(tmp_path / "runs"),
         checkpoint_every=1,
@@ -80,6 +81,10 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
         fragment_bytes=1 << 20,
         grace_seconds=0,
         token_budget=config.budget or PHASES[config.phase].budget,
+        transducer={
+            "geometry": dict(vars(model_config.transducer_geometry)),
+            "evidence_from": HindsightSchedule().warmup_steps,
+        },
     )
     server = multiprocessing.get_context("spawn").Process(
         target=serve_coordinator,

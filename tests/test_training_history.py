@@ -432,9 +432,6 @@ def integration_config():
         eval_episodes=1,
         # The evaluator reads none of the retrieval artifacts; the config only
         # has to satisfy the every-invocation validation.
-        retrieval_sidecar="unused-query-sidecar.jsonl",
-        retrieval_document_sidecar="unused-document-sidecar.jsonl",
-        retrieval_memory_recipe="unused-recipe.json",
         budget=64,
     )
 

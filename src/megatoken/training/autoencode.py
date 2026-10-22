@@ -75,6 +75,24 @@ class FeatureSampler:
         return items
 
 
+def embedding_center(sampler: FeatureSampler, store: TensorAssetStore, limit: int = 256) -> Tensor:
+    """The mean unit teacher embedding of up to ``limit`` training feature items.
+
+    It is the reference the centered alignment distance subtracts, so the
+    readout is scored on what distinguishes an item, not on the space's mean.
+    """
+    vectors = []
+    for modality in sampler.modalities:
+        for position in range(min(sampler.counts[modality], limit // len(sampler.modalities) + 1)):
+            item = sampler.dataset.feature_item("train", modality, position)
+            vectors.append(
+                torch.nn.functional.normalize(
+                    torch.from_numpy(store.load(item.embedding)).float(), dim=-1
+                )
+            )
+    return torch.stack(vectors).mean(0)
+
+
 def autoencode_losses(
     model: Any,
     items: list[MediaRecord],
@@ -85,7 +103,7 @@ def autoencode_losses(
     generator: torch.Generator | None = None,
 ) -> dict[str, tuple[Tensor, int]]:
     """Summed reconstruction and embedding distances of ``items``, and their counts."""
-    if center.shape != (EMBEDDING_WIDTH,) or model.config.semantic_dim != EMBEDDING_WIDTH:
+    if center.shape != (EMBEDDING_WIDTH,) or model.embedding_realizer.dimension != EMBEDDING_WIDTH:
         raise ValueError("Embedding distillation needs the teacher's 768-wide space")
     device = model.core.initial_facets.device
     zero = model.core.initial_facets.float().sum() * 0

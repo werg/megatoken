@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 import torch
 from media_support import FakeRealizer, install_fake_realizers, prepared_record
-from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
+from training_fixture import MODEL_OVERRIDES, tiny_train_config
 
 from megatoken.data import Episode, Lineage, PhysicalRecord, WindowConfig, iter_windows
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
@@ -18,6 +18,7 @@ from megatoken.training.engine import batch_counters, prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.transducer import TransducerTrainer
 
 CODEC = ByteCodec.byte_fallback()
 OTHER_TEACHER = PINNED_TEACHER.replace("914f7f89", "0" * 8)
@@ -78,7 +79,7 @@ def _case(tmp_path):
         tracks=(*episode.tracks[:3], TrackSpec("picture", "assistant")),
     )
     model = install_fake_realizers(build_model(ModelConfig.tiny(**MODEL_OVERRIDES), CODEC))
-    config = retrieval_train_config(
+    config = tiny_train_config(
         tmp_path / "retrieval",
         phase="B0",
         media_root=str(tmp_path),
@@ -103,7 +104,7 @@ def _forward(model, episode, config, *, window_config=None):
         config,
         torch.device("cpu"),
         0,
-        retrieval_aux(config, supervised=False),
+        transducer=TransducerTrainer(model.transducer),
     )
     ledger.finish()
     return batch, ledger
@@ -157,7 +158,7 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, mode):
         config,
         torch.device("cpu"),
         0,
-        retrieval_aux(config, supervised=False),
+        transducer=TransducerTrainer(model.transducer),
     )
     ledger.finish()
     # The image realizer's own objective trains its facet condition; the audio
@@ -289,8 +290,6 @@ def test_video_training_is_one_32_facet_megatoken(tmp_path, mode):
 
 def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
     """The engine path; realizers come from a locked pack manifest, replaced here by fakes."""
-    from retrieval_fixture import write_retrieval_artifacts
-
     from megatoken.data import DedupConfig, DedupStore
     from megatoken.data.storage import export_prepared
     from megatoken.training.checkpoint import load_checkpoint
@@ -298,8 +297,7 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
 
     torch.set_num_threads(1)
     _, ep, _, config = _case(tmp_path)
-    # Mandatory retrieval supervision needs a document-role source event in
-    # meridian 0 and a query at the generated caption.
+    # A document-role source event observed in meridian 0, before the caption.
     ep = replace(
         ep,
         records=(PhysicalRecord("doc", "document", b"the sound is a bright tone"), *ep.records),
@@ -326,9 +324,6 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
         )
     finally:
         source.close()
-    artifacts = write_retrieval_artifacts(
-        tmp_path / "omni-retrieval", [ep], doc="doc", request="prompt", answer="caption"
-    )
     packs = tmp_path / "packs.json"
     packs.write_text("{}")
     monkeypatch.setattr(
@@ -340,7 +335,6 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
         dataset=str(data),
         output=str(tmp_path / "run"),
         packs=str(packs),
-        **artifacts,
         max_steps=1,
         accumulate_events=5,
         accumulate_scored=100_000,

@@ -2,7 +2,7 @@
 
 import torch
 from media_support import install_fake_realizers, prepared_record
-from retrieval_fixture import MODEL_OVERRIDES
+from training_fixture import MODEL_OVERRIDES
 
 from megatoken.data import DedupConfig, DedupStore, Episode, Lineage, PhysicalRecord
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, TensorAssetStore
@@ -76,10 +76,10 @@ def test_feature_items_are_indexed_once_per_split(tmp_path):
 def test_encode_and_reconstruct_trains_the_encoder_side_only(tmp_path):
     torch.manual_seed(3)
     store, records = _dataset(tmp_path)
-    model = install_fake_realizers(
-        build_model(ModelConfig.tiny(**{**MODEL_OVERRIDES, "semantic_dim": 768}), CODEC)
+    model = install_fake_realizers(build_model(ModelConfig.tiny(**MODEL_OVERRIDES), CODEC))
+    center = (
+        torch.nn.functional.normalize(torch.ones(model.embedding_realizer.dimension), dim=0) * 0.5
     )
-    center = torch.nn.functional.normalize(torch.ones(model.config.semantic_dim), dim=0) * 0.5
     terms = autoencode_losses(model, records, store, space_fingerprint="space", center=center)
     assert terms["reconstruction"][1] == 3 and terms["embedding"][1] == 3
     (terms["reconstruction"][0] + terms["embedding"][0]).backward()
@@ -99,7 +99,7 @@ def test_media_bridge_stage_trains_encode_and_reconstruct_end_to_end(tmp_path, m
     from dataclasses import replace
     from pathlib import Path
 
-    from retrieval_fixture import make_episode, retrieval_train_config, write_retrieval_artifacts
+    from training_fixture import make_episode, tiny_train_config
 
     from megatoken.training.engine import train
 
@@ -136,7 +136,7 @@ def test_media_bridge_stage_trains_encode_and_reconstruct_end_to_end(tmp_path, m
         return original(model, items, *args, **kwargs)
 
     monkeypatch.setattr("megatoken.training.engine.autoencode_losses", watch)
-    config = retrieval_train_config(
+    config = tiny_train_config(
         tmp_path / "base",
         phase="MB",
         trainable="media_bridge",
@@ -144,10 +144,8 @@ def test_media_bridge_stage_trains_encode_and_reconstruct_end_to_end(tmp_path, m
         dataset=str(data),
         media_root=str(data),
         use_stage_mixture=True,
-        model_overrides={**MODEL_OVERRIDES, "semantic_dim": 768},
         max_record_bytes=4096,
         max_steps=1,
-        **write_retrieval_artifacts(tmp_path / "retrieval", texts, dimension=768),
     )
     result = train(config)
     assert result["global_step"] == 1

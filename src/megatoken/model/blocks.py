@@ -37,6 +37,7 @@ class DenseFacetBlock(nn.Module):
             c.attention_head_dim,
             c.norm_eps,
             track_relations=shared_kv,
+            sink=shared_kv,
         )
         self.kv = (
             None
@@ -58,6 +59,7 @@ class DenseFacetBlock(nn.Module):
         temporal_positions: Tensor | None = None,
         slot_codes: Tensor | None = None,
         query_track_ids: Tensor | None = None,
+        query_key_mask: Tensor | None = None,
     ) -> Tensor:
         projection = self.kv if projector is None else projector
         if projection is None:
@@ -77,6 +79,7 @@ class DenseFacetBlock(nn.Module):
             temporal_positions=temporal_positions,
             slot_codes=slot_codes,
             query_track_ids=query_track_ids,
+            query_key_mask=query_key_mask,
         )
         facets = facets + self.residual_gates[0].sigmoid() * updated
         if temporary is not None:
@@ -90,6 +93,11 @@ class DenseFacetBlock(nn.Module):
                 temporal_positions=temporal_positions,
                 slot_codes=slot_codes,
                 query_track_ids=query_track_ids,
+                query_key_mask=(
+                    None
+                    if query_key_mask is None
+                    else query_key_mask[..., -temporary.keys.shape[2] :]
+                ),
             )
             facets = facets + self.temporary_gate.sigmoid() * response
         return facets + self.residual_gates[1].sigmoid() * self.ffn(self.ffn_norm(facets))

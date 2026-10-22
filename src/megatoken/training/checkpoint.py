@@ -15,7 +15,7 @@ import torch
 
 from megatoken.io import fsync_directory, sha256_file, write_json
 
-FORMAT_VERSION = 9
+FORMAT_VERSION = 10
 
 
 def stage_checkpoint(root: str | Path, name: str) -> Path:
@@ -75,6 +75,20 @@ def commit_checkpoint(
     return destination
 
 
+def transducer_attachment(state: Callable[[], dict]) -> Callable[[Path], dict[str, Any]]:
+    """Stage the transducer bank (``{"bank": snapshot, ...}``) beside a checkpoint.
+
+    ``state`` returns private host tensors, so they are written without another copy.
+    """
+
+    def attach(stage: Path) -> dict[str, Any]:
+        path = stage / "transducer.pt"
+        torch.save(state(), path)
+        return {"transducer_checkpoint": {"file": path.name, "sha256": sha256_file(path)}}
+
+    return attach
+
+
 def save_checkpoint(
     root: str | Path,
     name: str,
@@ -88,7 +102,7 @@ def save_checkpoint(
     temporary = stage_checkpoint(root, name)
     try:
         # Stage externally owned snapshots alongside the neural optimizer BEFORE
-        # publication, so latest.json can never point to half a neural/KB pair.
+        # publication, so latest.json can never point to half a neural/bank pair.
         extra = attachments(temporary) if attachments is not None else {}
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
@@ -191,19 +205,18 @@ def load_checkpoint(
     metadata = json.loads((directory / "metadata.json").read_text())
     if metadata.get("format_version") != FORMAT_VERSION:
         raise ValueError(
-            "Unsupported checkpoint format: v9 requires mandatory native retrieval-memory "
-            "and the joint multitrack core; earlier weights are unsupported"
+            "Unsupported checkpoint format: v10 carries the transducer bank; "
+            "earlier checkpoints are unsupported"
         )
     state_path = directory / "state.pt"
     if sha256_file(state_path) != metadata["state_sha256"]:
         raise ValueError(f"Checkpoint payload checksum mismatch at {directory}")
-    kb = metadata.get("memory_checkpoint")
-    if kb is not None:
-        memory_path = directory / kb["kb_file"]
-        if memory_path.name != kb["kb_file"] or (
-            not memory_path.is_file() or sha256_file(memory_path) != kb["kb_sha256"]
-        ):
-            raise ValueError("Checkpoint memory artifact missing or checksum mismatch")
+    transducer = metadata["transducer_checkpoint"]
+    bank_path = directory / transducer["file"]
+    if bank_path.name != transducer["file"] or (
+        not bank_path.is_file() or sha256_file(bank_path) != transducer["sha256"]
+    ):
+        raise ValueError("Checkpoint transducer bank missing or checksum mismatch")
     payload = torch.load(state_path, map_location=map_location, weights_only=True)
     if payload.get("format_version") != FORMAT_VERSION:
         raise ValueError("Unsupported payload format")

@@ -93,11 +93,13 @@ def _diloco_initialize(args):
     from megatoken.io import content_hash, sha256_file
     from megatoken.loading import build_model, load_codec, load_model_config, restore_weights
     from megatoken.runtime import seed_everything
-    from megatoken.training.checkpoint import load_checkpoint
+    from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint
     from megatoken.training.config import TrainConfig
     from megatoken.training.diloco_protocol import training_identity
     from megatoken.training.diloco_server import initialize_coordinator
     from megatoken.training.schedule import PHASES
+    from megatoken.training.transducer import HindsightSchedule
+    from megatoken.training.transducer_sync import load_transducer_state
 
     config = TrainConfig.load(args.config)
     if config.decoupled is None:
@@ -118,6 +120,7 @@ def _diloco_initialize(args):
         packs=config.packs,
     )
     weights: dict = {}
+    transducer_state = None
     if args.resume:
         # A new coordinator is the DiLoCo phase transition: it may install
         # realizers the previous phase lacked, whose masters start from init.
@@ -139,6 +142,8 @@ def _diloco_initialize(args):
             if payload.get("export_only")
             else payload["optimizer"]["master_weights"]
         )
+        # The previous phase's bank seeds this coordinator's canonical bank.
+        transducer_state = load_transducer_state(resolve_checkpoint(args.resume))
     elif config.engram_import:
         from megatoken.assets import install_engram_asset
 
@@ -151,26 +156,6 @@ def _diloco_initialize(args):
     }
     with PreparedDataset(config.dataset) as prepared:
         dataset_fingerprint = content_hash(prepared.manifest)
-    kb = None
-    if config.retrieval_bank:
-        from megatoken.data.retrieval import read_sidecar
-
-        # The coordinator owns the canonical free KB and all row growth.
-        kb = {
-            "recipe_path": config.retrieval_memory_recipe,
-            "bank_path": config.retrieval_bank,
-            "centroids_path": config.retrieval_ivf_centroids,
-            "centroids_sha256": config.retrieval_ivf_sha256,
-            "scopes": tuple(
-                sorted(
-                    {
-                        example.query_teacher_inputs.ranges[0].scope
-                        for example in read_sidecar(config.retrieval_sidecar)
-                    }
-                )
-            ),
-            "growth_budget": config.retrieval_growth_budget,
-        }
     return initialize_coordinator(
         args.root,
         run_id=config.decoupled.run_id,
@@ -188,15 +173,23 @@ def _diloco_initialize(args):
         grace_seconds=args.grace_seconds,
         max_staleness=args.max_staleness,
         token_budget=config.budget or PHASES[config.phase].budget,
-        kb=kb,
+        transducer={
+            "geometry": dict(vars(model_config.transducer_geometry)),
+            "evidence_from": HindsightSchedule().warmup_steps,
+        },
+        transducer_state=transducer_state,
     )
 
 
 def _diloco_serve(args):
     import os
+    import signal
+    import sys
 
     from megatoken.training.diloco_server import serve_coordinator
 
+    # Exit through the server's cleanup, which saves the canonical bank.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     serve_coordinator(
         args.root,
         args.host,
@@ -270,33 +263,6 @@ def _evaluate(args):
         return evaluate_records(trained.model, dataset, trained.codec, config, device)
     finally:
         dataset.close()
-
-
-def _gates(args):
-    from megatoken.training.gates import GateThresholds, bootstrap_gates
-
-    return bootstrap_gates(
-        checkpoint=args.checkpoint,
-        dataset=args.dataset,
-        query_sidecar=args.queries,
-        document_sidecar=args.documents,
-        recipe_path=args.recipe,
-        bank_path=args.bank,
-        output=args.output,
-        centroids=args.centroids,
-        max_episodes=args.episodes,
-        thresholds=GateThresholds(
-            max_lexical_ce=args.max_lexical_ce,
-            max_terminal_ce=args.max_terminal_ce,
-            min_document_centered_cosine=args.min_document_centered_cosine,
-            min_query_centered_cosine=args.min_query_centered_cosine,
-            min_recall_ratio=args.min_recall_ratio,
-            min_index_recall=args.min_index_recall,
-            recall_k=args.recall_k,
-        ),
-        device=args.device,
-        mark_ready=args.mark_ready,
-    )
 
 
 def _benchmark(args):
@@ -537,43 +503,6 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--effort", type=int, choices=(1, 2, 3, 6), default=6)
     item.add_argument("--seed", type=int, default=17)
     item.set_defaults(func=_evaluate)
-    item = commands.add_parser(
-        "gates", help="Measure held-out retrieval-memory bootstrap gates and write evidence"
-    )
-    item.add_argument("--checkpoint", required=True)
-    item.add_argument("--dataset", required=True, help="Held-out prepared dataset")
-    item.add_argument("--queries", required=True, help="Held-out query sidecar")
-    item.add_argument("--documents", required=True, help="Held-out document sidecar")
-    item.add_argument("--recipe", required=True, help="coherence_embedding recipe")
-    item.add_argument("--bank", required=True, help="Source catalog bank")
-    item.add_argument("--output", required=True, help="Evidence directory")
-    item.add_argument("--centroids", help="Pinned IVF centroids for index recall")
-    item.add_argument("--episodes", type=int, default=1000)
-    item.add_argument("--device", default="cuda")
-    from megatoken.training.gates import GateThresholds
-
-    defaults = GateThresholds()
-    item.add_argument("--max-lexical-ce", type=float, default=defaults.max_lexical_ce)
-    item.add_argument("--max-terminal-ce", type=float, default=defaults.max_terminal_ce)
-    item.add_argument(
-        "--min-document-centered-cosine",
-        type=float,
-        default=defaults.min_document_centered_cosine,
-    )
-    item.add_argument(
-        "--min-query-centered-cosine",
-        type=float,
-        default=defaults.min_query_centered_cosine,
-    )
-    item.add_argument("--min-recall-ratio", type=float, default=defaults.min_recall_ratio)
-    item.add_argument("--min-index-recall", type=float, default=defaults.min_index_recall)
-    item.add_argument("--recall-k", type=int, default=defaults.recall_k)
-    item.add_argument(
-        "--mark-ready",
-        action="store_true",
-        help="Record measured readiness on the bank and write the warm-up receipt if all pass",
-    )
-    item.set_defaults(func=_gates)
     item = commands.add_parser(
         "benchmark", help="Measure real end-to-end work, memory, and dispatch"
     )

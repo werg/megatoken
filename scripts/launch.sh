@@ -7,12 +7,12 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 Usage: scripts/launch.sh CONFIG [training CLI arguments...]
 
 Single node:
-  NPROC_PER_NODE=8 scripts/launch.sh configs/train/retrieval-coherence.example.yaml
+  NPROC_PER_NODE=8 scripts/launch.sh configs/train/coherence.example.yaml
 
 Multiple nodes: run once per node with identical NNODES/RDZV_ID/RDZV_ENDPOINT,
 and a distinct NODE_RANK in [0, NNODES). All paths are relative to the repository.
   NNODES=2 NODE_RANK=0 NPROC_PER_NODE=8 RDZV_ID=run-001 \
-    RDZV_ENDPOINT=coordinator.example:29500 scripts/launch.sh configs/train/retrieval-free-kb.example.yaml
+    RDZV_ENDPOINT=coordinator.example:29500 scripts/launch.sh configs/train/coherence.example.yaml
 
 MEGATOKEN_PYTHON selects the Python executable. NPROC_PER_NODE defaults to gpu.
 TORCHRUN_MAX_RESTARTS defaults to 0; explicit checkpoint resume preserves progress.
@@ -23,7 +23,7 @@ fi
 MEGATOKEN_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$MEGATOKEN_ROOT"
 if (( $# == 0 )) || [[ "$1" == -* ]]; then
-  echo "Supply a prepared retrieval-memory training config explicitly; no legacy default" >&2
+  echo "Supply a prepared training config explicitly; there is no default" >&2
   exit 2
 fi
 CONFIG="$1"

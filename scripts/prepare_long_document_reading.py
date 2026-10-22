@@ -10,7 +10,7 @@ stages.
 
 Tasks come from ``--tasks`` (JSONL rows ``{"id", "question", "documents": [str],
 "answer"}``) and/or straight from HotpotQA (distractor) and MuSiQue-Ans with the
-loaders of prepare_retrieval_corpus.py; for those, every paragraph of a
+loaders in qa_corpora.py; for those, every paragraph of a
 question (supporting and distractor) is part of its document.
 """
 
@@ -37,7 +37,7 @@ STREAM = "long_document_reading"
 
 def qa_tasks(hotpot: Path | None, musique: Path | None, count: int, seed: int) -> list[dict]:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from prepare_retrieval_corpus import load_hotpot, load_musique
+    from qa_corpora import load_hotpot, load_musique
 
     rows = []
     if hotpot is not None:

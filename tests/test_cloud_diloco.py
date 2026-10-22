@@ -69,9 +69,6 @@ def test_derive_sets_the_coordinator_url_and_checks_the_worker_count(tmp_path):
             {
                 "model": "tiny",
                 "budget": 64,
-                "retrieval_sidecar": "q.jsonl",
-                "retrieval_document_sidecar": "d.jsonl",
-                "retrieval_memory_recipe": "r.json",
                 "decoupled": {
                     "coordinator_url": "https://placeholder",
                     "run_id": "r",

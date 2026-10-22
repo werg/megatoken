@@ -1,4 +1,4 @@
-> **Scope:** This page describes the multi-track code (architecture v10), not model quality. Training is launched only through the phase-gated recipes in [README.md](../README.md) and [retrieval-memory-implementation-status.md](retrieval-memory-implementation-status.md); media phases are in [media.md](media.md). Older stage commands and optional-memory instructions are not supported.
+> **Scope:** This page describes the multi-track code (architecture v10), not model quality. Training is launched only through the phase-gated recipes in [README.md](../README.md); the memory mechanism is in [continuous-state-transducer-plan.md](continuous-state-transducer-plan.md) and media phases are in [media.md](media.md). Older stage commands are not supported.
 
 # Multi-track implementation status (architecture v10)
 

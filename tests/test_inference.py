@@ -16,7 +16,7 @@ from megatoken.inference import InferenceEngine, export_served, serve_jsonl
 from megatoken.loading import build_model
 from megatoken.model.config import ModelConfig
 from megatoken.tensors import byte_tensor
-from megatoken.training.checkpoint import save_checkpoint
+from megatoken.training.checkpoint import save_checkpoint, transducer_attachment
 
 
 def checkpoint_model(root: Path, codec=None, *, max_capacity=8):
@@ -39,6 +39,7 @@ def checkpoint_model(root: Path, codec=None, *, max_capacity=8):
         },
         {"global_step": 7},
         pinned=True,
+        attachments=transducer_attachment(lambda: {"bank": model.transducer.bank.state_snapshot()}),
     )
     model.core.set_model_version(7)
     return model, checkpoint
@@ -62,6 +63,8 @@ def test_export_preserves_the_canonical_facet_policy_and_recurrent_state_exactly
     )
     assert metadata["training_heads"] is False and metadata["packs_fingerprint"] is None
     engine = InferenceEngine(directory, device="cpu")
+    # The sparse bank ships beside the weights and is the trained one.
+    assert engine.model.transducer.bank.bank_id == original.transducer.bank.bank_id
     session = engine.new_session()
     payload = b"actual \xff observation"
     engine.observe(session, payload, role="tool")
@@ -281,6 +284,7 @@ def test_unbaked_import_is_rejected_at_export(tmp_path):
         },
         {"global_step": 8},
         pinned=True,
+        attachments=transducer_attachment(lambda: {"bank": model.transducer.bank.state_snapshot()}),
     )
     with pytest.raises(RuntimeError, match="bake"):
         export_served(imported, tmp_path / "invalid-served")

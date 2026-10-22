@@ -2,7 +2,7 @@
 
 import pytest
 import torch
-from retrieval_fixture import MODEL_OVERRIDES, retrieval_aux, retrieval_train_config
+from training_fixture import MODEL_OVERRIDES, tiny_train_config
 
 from megatoken.data import WindowConfig, iter_windows
 from megatoken.data.adapters import AdapterContext, adapt_row
@@ -17,6 +17,7 @@ from megatoken.training.engine import prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
 from megatoken.training.stream import EpisodeWindow
+from megatoken.training.transducer import TransducerTrainer
 
 CODEC = ByteCodec.byte_fallback()
 
@@ -95,7 +96,7 @@ def test_compressed_documents_train_through_the_media_encoder(tmp_path, mode):
     log = "error: undefined reference to `main`\n" * 300
     episode, _ = _episode(tmp_path, log, CompressionPolicy(min_bytes=4096))
     model = build_model(ModelConfig.tiny(**MODEL_OVERRIDES), CODEC)
-    config = retrieval_train_config(
+    config = tiny_train_config(
         tmp_path / "retrieval",
         phase="B0" if mode == "bootstrap" else "P1",
         representation_mode=mode,
@@ -116,7 +117,7 @@ def test_compressed_documents_train_through_the_media_encoder(tmp_path, mode):
             config,
             torch.device("cpu"),
             0,
-            retrieval_aux(config, supervised=False),
+            transducer=TransducerTrainer(model.transducer),
         )
         ledger.finish()
     assert sum(b.counts["lexical"] for b in batches) > 0
