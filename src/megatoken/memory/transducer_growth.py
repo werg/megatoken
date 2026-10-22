@@ -90,12 +90,11 @@ class TransducerGrowth:
             row = self.bank.rows[edge_id]
             v = row.value.decode(device=gradient_value.device)
             e = unit(row.destination.decode(device=gradient_location.device))
-            # F is the unnormalized value/location mixture. The lookup stores a
-            # normalized bank landing, so recover its norm only for the reference
-            # when used; supplied gradients refer to the same displayed landing.
+            # F is the unnormalized value/location mixture before
+            # differentiable normalization.
             delta = w / (1 - w) * (
                 torch.dot(gradient_value.float(), lookup.bank_value.detach() - v)
-                + torch.dot(gradient_location.float(), lookup.bank_landing.detach() - e)
+                + torch.dot(gradient_location.float(), lookup.bank_landing_raw.detach() - e)
             )
             evidence = self.evidence.setdefault(edge_id, EdgeEvidence(last_step=step))
             age = step - evidence.last_step
