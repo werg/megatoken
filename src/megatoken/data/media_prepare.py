@@ -113,18 +113,22 @@ class MediaPreparer:
             )
             clock = dict(sample_rate=realizer.sample_rate)
         elif modality == "image":
-            pixels = decode_image(path)
-            latents = realizer.encode(torch.from_numpy(pixels)[None].to(self.device))
-            geometry = OutputGeometry("image", height=pixels.shape[1], width=pixels.shape[2])
+            # Resized to the nearest geometry the realizer accepts; the stored
+            # geometry is what the target latents really describe.
+            pixels = realizer.fit(torch.from_numpy(decode_image(path))[None].to(self.device))
+            latents = realizer.encode(pixels)
+            geometry = OutputGeometry("image", height=pixels.shape[2], width=pixels.shape[3])
             clock = {}
         else:
-            clip, rate = decode_video(path)
-            latents = realizer.encode(torch.from_numpy(clip)[None].to(self.device))
+            frames, rate = decode_video(path)
+            # Resized, and trimmed by at most frame_step - 1 trailing frames.
+            clip = realizer.fit(torch.from_numpy(frames)[None].to(self.device))
+            latents = realizer.encode(clip)
             geometry = OutputGeometry(
                 "video",
-                frames=len(clip),
-                height=clip.shape[2],
-                width=clip.shape[3],
+                frames=clip.shape[1],
+                height=clip.shape[3],
+                width=clip.shape[4],
                 fps_num=rate.numerator,
                 fps_den=rate.denominator,
             )

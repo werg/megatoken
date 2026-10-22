@@ -348,9 +348,42 @@ class SanaRealizer(Realizer):
         embeds = self.condition(raw)
         return embeds, torch.ones(embeds.shape[:2], device=embeds.device, dtype=torch.bool)
 
+    def _grid(self) -> tuple[int, int]:
+        """(spatial multiple of H and W, frame step) this VAE and DiT accept."""
+        spatial = getattr(self.vae, "spatial_compression_ratio", None) or getattr(
+            self.pipe, "vae_scale_factor", None
+        )
+        patch = self.transformer.config.patch_size
+        patch = (1, patch, patch) if isinstance(patch, int) else tuple(patch)
+        if self.modality == "image":
+            return int(spatial) * patch[-1], 1
+        temporal = int(self.vae.temporal_compression_ratio)
+        return int(spatial) * patch[-1], temporal * patch[0]
+
+    def fit(self, pixels: Tensor) -> Tensor:
+        """Resize (and, for video, trim frames of) RGB media to the nearest geometry
+        the VAE and DiT accept: sides a multiple of the spatial grid, and video
+        frame counts of the form ``1 + k * frame_step``. Image [B, 3, H, W];
+        video [B, F, 3, H, W]."""
+        multiple, step = self._grid()
+        height, width = pixels.shape[-2:]
+        size = tuple(max(multiple, round(side / multiple) * multiple) for side in (height, width))
+        frames = pixels.shape[1] if self.modality == "video" else 1
+        frames = 1 + (frames - 1) // step * step
+        flat = pixels[:, :frames].flatten(0, 1) if self.modality == "video" else pixels
+        if size != (height, width):
+            flat = nn.functional.interpolate(
+                flat.float(), size=size, mode="bilinear", antialias=True, align_corners=False
+            ).clamp(0, 1)
+        return (
+            flat.view(pixels.shape[0], frames, *flat.shape[1:])
+            if self.modality == "video"
+            else flat
+        )
+
     @torch.no_grad()
     def encode(self, pixels: Tensor) -> Tensor:
-        """RGB in [0, 1]: image [B, 3, H, W] -> [B, C, h, w] (scaled);
+        """RGB in [0, 1] already ``fit``: image [B, 3, H, W] -> [B, C, h, w] (scaled);
         video [B, F, 3, H, W] -> time-major normalized [B, F', C, h, w]."""
         x = pixels.to(next(self.vae.parameters()).dtype) * 2 - 1
         if self.modality == "image":

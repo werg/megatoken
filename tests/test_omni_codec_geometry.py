@@ -229,3 +229,31 @@ def test_media_record_wire_format_is_strict_v5(tmp_path):
     observed = prepared_record(TensorAssetStore(tmp_path), "image", target=False).to_bytes()
     assert json.loads(observed)["target"] is None
     assert MediaRecord.from_bytes(observed).to_bytes() == observed
+
+
+def _sana(modality, patch, temporal=None):
+    from types import SimpleNamespace
+
+    from megatoken.omni.realizers import SanaRealizer
+
+    vae = SimpleNamespace(spatial_compression_ratio=32)
+    if temporal is not None:
+        vae.temporal_compression_ratio = temporal
+    pipeline = SimpleNamespace(
+        transformer=SimpleNamespace(config=SimpleNamespace(patch_size=patch, caption_channels=8)),
+        vae=vae,
+        text_encoder=object(),
+        tokenizer=object(),
+    )
+    return SanaRealizer(pipeline, modality, facet_count=2, facet_width=4)
+
+
+def test_visual_realizers_fit_media_to_the_geometry_their_vae_and_dit_accept():
+    image = _sana("image", 1).fit(torch.rand(1, 3, 375, 500))
+    assert image.shape == (1, 3, 384, 512)
+    assert 0 <= float(image.min()) and float(image.max()) <= 1
+    # LTX-2 video VAE: 32x spatial, 8x temporal; a (1, 2, 2) DiT patch.
+    video = _sana("video", (1, 2, 2), temporal=8).fit(torch.rand(1, 50, 3, 240, 320))
+    assert video.shape == (1, 49, 3, 256, 320)
+    tiny = _sana("image", 1).fit(torch.rand(1, 3, 10, 10))
+    assert tiny.shape == (1, 3, 32, 32)
