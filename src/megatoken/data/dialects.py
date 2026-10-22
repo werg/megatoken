@@ -124,8 +124,42 @@ _TAGGED = {
 }
 
 
+_XML_CALL = re.compile(r"\A<function=([^>\s]+)>(.*)</function>\Z", re.DOTALL)
+_XML_PARAMETER = re.compile(r"<parameter=([^>\s]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
+
+
+def _xml_value(text: str) -> Any:
+    """A parameter written as XML text: containers, numbers and booleans keep their type."""
+    stripped = text.strip()
+    if stripped[:1] in "[{" or stripped in {"true", "false", "null"}:
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            return text
+    try:
+        number = float(stripped)
+    except ValueError:
+        return text
+    return int(number) if stripped.lstrip("-").isdigit() else number
+
+
+def _call_body(piece: str) -> tuple[Any, Any]:
+    """Name and arguments of one ``<tool_call>`` body: JSON, or Qwen3-Coder's
+    ``<function=name><parameter=key>value</parameter></function>``."""
+    xml = _XML_CALL.match(piece.strip())
+    if xml is not None:
+        return xml.group(1), {
+            key: _xml_value(value) for key, value in _XML_PARAMETER.findall(xml.group(2))
+        }
+    item = _literal(piece, "A <tool_call> body")
+    if not isinstance(item, dict):
+        raise SchemaError("A <tool_call> body must be an object")
+    return item.get("name"), item.get("arguments", {})
+
+
 def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
-    """``<tool_call>{json}</tool_call>`` in assistant text, ``<tool_response>`` results."""
+    """``<tool_call>{json}</tool_call>`` (or the XML ``<function=...>`` form) in assistant text,
+    ``<tool_response>`` results."""
     ledger, out = _Ledger(), []
     messages = _messages(value)
     system = row.get("system_prompt", row.get("system"))
@@ -140,10 +174,8 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
             blocks: list[dict[str, Any]] = []
             for index, piece in enumerate(pieces):
                 if index % 2:
-                    item = _literal(piece, "A <tool_call> body")
-                    if not isinstance(item, dict):
-                        raise SchemaError("A <tool_call> body must be an object")
-                    blocks.append(_use(next(ids), item.get("name"), item.get("arguments", {})))
+                    name, arguments = _call_body(piece)
+                    blocks.append(_use(next(ids), name, arguments))
                 else:
                     blocks += _blocks(piece, [])
             out.append({**message, "role": "assistant", "content": blocks})
@@ -667,7 +699,221 @@ def tool_dict(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     return out, row.get("tools")
 
 
+_CALL_LIST = re.compile(r"<call>\s*(.*?)\s*</call>", re.DOTALL)
+_TOOL_LIST = re.compile(r"<tool>\s*(.*?)\s*</tool>", re.DOTALL)
+
+
+def _call_list_tools(system: str) -> list[dict[str, Any]] | None:
+    """Tools listed in the system prompt as ``<tool>[{name, description, parameters, required}]``
+    where ``parameters`` maps each argument straight to its schema."""
+    found = _TOOL_LIST.search(system)
+    if found is None:
+        return None
+    try:
+        listed = json.loads(found.group(1))
+    except json.JSONDecodeError:
+        return None
+    tools = []
+    for tool in listed if isinstance(listed, list) else ():
+        if not isinstance(tool, Mapping) or not isinstance(tool.get("name"), str):
+            continue
+        parameters = tool.get("parameters")
+        if isinstance(parameters, Mapping) and parameters.get("type") != "object":
+            parameters = {
+                "type": "object",
+                "properties": parameters,
+                "required": tool.get("required") or [],
+            }
+        tools.append(
+            {
+                "name": tool["name"],
+                "description": tool.get("description") or "",
+                "parameters": parameters or {"type": "object"},
+            }
+        )
+    return tools or None
+
+
+def call_list(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """BUTTON-style dialogues: ``<call>[{"name", "arguments"}, ...]</call>`` closes an assistant turn
+    and one tool message holds a JSON list with a ``results`` entry per call, in call order;
+    ``<final>`` marks the answer. Tools are listed in the system prompt between ``<tool>`` tags."""
+    ledger, out, tools = _Ledger(), [], None
+    for turn, message in enumerate(_messages(value)):
+        role, text = role_of(message), _text(message)
+        if role == "system" and tools is None:
+            tools = _call_list_tools(text)
+        if role == "assistant" and "<call>" in text:
+            pieces = _CALL_LIST.split(text)
+            blocks = _blocks(pieces[0], [])
+            for body in pieces[1::2]:
+                calls = _literal(body, "A <call> body")
+                if not isinstance(calls, list) or not calls:
+                    raise SchemaError("A <call> body must be a nonempty list")
+                ids = ledger.issue(turn, len(calls))
+                for call_id, call in zip(ids, calls, strict=True):
+                    if not isinstance(call, Mapping):
+                        raise SchemaError("Every call in a <call> list must be an object")
+                    blocks.append(_use(call_id, call.get("name"), call.get("arguments", {})))
+            blocks += _blocks("".join(pieces[2::2]), [])
+            out.append({"role": "assistant", "content": blocks})
+        elif role == "tool":
+            try:
+                entries = json.loads(text)
+            except json.JSONDecodeError:
+                entries = None
+            if (
+                isinstance(entries, list)
+                and len(entries) == len(ledger.pending)
+                and all(isinstance(entry, Mapping) and "results" in entry for entry in entries)
+            ):
+                bodies = [json.dumps(entry["results"]) for entry in entries]
+            else:
+                bodies = [text]
+            ids = ledger.answer(len(bodies))
+            out.append(
+                {
+                    "role": "tool",
+                    "content": [_result(i, body) for i, body in zip(ids, bodies, strict=True)],
+                }
+            )
+        else:
+            out.append({"role": role, "content": text})
+    return out, tools
+
+
+def device_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """tau2 customer-service logs: ``tool_calls`` of ``{id, name, arguments, requestor}`` and tool
+    messages without ids, answered in call order.
+
+    The agent's calls are calls. The simulated customer also operates a phone with tools of its
+    own (``requestor`` ``user``); that is part of the customer's side of the conversation, so the
+    customer's action and what it returned are spelled as customer text.
+    """
+    pending: deque[tuple[str, str, Mapping[str, Any]]] = deque()
+    out: Messages = []
+    for turn, message in enumerate(_messages(value)):
+        role, text = role_of(message), _text(message)
+        calls = message.get("tool_calls")
+        if calls and not isinstance(calls, list):
+            raise SchemaError("tool_calls must be a list")
+        if role in {"assistant", "user"} and calls:
+            blocks = []
+            for index, raw in enumerate(calls):
+                if not isinstance(raw, Mapping):
+                    raise SchemaError("Every tool call must be an object")
+                call = raw["function"] if isinstance(raw.get("function"), Mapping) else raw
+                call_id = str(raw.get("id") or f"call-{turn}-{index}")
+                pending.append((role, call_id, call))
+                if role == "assistant":
+                    blocks.append(_use(call_id, call.get("name"), call.get("arguments", {})))
+            if role == "assistant":
+                out.append({"role": "assistant", "content": _blocks(text, blocks)})
+            else:
+                out.append(
+                    {"role": "user", "content": text if text.strip() else "(acts on the device)"}
+                )
+        elif role == "tool":
+            if not pending:
+                raise SchemaError("A tool message answers no pending call")
+            owner, call_id, call = pending.popleft()
+            if owner == "assistant":
+                out.append({"role": "tool", "content": [_result(call_id, text)]})
+            else:
+                arguments = json.dumps(call.get("arguments") or {})
+                out.append(
+                    {
+                        "role": "user",
+                        "content": f"[Device action {call.get('name')}({arguments}) returned]\n{text}",
+                    }
+                )
+        else:
+            out.append({"role": role, "content": text})
+    return out, row.get("tools")
+
+
+def _response_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(
+        block if isinstance(block, str) else str(block.get("text") or "")
+        for block in content
+        if isinstance(block, (str, Mapping))
+    )
+
+
+def responses(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """OpenAI Responses-API items: ``{role, content}`` messages, ``reasoning`` summaries,
+    ``function_call`` (``call_id``, ``name``, JSON ``arguments``) and ``function_call_output``.
+
+    Reasoning summaries, assistant text and calls that follow one another are one assistant turn
+    (the summary is spelled as ``<think>``). The row's ``expected_action`` is the next step of the
+    trajectory (RL data stores one row per step) and becomes the last assistant turn; its tools
+    come from ``responses_create_params``.
+    """
+    params = row.get("responses_create_params")
+    params = params if isinstance(params, Mapping) else {}
+    items = list(_messages(value))
+    expected = row.get("expected_action")
+    if isinstance(expected, Mapping):
+        items.append(expected)
+    out: Messages = []
+    thoughts: list[str] = []
+    text: list[str] = []
+    calls: list[dict[str, Any]] = []
+
+    def flush() -> None:
+        body = "\n\n".join(
+            part for part in (*(f"<think>\n{t}\n</think>" for t in thoughts), *text) if part
+        )
+        if body.strip() or calls:
+            out.append({"role": "assistant", "content": _blocks(body, calls)})
+        thoughts.clear(), text.clear(), calls.clear()
+
+    for item in items:
+        kind = item.get("type")
+        if kind == "reasoning":
+            summary = "\n".join(
+                str(part.get("text") or "")
+                for part in item.get("summary") or ()
+                if isinstance(part, Mapping)
+            ).strip()
+            if summary:
+                thoughts.append(summary)
+        elif kind == "function_call":
+            calls.append(
+                _use(
+                    str(item.get("call_id") or item.get("id")),
+                    item.get("name"),
+                    item.get("arguments"),
+                )
+            )
+        elif kind == "function_call_output":
+            flush()
+            output = item.get("output")
+            if not isinstance(output, str):
+                output = json.dumps(output)
+            out.append({"role": "tool", "content": [_result(str(item.get("call_id")), output)]})
+        else:
+            # The step to come is a bare ``{"type": "message"}``: the assistant speaks.
+            role = role_of(item) if "role" in item or "from" in item else "assistant"
+            if role == "assistant":
+                if calls:  # text written after a call starts a new turn
+                    flush()
+                text.append(_response_text(item.get("content")))
+            else:
+                flush()
+                out.append({"role": role, "content": _response_text(item.get("content"))})
+    flush()
+    return [m for m in out if m["content"]], params.get("tools")
+
+
 DIALECTS: dict[str, Dialect] = {
+    "responses": responses,
+    "call_list": call_list,
+    "device_calls": device_calls,
     "tool_dict": tool_dict,
     "harmony": harmony,
     "hermes": hermes,

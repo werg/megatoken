@@ -798,3 +798,113 @@ def test_harmony_traces_pair_parallel_calls_in_order_and_drop_empty_system_confi
     broken = {"messages": row["messages"][:3] + [message("tool", "stray", name="browser.open")]}
     with pytest.raises(SchemaError, match="no pending call"):
         adapt(broken, "harmony_tools")
+
+
+def test_response_items_become_turns_and_the_next_step_closes_the_trace():
+    tool = {"type": "function", "name": "lookup", "parameters": {"type": "object"}}
+    row = {
+        "responses_create_params": {
+            "tools": [tool],
+            "input": [
+                {"role": "system", "content": "Help."},
+                {"role": "user", "content": "Where is it?"},
+                {
+                    "type": "reasoning",
+                    "id": "r",
+                    "summary": [{"type": "summary_text", "text": "look"}],
+                },
+                {
+                    "role": "assistant",
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "One sec."}],
+                },
+                {
+                    "type": "function_call",
+                    "call_id": "c1",
+                    "name": "lookup",
+                    "arguments": '{"q": "it"}',
+                },
+                {"type": "function_call_output", "call_id": "c1", "output": "Paris"},
+            ],
+        },
+        "expected_action": {"type": "message", "content": "It is in Paris."},
+    }
+    episode = adapt(row, "responses_tools")
+    assert [(r.role, r.policy_mask) for r in episode.records][-1] == ("assistant", True)
+    (action,) = episode.actions
+    assert action.tool_name == "lookup" and json.loads(action.arguments_json) == {"q": "it"}
+    assert json.loads(episode.tools_json)[0]["name"] == "lookup"
+    assert [r.payload for r in episode.records if r.result_of] == [b"Paris"]
+    assert linked(episode)
+
+
+def test_call_lists_pair_one_result_entry_per_call_and_tools_come_from_the_prompt():
+    system = (
+        'Tools:\n<tool>[{"name": "a", "description": "d", "parameters": '
+        '{"x": {"type": "string"}}, "required": ["x"]}]</tool>\nAnswer in <final></final>.'
+    )
+    calls = '[{"name": "a", "arguments": {"x": "1"}}, {"name": "a", "arguments": {"x": "2"}}]'
+    results = json.dumps(
+        [{"name": "a", "arguments": {"x": "1"}, "results": 1}, {"name": "a", "results": {"y": 2}}]
+    )
+    row = {
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": f"Plan.\n<call>{calls}</call>"},
+            {"role": "tool", "content": results},
+            {"role": "assistant", "content": "<final>Done</final>"},
+        ]
+    }
+    episode = adapt(row, "call_list_tools")
+    assert [json.loads(a.arguments_json)["x"] for a in episode.actions] == ["1", "2"]
+    assert [r.payload for r in episode.records if r.result_of] == [b"1", b'{"y": 2}']
+    tool = json.loads(episode.tools_json)[0]
+    assert tool["parameters"]["properties"]["x"] == {"type": "string"}
+    assert tool["parameters"]["required"] == ["x"] and linked(episode)
+
+
+def test_the_customers_own_tool_calls_stay_customer_text():
+    row = {
+        "messages": [
+            {"role": "system", "content": "Policy."},
+            {"role": "user", "content": "Help"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"id": "c", "name": "lookup", "arguments": {}, "requestor": "assistant"}
+                ],
+            },
+            {"role": "tool", "content": "found"},
+            {
+                "role": "user",
+                "content": "Checking my phone.",
+                "tool_calls": [{"id": "d", "name": "status", "arguments": {}, "requestor": "user"}],
+            },
+            {"role": "tool", "content": "Airplane Mode: ON"},
+            {"role": "assistant", "content": "Turn it off."},
+        ]
+    }
+    episode = adapt(row, "device_call_tools")
+    assert [a.tool_name for a in episode.actions] == ["lookup"]
+    texts = [r.payload for r in episode.records if r.role == "user"]
+    assert any(b"Airplane Mode: ON" in text for text in texts) and linked(episode)
+
+
+def test_xml_function_calls_keep_parameter_types():
+    call = (
+        "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"
+        "<parameter=nights>\n3\n</parameter>\n<parameter=rooms>\n[1, 2]\n</parameter>\n"
+        "<parameter=pets>\nfalse\n</parameter>\n</function>\n</tool_call>"
+    )
+    episode = adapt(hermes_row(call, "<tool_response>\nok\n</tool_response>"), "hermes_tools")
+    (action,) = episode.actions
+    assert action.tool_name == "book"
+    assert json.loads(action.arguments_json) == {
+        "city": "Paris",
+        "nights": 3,
+        "rooms": [1, 2],
+        "pets": False,
+    }
+    assert linked(episode)

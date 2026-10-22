@@ -199,6 +199,15 @@ PROFILES: dict[str, AdapterProfile] = {
     "python_call_tools": AdapterProfile(observation_provenance="simulated", dialect="python_calls"),
     # gpt-oss traces of a browsing agent whose search and page tools really ran.
     "harmony_tools": AdapterProfile(observation_provenance="executed", dialect="harmony"),
+    "call_list_tools": AdapterProfile(observation_provenance="simulated", dialect="call_list"),
+    # tau2 logs: the customer also calls tools of its own, which stay on the customer's side.
+    "device_call_tools": AdapterProfile(observation_provenance="executed", dialect="device_calls"),
+    # NeMo-Gym RL trajectories: Responses-API items plus the step that comes next.
+    "responses_tools": AdapterProfile(
+        observation_provenance="simulated",
+        dialect="responses",
+        fields=_fields(messages="responses_create_params.input"),
+    ),
     "tool_dict_tools": AdapterProfile(
         observation_provenance="executed",
         dialect="tool_dict",
