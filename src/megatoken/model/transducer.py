@@ -165,7 +165,7 @@ class NativeTransducer(nn.Module):
         self.tracks = MultiTrackCore(core)
         self.query_head = nn.Linear(core.config.facet_dim, bank.geometry.query_dim)
         self.prefix_head = nn.Linear(core.config.facet_dim, bank.geometry.query_dim)
-        self.query_log_std = nn.Parameter(torch.full((bank.geometry.query_dim,), -3.0))
+        self.query_log_std = nn.Parameter(torch.tensor(-3.0))
         self.readout = WideKnowledgeReadout(core, bank)
         self.hindsight_realizer = HindsightRealizer(core, bank)
 
@@ -248,9 +248,7 @@ class NativeTransducer(nn.Module):
             return state, None
         predicted = self.tracks.predict_group(state, tracks=(RETRIEVAL_QUERY_TRACK,))
         if training:
-            selected = predicted + torch.randn_like(predicted) * self.query_log_std.exp()[
-                None, None, None
-            ]
+            selected = predicted + torch.randn_like(predicted) * self.query_log_std.exp()
         else:
             selected = predicted
         query = unit(self.query_head(selected[0, 0]).mean(dim=0))
