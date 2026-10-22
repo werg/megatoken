@@ -114,7 +114,8 @@ python scripts/prepare_media_identity.py --records records.jsonl --root prepared
 `scripts/prepare_open_media.py` builds the identity streams and the concordant task streams
 (transcription, verbalization, speech translation, image description/creation/editing, speech
 and audiovisual creation/editing) from pinned public datasets in one pass; the sources, licences
-and gaps are in [data.md](data.md#open-licence-pilot-mix).
+and gaps are in [data.md](data.md#scaling-the-media-streams) (the pilot sizes are in
+[data.md](data.md#open-licence-pilot-mix)).
 
 One decode of each original file yields the assets of a `MediaRecord`: the
 teacher features (`source`) and the teacher's pooled embedding of the same

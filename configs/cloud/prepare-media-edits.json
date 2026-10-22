@@ -1,0 +1,35 @@
+{
+ "schema": "megatoken.cloud-job/1",
+ "id": "prepare-media-edits",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "resources": {
+  "cpu": "8",
+  "memory": "32Gi",
+  "gpu": 1
+ },
+ "lifetime_hours": 12,
+ "pip": [
+  "Pillow",
+  "datasets>=3,<5",
+  "diffusers==0.41.0",
+  "huggingface-hub>=0.28,<2",
+  "librosa",
+  "pocket-tts>=4.0.1,<5",
+  "pyarrow",
+  "regex>=2024.11",
+  "soundfile",
+  "tokenizers>=0.21,<1",
+  "torchcodec>=0.12,<1",
+  "transformers==5.20.2",
+  "zstandard>=0.23,<1"
+ ],
+ "inputs": [],
+ "command": [
+  "bash",
+  "-c",
+  "set -eo pipefail; export HF_TOKEN=\"$(cat \"$MEGATOKEN_CW_SECRETS/hf-token\")\"; command -v ffmpeg >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null); mkdir -p /work/out/prepared /work/scratch; python scripts/acquire_packs.py --root /work/packs | tee /work/out/prepared/acquire.json; megatoken codec --output /work/codec | tee /work/out/prepared/codec.json; python scripts/prepare_open_media.py --packs /work/packs/lock.json --root /work/out/prepared/media-edits --codec /work/codec --inputs /work/inputs --work /work/scratch --scale 1 --count magicbrush=8000 --count ultraedit=10000 --count hq_edit=4000 --count instructpix2pix=10000 --count omniedit=4000 --count anyedit=6000 2>&1 | tee /work/out/prepared/media-edits.log"
+ ],
+ "outputs": [
+  "out/prepared"
+ ]
+}

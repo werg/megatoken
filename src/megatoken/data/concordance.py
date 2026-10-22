@@ -488,19 +488,29 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
             (group(*inputs), group(*peers)),
             (Relation("same_spoken_content", labels["written_text"], labels["speech"]),),
         )
-    if has("source_speech", "translated_text", "translated_speech"):
+    if has("source_speech", "translated_text"):
+        # The translated speech is optional: many corpora give only the target-language text.
         peers = [
             generated(
                 labels["translated_text"],
                 "translation",
                 "Translate the source speech accurately into the requested language.",
-            ),
-            generated(
-                labels["translated_speech"],
-                "translated_speech",
-                "Speak the translation; preserve names and numbers without reading peer text.",
-            ),
+            )
         ]
+        relations = [Relation("translation_of", labels["translated_text"], labels["source_speech"])]
+        if has("translated_speech"):
+            peers.append(
+                generated(
+                    labels["translated_speech"],
+                    "translated_speech",
+                    "Speak the translation; preserve names and numbers without reading peer text.",
+                )
+            )
+            relations.append(
+                Relation(
+                    "same_spoken_content", labels["translated_text"], labels["translated_speech"]
+                )
+            )
         if has("verbatim_transcript"):
             peers.insert(
                 0,
@@ -512,7 +522,7 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
             )
         add(
             "speech_translation",
-            "direct-joint-translation",
+            "direct-joint-translation" if has("translated_speech") else "direct-translation",
             (
                 group(
                     observed(
@@ -523,12 +533,7 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
                 ),
                 group(*peers),
             ),
-            (
-                Relation("translation_of", labels["translated_text"], labels["source_speech"]),
-                Relation(
-                    "same_spoken_content", labels["translated_text"], labels["translated_speech"]
-                ),
-            ),
+            tuple(relations),
         )
     if has("image", "display_caption"):
         add(

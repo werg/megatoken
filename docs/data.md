@@ -712,3 +712,285 @@ not establish public-source yield, large-scale near-dedup recall, remote sandbox
 correctness, teacher quality, long-context task coverage, or Blackwell throughput.
 The bounded source/teacher pilots and the resulting actual census provide the
 evidence needed to choose production acquisition and training scale.
+
+## Scaling the media streams
+
+The open-licence pilot above draws a few thousand clips per media stream from six datasets.
+This section records the scale-up: forty-four pinned public datasets, a reader for each kind of
+file layout, six cloud jobs that build the streams, and how far the result is from what the
+stage plan asks for. Licence, size and layout facts were read from the Hub on 2026-10-22 (a card
+is not legal advice). Every source carries the maintainer's recorded approval in its `terms`.
+
+### How a source is described and read
+
+`configs/data/sources.media.json` lists every media source (the six pilot sources are in it too;
+the old per-source constants are gone). Each entry holds
+
+- the Hub repository and the immutable revision it is pinned to, the licence found on its card,
+  the approval record, notes on what the licence does not settle, and whether the repository is
+  gated (the Hub account must accept its terms first);
+- `include`, patterns naming the files to read at that revision;
+- a **reader** (how the files are laid out) and a **task** (what the labels mean);
+- `columns`, which field of a row or sample plays which role (`image`, `caption`, `audio`,
+  `text`, `translation`, `original`, `edited`, `instruction`, ...), `options` (length limits,
+  which caption to pick, which rows to skip) and `inventory` (items, hours, repository size and
+  the basis of each number).
+
+Readers (`data/open_media.py`): `parquet` (one record per row), `webdataset` (tar files whose
+members sharing a name form one sample), `archive` (zip or tar members joined to a csv/jsonl
+table, optionally with a same-named member of a second zip, as in source/edited video pairs),
+and two special readers, `fleurs` (the same sentence read in two languages) and `docci` (files
+that are not on the Hub). Tasks turn a record into a clip and then into episodes of the stage
+plan's own streams:
+
+| Task | Streams |
+| --- | --- |
+| `transcription` | transcription, audio_identity (and speech_edit when procedural edits are asked for) |
+| `verbalization` | verbalization, audio_identity (the previous clip of the same speaker is the voice sample) |
+| `translation_text` | speech_translation (text target), transcription, audio_identity |
+| `translation_pair` | speech_translation (speech target), transcription |
+| `captioned_image` | image_description, image_creation, image_identity |
+| `picture` | image_identity |
+| `image_edit` | image_edit |
+| `sound` | audio_identity |
+| `av_caption`, `av_scenes` | av_creation, video_identity (and av_edit when procedural edits are asked for) |
+| `video` | video_identity (and av_edit when procedural edits are asked for) |
+| `video_edit` | av_edit (instructed edits that the dataset supplies) |
+
+A translation whose target is only text was not expressible before: the concordance compiler now
+emits the same `speech_translation` view without the translated speech when a source has none.
+
+Nothing is mirrored. Files are streamed from the pinned revision over HTTP range requests (the
+revision is content addressed, so it is the integrity pin; hashes are no longer listed per file)
+or, when `<inputs>/<source_id>` exists, read from that local directory. Every clip's files are
+deleted as soon as its episodes are built, so a run needs scratch space for a few clips only.
+Splits freeze per original family (speaker, recording, photo, video), as before.
+
+Labels that a model wrote are recorded as such: the text artifacts carry provenance `teacher`
+and the bundle's verification tier is `model-labeled` (machine transcripts or captions) or
+`model-generated` (machine-made images, edits and videos); human-labelled sources keep
+`publisher-annotated`.
+
+Clip limits: speech and sound clips are 0.5-20 s (a longer recording is dropped, or for
+`crop` sources cut to its central 20 s), images are scaled to at most 1024 pixels (edit pairs
+losslessly, and only when both images have the same size), video clips are scaled into 640x640
+at 16 frames/s and at most 8 s (6 s for edit pairs).
+
+`scripts/prepare_open_media.py` builds one prepared root: `--count SOURCE=N` draws N clips of a
+source, `--procedural SOURCE=N` adds a procedural edit for its first N clips, `--option
+SOURCE.KEY=JSON` overrides an option, `--scale F` multiplies every count, and `--shard-slice I/N`
+reads every N-th file starting at the I-th so N sandboxes can build disjoint parts of one source.
+Without `--count` it builds the pilot sizes, so `prepare-open-mix.json` is unchanged except that
+it no longer lists the pilot's media inputs; only the two DOCCI files, which are not on the Hub,
+remain job inputs.
+
+### The sources
+
+Sizes are items (clips, images or edits), hours of audio and the repository's size for the
+files read. "Gated" means the Hub account must first accept the publisher's terms.
+
+#### Captioned and plain images (image_identity, image_description, image_creation)
+
+| Source | What it is | Licence on the card | Size | Notes |
+| --- | --- | --- | --- | --- |
+| `google/docci` | Dense human-written descriptions of 15k photos (the training split is read). | CC-BY-4.0 | 9.65k items | Images and descriptions are fetched from the publisher's storage bucket (the Hub repository holds only a loading script); the job input pins their sha256. |
+| `lmms-lab/LLaVA-ReCap-CC3M` | Detailed captions written by LLaVA-NeXT-34B for Conceptual Captions 3M images; images keep their web owners' rights. | unspecified on the card | 2.86M items; 138 GB |  |
+| `lmms-lab/LLaVA-ReCap-558K` | LLaVA-NeXT-34B captions for the LLaVA-LCS-558K images (LAION, Conceptual Captions, SBU). | unspecified on the card | 558k items; 13 GB |  |
+| `lmms-lab/LLaVA-ReCap-118K` | LLaVA-NeXT-34B captions for the 118k COCO images. | unspecified on the card | 118k items; 6.1 GB | Images are MS-COCO Flickr photos with mixed per-image Creative Commons licences. |
+| `BLIP3o/BLIP3o-Pretrain-Long-Caption` | Long captions by Qwen2.5-VL-7B for SA-1B, web (CC12M-style) and JourneyDB images. | apache-2.0 | 29.4M items; 1,374 GB | Images come from SA-1B (research licence), web crawls and JourneyDB (Midjourney outputs); the card states only Apache-2.0. |
+| `jackyhate/text-to-image-2M` | Synthetic images (Flux and Midjourney style) with the prompt that produced them, as caption. | mit | 2M items; 418 GB | Images are model outputs; FLUX.1-dev outputs fall under the FLUX.1-dev non-commercial licence. |
+| `common-canvas/commoncatalog-cc-by` | Flickr photos under Creative Commons Attribution licences, with BLIP-2 captions. | cc-by-4.0 | 14.6M items; 21,465 GB | Each photo carries its own Creative Commons Attribution licence (licensename/licenseurl columns); BLIP-2 captions are short and generic. |
+| `jxie/coco_captions` | Human captions for MS-COCO (five per image; the longest is used). | unspecified on the card | 113k items; 19 GB | COCO annotations are CC-BY-4.0; the Flickr photos carry mixed per-image Creative Commons licences (some NonCommercial/NoDerivatives). |
+| `UCSC-VLAA/Recap-COCO-30K` | LLaMA-3-powered recaptions of 30k COCO images. | cc-by-4.0 | 30.5k items; 1.6 GB | COCO photos carry mixed per-image Creative Commons licences. |
+| `lmms-lab-encoder/TextCaps` | Human captions that mention the text in Open Images photos (five per image; the longest is used). | unspecified on the card | 22k items; 6.2 GB | TextCaps captions are CC-BY-4.0 upstream; Open Images photos are CC-BY-2.0 per image. |
+| `lmms-lab-encoder/flickr30k` | Human captions for Flickr30k (five per image; the longest is used). | unspecified on the card | 31.8k items; 4.4 GB | Flickr30k is distributed for non-commercial research; the Flickr photos have their own owners. |
+| `BAAI/DenseFusion-1M` | Dense captions fused from several vision experts for 1M web images. | cc-by-4.0 | 1M items; 798 GB | Images are web crawls (LAION-derived) with their owners' rights. |
+| `derek-thomas/ScienceQA` | Diagrams, maps and photos from school science questions (the questions are not used); rows without an image are skipped. | cc-by-sa-4.0 | 6.22k items; 0.4 GB | ShareAlike; upstream images come from many web sources. |
+
+#### Instructed image edits (image_edit)
+
+| Source | What it is | Licence on the card | Size | Notes |
+| --- | --- | --- | --- | --- |
+| `osunlp/MagicBrush` | Human-made multi-turn edits (DALL-E 2 inpainting guided by crowd workers) of COCO images. | CC-BY-4.0 | 8.81k items; 26 GB | Source images come from MS-COCO, whose Flickr photos carry mixed per-image Creative Commons licences (some NonCommercial/NoDerivatives); the card does not address this. |
+| `BleachNick/UltraEdit` | 3M free-form edits generated with Stable Diffusion 3 inpainting from LLM-written instructions. | cc-by-4.0 | 3.03M items; 1,555 GB | Source images come from COCO, Flickr and Open Images with their own licences; edited images are Stable Diffusion 3 outputs. |
+| `UCSC-VLAA/HQ-Edit` | About 100k edits whose images were generated with DALL-E 3 and instructions written with GPT-4V. | cc-by-nc-4.0 | 98k items; 319 GB | Images and instructions are OpenAI model outputs; the card licence is NonCommercial. |
+| `timbrooks/instructpix2pix-clip-filtered` | The CLIP-filtered InstructPix2Pix set: GPT-3 instructions with Prompt-to-Prompt edits by Stable Diffusion. | unspecified on the card | 313k items; 130 GB | The InstructPix2Pix release is CC-BY-4.0 for the text; images are Stable Diffusion outputs (CreativeML Open RAIL-M). |
+| `TIGER-Lab/OmniEdit-Filtered-1.2M` | 1.2M edits from seven specialist editing models, filtered by GPT-4o quality scores. | mit | 1.2M items; 2,977 GB | Source images come from several web datasets; 5 GB shards of full-resolution PNG. |
+| `Bin1117/AnyEdit` | Instruction edits across 25 types; rows that need a depth/segment guide image are skipped. | cc-by-4.0 | 2.3M items; 265 GB | Shards are grouped by edit type; the first thirty hold only types that need a guide image and are not listed. Instructions of some types name a guide image the reader does not supply; rows with a guide image are skipped. |
+
+#### Speech
+
+| Source | What it is | Licence on the card | Size | Streams | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `openslr/librispeech_asr` | 960 hours of read English audiobooks (LibriVox) with transcripts in upper case. | CC-BY-4.0 | 281k items; 960 h; 60 GB | audio_identity, speech_edit, transcription |  |
+| `mythicinfinity/libritts_r` | Restored LibriTTS: read English with the written text and its normalized spoken form. | CC-BY-4.0 | 355k items; 585 h; 95 GB | audio_identity, speech_edit, verbalization |  |
+| `parler-tts/mls_eng` | Multilingual LibriSpeech English: 44.5k hours of read audiobooks (LibriVox), 10-20 s segments. | cc-by-4.0 | 10.8M items; 44.5k h; 705 GB | audio_identity, speech_edit, transcription | Transcripts are lower case without punctuation. |
+| `facebook/multilingual_librispeech` | Multilingual LibriSpeech in seven further languages (read audiobooks). | cc-by-4.0 | 1.45M items; 6.03k h; 94 GB | audio_identity, speech_edit, transcription | Transcripts are lower case without punctuation. |
+| `MLCommons/peoples_speech` | English speech from the internet (the clean, well-aligned subset); family is the source recording. | mixed Creative Commons (cc-by-2.0 to cc-by-4.0, cc-by-sa-3.0, cc-by-sa-4.0) | 1.5M items; 5.97k h; 392 GB | audio_identity, speech_edit, transcription | Share-alike and attribution terms apply per recording; transcripts are force-aligned and sometimes noisy. |
+| `facebook/voxpopuli` | European Parliament speech in 14 languages with transcripts. | cc0-1.0 (European Parliament recordings; reuse terms of the Parliament also apply) | 587k items; 1.8k h; 314 GB | audio_identity, speech_edit, transcription |  |
+| `fixie-ai/common_voice_17_0` | Volunteers reading sentences, many accents and languages; family is the speaker. | CC0-1.0 (Mozilla Common Voice; the card states none) | 3.61M items; 5k h; 132 GB | audio_identity, speech_edit, transcription | Several clips per speaker and sentence; the mirror's card has no licence. |
+| `speechcolab/gigaspeech` (gated) | 10,000 hours of audiobooks, podcasts and YouTube with transcripts. | apache-2.0 (card; audio carries its sources' own terms) | 8.3M items; 10k h; 1,152 GB | audio_identity, speech_edit, transcription | Gated: the Hub account must accept the terms. Podcast and YouTube sources have their own terms. Transcripts hold punctuation tags that the reader converts and silence/noise tags that make it skip the segment. |
+| `amphion/Emilia-Dataset` (gated) | In-the-wild speech from podcasts and videos in six languages, pipeline-filtered, with ASR transcripts. | cc-by-4.0 on the card (Emilia-YODAS); the original Emilia part is CC-BY-NC-4.0 under the gate's terms | 77.6M items; 216k h; 4,702 GB | audio_identity, speech_edit, transcription | Gated: the Hub account must accept the terms. Transcripts are Whisper-pipeline output, not human. |
+| `espnet/yodas-granary` | English YouTube speech (Creative Commons videos) with punctuated Whisper-large-v3 transcripts, filtered for quality. | cc-by-3.0 | 40.8M items; 104k h; 11,264 GB | audio_identity, speech_edit, transcription | Pseudo-labelled by Whisper and punctuation-restored by Qwen2.5-7B, not human transcripts; per-video Creative Commons terms. |
+| `espnet/yodas-granary` | Non-English YouTube speech with its transcript and an English translation by EuroLLM-9B, quality filtered. | cc-by-3.0 | 23.2M items; 58.6k h; 9,727 GB | audio_identity, speech_edit, speech_translation, transcription | Transcripts and translations are model output, not human; per-video Creative Commons terms. |
+| `fixie-ai/covost2` | Common Voice speech in 21 languages with human English translations of the sentence. | unspecified on this mirror's card (CoVoST 2 release: CC0-1.0; facebook/covost2's card says CC-BY-NC-4.0) | 653k items; 1.5k h; 25 GB | audio_identity, speech_edit, speech_translation, transcription |  |
+| `google/fleurs` | The same FLoRes sentence read in about 100 languages: each language's reading paired with the English reading. | CC-BY-4.0 | 140k items; 440 h | speech_translation, transcription |  |
+| `MikhailT/hifi-tts` | Ten studio-quality speakers reading audiobooks (44.1 kHz), 292 hours. | cc-by-4.0 | 322k items; 292 h; 42 GB | audio_identity, speech_edit, verbalization |  |
+| `ylacombe/expresso` | Four speakers reading in several styles; only the neutral styles are used (the style is not part of the request). | cc-by-nc-4.0 | 6k items; 20 h; 5.8 GB | audio_identity, speech_edit, verbalization |  |
+| `MikhailT/lj-speech` | One speaker reading seven non-fiction books, 24 hours. | cc-by-4.0 on this mirror's card (LJ Speech is public domain upstream) | 13.1k items; 24 h; 3.8 GB | audio_identity, speech_edit, verbalization |  |
+
+#### Sounds and music (audio_identity)
+
+| Source | What it is | Licence on the card | Size | Notes |
+| --- | --- | --- | --- | --- |
+| `agkphysics/AudioSet` | 10-second YouTube clips of 527 sound classes (the class labels are not used). | cc-by-4.0 | 1.76M items; 4.88k h; 2,421 GB | The card licenses the labels; the audio belongs to the YouTube uploaders. |
+| `OpenSound/AudioCaps` | 10-second AudioSet clips with human captions (the captions are not used). | cc-by-nc-4.0 | 45.2k items; 126 h; 39 GB |  |
+| `CLAPv2/Clotho` | 15-30 second Freesound recordings with five human captions (the captions are not used); a central 20 s excerpt is kept. | unspecified on this mirror's card | 3.84k items; 24 h; 8.1 GB | Upstream Clotho terms were not verified here. |
+| `renumics/song-describer-dataset` | Full music tracks with human captions (the captions are not used); a central 20 s excerpt is kept. | unspecified on this mirror's card | 746 items; 41 h; 2.6 GB | Audio is Jamendo music under per-track Creative Commons licences (upstream; not verified here). |
+
+#### Video
+
+| Source | What it is | Licence on the card | Size | Streams | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `RekaAI/RekaDaily-10k-processed` | First-person household and workplace clips (nine subsets) with sound and a model-written dense caption. | Apache-2.0 | 4.5M items; 5.4k h; 74,218 GB | av_creation, av_edit, video_identity | First-person recordings of paid collectors; clips contain ambient audio and possibly incidental speech. |
+| `HuggingFaceFV/finevideo` (gated) | 43,751 YouTube videos with sound and rich scene/activity annotations; clips are cut at the annotated activities. | cc (per-video Creative Commons; see the card) | 131k items; 3.42k h; 673 GB | av_creation, av_edit, video_identity | Gated: the Hub account must accept the terms (removal requests must be honoured). Annotations are Gemini and GPT output, not human. Layout is taken from the card; not sampled. |
+| `Loie/VGGSound` | 200k ten-second YouTube clips with sound, labelled by the sound class (for example "dog barking"). | cc-by-4.0 | 199k items; 550 h; 338 GB | av_creation, av_edit, video_identity | Captions are the class label only. The copyright remains with the original uploaders. |
+| `nkp37/OpenVid-1M` | One million high-aesthetic clips (Pexels, CelebV-HQ and others), 2-30 s, without sound. | cc-by-4.0 | 1.02M items; 2k h; 6,657 GB | av_edit, video_identity | Silent clips: they feed video identity only. Zip parts are 20-50 GB; split parts (partaa/partab) are not read. |
+| `wyh6666/InsViE` | One million instructed video edits (Pexels clips edited by generative models). | cc-by-4.0 | 1M items; 394 GB | av_edit | Edits are model-generated; clips have no sound. |
+
+
+### Cloud jobs
+
+One sandbox per media family, all with the pilot's shape (8 CPU, 32 GiB, one GPU, 12 hours), so
+they can run side by side and each writes its own prepared root. Nothing launches by itself;
+each needs a clean commit and `--secret hf-token=FILE`. The counts are first-run caps of tens of
+thousands of clips per stream; a count is also capped by what the source holds, and a clip that a
+filter drops (too long, no sound, no caption) is replaced by the next one.
+
+| Job (`configs/cloud/<name>.json`) | Prepared root | Sources and clip counts |
+| --- | --- | --- |
+| `prepare-media-edits` | `media-edits` | magicbrush 8,000, ultraedit 10,000, hq_edit 4,000, instructpix2pix 10,000, omniedit 4,000, anyedit 6,000 |
+| `prepare-media-gated` | `media-gated` | gigaspeech 10,000, emilia 10,000, finevideo 6,000 |
+| `prepare-media-images` | `media-images` | docci 2,000, scienceqa_images 5,000, llava_recap_cc3m 15,000, llava_recap_558k 8,000, llava_recap_118k 8,000, blip3o_long_caption 15,000, text_to_image_2m 15,000, commoncatalog_cc_by 8,000, coco_captions 8,000, recap_coco_30k 8,000, textcaps 8,000, flickr30k 8,000, densefusion_1m 8,000 |
+| `prepare-media-sound` | `media-sound` | audioset 20,000, audiocaps 10,000, clotho 3,839, song_describer 746 |
+| `prepare-media-speech` | `media-speech` | librispeech_asr 15,000, libritts_r 8,000, mls_english 15,000, mls_multilingual 10,000, peoples_speech 8,000, voxpopuli 8,000, common_voice_17 8,000, yodas_granary_en 8,000, yodas_granary_ast 15,000, covost2 8,000, fleurs 4,000, hifi_tts 4,000, expresso 2,000, lj_speech 3,000 |
+| `prepare-media-video` | `media-video` | rekadaily_processed 3,000, vggsound 10,000, openvid_1m 10,000, insvie 5,000 |
+
+To scale up, raise the `--scale` factor in a job's command (and `lifetime_hours`), or copy the
+job and launch it several times with different `--shard-slice I/N` values and separate roots. The
+`gated` job fails when its first file is read if the account has not accepted the terms, before any
+data is processed.
+
+### Gated repositories that need a click on the Hub
+
+With the token in `~/.cache/huggingface/token` (account `gabrielpickard`), reading a data file
+of each of these returned HTTP 403 on 2026-10-22, so the account has to accept their terms on
+the dataset page before the `gated` job can run: `HuggingFaceFV/finevideo` (expected to be open
+already; its card page loads but its data files still return 403), `speechcolab/gigaspeech` and
+`amphion/Emilia-Dataset`. Their layouts were taken from the cards and have not been sampled.
+Also gated and not used: `OpenGVLab/ShareGPT-4o` and `OpenGVLab/InternVid` (YouTube ids only).
+
+### What the stage plan implies, and the gap
+
+The D meter counts only text tokens, and a media reference costs zero. An episode therefore
+adds to D only the text around its media: an identity episode ("Reproduce this image.") is 5
+tokens, a one-line edit instruction about 6-25, a transcript about 40, an image caption 16-200.
+The scheduler (`MixtureWindowStream`) serves one episode at a time and charges it its own D, so a
+stream's share is a share of text tokens, and the number of episodes behind it is the share
+divided by that small per-episode cost. At the P1 limit of 400B D the shares therefore imply
+billions of media episodes: more than any source can supply once, and probably more compute than
+intended. The table is computed from the manifest's inventories (items are unique clips before the
+length and caption filters) and from per-episode token counts measured with the reference codec on
+real label text from the sources (identity: exact; edit instructions and the captions of sources
+that were not sampled: estimated from a similar source).
+
+| Stream | Sources | Unique episodes available | Audio hours | Text tokens per episode | P1 share (tokens) | Episodes the share implies | Passes over the data | Per 0.1% of P1 | First run |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| audio_identity | 19 | 171M | 460k | 5.0 | 1.50% (6B) | 1.2B | 7.0 | 80M | 167k |
+| transcription | 12 | 169M | 455k | 42.0 | 1.50% (6B) | 143M | 0.8 | 9.52M | 119k |
+| verbalization | 4 | 696k | 921 | 19.7 | 1.00% (4B) | 203M | 290.9 | 20.3M | 17k |
+| speech_translation | 3 | 24M | 60.6k | 73.5 | 1.50% (6B) | 81.6M | 3.4 | 5.44M | 27k |
+| speech_edit | 1 | 170M | 456k | 10.0 | 0.75% (3B) | 300M | 1.8 | 40M | 10k |
+| image_identity | 13 | 50.7M | - | 5.0 | 1.50% (6B) | 1.2B | 23.7 | 80M | 116k |
+| image_description | 12 | 50.7M | - | 142.2 | 1.50% (6B) | 42.2M | 0.8 | 2.81M | 111k |
+| image_creation | 12 | 50.7M | - | 158.5 | 1.00% (4B) | 25.2M | 0.5 | 2.52M | 111k |
+| image_edit | 6 | 6.95M | - | 11.1 | 1.00% (4B) | 359M | 51.7 | 36M | 42k |
+| video_identity | 4 | 5.85M | 11.4k | 5.0 | 2.00% (8B) | 1.6B | 273.7 | 80M | 29k |
+| av_creation | 3 | 4.83M | 9.38k | 54.5 | 1.00% (4B) | 73.5M | 15.2 | 7.34M | 19k |
+| av_edit | 2 | 6.85M | - | 5.1 | 0.75% (3B) | 583M | 85.2 | 78.4M | 13k |
+
+
+Columns: "Unique episodes available" counts each source's clips once per stream it feeds; "Text
+tokens per episode" is the mean cost in D, weighted by items; "Episodes the share implies" is the
+share of 400B divided by that cost; "Passes over the data" is implied over available (below 1
+means the data would not be used up); "Per 0.1% of P1" is how many episodes a tenth of a percent
+of the P1 budget buys; "First run" is the clips the cloud jobs request (speech_edit counts the
+procedural edits; av_edit counts the real InsViE edits plus procedural ones).
+
+Reading it:
+
+- **Transcription, speech_translation, image_description and image_creation are covered** (under
+  four passes) once the large sources (Emilia and the YODAS English set for speech, BLIP3o and
+  CommonCatalog for images) are built; the first run uses a small slice of them.
+- **The identity streams, both edit streams, verbalization and av_creation cannot be filled at
+  their shares from unique data**, and the shares themselves buy 0.07-1.6B episodes each: 24
+  passes for image_identity, 274 for video_identity, 52 for image_edit, 85 for av_edit, 15 for
+  av_creation and 291 for verbalization (four open TTS corpora, 0.7M clips, 921 hours; audio
+  identity, at 7 passes, is the least short). Procedural speech and video edits can be generated
+  from any clip, so those streams are bounded by the clips, not by the edits.
+- The twelve media streams hold 15% of P1 (60B D) and imply about 5.8B episodes (each a training
+  window), against 0.17B unique audio clips, 51M images, 4.8M AV clips and 7M edits. A text
+  window holds at most 8,192 tokens, so the 60B D would be at most 7M windows if it were text: the
+  media streams would dominate the compute of P1 by two to three orders of magnitude.
+
+Recommended share changes (not applied; `stages.json` is untouched). Either of the following
+works; they are not both needed:
+
+1. **Cap each media stream by what exists, in the same unit**: `min(current share, 4 passes x
+   available episodes x tokens per episode / 400B)`. That gives audio_identity 0.86%,
+   verbalization 0.014%, image_identity 0.25%, image_edit 0.077%, video_identity 0.029%,
+   av_creation 0.26% and av_edit 0.035%; transcription, speech_translation, image_description,
+   image_creation and speech_edit stay within four passes at their current shares. The media
+   total falls from 15% to 7.8% of P1 and the released 7.2% goes to text. Audio identity alone is
+   still 0.7B episodes at that share, so the compute question remains.
+2. **Charge media events in the meter** (a fixed number of D-equivalent tokens per media event,
+   for example the realizer's latent length) so that a share means compute, not text. This
+   changes training code and every phase's limit, so it is a separate decision.
+
+The M1 and M2 phases add 1% of 60B and 1% of 40B to each identity stream, another 200M episodes
+per modality, with the same effect on their edit and creation streams.
+
+### Not added, and why
+
+- **Links only** (an image or video fetch step would be needed and links rot): PixelProse,
+  Recap-DataComp-1B, Spawning/PD12M, InternVid, WebVid, HD-VILA, MusicCaps (YouTube ids), and
+  Panda-70M (only a small test subset on the Hub has clips).
+- **Awkward layouts**: WavCaps (multi-part zips), Ditto-1M and GPT-Image-Edit-1.5M (split
+  archives), SEED-Data-Edit and Senorita-2M (per-category archives whose instructions live in
+  separate files; the controllable part of Senorita is depth and scribble conversion, not
+  editing), OpenVid's `partaa`/`partab` parts, ImgEdit, and LLaVA-Video-178K (long videos with one
+  caption for the whole video). ShareGPT4Video has stock-footage videos (mostly silent) with
+  several timestamped captions each; it needs a cut-and-caption reader and would add only video
+  identity beyond OpenVid. ShareGPT4V is captions only (its images come from other datasets).
+- **Captions of little use**: the CC3M/CC12M alt-text sets with images (`pixparse/cc3m-wds`,
+  `cc12m-wds`) are replaced by the recaptioned sets above; ScienceQA has no caption and is used
+  for image identity only; Densely Captioned Images was not found on the Hub. The captions of
+  AudioSet-style sound sets (AudioCaps, Clotho, Song Describer) are not used because no stage
+  family describes a sound: those sets feed audio_identity only. A sound-description or
+  sound-creation family would need a new family in the concordance compiler and a stage share.
+- **Speech-to-speech translation**: SpeechMatrix is not on the Hub and CVSS (`google/cvss`) is a
+  loading script that needs CoVoST 2 and Common Voice audio downloaded separately, so FLEURS pairs
+  are the only speech-to-speech source. The text-target sources (YODAS-Granary AST and CoVoST 2)
+  cover the translation family at scale.
+- **HiFi-TTS-2** is a manifest of audio that must be fetched from LibriVox; its 36.7k hours are
+  not read.
+
+### Corrections to the pilot section above
+
+The media sources table and the "Still missing" list in the pilot section predate this work:
+RekaDaily is now read from all nine subsets (10.2k hours, not only `video_capture`) and its
+captions are recorded as model-written; MagicBrush's edited images are recorded as machine-made;
+the FLEURS files and the pilot's other media files are streamed from the Hub rather than being
+hashed job inputs; FineVideo, Common Voice and CoVoST 2 are now sources (FineVideo gated, Common
+Voice through the `fixie-ai/common_voice_17_0` mirror, CoVoST 2 through `fixie-ai/covost2`), and
+OpenVid-1M is read for video identity from its zip parts.

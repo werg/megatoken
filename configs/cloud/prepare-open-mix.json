@@ -25,71 +25,6 @@
  ],
  "inputs": [
   {
-   "path": "inputs/librispeech/0000.parquet",
-   "url": "https://huggingface.co/datasets/openslr/librispeech_asr/resolve/71cacbfb7e2354c4226d01e70d77d5fca3d04ba1/all/train.clean.100/0000.parquet",
-   "sha256": "3098c6e44d1d49f8c62bd123775f1c492bda2cabd80f3ee70fe7800572371401"
-  },
-  {
-   "path": "inputs/librispeech/0007.parquet",
-   "url": "https://huggingface.co/datasets/openslr/librispeech_asr/resolve/71cacbfb7e2354c4226d01e70d77d5fca3d04ba1/all/train.clean.100/0007.parquet",
-   "sha256": "cfb26522a7e15cc425714df94e874d347f5dbb3f603e348611989522d9833ca7"
-  },
-  {
-   "path": "inputs/libritts_r/train.clean.100-00000.parquet",
-   "url": "https://huggingface.co/datasets/mythicinfinity/libritts_r/resolve/0d1718db351207d5a493135a62d5ed8cc4733830/data/train.clean.100/train.clean.100-00000-of-00018.parquet",
-   "sha256": "d9fbd11ce4a849e36b5be70bb8997ce4885dd3fd1be245a704e50cc75cb6f582"
-  },
-  {
-   "path": "inputs/fleurs/en_us/train.tsv",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/en_us/train.tsv",
-   "sha256": "3ccfc83672cc03a835143e325abb38b4163e3a21725bc1a7d1165bc309b95852"
-  },
-  {
-   "path": "inputs/fleurs/en_us/train.tar.gz",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/en_us/audio/train.tar.gz",
-   "sha256": "5f4491948c2bd29ac00f4b8afae2378f0a1dcdde4041b5cd284a80dff01fa9f5"
-  },
-  {
-   "path": "inputs/fleurs/de_de/train.tsv",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/de_de/train.tsv",
-   "sha256": "ac569d9f3734df178203f3c3ec9bccdd0c1445d829f2ed1a116304834f201945"
-  },
-  {
-   "path": "inputs/fleurs/de_de/train.tar.gz",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/de_de/audio/train.tar.gz",
-   "sha256": "6708e4052d924a9b18d3f48a7e308d35adff4a0352b1ca26ce21ce0b810ddc11"
-  },
-  {
-   "path": "inputs/fleurs/fr_fr/train.tsv",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/fr_fr/train.tsv",
-   "sha256": "3df668c3b9b4101cc3e3d8f3024b311ccfd2e9a8c8f910b3efedc27fd4219a0f"
-  },
-  {
-   "path": "inputs/fleurs/fr_fr/train.tar.gz",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/fr_fr/audio/train.tar.gz",
-   "sha256": "39b5bad1f61d3ae4ef64c2eb16f9524ffb21d8568965dd71b09702befdbd7f95"
-  },
-  {
-   "path": "inputs/fleurs/es_419/train.tsv",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/es_419/train.tsv",
-   "sha256": "7755cc1bad2759d43a4299a24df08a9702986a0ea8e203412a7c7dd9c3955638"
-  },
-  {
-   "path": "inputs/fleurs/es_419/train.tar.gz",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/es_419/audio/train.tar.gz",
-   "sha256": "f832ccb74a59f53ec3bceb77e26826d0516ba6a2e8cd1e9a7f8876615a056985"
-  },
-  {
-   "path": "inputs/fleurs/it_it/train.tsv",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/it_it/train.tsv",
-   "sha256": "8e5a952f1e1f8ced90a38424bfb8c71125fb3d08bbcf1e1ef32c4b242440dfc7"
-  },
-  {
-   "path": "inputs/fleurs/it_it/train.tar.gz",
-   "url": "https://huggingface.co/datasets/google/fleurs/resolve/70bb2e84b976b7e960aa89f1c648e09c59f894dd/data/it_it/audio/train.tar.gz",
-   "sha256": "6a88b1850e27834a8f24d5eb4d94abf14828da822778b029be2fbb61e01d16b4"
-  },
-  {
    "path": "inputs/docci/docci_descriptions.jsonlines",
    "url": "https://storage.googleapis.com/docci/data/docci_descriptions.jsonlines",
    "sha256": "c9df4819963883af35ddd2cf257949892fd8c6d88b33a012094352df60719800"
@@ -98,41 +33,6 @@
    "path": "inputs/docci/docci_images.tar.gz",
    "url": "https://storage.googleapis.com/docci/data/docci_images.tar.gz",
    "sha256": "c1b1aee00856757d71cfe2cc6ab641089284276a791bfb82146b4742c59a0a1d"
-  },
-  {
-   "path": "inputs/magicbrush/train-00000.parquet",
-   "url": "https://huggingface.co/datasets/osunlp/MagicBrush/resolve/6c254560879df7851233ea0fd2ae2a62764d0ef2/data/train-00000-of-00051-9fd9f23e2b1cb397.parquet",
-   "sha256": "ed417a2c264d464e07fb7c25f707cb2fdfab71391499628df81d5a613c1b21cf"
-  },
-  {
-   "path": "inputs/magicbrush/train-00001.parquet",
-   "url": "https://huggingface.co/datasets/osunlp/MagicBrush/resolve/6c254560879df7851233ea0fd2ae2a62764d0ef2/data/train-00001-of-00051-7fc041c6c75c7a1b.parquet",
-   "sha256": "73031cc623a6c342dc5120b455729f3d48071a0062daac77a6d9f967b1f0f8ab"
-  },
-  {
-   "path": "inputs/magicbrush/train-00002.parquet",
-   "url": "https://huggingface.co/datasets/osunlp/MagicBrush/resolve/6c254560879df7851233ea0fd2ae2a62764d0ef2/data/train-00002-of-00051-4683be833ed06f1c.parquet",
-   "sha256": "c6e08d3e628fbd4641612033721a2e3535e02c5ff7833ff255e9a03b26b5f667"
-  },
-  {
-   "path": "inputs/magicbrush/train-00003.parquet",
-   "url": "https://huggingface.co/datasets/osunlp/MagicBrush/resolve/6c254560879df7851233ea0fd2ae2a62764d0ef2/data/train-00003-of-00051-dbbf01b8d4790783.parquet",
-   "sha256": "39baaa23486ec828a0c34db4561dce69b015117d2834d97d3c238de034b06308"
-  },
-  {
-   "path": "inputs/magicbrush/train-00004.parquet",
-   "url": "https://huggingface.co/datasets/osunlp/MagicBrush/resolve/6c254560879df7851233ea0fd2ae2a62764d0ef2/data/train-00004-of-00051-d373bd832c322236.parquet",
-   "sha256": "42009099a2dc139be790299828cd5bbe5e427e1d6e9534a6fe10c18fd014fda5"
-  },
-  {
-   "path": "inputs/magicbrush/train-00005.parquet",
-   "url": "https://huggingface.co/datasets/osunlp/MagicBrush/resolve/6c254560879df7851233ea0fd2ae2a62764d0ef2/data/train-00005-of-00051-261c379dee1873a0.parquet",
-   "sha256": "ebbcf15ffdcccd7f77fcf2b59232cad3e9f50ce28f69131625893cf9dad649d3"
-  },
-  {
-   "path": "inputs/reka/shard-00000.tar",
-   "url": "https://huggingface.co/datasets/RekaAI/RekaDaily-10k-processed/resolve/4e7b797ffc1ca06ee7b0ac4c60d31dea8081a35b/data/video_capture/shard-00000.tar",
-   "sha256": "e2ef735d51b315f05cc06c4180699ffb89a6d9ab2f51b3ea79af05e0f00441d4"
   },
   {
    "path": "inputs/hotpot/train-00000-of-00002.parquet",
