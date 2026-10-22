@@ -194,6 +194,16 @@ PROFILES: dict[str, AdapterProfile] = {
     # Tool calls executed against real MCP servers.
     "mcp_tools": AdapterProfile(observation_provenance="executed", dialect="role_calls"),
     "turn_pairs": AdapterProfile(dialect="turn_pairs", fields=_fields(messages="conversation")),
+    "human_assistant_text": AdapterProfile(dialect="human_assistant"),
+    "alternating_turns": AdapterProfile(
+        dialect="alternating_turns", fields=_fields(messages="data")
+    ),
+    "prompt_and_reply": AdapterProfile(
+        dialect="prompt_and_reply", fields=_fields(messages="conversation")
+    ),
+    "prompt_completion": AdapterProfile(
+        dialect="prompt_completion", fields=_fields(messages="prompt")
+    ),
     # An exit_status of Submitted is explicitly NOT test verification.
     "swe_zero": AdapterProfile(
         trajectory=True,
@@ -851,6 +861,16 @@ def _first(message: Mapping[str, Any], keys: tuple[str, ...]) -> Any:
     return next((message[key] for key in keys if message.get(key) is not None), None)
 
 
+def _with_reasoning(message: Mapping[str, Any], role: str, content: Any) -> Any:
+    """Spell a reasoning trace kept in its own field inline, as every other source spells it."""
+    reasoning = message.get("reasoning_content") if role == "assistant" else None
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        return content
+    if content is not None and not isinstance(content, str):
+        return content
+    return f"<think>\n{reasoning.strip()}\n</think>\n\n{content or ''}"
+
+
 def _result_id(message: Mapping[str, Any], role: str) -> str | None:
     """The call a result answers, under the spellings published sets use."""
     for key in ("tool_call_id", "tool_use_id"):
@@ -910,7 +930,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
             and (turn_mask is None or turn_mask[turn])
         )
         base = f"{reader.origin('messages')}[{turn}]"
-        content = _first(message, _CONTENT_KEYS)
+        content = _with_reasoning(message, role, _first(message, _CONTENT_KEYS))
         if role == "user" and builder.family_prompt is None:
             # Repeated prompts must share one family however they are encoded.
             builder.family_prompt = _first_user_text(content)

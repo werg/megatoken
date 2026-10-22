@@ -1,0 +1,31 @@
+{
+ "schema": "megatoken.cloud-job/1",
+ "id": "prepare-agentic-more",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "resources": {
+  "cpu": "16",
+  "memory": "32Gi",
+  "gpu": 0
+ },
+ "lifetime_hours": 24,
+ "env": {
+  "AGENTIC_MORE_ROW_SCALE": "0.25",
+  "AGENTIC_MORE_SHARDS": "16"
+ },
+ "pip": [
+  "datasets>=3,<5",
+  "huggingface-hub>=0.28,<2",
+  "pyarrow",
+  "regex>=2024.11",
+  "tokenizers>=0.21,<1",
+  "zstandard>=0.23,<1"
+ ],
+ "command": [
+  "bash",
+  "-c",
+  "set -eo pipefail; export HF_TOKEN=\"$(cat \"$MEGATOKEN_CW_SECRETS/hf-token\")\"; mkdir -p /work/out/prepared /work/scratch; megatoken codec --output /work/codec | tee /work/out/prepared/codec.json; pids=(); for i in $(seq 0 $((AGENTIC_MORE_SHARDS-1))); do python scripts/shard_sources.py \"${AGENTIC_MORE_MANIFEST:-configs/data/sources.agentic-more.json}\" /work/scratch/sources.agentic-more-$i.json --scale \"$AGENTIC_MORE_ROW_SCALE\" --shard \"$i/$AGENTIC_MORE_SHARDS\" | tee -a /work/out/prepared/shards.log; (grep -q '\"source_id\"' /work/scratch/sources.agentic-more-$i.json || exit 0; megatoken prepare --sources /work/scratch/sources.agentic-more-$i.json --output /work/out/prepared/agentic-more-$i --codec /work/codec --parser-review-config configs/data/parser-review.agentic.json --reject-invalid > /work/out/prepared/agentic-more-$i.log 2>&1 || true) & pids+=($!); done; failed=0; for i in $(seq 0 $((AGENTIC_MORE_SHARDS-1))); do wait ${pids[$i]} || true; grep -q '\"source_id\"' /work/scratch/sources.agentic-more-$i.json || continue; grep -q '\"complete\": true' /work/out/prepared/agentic-more-$i/manifest.json || { echo \"shard $i did not finish\"; tail -5 /work/out/prepared/agentic-more-$i.log; failed=1; }; done; exit $failed"
+ ],
+ "outputs": [
+  "out/prepared"
+ ]
+}

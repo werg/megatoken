@@ -1,0 +1,756 @@
+{
+  "schema_version": 1,
+  "metadata_checked_at": "2026-10-22",
+  "sources": [
+    {
+      "source_id": "lmsys-arena-conversations-a-wins",
+      "uri": "hf://datasets/lmsys/chatbot_arena_conversations",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "1b6335d42a1d2c7e34870c905d03ab964f7f2bd8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc (card: user prompts CC-BY-4.0, model outputs CC-BY-NC-4.0; gated, accept the terms)",
+        "license_url": "https://huggingface.co/datasets/lmsys/chatbot_arena_conversations",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (auto): needs the dataset terms accepted at https://huggingface.co/datasets/lmsys/chatbot_arena_conversations . 33k Chatbot Arena battles (April-June 2023) between 20 LLMs (GPT-4, Claude-v1, GPT-3.5, Vicuna, ...); this source keeps conversation_a when the human voted model_a the winner. Unverified (gated): column names taken from the card (conversation_a/b are OpenAI-style role/content lists)."
+      },
+      "field_map": {
+        "messages": "conversation_a",
+        "family": "question_id"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "winner",
+            "op": "eq",
+            "value": "model_a"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/lmsys/chatbot_arena_conversations",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Unverified (gated). Generators: many different LLMs per row (model_a column), so quality varies. Estimated 5M unique tokens in the kept selection (33,000 battles, avg 1.2 turns, ~190 tokens per response; about 1/3 of rows won by A)."
+    },
+    {
+      "source_id": "lmsys-arena-conversations-b-wins",
+      "uri": "hf://datasets/lmsys/chatbot_arena_conversations",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "1b6335d42a1d2c7e34870c905d03ab964f7f2bd8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc (card: user prompts CC-BY-4.0, model outputs CC-BY-NC-4.0; gated, accept the terms)",
+        "license_url": "https://huggingface.co/datasets/lmsys/chatbot_arena_conversations",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (auto): needs the dataset terms accepted at https://huggingface.co/datasets/lmsys/chatbot_arena_conversations . Same battles as the a-wins source; keeps conversation_b when the human voted model_b the winner. Unverified (gated)."
+      },
+      "field_map": {
+        "messages": "conversation_b",
+        "family": "question_id"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "winner",
+            "op": "eq",
+            "value": "model_b"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/lmsys/chatbot_arena_conversations",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Unverified (gated). Prompts repeat the a-wins source (both models answered the same prompt). Estimated 5M unique tokens in the kept selection (33,000 battles; about 1/3 of rows won by B)."
+    },
+    {
+      "source_id": "mental-health-counseling",
+      "uri": "hf://datasets/Amod/mental_health_counseling_conversations",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "chat",
+      "revision": "d7e86f0813c5690181b41f97403c3674aa55dcef",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "combined_dataset.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "rail-d (Responsible AI licence, see LICENSE-RAIL-D.txt on the card)",
+        "license_url": "https://huggingface.co/datasets/Amod/mental_health_counseling_conversations",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: RAIL-D licence. ~3.5k real counselling question/answer pairs (Context -> Response) collected from two public mental-health platforms; responses written by psychologists. Gated with manual approval (click Agree at https://huggingface.co/datasets/Amod/mental_health_counseling_conversations); unverified (gated)."
+      },
+      "field_map": {
+        "prompt": "Context",
+        "target": "Response"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Amod/mental_health_counseling_conversations",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Estimated 1M unique tokens in the kept selection (~3,500 rows, 4.8 MB json (from the card))."
+    },
+    {
+      "source_id": "wildchat-nontoxic",
+      "uri": "hf://datasets/allenai/WildChat-nontoxic",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "92797777fb123c41c45a93216a4abe7d30827bce",
+      "subset": null,
+      "split": "train",
+      "max_rows": 9000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "AI2 ImpACT low-risk artifact licence (allenai.org/licenses/impact-lr); hub licence tag not set",
+        "license_url": "https://huggingface.co/datasets/allenai/WildChat-nontoxic",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (auto): accept at https://huggingface.co/datasets/allenai/WildChat-nontoxic . Card: ImpACT low-risk licence; use to cause harm is prohibited. 529,514 conversations judged non-toxic by OpenAI Moderation and Detoxify."
+      },
+      "field_map": {
+        "messages": "conversation",
+        "family": "conversation_id"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "toxic",
+            "op": "eq",
+            "value": false
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/WildChat-nontoxic",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Unverified (gated; same conversation layout as WildChat-1M per the card, with `conversation_id` instead of `conversation_hash`). An early (2024) release of the non-toxic part of WildChat, so it is almost entirely inside WildChat-1M and WildChat-4.8M (wildchat-4.8m is already in the manifests); expect near-total duplication. Estimated 740M unique tokens in the kept selection (529,514 rows, 1.6 GB parquet, 2.95 GB text, ~800 tokens per conversation)."
+    },
+    {
+      "source_id": "wildchat-4.8m-full",
+      "uri": "hf://datasets/allenai/WildChat-4.8M-Full",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "9643ce21f5e808c8b9cf682d8385f28850397c09",
+      "subset": null,
+      "split": "train",
+      "max_rows": 9000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by",
+        "license_url": "https://huggingface.co/datasets/allenai/WildChat-4.8M-Full",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval by the maintainers): request access at https://huggingface.co/datasets/allenai/WildChat-4.8M-Full . Card: ODC-BY. 4,743,336 conversations including the toxic ones that the public WildChat-4.8M leaves out; toxic conversations are filtered out here as in wildchat-4.8m."
+      },
+      "field_map": {
+        "messages": "conversation",
+        "family": "conversation_hash"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "toxic",
+            "op": "eq",
+            "value": false
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/WildChat-4.8M-Full",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Unverified (gated manual; same columns as WildChat-4.8M per the card). With the toxic filter this is the same data as the already-present wildchat-4.8m, so it adds nothing unless the toxic conversations are wanted (they are not recommended for SFT); the registered value is a hedge in case the public 4.8M is later removed. Estimated 2500M unique tokens in the kept selection (4.74M rows, 21.4 GB parquet (63 GB text); non-toxic part equals the existing wildchat-4.8m (3.2M conversations, ~2,500M tokens))."
+    },
+    {
+      "source_id": "wildguardmix-train-unharmful",
+      "uri": "hf://datasets/allenai/wildguardmix",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "chat",
+      "revision": "d29c47f41c8b51348b5c8e8c81c039b3132b66d1",
+      "subset": "wildguardtrain",
+      "split": "train",
+      "max_rows": 30000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by",
+        "license_url": "https://huggingface.co/datasets/allenai/wildguardmix",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (auto): accept the AI2 Responsible Use Guidelines at https://huggingface.co/datasets/allenai/wildguardmix . Card: ODC-BY; prompts are vanilla and adversarial (jailbreak) requests, harmful and benign; responses by several LLMs. Only rows whose response is labelled unharmful are kept (37,976 of 86,759 rows have a response at all)."
+      },
+      "field_map": {
+        "prompt": "prompt",
+        "target": "response"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "response_harm_label",
+            "op": "eq",
+            "value": "unharmful"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/wildguardmix",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Unverified (gated); column names are from the card (prompt, response, response_harm_label in {harmful, unharmful}). Overlaps with tulu-3-sft-mixture, which includes a ~50k-row WildGuardMix subset. Estimated 8M unique tokens in the kept selection (86,759 rows (37,976 with a response), 54 MB parquet; assumed ~60% of responses unharmful)."
+    },
+    {
+      "source_id": "wildjailbreak-train",
+      "uri": "hf://datasets/allenai/wildjailbreak",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "chat",
+      "revision": "5ddc12a7894f842b0619b8e1c7ee496b198af009",
+      "subset": "train",
+      "split": "train",
+      "max_rows": 30000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by",
+        "license_url": "https://huggingface.co/datasets/allenai/wildjailbreak",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (auto): accept the AI2 Responsible Use Guidelines at https://huggingface.co/datasets/allenai/wildjailbreak . Card: ODC-BY. 262k synthetic prompt/response pairs of four kinds: vanilla harmful (refusal), vanilla benign (compliance), adversarial harmful (refusal) and adversarial benign (compliance); responses by GPT-3.5 and Mixtral."
+      },
+      "field_map": {
+        "prompt": [
+          "adversarial",
+          "vanilla"
+        ],
+        "target": "completion"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/wildjailbreak",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Unverified (gated). Tab-separated file read through the `train` config; the prompt is the `adversarial` column when it is non-empty and the `vanilla` column otherwise (the reader treats an empty cell as missing only if the CSV loader returns null, otherwise this needs an empty-string fallback). `data_type` gives the four kinds. Overlaps with tulu-3-sft-mixture, which includes a ~50k-row WildJailBreak subset. Estimated 130M unique tokens in the kept selection (~262k rows, 531 MB tsv)."
+    },
+    {
+      "source_id": "nemotron-pretraining-sft-v1-code",
+      "uri": "hf://datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "synthetic_documents",
+      "revision": "3f1a5b884d0b890f02ead979ce698dc95debd953",
+      "subset": "Nemotron-SFT-Code",
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "nvidia-data-agreement-for-model-training (custom)",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training: model-training use only; Hub licence tag `other`). Code Q&A text 'input: ... output: ...' by Qwen2.5-Coder-32B-Instruct and others. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1"
+      },
+      "field_map": {
+        "text": "text"
+      },
+      "options": {
+        "quality": {}
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "unverified (gated). Pretraining-style single `text` field in the form 'input: <prompt> output: <answer>'; a dedicated reader would split it into a prompt and an answer. Estimated 58500M unique tokens in the kept selection (card: 58.5B tokens (Code SFT); sample from the public nvidia/Nemotron-Pretraining-Dataset-sample: 1,000 rows, mean 987 chars/row)."
+    },
+    {
+      "source_id": "nemotron-pretraining-sft-v1-general",
+      "uri": "hf://datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "synthetic_documents",
+      "revision": "3f1a5b884d0b890f02ead979ce698dc95debd953",
+      "subset": "Nemotron-SFT-General",
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "nvidia-data-agreement-for-model-training (custom)",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training). General SFT-style text (Mixtral-8x22B, DeepSeek-V3, Qwen) in the Nemotron-4 chat format '<extra_id_1>User ... <extra_id_1>Assistant ...'. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1"
+      },
+      "field_map": {
+        "text": "text"
+      },
+      "options": {
+        "quality": {}
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "unverified (gated). The Nemotron-4 template is not one of the templates the serialized_chat reader knows. Estimated 87500M unique tokens in the kept selection (card: 87.5B tokens (General SFT); public sample mean 1,587 chars/row)."
+    },
+    {
+      "source_id": "nemotron-pretraining-sft-v1-math",
+      "uri": "hf://datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "synthetic_documents",
+      "revision": "3f1a5b884d0b890f02ead979ce698dc95debd953",
+      "subset": "Nemotron-SFT-MATH",
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "nvidia-data-agreement-for-model-training (custom)",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training). Math Q&A text 'input: ... output: ...' expanded from math seeds with Qwen and DeepSeek models. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1"
+      },
+      "field_map": {
+        "text": "text"
+      },
+      "options": {
+        "quality": {}
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "unverified (gated). Same 'input: ... output: ...' form as the code part. Estimated 190600M unique tokens in the kept selection (card: 190.6B tokens (Math SFT); public sample mean 3,125 chars/row)."
+    },
+    {
+      "source_id": "ultradata-sft-2605-math-think",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Math",
+      "split": "think",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking maths (think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 18518M unique tokens in the kept selection (2,499,830 rows (card); 74.07 GB of jsonl in data/think/Math / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-math-nothink",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Math",
+      "split": "no_think",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer maths (no_think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 7442M unique tokens in the kept selection (2,999,644 rows (card); 29.77 GB of jsonl in data/no_think/Math / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-code-think",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Code",
+      "split": "think",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking code (think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 44375M unique tokens in the kept selection (2,788,465 rows (card); 177.5 GB of jsonl in data/think/Code / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-code-nothink",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Code",
+      "split": "no_think",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer code (no_think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 2188M unique tokens in the kept selection (3,000,000 rows (card); 8.75 GB of jsonl in data/no_think/Code / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-knowledge-think",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Knowledge",
+      "split": "think",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking knowledge / exam questions (think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 3475M unique tokens in the kept selection (499,667 rows (card); 13.9 GB of jsonl in data/think/Knowledge / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-knowledge-nothink",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Knowledge",
+      "split": "no_think",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer knowledge / exam questions (no_think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 425M unique tokens in the kept selection (800,000 rows (card); 1.7 GB of jsonl in data/no_think/Knowledge / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-chinesegeneral-think",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Chinese-general",
+      "split": "think",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking general chinese chat (think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 822M unique tokens in the kept selection (499,954 rows (card); 3.29 GB of jsonl in data/think/Chinese-general / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-chinesegeneral-nothink",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Chinese-general",
+      "split": "no_think",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer general chinese chat (no_think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 208M unique tokens in the kept selection (500,000 rows (card); 0.83 GB of jsonl in data/no_think/Chinese-general / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-if-think",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "IF",
+      "split": "think",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking multi-constraint instruction following (think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 322M unique tokens in the kept selection (199,883 rows (card); 1.29 GB of jsonl in data/think/IF / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-if-nothink",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "IF",
+      "split": "no_think",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer multi-constraint instruction following (no_think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 120M unique tokens in the kept selection (199,991 rows (card); 0.48 GB of jsonl in data/no_think/IF / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-multilangmath-nothink",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Multi-lang-Math",
+      "split": "no_think",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Multilingual maths (no_think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 530M unique tokens in the kept selection (549,230 rows (card); 2.12 GB of jsonl in data/no_think/Multi-lang-Math / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "ultradata-sft-2605-multilangknowledge-nothink",
+      "uri": "hf://datasets/openbmb/UltraData-SFT-2605",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "affda6aca75e7cff78e73f93ad08d4c3b01f097c",
+      "subset": "Multi-lang-Knowledge",
+      "split": "no_think",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0 (plus upstream licences; no unauthorised redistribution)",
+        "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Multilingual knowledge (no_think)."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "UNVERIFIED (gated): the row format could not be read. Written on the assumption that rows look like the sibling UltraData-SFT-Agent-2609 (uuid, messages with role/content, optional reasoning_content). Check messages/field names once access is granted; think and no_think are two splits of each config. Estimated 1320M unique tokens in the kept selection (499,514 rows (card); 5.28 GB of jsonl in data/no_think/Multi-lang-Knowledge / 4 (unverified, gated))."
+    },
+    {
+      "source_id": "toolathlon-trajectories",
+      "uri": "hf://datasets/hkust-nlp/Toolathlon-Trajectories",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "verified_trajectories",
+      "revision": "6194034105bc27fa438447172be0e7b4e35396e4",
+      "subset": null,
+      "split": "train",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "CC-BY-4.0 per card. Gated (auto-approve after accepting the conditions at https://huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories). Full execution trajectories of 17 frontier models (3 runs each) on the 108-task Toolathlon benchmark with real MCP servers; task_status.evaluation is the benchmark's own pass/fail. UNVERIFIED (gated): format taken from the card."
+      },
+      "field_map": {
+        "messages": "messages",
+        "tools": "tool_calls",
+        "outcome": "task_status.evaluation",
+        "family": [
+          "task_name"
+        ],
+        "task": [
+          "task_name"
+        ]
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "row_filters": [
+          {
+            "path": "task_status.evaluation",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "All values are JSON strings per the card (messages, task_status, config, tool_calls). Benchmark-derived: these are the Toolathlon benchmark's own tasks, so training on it contaminates any Toolathlon evaluation. Needs a sample check after access is granted (message shape assumed OpenAI-style). Estimated 150M unique tokens in the kept selection (~5,500 trajectories (17 models x 3 runs x ~108 tasks), roughly 35% pass, ~80k tokens each (2.0 GB of jsonl including configs); unverified)."
+    }
+  ]
+}

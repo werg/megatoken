@@ -44,7 +44,9 @@ def role_of(message: Mapping[str, Any]) -> str:
     role = message.get("role", message.get("from"))
     if not isinstance(role, str):
         raise SchemaError("Every message needs a string role")
-    return ROLES.get(role, role)
+    # Publishers capitalise role names ("User", "Assistant"); the meaning is the same.
+    lowered = role.casefold()
+    return ROLES.get(lowered, lowered)
 
 
 def _text(message: Mapping[str, Any]) -> str:
@@ -310,6 +312,10 @@ def glaive(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     "arguments": '<json>'}``; its response is the next ``FUNCTION RESPONSE`` turn.
     """
     system, chat = row.get("system"), value
+    if system is None and isinstance(chat, str):
+        # The first release keeps system prompt and chat in one string.
+        system, marker, rest = chat.partition("\nUSER:")
+        chat = "USER:" + rest if marker else chat
     if not isinstance(chat, str) or not isinstance(system, str):
         raise SchemaError("Glaive rows need string system and chat fields")
     decoder, tools, position = json.JSONDecoder(), [], system.find("{")
@@ -371,7 +377,13 @@ _XLAM_TYPES = {
 
 
 def _xlam_tool(tool: Mapping[str, Any]) -> dict[str, Any]:
-    """xLAM lists parameters as ``{name: {type: "str", description, default}}``; make it JSON Schema."""
+    """xLAM lists parameters as ``{name: {type: "str", description, default}}``; make it JSON Schema.
+
+    Re-releases wrap a tool as ``{"type": "function", "function": {...}}`` with JSON Schema
+    parameters already; those pass through.
+    """
+    if isinstance(tool.get("function"), Mapping):
+        return {**tool["function"]}
     properties, required = {}, []
     for name, spec in (tool.get("parameters") or {}).items():
         kind = str(spec.get("type", "")).split(",")[0].split("[")[0].strip().lower()
@@ -392,8 +404,18 @@ def xlam(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     query, answers, tools = row.get("query"), row.get("answers"), row.get("tools")
     if not isinstance(query, str):
         raise SchemaError("xLAM rows need a string query")
-    answers = _literal(answers, "answers") if isinstance(answers, str) else answers
     tools = _literal(tools, "tools") if isinstance(tools, str) else tools
+    if isinstance(answers, str):
+        try:
+            answers = _literal(answers, "answers")
+        except SchemaError:
+            # A query the tools cannot answer is declined in plain words.
+            if not isinstance(tools, list) or not answers.strip():
+                raise
+            return (
+                [{"role": "user", "content": query}, {"role": "assistant", "content": answers}],
+                [_xlam_tool(tool) for tool in tools],
+            )
     if not isinstance(answers, list) or not answers or not isinstance(tools, list):
         raise SchemaError("xLAM rows need answer and tool lists")
     ledger = _Ledger()
@@ -413,20 +435,84 @@ def xlam(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
 
 
 def turn_pairs(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
-    """``[{"input": user, "output": assistant}, ...]`` exchanges (Capybara)."""
+    """Exchanges as ``{"input": user, "output": assistant}`` (Capybara) or ``{"human", "assistant"}`` (MOSS)."""
     if not isinstance(value, list) or not value:
         raise SchemaError("turn pairs must be a nonempty list")
     out: Messages = []
     for pair in value:
-        if not isinstance(pair, Mapping) or not all(
-            isinstance(pair.get(k), str) for k in ("input", "output")
-        ):
+        if not isinstance(pair, Mapping):
+            raise SchemaError("Every exchange must be an object")
+        user, reply = (
+            (pair.get("input"), pair.get("output"))
+            if "input" in pair
+            else (pair.get("human"), pair.get("assistant"))
+        )
+        if not isinstance(user, str) or not isinstance(reply, str):
             raise SchemaError("Every exchange needs string input and output")
-        out += [
-            {"role": "user", "content": pair["input"]},
-            {"role": "assistant", "content": pair["output"]},
-        ]
+        out += [{"role": "user", "content": user}, {"role": "assistant", "content": reply}]
     return out, None
+
+
+_HUMAN_ASSISTANT = re.compile(r"(?:^|\n\n)(Human|Assistant): ?")
+
+
+def human_assistant(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """``\\n\\nHuman: ...\\n\\nAssistant: ...`` text dumps (Anthropic HH-RLHF)."""
+    if not isinstance(value, str):
+        raise SchemaError("A Human/Assistant dump must be a string")
+    pieces = _HUMAN_ASSISTANT.split(value)
+    if pieces[0].strip() or len(pieces) < 3:
+        raise SchemaError("Text before the first Human/Assistant marker, or no turn at all")
+    out: Messages = []
+    for marker, body in zip(pieces[1::2], pieces[2::2], strict=True):
+        if not body.strip():
+            raise SchemaError("A Human/Assistant turn is empty")
+        out.append({"role": "user" if marker == "Human" else "assistant", "content": body.strip()})
+    return out, None
+
+
+def alternating_turns(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """A list of bare strings, user first, alternating with the assistant (UltraChat)."""
+    if not isinstance(value, list) or not value or not all(isinstance(t, str) for t in value):
+        raise SchemaError("alternating turns must be a nonempty list of strings")
+    return [
+        {"role": "assistant" if index % 2 else "user", "content": text}
+        for index, text in enumerate(value)
+    ], None
+
+
+def prompt_and_reply(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """The prompt turns in one field and the answer to them in another.
+
+    The answer is ``generated_message`` (a message object that may carry
+    ``reasoning_content``), ``teacher_response`` or ``output`` (strings), or an ``answer``
+    string with its ``reasoning`` text beside it.
+    """
+    prompt = _messages(value)
+    reply, reasoning = None, None
+    for key in ("generated_message", "teacher_response", "answer", "output"):
+        if row.get(key) is not None:
+            reply = row[key]
+            reasoning = row.get("reasoning") if key == "answer" else None
+            break
+    if isinstance(reply, str):
+        reply = {"role": "assistant", "content": reply, "reasoning_content": reasoning}
+    if not isinstance(reply, Mapping) or reply.get("tool_calls") or not reply.get("content"):
+        raise SchemaError("The reply must be a message with text and no tool calls")
+    return [
+        *prompt,
+        {
+            "role": "assistant",
+            "content": reply["content"],
+            "reasoning_content": reply.get("reasoning_content"),
+        },
+    ], row.get("tools")
+
+
+def prompt_completion(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """``prompt`` and ``completion`` message lists that together are one conversation."""
+    completion = _messages(row.get("completion"))
+    return [*_messages(value), *completion], row.get("tools")
 
 
 DIALECTS: dict[str, Dialect] = {
@@ -436,4 +522,8 @@ DIALECTS: dict[str, Dialect] = {
     "glaive": glaive,
     "xlam": xlam,
     "turn_pairs": turn_pairs,
+    "human_assistant": human_assistant,
+    "alternating_turns": alternating_turns,
+    "prompt_and_reply": prompt_and_reply,
+    "prompt_completion": prompt_completion,
 }

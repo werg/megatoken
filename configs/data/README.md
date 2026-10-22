@@ -59,3 +59,9 @@ source needs a token that has accepted its terms). The runs that use them are
 `configs/cloud/prepare-full-agentic.json` and `configs/cloud/prepare-full-open.json`
 (`python -m megatoken.cloud_prepare plan|launch`); see "Preparing at full volume" in
 [`docs/data.md`](../../docs/data.md).
+
+`sources.agentic-more.json` (417 more chat, reasoning, tool-use and agent sources) and
+`sources.agentic-more-gated.json` (23 that need a click on the Hub) come from a second sweep
+of public sets. The cloud job `configs/cloud/prepare-agentic-more.json` prepares the first,
+scaled with `AGENTIC_MORE_ROW_SCALE`. See "More chat, reasoning and agent data" in
+[`docs/data.md`](../../docs/data.md).
