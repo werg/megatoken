@@ -134,6 +134,8 @@ class Meridian:
     roles: tuple[int, ...]
     modalities: tuple[str, ...]
     real_boundary: bool
+    # It finishes a user message: the lookup after it is the one that sees the question.
+    asked: bool = False
 
 
 def plan_boundaries(
@@ -155,6 +157,18 @@ def plan_boundaries(
             before[index + 1] = 1
             scheduler.finish(committed=True)
     return before
+
+
+def question_lookup(meridians: Sequence[Meridian], before: Sequence[int]) -> int | None:
+    """The lookup that follows the window's first finished user message, if one is planned.
+
+    ``before`` is ``plan_boundaries``'s answer. A message that is the window's last
+    meridian is followed by no lookup of this window.
+    """
+    asked = next((i for i, meridian in enumerate(meridians) if meridian.asked), None)
+    if asked is None or asked + 1 >= len(meridians) or not before[asked + 1]:
+        return None
+    return sum(before[: asked + 2]) - 1
 
 
 @dataclass
@@ -229,6 +243,7 @@ class TransducerTrainer:
             max_lookups=self.bank.geometry.max_lookups,
             generator=generator if training else None,
         )
+        question = question_lookup(meridians, lookups)
         if not training:
             return TransducerSequence(
                 self,
@@ -238,6 +253,7 @@ class TransducerTrainer:
                 hindsight=False,
                 mounted=mounted,
                 sources=sources,
+                question=question,
             )
         sequence = self.sequences
         self.sequences += 1
@@ -251,6 +267,7 @@ class TransducerTrainer:
             generator=generator,
             mounted=mounted,
             sources=sources,
+            question=question,
         )
 
     def after_backward(self, step: int) -> dict[str, int]:
@@ -383,6 +400,7 @@ class TransducerSequence:
         generator: torch.Generator | None = None,
         mounted: tuple[Mounted, ...] | None = None,
         sources: SourceSession | None = None,
+        question: int | None = None,
     ) -> None:
         self.trainer = trainer
         self.native = trainer.native
@@ -398,8 +416,10 @@ class TransducerSequence:
         self.agenda: SearchAgenda | None = None
         self.lookups = 0
         self.sources = sources
-        # The search of the window's first lookup, which the data may annotate.
-        self.first_search: Search | None = None
+        # The search of the lookup after the first finished user message (``question``,
+        # counted among the window's lookups), which the data may annotate.
+        self.question = question
+        self.question_search: Search | None = None
 
     @property
     def planned(self) -> int:
@@ -519,8 +539,8 @@ class TransducerSequence:
         )
         if lookup is None:
             return state
-        if t == 0 and self.sources is not None:
-            self.first_search = self.sources.last
+        if t == self.question and self.sources is not None:
+            self.question_search = self.sources.last
         self.agenda.truncate_credit(CREDIT_GROUPS)
         if differentiable:
             for tensor in (lookup.value, lookup.bank_value, lookup.bank_landing_raw):

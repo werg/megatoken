@@ -1,11 +1,14 @@
 """Native event chronology at teacher prefixes and live recurrent windows."""
 
+import base64
 import json
 from dataclasses import replace
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
+from native_support import as_group, tiny_bundle
 from test_generation_policy import invalid_materialization_spec
 
 from megatoken.contracts import ROLE_TO_ID
@@ -34,6 +37,10 @@ def observe(model, state, record):
         role_ids=torch.tensor([ROLE_TO_ID[record.role]]),
         encoder_grad=False,
     )
+
+
+def zero_facets(model):
+    return np.zeros(model.latent_dimensions, dtype="<f4").tobytes()
 
 
 def annotation_entry(cursor, tape):
@@ -90,11 +97,18 @@ def collected(model):
         codec_fingerprint=model.codec.fingerprint,
         provenance="student",
     )
+    # What a rollout of the serving runtime records for each draw: one single-event group tape.
+    tapes = SimpleNamespace(
+        invalid=as_group(invalid.tape, model.codec),
+        empty=as_group(empty.tape, model.codec),
+        action=as_group(action.tape, model.codec),
+        trailing=as_group(trailing.tape, model.codec),
+    )
     entries = [
-        annotation_entry(1, invalid.tape),
-        annotation_entry(1, empty.tape),
-        annotation_entry(1, action.tape),
-        annotation_entry(3, trailing.tape),
+        annotation_entry(1, tapes.invalid),
+        annotation_entry(1, tapes.empty),
+        annotation_entry(1, tapes.action),
+        annotation_entry(3, tapes.trailing),
     ]
     episode = Episode(
         "native-episode",
@@ -109,6 +123,7 @@ def collected(model):
         action=action,
         after_tool=after_tool,
         trailing=trailing,
+        tapes=tapes,
         entries=entries,
     )
 
@@ -148,12 +163,12 @@ def test_native_invalid_empty_action_and_tool_replay_matches_live_context(model,
     assert history.has_events
     assert history.events_for_record(0, include_record=True) == ()
     assert history.events_for_record(1, include_record=True) == (
-        collected.invalid.tape,
-        collected.empty.tape,
-        collected.action.tape,
+        collected.tapes.invalid,
+        collected.tapes.empty,
+        collected.tapes.action,
     )
     assert history.has_generated_record(1)
-    assert history.paired_tape(1) == collected.action.tape
+    assert history.paired_tape(1) == collected.tapes.action
     assert history.paired_tape(0) is None
     assert history.paired_tape(3) is None
     assert not history.has_generated_record(3)
@@ -161,8 +176,7 @@ def test_native_invalid_empty_action_and_tool_replay_matches_live_context(model,
     for cursor, record in enumerate(collected.episode.records):
         for tape in history.events_for_record(cursor, include_record=True):
             state = replay_raw_tape(model, state, tape)
-            raw = torch.from_numpy(tape.facet_array().copy()).reshape(1, *tape.facet_shape)
-            assert torch.equal(state.facets, raw)
+            assert torch.equal(state.facets, tape.single_raw(state.device))
         if not history.has_generated_record(cursor):
             state = observe(model, state, record)
     assert_same_context(state, collected.after_tool)
@@ -175,14 +189,14 @@ def test_native_invalid_empty_action_and_tool_replay_matches_live_context(model,
 def test_target_native_tape_is_excluded_but_earlier_zero_record_events_recur(model, collected):
     history = NativeHistory.from_episode(collected.episode, model)
     before_target = history.events_for_record(1, include_record=False)
-    assert before_target == (collected.invalid.tape, collected.empty.tape)
+    assert before_target == (collected.tapes.invalid, collected.tapes.empty)
     state = observe(model, model.core.initial_state(1), collected.episode.records[0])
     for tape in before_target:
         state = replay_raw_tape(model, state, tape)
     assert_same_context(state, collected.empty.state)
     assert not torch.equal(state.facets, collected.action.state.facets)
     # A different target tensor in metadata cannot affect its preceding prefix.
-    changed = replace(collected.action.tape, facets=(0.0,) * model.latent_dimensions)
+    changed = replace(collected.tapes.action, raw_f32=zero_facets(model))
     entries = [*collected.entries]
     entries[2] = annotation_entry(1, changed)
     episode = replace(
@@ -192,7 +206,7 @@ def test_target_native_tape_is_excluded_but_earlier_zero_record_events_recur(mod
     changed_history = NativeHistory.from_episode(episode, model)
     assert changed_history.events_for_record(1, include_record=False) == before_target
     # Trailing zero-record events are still available at an end-of-episode boundary.
-    assert history.events_for_record(3, include_record=False) == (collected.trailing.tape,)
+    assert history.events_for_record(3, include_record=False) == (collected.tapes.trailing,)
 
 
 def test_fixed_raw_replay_skips_encoder_decoder_prediction_and_keeps_history_gradients(
@@ -262,23 +276,23 @@ def test_native_order_cannot_reuse_a_consumed_physical_record(model, collected, 
         NativeHistory.from_episode(malformed_episode(collected, entries), model)
 
 
-@pytest.mark.parametrize("kind", ["codec", "geometry", "bytes", "fp32", "effort", "valid"])
+@pytest.mark.parametrize("kind", ["codec", "geometry", "bytes", "nonfinite", "effort", "valid"])
 def test_native_tape_identity_and_raw_tensor_are_checked(model, collected, kind):
     value = dict(collected.entries[0]["tape"])
     if kind == "codec":
         value["codec_fingerprint"] = "another-codec"
     elif kind == "geometry":
-        value["facet_shape"] = [1, model.latent_dimensions]
+        value["facet_shape"] = [1, 1, model.latent_dimensions]
     elif kind == "bytes":
-        value["emitted_ids"] = [1]
-    elif kind == "fp32":
-        # V4 normally packs FP32 bytes. Exercise the list input's precision
-        # guard explicitly: the Python float 0.1 is not exactly representable.
-        value["facets"] = [0.1, *collected.invalid.tape.facet_array().tolist()[1:]]
+        value["emitted_ids"] = [[1]]
+    elif kind == "nonfinite":
+        value["raw_f32"] = base64.b64encode(
+            np.full(model.latent_dimensions, np.nan, dtype="<f4").tobytes()
+        ).decode()
     elif kind == "effort":
         value["effort"] = 5
     else:
-        value["valid"] = 1
+        value["valid"] = [1]
     with pytest.raises(ValueError, match="Native history entry"):
         NativeHistory.from_episode(
             malformed_episode(collected, [{"record_cursor": 1, "tape": value}]), model
@@ -318,35 +332,7 @@ def test_absent_native_metadata_is_an_empty_index_and_invalid_lookup_fails(model
 
 
 def test_valid_empty_student_draw_does_not_require_an_absent_record_on_next_request(model):
-    class Engine:
-        manifest = {"model_sha256": "a" * 64}
-        config = model.config
-        codec = model.codec
-
-        def __init__(self):
-            self.observations, self.draws = 0, 0
-
-        def new_session(self):
-            self.session = SimpleNamespace(state=model.core.initial_state(1))
-            return self.session
-
-        def observe_physical(self, session, payload, *, role, token_ids):
-            self.observations += 1
-            assert self.codec.decode(token_ids) == payload
-            session.state = observe(model, session.state, PhysicalRecord("input", role, payload))
-
-        def generate(self, session, **kwargs):
-            self.draws += 1
-            result = model.sample(
-                session.state,
-                spec=ActionSpec(max_tokens=0),
-                generator=torch.Generator().manual_seed(self.draws),
-            )
-            session.state = result.state
-            return result
-
-    engine = Engine()
-    student = ModelTeacher(_engine=engine)
+    student = ModelTeacher(tiny_bundle(model.codec), effort=1)
     records = (PhysicalRecord("prompt", "user", b"continue"),)
     for index in range(2):
         response = student.respond(
@@ -354,22 +340,24 @@ def test_valid_empty_student_draw_does_not_require_an_absent_record_on_next_requ
                 request_id=f"empty-{index}",
                 messages_json="[]",
                 tools_json="[]",
-                max_output_tokens=8,
+                max_output_tokens=0,
                 codec_fingerprint=model.codec.fingerprint,
                 session_id="empty-session",
                 records=records,
             )
         )
         assert response.content == b"" and not response.calls
-        assert json.loads(response.native_tape_json)["valid"] is True
-    assert engine.observations == 1 and engine.draws == 2
-    assert engine.session.state.records_seen.item() == 3
+        tape = json.loads(response.native_tape_json)
+        assert tape["valid"] == [True] and tape["tracks"] == ["assistant"]
+    # The prompt was observed once; both empty draws advanced the one session.
+    tracks = [event for _, event in student._session.events]
+    assert tracks.count(("user",)) == 1 and tracks.count(("assistant",)) == 2
 
 
 def integration_episodes(model, collected):
     """A scored native target and a later teacher target with a native prefix."""
     entries = [*collected.entries]
-    future = replace(collected.action.tape, facets=(0.0,) * model.latent_dimensions)
+    future = replace(collected.tapes.action, raw_f32=zero_facets(model))
     entries[2] = annotation_entry(1, future)
     target = replace(
         collected.episode,
@@ -527,8 +515,8 @@ def test_fixed_native_replay_retains_central_gradients_and_ignores_prospective_c
             annotations_json=canonical_json(
                 {
                     "native_action_tapes": [
-                        annotation_entry(1, first.tape),
-                        annotation_entry(2, second.tape),
+                        annotation_entry(1, as_group(first.tape, model.codec)),
+                        annotation_entry(2, as_group(second.tape, model.codec)),
                     ]
                 }
             )

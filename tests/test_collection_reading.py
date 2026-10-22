@@ -49,13 +49,14 @@ def test_an_annotated_window_trains_the_query_head_and_observes_what_it_retrieve
     # The loss reaches the embedding head's query role, and only that role.
     head = model.embedding_realizer
     assert head.query.weight.grad.abs().sum() > 0 and head.document.weight.grad is None
-    # With the threshold open the first lookup observed two passages, in the collection's order.
+    # With the threshold open the lookup after the question (the second: the first follows
+    # the metadata, before anything was asked) observed two passages, in the collection's order.
     (session,) = sessions
-    assert [entry.lookup for entry in session.log][:2] == [0, 0]
+    assert [entry.lookup for entry in session.log].count(1) == 2
     assert all(entry.item.text.startswith(b"passage") for entry in session.log)
     assert 0 <= metrics["retrieval_student_recall"] <= 1 and metrics["retrieval_queries"] == 1
-    # The same question is the request of the session's metadata, kept whatever the dropout.
+    # The question is not smuggled into the metadata: the session starts with what the
+    # episode can know before its first event, and the question arrives as a message.
     episode = PreparedCorpus([str(root)], stream=STREAM).fetch(0)[0]
     for seed in (None, 1, 2, 3):
-        request = json.loads(_metadata(episode, seed))["request"]
-        assert request == "What is the code word of task 0?"
+        assert json.loads(_metadata(episode, seed))["request"] is None

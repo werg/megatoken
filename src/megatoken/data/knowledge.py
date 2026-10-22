@@ -32,11 +32,6 @@ from .schema import (
 )
 
 STREAM = "base_reading"
-# The first assistant turn of a base-reading episode. A completed assistant turn
-# is a lookup boundary, so the lookup that finds the items falls after the
-# question and before the answer.
-LOOKUP_TURN = "Let me check the knowledge base."
-
 SUFFIXES = {
     "image": {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"},
     "audio": {".wav", ".flac", ".mp3", ".ogg", ".m4a", ".opus"},
@@ -137,9 +132,10 @@ def knowledge_episode(
     *,
     cue: str = "",
 ) -> Episode:
-    """A reading-from-a-base episode: the question, a lookup turn, then the answer.
+    """A reading-from-a-base episode: the question, then the answer.
 
-    The reference items are not in the context: they are declared for a base
+    The finished question is a lookup boundary, so the lookup that finds the items falls
+    between the two. The reference items are not in the context: they are declared for a base
     (``knowledge_items``), which the trainer fills and mounts, so the model can
     answer only by finding them. ``cue`` (optional) is added to the question to say
     which item is meant when the question alone does not (a media clip's first words).
@@ -150,18 +146,10 @@ def knowledge_episode(
     records = (
         PhysicalRecord(f"{episode_id}-question", "user", asked.encode(), provenance="natural"),
         PhysicalRecord(
-            f"{episode_id}-lookup",
-            "assistant",
-            LOOKUP_TURN.encode(),
-            turn_index=1,
-            policy_mask=True,
-            provenance="natural",
-        ),
-        PhysicalRecord(
             f"{episode_id}-answer",
             "assistant",
             answer.encode(),
-            turn_index=2,
+            turn_index=1,
             policy_mask=True,
             provenance="natural",
         ),

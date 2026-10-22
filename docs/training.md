@@ -147,10 +147,10 @@ Only tool JSON is canonicalized; seed/reference bytes remain exact. References r
 `external_evidence` or `earlier_history` provenance. Empty control rows are neutral even
 when batched with nonempty controls.
 
-The JSONL generation request accepts `control_seed`, `control_reference`, and
+A JSONL generation output accepts `control_seed`, `control_reference`, and
 `reference_origin`; its `tools` also condition the core. The numeric `seed` remains the
-random generator seed. Python callers use the matching `InferenceEngine.generate`
-arguments. Version-8 action tapes store the source control bytes for every draw. Replay
+random generator seed. Python callers use the matching `controls` of
+`MultiTrackRuntime.generate`. Group action tapes store the source control bytes for every draw. Replay
 re-encodes those bytes under the current weights instead of trusting stale encoded
 features, and rejects an explicitly different control. Control changes occur upstream
 of the one facet draw. For fixed raw facets and explicit output controls, realization is
@@ -246,9 +246,10 @@ under DiLoCo only worker 0 evaluates its own weights between syncs.
 question and the scored answer; the supporting items sit, with every other task's items, in
 a source collection inside the prepared root (`collections/train`, `collections/validation`,
 each built from its own split's tasks). The episode's annotations name the collection, the
-teacher's embedding of the question and the annotated items. The question is also the
-`request` of the session metadata, so the first lookup can search for it. Each window that
-starts its episode scores that first lookup with two losses, one count each:
+teacher's embedding of the question and the annotated items. A finished user message is a
+lookup boundary, so the lookup right after the question has read it. Each window that scores
+that lookup (it falls before one of the window's own meridians, not in the replayed prefix)
+scores it with two losses, one count each:
 `query_alignment` (the embedding head's query matches the teacher's embedding of the
 question, by the centered alignment distance, centered on the collection's stored mean query
 embedding) and `retrieval_ranking` (`-log` of the softmax mass the annotated items take among

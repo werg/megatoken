@@ -45,17 +45,28 @@ def metadata_payload(metadata: dict[str, object]) -> bytes:
     return json.dumps(normalized, sort_keys=True, ensure_ascii=False).encode()
 
 
+def completed_turn(roles: Sequence[int], complete: Sequence[bool], role: str) -> bool:
+    """Whether one ordinary meridian is a finished message of ``role``.
+
+    Every event has that role and is the last part of its message.
+    """
+    return all(r == ROLE_IDS[role] and done for r, done in zip(roles, complete, strict=True))
+
+
 def real_boundary(roles: Sequence[int], complete: Sequence[bool]) -> bool:
     """Whether a lookup is due after one ordinary meridian, from its roles alone.
 
-    A completed assistant turn (every event assistant, each the last part of its
-    message) or the arrival of a tool, document or environment result. Training
-    and serving both ask this, so they plan the same lookups.
+    A completed user message or assistant turn (every event has that role, each the
+    last part of its message), or the arrival of a tool, document or environment
+    result. A user message is finished when the question is whole, so the lookup that
+    follows it sees what was asked. Training and serving both ask this, so they plan
+    the same lookups.
     """
-    turn = all(
-        role == ROLE_IDS["assistant"] and done for role, done in zip(roles, complete, strict=True)
+    return (
+        completed_turn(roles, complete, "user")
+        or completed_turn(roles, complete, "assistant")
+        or any(role in SOURCE_ROLES for role in roles)
     )
-    return turn or any(role in SOURCE_ROLES for role in roles)
 
 
 def event_attention_mask(*, groups: Tensor, mode: str) -> Tensor:

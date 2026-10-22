@@ -135,11 +135,19 @@ any other manifest; text-only bundles take no `--packs`):
 ```bash
 megatoken export --checkpoint runs/base-pretraining/checkpoints/latest.json \
   --output artifacts/served --codec <codec> --packs packs/lock.json
-megatoken serve-multitrack --model artifacts/served --packs packs/lock.json
+megatoken serve --model artifacts/served --packs packs/lock.json
 ```
 
-The server accepts `open`, `observe`, `generate`, `speculate`, `accept`,
-`cancel`, `status` and `close`. For an example request (supply a live session
+This is the one serving program: `megatoken generate` is a one-shot session of the same
+runtime (a prompt, then one answer on the `assistant` track), and the frozen student that
+collects rollouts for training runs it too, so all three behave the same (lookups, the
+adapter mixture, mounted collections and knowledge bases).
+
+The server accepts `open`, `observe`, `observe_text`, `generate`, `speculate`, `accept`,
+`cancel`, `status` and `close`. `observe_text` (`track`, `role`, `text` or `payload_b64`)
+cuts a message into chunks by the bundle's chunk policy, one meridian each, and only the
+last ends the message; `observe` takes events that are already one physical chunk.
+For an example request (supply a live session
 ID returned by `open`):
 
 ```json
@@ -158,8 +166,11 @@ little-endian FP32 with their shape (audio `[samples]` at 24 kHz, image
 `[1, 3, H, W]`) alongside the base64 payload, plus a `tape_payload`: a
 `media-sha256-v1` digest binding the bytes to the realizer identity. Text stays
 byte-exact.
-Control payloads use `control_b64` per output track, produced by the common
-control builder. Speculative output is not a canonical commit until `accept`.
+A text output also takes `kind`, `min_tokens`, `terminal`, public `tools` (or
+`tools_json`, with `wire_formats`; a tool call may copy from the text the session holds)
+and its causal control: `control_seed`, `control_reference` with `reference_origin`, or the
+raw bytes `control_b64`, produced by the common control builder. Text answers carry
+`text` when valid UTF-8. Speculative output is not a canonical commit until `accept`.
 
 Knowledge bases ([multimodal-knowledge-plan.md](multimodal-knowledge-plan.md))
 are served when the server is started with `--kb-root DIR`, a directory every
@@ -168,7 +179,7 @@ path in the requests must lie inside (add `--packs` so files can be prepared):
 ```bash
 megatoken kb build --name manuals --items manuals/*.txt --model artifacts/served \
   --packs packs/lock.json --output kb/manuals.kb      # offline, once
-megatoken serve-multitrack --model artifacts/served --packs packs/lock.json --kb-root kb
+megatoken serve --model artifacts/served --packs packs/lock.json --kb-root kb
 ```
 
 `kb_open` (`name`, `path`) mounts a base file built for this model, `kb_create`
@@ -187,10 +198,11 @@ reference assets or fetch pack weights.
 
 ## Strict formats and no migrations
 
-- Architecture version: **10** (`ARCHITECTURE_VERSION`); the grouped tape is
-  `GroupActionTape` v10 (`fmt-multitrack-facets-v10`), recording renderer seeds
-  and realizer pack identities per event. The text-only single-event tape
-  keeps its own `fmt-canonical-facets-v8` identifier.
+- Architecture version: **10** (`ARCHITECTURE_VERSION`); the one tape serving, collection
+  and training exchange is `GroupActionTape` (`fmt-multitrack-facets-v12`), recording
+  renderer seeds and realizer pack identities per event. A single-track draw (a student's
+  rollout step) is a group of one event; the decoder-level single-event tape
+  `fmt-canonical-facets-v8` is only the output of the single-track diagnostic sampler.
 - Checkpoints carry the locked pack manifest's `packs_fingerprint`.
 - Episode and prepared dataset schema: **3**.
 - Prior checkpoints, episode archives, latent action tapes and served bundles

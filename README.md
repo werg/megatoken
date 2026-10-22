@@ -28,6 +28,20 @@ There is **no** implicit launcher default or `megatoken smoke`.
 
 **DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` run decoupled learners ([configs/train/diloco-coreweave.example.yaml](configs/train/diloco-coreweave.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). Every phase runs decoupled: neural parameters sync as fragments and the coordinator merges the transducer bank's rounds. Each phase is a new coordinator started from the previous phase's export. For hardware-specific setup, see [Blackwell](docs/blackwell.md).
 
+## Serve
+
+```bash
+megatoken export --checkpoint runs/b0/checkpoints/latest.json --output served/b0 --codec byte
+megatoken generate --model served/b0 --prompt "Hello" --max-tokens 32   # one-shot session
+megatoken serve --model served/b0                                       # JSON-lines service
+```
+
+There is one serving program, the multitrack runtime ([generation](docs/generation.md#export-and-serving),
+[protocol](docs/multi-track-implementation.md#group-native-jsonl-protocol)). `generate` is a
+one-shot session of the protocol `serve` speaks, and the frozen student that collects rollouts for
+training runs it too, so lookups, the adapter mixture and mounted collections and knowledge bases behave
+the same when serving, collecting and training. Its tape is the group tape (`fmt-multitrack-facets-v12`).
+
 ## Validation contract
 
 A production launch requires: complete CPU and Python-version tests, GPU/native attention gradient and RoPE parity, true multi-rank equivalence (dense gradients and the merged bank), checkpoint corruption/recovery, and the learned-quality measurements in the transducer plan. Passing structural tests does not assert learned-quality results.

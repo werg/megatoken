@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Build the ``base_reading`` stream: answer from items that are in a knowledge base, not the context.
 
-Each task becomes one episode of three turns: the user's question, a short assistant
-turn that ends the turn (so a memory lookup falls between question and answer), and the
-scored answer. The reference items are not in the episode's records: they are declared
+Each task becomes one episode of two turns: the user's question (a finished question is a
+lookup boundary, so a memory lookup falls between question and answer) and the scored
+answer. The reference items are not in the episode's records: they are declared
 for a base (``knowledge_items``), which the trainer fills with its current ingest heads
 and mounts, so the only way to answer is to find them (data/knowledge.py,
 training/reading_base.py). Three kinds of task, from the same data the reading and media

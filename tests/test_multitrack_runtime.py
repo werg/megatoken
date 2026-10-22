@@ -21,7 +21,7 @@ from tests.media_support import features, install_fake_realizers
 
 # Opening commits the metadata prefix, then the first lookup's query and knowledge events.
 OPENED = 3
-# A completed assistant turn or an arriving tool result makes a lookup due: its query
+# A finished user message or assistant turn, or an arriving tool result, makes a lookup due: its query
 # and knowledge events.
 LOOKUP = 2
 
@@ -137,14 +137,10 @@ def _feature_event(track, tokens=9, seed=0, extractor=PINNED_TEACHER):
 
 
 def _serve(model, requests):
-    class Engine:
-        device = torch.device("cpu")
-        config = model.config
-
-    engine = Engine()
-    engine.model = model
     results = io.StringIO()
-    serve_multitrack_jsonl(engine, requests(results), results)
+    serve_multitrack_jsonl(
+        MultiTrackRuntime(MultiTrackGenerator(model)), requests(results), results
+    )
     return [json.loads(line) for line in results.getvalue().splitlines()]
 
 
@@ -187,8 +183,9 @@ def test_jsonl_multitrack_roundtrip():
 
     rows = _serve(model, requests)
     assert len(rows) == 4 and all(row["ok"] for row in rows)
-    assert rows[1]["next_meridian"] == OPENED + 1
-    assert rows[1]["events_seen"] == OPENED + 2
+    # The user's finished message makes a lookup due: its query and knowledge events follow it.
+    assert rows[1]["next_meridian"] == OPENED + 1 + LOOKUP
+    assert rows[1]["events_seen"] == OPENED + 2 + LOOKUP
     generated = rows[2]
     voice, still = generated["outputs"][1:]
     assert voice["shape"] == [64] and still["shape"] == [1, 3, 16, 16]
@@ -206,10 +203,11 @@ def test_jsonl_multitrack_roundtrip():
         generated["tape"]["pack_fingerprints"][1:]
     )
     assert "tape_payload" not in generated["outputs"][0]
-    assert rows[3]["meridians"] == OPENED + 2 + LOOKUP
+    assert rows[3]["meridians"] == OPENED + 2 + 2 * LOOKUP
     assert rows[3]["retained_meridians"] == OPENED + 2
-    assert rows[3]["events_seen"] == OPENED + 5 + LOOKUP
-    assert rows[3]["retained_events"] == OPENED + 5
+    assert rows[3]["events_seen"] == OPENED + 5 + 2 * LOOKUP
+    # The tiny model keeps 8 events of history and drops whole oldest meridians to fit.
+    assert rows[3]["retained_events"] == 7
 
 
 def test_jsonl_media_must_be_pinned_features():

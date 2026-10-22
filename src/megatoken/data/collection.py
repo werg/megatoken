@@ -820,9 +820,11 @@ class Collector:
                 response = actor.respond(request)
                 native_tape = None
                 if response.native_tape_json is not None:
-                    from megatoken.generation.structure import ActionTape
+                    from megatoken.model.multitrack import GroupActionTape
 
-                    native_tape = ActionTape.from_json(response.native_tape_json)
+                    native_tape = GroupActionTape.from_json(response.native_tape_json)
+                    if len(native_tape.tracks) != 1:
+                        raise ValueError("A student draw is one single-event meridian")
                     if native_tape.codec_fingerprint != self.codec.fingerprint:
                         raise ValueError("Native action tape and collection meter codecs differ")
                     native_tapes.append(
@@ -842,13 +844,13 @@ class Collector:
                         response,
                         raw_output=len(
                             self.codec.encode(
-                                native_tape.payload
+                                native_tape.payloads[0]
                                 if native_tape is not None
                                 else response.output_bytes()
                             )
                         ),
                     )
-                if native_tape is not None and not native_tape.valid:
+                if native_tape is not None and not native_tape.valid[0]:
                     # The actor already advanced its recurrent state. No tool
                     # execution or invented observation follows an invalid decode.
                     continue

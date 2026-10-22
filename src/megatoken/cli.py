@@ -302,79 +302,104 @@ def _benchmark(args):
 
 
 def _export(args):
-    from megatoken.inference import export_served
+    from megatoken.served import export_served
 
     return export_served(args.checkpoint, args.output, codec_path=args.codec, packs=args.packs)
 
 
-def _generate(args):
-    from megatoken.generation.structure import ActionSpec
-    from megatoken.inference import InferenceEngine
-
-    engine = InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile)
-    session = engine.new_session()
-    payload = Path(args.prompt_file).read_bytes() if args.prompt_file else args.prompt.encode()
-    engine.observe(session, payload)
-    maximum = min(512, engine.config.max_capacity) if args.max_tokens is None else args.max_tokens
-    spec = ActionSpec(
-        min_tokens=args.min_tokens,
-        max_tokens=maximum,
-        text_kind=args.kind,
-    )
-    tools_json = Path(args.tools).read_text(encoding="utf-8") if args.tools else "[]"
-    if args.tools:
-        from megatoken.tool_schema import compile_tool_spec
-
-        spec = compile_tool_spec(tools_json, maximum)
-    result = engine.generate(
-        session,
-        spec=spec,
-        effort=args.effort,
-        seed=args.seed,
-        control_seed=Path(args.control_seed_file).read_bytes() if args.control_seed_file else b"",
-        control_reference=(
-            Path(args.control_reference_file).read_bytes() if args.control_reference_file else b""
-        ),
-        reference_origin=args.reference_origin,
-        tools_json=tools_json,
-    )
-    response = {
-        "payload_b64": base64.b64encode(result.payload).decode(),
-        "emitted_ids": list(result.emitted_ids),
-        "valid": result.tape.valid,
-        "latent_dimensions": result.tape.latent_dimensions,
-        "likelihood": "canonical_facet_gaussian_density",
-        "terminal": result.tape.terminal,
-        "tape": json.loads(result.tape.to_json()),
-    }
-    try:
-        response["text"] = result.payload.decode("utf-8")
-    except UnicodeError:
-        pass
-    return response
-
-
-def _serve(args):
-    from megatoken.inference import InferenceEngine, serve_jsonl
-
-    serve_jsonl(
-        InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile),
-        sys.stdin,
-        sys.stdout,
-        max_sessions=args.max_sessions,
-    )
-
-
-def _serve_multitrack(args):
-    import tempfile
-
-    from megatoken.inference import InferenceEngine
-    from megatoken.multitrack_service import serve_multitrack_jsonl
+def _runtime(args, *, preparer=None):
+    """The one serving runtime over a served bundle, with its mounted collections."""
+    from megatoken.model.multitrack import MultiTrackGenerator
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+    from megatoken.served import ServedBundle
 
     collections = dict(item.partition("=")[::2] for item in args.collection)
     if not all(collections.values()):
         raise ValueError("--collection is NAME=DIRECTORY")
-    engine = InferenceEngine(args.model, packs=args.packs, device=args.device, compile=args.compile)
+    bundle = ServedBundle(args.model, packs=args.packs, device=args.device, compile=args.compile)
+    runtime = MultiTrackRuntime(
+        MultiTrackGenerator(bundle.model),
+        chunking=bundle.chunking,
+        collections=collections,
+        preparer=preparer,
+    )
+    return bundle, runtime
+
+
+def _generate(args):
+    """One-shot session: a prompt as one user message, then one assistant answer."""
+    from megatoken.controls import build_control_payload
+    from megatoken.multitrack_service import MultiTrackService
+
+    bundle, runtime = _runtime(args)
+    bases = {}
+    for item in args.base:
+        name, _, path = item.partition("=")
+        if not path:
+            raise ValueError("--base is NAME=FILE")
+        runtime.memory.open_base(name, path)
+        bases[name] = 1.0
+    service = MultiTrackService(runtime)
+    metadata = json.loads(args.metadata)
+
+    retrieved = []
+
+    def call(**request):
+        answer = service.handle(request)
+        if not answer["ok"]:
+            raise RuntimeError(answer["error"])
+        retrieved.extend(answer.pop("retrieved", ()))
+        return answer
+
+    opened = call(op="open", metadata=metadata, bases=bases, effort=args.effort)
+    session = opened["session"]
+    payload = Path(args.prompt_file).read_bytes() if args.prompt_file else args.prompt.encode()
+    call(
+        op="observe_text",
+        session=session,
+        track="user",
+        role="user",
+        payload_b64=base64.b64encode(payload).decode(),
+        effort=args.effort,
+    )
+    output = {
+        "track": "assistant",
+        "modality": "text",
+        "kind": args.kind,
+        "min_tokens": args.min_tokens,
+        "max_tokens": min(512, bundle.config.max_capacity)
+        if args.max_tokens is None
+        else args.max_tokens,
+    }
+    tools_json = Path(args.tools).read_text(encoding="utf-8") if args.tools else None
+    if tools_json is not None:
+        output["tools_json"] = tools_json
+    # Raw control files may hold any bytes, so the control is framed here and sent whole.
+    output["control_b64"] = base64.b64encode(
+        build_control_payload(
+            seed=Path(args.control_seed_file).read_bytes() if args.control_seed_file else b"",
+            reference=(
+                Path(args.control_reference_file).read_bytes()
+                if args.control_reference_file
+                else b""
+            ),
+            reference_origin=args.reference_origin,
+            tools_json="[]" if tools_json is None else tools_json,
+        )
+    ).decode()
+    answer = call(
+        op="generate", session=session, outputs=[output], effort=args.effort, seed=args.seed
+    )
+    (reply,) = answer.pop("outputs")
+    # Everything the session retrieved on the way, lookup by lookup.
+    return {**reply, **answer, **({"retrieved": retrieved} if retrieved else {})}
+
+
+def _serve(args):
+    import tempfile
+
+    from megatoken.multitrack_service import serve_multitrack_jsonl
+
     scratch = tempfile.TemporaryDirectory()
 
     def preparer():
@@ -385,17 +410,14 @@ def _serve_multitrack(args):
         # Prepared features of a knowledge base's files are kept beside it; a collection
         # copies what it keeps, so its files are prepared in scratch space.
         place = Path(args.kb_root) / "prepared" if args.kb_root else Path(scratch.name)
-        return MediaPreparer(args.packs, place, device=str(engine.device))
+        return MediaPreparer(args.packs, place, device=str(bundle.device))
 
     try:
+        bundle, runtime = _runtime(
+            args, preparer=preparer if args.packs and (args.collection or args.kb_root) else None
+        )
         serve_multitrack_jsonl(
-            engine,
-            sys.stdin,
-            sys.stdout,
-            max_sessions=args.max_sessions,
-            collections=collections,
-            kb_root=args.kb_root,
-            preparer=preparer if args.packs and (collections or args.kb_root) else None,
+            runtime, sys.stdin, sys.stdout, max_sessions=args.max_sessions, kb_root=args.kb_root
         )
     finally:
         scratch.cleanup()
@@ -418,6 +440,21 @@ def _engram_bake(args):
     from megatoken.assets import bake_checkpoint
 
     return bake_checkpoint(args.checkpoint, args.output, codec_path=args.codec)
+
+
+def _serving_arguments(item):
+    item.add_argument("--model", required=True, help="Exported served bundle")
+    item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
+    item.add_argument("--device", default="auto")
+    item.add_argument("--compile", action="store_true")
+    item.add_argument(
+        "--collection",
+        action="append",
+        default=[],
+        metavar="NAME=DIRECTORY",
+        help="Mount a source collection (repeatable); when serving with --packs, "
+        "files can be added to it",
+    )
 
 
 def parser() -> argparse.ArgumentParser:
@@ -569,15 +606,21 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
     item.set_defaults(func=_export)
     item = commands.add_parser(
-        "generate", help="Generate one complete chunk and return its exact tape"
+        "generate",
+        help="Run one session on the serving runtime: a prompt, then one answer and its tape",
     )
-    item.add_argument("--model", required=True, help="Exported served bundle")
-    item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
-    item.add_argument("--device", default="auto")
-    item.add_argument("--compile", action="store_true")
+    _serving_arguments(item)
     prompts = item.add_mutually_exclusive_group(required=True)
     prompts.add_argument("--prompt")
     prompts.add_argument("--prompt-file")
+    item.add_argument("--metadata", default="{}", help="Session metadata, a JSON object")
+    item.add_argument(
+        "--base",
+        action="append",
+        default=[],
+        metavar="NAME=FILE",
+        help="Mount a knowledge base file built for this model (repeatable)",
+    )
     item.add_argument("--tools", help="Public JSON tool schemas")
     item.add_argument("--control-seed-file", help="Raw-byte causal policy control file")
     item.add_argument("--control-reference-file", help="Raw-byte causal reference evidence file")
@@ -596,34 +639,16 @@ def parser() -> argparse.ArgumentParser:
         item.add_argument("--" + name, type=int, default=default)
     item.set_defaults(func=_generate)
     item = commands.add_parser(
-        "serve", help="Serve stateful exact-byte sessions over a local JSONL protocol"
+        "serve",
+        help="Serve stateful text and media sessions over a local JSONL protocol",
     )
-    item.add_argument("--model", required=True)
-    item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
-    item.add_argument("--device", default="auto")
-    item.add_argument("--compile", action="store_true")
+    _serving_arguments(item)
     item.add_argument("--max-sessions", type=int, default=32)
-    item.set_defaults(func=_serve)
-    item = commands.add_parser(
-        "serve-multitrack", help="Serve joint text and media meridians via local JSONL"
-    )
-    item.add_argument("--model", required=True)
-    item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
-    item.add_argument("--device", default="auto")
-    item.add_argument("--compile", action="store_true")
-    item.add_argument("--max-sessions", type=int, default=32)
-    item.add_argument(
-        "--collection",
-        action="append",
-        default=[],
-        metavar="NAME=DIRECTORY",
-        help="Mount a source collection (repeatable); with --packs, files can be added to it",
-    )
     item.add_argument(
         "--kb-root",
         help="Directory knowledge base files are opened from and saved to; enables the kb_* operations",
     )
-    item.set_defaults(func=_serve_multitrack)
+    item.set_defaults(func=_serve)
     group = commands.add_parser(
         "kb", help="Build and inspect knowledge bases that ship apart from the model"
     )

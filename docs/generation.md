@@ -120,7 +120,8 @@ boundary. Native generated history with saved tapes can replay its original raw
 facet events. These boundary policies are explicit; a teacher record is not silently
 substituted for every generated input inside the recurrent tower.
 
-`training.history.NativeHistory` validates native annotations against their physical
+`training.history.NativeHistory` validates native annotations (each a one-event group
+tape, see [serving](#export-and-serving)) against their physical
 record cursors, exact IDs, and facet geometry. Invalid and valid empty draws can
 share a cursor because they produce no physical record. Prefix replay includes a
 native record's own tape and skips encoding that record. Before a scored target,
@@ -329,6 +330,11 @@ attention backend without claiming that every masked case has the same kernel.
 
 ## One-event tapes and latent policy gradients
 
+This section is the decoder-level draw of the single-track predictor: the unit under test
+of the realizer and the diagnostic sampler of held-out evaluation and the benchmark. It is
+never served, collected or stored in a dataset. Serving, collection and training exchange
+one tape format, the group tape (`fmt-multitrack-facets-v12`, see [serving](#export-and-serving)).
+
 `sample` returns a `PolicyResult` with exact bytes, emitted IDs, updated state, an
 immutable `ActionTape`, and the summed Gaussian log density. `score_tape` predicts
 the conditional Gaussian from the current state, evaluates the recorded raw
@@ -413,7 +419,7 @@ values are public constants. RL episode termination belongs to the environment's
 `done` response or the configured step limit. A decoded terminal flag alone does
 not end an environment task.
 
-## Export and stateful serving
+## Export and serving
 
 `export_served` writes an immutable checksummed safetensors bundle with model
 configuration, precision, model/routing versions, codec identity, and semantic
@@ -421,7 +427,19 @@ chunking identity. A production tokenizer asset is bundled locally. Every shared
 encoder, decoder, and predictor owner is retained. There is no training-only
 posterior to remove; `training_heads=False` disables supervised entry points while
 preserving the same served action map. Optional donor imports must be baked before
-export, so serving does not depend on a donor checkpoint.
+export, so serving does not depend on a donor checkpoint. `ServedBundle` loads a bundle
+(after checking every hash) and is the only place one is read.
+
+There is **one serving program**: the multitrack runtime (`MultiTrackRuntime`). The
+`generate` command, the `serve` command, the JSON-lines service and the frozen student that
+collects rollouts for training (`data/student.py`) all run it, so a draw behaves the same
+wherever it is made. It is also what training replays: the bank lookups happen at the same
+boundaries (after the metadata, after a finished user message or assistant turn, after a
+tool, document or environment result, and after every few meridians without one), the
+adapter mixture the lookups choose is applied, and mounted collections and knowledge bases
+are searched. A conversation is a session with one track per role (`user`, `assistant`,
+`tool`, ...); a prompt too long for one chunk is cut by the bundle's chunk policy into
+consecutive meridians, and only its last chunk ends the message.
 
 ```bash
 megatoken export --checkpoint runs/b0/checkpoints/latest.json --output served/b0 --codec byte
@@ -429,42 +447,51 @@ megatoken generate --model served/b0 --prompt "Hello" --max-tokens 32 --seed 17
 megatoken serve --model served/b0
 ```
 
-For a production checkpoint, pass its matching tokenizer path instead of `byte`.
-The CLI's `--tools` file supplies the same public descriptions to the predictor
-and schema compiler. `--control-seed-file` and `--control-reference-file` read
-exact raw bytes; a reference also requires `--reference-origin external_evidence`
-or `--reference-origin earlier_history`. These controls remain distinct from the
-numeric `--seed` that selects the Gaussian draw.
+`generate` is a one-shot session of the same protocol `serve` speaks: it opens a session,
+observes the prompt as one user message, generates one answer on the `assistant` track and
+prints it with its tape (and the items it retrieved, if collections or bases are mounted
+with `--collection NAME=DIR` and `--base NAME=FILE`; `--metadata` opens the session with
+the given fields). For a production checkpoint, pass its matching tokenizer path instead of
+`byte`. The CLI's `--tools` file supplies the same public descriptions to the predictor
+and schema compiler. `--control-seed-file` and `--control-reference-file` read exact raw
+bytes; a reference also requires `--reference-origin external_evidence` or
+`--reference-origin earlier_history`. These controls remain distinct from the numeric
+`--seed` that selects the Gaussian draw.
 
-The export destination must not already exist. `InferenceEngine` checks bundle
-hashes before loading and creates model-bound `Session` objects. Observations use
-the same semantic chunker as preparation. `observe_physical` preserves an already
-prepared physical boundary. Generation updates the session with the raw facet
-event regardless of its validation outcome and retains the complete event stream
-for replay.
+The export destination must not already exist.
 
-The local JSONL server opens no network socket. It supports `open`, `observe`,
-`generate`, `status`, and `close`. First send `{"op":"open","id":1}` and use the
-returned session ID on subsequent requests:
+**The tape.** A draw is one meridian, so its tape is a `GroupActionTape` with a single
+event (`tracks == ("assistant",)`): the complete raw FP32 facets, the bytes and emitted IDs
+they realize, validity and terminal flags, the exact causal control bytes, the effort, the
+per-event Gaussian density, and the realizer identity. `MultiTrackGenerator.replay_group`
+recomputes the density and the realization from it. Generation commits the raw facets
+whether or not the decode is valid. A rollout collected from a student stores these tapes
+in the episode's `native_action_tapes` annotation, one per draw with the physical record
+cursor it falls at; `training.history.NativeHistory` accepts only single-event group tapes
+and replays their raw facets under the track they were drawn on.
+
+The local JSONL server opens no network socket. It speaks the protocol of
+`multitrack_service.py` (see [multi-track-implementation.md](multi-track-implementation.md)).
+First send `{"op":"open","id":1}` and use the returned session ID on subsequent requests:
 
 ```json
-{"op":"observe","session":"SESSION_ID","text":"Hello","role":"user","id":2}
-{"op":"generate","session":"SESSION_ID","max_tokens":32,"kind":"utf8","seed":17,"id":3}
+{"op":"observe_text","session":"SESSION_ID","track":"user","text":"Hello","id":2}
+{"op":"generate","session":"SESSION_ID","outputs":[{"track":"assistant","modality":"text","max_tokens":32,"kind":"utf8"}],"seed":17,"id":3}
 {"op":"status","session":"SESSION_ID","id":4}
 {"op":"close","session":"SESSION_ID","id":5}
 ```
 
-Use `payload_b64` instead of `text` for arbitrary observation bytes. Generated
-responses always include `payload_b64`, exact IDs, `valid`, terminal status, the
-tape, Gaussian density, and latent dimension count. `text` is added only for valid
-UTF-8. Public tool schemas can be supplied on `generate`; canonical, OpenAI, and
-Anthropic wire formats use the shared compiler. The same public tool list also
-conditions the facet predictor. Optional `control_seed` and `control_reference`
-fields accept UTF-8 strings. References require `reference_origin` to name
-`external_evidence` or `earlier_history`. The numeric sampling `seed` is separate
-from these model input bytes. Python callers use `InferenceEngine.generate` with
-the corresponding byte-valued controls and `tools_json`, including binary control
-bytes when needed.
+Use `payload_b64` instead of `text` for arbitrary observation bytes. A text answer comes
+back with `payload_b64`, exact `emitted_ids`, `valid`, `terminal`, the tape and the Gaussian
+density; `text` is added only for valid UTF-8. Public tool schemas can be supplied on an
+output (`tools` or `tools_json`); canonical, OpenAI, and Anthropic wire formats use the
+shared compiler, a tool call may copy from the text the session already holds, and the
+same tool list conditions the facet predictor. Optional `control_seed` and
+`control_reference` fields accept UTF-8 strings (`control_b64` takes raw bytes). References
+require `reference_origin` to name `external_evidence` or `earlier_history`. The numeric
+sampling `seed` is separate from these model input bytes. Python callers use
+`MultiTrackRuntime.generate` with the corresponding byte-valued `controls`, including binary
+control bytes when needed.
 
 Decoder temperature, top-k, top-p, and repair options are rejected because the
 action has one Gaussian event and a deterministic downstream path.

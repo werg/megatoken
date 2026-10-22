@@ -225,9 +225,9 @@ See [the parser and review runbook](chunking.md) for supported template families
 nested content behavior, resource bounds, extension interfaces, replay commands,
 identity migration, and operational limitations.
 
-Inference's logical `observe` method applies the same content chunker to a complete
-authoritative event. Already prepared records use `observe_physical` to preserve
-supplied boundaries and token IDs. Every selected action advances recurrent state
+The serving runtime's `observe_text` applies the same content chunker to a complete
+authoritative message. Already prepared records are observed whole (`observe`), which
+preserves their supplied boundaries; the frozen student reads collected records this way. Every selected action advances recurrent state
 with its sampled raw facets, including invalid decodes; validation gates environment
 execution only. Deterministic output bytes are never re-encoded to approximate that
 latent action. Training supervises each chunk's exact output length and marks only

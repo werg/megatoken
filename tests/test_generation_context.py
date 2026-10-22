@@ -4,6 +4,7 @@ from dataclasses import fields, replace
 
 import pytest
 import torch
+from native_support import as_group
 
 from megatoken.generation import ActionSpec, FacetedGenerator
 from megatoken.generation.structure import TapeMismatch
@@ -169,8 +170,9 @@ def test_native_alignment_uses_only_actual_matching_pairs_and_never_conditions_p
     spec = ActionSpec(text_kind="ascii", min_tokens=3, max_tokens=3)
     sample = model.sample(initial, spec=spec, generator=torch.Generator().manual_seed(61))
     plain = model.prepare_target(sample.emitted_ids, representation_mode="recurrent")
+    native = as_group(sample.tape, model.codec)
     paired = model.prepare_target(
-        sample.emitted_ids, representation_mode="recurrent", native_tapes=[sample.tape]
+        sample.emitted_ids, representation_mode="recurrent", native_tapes=[native]
     )
     unpaired = model.supervised_step(
         initial, plan=plain, generator=torch.Generator().manual_seed(2)
@@ -189,10 +191,10 @@ def test_native_alignment_uses_only_actual_matching_pairs_and_never_conditions_p
         if id(parameter) not in encoder_ids
     )
     for invalid in (
-        replace(sample.tape, payload=b"wrong"),
-        replace(sample.tape, emitted_ids=sample.emitted_ids[::-1] + (1,)),
-        replace(sample.tape, role_id=4),
-        replace(sample.tape, valid=False),
+        replace(native, payloads=(b"wrong",)),
+        replace(native, emitted_ids=(sample.emitted_ids[::-1] + (1,),)),
+        replace(native, roles=(4,)),
+        replace(native, valid=(False,)),
     ):
         with pytest.raises(ValueError, match="actual valid output"):
             model.prepare_target(

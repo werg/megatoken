@@ -1,5 +1,8 @@
 """Validate and replay native raw-facet events alongside physical records.
 
+A native event is a single-event group tape (``GroupActionTape``): what a rollout of the
+serving runtime records for one draw of one track.
+
 Physical record cursors count transcript records, not model iterations. Invalid
 decodes and valid empty draws still recur but do not consume a physical record.
 This index keeps them causal without feeding a scored target's own tape forward.
@@ -17,38 +20,33 @@ import torch
 
 from megatoken.contracts import ROLE_TO_ID
 from megatoken.data.schema import canonical_json
-from megatoken.generation.structure import ActionTape, strict_json_loads
-from megatoken.model import CoreState
-from megatoken.model.core import EFFORTS
+from megatoken.generation.structure import strict_json_loads
+from megatoken.model import CoreState, GroupActionTape
 
 if TYPE_CHECKING:
     from megatoken.data.schema import Episode
     from megatoken.generation.policy import FacetedGenerator
 
 
-def _validate_tape(tape: ActionTape, model: FacetedGenerator) -> None:
+def _validate_tape(tape: GroupActionTape, model: FacetedGenerator) -> None:
+    if len(tape.tracks) != 1:
+        raise ValueError("a native tape is one single-event meridian")
+    if tape.modalities != ("text",):
+        raise ValueError("a native tape is a text event")
     if tape.codec_fingerprint != model.codec.fingerprint:
         raise ValueError("native tape codec differs from the model codec")
-    if tape.facet_shape != (model.config.n_facets, model.config.facet_dim):
+    if tape.facet_shape != (1, model.config.n_facets, model.config.facet_dim):
         raise ValueError("native tape facet geometry differs from the model")
-    if type(tape.effort) is not int or tape.effort not in EFFORTS:
-        raise ValueError("native tape has an unsupported effort")
-    if type(tape.role_id) is not int or not 0 <= tape.role_id < len(ROLE_TO_ID):
+    if type(tape.roles[0]) is not int or not 0 <= tape.roles[0] < len(ROLE_TO_ID):
         raise ValueError("native tape has an unsupported role")
-    if type(tape.valid) is not bool or type(tape.terminal) is not bool:
+    if type(tape.valid[0]) is not bool or type(tape.terminal[0]) is not bool:
         raise ValueError("native tape validity and terminal status must be booleans")
-    # Generated tapes store exact FP32 values. Reject a finite JSON float that
-    # would overflow or change when installed as the authoritative action tensor.
-    raw = torch.from_numpy(tape.facet_array().copy())
-    if not bool(torch.isfinite(raw).all()) or (
-        not isinstance(tape.facets, bytes) and raw.tolist() != list(tape.facets)
-    ):
-        raise ValueError("native tape coordinates are not finite exact FP32 values")
-    if any(type(token) is not int for token in tape.emitted_ids):
+    # Generated tapes store exact FP32 bytes, which the tape itself checks are finite.
+    if any(type(token) is not int for token in tape.emitted_ids[0]):
         raise ValueError("native tape emitted IDs must be integers")
-    if model.codec.decode(tape.emitted_ids) != tape.payload:
+    if model.codec.decode(tape.emitted_ids[0]) != tape.payloads[0]:
         raise ValueError("native tape emitted IDs do not reproduce its exact bytes")
-    if tape.valid and len(tape.emitted_ids) > model.config.max_capacity:
+    if tape.valid[0] and len(tape.emitted_ids[0]) > model.config.max_capacity:
         raise ValueError("native output exceeds model capacity; re-collect instead of splitting it")
 
 
@@ -62,7 +60,7 @@ class NativeHistory:
     """
 
     record_count: int
-    _events: Mapping[int, tuple[ActionTape, ...]]
+    _events: Mapping[int, tuple[GroupActionTape, ...]]
     _generated_records: frozenset[int]
 
     @classmethod
@@ -74,7 +72,7 @@ class NativeHistory:
         if not isinstance(entries, list):
             raise ValueError("native_action_tapes must be an ordered list")
         record_count = len(episode.records)
-        events: dict[int, list[ActionTape]] = {}
+        events: dict[int, list[GroupActionTape]] = {}
         generated: set[int] = set()
         minimum_cursor = 0
         for index, entry in enumerate(entries):
@@ -93,23 +91,26 @@ class NativeHistory:
                     f"Native history entry {index} reorders or repeats a consumed record cursor"
                 )
             try:
-                tape = ActionTape.from_json(canonical_json(entry["tape"]))
+                tape = GroupActionTape.from_json(canonical_json(entry["tape"]))
                 _validate_tape(tape, model)
-                owns_record = tape.valid and bool(tape.payload)
+                owns_record = tape.valid[0] and bool(tape.payloads[0])
                 if owns_record:
                     if cursor == record_count:
                         raise ValueError("valid nonempty native output has no physical record")
                     record = episode.records[cursor]
                     if (
                         record.role != "assistant"
-                        or tape.role_id != ROLE_TO_ID[record.role]
+                        or tape.roles[0] != ROLE_TO_ID[record.role]
                         or record.part_index != 0
                         or record.part_count != 1
                     ):
                         raise ValueError("native output must own one whole assistant record")
                     if record.codec_fingerprint != model.codec.fingerprint:
                         raise ValueError("native physical record codec differs from its tape")
-                    if record.payload != tape.payload or record.emitted_ids != tape.emitted_ids:
+                    if (
+                        record.payload != tape.payloads[0]
+                        or record.emitted_ids != tape.emitted_ids[0]
+                    ):
                         raise ValueError(
                             "native physical record differs from its tape bytes or IDs"
                         )
@@ -158,7 +159,7 @@ class NativeHistory:
         self._check_cursor(cursor)
         return cursor in self._generated_records
 
-    def paired_tape(self, cursor: int) -> ActionTape | None:
+    def paired_tape(self, cursor: int) -> GroupActionTape | None:
         """Return only the genuine raw action that owns this exact target record.
 
         This is a supervised label, never a prefix event. Invalid/empty draws
@@ -169,7 +170,9 @@ class NativeHistory:
         self._check_cursor(cursor)
         return self._events[cursor][-1] if cursor in self._generated_records else None
 
-    def events_for_record(self, cursor: int, *, include_record: bool) -> tuple[ActionTape, ...]:
+    def events_for_record(
+        self, cursor: int, *, include_record: bool
+    ) -> tuple[GroupActionTape, ...]:
         """Select events immediately preceding this record in their original order.
 
         Prefix reconstruction includes the record's own tape and skips encoding
@@ -192,7 +195,7 @@ _HISTORIES: OrderedDict[tuple[int, int], tuple[Episode, FacetedGenerator, Native
 def replay_raw_tape(
     model: FacetedGenerator,
     state: CoreState,
-    tape: ActionTape,
+    tape: GroupActionTape,
 ) -> CoreState:
     """Recur through a validated fixed event without decoding or scoring it.
 
@@ -207,12 +210,10 @@ def replay_raw_tape(
     if state.batch_size != 1:
         raise ValueError("Native raw history replay requires one independent episode")
     if tape.codec_fingerprint != model.codec.fingerprint or tape.facet_shape != (
+        1,
         model.config.n_facets,
         model.config.facet_dim,
     ):
         raise ValueError("Native tape codec or facet geometry differs from this model")
-    raw = torch.as_tensor(
-        tape.facet_array().copy(), device=state.device, dtype=torch.float32
-    ).reshape(1, *tape.facet_shape)
-    roles = torch.tensor([tape.role_id], device=state.device, dtype=torch.long)
-    return model.core.advance_raw(state, raw, role_ids=roles)
+    roles = torch.tensor([tape.roles[0]], device=state.device, dtype=torch.long)
+    return model.core.advance_raw(state, tape.single_raw(state.device), role_ids=roles)

@@ -4,6 +4,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from native_support import group_tape, tiny_bundle
 from test_data_collection import RepairTeacher, registry, seed
 
 from megatoken.controls import build_control_payload
@@ -14,7 +15,7 @@ from megatoken.data.schema import canonical_json
 from megatoken.data.student import ModelTeacher
 from megatoken.environments import FixtureEnvironment
 from megatoken.generation.codec import ByteCodec
-from megatoken.generation.structure import TAPE_VERSION, ActionTape
+from megatoken.model.multitrack import GroupActionTape
 
 
 def invoke(arguments):
@@ -179,22 +180,22 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
         tmp_path / "ledger", CollectionConfig(distinct_tasks=1, seed_mix=(("terminal", 1.0),))
     )
 
-    class Engine:
-        manifest = {"model_sha256": "a" * 64}
-        config = SimpleNamespace(max_capacity=128)
+    class Runtime:
+        """Scripted draws in place of the sampled ones: the collection pipeline is under test."""
 
         def __init__(self):
-            self.codec, self.observed, self.draws = codec, [], 0
+            self.observed, self.draws = [], 0
 
-        def new_session(self):
+        def open(self, **options):
             return SimpleNamespace(facet_advances=0)
 
-        def observe_physical(self, session, payload, *, role, token_ids=None):
-            assert codec.decode(token_ids) == payload
-            self.observed.append((role, payload))
+        def observe(self, session, events, *, effort):
+            (event,) = events
+            self.observed.append((event.track, event.payload))
 
         def generate(self, session, **kwargs):
             assert session.facet_advances == self.draws
+            assert kwargs["tracks"] == ("assistant",)
             session.facet_advances += 1
             self.draws += 1
             if self.draws == 1:
@@ -210,28 +211,14 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
             else:
                 assert tuple(self.observed[:-1]) == self.initial_observations
                 assert self.observed[-1][0] == "tool"
-                assert all(role != "assistant" for role, _ in self.observed)
+                assert all(track != "assistant" for track, _ in self.observed)
                 payload = b'{"name":"read","arguments":{"path":"answer.txt"}}'
-            tape = ActionTape(
-                version=TAPE_VERSION,
-                codec_fingerprint=codec.fingerprint,
-                spec_fingerprint="fixture",
-                facet_shape=(1, 1),
-                facets=(float(self.draws),),
-                effort=6,
-                role_id=2,
-                payload=payload,
-                emitted_ids=tuple(codec.encode(payload)),
-                valid=valid_draw > 0,
-                terminal=False,
-                behavior_log_prob=0.0,
-            )
-            return SimpleNamespace(
-                payload=payload, emitted_ids=tuple(codec.encode(payload)), tape=tape
-            )
+            tape = group_tape(codec, payload, valid=valid_draw > 0, facets=(float(self.draws),))
+            return SimpleNamespace(tape=tape)
 
-    engine = Engine()
-    student = ModelTeacher(_engine=engine)
+    runtime = Runtime()
+    student = ModelTeacher(tiny_bundle(codec))
+    student.runtime = runtime
     episode = Collector(RepairTeacher(), FixtureEnvironment, codec, ledger, families).collect(
         task,
         student=student,
@@ -243,9 +230,9 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
     assert len(sampled) == 2 and all(record.emitted_ids for record in sampled)
     assert sampled[0].payload.startswith(b'{"name": "write"')
     tapes = json.loads(episode.supervision.annotations_json)["native_action_tapes"]
-    assert len(tapes) == engine.draws == 2 + int(invalid_prefix)
+    assert len(tapes) == runtime.draws == 2 + int(invalid_prefix)
     if invalid_prefix:
-        assert tapes[0]["tape"]["valid"] is False
+        assert tapes[0]["tape"]["valid"] == [False]
         assert tapes[0]["record_cursor"] == tapes[1]["record_cursor"]
         assert all(record.payload != b'{"name":"write","arguments":' for record in episode.records)
     assert len(list(ledger.connection.execute("SELECT * FROM executions"))) == 4
@@ -267,27 +254,20 @@ def test_student_public_controls_and_empty_draw_tapes_survive_collection(tmp_pat
     )
     expected_control = build_control_payload(seed=task.policy, tools_json=task.tools_json)
 
-    class Engine:
-        manifest = {"model_sha256": "b" * 64}
-        config = SimpleNamespace(max_capacity=128)
-
+    class Runtime:
         def __init__(self):
-            self.codec, self.observed, self.tapes = codec, [], []
+            self.observed, self.tapes = [], []
 
-        def new_session(self):
+        def open(self, **options):
             return SimpleNamespace(facet_advances=0)
 
-        def observe_physical(self, session, payload, *, role, token_ids=None):
-            assert codec.decode(token_ids) == payload
-            self.observed.append((role, payload))
+        def observe(self, session, events, *, effort):
+            (event,) = events
+            self.observed.append((event.track, event.payload))
 
         def generate(self, session, **kwargs):
-            assert kwargs["control_seed"] == task.policy
-            assert kwargs["tools_json"] == task.tools_json
+            (control,) = kwargs["controls"]
             assert private_target not in repr(kwargs)
-            control = build_control_payload(
-                seed=kwargs["control_seed"], tools_json=kwargs["tools_json"]
-            )
             assert control == expected_control
             # A valid empty draw owns no physical record; the next request must
             # use the advanced session without re-observing its existing prefix.
@@ -299,34 +279,30 @@ def test_student_public_controls_and_empty_draw_tapes_survive_collection(tmp_pat
             else:
                 self.initial_observations = list(self.observed)
             session.facet_advances += 1
-            tape = ActionTape(
-                version=TAPE_VERSION,
-                codec_fingerprint=codec.fingerprint,
-                spec_fingerprint=kwargs["spec"].fingerprint,
-                facet_shape=(1, 2),
+            tape = group_tape(
+                codec,
+                payload,
+                spec_fingerprint=kwargs["specs"][0].fingerprint,
                 facets=(float(session.facet_advances), -0.5),
+                shape=(1, 2),
                 effort=kwargs["effort"],
-                role_id=2,
-                payload=payload,
-                emitted_ids=tuple(codec.encode(payload)),
-                valid=True,
-                terminal=False,
-                behavior_log_prob=-1.25,
-                control_payload=control,
+                log_prob=-1.25,
+                control=control,
             )
             self.tapes.append(tape)
-            return SimpleNamespace(payload=payload, emitted_ids=tape.emitted_ids, tape=tape)
+            return SimpleNamespace(tape=tape)
 
     class RecordingStudent(ModelTeacher):
-        def __init__(self, engine):
-            super().__init__(_engine=engine)
+        def __init__(self, runtime):
+            super().__init__(tiny_bundle(codec))
+            self.runtime = runtime
             self.requests = []
 
         def respond(self, request):
             self.requests.append(request)
             return super().respond(request)
 
-    engine, teacher = Engine(), RepairTeacher()
+    engine, teacher = Runtime(), RepairTeacher()
     student = RecordingStudent(engine)
     with (
         registry(tmp_path / "families", [task]) as families,
@@ -363,7 +339,7 @@ def test_student_public_controls_and_empty_draw_tapes_survive_collection(tmp_pat
         assert exported.to_dict() == episode.to_dict()
         replay_entries = json.loads(exported.supervision.annotations_json)["native_action_tapes"]
         assert all(
-            ActionTape.from_json(canonical_json(entry["tape"])).control_payload == expected_control
+            GroupActionTape.from_json(canonical_json(entry["tape"])).controls == (expected_control,)
             for entry in replay_entries
         )
 

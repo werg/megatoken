@@ -953,9 +953,9 @@ Split A into the following dependent changes. Paths are relative to `src/megatok
 | --- | --- | --- |
 | **A1 — contracts and fixtures** | `data/schema.py`, `data/packing.py`, `data/storage.py`, `data/prepare.py` | Singleton imports and two/four-track fixtures survive prepare/load with exact bytes, identities, group boundaries, and lineage; same-group predictive dependencies and split-group windows are rejected |
 | **A2 — grouped C and state** | `model/state.py`, `model/core.py`, `model/blocks.py`, `model/attention.py`, `model/config.py` | Observed groups use one C pass and one complete publication; singleton parity, peer visibility, unequal batch rows, selective reset, padding, and whole-group eviction pass |
-| **A3 — grouped prediction and replay** | `model/core.py`, `model/routing.py`, `generation/latents.py`, `generation/policy.py`, `generation/structure.py`, `training/history.py`, `inference.py` | Generate two/four text outputs with one joint draw, materialize selected contexts, replay all peers and density, and exercise singleton wrappers plus a mixed valid/empty/invalid group |
+| **A3 — grouped prediction and replay** | `model/core.py`, `model/routing.py`, `generation/latents.py`, `generation/policy.py`, `generation/structure.py`, `training/history.py`, `served.py` | Generate two/four text outputs with one joint draw, materialize selected contexts, replay all peers and density, and exercise singleton wrappers plus a mixed valid/empty/invalid group |
 | **A4 — minimum grouped trainer** | `generation/targets.py`, `data/packing.py`, `training/config.py`, `training/engine.py`, `training/stream.py`, `training/history.py`, `model/audit.py` | The existing trainer optimizes grouped bootstrap and recurrent text fixtures with causal controls, complete-group prefix/continuation branches, and exact prepared/actual loss counts |
-| **A5 — learned task and compatibility** | `training/evaluation.py`, `training/checkpoint.py`, `training/optimizer.py`, `loading.py`, `inference.py`, experiment configs, `docs/validation.md` | Learned cooperation, save/resume, export/reload, served grouped replay, v6 warm start, and named-owner migration with nonzero Adam/Muon state and a verified subsequent update have reproducible receipts |
+| **A5 — learned task and compatibility** | `training/evaluation.py`, `training/checkpoint.py`, `training/optimizer.py`, `loading.py`, `served.py`, experiment configs, `docs/validation.md` | Learned cooperation, save/resume, export/reload, served grouped replay, v6 warm start, and named-owner migration with nonzero Adam/Muon state and a verified subsequent update have reproducible receipts |
 
 Use the tiny preset for contract and gradient checks, then the compact or production 32-facet geometry for the learned pilot. New modality/task features and track bias start neutrally for singleton compatibility. A1–A4 must not depend on a separate demonstration trainer or on future B changes.
 
@@ -967,7 +967,7 @@ Use the tiny preset for contract and gradient checks, then the compact or produc
 
 | Change | Principal locations | Exit evidence |
 | --- | --- | --- |
-| Canonical control bundle and bounded reference slots | `controls.py`, `model/frontend.py`, `generation/structure.py`, `inference.py` | Prompt/typed-control equivalence fixtures, field precedence, causal references, absent-control neutrality, and immutable selected rendering controls |
+| Canonical control bundle and bounded reference slots | `controls.py`, `model/frontend.py`, `generation/structure.py`, `served.py` | Prompt/typed-control equivalence fixtures, field precedence, causal references, absent-control neutrality, and immutable selected rendering controls |
 | Multimodal-ready targets and accounting | `generation/targets.py`, `data/schema.py`, `data/storage.py`, `data/prepare.py`, `training/engine.py`, `training/config.py` | Placeholder media fixtures validate sample/frame specs, fingerprints, valid-element counts, zero-count ranks, and accumulation/progress meters without requiring large codec downloads |
 | Shared ownership and grouped RL trajectory | `training/rl.py`, `training/history.py`, `training/optimizer.py`, `model/audit.py`, `generation/policy.py` | Freeze the complete materialization map, score full-group densities, and replay chronological generated/observed groups through an RL update on controlled fixtures |
 
@@ -999,7 +999,7 @@ Add a small `modalities` package for codec/feature adapters and media specificat
 
 | Extension | Prerequisites and locations | Deliverable and exit evidence |
 | --- | --- | --- |
-| **E1 — concurrent execution** | A/B; `inference.py`, `environments.py`, `training/rl.py`, data action/result adapters | Actual overlapping requests on an adapter with a declared lease contract; out-of-order results, idempotency, conflicting operations, retrieval provenance, close/drain behavior, and chronological replay |
+| **E1 — concurrent execution** | A/B; `served.py`, `environments.py`, `training/rl.py`, data action/result adapters | Actual overlapping requests on an adapter with a declared lease contract; out-of-order results, idempotency, conflicting operations, retrieval provenance, close/drain behavior, and chronological replay |
 | **E2 — joint audiovisual realization** | C2/D2 plus acquired paired audiovisual data and shared timing specs; media adapters/realizers and grouped loss preparation | Coupled audiovisual generation with measured content agreement, continuation, fine event synchronization, and speech/lip synchronization; both coarse and fine quality gates pass |
 | **E3 — one-meridian speculation** | E1's single-owner commit and delivery ledger; session branch/runtime code plus speech/video prefix adapters | Enabled text/media branches and provisional-prefix integration, revision-checked atomic accept/discard, no dispatch before acceptance, no rollback after delivery, and passing latency-versus-wasted-work measurements |
 
@@ -1180,7 +1180,7 @@ The review began at `main` commit `6d33c127bb4b358ef9d5eb8dfa51769e1315b301` and
 - [Contextual realization decision](decisions/0004-contextual-realization.md) and [full-resolution KV decision](decisions/0006-full-resolution-kv.md).
 - [Core](../src/megatoken/model/core.py), [attention](../src/megatoken/model/attention.py), [state](../src/megatoken/model/state.py), and [blocks](../src/megatoken/model/blocks.py).
 - [Ingestion](../src/megatoken/model/ingestion.py), [byte/control frontend](../src/megatoken/model/frontend.py), [expert banks](../src/megatoken/model/experts.py), and [routing](../src/megatoken/model/routing.py).
-- [Control protocol](../src/megatoken/controls.py), [data schema](../src/megatoken/data/schema.py), [chunking](../src/megatoken/data/chunking.py), and [inference](../src/megatoken/inference.py).
+- [Control protocol](../src/megatoken/controls.py), [data schema](../src/megatoken/data/schema.py), [chunking](../src/megatoken/data/chunking.py), and [served bundles](../src/megatoken/served.py).
 - [Policy](../src/megatoken/generation/policy.py), [realizer](../src/megatoken/generation/realizer.py), [tapes](../src/megatoken/generation/structure.py), and [training engine](../src/megatoken/training/engine.py).
 - [Gaussian coordinates/density](../src/megatoken/generation/latents.py), [native history](../src/megatoken/training/history.py), [packing](../src/megatoken/data/packing.py), and [training stream](../src/megatoken/training/stream.py).
 - [Optimizer resume contract](../src/megatoken/training/optimizer.py), [training configuration](../src/megatoken/training/config.py), [environment leases](../src/megatoken/environments.py), and [RL trajectory/replay](../src/megatoken/training/rl.py).

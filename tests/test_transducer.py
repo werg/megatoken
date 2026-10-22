@@ -24,6 +24,7 @@ from megatoken.training.transducer import (
     Meridian,
     TransducerTrainer,
     plan_boundaries,
+    question_lookup,
 )
 from megatoken.training.transducer_diloco import (
     LOCAL_STEPS,
@@ -672,3 +673,24 @@ def test_a_seeded_coordinator_restamps_rows_to_its_own_clock(tmp_path):
     slots = table.slots(second.bank.edge_ids().tolist())
     assert table.birth[slots].tolist() == [0] * 4 and table.last_write[slots].tolist() == [0] * 4
     assert int(second.growth.evidence.last_step.max()) == 0
+
+
+def test_the_annotated_lookup_is_the_one_after_the_first_finished_user_message():
+    system = Meridian(("s",), (0,), ("text",), False)
+    asked = Meridian(("u",), (1,), ("text",), True, asked=True)
+    answer = Meridian(("a",), (2,), ("text",), True)
+
+    def planned(meridians):
+        before = plan_boundaries(meridians, max_lookups=256, generator=None)
+        return before, question_lookup(meridians, before)
+
+    # Lookup 0 follows the metadata; lookup 1 follows the question, before the answer.
+    assert planned([asked, answer]) == ([1, 1], 1)
+    # A system message before it is not a boundary and does not move the question's lookup.
+    assert planned([system, asked, answer]) == ([1, 0, 1], 1)
+    # Later user messages are not the annotated one.
+    assert planned([asked, answer, asked, answer])[1] == 1
+    # A question that is the window's last meridian has no lookup after it in the window,
+    # and a window without a finished question has none to annotate.
+    assert planned([answer, asked])[1] is None
+    assert planned([system, answer])[1] is None

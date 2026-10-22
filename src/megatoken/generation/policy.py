@@ -155,12 +155,8 @@ class FacetedGenerator(nn.Module):
             pairs = plan.native_tapes if isinstance(plan, PreparedTargets) else (plan.native_tape,)
             for index, tape in enumerate(pairs):
                 if tape is not None:
-                    actual = torch.as_tensor(
-                        tape.facet_array().copy(), device=target.device, dtype=torch.float32
-                    )
-                    encoder_loss = (
-                        encoder_loss + (target[index].float().flatten() - actual).square().sum()
-                    )
+                    actual = tape.single_raw(target.device)[0]
+                    encoder_loss = encoder_loss + (target[index].float() - actual).square().sum()
             next_state = selected
             if teacher_forced_action:
                 # An offline tool observation belongs to the *recorded* action.
@@ -170,11 +166,7 @@ class FacetedGenerator(nn.Module):
                 # sampled action was executed.
                 reference = torch.stack(
                     [
-                        torch.as_tensor(
-                            tape.facet_array().copy(),
-                            device=target.device,
-                            dtype=torch.float32,
-                        ).reshape_as(target[index])
+                        tape.single_raw(target.device)[0]
                         if tape is not None
                         else target[index].detach()
                         for index, tape in enumerate(pairs)

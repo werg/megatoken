@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,7 +31,7 @@ from megatoken.data.schema import EncodedRecord
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
-from megatoken.model.transducer import metadata_payload, real_boundary
+from megatoken.model.transducer import completed_turn, metadata_payload, real_boundary
 from megatoken.retrieval.annotation import RetrievalAnnotation
 from megatoken.tensors import byte_tensor
 from megatoken.tool_schema import (
@@ -132,7 +133,7 @@ class MeridianPreparedBatch:
     counts: dict[str, int]
     native_history: NativeHistory
     effort: int
-    # What the episode says about its first lookup (reading from a collection).
+    # What the episode says about the lookup after its question (reading from a collection).
     retrieval: RetrievalAnnotation | None = None
 
 
@@ -347,9 +348,7 @@ def prepare_meridian_batch(
         levels = sorted(mixture)
         effort = levels[int(torch.multinomial(torch.tensor([mixture[k] for k in levels]), 1))]
     retrieval = RetrievalAnnotation.of(episode)
-    # The annotated lookup is the window's first; a window that starts mid-episode replays
-    # its prefix without gradient and does not score it.
-    if retrieval is not None and not prefix and steps:
+    if retrieval is not None and _question_scored(prefix, steps):
         counts["query_alignment"] += 1
         counts["retrieval_ranking"] += int(bool(retrieval.positives))
     return MeridianPreparedBatch(
@@ -371,11 +370,7 @@ def _actual_raw(
     for cursor, entry, modality in zip(step.offsets, step.records, step.modalities, strict=True):
         tape = native.paired_tape(cursor)
         if tape is not None:
-            raw = torch.as_tensor(
-                tape.facet_array().copy(),
-                dtype=torch.float32,
-                device=device,
-            ).reshape(1, model.config.n_facets, model.config.facet_dim)
+            raw = tape.single_raw(device)
         else:
             with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
                 if modality in FEATURE_MODALITIES:
@@ -399,17 +394,12 @@ def _preceding_native(
     count = 0
     for cursor in step.offsets:
         for tape in native.events_for_record(cursor, include_record=False):
-            raw = torch.as_tensor(
-                tape.facet_array().copy(),
-                dtype=torch.float32,
-                device=state.device,
-            ).reshape(1, 1, *tape.facet_shape)
             state = multi.tracks.advance_group(
                 state,
-                raw,
-                tracks=("_recorded_native_",),
-                role_ids=torch.tensor([[tape.role_id]], dtype=torch.long, device=state.device),
-                modalities=("text",),
+                tape.raw(state.device),
+                tracks=tape.tracks,
+                role_ids=torch.tensor([tape.roles], dtype=torch.long, device=state.device),
+                modalities=tape.modalities,
             )
             count += 1
     return state, count
@@ -431,16 +421,39 @@ def _metadata(episode: Any, seed: int | None) -> bytes:
         fields = {
             k: v for (k, v), kept in zip(fields.items(), keep < METADATA_KEEP, strict=True) if kept
         }
-    # An episode read from a collection always shows its question, which the first lookup uses.
-    if (retrieval := RetrievalAnnotation.of(episode)) is not None:
-        fields["request"] = retrieval.query_text
     return metadata_payload(fields)
+
+
+def _complete(step: MeridianStep) -> list[bool]:
+    """Which events are the last part of their message."""
+    return [entry.record.part_index + 1 == entry.record.part_count for entry in step.records]
+
+
+def _asked(step: MeridianStep) -> bool:
+    """Whether the step finishes a user message."""
+    return completed_turn(step.roles, _complete(step), "user")
 
 
 def _boundary_meridian(step: MeridianStep) -> Meridian:
     """Whether a boundary follows is decided by record roles and part indices alone."""
-    complete = [entry.record.part_index + 1 == entry.record.part_count for entry in step.records]
-    return Meridian(step.tracks, step.roles, step.modalities, real_boundary(step.roles, complete))
+    return Meridian(
+        step.tracks,
+        step.roles,
+        step.modalities,
+        real_boundary(step.roles, _complete(step)),
+        _asked(step),
+    )
+
+
+def _question_scored(prefix: Sequence[MeridianStep], steps: Sequence[MeridianStep]) -> bool:
+    """Whether the window scores the lookup that follows its first finished user message.
+
+    That lookup falls right before the next meridian. A window that starts after it
+    replays it without gradient and does not score it.
+    """
+    meridians = (*prefix, *steps)
+    asked = next((i for i, step in enumerate(meridians) if _asked(step)), None)
+    return asked is not None and len(prefix) <= asked + 1 < len(meridians)
 
 
 def _transducer_sequence(
@@ -651,11 +664,11 @@ def forward_meridian_batch(
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
                 modalities=step.modalities,
             )
-    if batch.retrieval is not None and not batch.prefix:
-        if sequence.first_search is None:
-            raise RuntimeError("The annotated first lookup did not run")
+    if batch.retrieval is not None and _question_scored(batch.prefix, batch.steps):
+        if sequence.question_search is None:
+            raise RuntimeError("The annotated lookup after the question did not run")
         terms, retrieved = retrieval_terms(
-            sequence.first_search, sequence.sources, batch.retrieval, store
+            sequence.question_search, sequence.sources, batch.retrieval, store
         )
         losses.append(ledger.backward_loss(terms))
         for name, value in retrieved.items():

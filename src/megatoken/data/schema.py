@@ -136,11 +136,11 @@ class Supervision:
         if not isinstance(annotations, dict):
             raise ValueError("Supervision annotations must encode an object")
         if "native_action_tapes" in annotations:
-            from megatoken.generation.structure import ActionTape
+            from megatoken.model.multitrack import GroupActionTape
 
             try:
                 for entry in annotations["native_action_tapes"]:
-                    ActionTape.from_json(canonical_json(entry["tape"]))
+                    GroupActionTape.from_json(canonical_json(entry["tape"]))
             except (KeyError, TypeError, ValueError) as error:
                 raise ValueError("Native action metadata contains an malformed tape") from error
 
