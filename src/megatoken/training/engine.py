@@ -295,6 +295,44 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     return result
 
 
+def bank_only_loss(
+    model: Any,
+    config: TrainConfig,
+    codec: Any,
+    step: int,
+    *,
+    recipe: Any,
+    queries: dict,
+    documents: dict,
+) -> float:
+    """Held-out continuation loss with every lookup reading the bank alone."""
+    from megatoken.training.gates import heldout_forward
+
+    validation = PreparedDataset(config.dataset, split="validation")
+    rng = capture_rng()
+    try:
+        result = heldout_forward(
+            model,
+            config,
+            codec,
+            validation,
+            recipe=recipe,
+            queries=queries,
+            documents=documents,
+            max_episodes=config.eval_episodes,
+            model_version=step,
+        )
+    finally:
+        validation.close()
+        restore_rng(rng)
+    total = sum(
+        config.loss_weights.get(name, 0.0) * result.per_token(name)
+        for name, count in result.counts.items()
+        if count
+    )
+    return float(total)
+
+
 def _stage_bank(source: Path, target: Path) -> None:
     """Consistent SQLite copy (WAL/journal aware), atomically published."""
     import sqlite3
@@ -409,6 +447,7 @@ def train(
     checkpoint_writer = None
     optimizer = None
     bank_owner = None
+    transducer = None
     kb_sync = None
     kb_version = None
     dataset = stream = None
@@ -474,7 +513,7 @@ def train(
                     "progressive_warmup",
                     "free_kb_pretraining",
                 }
-                or not config.retrieval_bank
+                or not (config.retrieval_bank or model_config.transducer)
                 or not config.retrieval_gate_receipt
             ):
                 raise ValueError("Live free-KB phases require a bank and phase gate")
@@ -551,6 +590,29 @@ def train(
             from megatoken.assets import install_engram_asset
 
             install_engram_asset(model, config.engram_import)
+        if model.transducer is not None:
+            if config.retrieval_bank:
+                raise ValueError("A v10 transducer replaces the v9 free-KB bank")
+            if config.decoupled is None and context.world_size != 1:
+                raise ValueError(
+                    "Synchronous ranks cannot share one sparse transducer bank; "
+                    "run decoupled DiLoCo learners instead"
+                )
+            from megatoken.training.transducer import TransducerTrainer
+
+            transducer = TransducerTrainer(
+                model.transducer,
+                worker=config.decoupled.resolved_worker_id if config.decoupled else 0,
+                provisional=config.decoupled is not None,
+            )
+            if resume:
+                transducer.load_state_dict(
+                    torch.load(
+                        resolve_checkpoint(resume) / "transducer.pt",
+                        map_location="cpu",
+                        weights_only=True,
+                    )
+                )
         if config.retrieval_bank:
             from megatoken.memory.recipe import open_bank_for_recipe, validate_checkpoint
             from megatoken.training.bank import BankTrainingOwner
@@ -790,6 +852,10 @@ def train(
                     local_steps=config.decoupled.local_steps,
                 )
                 diloco.attach_kb(kb_sync)
+            if transducer is not None:
+                from megatoken.training.transducer_sync import TransducerSync
+
+                diloco.attach_transducer(TransducerSync())
             if payload is None:
                 diloco.bootstrap(model, optimizer)
         global_step = 0
@@ -843,6 +909,10 @@ def train(
         checkpoint_writer = CheckpointWriter()
 
         def memory_attachment(stage: Path, name: str) -> dict[str, Any]:
+            if transducer is not None:
+                path = stage / "transducer.pt"
+                torch.save(snapshot_to_cpu(transducer.state_dict()), path)
+                return {"transducer_checkpoint": {"file": path.name, "sha256": sha256_file(path)}}
             if bank_owner is None:
                 return {}
             from megatoken.memory.recipe import checkpoint_bank
@@ -1052,6 +1122,7 @@ def train(
                         document_examples,
                         document_denom,
                     ),
+                    transducer=transducer,
                 )
                 for key, value in diagnostics_batch.items():
                     step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
@@ -1068,6 +1139,8 @@ def train(
                 )
                 model.core.p_router.balance_recorder = None
                 model.core.u_router.balance_recorder = None
+            if transducer is not None:
+                step_diagnostics.update(transducer.after_backward(global_step + 1))
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)
@@ -1075,6 +1148,8 @@ def train(
                 bank_owner.source_features.invalidate_after_step()
             optimizer_seconds = time.perf_counter() - optimizer_started
             global_step += 1
+            if transducer is not None:
+                step_metrics.update(transducer.barrier(global_step, evolve=diloco is None))
             if bank_owner is not None:
                 from megatoken.training.bank import (
                     synchronize_query_demand,
@@ -1135,10 +1210,16 @@ def train(
                     steps=global_step,
                     tokens=getattr(global_work, phase.meter),
                     bank=None if bank_owner is None else bank_owner.bank,
+                    transducer=transducer,
                 )
                 if diloco is not None
                 else {}
             )
+            ready = diloco_metrics.pop("transducer_ready", None)
+            if ready is not None:
+                from megatoken.training.transducer_sync import install_published
+
+                install_published(transducer, diloco.transducer, ready[2], ready[1])
             snapshot = diloco_metrics.pop("kb_snapshot", None)
             if snapshot is not None:
                 from megatoken.memory.recipe import open_bank_for_recipe
@@ -1256,6 +1337,23 @@ def train(
                         validation.close()
                 context.barrier()
                 restore_rng(rng)
+                model.train()
+            if transducer is not None and transducer.switch_due(global_step):
+                loss = bank_only_loss(
+                    model,
+                    config,
+                    codec,
+                    global_step,
+                    recipe=retrieval_recipe,
+                    queries=retrieval_examples,
+                    documents=document_examples,
+                )
+                if diloco is None:
+                    if transducer.record_validation(global_step, loss):
+                        logger.log("transducer_switch", global_step=global_step)
+                elif config.decoupled.resolved_worker_id == 0:
+                    diloco.report_transducer_validation(global_step, loss)
+                logger.log("transducer_validation", global_step=global_step, bank_only_loss=loss)
                 model.train()
             if config.checkpoint_every and global_step % config.checkpoint_every == 0:
                 last_checkpoint = checkpoint("periodic")

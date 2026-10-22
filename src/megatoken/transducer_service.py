@@ -1,27 +1,30 @@
-"""Serving adapter for coherent v10 transducer agendas and native C history.
+"""Serving sessions for the v10 transducer: one agenda per session, native C history.
 
-No teacher, old point/pair KB, or training hindsight is present on this path.
-A query/knowledge pair is one cancelable transaction; only ordinary externally
-observed meridians can schedule new retrievals.
+No teacher, v9 point/pair KB or training hindsight exists on this path. A
+query/knowledge pair is one cancellable transaction: on timeout or
+cancellation neither the agenda nor the native state changes. Only ordinary
+meridians (observed or generated) schedule lookups; every call on a session
+is serialized by that session's lock.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 
 from megatoken.memory.transducer import Lookup, SearchAgenda
-from megatoken.model.config import HINDSIGHT_TRACK, KNOWLEDGE_TRACK, RETRIEVAL_QUERY_TRACK
-from megatoken.model.multitrack import MultiTrackState, ObservedEvent
-from megatoken.model.transducer import NativeTransducer
+from megatoken.model.config import RESERVED_TRACKS
+from megatoken.model.multitrack import MultiTrackGenerator, MultiTrackState, ObservedEvent
+from megatoken.model.transducer import metadata_payload
 from megatoken.model.transducer_state import restore_causal_state, snapshot_causal_state
 from megatoken.training.transducer import BoundaryScheduler
 
-_INTERNAL_TRACKS = frozenset((HINDSIGHT_TRACK, KNOWLEDGE_TRACK, RETRIEVAL_QUERY_TRACK))
 _SESSION_IDENTITY = "v10-serving-session"
 
 
@@ -31,34 +34,47 @@ class TransducerSession:
     state: MultiTrackState
     agenda: SearchAgenda
     scheduler: BoundaryScheduler
-    model_id: int
+    owner: int
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 class TransducerInferenceEngine:
-    """An independently instantiated v10 native serving session owner."""
+    """Owns serving sessions for one generator with an attached transducer."""
 
-    def __init__(self, native: NativeTransducer) -> None:
-        if native.core.initial_facets.device != native.bank.device:
+    def __init__(self, model: Any) -> None:
+        if model.transducer is None:
+            raise ValueError("This model has no v10 transducer")
+        self.model = model.eval()
+        self.native = model.transducer
+        self.bank = self.native.bank
+        if model.core.initial_facets.device != self.bank.device:
             raise ValueError("The v10 model and packed bank must be on one device")
-        self.native = native.eval()
-        self.bank = native.bank
-
-    @torch.inference_mode()
-    def new_session(self, metadata: dict[str, object]) -> TransducerSession:
-        state, agenda, _ = self.native.start(metadata)
-        scheduler = BoundaryScheduler(max_lookups=self.bank.geometry.max_lookups)
-        if not scheduler.first_metadata():
-            raise RuntimeError("First metadata lookup was unexpectedly blocked")
-        scheduler.internal_commit()
-        scheduler.finish(committed=True)
-        return TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self))
+        self.multi = MultiTrackGenerator(model)
 
     def _check(self, session: TransducerSession) -> None:
-        if session.model_id != id(self):
+        if session.owner != id(self):
             raise ValueError("Transducer session belongs to a different serving owner")
         if session.scheduler.lookups != session.agenda.lookups:
             raise ValueError("Transducer scheduler and search agenda cursors diverged")
-        self.native.tracks._validate(session.state)
+        self.multi.tracks._validate(session.state)
+
+    @torch.inference_mode()
+    def new_session(
+        self,
+        metadata: dict[str, object],
+        *,
+        deadline: float | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> TransducerSession:
+        """Commit the metadata prefix, then the first lookup, before any answer."""
+        state = self.multi.tracks.initial_state(1, device=self.bank.device)
+        state, agenda = self.native.begin(self.multi, state, metadata_payload(metadata))
+        scheduler = BoundaryScheduler(max_lookups=self.bank.geometry.max_lookups)
+        session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self))
+        if scheduler.first_metadata():
+            with session.lock:
+                self._run(session, deadline, cancelled)
+        return session
 
     @torch.inference_mode()
     def observe(
@@ -66,93 +82,101 @@ class TransducerInferenceEngine:
         session: TransducerSession,
         events: Sequence[ObservedEvent],
         *,
-        completed_turn: bool = False,
-        source_arrived: bool = False,
+        real_boundary: bool = False,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> Lookup | None:
-        """Commit one ordinary meridian, then perform any due lookup."""
-        self._check(session)
-        if not events or any(event.track in _INTERNAL_TRACKS for event in events):
-            raise ValueError("Only external, nonempty observed meridians may schedule retrieval")
-        committed = self.native.tracks.observe_group(session.state, events)
-        session.state = committed
-        if not session.scheduler.ordinary_commit(
-            completed_turn=completed_turn, source_arrived=source_arrived
-        ):
-            return None
-        return self.boundary(session, deadline=deadline, cancelled=cancelled)
+        """Commit one observed ordinary meridian, then any lookup it makes due."""
+        if not events or any(event.track in RESERVED_TRACKS for event in events):
+            raise ValueError("Only nonempty ordinary meridians may be observed")
+        with session.lock:
+            self._check(session)
+            session.state = self.multi.tracks.observe_group(session.state, events)
+            return self._after_ordinary(session, real_boundary, deadline, cancelled)
 
     @torch.inference_mode()
-    def boundary(
+    def generated(
         self,
         session: TransducerSession,
+        state: MultiTrackState,
         *,
+        completed_turn: bool = False,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> Lookup | None:
-        """Timeout/cancellation leaves the agenda and native state unpublished."""
-        self._check(session)
-        if not session.scheduler.pending and not session.scheduler.begin():
+        """Adopt the state after one generated ordinary meridian; it counts like any other."""
+        with session.lock:
+            self._check(session)
+            if int(state.meridians_seen[0]) != int(session.state.meridians_seen[0]) + 1:
+                raise ValueError("A generated meridian must extend the session by exactly one")
+            if any(track in RESERVED_TRACKS for track in state.frontier_tracks):
+                raise ValueError("Internal events are not generated ordinary meridians")
+            session.state = state
+            return self._after_ordinary(session, completed_turn, deadline, cancelled)
+
+    def _after_ordinary(self, session, real_boundary, deadline, cancelled) -> Lookup | None:
+        if not session.scheduler.ordinary_commit(real_boundary=real_boundary):
             return None
+        return self._run(session, deadline, cancelled)
+
+    def _run(self, session, deadline, cancelled) -> Lookup | None:
+        """Serve the outstanding lookup, then a deferred one if a boundary arrived meanwhile."""
 
         def stopped() -> bool:
             return (cancelled is not None and cancelled()) or (
                 deadline is not None and time.monotonic() >= deadline
             )
 
-        try:
-            if stopped():
-                result_state, lookup = session.state, None
-            else:
-                result_state, lookup = self.native.boundary(
-                    session.state, session.agenda, cancelled=stopped
+        result = None
+        while True:
+            try:
+                state, lookup = (
+                    (session.state, None)
+                    if stopped()
+                    else self.native.boundary(
+                        self.multi, session.state, session.agenda, cancelled=stopped
+                    )
                 )
-        except BaseException:
-            session.scheduler.finish(committed=False)
-            raise
-        if lookup is None:
-            session.scheduler.finish(committed=False)
-            return None
-        session.state = result_state
-        session.scheduler.internal_commit()
-        session.scheduler.finish(committed=True)
-        self._check(session)
-        return lookup
+            except BaseException:
+                session.scheduler.finish(committed=False)
+                raise
+            if lookup is not None:
+                session.state = state
+                result = lookup
+            if not session.scheduler.finish(committed=lookup is not None):
+                return result
 
     def state_snapshot(self, session: TransducerSession) -> dict:
-        """Tensor-only session state, independent of local Python object identity."""
-        self._check(session)
-        if session.scheduler.pending:
-            raise RuntimeError("Cannot checkpoint a half-completed retrieval boundary")
-        return {
-            "identity": _SESSION_IDENTITY,
-            "session_id": session.session_id,
-            "bank_id": self.bank.bank_id,
-            "bank_version": self.bank.version,
-            "scheduler": session.scheduler.state_dict(),
-            "agenda_locations": [s.detach().cpu().clone() for s in session.agenda.locations],
-            "agenda_lookups": session.agenda.lookups,
-            "causal_state": snapshot_causal_state(session.state),
-        }
+        """Tensor-only session state, independent of Python object identity."""
+        with session.lock:
+            self._check(session)
+            return {
+                "identity": _SESSION_IDENTITY,
+                "session_id": session.session_id,
+                "bank_id": self.bank.bank_id,
+                "bank_version": self.bank.version,
+                "scheduler": session.scheduler.state_dict(),
+                "agenda_locations": [x.detach().cpu().clone() for x in session.agenda.locations],
+                "agenda_state": session.agenda.state.detach().cpu().clone(),
+                "agenda_lookups": session.agenda.lookups,
+                "causal_state": snapshot_causal_state(session.state),
+            }
 
     def restore_session(self, snapshot: dict) -> TransducerSession:
         if snapshot.get("identity") != _SESSION_IDENTITY:
             raise ValueError("Refusing an incompatible transducer session")
         if snapshot["bank_id"] != self.bank.bank_id:
             raise ValueError("Session refers to a different canonical v10 bank")
-        if snapshot["bank_version"] > self.bank.version:
-            raise ValueError("Cannot restore a session from a future bank snapshot")
-        state = restore_causal_state(self.native.tracks, snapshot["causal_state"])
+        state = restore_causal_state(self.multi.tracks, snapshot["causal_state"])
         scheduler = BoundaryScheduler(max_lookups=self.bank.geometry.max_lookups)
         scheduler.load_state_dict(snapshot["scheduler"])
-        agenda = SearchAgenda(
-            [x.to(self.bank.device) for x in snapshot["agenda_locations"]],
-            lookups=int(snapshot["agenda_lookups"]),
-        )
-        if not agenda.locations or scheduler.lookups != agenda.lookups:
+        if not snapshot["agenda_locations"]:
             raise ValueError("Incomplete transducer session snapshot")
-        self.bank.refresh(agenda)
+        agenda = self.bank.agenda_from(
+            snapshot["agenda_locations"],
+            snapshot["agenda_state"],
+            int(snapshot["agenda_lookups"]),
+        )
         restored = TransducerSession(
             str(snapshot["session_id"]), state, agenda, scheduler, id(self)
         )

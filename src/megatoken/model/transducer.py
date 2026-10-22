@@ -1,51 +1,56 @@
 """Native C/P/R integration of the continuous-state transducer.
 
 Only ordinary events drive the boundary scheduler. A retrieval commits one P
-query event followed by one observed knowledge event, both using native C/KV.
-Hindsight runs in a separate, training-only C pass whose activations are never
-inserted into a causal state or exposed by the serving interface.
+query event followed by one observed knowledge event, both through native
+C/KV. Hindsight runs in a separate, training-only C pass whose activations are
+never inserted into a causal state or exposed by the serving interface.
+
+The transducer is registered once on the generator (``model.transducer``); it
+holds the bank's dense controls and its own heads, never a second reference
+to the core's parameters.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
 
+from megatoken.generation.embedding import EmbeddingRealizer, EmbeddingSpec
 from megatoken.memory.transducer import Lookup, SearchAgenda, TransducerBank
-from megatoken.memory.transducer_packing import pack_fp4, straight_through, unit
+from megatoken.memory.transducer_packing import pack_fp4, straight_through
 
-from .config import KNOWLEDGE_TRACK, RETRIEVAL_QUERY_TRACK
-from .core import ROLE_IDS, FacetedCore
-from .multitrack import MultiTrackCore, MultiTrackState, ObservedEvent
+from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, RETRIEVAL_QUERY_TRACK
+from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
+from .multitrack import MultiTrackState, ObservedEvent
 from .state import KVHistory, RealizationContext
 
+QUERY_SPACE = "transducer-v10-query"
+METADATA_FIELDS = ("request", "task", "topic", "language", "modality", "date", "version")
+MASK_MODES = ("causal", "full", "group-inverse")
 
-def event_attention_mask(
-    *,
-    groups: Tensor,
-    meridians: Tensor,
-    tracks: Tensor,
-    mode: str = "causal",
-) -> Tensor:
-    """A native [batch, query-event, key-event] mask from recorded event metadata.
 
-    Track identity is validated but does not restrict cross-track observation.
-    Under inverse masking, each group sees itself and later groups, never
-    earlier ones. C/P sink slots are appended after this mask, not stored.
+def metadata_payload(metadata: dict[str, object]) -> bytes:
+    """The compact metadata prefix; missing fields are explicit nulls, not a mode."""
+    normalized = {key: metadata.get(key) for key in METADATA_FIELDS}
+    return json.dumps(normalized, sort_keys=True, ensure_ascii=False).encode()
+
+
+def event_attention_mask(*, groups: Tensor, meridians: Tensor, mode: str = "causal") -> Tensor:
+    """A [batch, query-event, key-event] mask from recorded event metadata.
+
+    ``causal`` sees earlier and same meridians; ``full`` sees everything;
+    ``group-inverse`` sees the event's own retrieval group and every later one.
+    Sink slots are appended by attention itself, so no row is ever empty.
     """
-    if groups.shape != meridians.shape or tracks.shape != groups.shape:
-        raise ValueError("Every event needs group, meridian and track metadata")
-    if (
-        groups.ndim != 2
-        or groups.dtype != torch.long
-        or (meridians.dtype != torch.long or tracks.dtype != torch.long)
-    ):
-        raise ValueError("Event metadata must be [batch, events] int64 tensors")
+    if groups.shape != meridians.shape or groups.ndim != 2:
+        raise ValueError("Every event needs [batch, events] group and meridian metadata")
+    if groups.dtype != torch.long or meridians.dtype != torch.long:
+        raise ValueError("Event metadata must be int64")
     if bool((groups < 0).any()) or bool((meridians < 0).any()):
         raise ValueError("Event chronology cannot be negative")
     if mode == "full":
@@ -58,7 +63,7 @@ def event_attention_mask(
 
 
 class WideKnowledgeReadout(nn.Module):
-    """Mix wide values before readout; run all rows through C's existing shared U."""
+    """Mix wide values first; route 64 rows through C's shared U; gather 32 facets."""
 
     def __init__(self, core: FacetedCore, bank: TransducerBank) -> None:
         super().__init__()
@@ -76,44 +81,43 @@ class WideKnowledgeReadout(nn.Module):
             nn.Linear(self.width, self.width),
         )
         self.facet_queries = nn.Parameter(torch.randn(self.facets, self.width) * 0.02)
+        self.key_norm = nn.LayerNorm(self.width)
         self.sink_key = nn.Parameter(torch.zeros(self.width))
         self.sink_value = nn.Parameter(torch.zeros(self.width))
         self.condition = nn.Linear(
-            bank.geometry.query_dim + bank.geometry.location_dim,
-            self.width,
-            bias=False,
+            self.geometry.query_dim + self.geometry.location_dim, self.width, bias=False
         )
         self.route_input = nn.Linear(self.width, self.width)
 
     def forward(
         self, value: Tensor, query: Tensor, location: Tensor, *, core: FacetedCore
     ) -> Tensor:
+        """[value], [query], [location] -> one [1, facets, width] knowledge block."""
+        g = self.geometry
         if (
-            value.shape != (self.geometry.value_dim,)
-            or query.shape != (self.geometry.query_dim,)
-            or location.shape != (self.geometry.location_dim,)
+            value.shape != (g.value_dim,)
+            or query.shape != (g.query_dim,)
+            or location.shape != (g.location_dim,)
         ):
-            raise ValueError("Knowledge readout requires complete value/query/state vectors")
-        condition = self.condition(torch.cat((query, location)).float())
-        rows = value.float().reshape(1, self.row_count, self.width)
-        rows = self.row_adapter(rows + self.row_identifiers[None])
-        rows = rows + condition[None, None]
-        # Shared U is registered ONLY on the original FacetedCore owner.
-        context_rows = self.route_input(condition[None, None].expand(1, self.facets, -1))
-        routed = core.apply_u(rows, RealizationContext(context_rows), level=1)
-        sink = self.sink_value[None, None]
-        keys = torch.cat((routed, self.sink_key[None, None]), dim=1)
-        scores = (
-            (self.facet_queries[None] + condition[None, None]) @ keys.transpose(1, 2)
-        ) / math.sqrt(self.width)
-        weights = torch.softmax(scores.float(), dim=-1)
-        values = torch.cat((routed, sink), dim=1)
-        block = weights @ values
-        return block.to(core.initial_facets.dtype)
+            raise ValueError("Knowledge readout requires complete value/query/location vectors")
+        dtype = self.row_identifiers.dtype
+        condition = self.condition(torch.cat((query, location)).to(dtype))
+        rows = value.to(dtype).reshape(1, self.row_count, self.width)
+        rows = self.row_adapter(rows + self.row_identifiers[None]) + condition
+        # The shared U bank is registered once, on the core; this only routes through it.
+        context = self.route_input(condition)[None, None].expand(1, self.facets, -1)
+        routed = core.apply_u(rows, RealizationContext(context), level=1).to(dtype)
+        keys = torch.cat((self.key_norm(routed), self.sink_key[None, None]), dim=1)
+        values = torch.cat((routed, self.sink_value[None, None]), dim=1)
+        queries = self.facet_queries[None] + condition
+        weights = torch.softmax(
+            (queries @ keys.transpose(1, 2)).float() / math.sqrt(self.width), dim=-1
+        )
+        return (weights.to(values.dtype) @ values).to(core.initial_facets.dtype)
 
 
 class HindsightRealizer(nn.Module):
-    """Group-future C states -> 64 rows -> the bank's exact FP4 decoded format."""
+    """Future C states of one group -> 64 rows -> a value in the bank's exact FP4 format."""
 
     def __init__(self, core: FacetedCore, bank: TransducerBank) -> None:
         super().__init__()
@@ -121,206 +125,204 @@ class HindsightRealizer(nn.Module):
         self.value_dim = bank.geometry.value_dim
         if self.value_dim % self.width:
             raise ValueError("Hindsight rows must match the wide value geometry")
-        self.queries = nn.Parameter(torch.randn(self.value_dim // self.width, self.width) * 0.02)
+        self.rows = self.value_dim // self.width
+        self.queries = nn.Parameter(torch.randn(self.rows, self.width) * 0.02)
+        self.norm = nn.LayerNorm(self.width)
+        self.key = nn.Linear(self.width, self.width, bias=False)
+        self.value = nn.Linear(self.width, self.width, bias=False)
         self.sink_key = nn.Parameter(torch.zeros(self.width))
-        self.sink_values = nn.Parameter(torch.zeros(self.value_dim // self.width, self.width))
+        self.sink_value = nn.Parameter(torch.zeros(self.width))
+        self.output_norm = nn.LayerNorm(self.width)
         self.output = nn.Linear(self.width, self.width, bias=False)
 
-    def forward(self, future: Tensor | None) -> Tensor:
-        """Sink-only read is defined when G(t+gap) falls beyond the sequence."""
-        count = self.queries.shape[0]
-        if future is not None:
-            if future.ndim != 2 or future.shape[1] != self.width:
-                raise ValueError("Hindsight future must be [events*facets, native width]")
-            sources = future
-            sink_key = self.sink_key[None].to(sources.dtype)
-            keys = torch.cat((sources, sink_key), dim=0)
-            logits = (self.queries @ keys.transpose(0, 1)) / math.sqrt(self.width)
-            weights = torch.softmax(logits.float(), dim=-1)
-            values = torch.cat((sources, self.sink_values.mean(0, keepdim=True)), dim=0)
-            result = weights @ values
-            result = result + weights[:, -1:] * (
-                self.sink_values - self.sink_values.mean(0, keepdim=True)
-            )
-        else:
-            result = self.sink_values
-        raw = self.output(result).reshape(self.value_dim)
-        packed = pack_fp4(raw.detach())
-        return straight_through(raw, packed).reshape(count * self.width)
+    def forward(self, states: Tensor, visible: Tensor) -> Tensor:
+        """``states`` [slots, width]; ``visible`` [lookups, slots] -> [lookups, value_dim].
+
+        A lookup whose row of ``visible`` is empty reads the sink alone: its
+        group lies past the end of the sequence.
+        """
+        if states.ndim != 2 or states.shape[1] != self.width:
+            raise ValueError("Hindsight states must be [slots, native width]")
+        if visible.ndim != 2 or visible.shape[1] != states.shape[0] or visible.dtype != torch.bool:
+            raise ValueError("Hindsight visibility must be [lookups, slots] booleans")
+        dtype = self.queries.dtype
+        normalized = self.norm(states.to(dtype))
+        keys = torch.cat((self.key(normalized), self.sink_key[None]), dim=0)
+        values = torch.cat((self.value(normalized), self.sink_value[None]), dim=0)
+        logits = (self.queries @ keys.T).float() / math.sqrt(self.width)  # [rows, slots + 1]
+        allowed = torch.cat((visible, visible.new_ones(visible.shape[0], 1)), dim=1)
+        logits = logits[None].masked_fill(~allowed[:, None], float("-inf"))
+        read = torch.softmax(logits, dim=-1).to(dtype) @ values  # [lookups, rows, width]
+        raw = self.output(self.output_norm(read + self.queries[None])).float()
+        raw = raw.reshape(visible.shape[0], self.value_dim)
+        return straight_through(raw, pack_fp4(raw.detach()).decode(self.value_dim))
 
 
 @dataclass(frozen=True)
 class HindsightValues:
-    values: tuple[Tensor, ...]
-    sink_only: tuple[bool, ...]
+    """One h_t per lookup, with whether it came from the sink alone."""
+
+    values: Tensor  # [lookups, value_dim]
+    sink_only: Tensor  # [lookups] bool
     stage: str
 
 
+@dataclass(frozen=True)
+class OrdinaryEvents:
+    """The recorded ordinary (observed or generated) events of one sequence."""
+
+    raw: Tensor  # [1, events, facets, width]
+    roles: Tensor  # [1, events]
+    modalities: tuple[str, ...]
+    tracks: tuple[str, ...]
+    meridians: Tensor  # [1, events] native positions
+    groups: Tensor  # [1, events] retrieval group of each event
+
+
 class NativeTransducer(nn.Module):
-    """A single owner for native query/readout/hindsight and the sparse bank."""
+    """Query/readout/hindsight heads and the bank, around one shared core owner."""
 
     def __init__(self, core: FacetedCore, bank: TransducerBank) -> None:
         super().__init__()
-        self.core = core
+        # Not a submodule: the generator already owns and optimizes the core.
+        object.__setattr__(self, "_core", core)
         self.bank = bank
-        self.tracks = MultiTrackCore(core)
-        self.query_head = nn.Linear(core.config.facet_dim, bank.geometry.query_dim)
-        self.prefix_head = nn.Linear(core.config.facet_dim, bank.geometry.query_dim)
-        self.query_log_std = nn.Parameter(torch.tensor(-3.0))
+        c = core.config
+        g = bank.geometry
+        self.query_realizer = EmbeddingRealizer(c.n_facets, c.facet_dim, g.query_dim)
+        self.prefix_head = nn.Linear(c.facet_dim, g.query_dim)
         self.readout = WideKnowledgeReadout(core, bank)
         self.hindsight_realizer = HindsightRealizer(core, bank)
 
+    @property
+    def core(self) -> FacetedCore:
+        return self._core
+
+    # ------------------------------------------------------------ hindsight
+
     def hindsight_pass(
-        self,
-        raw: Tensor,
-        roles: Tensor,
-        groups: Tensor,
-        meridians: Tensor,
-        tracks: Tensor,
-        *,
-        step: int,
+        self, events: OrdinaryEvents, reads: Sequence[int | None], *, mode: str
     ) -> HindsightValues:
-        """Training-only inverse C pass with no state/history publication."""
+        """One training-only C pass over ordinary events; h_t for every lookup.
+
+        ``reads[t]`` is the retrieval group lookup t reads (None: past the end).
+        Nothing here touches KVHistory, a causal state or the serving path.
+        """
         if not self.training:
             raise RuntimeError("Hindsight may not execute on the serving path")
-        if (
-            raw.ndim != 4
-            or raw.shape[:2] != groups.shape
-            or raw.shape[2:]
-            != (
-                self.core.config.n_facets,
-                self.core.config.facet_dim,
-            )
-            or roles.shape != groups.shape
-        ):
-            raise ValueError("Hindsight requires recorded ordinary native event blocks")
-        if not raw.shape[1]:
+        if mode not in ("full", "group-inverse"):
+            raise ValueError("Hindsight reads a full or group-inverse pass")
+        c = self.core.config
+        raw = events.raw
+        if raw.ndim != 4 or raw.shape[0] != 1 or raw.shape[2:] != (c.n_facets, c.facet_dim):
+            raise ValueError("Hindsight requires one sequence of native event blocks")
+        count = raw.shape[1]
+        if not count:
             raise ValueError("No ordinary events for hindsight training")
-        stage = "full" if step < 4096 else "gap1" if step < 8192 else "gap2"
-        event_mask = event_attention_mask(
-            groups=groups,
-            meridians=meridians,
-            tracks=tracks,
-            mode="full" if stage == "full" else "group-inverse",
-        )
-        n = self.core.config.n_facets
-        facet_mask = event_mask.repeat_interleave(n, dim=1).repeat_interleave(n, dim=2)
-        empty = KVHistory(
-            raw.new_empty(
-                raw.shape[0], self.core.config.kv_heads, 0, self.core.config.attention_head_dim
-            ),
-            raw.new_empty(
-                raw.shape[0], self.core.config.kv_heads, 0, self.core.config.attention_head_dim
-            ),
-        )
-        # A separate C computation: no call to write() or advance_group().
+        for tensor in (events.roles, events.meridians, events.groups):
+            if tensor.shape != (1, count):
+                raise ValueError("Every ordinary event needs role, meridian and group")
+        if len(events.modalities) != count or len(events.tracks) != count:
+            raise ValueError("Every ordinary event needs a modality and a track")
+        if any(track in RESERVED_TRACKS for track in events.tracks):
+            raise ValueError("Query, knowledge, hindsight and metadata events are not ordinary")
+        registry: list[str] = []
+        for track in events.tracks:
+            if track not in registry:
+                registry.append(track)
+        if len(registry) > c.max_tracks:
+            raise ValueError("Too many tracks for configured session capacity")
+        device = raw.device
+        track_ids = torch.tensor([[registry.index(t) for t in events.tracks]], device=device)
+        modality_ids = torch.tensor([[MODALITY_IDS[m] for m in events.modalities]], device=device)
+        mask = event_attention_mask(groups=events.groups, meridians=events.meridians, mode=mode)
+        facet_mask = mask.repeat_interleave(c.n_facets, 1).repeat_interleave(c.n_facets, 2)
+        empty = raw.new_empty(1, c.kv_heads, 0, c.attention_head_dim)
         final = self.core.central(
             raw.flatten(1, 2),
-            empty,
-            roles,
-            torch.zeros(raw.shape[0], device=raw.device, dtype=torch.long),
-            track_ids=tracks,
-            history_track_ids=torch.empty(raw.shape[0], 0, device=raw.device, dtype=torch.long),
+            KVHistory(empty, empty),
+            events.roles,
+            events.meridians.repeat_interleave(c.n_facets, dim=1),
+            track_ids=track_ids,
+            modality_ids=modality_ids,
+            history_track_ids=track_ids.new_empty(1, 0),
             attention_mask=facet_mask,
-        ).reshape_as(raw)
-        all_groups = sorted(set(groups[0].tolist()))
-        if groups.shape[0] != 1:
-            raise ValueError("Hindsight reference processes one causally ordered session")
-        produced = []
-        sink_only = []
-        for current in all_groups:
-            to_read = current + (1 if stage == "gap2" else 0)
-            available = groups[0] == to_read
-            source = (
-                final[0, available].reshape(-1, self.core.config.facet_dim)
-                if bool(available.any())
-                else None
-            )
-            produced.append(self.hindsight_realizer(source))
-            sink_only.append(source is None)
-        return HindsightValues(tuple(produced), tuple(sink_only), stage)
+        )[0]
+        slot_groups = events.groups[0].repeat_interleave(c.n_facets)
+        read = torch.tensor([-1 if r is None else r for r in reads], device=device)
+        visible = (slot_groups[None] == read[:, None]) & (read[:, None] >= 0)
+        values = self.hindsight_realizer(final, visible)
+        return HindsightValues(values, ~visible.any(dim=1), mode)
+
+    # -------------------------------------------------------------- lookups
+
+    def begin(
+        self, multi, state: MultiTrackState, payload: bytes
+    ) -> tuple[MultiTrackState, SearchAgenda]:
+        """Commit the metadata prefix as the first ordinary event; seed the agenda."""
+        if state.batch_size != 1:
+            raise ValueError("A transducer session is one independent sequence")
+        state = multi.tracks.observe_group(
+            state, [ObservedEvent(METADATA_TRACK, "text", payload, role_id=ROLE_IDS["system"])]
+        )
+        prefix = self.prefix_head(state.final[0, 0].mean(dim=0).to(self.prefix_head.weight.dtype))
+        return state, self.bank.initial_agenda(prefix.float())
 
     def boundary(
         self,
+        multi,
         state: MultiTrackState,
         agenda: SearchAgenda,
         *,
         training: bool = False,
         hindsight: Tensor | None = None,
         overlay: float = 0.0,
-        exploration_seed: int = 0,
+        generator: torch.Generator | None = None,
+        train_rows: bool | None = None,
+        effort: int = 6,
         cancelled: Callable[[], bool] | None = None,
     ) -> tuple[MultiTrackState, Lookup | None]:
-        """One serialized query and one knowledge commit, with atomic agenda publication."""
+        """One serialized query and knowledge commit; the agenda changes only on success.
+
+        The query is P's own reparameterized sample on the reserved query
+        track, realized by an embedding R. A cancellation or a failure leaves
+        both the agenda and the returned state untouched.
+        """
         if state.batch_size != 1 or state.device != self.bank.device:
             raise ValueError("Native lookup is one session on the bank/model device")
-        if agenda.lookups >= self.bank.geometry.max_lookups or (
-            cancelled is not None and cancelled()
-        ):
+        if agenda.lookups >= self.bank.geometry.max_lookups or (cancelled and cancelled()):
             return state, None
-        # Stage the entire lookup transaction away from the published agenda.
-        # A timeout, failing native C pass or stale bank never changes its cursor.
-        working_agenda = SearchAgenda(
-            list(agenda.locations),
-            list(agenda.neighborhoods),
-            agenda.version,
-            agenda.lookups,
-        )
-        predicted = self.tracks.predict_group(state, tracks=(RETRIEVAL_QUERY_TRACK,))
-        if training:
-            selected = predicted + torch.randn_like(predicted) * self.query_log_std.exp()
-        else:
-            selected = predicted
-        query = unit(self.query_head(selected[0, 0]).mean(dim=0))
-        queried = self.tracks.advance_group(
-            state,
-            selected,
-            tracks=(RETRIEVAL_QUERY_TRACK,),
-            role_ids=torch.full(
-                (1, 1), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
-            ),
+        working = agenda.copy()
+        mean = multi.tracks.predict_group(state, tracks=(RETRIEVAL_QUERY_TRACK,), effort=effort)
+        # The policy's own reparameterized draw; ``generator`` drives only exploration.
+        selected = multi.generator.facet_distribution(mean).sample() if training else mean
+        query = self.query_realizer(
+            selected[:, 0], EmbeddingSpec(QUERY_SPACE, "query", self.bank.geometry.query_dim)
+        )[0]
+        assistant = torch.full((1, 1), ROLE_IDS["assistant"], dtype=torch.long, device=state.device)
+        queried = multi.tracks.advance_group(
+            state, selected, tracks=(RETRIEVAL_QUERY_TRACK,), role_ids=assistant
         )
         found = self.bank.lookup(
             query,
-            working_agenda,
+            working,
             training=training,
             hindsight=hindsight,
             overlay=overlay,
-            exploration_seed=exploration_seed,
+            generator=generator,
+            train_rows=train_rows,
         )
         if found is None:
             return state, None
-        realized = self.readout(found.value, query, working_agenda.current, core=self.core)
-        committed = self.tracks.advance_group(
+        block = self.readout(found.value, query, found.landing, core=self.core)
+        committed = multi.tracks.advance_group(
             queried,
-            realized[:, None],
+            block[:, None],
             tracks=(KNOWLEDGE_TRACK,),
-            role_ids=torch.full(
-                (1, 1), ROLE_IDS["assistant"], dtype=torch.long, device=state.device
-            ),
+            role_ids=torch.full_like(assistant, ROLE_IDS["document"]),
         )
-        if cancelled is not None and cancelled():
+        if cancelled and cancelled():
             return state, None
-        self.bank.commit(working_agenda, found)
-        agenda.locations = working_agenda.locations
-        agenda.neighborhoods = working_agenda.neighborhoods
-        agenda.lookups = working_agenda.lookups
-        agenda.version = working_agenda.version
+        self.bank.commit(working, found)
+        agenda.publish(working)
         return committed, found
-
-    def start(self, metadata: dict[str, object]) -> tuple[MultiTrackState, SearchAgenda, Lookup]:
-        """Commit a complete metadata prefix and immediately perform the first lookup."""
-        keys = ("request", "task", "topic", "language", "modality", "date", "version")
-        normalized = {key: metadata.get(key) for key in keys}
-        serialized = json.dumps(normalized, sort_keys=True, ensure_ascii=False).encode()
-        state = self.tracks.initial_state(1, device=self.bank.device)
-        state = self.tracks.observe_group(
-            state,
-            [ObservedEvent("__metadata__", "text", serialized, role_id=ROLE_IDS["user"])],
-        )
-        query_prefix = self.prefix_head(state.raw[0, 0]).mean(0)
-        agenda = self.bank.initial_agenda(query_prefix)
-        state, result = self.boundary(state, agenda, training=False)
-        if result is None:
-            raise RuntimeError("The first metadata boundary must be permitted")
-        return state, agenda, result

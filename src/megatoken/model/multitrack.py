@@ -40,7 +40,7 @@ from megatoken.memory.semantic import (
 from megatoken.tensors import byte_tensor
 
 from .attention import AttentionFeatures, join_attention
-from .config import HINDSIGHT_TRACK, KNOWLEDGE_TRACK, RETRIEVAL_QUERY_TRACK
+from .config import RESERVED_TRACKS, RETRIEVAL_QUERY_TRACK
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .media import MediaOutputSpec, MediaTrainTarget, validate_public_media_spec
 from .relations import SelectedRelation
@@ -202,8 +202,7 @@ class MultiTrackCore:
             len(state.track_registry) > core.config.max_tracks
             or len(set(state.track_registry)) != len(state.track_registry)
             or any(
-                name not in state.track_registry
-                and name not in {RETRIEVAL_QUERY_TRACK, KNOWLEDGE_TRACK, HINDSIGHT_TRACK}
+                name not in state.track_registry and name not in RESERVED_TRACKS
                 for name in state.frontier_tracks
             )
         ):
@@ -246,14 +245,9 @@ class MultiTrackCore:
         registry = list(state.track_registry)
         indices = []
         for name in names:
-            if name in {RETRIEVAL_QUERY_TRACK, KNOWLEDGE_TRACK, HINDSIGHT_TRACK}:
-                # Internal query/knowledge/hindsight never consume user track slots.
-                index = {
-                    RETRIEVAL_QUERY_TRACK: 0,
-                    KNOWLEDGE_TRACK: 1,
-                    HINDSIGHT_TRACK: 2,
-                }[name]
-                indices.append(self.core.config.max_tracks + index)
+            if name in RESERVED_TRACKS:
+                # Internal query/knowledge/hindsight/metadata never consume user slots.
+                indices.append(self.core.config.max_tracks + RESERVED_TRACKS.index(name))
                 continue
             if name not in registry:
                 if len(registry) >= self.core.config.max_tracks:

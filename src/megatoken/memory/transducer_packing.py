@@ -1,185 +1,191 @@
-"""Packed v10 transducer fields: actual E2M1 nibbles and E4M3 bytes.
+"""Packed v10 transducer fields, quantized and decoded a whole batch of rows at a time.
 
-All quantization runs on CPU at publication barriers. Reads decode immutable
-codes without changing scales or advancing any rounding generator.
+Values are E2M1 FP4 nibbles (two per byte) with one E4M3 scale per 16 elements
+and one FP32 scale per row. Keys, departures and destinations are E4M3 bytes
+with one FP32 scale per 128 elements. Everything here is vectorized over rows
+and runs on whatever device the tensors live on; there is no per-row Python.
+
+Stochastic rounding draws from a counter-based hash of (row seed, element), so
+a row's rounding depends only on its seed: the same edge, field, update and
+worker always round identically, on any device and in any batch.
 """
 
 from __future__ import annotations
 
-import base64
-import math
-import struct
 from dataclasses import dataclass
 from hashlib import sha256
 
 import torch
 from torch import Tensor
 
-_FP4_LEVELS = torch.tensor([0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0])
+FP4_GROUP = 16
+FP8_GROUP = 128
+_FP4_LEVELS = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
+_FP8_MAX = 448.0
+_M32 = 0xFFFFFFFF
+_FIELD_CODES = {"departure": 1, "key": 2, "value": 3, "destination": 4, "bias": 5}
 
 
 def rounding_seed(*parts: object) -> int:
+    """A stable 32-bit seed for identities that are not plain integers."""
     digest = sha256("/".join(map(str, parts)).encode()).digest()
-    return int.from_bytes(digest[:8], "little") & ((1 << 63) - 1)
+    return int.from_bytes(digest[:4], "little")
 
 
-def _finite(values: Tensor) -> Tensor:
-    values = torch.as_tensor(values, dtype=torch.float32).detach().flatten().cpu()
-    if not values.numel() or not bool(torch.isfinite(values).all()):
-        raise ValueError("Packed fields require finite, nonempty FP32 vectors")
-    return values
+def _mul32(x: Tensor, constant: int) -> Tensor:
+    """(x * constant) mod 2**32 without leaving the exact int64 range."""
+    low = (x * (constant & 0xFFFF)) & _M32
+    high = ((x * (constant >> 16)) & 0xFFFF) << 16
+    return (low + high) & _M32
 
 
-def unit(values: Tensor) -> Tensor:
-    """Keep location and key addresses on the sphere; never hide NaNs."""
-    if not bool(torch.isfinite(values).all()):
+def _mix32(x: Tensor) -> Tensor:
+    x = x & _M32
+    x = x ^ (x >> 16)
+    x = _mul32(x, 0x7FEB352D)
+    x = x ^ (x >> 15)
+    x = _mul32(x, 0x846CA68B)
+    return x ^ (x >> 16)
+
+
+def row_seeds(ids: Tensor, field: str, step: int, worker: int) -> Tensor:
+    """One rounding seed per edge for one (field, update, worker) publication."""
+    code = _FIELD_CODES[field]
+    seeds = _mix32(ids.to(torch.int64) ^ (code * 0x9E3779B1 & _M32))
+    seeds = _mix32(seeds + (step & _M32))
+    return _mix32(seeds + ((worker * 0x85EBCA77) & _M32))
+
+
+def uniforms(seeds: Tensor, count: int) -> Tensor:
+    """[rows, count] uniforms in (0, 1) from per-row seeds."""
+    index = torch.arange(count, device=seeds.device, dtype=torch.int64)
+    x = _mix32(seeds[:, None] + _mul32(index, 0x9E3779B9)[None])
+    return (x.to(torch.float64) + 0.5).div(2.0**32).to(torch.float32)
+
+
+def unit(values: Tensor, dim: int = -1) -> Tensor:
+    """Normalize addresses onto the unit sphere; zero or nonfinite rows are errors."""
+    norm = torch.linalg.vector_norm(values.float(), dim=dim, keepdim=True)
+    if not bool(torch.isfinite(norm).all()):
         raise FloatingPointError("Nonfinite transducer address")
-    norm = torch.linalg.vector_norm(values.float())
-    if not bool(torch.isfinite(norm)) or float(norm) < 1e-12:
+    if bool((norm < 1e-12).any()):
         raise ValueError("Zero transducer address")
     return values / norm.to(values.dtype)
 
 
-def _fp8_bytes(x: Tensor) -> bytes:
-    return x.to(torch.float8_e4m3fn).view(torch.uint8).numpy().tobytes()
+def _fp8_levels(device: torch.device) -> Tensor:
+    codes = torch.arange(256, dtype=torch.int16).to(torch.uint8)
+    values = codes.view(torch.float8_e4m3fn).float()
+    return torch.unique(values[torch.isfinite(values)]).sort().values.to(device)
 
 
-def _decode_fp8(payload: bytes) -> Tensor:
-    return torch.frombuffer(bytearray(payload), dtype=torch.uint8).view(torch.float8_e4m3fn).float()
+def _stochastic_fp8(normalized: Tensor, u: Tensor | None) -> Tensor:
+    if u is None:
+        return normalized.to(torch.float8_e4m3fn)
+    levels = _fp8_levels(normalized.device)
+    upper = torch.searchsorted(levels, normalized.contiguous()).clamp(1, levels.numel() - 1)
+    low, high = levels[upper - 1], levels[upper]
+    p = ((normalized - low) / (high - low)).clamp(0, 1)
+    return torch.where(u < p, high, low).to(torch.float8_e4m3fn)
 
 
 @dataclass(frozen=True)
-class PackedField:
-    """Portable, precisely sized quantized field; neither codes nor scales are FP32 masters."""
+class FP8Rows:
+    codes: Tensor  # [rows, dim] float8_e4m3fn
+    scales: Tensor  # [rows, ceil(dim / 128)] float32
 
-    format: str
-    size: int
-    codes: bytes
-    scales: bytes
-    row_scale: float = 1.0
-
-    def __post_init__(self) -> None:
-        if self.size < 1 or not math.isfinite(self.row_scale) or self.row_scale <= 0:
-            raise ValueError("Invalid packed row geometry or scale")
-        if self.format == "e2m1":
-            if len(self.codes) != (self.size + 1) // 2:
-                raise ValueError("FP4 row must pack two elements per byte")
-            if len(self.scales) != (self.size + 15) // 16:
-                raise ValueError("FP4 row requires one E4M3 scale per 16 values")
-        elif self.format == "e4m3":
-            if len(self.codes) != self.size:
-                raise ValueError("FP8 row requires one byte per element")
-            if len(self.scales) != 4 * ((self.size + 127) // 128):
-                raise ValueError("FP8 row requires one FP32 scale per 128 values")
-        else:
-            raise ValueError("Unknown transducer packed field")
-
-    @property
-    def nbytes(self) -> int:
-        return len(self.codes) + len(self.scales) + 4
-
-    def decode(self, *, device: torch.device | str | None = None) -> Tensor:
-        if self.format == "e4m3":
-            scales = torch.tensor(
-                struct.unpack("<" + "f" * (len(self.scales) // 4), self.scales)
-            ).repeat_interleave(128)[: self.size]
-            result = _decode_fp8(self.codes) * scales
-        else:
-            packed = torch.frombuffer(bytearray(self.codes), dtype=torch.uint8)
-            code = torch.stack((packed & 15, packed >> 4), dim=-1).reshape(-1)[: self.size]
-            values = _FP4_LEVELS[(code & 7).long()]
-            signs = torch.where(code & 8 != 0, -1.0, 1.0)
-            scales = _decode_fp8(self.scales).repeat_interleave(16)[: self.size]
-            result = values * signs * scales * self.row_scale
-        if not bool(torch.isfinite(result).all()):
-            raise FloatingPointError("Nonfinite packed transducer field")
-        return result.to(device=device) if device is not None else result
-
-    def to_dict(self) -> dict:
-        return {
-            "format": self.format,
-            "size": self.size,
-            "codes": base64.b64encode(self.codes).decode("ascii"),
-            "scales": base64.b64encode(self.scales).decode("ascii"),
-            "row_scale": self.row_scale,
-        }
-
-    @classmethod
-    def from_dict(cls, value: dict) -> PackedField:
-        return cls(
-            format=value["format"],
-            size=int(value["size"]),
-            codes=base64.b64decode(value["codes"], validate=True),
-            scales=base64.b64decode(value["scales"], validate=True),
-            row_scale=float(value["row_scale"]),
-        )
+    def decode(self) -> Tensor:
+        dim = self.codes.shape[1]
+        scale = self.scales.repeat_interleave(FP8_GROUP, dim=1)[:, :dim]
+        return self.codes.float() * scale
 
 
-def pack_fp8(values: Tensor, *, stochastic_seed: int | None = None) -> PackedField:
-    """E4M3FN elements and per-128 FP32 scales, with optional unbiased rounding."""
-    x = _finite(values)
-    count = (x.numel() + 127) // 128
-    padded = torch.nn.functional.pad(x, (0, count * 128 - x.numel()))
-    groups = padded.reshape(count, 128)
-    scales = (groups.abs().amax(dim=1) / 448.0).clamp_min(1e-30)
-    normalized = (groups / scales[:, None]).clamp(-448.0, 448.0)
-    if stochastic_seed is not None:
-        # Stochastic FP8 rounding requires adjacent representable neighbours.
-        # torch.nextafter does not support float8; use the sorted finite codebook.
-        codes = torch.arange(256, dtype=torch.uint8)
-        values8 = codes.view(torch.float8_e4m3fn).float()
-        levels = torch.unique(values8[torch.isfinite(values8)]).sort().values
-        flat = normalized.flatten()
-        upper = torch.searchsorted(levels, flat).clamp(1, len(levels) - 1)
-        low, high = levels[upper - 1], levels[upper]
-        p = ((flat - low) / (high - low)).clamp(0, 1)
-        rng = torch.Generator().manual_seed(stochastic_seed)
-        normalized = torch.where(torch.rand(flat.shape, generator=rng) < p, high, low).reshape_as(
-            normalized
-        )
-    return PackedField(
-        "e4m3",
-        x.numel(),
-        _fp8_bytes(normalized.flatten()[: x.numel()]),
-        struct.pack("<" + "f" * count, *scales.tolist()),
+def pack_fp8(values: Tensor, seeds: Tensor | None = None) -> FP8Rows:
+    """E4M3 rows with per-128 FP32 scales; unbiased rounding when seeds are given."""
+    x = values.detach().float()
+    if x.ndim != 2 or not bool(torch.isfinite(x).all()):
+        raise ValueError("FP8 packing needs finite [rows, dim] values")
+    rows, dim = x.shape
+    groups = -(-dim // FP8_GROUP)
+    padded = torch.nn.functional.pad(x, (0, groups * FP8_GROUP - dim))
+    blocks = padded.reshape(rows, groups, FP8_GROUP)
+    scales = (blocks.abs().amax(dim=2) / _FP8_MAX).clamp_min(1e-30)
+    normalized = (blocks / scales[..., None]).clamp(-_FP8_MAX, _FP8_MAX).reshape(rows, -1)[:, :dim]
+    u = None if seeds is None else uniforms(seeds, dim)
+    return FP8Rows(_stochastic_fp8(normalized, u), scales)
+
+
+@dataclass(frozen=True)
+class FP4Rows:
+    codes: Tensor  # [rows, ceil(dim / 2)] uint8, element 2i in the low nibble
+    group_scales: Tensor  # [rows, ceil(dim / 16)] float8_e4m3fn
+    row_scales: Tensor  # [rows] float32
+
+    def decode(self, dim: int) -> Tensor:
+        levels = torch.tensor(_FP4_LEVELS, device=self.codes.device)
+        nibbles = torch.stack((self.codes & 15, self.codes >> 4), dim=-1).reshape(
+            self.codes.shape[0], -1
+        )[:, :dim]
+        magnitude = levels[(nibbles & 7).long()]
+        signed = torch.where(nibbles & 8 != 0, -magnitude, magnitude)
+        scale = self.group_scales.float().repeat_interleave(FP4_GROUP, dim=1)[:, :dim]
+        return signed * scale * self.row_scales[:, None]
+
+
+def _round_up_e4m3(scales: Tensor) -> Tensor:
+    """The smallest representable E4M3 value at or above each scale."""
+    levels = _fp8_levels(scales.device)
+    positive = levels[levels > 0]
+    index = torch.searchsorted(positive, scales.contiguous()).clamp_max(positive.numel() - 1)
+    return positive[index]
+
+
+def pack_fp4(values: Tensor, seeds: Tensor | None = None) -> FP4Rows:
+    """Signed E2M1 rows. Group scales round up, so no element is clipped."""
+    x = values.detach().float()
+    if x.ndim != 2 or not bool(torch.isfinite(x).all()):
+        raise ValueError("FP4 packing needs finite [rows, dim] values")
+    rows, dim = x.shape
+    groups = -(-dim // FP4_GROUP)
+    blocks = torch.nn.functional.pad(x, (0, groups * FP4_GROUP - dim)).reshape(
+        rows, groups, FP4_GROUP
     )
-
-
-def pack_fp4(values: Tensor, *, stochastic_seed: int | None = None) -> PackedField:
-    """Signed E2M1 codes, one E4M3 scale/16 and one FP32 row scale."""
-    x = _finite(values)
-    count = (x.numel() + 15) // 16
-    groups = torch.nn.functional.pad(x, (0, count * 16 - x.numel())).reshape(count, 16)
-    maximum = float(groups.abs().amax())
-    row_scale = maximum / 6.0 if maximum else 1.0
-    group_scale = (groups.abs().amax(dim=1) / (6 * row_scale)).clamp_min(2**-9)
-    encoded_scales = _decode_fp8(_fp8_bytes(group_scale))
-    normalized = (groups / (row_scale * encoded_scales[:, None])).abs().flatten()
+    maximum = blocks.abs().amax(dim=(1, 2))
+    row_scales = torch.where(maximum > 0, maximum / 6.0, torch.ones_like(maximum))
+    group_scales = _round_up_e4m3(
+        (blocks.abs().amax(dim=2) / (6.0 * row_scales[:, None])).clamp_min(2.0**-9)
+    )
+    normalized = (blocks.abs() / (row_scales[:, None, None] * group_scales[..., None])).reshape(
+        rows, -1
+    )
     normalized = normalized.clamp(max=6.0)
-    upper = torch.searchsorted(_FP4_LEVELS, normalized).clamp(1, 7)
-    lower_values, upper_values = _FP4_LEVELS[upper - 1], _FP4_LEVELS[upper]
-    if stochastic_seed is None:
-        choose_up = normalized - lower_values >= upper_values - normalized
+    levels = torch.tensor(_FP4_LEVELS, device=x.device)
+    upper = torch.searchsorted(levels, normalized.contiguous()).clamp(1, len(_FP4_LEVELS) - 1)
+    low, high = levels[upper - 1], levels[upper]
+    if seeds is None:
+        choose_up = normalized - low >= high - normalized
     else:
-        rng = torch.Generator().manual_seed(stochastic_seed)
-        choose_up = torch.rand(normalized.shape, generator=rng) < (
-            (normalized - lower_values) / (upper_values - lower_values)
-        )
+        choose_up = uniforms(seeds, normalized.shape[1]) < (normalized - low) / (high - low)
     code = torch.where(choose_up, upper, upper - 1).to(torch.uint8)
-    code |= (groups.flatten() < 0).to(torch.uint8) << 3
-    code = code[: x.numel()]
-    if code.numel() % 2:
-        code = torch.cat((code, torch.zeros(1, dtype=torch.uint8)))
-    bytes4 = code.reshape(-1, 2)
-    packed = bytes4[:, 0] | (bytes4[:, 1] << 4)
-    return PackedField(
-        "e2m1", x.numel(), packed.numpy().tobytes(), _fp8_bytes(group_scale), row_scale
-    )
+    negative = torch.nn.functional.pad(x, (0, groups * FP4_GROUP - dim)) < 0
+    code = (code | (negative.to(torch.uint8) << 3))[:, :dim]
+    if dim % 2:
+        code = torch.nn.functional.pad(code, (0, 1))
+    pairs = code.reshape(rows, -1, 2)
+    packed = pairs[..., 0] | (pairs[..., 1] << 4)
+    return FP4Rows(packed, group_scales.to(torch.float8_e4m3fn), row_scales)
 
 
-def straight_through(master: Tensor, packed: PackedField) -> Tensor:
-    """Forward/recomputation read exactly the packed row; backward targets the master."""
-    decoded = packed.decode(device=master.device).to(master.dtype)
+def fp8_nbytes(dim: int) -> int:
+    return dim + 4 * -(-dim // FP8_GROUP)
+
+
+def fp4_nbytes(dim: int) -> int:
+    return -(-dim // 2) + -(-dim // FP4_GROUP) + 4
+
+
+def straight_through(master: Tensor, decoded: Tensor) -> Tensor:
+    """Forward reads exactly the packed row; backward reaches the FP32 master."""
     if master.shape != decoded.shape:
         raise ValueError("Master and packed field shapes disagree")
-    return master + (decoded - master).detach()
+    return master + (decoded.to(master.dtype) - master).detach()

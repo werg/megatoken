@@ -204,6 +204,13 @@ def load_checkpoint(
             not memory_path.is_file() or sha256_file(memory_path) != kb["kb_sha256"]
         ):
             raise ValueError("Checkpoint memory artifact missing or checksum mismatch")
+    transducer = metadata.get("transducer_checkpoint")
+    if transducer is not None:
+        bank_path = directory / transducer["file"]
+        if bank_path.name != transducer["file"] or (
+            not bank_path.is_file() or sha256_file(bank_path) != transducer["sha256"]
+        ):
+            raise ValueError("Checkpoint transducer bank missing or checksum mismatch")
     payload = torch.load(state_path, map_location=map_location, weights_only=True)
     if payload.get("format_version") != FORMAT_VERSION:
         raise ValueError("Unsupported payload format")

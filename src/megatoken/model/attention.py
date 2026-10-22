@@ -15,19 +15,23 @@ from .layers import RMSNorm
 def temporal_rope(x: Tensor, positions: Tensor, *, base: float = 1_000_000.0) -> Tensor:
     """Rotate query/key heads by committed megatoken position, never facet index.
 
-    Input x is [batch, heads, slots, head_dim], positions is [batch].
-    FP64 phase construction preserves adjacent late-record differences; rotation
+    Input x is [batch, heads, slots, head_dim]; positions is [batch] (one
+    meridian) or [batch, slots] (a whole recorded sequence at once). FP64 phase
+    construction preserves adjacent late-record differences; rotation
     arithmetic uses FP32 and returns the original dtype for fused attention.
     """
     if x.ndim != 4 or x.shape[-1] % 2:
         raise ValueError("Temporal RoPE requires four-dimensional even-width heads")
-    if positions.shape != (x.shape[0],):
-        raise ValueError("RoPE requires one committed time per batch row")
+    if positions.shape == (x.shape[0],):
+        angles = positions.to(device=x.device, dtype=torch.float64)[:, None, None, None]
+    elif positions.shape == (x.shape[0], x.shape[2]):
+        angles = positions.to(device=x.device, dtype=torch.float64)[:, None, :, None]
+    else:
+        raise ValueError("RoPE requires one committed time per batch row or per slot")
     dim = x.shape[-1]
     frequency = torch.exp(
         -math.log(base) * torch.arange(0, dim, 2, device=x.device, dtype=torch.float64) / dim
     )
-    angles = positions.to(device=x.device, dtype=torch.float64)[:, None, None, None]
     angles = angles * frequency[None, None, None, :]
     cosine = angles.cos().float()
     sine = angles.sin().float()
@@ -92,7 +96,14 @@ def join_attention(live: AttentionFeatures, history: AttentionFeatures | None) -
 
 
 class AttentionRead(nn.Module):
-    """Independently owned query/output transforms over shared projected KV."""
+    """Independently owned query/output transforms over shared projected KV.
+
+    With ``sink=True`` every head also attends to one learned, position-free
+    key/value slot that is never stored in KVHistory and never masked, so no
+    query row can be fully masked. No dense mask is built unless something
+    (a validity mask, an explicit query/key mask, KB log-strength or the
+    same-track bias) needs one, which keeps fused attention kernels eligible.
+    """
 
     def __init__(
         self,
@@ -103,6 +114,7 @@ class AttentionRead(nn.Module):
         eps: float = 1e-6,
         *,
         track_relations: bool = False,
+        sink: bool = False,
     ) -> None:
         super().__init__()
         if query_heads % kv_heads:
@@ -113,9 +125,8 @@ class AttentionRead(nn.Module):
         self.output = nn.Linear(query_heads * head_dim, query_dim, bias=False)
         # Runtime IDs have equality, never ordinal or geometric distance.
         self.same_track_bias = nn.Parameter(torch.zeros(query_heads)) if track_relations else None
-        # Every attention head owns a position-free sink that is never written to KVHistory.
-        self.sink_key = nn.Parameter(torch.zeros(kv_heads, 1, head_dim))
-        self.sink_value = nn.Parameter(torch.zeros(kv_heads, 1, head_dim))
+        self.sink_key = nn.Parameter(torch.zeros(kv_heads, 1, head_dim)) if sink else None
+        self.sink_value = nn.Parameter(torch.zeros(kv_heads, 1, head_dim)) if sink else None
 
     def read(
         self,
@@ -127,54 +138,57 @@ class AttentionRead(nn.Module):
         query_track_ids: Tensor | None = None,
         query_key_mask: Tensor | None = None,
     ) -> Tensor:
-        """Read with an explicit per-query mask and a never-masked learned sink."""
         batch, count, _ = query.shape
         slots = features.keys.shape[2]
+        sink = self.sink_key is not None
+        if not slots and not sink:
+            return torch.zeros_like(query)
         addressed = query if slot_codes is None else query + slot_codes.to(query.dtype)
         q = (
             self.query(self.query_norm(addressed))
             .reshape(batch, count, self.query_heads, self.head_dim)
             .transpose(1, 2)
         )
+        # With one time per query row the sink key rotates with it, so its
+        # logit is position-free and fused kernels stay eligible. With a time
+        # per query slot the sink logit is added exactly as a mask column.
+        sink_logit = None
+        if sink and temporal_positions is not None and temporal_positions.ndim == 2:
+            sink_key = self.sink_key.to(q.dtype).repeat_interleave(
+                self.query_heads // self.kv_heads, dim=0
+            )
+            sink_logit = (q * sink_key[None, :, 0][:, :, None]).sum(-1) / math.sqrt(self.head_dim)
         if temporal_positions is not None:
             q = temporal_rope(q, temporal_positions)
-        keys = torch.cat(
-            (
-                features.keys.to(q.dtype),
-                self.sink_key.to(q.dtype)[None].expand(batch, -1, -1, -1),
-            ),
-            dim=2,
-        )
-        values = torch.cat(
-            (
-                features.values.to(q.dtype),
-                self.sink_value.to(q.dtype)[None].expand(batch, -1, -1, -1),
-            ),
-            dim=2,
-        )
-        if features.mask is None:
-            allowed = torch.ones(batch, count, slots, device=q.device, dtype=torch.bool)
-        elif features.mask.shape == (batch, slots):
-            allowed = features.mask[:, None].expand(-1, count, -1).clone()
-        elif features.mask.shape == (batch, count, slots):
-            allowed = features.mask.clone()
-        else:
-            raise ValueError("Attention feature mask has invalid query/key shape")
+        keys, values = features.keys.to(q.dtype), features.values.to(q.dtype)
+        if sink:
+            sink_key = self.sink_key.to(q.dtype)[None].expand(batch, -1, -1, -1)
+            if sink_logit is not None:
+                sink_key = torch.zeros_like(sink_key)
+            elif temporal_positions is not None:
+                # Rotate with the query's own time: the sink's logit never depends on it.
+                sink_key = temporal_rope(sink_key, temporal_positions)
+            keys = torch.cat((keys, sink_key), dim=2)
+            values = torch.cat(
+                (values, self.sink_value.to(q.dtype)[None].expand(batch, -1, -1, -1)), dim=2
+            )
+        allowed = None  # [batch, 1 | count, slots] boolean
+        if features.mask is not None:
+            if features.mask.shape == (batch, slots):
+                allowed = features.mask[:, None]
+            elif features.mask.shape == (batch, count, slots):
+                allowed = features.mask
+            else:
+                raise ValueError("Attention feature mask has invalid query/key shape")
         if query_key_mask is not None:
             if query_key_mask.shape != (batch, count, slots):
                 raise ValueError("Explicit attention mask must identify every query/key pair")
-            allowed = allowed & query_key_mask
-        attn_mask = torch.zeros(
-            batch, self.query_heads, count, slots + 1, dtype=q.dtype, device=q.device
-        )
-        if slots:
-            attn_mask[..., :slots] = attn_mask[..., :slots].masked_fill(
-                ~allowed[:, None], float("-inf")
-            )
+            allowed = query_key_mask if allowed is None else allowed & query_key_mask
+        additive = None  # [batch, 1 | heads, 1 | count, slots]
         if features.log_strength is not None:
             if features.log_strength.shape != (batch, slots):
                 raise ValueError("Per-slot KB log-strength has wrong attention shape")
-            attn_mask[..., :slots] += features.log_strength.to(q.dtype)[:, None, None, :]
+            additive = features.log_strength.to(q.dtype)[:, None, None, :]
         if self.same_track_bias is not None and (
             (query_track_ids is None) != (features.track_ids is None)
         ):
@@ -194,9 +208,26 @@ class AttentionRead(nn.Module):
             bonus = (
                 same[:, None].to(q.dtype) * self.same_track_bias.to(q.dtype)[None, :, None, None]
             )
-            attn_mask[..., :slots] += bonus
-        # The final sink column is always visible, including an empty cache or
-        # a hindsight mask that masks every ordinary key for a query.
+            additive = bonus if additive is None else additive + bonus
+        if sink_logit is not None and additive is None:
+            additive = q.new_zeros(batch, 1, 1, slots)
+        attn_mask = None
+        if additive is not None:
+            if allowed is not None:
+                additive = additive.masked_fill(~allowed[:, None], float("-inf"))
+            attn_mask = additive
+        elif allowed is not None:
+            attn_mask = allowed[:, None]
+        if attn_mask is not None and sink:
+            # The sink column is always visible (broadcast dims stay broadcast).
+            if attn_mask.dtype == torch.bool:
+                visible = attn_mask.new_ones(*attn_mask.shape[:-1], 1)
+            elif sink_logit is not None:
+                visible = sink_logit[..., None]
+                attn_mask = attn_mask.expand(batch, self.query_heads, count, slots)
+            else:
+                visible = attn_mask.new_zeros(*attn_mask.shape[:-1], 1)
+            attn_mask = torch.cat((attn_mask, visible), dim=-1)
         result = F.scaled_dot_product_attention(
             q,
             keys,

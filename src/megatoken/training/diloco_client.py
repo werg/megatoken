@@ -21,7 +21,7 @@ from typing import Any
 
 import torch
 
-from megatoken.io import content_hash
+from megatoken.io import atomic_binary_writer, content_hash
 from megatoken.training.diloco_protocol import (
     Fragment,
     install_fragment,
@@ -231,6 +231,14 @@ class DecoupledWorker:
         self._poll_cursor = 0
         self.kb = None
         self._kb_force_fetch = False
+        self.transducer = None
+        self.remote_transducer_version: int | None = None
+
+    def attach_transducer(self, sync: Any) -> None:
+        """Synchronize v10 transducer rounds through the coordinator (transducer_sync)."""
+        if self.manifest.get("transducer") is None:
+            raise ValueError("DiLoCo coordinator was initialized without a transducer bank")
+        self.transducer = sync
 
     def attach_kb(self, kb: Any) -> None:
         """Synchronize free-KB rows through the coordinator (see diloco_kb)."""
@@ -253,6 +261,8 @@ class DecoupledWorker:
             self.remote_versions = [int(v) for v in versions]
         if value.get("kb_version") is not None:
             self.remote_kb_version = int(value["kb_version"])
+        if value.get("transducer_version") is not None:
+            self.remote_transducer_version = int(value["transducer_version"])
 
     def bootstrap(self, model: torch.nn.Module, optimizer: Any) -> None:
         """Get identical initialization, then reconcile with latest global fragments."""
@@ -302,6 +312,10 @@ class DecoupledWorker:
             self.kb.pending["future"] = self.control_io.submit(
                 self._upload_kb, dict(self.kb.pending)
             )
+        if self.transducer is not None:
+            if value.get("transducer") is None:
+                raise ValueError("DiLoCo checkpoint lacks transducer synchronization state")
+            self.transducer.load_state_dict(value["transducer"])
         self._fetch_all(optimizer)
 
     def _fetch(self, index: int, version: int) -> tuple[int, torch.Tensor] | None:
@@ -414,6 +428,125 @@ class DecoupledWorker:
         if path is None:
             return None
         return int(headers["X-KB-Version"]), path, "snapshot"
+
+    def fetch_transducer(self, version: int) -> tuple[int, Path, str] | None:
+        """Changes since ``version``; the whole published bank when history expired."""
+        if version >= 0:
+            try:
+                path, headers = self.transport.fetch_file(
+                    f"/v1/transducer/changes?after={version}", self.outbox
+                )
+                if path is None:
+                    return None
+                return int(headers["X-Transducer-Version"]), path, "changes"
+            except RemoteError as exc:
+                if exc.status != 410:
+                    raise
+        path, headers = self.transport.fetch_file(f"/v1/transducer?after={version}", self.outbox)
+        if path is None:
+            return None
+        return int(headers["X-Transducer-Version"]), path, "snapshot"
+
+    def _upload_transducer(self, entry: dict) -> dict:
+        _, response, _ = self.transport.request(
+            "POST",
+            "/v1/transducer/rounds",
+            file=Path(entry["filename"]),
+            headers={
+                "X-Worker": str(self.worker),
+                "X-Session": self.session,
+                "X-Sequence": str(entry["sequence"]),
+                "X-Base-Version": str(entry["version"]),
+                "X-Steps": str(entry["steps"]),
+                "X-Tokens": "1",
+                "Content-Type": "application/octet-stream",
+            },
+        )
+        return response
+
+    def report_transducer_validation(self, step: int, loss: float) -> None:
+        """Worker 0's bank-only validation loss, for the coordinator's switch rule."""
+        self.control_io.submit(
+            self.transport.json,
+            "POST",
+            "/v1/transducer/validation",
+            {"worker": self.worker, "session": self.session, "step": step, "loss": loss},
+        )
+
+    def _transducer_step(self, steps: int, trainer: Any) -> tuple[int, Any]:
+        """Upload a round every 32 local steps; fetch newer canonical versions.
+
+        Returns (errors, ready (version, path, kind) or None) for the caller to
+        install between optimizer steps.
+        """
+        from megatoken.training.transducer_diloco import LOCAL_STEPS
+        from megatoken.training.transducer_sync import submit_round
+
+        sync = self.transducer
+        errors = 0
+        ready = None
+        sync.steps_since += 1
+        entry = sync.pending
+        if entry is not None and entry["future"] is not None and entry["future"].done():
+            try:
+                entry["future"].result()
+                Path(entry["filename"]).unlink(missing_ok=True)
+                sync.pending = None
+            except RemoteError as exc:
+                if exc.status == 409:
+                    # Stale or duplicate: drop it and re-base on the canonical bank.
+                    Path(entry["filename"]).unlink(missing_ok=True)
+                    sync.pending = None
+                    sync.force_snapshot = True
+                else:
+                    errors += 1
+                    entry["future"] = None
+                    self.last_progress_error = str(exc)
+            except (OSError, TimeoutError, ValueError) as exc:
+                errors += 1
+                entry["future"] = None
+                self.last_progress_error = str(exc)
+        if sync.pending is not None and sync.pending["future"] is None:
+            sync.pending["future"] = self.control_io.submit(
+                self._upload_transducer, dict(sync.pending)
+            )
+        if sync.download is not None and sync.download.done():
+            try:
+                result = sync.download.result()
+                if result is not None and (result[0] > sync.version or result[2] == "snapshot"):
+                    ready = result
+                    sync.force_snapshot = False
+                elif result is not None:
+                    result[1].unlink(missing_ok=True)
+            except (OSError, TimeoutError, ValueError, RemoteError) as exc:
+                errors += 1
+                self.last_progress_error = str(exc)
+            sync.download = None
+        if sync.steps_since >= LOCAL_STEPS and sync.pending is None:
+            submission = submit_round(trainer, sync, worker=self.worker, step=steps)
+            filename = self.outbox / f"transducer-{submission.sequence:09d}.pt"
+            with atomic_binary_writer(filename) as handle:
+                torch.save(submission.state_dict(), handle)
+            sync.pending = {
+                "filename": str(filename),
+                "sequence": submission.sequence,
+                "version": submission.base_version,
+                "steps": LOCAL_STEPS,
+                "future": None,
+            }
+            sync.pending["future"] = self.control_io.submit(
+                self._upload_transducer, dict(sync.pending)
+            )
+        newer = (
+            self.remote_transducer_version > sync.version
+            if self.remote_transducer_version is not None
+            else steps % self.settings.poll_steps == 0
+        )
+        if ready is None and sync.download is None and (sync.force_snapshot or newer):
+            sync.download = self.control_io.submit(
+                self.fetch_transducer, -1 if sync.force_snapshot else sync.version
+            )
+        return errors, ready
 
     def _kb_step(self, steps: int, tokens: int, bank: Any) -> tuple[int, Any]:
         """Advance KB uploads/polls. Returns (errors, ready (version, path, kind) or None)."""
@@ -557,6 +690,7 @@ class DecoupledWorker:
         steps: int,
         tokens: int,
         bank: Any = None,
+        transducer: Any = None,
     ) -> dict:
         """Called *after* each complete optimizer step; never blocks on network.
 
@@ -567,6 +701,10 @@ class DecoupledWorker:
         kb_errors, kb_ready = (
             self._kb_step(steps, tokens, bank) if self.kb is not None else (0, None)
         )
+        transducer_errors, transducer_ready = (
+            self._transducer_step(steps, transducer) if self.transducer is not None else (0, None)
+        )
+        kb_errors += transducer_errors
         self.local_steps = steps
         self.local_tokens += tokens
         for i in range(len(self.fragments)):
@@ -685,6 +823,15 @@ class DecoupledWorker:
                 if self.kb is not None
                 else {}
             ),
+            **(
+                {
+                    "transducer_version": self.transducer.version,
+                    "transducer_pending": int(self.transducer.pending is not None),
+                    "transducer_ready": transducer_ready,
+                }
+                if self.transducer is not None
+                else {}
+            ),
         }
 
     def state_dict(self) -> dict:
@@ -715,6 +862,7 @@ class DecoupledWorker:
                 for k, entry in self.pending.items()
             },
             "kb": None if self.kb is None else self.kb.state_dict(),
+            "transducer": None if self.transducer is None else self.transducer.state_dict(),
         }
 
     def metrics(self) -> dict:
@@ -732,6 +880,17 @@ class DecoupledWorker:
     def close(self) -> None:
         self.io.shutdown(wait=True, cancel_futures=False)
         self.control_io.shutdown(wait=True, cancel_futures=False)
+        if (
+            self.transducer is not None
+            and self.transducer.download is not None
+            and self.transducer.download.done()
+        ):
+            try:
+                result = self.transducer.download.result()
+            except Exception:
+                result = None
+            if result is not None:
+                result[1].unlink(missing_ok=True)
         if self.kb is not None and self.kb.download is not None and self.kb.download.done():
             try:
                 result = self.kb.download.result()

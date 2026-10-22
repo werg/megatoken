@@ -80,6 +80,14 @@ class FacetedGenerator(nn.Module):
             self.config.n_facets, self.config.facet_dim, self.config.semantic_dim
         )
         self.relations = RelationProjection(self.config.facet_dim)
+        self.transducer = None
+        if self.config.transducer:
+            from megatoken.memory.transducer import TransducerBank
+            from megatoken.model.transducer import NativeTransducer
+
+            self.transducer = NativeTransducer(
+                core, TransducerBank(self.config.transducer_geometry)
+            )
 
     @property
     def latent_dimensions(self) -> int:

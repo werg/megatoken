@@ -37,6 +37,7 @@ class DenseFacetBlock(nn.Module):
             c.attention_head_dim,
             c.norm_eps,
             track_relations=shared_kv,
+            sink=shared_kv,
         )
         self.kv = (
             None

@@ -48,6 +48,7 @@ class PairStage(nn.Module):
             config.attention_head_dim,
             config.norm_eps,
             track_relations=True,
+            sink=True,
         )
         self.attention_gate = nn.Parameter(torch.tensor(-2.0))
         self.norm = RMSNorm(config.pair_dim, config.norm_eps)

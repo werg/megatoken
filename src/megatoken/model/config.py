@@ -10,11 +10,13 @@ from typing import Any
 from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
 ARCHITECTURE_VERSION = 10
-# Reserved system track for retrieval queries. It occupies track index
-# ``max_tracks`` and never counts against the user-visible track registry.
+# Reserved system tracks. Track ``RESERVED_TRACKS[i]`` occupies index
+# ``max_tracks + i`` and never counts against the user-visible track registry.
 RETRIEVAL_QUERY_TRACK = "__retrieval_query__"
 KNOWLEDGE_TRACK = "__transducer_knowledge__"
 HINDSIGHT_TRACK = "__transducer_hindsight__"
+METADATA_TRACK = "__metadata__"
+RESERVED_TRACKS = (RETRIEVAL_QUERY_TRACK, KNOWLEDGE_TRACK, HINDSIGHT_TRACK, METADATA_TRACK)
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,18 @@ class ModelConfig:
     memory_lora_experts: int = 4
     memory_lora_rank: int = 8
     memory_lora_topk: int = 2
+    # v10 continuous-state transducer. Values are ``transducer_value_rows``
+    # native-width rows (64 x 512 = 32,768 at the selected geometry).
+    transducer: bool = False
+    transducer_location_dim: int = 256
+    transducer_query_dim: int = 1024
+    transducer_value_rows: int = 64
+    transducer_neighbors: int = 1024
+    transducer_selected: int = 32
+    transducer_exploration: int = 2
+    transducer_max_lookups: int = 256
+    transducer_max_edges: int = 1_000_000
+    transducer_byte_budget: int = 24_000_000_000
 
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
@@ -143,6 +157,8 @@ class ModelConfig:
             raise ValueError("LoRA top-k exceeds independent expert count")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("Backend must be auto, torch or triton")
+        if self.transducer:
+            _ = self.transducer_geometry  # validates the bank geometry
 
     @property
     def exact_rows(self) -> int:
@@ -160,6 +176,22 @@ class ModelConfig:
     def n_stages(self) -> int:
         """Central plus predictive depth; encoder/realizer work is additional."""
         return self.central_layers + self.prediction_layers
+
+    @property
+    def transducer_geometry(self):
+        from megatoken.memory.transducer import TransducerGeometry
+
+        return TransducerGeometry(
+            location_dim=self.transducer_location_dim,
+            query_dim=self.transducer_query_dim,
+            value_dim=self.transducer_value_rows * self.facet_dim,
+            neighbors=self.transducer_neighbors,
+            selected=self.transducer_selected,
+            exploration=self.transducer_exploration,
+            max_lookups=self.transducer_max_lookups,
+            max_edges=self.transducer_max_edges,
+            byte_budget=self.transducer_byte_budget,
+        )
 
     @property
     def reserved_query_track_index(self) -> int:

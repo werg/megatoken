@@ -64,12 +64,18 @@ def initialize_coordinator(
     token_budget: int = 0,
     kb: dict | None = None,
     max_kb_update_bytes: int = 256 << 20,
+    transducer: dict | None = None,
+    max_transducer_round_bytes: int = 1 << 30,
 ) -> dict:
     """Initialize a new run; never silently overwrite an existing trajectory.
 
     ``kb`` holds :func:`megatoken.training.diloco_kb.initialize_kb` keyword
     arguments for live free-KB phases; the coordinator then owns the canonical bank.
+    ``transducer`` ({"geometry": ..., "evidence_from": ...}) makes it the
+    canonical owner of a v10 transducer bank instead.
     """
+    if kb is not None and transducer is not None:
+        raise ValueError("A run owns either a v9 free KB or a v10 transducer bank")
     root = Path(root)
     if (
         not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", run_id)
@@ -104,6 +110,8 @@ def initialize_coordinator(
         "fragments": [item.to_dict() for item in fragments],
         "kb": None,
         "max_kb_update_bytes": max_kb_update_bytes,
+        "transducer": transducer,
+        "max_transducer_round_bytes": max_transducer_round_bytes,
     }
     try:
         if kb is not None:
@@ -159,6 +167,17 @@ class Coordinator:
                 max_staleness=self.manifest["max_staleness"],
                 min_quorum=self.manifest["min_quorum"],
                 workers=self.manifest["workers"],
+                grace_seconds=self.manifest["grace_seconds"],
+            )
+        self.transducer = None
+        if self.manifest.get("transducer") is not None:
+            from megatoken.training.transducer_sync import TransducerHost
+
+            self.transducer = TransducerHost(
+                self.root,
+                self.manifest["transducer"],
+                workers=self.manifest["workers"],
+                min_quorum=self.manifest["min_quorum"],
                 grace_seconds=self.manifest["grace_seconds"],
             )
         self._sync_public()
@@ -246,6 +265,9 @@ class Coordinator:
                 "merges": self.progress["merges"],
                 "versions": [self._version(f.index) for f in self.fragments],
                 "kb_version": None if self.kb is None else self.kb.version(),
+                "transducer_version": (
+                    None if self.transducer is None else self.transducer.version()
+                ),
                 "live_workers": sum(
                     x["expires"] >= time.time() for x in self.progress["leases"].values()
                 ),
@@ -403,12 +425,30 @@ class Coordinator:
                 Conflict,
             )
 
+    def submit_transducer(
+        self, worker: int, session: str, sequence: int, base_version: int, incoming: Path
+    ) -> dict:
+        with self.lock:
+            self._lease_valid(worker, session)
+            if self.transducer is None:
+                raise ValueError("This coordinator run does not own a transducer bank")
+            return self.transducer.submit(worker, sequence, base_version, incoming, Conflict)
+
+    def transducer_validation(self, worker: int, session: str, step: int, loss: float) -> dict:
+        with self.lock:
+            self._lease_valid(worker, session)
+            if self.transducer is None:
+                raise ValueError("This coordinator run does not own a transducer bank")
+            return self.transducer.record_validation(step, loss)
+
     def tick(self) -> None:
         with self.lock:
             for fragment in self.fragments:
                 self._try_merge(fragment.index)
             if self.kb is not None:
                 self.kb.try_merge()
+            if self.transducer is not None:
+                self.transducer.try_merge()
 
 
 def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> None:
@@ -526,6 +566,38 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                         self.end_headers()
                     else:
                         self._stream_file(file, version, header="X-KB-Version")
+                elif parsed.path in ("/v1/transducer", "/v1/transducer/changes"):
+                    if coordinator.transducer is None:
+                        raise ValueError("This coordinator run does not own a transducer bank")
+                    from megatoken.training.transducer_sync import ChangesExpired
+
+                    after = int(parse_qs(parsed.query).get("after", ["-1"])[0])
+                    host = coordinator.transducer
+                    temporary = None
+                    with coordinator.lock:
+                        if parsed.path == "/v1/transducer":
+                            version, path = host.snapshot()
+                            file = None if after == version else path.open("rb")
+                        else:
+                            try:
+                                found = host.changes(after)
+                            except ChangesExpired as exc:
+                                self._json(410, {"error": str(exc)})
+                                return
+                            file = None
+                            if found is not None:
+                                version, temporary = found
+                                file = temporary.open("rb")
+                    try:
+                        if file is None:
+                            self.send_response(204)
+                            self.send_header("Content-Length", "0")
+                            self.end_headers()
+                        else:
+                            self._stream_file(file, version, header="X-Transducer-Version")
+                    finally:
+                        if temporary is not None:
+                            temporary.unlink(missing_ok=True)
                 elif re.fullmatch(r"/v1/fragments/[0-9]+", parsed.path):
                     index = int(parsed.path.rsplit("/", 1)[-1])
                     with coordinator.lock:
@@ -609,6 +681,25 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                     finally:
                         target.unlink(missing_ok=True)
                     return
+                elif parsed.path == "/v1/transducer/rounds":
+                    filename = self._receive(
+                        coordinator.manifest.get("max_transducer_round_bytes", 1 << 30)
+                    )
+                    try:
+                        worker, session, sequence, base, _, _ = self._update_headers()
+                        result = coordinator.submit_transducer(
+                            worker, session, sequence, base, filename
+                        )
+                    finally:
+                        filename.unlink(missing_ok=True)
+                elif parsed.path == "/v1/transducer/validation":
+                    value = self._read_json()
+                    result = coordinator.transducer_validation(
+                        int(value["worker"]),
+                        str(value["session"]),
+                        int(value["step"]),
+                        float(value["loss"]),
+                    )
                 elif parsed.path == "/v1/kb/updates":
                     filename = self._receive(
                         coordinator.manifest.get("max_kb_update_bytes", 256 << 20)

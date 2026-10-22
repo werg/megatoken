@@ -98,6 +98,7 @@ def _diloco_initialize(args):
     from megatoken.training.diloco_protocol import training_identity
     from megatoken.training.diloco_server import initialize_coordinator
     from megatoken.training.schedule import PHASES
+    from megatoken.training.transducer import HindsightSchedule
 
     config = TrainConfig.load(args.config)
     if config.decoupled is None:
@@ -189,6 +190,14 @@ def _diloco_initialize(args):
         max_staleness=args.max_staleness,
         token_budget=config.budget or PHASES[config.phase].budget,
         kb=kb,
+        transducer=(
+            {
+                "geometry": dict(vars(model_config.transducer_geometry)),
+                "evidence_from": HindsightSchedule().warmup_steps,
+            }
+            if model_config.transducer
+            else None
+        ),
     )
 
 

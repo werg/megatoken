@@ -402,6 +402,61 @@ def _preceding_native(
     return state, count
 
 
+_SOURCE_ROLES = frozenset((ROLE_TO_ID["tool"], ROLE_TO_ID["document"], ROLE_TO_ID["environment"]))
+
+
+def _metadata(episode: Any) -> bytes:
+    """The compact metadata prefix available before the first event."""
+    from megatoken.model.transducer import metadata_payload
+
+    # Declared session tracks only: the modalities later events happen to use are future.
+    modalities = sorted({track.default_modality for track in episode.tracks})
+    return metadata_payload({"task": episode.stream, "modality": modalities, "version": "v10"})
+
+
+def _boundary_meridian(step: MeridianStep):
+    """A completed assistant turn or an arriving source result is a real boundary."""
+    from megatoken.training.transducer import Meridian
+
+    completed_turn = step.generated and all(
+        entry.record.role == "assistant" and entry.record.part_index + 1 == entry.record.part_count
+        for entry in step.records
+    )
+    arrived = any(role in _SOURCE_ROLES for role in step.roles)
+    return Meridian(step.tracks, step.roles, step.modalities, completed_turn or arrived)
+
+
+def _transducer_sequence(
+    model: Any,
+    batch: MeridianPreparedBatch,
+    trainer: Any,
+    store: TensorAssetStore,
+    device: torch.device,
+    model_version: int,
+    differentiate: bool,
+):
+    """Plan the window's lookups and, in training, run its hindsight pass once."""
+    if model.training and (trainer is None or not differentiate):
+        raise ValueError("Transducer training needs the run's trainer and a backward")
+    if trainer is None:
+        from megatoken.training.transducer import TransducerTrainer
+
+        trainer = TransducerTrainer(model.transducer)
+    steps = (*batch.prefix, *batch.steps)
+    meridians = [_boundary_meridian(step) for step in steps]
+    seed = int(torch.randint(0, 2**62, (1,)))
+    sequence = trainer.sequence(
+        meridians, step=model_version, generator=torch.Generator().manual_seed(seed)
+    )
+    sequence.hindsight(
+        meridians,
+        lambda index: _actual_raw(
+            model, steps[index], batch.native_history, store, device, encoder_grad=False
+        ),
+    )
+    return sequence
+
+
 @dataclass
 class RetrievalProbe:
     """Student semantic vectors produced by a forward, keyed by (episode, event)."""
@@ -422,13 +477,16 @@ def forward_meridian_batch(
     text_anchors=None,
     differentiate: bool = True,
     probe: RetrievalProbe | None = None,
+    transducer=None,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
     No second optimizer, stream cursor, history, or parameter owner is created.
     Held-out evaluation runs the identical forward with ``differentiate=False``
     (under ``torch.no_grad``); ``probe`` collects the realized query and
-    document vectors.
+    document vectors. A model with a v10 transducer looks up at the window's
+    planned boundaries; ``transducer`` is the run's ``TransducerTrainer``
+    (evaluation without one reads the bank alone).
     """
     from megatoken.training.engine import episode_control_payload
 
@@ -468,8 +526,19 @@ def forward_meridian_batch(
         "grouped_selected_events": 0,
         "grouped_native_replays": 0,
     }
+    sequence = None
+    if model.transducer is not None:
+        sequence = _transducer_sequence(
+            model, batch, transducer, store, device, model_version, differentiate
+        )
+        state = sequence.begin(multi, state, _metadata(episode))
+        metrics["transducer_lookups"] = sequence.planned
+    meridian_index = 0
     with torch.no_grad():
         for step in batch.prefix:
+            if sequence is not None:
+                state = sequence.before_meridian(multi, state, meridian_index, effort=batch.effort)
+            meridian_index += 1
             state, replayed = _preceding_native(multi, state, batch.native_history, step)
             metrics["grouped_native_replays"] += replayed
             state = multi.tracks.advance_group(
@@ -501,6 +570,9 @@ def forward_meridian_batch(
                     metrics.get("text_anchor_mse_sum", 0.0) + anchor.detach()
                 )
                 metrics["text_anchors"] = metrics.get("text_anchors", 0) + 1
+        if sequence is not None:
+            state = sequence.before_meridian(multi, state, meridian_index, effort=batch.effort)
+        meridian_index += 1
         state, replayed = _preceding_native(multi, state, batch.native_history, step)
         metrics["grouped_native_replays"] += replayed
         if step.generated:
