@@ -337,7 +337,8 @@ def test_corrupt_response_is_recoverable_and_next_request_uses_real_worker(monke
 def test_invalid_evidence_never_reaches_source_mapping(monkeypatch, bad_scan):
     workers.scan_syntax_isolated(SOURCE, "python", LIMITS)
     original = workers._worker
-    monkeypatch.setattr(original, "call", lambda payload, timeout: bad_scan)
+    packed = workers.pack_scan(bad_scan) if isinstance(bad_scan, Scan) else bad_scan
+    monkeypatch.setattr(original, "call", lambda payload, timeout: packed)
     result = workers.scan_syntax_isolated(SOURCE, "python", LIMITS)
     assert "native_parser_crash" in diagnostic_codes(result)
     assert workers._worker is None

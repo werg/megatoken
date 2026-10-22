@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 from dataclasses import asdict, dataclass
-from functools import cached_property, lru_cache
+from functools import cache, cached_property, lru_cache
 from typing import Any
 
 from megatoken.contracts import ROLE_TO_ID
@@ -59,7 +59,7 @@ def _check_refs(value) -> None:
             _check_refs(child)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _validator_type(base):
     """Each JSON Schema draft's validator class with the tool-envelope content rule (built once)."""
     import jsonschema

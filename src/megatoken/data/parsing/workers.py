@@ -23,7 +23,8 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
+from functools import lru_cache
 from itertools import chain
 from typing import TYPE_CHECKING, BinaryIO
 
@@ -321,6 +322,52 @@ def _provider_snapshot() -> bytes:
     return snapshot
 
 
+_LIMIT_FIELDS = tuple(item.name for item in fields(ParseLimits))
+
+
+@lru_cache(maxsize=64)
+def _limit_values(limits: ParseLimits) -> tuple:
+    """Limits cross the pipe as plain values: a pickled dataclass costs far more to rebuild."""
+    return tuple(getattr(limits, name) for name in _LIMIT_FIELDS)
+
+
+def pack_scan(scan: Scan) -> tuple:
+    """Evidence as nested tuples of primitives, which pickle at C speed (see ``unpack_scan``)."""
+    result = scan.result
+    return (
+        scan.nodes,
+        tuple(result.parsers),
+        tuple(result.languages),
+        [(b.offset, b.kind, b.depth, b.source, b.mandatory) for b in result.boundaries],
+        [
+            (r.start, r.end, r.kind, r.language, r.depth, r.protect, r.source, r.path)
+            for r in result.regions
+        ],
+        [(d.code, d.start, d.end, d.parser, d.detail) for d in result.diagnostics],
+        [(i.start, i.end, i.kind, i.language, i.source, i.ranges) for i in scan.injections],
+    )
+
+
+def unpack_scan(packed: object) -> Scan:
+    from .syntax import Injection, Scan
+
+    try:
+        nodes, parsers, languages, boundaries, regions, diagnostics, injections = packed
+        return Scan(
+            ParseResult(
+                [Boundary(*item) for item in boundaries],
+                [Region(*item) for item in regions],
+                [Diagnostic(*item) for item in diagnostics],
+                set(parsers),
+                set(languages),
+            ),
+            [Injection(*item) for item in injections],
+            nodes,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("Native parser returned an invalid evidence object") from error
+
+
 def _validate_scan(scan: object, byte_length: int, limits: ParseLimits) -> Scan:
     from .syntax import Injection, Scan
 
@@ -427,7 +474,9 @@ def scan_syntax_isolated(
             "parser_provider_not_serializable",
             f"Use an importable factory for isolation: {type(error).__name__}",
         )
-    request = pickle.dumps((payload, language, limits, backend), protocol=pickle.HIGHEST_PROTOCOL)
+    request = pickle.dumps(
+        (payload, language, _limit_values(limits), backend), protocol=pickle.HIGHEST_PROTOCOL
+    )
     if len(request) > _MAX_MESSAGE:
         return _failure_scan(
             payload, language, limits, "native_parser_message_budget", "Request exceeds pipe budget"
@@ -448,7 +497,9 @@ def scan_syntax_isolated(
                 _worker.scans.move_to_end(key)
                 return _worker.scans[key]
             result = _validate_scan(
-                _worker.call(request, limits.worker_timeout_ms / 1000), len(payload), limits
+                unpack_scan(_worker.call(request, limits.worker_timeout_ms / 1000)),
+                len(payload),
+                limits,
             )
             if _CACHED_SCANS and len(payload) <= _CACHED_PAYLOAD:
                 _worker.scans[key] = result
@@ -523,7 +574,8 @@ def _serve() -> None:
         _send(writer, pickle.dumps(("ready", _PROTOCOL_VERSION)))
         while True:
             try:
-                payload, language, limits, backend = _receive(reader)
+                payload, language, values, backend = _receive(reader)
+                limits = ParseLimits(*values)
             except EOFError:
                 return
             try:
@@ -532,7 +584,7 @@ def _serve() -> None:
                 result = _failure_scan(
                     payload, language, limits, "native_parser_exception", type(error).__name__
                 )
-            _send(writer, pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL))
+            _send(writer, pickle.dumps(pack_scan(result), protocol=pickle.HIGHEST_PROTOCOL))
 
 
 if __name__ == "__main__":

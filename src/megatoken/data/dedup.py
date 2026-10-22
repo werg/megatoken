@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import heapq
 import json
-import re
 import sqlite3
 import struct
 from collections.abc import Iterable, Iterator, Sequence
@@ -71,36 +70,28 @@ class DedupConfig:
 
 
 def _word_hashes(episode: Episode, config: DedupConfig) -> tuple[tuple[int, ...], int]:
-    heap: list[int] = []
-    selected: set[int] = set()
-    window: list[bytes] = []
+    """The ``sketch_size`` smallest distinct shingle hashes of the episode, and its word count."""
+    hashes: set[int] = set()
     words = 0
+    window = config.shingle_words
     # Whitespace/case normalization is retrieval only. The retained bytes never
     # change, and exact matching uses the original role-aware transcript hash.
     for group in episode.iter_logical_records():
-        window.clear()  # Do not invent shingles across action/observation boundaries.
-        for match in re.finditer(rb"\S+", b"".join(record.payload for record in group)):
-            words += 1
-            window.append(match.group().lower())
-            if len(window) > config.shingle_words:
-                del window[0]
-            if len(window) != config.shingle_words:
-                continue
-            hashed = int.from_bytes(
-                hashlib.blake2b(
-                    b"\0".join(window), digest_size=8, person=b"fmt-shingle-v1"
-                ).digest(),
-                "little",
+        # Do not invent shingles across action/observation boundaries.
+        tokens = b"".join(record.payload for record in group).lower().split()
+        words += len(tokens)
+        for start in range(len(tokens) - window + 1):
+            hashes.add(
+                int.from_bytes(
+                    hashlib.blake2b(
+                        b"\0".join(tokens[start : start + window]),
+                        digest_size=8,
+                        person=b"fmt-shingle-v1",
+                    ).digest(),
+                    "little",
+                )
             )
-            if hashed in selected:
-                continue
-            if len(heap) < config.sketch_size:
-                selected.add(hashed)
-                heapq.heappush(heap, -hashed)
-            elif hashed < -heap[0]:
-                selected.remove(-heapq.heapreplace(heap, -hashed))
-                selected.add(hashed)
-    return tuple(sorted(selected)), words
+    return tuple(sorted(heapq.nsmallest(config.sketch_size, hashes))), words
 
 
 def _pack(values: tuple[int, ...]) -> bytes:
