@@ -15,7 +15,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from megatoken.memory.transducer import Lookup, SearchAgenda, TransducerBank
+from megatoken.memory.transducer import Lookup, SearchAgenda
 from megatoken.memory.transducer_growth import TransducerGrowth
 from megatoken.memory.transducer_optimizer import BlockScaleDescent
 from megatoken.model.multitrack import MultiTrackState
@@ -43,8 +43,7 @@ class BoundaryScheduler:
 
     def _next_interval(self) -> None:
         self.artificial_interval = (
-            int(torch.randint(4, 13, (1,), generator=self._rng))
-            if self.training else 8
+            int(torch.randint(4, 13, (1,), generator=self._rng)) if self.training else 8
         )
 
     def first_metadata(self) -> bool:
@@ -61,8 +60,10 @@ class BoundaryScheduler:
         self, *, completed_turn: bool = False, source_arrived: bool = False
     ) -> bool:
         self.ordinary_since_boundary += 1
-        if completed_turn or source_arrived or (
-            self.ordinary_since_boundary >= self.artificial_interval
+        if (
+            completed_turn
+            or source_arrived
+            or (self.ordinary_since_boundary >= self.artificial_interval)
         ):
             return self.begin()
         return False
@@ -168,13 +169,9 @@ class TransducerTrainingOwner:
         step: int,
         sequence: int,
     ) -> HindsightValues | None:
-        if not self.schedule.compute_hindsight(
-            step, sequence, learned=self.bank.learned_values
-        ):
+        if not self.schedule.compute_hindsight(step, sequence, learned=self.bank.learned_values):
             return None
-        return self.native.hindsight_pass(
-            raw, roles, groups, meridians, tracks, step=step
-        )
+        return self.native.hindsight_pass(raw, roles, groups, meridians, tracks, step=step)
 
     def boundary(
         self,
@@ -186,13 +183,12 @@ class TransducerTrainingOwner:
         hindsight: Tensor | None,
         sink_only: bool = False,
     ) -> tuple[MultiTrackState, Lookup | None]:
-        alpha = self.schedule.overlay(
-            step, sequence, learned=self.bank.learned_values
-        )
+        alpha = self.schedule.overlay(step, sequence, learned=self.bank.learned_values)
         if alpha > 0 and hindsight is None:
             raise ValueError("Required training hindsight was not computed")
         committed, lookup = self.native.boundary(
-            state, agenda,
+            state,
+            agenda,
             training=True,
             hindsight=hindsight,
             overlay=alpha,
@@ -202,9 +198,7 @@ class TransducerTrainingOwner:
             lookup.value.retain_grad()
             lookup.landing.retain_grad()
             lookup.bank_landing_raw.retain_grad()
-            self.pending.append(PendingBoundary(
-                lookup, hindsight, sink_only, alpha, step
-            ))
+            self.pending.append(PendingBoundary(lookup, hindsight, sink_only, alpha, step))
         return committed, lookup
 
     def after_backward(self) -> dict[str, int]:
@@ -237,13 +231,16 @@ class TransducerTrainingOwner:
                             float(weight.detach()),
                         )
                 if pending.alpha > 0:
-                    written_out += self.growth.write_out(
-                        lookup,
-                        pending.hindsight,
-                        gradient_value,
-                        step=pending.step,
-                        sink_only=False,
-                    ) is not None
+                    written_out += (
+                        self.growth.write_out(
+                            lookup,
+                            pending.hindsight,
+                            gradient_value,
+                            step=pending.step,
+                            sink_only=False,
+                        )
+                        is not None
+                    )
         self.pending.clear()
         return {"observed": observed, "writeouts": written_out}
 
@@ -262,8 +259,10 @@ class TransducerTrainingOwner:
         agenda: SearchAgenda,
     ) -> None:
         """One atomic checkpoint containing exact active masters and random state."""
-        if self.pending or scheduler.pending or (
-            self.coordinator is not None and self.coordinator.pending
+        if (
+            self.pending
+            or scheduler.pending
+            or (self.coordinator is not None and self.coordinator.pending)
         ):
             raise RuntimeError("Only a complete forward/backward/merge window is checkpointable")
         snapshot = {
@@ -309,9 +308,10 @@ class TransducerTrainingOwner:
                 raise ValueError("Distributed run lacks coordinator checkpoint")
             self.coordinator.load_state_dict(raw["coordinator"])
         scheduler.load_state_dict(raw["scheduler"])
-        agenda = SearchAgenda([
-            x.to(self.bank.device) for x in raw["agenda"]["locations"]
-        ], lookups=raw["agenda"]["lookups"])
+        agenda = SearchAgenda(
+            [x.to(self.bank.device) for x in raw["agenda"]["locations"]],
+            lookups=raw["agenda"]["lookups"],
+        )
         self.bank.refresh(agenda)
         torch.set_rng_state(raw["rng_cpu"])
         if raw["rng_cuda"] is not None and torch.cuda.is_available():
