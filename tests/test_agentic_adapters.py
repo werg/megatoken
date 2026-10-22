@@ -981,6 +981,25 @@ def test_call_roles_spelled_with_a_space_and_calls_listed_in_one_message():
     assert [a.tool_name for a in episode.actions] == ["a", "b"] and linked(episode)
 
 
+def test_a_reply_that_is_one_fenced_block_of_calls_is_a_call_and_other_code_is_text():
+    code = "```python\nbook(when=datetime(2023, 5, 12, 14, 0), note=...)\n```"
+    row = {
+        "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": code},
+            {"role": "tool", "content": "ok"},
+            {"role": "assistant", "content": "```python\nx = 1\nprint(x)\n```"},
+        ]
+    }
+    episode = adapt(row, "python_call_tools")
+    (action,) = episode.actions
+    assert json.loads(action.arguments_json) == {
+        "when": "datetime(2023, 5, 12, 14, 0)",
+        "note": "...",
+    }
+    assert linked(episode)
+
+
 def test_xml_function_calls_keep_parameter_types():
     call = (
         "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"

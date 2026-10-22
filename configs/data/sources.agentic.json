@@ -1175,7 +1175,7 @@
       "revision": "74e23eb6f830fef4a9e96a92f6f6262214cbb9a8",
       "subset": null,
       "split": "train",
-      "max_rows": 310000,
+      "max_rows": 3000,
       "files": [
         {
           "path": "data/tool-*.parquet"

@@ -10226,7 +10226,22 @@
         "observation_provenance": "simulated",
         "quality": {
           "min_scored_positions": 4
-        }
+        },
+        "row_filters": [
+          {
+            "path": "source",
+            "op": "in",
+            "value": [
+              "areal_tau2",
+              "simia_airline",
+              "simia_retail",
+              "spider_bird_merged_traj",
+              "synth_search_20260609",
+              "synth_memory_20260608",
+              "tau3_banking_sft_glm-5.2_20260625"
+            ]
+          }
+        ]
       },
       "publisher_card": "https://huggingface.co/datasets/openbmb/UltraData-SFT-Agent-2609",
       "metadata_checked_at": "2026-10-22",
@@ -11146,7 +11161,7 @@
       "source_id": "pythonic-function-calling",
       "uri": "hf://datasets/driaforall/pythonic-function-calling",
       "format": "hf",
-      "adapter": "chat",
+      "adapter": "python_call_tools",
       "stream": "tool_use",
       "revision": "8f19d49fa6e1e80774e43e9b9134087f659aafe9",
       "subset": null,
@@ -11277,7 +11292,8 @@
       "field_map": {
         "prompt": "instruction",
         "document": "input",
-        "target": "output"
+        "target": "output",
+        "family": "input"
       },
       "options": {
         "quality": {

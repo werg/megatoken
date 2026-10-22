@@ -246,11 +246,20 @@ _KEYWORD_ARG = re.compile(r"(?<![\w\"'])(" + "|".join(keyword.kwlist) + r")\s*=(
 
 
 class _JsonNames(ast.NodeTransformer):
-    """Some sets write JSON's ``true``/``false``/``null`` inside Python call syntax."""
+    """Some sets write JSON's ``true``/``false``/``null`` inside Python call syntax, and values
+    such as ``datetime(2023, 5, 12)``, which stay in the argument as their source text."""
 
     def visit_Name(self, node: ast.Name) -> ast.AST:
         if node.id in _JSON_NAMES:
             return ast.copy_location(ast.Constant(_JSON_NAMES[node.id]), node)
+        return node
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        return ast.copy_location(ast.Constant(ast.unparse(node)), node)
+
+    def visit_Constant(self, node: ast.Constant) -> ast.AST:
+        if node.value is Ellipsis or isinstance(node.value, (bytes, complex)):
+            return ast.copy_location(ast.Constant(ast.unparse(node)), node)  # not JSON values
         return node
 
 
@@ -307,6 +316,21 @@ def _line_calls(text: str) -> list[tuple[str, dict[str, Any]]]:
     return [_python_call(segment) for segment in _split_top(text, "\n")]
 
 
+_CODE_FENCE = re.compile(r"\A```(?:python|py)?[ \t]*\n(.*?)\n?```\Z", re.DOTALL)
+
+
+def _fenced_calls(text: str) -> list[tuple[str, dict[str, Any]]] | None:
+    """A reply that is one code block of calls (``f(a=1)`` per line, or a bracketed list)."""
+    fenced = _CODE_FENCE.match(text.strip())
+    if fenced is None:
+        return None
+    body = fenced.group(1).strip()
+    try:
+        return _bracketed_calls(body) if body.startswith("[") else _line_calls(body)
+    except SchemaError:
+        return None  # ordinary code, not a call
+
+
 def _answers(content: Any, count: int) -> list[str]:
     """One result per pending call: a JSON list, one JSON value per line, or a single value."""
     text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
@@ -325,8 +349,8 @@ def _answers(content: Any, count: int) -> list[str]:
 
 
 def python_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
-    """Calls as Python syntax: ``[f(a=1), g(b=2)]`` as the text, or one call per line in a
-    ``function_calls`` field. A ``functions`` field on the system message lists the tools.
+    """Calls as Python syntax: ``[f(a=1), g(b=2)]`` as the text (or one fenced code block of
+    calls), or one call per line in a ``function_calls`` field. A ``functions`` field on the system message lists the tools.
 
     One result message answers all of the preceding assistant turn's calls.
     """
@@ -343,7 +367,7 @@ def python_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
             field = message.get("function_calls")
             if isinstance(field, str) and field.strip() not in {"", "null", "None"}:
                 calls = _line_calls(field)
-            elif (calls := _bracketed_calls(text)) is not None:
+            elif (calls := _bracketed_calls(text) or _fenced_calls(text)) is not None:
                 prose = ""  # the content is the call syntax itself
         if calls:
             ids = ledger.issue(turn, len(calls))
