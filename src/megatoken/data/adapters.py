@@ -7,6 +7,7 @@ Malformed or unavailable fields are explicit rejects, not guessed targets.
 
 from __future__ import annotations
 
+import datetime
 import json
 import re
 from collections.abc import Mapping
@@ -59,6 +60,10 @@ class AdapterProfile:
     require_parent: bool = False
     trajectory: bool = False
     content_kind: str = "auto"
+    # A text convention for tool calls/results, converted by data/dialects.py.
+    dialect: str = ""
+    # Feedback turns after the task prompt come from the environment, not a user.
+    environment_turns: bool = False
 
 
 DEFAULT_FIELDS = {
@@ -94,6 +99,7 @@ DEFAULT_FIELDS = {
     "patch": ("patch", "target_patch"),
     "benchmark": ("benchmark_tags", "metadata.benchmark_tags"),
     "dependencies": ("metadata.dependencies",),
+    "document": ("source_document",),
 }
 
 
@@ -145,6 +151,49 @@ PROFILES: dict[str, AdapterProfile] = {
     "nemotron_terminal": AdapterProfile(
         trajectory=True, observation_provenance="executed", harness="terminus2", require_parent=True
     ),
+    # Text scaffolds: the assistant message is the action and the next user message its result.
+    "openhands_xml": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        harness="openhands",
+    ),
+    "swe_agent_fenced": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        harness="swe_agent",
+        fields=_fields(messages="trajectory", outcome="target"),
+    ),
+    "codeact_agent": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        harness="codeact",
+    ),
+    "mini_swe_agent": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        harness="mini_swe",
+    ),
+    # Plain ReAct text (Thought/Action turns, environment replies): no structured calls exist.
+    "react_agent": AdapterProfile(observation_provenance="executed", environment_turns=True),
+    # Tool dialogues with an LLM-simulated tool backend.
+    "hermes_tools": AdapterProfile(observation_provenance="simulated", dialect="hermes"),
+    "python_call_tools": AdapterProfile(observation_provenance="simulated", dialect="python_calls"),
+    "glaive_tools": AdapterProfile(
+        observation_provenance="simulated",
+        dialect="glaive",
+        fields=_fields(messages="chat"),
+    ),
+    "xlam_calls": AdapterProfile(observation_provenance="simulated", dialect="xlam"),
+    "simulated_tool_roles": AdapterProfile(
+        observation_provenance="simulated", dialect="role_calls"
+    ),
+    # Tool calls executed against real MCP servers.
+    "mcp_tools": AdapterProfile(observation_provenance="executed", dialect="role_calls"),
+    "turn_pairs": AdapterProfile(dialect="turn_pairs", fields=_fields(messages="conversation")),
     # An exit_status of Submitted is explicitly NOT test verification.
     "swe_zero": AdapterProfile(
         trajectory=True,
@@ -160,10 +209,17 @@ _HINT_OPTIONS = frozenset(
     {"content_kind", "language", "filename", "mime_type", "locale", "chat_template"}
 )
 # Read by the preparation pipeline itself rather than by an adapter.
-_PIPELINE_OPTIONS = frozenset({"lineage_join", "row_filters", "quality"})
+_PIPELINE_OPTIONS = frozenset({"lineage_join", "row_filters", "quality", "read_batch_rows"})
 _PROFILE_OPTIONS: dict[str, frozenset[str]] = {
     "native": frozenset({"preserve_native_stream"}),
-    "chat": _HINT_OPTIONS | {"allow_pending_final_action"},
+    "chat": _HINT_OPTIONS
+    | {
+        "allow_pending_final_action",
+        "observation_provenance",
+        "assume_outcome",
+        "positional_call_ids",
+        "admit_unknown_outcome",
+    },
     "serialized_chat": _HINT_OPTIONS | {"allow_incomplete_serialized"},
     "document": _HINT_OPTIONS | {"allow_incomplete_serialized"},
     "artifact": _HINT_OPTIONS,
@@ -286,12 +342,21 @@ def _label(value: Any, name: str) -> str | None:
         return value
     if type(value) is int:
         return str(value)
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()  # columnar sources deliver timestamps as datetimes
     raise SchemaError(f"{name} must be a string, got {type(value).__name__}")
 
 
 def _supervision(reader: _Reader) -> Supervision:
     outcome = _outcome(reader.get("outcome"))
     verification = reader.profile.outcome_verification
+    assumed = reader.context.options.get("assume_outcome")
+    if assumed is not None and reader.get("outcome") is None:
+        # The publisher kept only successful traces but gives no per-row label: success is
+        # recorded, as curation and not as a test verdict, so it never fills a verified quota.
+        if assumed != "success":
+            raise SchemaError("assume_outcome can only be 'success'")
+        outcome, verification = "success", "publisher_curated"
     benchmark = reader.get("benchmark", ())
     if isinstance(benchmark, str):
         benchmark = (benchmark,)
@@ -400,6 +465,54 @@ def source_row_supervision(
     return _supervision(_Reader(row, PROFILES[adapter], context))
 
 
+_JSON_TYPES = frozenset({"string", "number", "integer", "boolean", "array", "object", "null"})
+_PYTHON_TYPES = {
+    "str": "string",
+    "int": "integer",
+    "float": "number",
+    "bool": "boolean",
+    "list": "array",
+    "tuple": "array",
+    "set": "array",
+    "dict": "object",
+}
+
+
+def _json_type(name: Any) -> Any:
+    """A Python-style type name (``str``, ``List[float]``, ``int, optional``) as a JSON type."""
+    if isinstance(name, list):
+        return [_json_type(item) for item in name]
+    if not isinstance(name, str) or name in _JSON_TYPES:
+        return name
+    head = name.split(",")[0].split("[")[0].strip().lower()
+    return _PYTHON_TYPES.get(head, head if head in _JSON_TYPES else None)
+
+
+def _clean_schema(value: Any) -> Any:
+    """Make a tool's parameters valid JSON Schema without changing what they say.
+
+    Columnar stores fill every schema key that a row lacks with null; older schemas spell
+    ``required`` as a boolean on each property; many tool sets write Python type names.
+    """
+    if isinstance(value, dict):
+        cleaned = {
+            key: _clean_schema(item)
+            for key, item in value.items()
+            if (item is not None or key in {"default", "const"})
+            and not (key == "required" and isinstance(item, bool))
+        }
+        if isinstance(cleaned.get("type"), (str, list)):
+            kind = _json_type(cleaned["type"])
+            if kind is None or (isinstance(kind, list) and None in kind):
+                del cleaned["type"]  # an unknown spelling constrains nothing
+            else:
+                cleaned["type"] = kind
+        return cleaned
+    if isinstance(value, list):
+        return [_clean_schema(item) for item in value]
+    return value
+
+
 def _tools(value: Any) -> str:
     schemas = _object(value, "tools") if value is not None else []
     if not isinstance(schemas, list):
@@ -407,7 +520,7 @@ def _tools(value: Any) -> str:
     schemas = [_object(item, "tool schema") for item in schemas]
     if any(not isinstance(item, dict) for item in schemas):
         raise SchemaError("Every tool schema must be an object")
-    return canonical_json(schemas)
+    return canonical_json(_clean_schema(schemas))
 
 
 class _EpisodeBuilder:
@@ -420,6 +533,13 @@ class _EpisodeBuilder:
         self.completed: set[str] = set()
         self.parser_annotations: dict[str, Any] = {}
         self.family_prompt: bytes | None = None
+        self.observation_provenance = reader.context.options.get(
+            "observation_provenance", reader.profile.observation_provenance
+        )
+        self.assistant_spoke = False
+        # For sources whose calls carry no ID: calls are numbered by position and each
+        # result answers the oldest unanswered call. Opt-in, because it is a convention.
+        self.positional = bool(reader.context.options.get("positional_call_ids", False))
 
     def content_hints(self, *objects: Mapping[str, Any]) -> dict[str, Any]:
         """Specific block/message hints override source options and row defaults.
@@ -428,7 +548,20 @@ class _EpisodeBuilder:
         arbitrary metadata are never rendered or treated as content hints.
         """
         keys = ("content_kind", "language", "filename", "mime_type", "locale", "chat_template")
-        hints = {key: self.reader.context.options.get(key, self.reader.get(key)) for key in keys}
+        # A row-level language, filename or MIME type describes one file. In a conversation it
+        # would force that grammar onto every system prompt, question and answer, which then
+        # fail to parse; only a message's own hints (below) or the source options set them.
+        row_level = (
+            ("content_kind", "locale", "chat_template")
+            if self.reader.profile.kind == "chat"
+            else keys
+        )
+        hints = {
+            key: self.reader.context.options.get(
+                key, self.reader.get(key) if key in row_level else None
+            )
+            for key in keys
+        }
         if hints["content_kind"] is None:
             hints["content_kind"] = (
                 "code"
@@ -478,7 +611,7 @@ class _EpisodeBuilder:
             provenance = (
                 self.reader.profile.emission_provenance
                 if role in {"assistant", "document"}
-                else self.reader.profile.observation_provenance
+                else self.observation_provenance
                 if result
                 else "natural"
             )
@@ -601,10 +734,11 @@ class _EpisodeBuilder:
         turn: int,
         call_id: str | None,
         source_field: str,
+        transform: str = "identity",
         parse_hints: Mapping[str, Any] | None = None,
     ) -> None:
         if call_id is None:
-            if len(self.pending) != 1:
+            if len(self.pending) != 1 and not (self.positional and self.pending):
                 raise SchemaError(
                     "Unlinked observation; call IDs may be inferred only for exactly one pending action"
                 )
@@ -619,6 +753,7 @@ class _EpisodeBuilder:
             turn=turn,
             result=action,
             source_field=source_field,
+            transform=transform,
             parse_hints=parse_hints,
         )
 
@@ -629,7 +764,7 @@ def _call_id(value: Any) -> str:
     return value
 
 
-def _tool_call(call: Any) -> tuple[str, str, Any]:
+def _tool_call(call: Any, default_id: str | None = None) -> tuple[str, str, Any]:
     """Validate one native tool call; returns its ID, tool name and arguments."""
     if not isinstance(call, Mapping):
         raise SchemaError("Every tool call must be an object")
@@ -639,7 +774,8 @@ def _tool_call(call: Any) -> tuple[str, str, Any]:
     name = function.get("name")
     if not isinstance(name, str) or not name:
         raise SchemaError("A tool call needs a nonempty function name")
-    return _call_id(call.get("id")), name, function.get("arguments", {})
+    call_id = call.get("id", default_id) if default_id is not None else call.get("id")
+    return _call_id(call_id), name, function.get("arguments", {})
 
 
 def _first_user_text(content: Any) -> bytes | None:
@@ -656,9 +792,19 @@ def _first_user_text(content: Any) -> bytes | None:
     return None
 
 
+_OPENHANDS_CALL = re.compile(r"<function=([^>\s]+)>(.*?)</function>\s*$", re.DOTALL)
+_OPENHANDS_PARAMETER = re.compile(r"<parameter=([^>\s]+)>(.*?)</parameter>", re.DOTALL)
+_FENCE = re.compile(r"```(?:bash|sh)?[ \t]*\n(.*?)```", re.DOTALL)
+_EXECUTE = re.compile(r"<execute>\n?(.*?)\n?</execute>", re.DOTALL)
+_TEXT_HARNESSES = frozenset({"terminus2", "mini_swe", "openhands", "swe_agent", "codeact"})
+
+
 def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | None:
     if harness == "terminus2":
         stripped = content.strip()
+        if stripped.startswith("<think>") and "</think>" in stripped:
+            # Reasoning models write their thinking first; the call is the JSON after it.
+            stripped = stripped.partition("</think>")[2].strip()
         if stripped.startswith("```json") and stripped.endswith("```"):
             stripped = stripped[7:-3].strip()
         try:
@@ -675,14 +821,59 @@ def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | 
         commands = re.findall(r"```(?:bash|sh)\s*\n(.*?)```", content, flags=re.DOTALL)
         if len(commands) == 1:
             return "bash", {"command": commands[0]}
+    if harness == "openhands":
+        # One <function=name><parameter=key>value</parameter></function> closes the message.
+        call = _OPENHANDS_CALL.search(content)
+        if call is not None and content.count("<function=") == 1:
+            arguments = {
+                key: value.removeprefix("\n").removesuffix("\n")
+                for key, value in _OPENHANDS_PARAMETER.findall(call.group(2))
+            }
+            return call.group(1), arguments
+    if harness == "codeact":
+        # One <execute> code block per message; the next user message is its observation.
+        blocks = _EXECUTE.findall(content)
+        if len(blocks) == 1:
+            return "execute", {"code": blocks[0]}
+    if harness == "swe_agent":
+        commands = _FENCE.findall(content)
+        if len(commands) == 1:
+            return "bash", {"command": commands[0]}
     return None
 
 
 _TEXT_BLOCKS = frozenset({"text", "input_text", "output_text"})
+_MASK_KEYS = ("train", "loss", "mask")
+_CONTENT_KEYS = ("content", "value", "text", "system_prompt")
+
+
+def _first(message: Mapping[str, Any], keys: tuple[str, ...]) -> Any:
+    return next((message[key] for key in keys if message.get(key) is not None), None)
+
+
+def _result_id(message: Mapping[str, Any], role: str) -> str | None:
+    """The call a result answers, under the spellings published sets use."""
+    for key in ("tool_call_id", "tool_use_id"):
+        if isinstance(message.get(key), str):
+            return message[key]
+    ids = _object(message["tool_call_ids"], "tool_call_ids") if message.get("tool_call_ids") else ()
+    if isinstance(ids, list) and len(ids) == 1 and isinstance(ids[0], str):
+        return ids[0]
+    return message["id"] if role == "tool" and isinstance(message.get("id"), str) else None
 
 
 def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
-    messages = _object(reader.get("messages", required=True), "messages")
+    dialect = reader.profile.dialect
+    # A dialect may build the whole dialogue from other row fields (xLAM has no messages).
+    value = reader.get("messages", required=not dialect)
+    if dialect:
+        from .dialects import DIALECTS
+
+        messages, tools = DIALECTS[dialect](reader.row, value)
+        if tools is not None:
+            builder.tools_json = _tools(tools)
+    else:
+        messages = _object(value, "messages")
     if not isinstance(messages, list) or not messages:
         raise SchemaError("messages must be a nonempty ordered list")
     turn_mask = reader.get("mask")
@@ -699,28 +890,66 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
             raise SchemaError(
                 "The training-turn mask must contain one boolean per original message"
             )
+    from .dialects import role_of
+
     for turn, message in enumerate(messages):
         if not isinstance(message, Mapping):
             raise SchemaError("Every message must be an object")
-        role = message.get("role", message.get("from"))
-        if not isinstance(role, str):
-            raise SchemaError("Every message needs a string role")
-        role = {"human": "user", "gpt": "assistant", "function": "tool"}.get(role, role)
-        if role == "developer":
-            builder.parser_annotations.setdefault("source_roles", {})[str(turn)] = role
-            role = "system"
+        role = role_of(message)
+        if message.get("role", message.get("from")) == "developer":
+            builder.parser_annotations.setdefault("source_roles", {})[str(turn)] = "developer"
         hints = builder.content_hints(message)
         if role not in {"system", "user", "assistant", "tool", "environment"}:
             raise SchemaError(f"Unknown chat role {role!r}")
-        own_mask = message.get("train", message.get("loss", True))
-        if own_mask not in (True, False, 0, 1):
+        own_mask = _first(message, _MASK_KEYS)
+        if own_mask not in (None, True, False, 0, 1):
             raise SchemaError("Per-message train/loss field must be boolean")
-        score = role == "assistant" and bool(own_mask) and (turn_mask is None or turn_mask[turn])
+        score = (
+            role == "assistant"
+            and own_mask in (None, True, 1)
+            and (turn_mask is None or turn_mask[turn])
+        )
         base = f"{reader.origin('messages')}[{turn}]"
-        content = message.get("content", message.get("value"))
+        content = _first(message, _CONTENT_KEYS)
         if role == "user" and builder.family_prompt is None:
             # Repeated prompts must share one family however they are encoded.
             builder.family_prompt = _first_user_text(content)
+        if (
+            role == "tool"
+            and isinstance(content, list)
+            and content
+            and all(
+                isinstance(block, dict) and block.get("type", "text") in _TEXT_BLOCKS
+                for block in content
+            )
+        ):
+            # A result delivered as text blocks is still one observation.
+            content = "".join(_bytes(block.get("text", ""), base).decode() for block in content)
+        structured_result = role in {"tool", "environment"} and (
+            isinstance(content, dict)
+            or (
+                isinstance(content, list)
+                and not all(isinstance(block, dict) and "type" in block for block in content)
+            )
+        )
+        if structured_result:
+            # A JSON result object is delivered as its canonical serialization.
+            content = canonical_json(content)
+        calls = _object(message.get("tool_calls"), "tool_calls") or []
+        if not isinstance(calls, list):
+            raise SchemaError("tool_calls must be a list")
+        if message.get("function_call"):
+            if calls:
+                raise SchemaError("Both function_call and tool_calls are present")
+            calls = [{"id": f"{builder.episode_id}:{turn}", "function": message["function_call"]}]
+        if calls and role != "assistant":
+            raise SchemaError("Only assistant messages can issue tools")
+        if (content is None and not calls) or (
+            role == "user" and isinstance(content, str) and not content.strip()
+        ):
+            raise SchemaError(
+                f"Message {turn} has no content; a source that withholds prompts must be restored first"
+            )
         if isinstance(content, list):
             # Preserve block order, including interleaved Anthropic tool blocks.
             for index, block in enumerate(content):
@@ -775,20 +1004,27 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                 builder.observation(
                     payload,
                     turn=turn,
-                    call_id=message.get("tool_call_id"),
+                    call_id=_result_id(message, role),
                     source_field=base + ".content",
+                    transform="canonical-json-v1" if structured_result else "identity",
                     parse_hints=hints,
                 )
-            elif (
-                role == "user"
-                and builder.pending
-                and reader.profile.harness in {"terminus2", "mini_swe"}
-            ):
+            elif role == "user" and builder.pending and reader.profile.harness in _TEXT_HARNESSES:
                 builder.observation(
                     payload,
                     turn=turn,
-                    call_id=message.get("tool_call_id"),
+                    call_id=_result_id(message, role),
                     source_field=base + ".content",
+                    parse_hints=hints,
+                )
+            elif role == "user" and reader.profile.environment_turns and builder.assistant_spoke:
+                # Replies after the task prompt come from the environment; no call is named.
+                builder.append(
+                    payload,
+                    role="environment",
+                    turn=turn,
+                    source_field=base + ".content",
+                    provenance=builder.observation_provenance,
                     parse_hints=hints,
                 )
             elif harness_action:
@@ -803,7 +1039,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                     source_field=base + ".content",
                     parse_hints=hints,
                 )
-            elif payload or not message.get("tool_calls"):
+            elif payload or not calls:
                 builder.append(
                     payload,
                     role=role,
@@ -812,19 +1048,19 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                     source_field=base + ".content",
                     parse_hints=hints,
                 )
-        calls = message.get("tool_calls") or []
-        if not isinstance(calls, list):
-            raise SchemaError("tool_calls must be a list")
-        if message.get("function_call"):
-            if calls:
-                raise SchemaError("Both function_call and tool_calls are present")
-            calls = [{"id": f"{builder.episode_id}:{turn}", "function": message["function_call"]}]
-        if calls and role != "assistant":
-            raise SchemaError("Only assistant messages can issue tools")
+        if role == "assistant":
+            builder.assistant_spoke = True
         for index, call in enumerate(calls):
-            call_id, tool_name, arguments = _tool_call(call)
+            call_id, tool_name, arguments = _tool_call(
+                call, f"{builder.episode_id}:{turn}:{index}" if builder.positional else None
+            )
+            canonical = {
+                "function": {"arguments": arguments, "name": tool_name},
+                "id": call_id,
+                "type": "function",
+            }
             builder.action(
-                canonical_json(call).encode(),
+                canonical_json(canonical).encode(),
                 call_id=call_id,
                 tool_name=tool_name,
                 arguments=arguments,
@@ -988,13 +1224,13 @@ def _documents(reader: _Reader, builder: _EpisodeBuilder) -> None:
             turn=0,
             source_field=reader.origin("prompt"),
         )
-        source = reader.row.get("source_document")
-        if source is not None:
+        source = reader.get("document")
+        if source:
             builder.append(
-                _bytes(source, "source_document"),
+                _bytes(source, "document"),
                 role="document",
                 turn=1,
-                source_field="source_document",
+                source_field=reader.origin("document"),
                 provenance="natural",
             )
         builder.append(
@@ -1106,8 +1342,13 @@ def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> 
         supervision=supervision,
         tools_json=builder.tools_json,
     )
-    if profile.trajectory:
-        # Never promote an unverified Submitted flag or a failed branch to success.
+    admitted = episode.supervision.outcome == "unknown" and context.options.get(
+        "admit_unknown_outcome", False
+    )
+    if profile.trajectory and not admitted:
+        # Never promote an unverified Submitted flag or a failed branch to success. A source
+        # that records no outcome at all can be admitted as unknown-quality imitation data
+        # explicitly; a recorded failure is never admitted.
         episode = apply_recovery_policy(episode)
     dependencies = []
     # Explicit annotations use original message indices, then resolve after chunks.

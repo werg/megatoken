@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "metadata_checked_at": "2026-10-22",
+  "sources": [
+    {
+      "source_id": "nemotron-pt-v1-chat",
+      "uri": "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v1",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "74e23eb6f830fef4a9e96a92f6f6262214cbb9a8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "data/chat-00000-of-00008.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0. Every first user turn is withheld (empty) because the prompts come from LMSYS-Chat-1M (checked on the first parquet file: 93,328 of 93,328 rows)."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Every first user turn is withheld by the publisher (empty string); it can be used once the prompts are restored from lmsys/lmsys-chat-1m, which needs the LMSYS terms accepted. The publisher gives no hash to match on."
+    },
+    {
+      "source_id": "chat-v3-chat",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
+      "format": "hf",
+      "adapter": "nemotron_chat",
+      "stream": "chat",
+      "revision": "be3b3e04ef605ac9d3f8f35b9d5a632f4a3a3402",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "data/chat.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "odc-by / cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0 and ODC-By. Rows seeded from LMSYS-Chat-1M or WildChat-1M have their first user turn withheld and are rejected until restored."
+      },
+      "field_map": {
+        "mask": "metadata.train_turns",
+        "family": "uuid"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "The publisher withholds the first user turn of rows seeded from LMSYS-Chat-1M or WildChat-1M (null content); the restore step in configs/cloud/restore-chat-v3-prompts.json puts them back and needs LMSYS terms accepted."
+    },
+    {
+      "source_id": "lmsys-chat-1m",
+      "uri": "hf://datasets/lmsys/lmsys-chat-1m",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "200748d9d3cddcc9d782887541057aca0b18c5da",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "LMSYS-Chat-1M licence (custom, acceptance required)",
+        "license_url": "https://huggingface.co/datasets/lmsys/lmsys-chat-1m",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Gated (auto): the dataset page asks for acceptance of the LMSYS-Chat-1M licence agreement."
+      },
+      "field_map": {
+        "messages": "conversation",
+        "family": "conversation_id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/lmsys/lmsys-chat-1m",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "infinity-instruct-7m",
+      "uri": "hf://datasets/BAAI/Infinity-Instruct",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "bddc39a8feadbd679c30623197f4e736b7e75b48",
+      "subset": "7M",
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-sa-4.0",
+        "license_url": "https://huggingface.co/datasets/BAAI/Infinity-Instruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY-SA 4.0 (share-alike), gated (auto) on the Hub."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/BAAI/Infinity-Instruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "infinity-instruct-gen",
+      "uri": "hf://datasets/BAAI/Infinity-Instruct",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "bddc39a8feadbd679c30623197f4e736b7e75b48",
+      "subset": "Gen",
+      "split": "train",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-sa-4.0",
+        "license_url": "https://huggingface.co/datasets/BAAI/Infinity-Instruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY-SA 4.0 (share-alike), gated (auto) on the Hub."
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/BAAI/Infinity-Instruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "nemotron-pt-v2-chat",
+      "uri": "hf://datasets/nvidia/Nemotron-Post-Training-Dataset-v2",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "5c89e01dd720ae0f4058445ed49c5fb68a03c76e",
+      "subset": null,
+      "split": "chat",
+      "max_rows": 8000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v2",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0, gated (auto) on the Hub."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    }
+  ]
+}

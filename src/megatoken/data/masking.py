@@ -69,11 +69,18 @@ def tool_free_spans(
     """
     if not json.loads(tools_json):
         return None
+    from jsonschema.exceptions import SchemaError as InvalidJsonSchema
+
     from megatoken.tool_schema import compile_tool_spec, matching_schema
 
-    spec = compile_tool_spec(
-        tools_json, max_tokens=max_tokens, wire_formats=("canonical", "openai", "anthropic")
-    )
+    try:
+        spec = compile_tool_spec(
+            tools_json, max_tokens=max_tokens, wire_formats=("canonical", "openai", "anthropic")
+        )
+    except InvalidJsonSchema as error:
+        raise ValueError(
+            f"A public tool's parameters are not a valid JSON Schema: {error.message}"
+        ) from error
     schema_index = matching_schema(spec, payload)
     if schema_index is None:
         return None

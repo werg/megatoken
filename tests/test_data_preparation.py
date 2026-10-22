@@ -234,7 +234,7 @@ def test_current_stage_budget_units_and_proposed_mixtures():
         "D": ("P", 1_000_000_000),
     }
     m1 = stage_recipe("M1")
-    assert round(m1.mixture["issue_pr_sequences"] * m1.limit) == 22_766_400_000
+    assert round(m1.mixture["issue_pr_sequences"] * m1.limit) == 17_066_400_000
     assert round(m1.mixture["build_logs"] * m1.limit) == 669_600_000
     # Media is part of the plan: a bridge stage, then explicit shares and replay.
     assert stage_recipe("MB").constraints["trainable"] == "media_bridge"
@@ -242,6 +242,48 @@ def test_current_stage_budget_units_and_proposed_mixtures():
     media = ("audio_identity", "image_identity", "video_identity", "transcription")
     assert all(p1[name] > 0 for name in media) and p1["long_document_reading"] == 0.03
     assert stage_recipe("M2").mixture["image_identity"] > 0
+
+
+AGENTIC = ("executed_trajectories", "verified_trajectories", "tool_use", "environment_trajectories")
+RAW_WEB_TEXT = ("natural_documents", "synthetic_documents")
+
+
+def test_stage_plan_leans_on_agentic_and_chat_data_over_raw_text():
+    p1 = stage_recipe("P1").mixture
+    # Executed, verified and tool-use agent episodes and chat SFT dominate the text share;
+    # raw web text is cut to less than half of its earlier 0.369.
+    assert sum(p1.get(name, 0) for name in AGENTIC) == pytest.approx(0.281)
+    assert p1["chat"] == 0.08
+    assert sum(p1[name] for name in RAW_WEB_TEXT) == pytest.approx(0.16)
+    # Media and long-document reading shares are untouched.
+    assert p1["long_document_reading"] == 0.03
+    assert sum(
+        v
+        for k, v in p1.items()
+        if k
+        in {
+            "audio_identity",
+            "image_identity",
+            "video_identity",
+            "transcription",
+            "verbalization",
+            "speech_translation",
+            "image_description",
+            "image_creation",
+            "av_creation",
+            "image_edit",
+            "speech_edit",
+            "av_edit",
+        }
+    ) == pytest.approx(0.15)
+    for phase in ("M1", "M2", "LC"):
+        later = stage_recipe(phase).mixture
+        assert later["executed_trajectories"] >= 0.08 and later["verified_trajectories"] >= 0.08
+    assert stage_recipe("M1").mixture["executed_trajectories"] == 0.21
+    assert stage_recipe("M2").mixture["verified_trajectories"] == 0.49
+    s = stage_recipe("S").mixture
+    assert s["tool_use"] + s["typed_exact_instructions"] + s["chat"] >= 0.25
+    assert s["natural_document_replay"] <= 0.02
 
 
 def test_shared_boilerplate_never_quarantines_distinct_documents_or_hides_a_near_duplicate(
