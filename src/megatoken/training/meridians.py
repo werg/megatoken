@@ -601,7 +601,17 @@ def forward_meridian_batch(
                 and later.edit_continuation == "recorded"
                 for later in batch.windows[0].episode.records[step.offsets[-1] + 1 :]
             )
-            teacher_forced = recorded_edit_base or any(
+            # Semantic executions are teacher-conditioned demonstrations:
+            # predict from the committed prefix, score, then commit the actual
+            # target representation before the next dependent meridian.
+            # Ordinary grouped episodes retain their sampled recurrence.
+            semantic_teacher = (
+                episode.stream == "semantic_execution"
+                and json.loads(episode.supervision.annotations_json)
+                .get("semantic_execution", {})
+                .get("continuation") == "teacher_conditioned"
+            )
+            teacher_forced = semantic_teacher or recorded_edit_base or any(
                 entry.record.action_id is not None
                 and any(
                     later.result_of == entry.record.action_id
