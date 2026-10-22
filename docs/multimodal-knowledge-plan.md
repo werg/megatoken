@@ -1,6 +1,6 @@
 # Multimodal knowledge: knowledge bases, retrieval and adapters
 
-**Status:** agreed direction, being built. **Date:** 22 October 2026. Builds on
+**Status:** agreed direction, being built; the adapter mixture (§4) is built. **Date:** 22 October 2026. Builds on
 the [transducer design](continuous-state-transducer-plan.md) (v10).
 
 Three parts work from one lookup: **knowledge bases** (the transducer memory,
@@ -29,9 +29,9 @@ What is missing:
    Quoting a passage, showing a picture again or citing a source needs the
    original item, and the earlier literal retrieval (text only) was deleted
    with the v9 stack.
-4. **No adapters.** The earlier stack also chose a mixture of small low-rank
-   adapters from what memory returned and applied it across the network; it
-   was deleted too.
+4. **No adapters** (now built, §4). The earlier stack also chose a mixture of
+   small low-rank adapters from what memory returned and applied it across the
+   network; it was deleted, and §4 brings it back on the transducer lookups.
 
 ## 1. Many knowledge bases, searched as one
 
@@ -175,6 +175,29 @@ input.
   objective. The adapters are ordinary dense parameters and sync through
   DiLoCo like the rest of the model.
 
+**Built** (`model/adapters.py`; see [architecture](architecture.md#the-knowledge-routed-adapter-mixture)).
+The choices the plan left open:
+
+- **Projection.** The router is one linear map from the layer-normalized
+  32,768-wide value straight to the 8 experts (262 thousand weights per owner),
+  not a 16-million-weight projection to facet width first. The map is the
+  learned projection, into the only space routing needs, and the session
+  carries just the resulting 3 x 8 preferences.
+- **Sites.** Every C layer, every P stage and the selected raw block that all
+  realizers read (the one input of text, audio, image and video R) each add
+  the experts' low-rank update of their own input to their output. The experts
+  are one bank per owner, shared by that owner's sites; a stage preference
+  tells the sites apart. The hindsight pass has no mixture.
+- **Strength.** One minus the sink's share of the value the knowledge event
+  reads. A training hindsight overlay counts as knowledge, so the sink's share
+  is its weight times (1 - overlay); at serving this is exactly one minus the
+  sink weight, and a sink-only lookup has strength exactly zero.
+- **Dropout.** A lookup's whole mixture is dropped with probability 0.1 in
+  training, drawn from the window's seeded generator.
+- **Balance.** Each owner's controller joins P's and U's routers in the global
+  router balance (hard top-2 counts per site and track, soft preferences
+  replayed from the detached lookup value).
+
 ## Cost
 
 - One ingest pass per item: one C pass over the item's events, the same as
@@ -193,7 +216,7 @@ of multiple bases, so they are built first and in parallel.
    embedding head, observing retrieved items, the query-side losses, and the
    collection CLI.
 2. The adapter bank, its knowledge-base router and its application in C, P
-   and the realizer conditions.
+   and the realizer conditions. **Built.**
 3. Several mounted bases in one search: per-base tables, blend weights,
    (base, edge) pairs, the coordinator and checkpoints owning only the trained
    base.

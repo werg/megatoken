@@ -273,6 +273,12 @@ arithmetic precision.
 
 Adam defaults are β₁=0.9, β₂=0.95, ε=1e-8, matrix weight decay 0.1, and clipping at 1.0
 per active gradient domain. Embeddings, lookups, norms, and biases do not decay.
+The adapter mixture's experts and controllers are ordinary dense parameters: they train
+jointly through the continuation loss, are owned by C, P or R (so pinning one of them pins
+its adapters), and enter the optimizer, DiLoCo fragments and the served bundle like any
+other owner. The media-bridge stage freezes them with everything outside the bridge. The
+three controllers' expert load joins P's and U's in the optimizer-step-global router
+balance (the pooled loss is the mean over all five routers).
 Lookup/control owners use half the base learning rate. Repeated module calls share one
 parameter owner, one FP32 master, and one optimizer slot. Non-finite gradients abort
 before an update.
