@@ -306,8 +306,8 @@ class SourceCollection:
             raise KeyError(row)
         return self._item(found)
 
-    def rows_of(self, item_ids: Iterable[str]) -> dict[str, int]:
-        """The rows of the named items; an unknown identity is an error."""
+    def find(self, item_ids: Iterable[str]) -> dict[str, int]:
+        """The rows of those of the named items this collection holds."""
         wanted = list(dict.fromkeys(item_ids))
         found: dict[str, int] = {}
         with self._lock:
@@ -315,12 +315,11 @@ class SourceCollection:
                 batch = wanted[start : start + _BATCH]
                 found.update(
                     self._db.execute(
-                        f"SELECT item_id, id FROM items WHERE item_id IN ({','.join('?' * len(batch))})",
+                        "SELECT item_id, id FROM items "
+                        f"WHERE item_id IN ({','.join('?' * len(batch))})",
                         batch,
                     )
                 )
-        if len(found) != len(wanted):
-            raise KeyError(f"Not in collection {self.name!r}: {sorted(set(wanted) - set(found))}")
         return found
 
     def keys(self, rows: Sequence[int]) -> np.ndarray:

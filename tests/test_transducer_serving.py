@@ -145,7 +145,11 @@ def test_lookups_use_the_requests_effort(monkeypatch):
 
 
 def test_training_metadata_may_be_partial_or_empty_and_evaluation_is_complete():
-    episode = SimpleNamespace(stream="chat", tracks=[SimpleNamespace(default_modality="text")])
+    episode = SimpleNamespace(
+        stream="chat",
+        tracks=[SimpleNamespace(default_modality="text")],
+        supervision=SimpleNamespace(annotations_json="{}"),
+    )
     full = json.loads(_metadata(episode, None))
     assert (full["task"], full["modality"], full["version"]) == ("chat", ["text"], "v10")
     drawn = [_metadata(episode, seed) for seed in range(64)]

@@ -5,7 +5,9 @@ stage stream's validation split, in eval mode (so transducer lookups read the
 bank alone and record nothing), under ``torch.no_grad`` and with no optimizer
 step. Every term the forward scores (policy and reconstruction cross-entropy,
 facet prediction, the audio and visual terms, ...) is reported as a mean over
-its own denominator, per stream and pooled.
+its own denominator, per stream and pooled. Windows of episodes read from a
+collection also report retrieval recall: the share of the annotated items in the
+student's top ``k`` against the teacher's own query embedding of the same question.
 
 The selection is the first ``eval_windows`` windows of the stream's validation
 episodes in index order, so every evaluation of a run measures the same
@@ -23,6 +25,7 @@ from megatoken.data import PreparedCorpus, WindowConfig, iter_windows, stage_rec
 from megatoken.runtime import capture_rng, restore_rng
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
+from megatoken.training.retrieval import RECALL_K
 from megatoken.training.stream import EpisodeWindow
 
 ALL = "all"  # the stream name when the whole corpus is one stream
@@ -86,14 +89,14 @@ class HeldOutEvaluator:
         try:
             device = model.core.initial_facets.device
             for name, corpus in self.corpora.items():
-                entry = result[name] = {"windows": 0, "sum": {}, "count": {}}
+                entry = result[name] = {"windows": 0, "sum": {}, "count": {}, "recall": {}}
                 for ordinal, item in self._selection(corpus, rank, world):
                     torch.manual_seed(config.seed + _SEED_OFFSET + ordinal)
                     for batch in prepare_batches(model, [item], config):
                         ledger = LossLedger(
                             dict(batch.counts), dict(batch.counts), config.loss_weights
                         )
-                        forward_meridian_batch(
+                        metrics = forward_meridian_batch(
                             model,
                             batch,
                             ledger,
@@ -109,6 +112,9 @@ class HeldOutEvaluator:
                             entry["sum"][term] = entry["sum"].get(term, 0.0) + float(value)
                         for term, count in batch.counts.items():
                             entry["count"][term] = entry["count"].get(term, 0) + int(count)
+                        for key, value in metrics.items():
+                            if key.startswith("retrieval_"):
+                                entry["recall"][key] = entry["recall"].get(key, 0.0) + value
         finally:
             model.train(was_training)
             restore_rng(rng)
@@ -135,9 +141,11 @@ class HeldOutEvaluator:
                     "loss": {t: entry["sum"][t] / n for t, n in entry["count"].items() if n},
                     "denominators": {t: n for t, n in entry["count"].items() if n},
                     "weighted_loss": self.weighted(entry["sum"], entry["count"]),
+                    **recall_report(entry["recall"]),
                 }
                 for name, entry in streams.items()
             },
+            **recall_report(pooled["recall"]),
             "pooled_loss": {t: pooled["sum"][t] / n for t, n in pooled["count"].items() if n},
             "pooled_weighted_loss": self.weighted(pooled["sum"], pooled["count"]),
         }
@@ -146,13 +154,28 @@ class HeldOutEvaluator:
 def merge(gathered: list[Sums]) -> tuple[Sums, dict[str, Any]]:
     """Add the ranks' sums per stream, and over every stream."""
     streams: Sums = {}
-    pooled: dict[str, Any] = {"windows": 0, "sum": {}, "count": {}}
+    pooled: dict[str, Any] = {"windows": 0, "sum": {}, "count": {}, "recall": {}}
     for sums in gathered:
         for name, entry in sums.items():
-            target = streams.setdefault(name, {"windows": 0, "sum": {}, "count": {}})
+            target = streams.setdefault(name, {"windows": 0, "sum": {}, "count": {}, "recall": {}})
             for destination in (target, pooled):
                 destination["windows"] += entry["windows"]
-                for field in ("sum", "count"):
+                for field in ("sum", "count", "recall"):
                     for term, value in entry[field].items():
                         destination[field][term] = destination[field].get(term, 0) + value
     return streams, pooled
+
+
+def recall_report(recall: dict[str, float]) -> dict[str, Any]:
+    """Mean recall@k of the annotated items, student against teacher queries (if any)."""
+    queries = recall.get("retrieval_queries", 0)
+    if not queries:
+        return {}
+    return {
+        "retrieval": {
+            "queries": int(queries),
+            "k": RECALL_K,
+            "student_recall": recall["retrieval_student_recall"] / queries,
+            "teacher_recall": recall["retrieval_teacher_recall"] / queries,
+        }
+    }

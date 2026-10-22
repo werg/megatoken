@@ -30,6 +30,7 @@ from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.model.media import MediaOutputSpec, MediaTrainTarget
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.model.transducer import metadata_payload, real_boundary
+from megatoken.retrieval.annotation import RetrievalAnnotation
 from megatoken.tensors import byte_tensor
 from megatoken.tool_schema import (
     compile_tool_spec,
@@ -38,6 +39,7 @@ from megatoken.tool_schema import (
     supervised_bindings,
 )
 from megatoken.training.history import NativeHistory
+from megatoken.training.retrieval import mount, retrieval_terms
 from megatoken.training.stream import EpisodeWindow
 from megatoken.training.text_anchors import anchor_loss
 from megatoken.training.transducer import Meridian
@@ -125,6 +127,8 @@ class MeridianPreparedBatch:
     counts: dict[str, int]
     native_history: NativeHistory
     effort: int
+    # What the episode says about its first lookup (reading from a collection).
+    retrieval: RetrievalAnnotation | None = None
 
 
 def _target_plan(
@@ -337,7 +341,15 @@ def prepare_meridian_batch(
         mixture = stage_recipe(config.phase).effort_mix
         levels = sorted(mixture)
         effort = levels[int(torch.multinomial(torch.tensor([mixture[k] for k in levels]), 1))]
-    return MeridianPreparedBatch([item], tuple(prefix), tuple(steps), counts, native, effort)
+    retrieval = RetrievalAnnotation.of(episode)
+    # The annotated lookup is the window's first; a window that starts mid-episode replays
+    # its prefix without gradient and does not score it.
+    if retrieval is not None and not prefix and steps:
+        counts["query_alignment"] += 1
+        counts["retrieval_ranking"] += int(bool(retrieval.positives))
+    return MeridianPreparedBatch(
+        [item], tuple(prefix), tuple(steps), counts, native, effort, retrieval
+    )
 
 
 def _actual_raw(
@@ -416,6 +428,9 @@ def _metadata(episode: Any, seed: int | None) -> bytes:
         fields = {
             k: v for (k, v), kept in zip(fields.items(), keep < METADATA_KEEP, strict=True) if kept
         }
+    # An episode read from a collection always shows its question, which the first lookup uses.
+    if (retrieval := RetrievalAnnotation.of(episode)) is not None:
+        fields["request"] = retrieval.query_text
     return metadata_payload(fields)
 
 
@@ -437,8 +452,14 @@ def _transducer_sequence(
     """Plan the window's lookups and, in training, run its hindsight pass once."""
     steps = (*batch.prefix, *batch.steps)
     meridians = [_boundary_meridian(step) for step in steps]
+    sources = None
+    if batch.retrieval is not None:
+        sources = mount(batch.retrieval, store.root, model.config.media_extractor)
     sequence = trainer.sequence(
-        meridians, step=model_version, generator=torch.Generator().manual_seed(seed)
+        meridians,
+        step=model_version,
+        generator=torch.Generator().manual_seed(seed),
+        sources=sources,
     )
     sequence.hindsight(
         meridians,
@@ -617,6 +638,13 @@ def forward_meridian_batch(
                 role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
                 modalities=step.modalities,
             )
+    if batch.retrieval is not None and not batch.prefix:
+        terms, retrieved = retrieval_terms(
+            sequence.first_search, sequence.sources, batch.retrieval, store
+        )
+        losses.append(ledger.backward_loss(terms))
+        for name, value in retrieved.items():
+            metrics[name] = metrics.get(name, 0) + value
     if differentiate and losses:
         torch.stack(losses).sum().backward()
     return metrics

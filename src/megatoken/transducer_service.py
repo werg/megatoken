@@ -14,8 +14,10 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -23,6 +25,9 @@ from megatoken.memory.transducer import Lookup, SearchAgenda
 from megatoken.model.config import RESERVED_TRACKS
 from megatoken.model.multitrack import MultiTrackGenerator, MultiTrackState, ObservedEvent
 from megatoken.model.transducer import metadata_payload, real_boundary
+from megatoken.retrieval.collection import SourceCollection
+from megatoken.retrieval.ingest import FileIngest
+from megatoken.retrieval.session import DEFAULT_MAX_SOURCES, SourceSession
 from megatoken.training.transducer import BoundaryScheduler
 
 
@@ -33,19 +38,46 @@ class TransducerSession:
     agenda: SearchAgenda
     scheduler: BoundaryScheduler
     owner: int
+    sources: SourceSession | None = None
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 class TransducerInferenceEngine:
-    """Owns serving sessions for one multitrack generator and its transducer."""
+    """Owns serving sessions for one multitrack generator and its transducer.
 
-    def __init__(self, multi: MultiTrackGenerator) -> None:
+    ``collections`` maps names to source collection directories, mounted for the
+    engine's life; a session searches the ones it names (default: all). A
+    ``preparer`` (``megatoken.data.media_prepare.MediaPreparer``) lets the engine
+    add files to its collections; without one they are mounted read-only.
+    """
+
+    def __init__(
+        self,
+        multi: MultiTrackGenerator,
+        *,
+        collections: Mapping[str, str | Path] | None = None,
+        preparer: Any = None,
+    ) -> None:
         model = multi.generator.eval()
         self.native = model.transducer
         self.bank = self.native.bank
         if model.core.initial_facets.device != self.bank.device:
             raise ValueError("The v10 model and packed bank must be on one device")
         self.multi = multi
+        self.preparer = preparer
+        self.collections = {
+            name: SourceCollection.open(
+                path, writable=preparer is not None, teacher=model.config.media_extractor
+            )
+            for name, path in (collections or {}).items()
+        }
+
+    def add_files(self, name: str, paths: Sequence[str | Path]) -> int:
+        """Prepare files and add their items to a mounted collection; sessions that
+        mount it find them from their next lookup on. Returns the number of new items."""
+        if self.preparer is None:
+            raise ValueError("Adding files needs an engine built with a preparer")
+        return FileIngest(self.collections[name], self.preparer).add_files(paths)
 
     def _check(self, session: TransducerSession) -> None:
         if session.owner != id(self):
@@ -62,12 +94,26 @@ class TransducerInferenceEngine:
         effort: int = 6,
         deadline: float | None = None,
         cancelled: Callable[[], bool] | None = None,
+        collections: Sequence[str] | None = None,
+        max_sources: int = DEFAULT_MAX_SOURCES,
+        threshold: float | None = None,
     ) -> TransducerSession:
-        """Commit the metadata prefix, then the first lookup, before any answer."""
+        """Commit the metadata prefix, then the first lookup, before any answer.
+
+        The session searches ``collections`` (default: every mounted one) and
+        observes up to ``max_sources`` items per lookup above ``threshold``
+        (default: each collection's own).
+        """
         state = self.multi.tracks.initial_state(1, device=self.bank.device)
         state, agenda = self.native.begin(self.multi, state, metadata_payload(metadata))
         scheduler = BoundaryScheduler(max_lookups=self.bank.geometry.max_lookups)
-        session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self))
+        names = self.collections.keys() if collections is None else collections
+        sources = (
+            SourceSession({n: self.collections[n] for n in names}, max_sources, threshold)
+            if names
+            else None
+        )
+        session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self), sources)
         if scheduler.first_metadata():
             with session.lock:
                 session.state, _ = self._run(session, state, effort, deadline, cancelled)
@@ -142,7 +188,12 @@ class TransducerInferenceEngine:
         try:
             if not stopped():
                 state, lookup = self.native.boundary(
-                    self.multi, state, session.agenda, effort=effort, cancelled=stopped
+                    self.multi,
+                    state,
+                    session.agenda,
+                    effort=effort,
+                    cancelled=stopped,
+                    sources=session.sources,
                 )
         finally:
             session.scheduler.finish(committed=lookup is not None)

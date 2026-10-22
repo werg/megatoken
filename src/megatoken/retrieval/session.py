@@ -73,13 +73,16 @@ class SourceSession:
         merged.sort(key=lambda entry: entry[:3])
         return [entry[3] for entry in merged[:depth]]
 
+    def floor(self, name: str) -> float:
+        """The score an item of collection ``name`` must reach to be observed."""
+        return self.collections[name].threshold if self.threshold is None else self.threshold
+
     def choose(self, candidates: Sequence[Candidate], lookup: int) -> list[Retrieved]:
         """The first ``max_sources`` candidates whose score reaches their threshold."""
         chosen = []
         for candidate in candidates:
-            collection = self.collections[candidate.collection]
-            floor = collection.threshold if self.threshold is None else self.threshold
-            if candidate.hit.score >= floor:
+            if candidate.hit.score >= self.floor(candidate.collection):
+                collection = self.collections[candidate.collection]
                 item = collection.item(candidate.hit.row)
                 chosen.append(Retrieved(candidate.collection, item, candidate.hit.score, lookup))
             if len(chosen) == self.max_sources:
