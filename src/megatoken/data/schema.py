@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal, Protocol
 
 from .chunking import ChunkingConfig, segment_bytes
+from .media_assets import MEDIA_RECORD_TYPE
 
 SCHEMA_VERSION = 3
 Role = Literal["system", "user", "assistant", "tool", "document", "environment"]
@@ -232,7 +233,7 @@ class TrackEvent:
     def __post_init__(self) -> None:
         if not self.record_id or not self.track_id or self.meridian_id < 0:
             raise ValueError("Track event needs ID, track and nonnegative meridian")
-        if self.modality not in {"text", "audio", "image", "video", "tool", "evidence"}:
+        if self.modality not in {"text", "audio", "image", "video", "compressed_text"}:
             raise ValueError("Unknown event modality")
         if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
             raise ValueError("Unknown track event role")
@@ -349,7 +350,12 @@ class PhysicalRecord:
             raise ValueError("A tool action must be assistant-owned and cannot also be its result")
         if self.result_of and self.role not in {"tool", "environment"}:
             raise ValueError("A result must be an environmental record")
-        if self.source_span and self.source_span.end - self.source_span.start != len(self.payload):
+        # A feature descriptor's span locates the original source bytes it encodes.
+        if (
+            self.source_span
+            and self.media_type != MEDIA_RECORD_TYPE
+            and self.source_span.end - self.source_span.start != len(self.payload)
+        ):
             raise ValueError("Source span length differs from physical byte length")
         if self.free_spans is not None:
             if not isinstance(self.free_spans, tuple):
@@ -915,4 +921,36 @@ def apply_recovery_policy(episode: Episode, *, imitate_unknown: bool = False) ->
         episode,
         records=records,
         dependencies=tuple(dep for dep in episode.dependencies if dep.reader_id in kept_ids),
+    )
+
+
+def sequential_meridians(episode: Episode) -> Episode:
+    """Group an imported linear episode for meridian training.
+
+    Every physical record is its own meridian, in record order, on one track
+    per role. A canonical feature descriptor becomes a feature event of its
+    kind (text descriptors are ``compressed_text``); everything else is text.
+    """
+    from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
+
+    if episode.tracks or episode.meridians:
+        raise ValueError("Episode already declares its own causal groups")
+    roles: list[str] = []
+    meridians = []
+    for index, record in enumerate(episode.records):
+        if record.role not in roles:
+            roles.append(record.role)
+        modality, asset = "text", None
+        if record.media_type == MEDIA_RECORD_TYPE:
+            descriptor = MediaRecord.from_bytes(record.payload)
+            modality = "compressed_text" if descriptor.modality == "text" else descriptor.modality
+            asset = descriptor.source.sha256
+        event = TrackEvent(
+            record.record_id, record.role, modality, index, record.role, asset_sha256=asset
+        )
+        meridians.append(Meridian(index, (event,)))
+    return replace(
+        episode,
+        tracks=tuple(TrackSpec(role, role) for role in roles),
+        meridians=tuple(meridians),
     )

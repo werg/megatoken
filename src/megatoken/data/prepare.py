@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from megatoken.io import content_hash, write_json
+from megatoken.teacher import PINNED_TEACHER
 
 from .adapters import (
     AdapterContext,
@@ -19,8 +20,10 @@ from .adapters import (
     source_row_supervision,
 )
 from .chunking import ChunkingConfig
+from .compression import CompressionPolicy, DocumentCompressor
 from .dedup import DedupConfig, DedupStore
 from .lineage import LineageJoin
+from .media_assets import TensorAssetStore
 from .quality import validate_row_filters
 from .review import ParserReviewPolicy, ParserReviewQueue, source_quality, validate_prepared_episode
 from .schema import SCHEMA_VERSION, Codec, canonical_json
@@ -41,6 +44,8 @@ def prepare_sources(
     shard_bytes: int = 128 << 20,
     benchmark_quarantine: dict[str, Any] | None = None,
     reject_invalid: bool = False,
+    compression: CompressionPolicy | None = None,
+    teacher_packs: str | Path | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
     _interrupt_after: int | None = None,
 ) -> PreparedDataset:
@@ -52,7 +57,14 @@ def prepare_sources(
     explicit source/row/error receipts and continues; an operator can inspect
     the rejection distribution before authorizing scale. `_interrupt_after` is
     a deterministic crash-injection hook for the resume invariant test.
+
+    ``compression`` reads long observed fields (reference documents, large tool
+    results) as teacher features (data/compression.py), with EmbeddingGemma2
+    loaded from the ``teacher_packs`` manifest; the features are stored as
+    immutable assets under ``output``, which training uses as its media root.
     """
+    if (compression is None) != (teacher_packs is None):
+        raise ValueError("Compressed reading needs both a policy and the teacher pack manifest")
     dedup = dedup or DedupConfig()
     review = review or ParserReviewPolicy()
     if min(max_record_bytes, max_record_tokens, shard_bytes) < 1:
@@ -86,7 +98,14 @@ def prepare_sources(
             "parser_review": asdict(review),
             "benchmark_quarantine": quarantine,
             "reject_invalid": reject_invalid,
-            "adapter_version": 4,
+            "compression": None
+            if compression is None
+            else {
+                **asdict(compression),
+                "roles": sorted(compression.roles),
+                "teacher": PINNED_TEACHER,
+            },
+            "adapter_version": 5,
             "schema_version": SCHEMA_VERSION,
         }
     )
@@ -113,6 +132,7 @@ def prepare_sources(
                 content_sha256=quarantine.get("content_sha256", ()),
             )
             processed = 0
+            compressor = None
             for source in source_list:
                 start, complete = store.source_cursor(source.fingerprint)
                 if complete:
@@ -127,6 +147,13 @@ def prepare_sources(
                     )
                     resources.callback(lineage_join.close)
                 last = start - 1
+                if compression is not None and compressor is None:
+                    from megatoken.omni.embeddinggemma2 import EmbeddingGemma2
+
+                    teacher = EmbeddingGemma2.from_manifest(teacher_packs)
+                    if teacher.extractor != PINNED_TEACHER:
+                        raise ValueError("The pack manifest's teacher is not the pinned teacher")
+                    compressor = DocumentCompressor(teacher, TensorAssetStore(root), compression)
                 for row_index, row in iter_source_rows(source, start_row=start):
                     raw_row = row
                     context = AdapterContext(
@@ -141,6 +168,7 @@ def prepare_sources(
                         codec=codec,
                         max_record_tokens=max_record_tokens,
                         chunking=chunking,
+                        compressor=compressor,
                     )
                     with store.transaction():
                         try:

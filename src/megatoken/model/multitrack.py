@@ -57,8 +57,9 @@ GROUP_TAPE_VERSION = "fmt-multitrack-facets-v10"
 class ObservedEvent:
     """One available input to commit in a shared meridian.
 
-    Text is its exact bytes. Audio, image and video are ordered pinned teacher
-    hidden states ``[1, T, 512]`` (``megatoken.teacher``), never raw media.
+    Text is its exact bytes. Audio, image, video and compressed text are ordered
+    pinned teacher hidden states ``[1, T, 512]`` (``megatoken.teacher``), never
+    raw media.
     """
 
     track: str
@@ -69,7 +70,7 @@ class ObservedEvent:
     valid_mask: Tensor | None = None
 
     def __post_init__(self) -> None:
-        if self.modality not in {"text", "audio", "image", "video"}:
+        if self.modality not in MODALITY_IDS:
             raise ValueError("Unsupported input modality")
         if self.role_id not in ROLE_IDS.values():
             raise ValueError("Unknown event role")
