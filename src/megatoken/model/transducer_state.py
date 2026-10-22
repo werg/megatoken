@@ -9,8 +9,6 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-import torch
-
 from .multitrack import MultiTrackCore, MultiTrackState
 from .state import KVHistory
 
@@ -21,7 +19,9 @@ def snapshot_causal_state(state: MultiTrackState) -> dict[str, Any]:
     """Save all native history and frontier tensors for weights-only restoration."""
     if state.kb is None or state.kb.groups:
         raise ValueError("A v10 causal snapshot cannot contain v9 point/pair memory")
-    cpu = lambda value: None if value is None else value.detach().cpu().clone()
+    def cpu(value):
+        return None if value is None else value.detach().cpu().clone()
+
     return {
         "identity": CAUSAL_STATE_IDENTITY,
         "raw": cpu(state.raw),
