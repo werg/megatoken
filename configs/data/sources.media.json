@@ -540,7 +540,8 @@
    "columns": {
     "original": "source_image",
     "edited": "edited_image",
-    "instruction": "edit_prompt"
+    "instruction": "edit_prompt",
+    "id": "idx"
    },
    "options": {
     "provenance": {
@@ -549,8 +550,8 @@
     "tier": "model-generated"
    },
    "inventory": {
-    "items": 3027083,
-    "basis": "Hub dataset viewer rows",
+    "items": 3028083,
+    "basis": "card: sum of the split row counts",
     "shards": 4000,
     "size_gb": 1554.6
    },
@@ -586,8 +587,8 @@
     "tier": "model-generated"
    },
    "inventory": {
-    "items": 98000,
-    "basis": "319 GB of shards at ~3.3 MB a row (the card gives no count)",
+    "items": 98675,
+    "basis": "card: 98,675 rows",
     "shards": 608,
     "size_gb": 319.1
    },
@@ -671,8 +672,8 @@
   },
   {
    "source_id": "anyedit",
-   "repository": "Bin1117/AnyEdit",
-   "revision": "dafac7e8cb19f3d45a0768037bcaa43cc8ad80db",
+   "repository": "Bin1117/anyedit-split",
+   "revision": "e413b45af6528c596b93ea417a7136bc142e974a",
    "reader": "parquet",
    "task": "image_edit",
    "terms": {
@@ -680,47 +681,29 @@
     "reviewed_by": "Gabriel Pickard",
     "reviewed_at": "2026-10-22",
     "license": "cc-by-4.0",
-    "license_url": "https://huggingface.co/datasets/Bin1117/AnyEdit",
+    "license_url": "https://huggingface.co/datasets/Bin1117/anyedit-split",
     "notes": "Instruction edits across 25 types; rows that need a depth/segment guide image are skipped."
    },
    "gated": false,
    "include": [
-    "data/train-0003?-of-00383.parquet",
-    "data/train-0004?-of-00383.parquet",
-    "data/train-0005?-of-00383.parquet",
-    "data/train-0006?-of-00383.parquet",
-    "data/train-0007?-of-00383.parquet",
-    "data/train-0008?-of-00383.parquet",
-    "data/train-0009?-of-00383.parquet",
-    "data/train-0010?-of-00383.parquet",
-    "data/train-0011?-of-00383.parquet",
-    "data/train-0012?-of-00383.parquet",
-    "data/train-0013?-of-00383.parquet",
-    "data/train-0014?-of-00383.parquet",
-    "data/train-0015?-of-00383.parquet",
-    "data/train-0016?-of-00383.parquet",
-    "data/train-0017?-of-00383.parquet",
-    "data/train-0018?-of-00383.parquet",
-    "data/train-0019?-of-00383.parquet",
-    "data/train-0020?-of-00383.parquet",
-    "data/train-0021?-of-00383.parquet",
-    "data/train-0022?-of-00383.parquet",
-    "data/train-0023?-of-00383.parquet",
-    "data/train-0024?-of-00383.parquet",
-    "data/train-0025?-of-00383.parquet",
-    "data/train-0026?-of-00383.parquet",
-    "data/train-0027?-of-00383.parquet",
-    "data/train-0028?-of-00383.parquet",
-    "data/train-0029?-of-00383.parquet",
-    "data/train-0030?-of-00383.parquet",
-    "data/train-0031?-of-00383.parquet",
-    "data/train-0032?-of-00383.parquet",
-    "data/train-0033?-of-00383.parquet",
-    "data/train-0034?-of-00383.parquet",
-    "data/train-0035?-of-00383.parquet",
-    "data/train-0036?-of-00383.parquet",
-    "data/train-0037?-of-00383.parquet",
-    "data/train-0038?-of-00383.parquet"
+    "data/add-*.parquet",
+    "data/backgroundchange-*.parquet",
+    "data/coloralter-*.parquet",
+    "data/tonetransfer-*.parquet",
+    "data/remove-*.parquet",
+    "data/replace-*.parquet",
+    "data/appearancealter-*.parquet",
+    "data/materialchange-*.parquet",
+    "data/actionchange-*.parquet",
+    "data/outpaint-*.parquet",
+    "data/stylechange-*.parquet",
+    "data/rotationchange-*.parquet",
+    "data/resize-*.parquet",
+    "data/movement-*.parquet",
+    "data/implicitchange-*.parquet",
+    "data/textualchange-*.parquet",
+    "data/counting-*.parquet",
+    "data/relation-*.parquet"
    ],
    "columns": {
     "original": "image_file",
@@ -729,21 +712,21 @@
     "id": "image_id"
    },
    "options": {
-    "absent": [
-     "visual_input"
-    ],
     "provenance": {
      "media": "teacher"
     },
-    "tier": "model-generated"
+    "tier": "model-generated",
+    "absent": [
+     "visual_input"
+    ]
    },
    "inventory": {
-    "items": 2300000,
-    "basis": "353 shards of ~6.5k rows (shards 30-382; 0-29 hold only guided types)",
-    "shards": 353,
-    "size_gb": 265.2
+    "items": 2169605,
+    "basis": "card per edit type, the seven types that need a guide image left out",
+    "shards": 282,
+    "size_gb": 207.2
    },
-   "caveat": "Shards are grouped by edit type; the first thirty hold only types that need a guide image and are not listed. Instructions of some types name a guide image the reader does not supply; rows with a guide image are skipped."
+   "caveat": "A third-party re-split of AnyEdit by edit type (row totals match); the weather, season and time-of-day edits that the old shard list dropped are now included."
   },
   {
    "source_id": "librispeech_asr",
@@ -1520,7 +1503,8 @@
    "gated": false,
    "include": [
     "data/unbal_train/*.parquet",
-    "data/bal_train/*.parquet"
+    "data/bal_train/*.parquet",
+    "data/eval/*.parquet"
    ],
    "columns": {
     "audio": "audio",
@@ -1528,11 +1512,11 @@
     "family": "video_id"
    },
    "inventory": {
-    "items": 1757340,
-    "hours": 4880,
-    "basis": "Hub dataset viewer rows; 10 s each",
-    "shards": 908,
-    "size_gb": 2420.9
+    "items": 1774481,
+    "hours": 4928,
+    "basis": "Hub dataset viewer rows; 10 s each; plus the 17,141-clip evaluation split",
+    "shards": 943,
+    "size_gb": 2444.5
    },
    "caveat": "The card licenses the labels; the audio belongs to the YouTube uploaders."
   },
@@ -1541,14 +1525,14 @@
    "repository": "OpenSound/AudioCaps",
    "revision": "b29b3243d6ce49c2cd0d48d4b5f0701ae7969ded",
    "reader": "parquet",
-   "task": "sound",
+   "task": "captioned_audio",
    "terms": {
     "approved": true,
     "reviewed_by": "Gabriel Pickard",
     "reviewed_at": "2026-10-22",
     "license": "cc-by-nc-4.0",
     "license_url": "https://huggingface.co/datasets/OpenSound/AudioCaps",
-    "notes": "10-second AudioSet clips with human captions (the captions are not used)."
+    "notes": "10-second AudioSet clips with human captions (one caption per row; the five captions of a clip are five rows). The validation and test splits are the standard benchmark and are left out."
    },
    "gated": false,
    "include": [
@@ -1556,6 +1540,7 @@
    ],
    "columns": {
     "audio": "audio",
+    "caption": "caption",
     "id": "audiocap_id",
     "family": "youtube_id"
    },
@@ -1789,42 +1774,44 @@
   },
   {
    "source_id": "openvid_1m",
-   "repository": "nkp37/OpenVid-1M",
-   "revision": "d8a63bd22989c80b5734ec2bb989f4e1b61a5807",
-   "reader": "archive",
-   "task": "video",
+   "repository": "Dev-Jahn/OpenVid-1M-wds",
+   "revision": "708276293b16b816cbc702f8b7cfd56f2ec41e78",
+   "reader": "webdataset",
+   "task": "captioned_video",
    "terms": {
     "approved": true,
     "reviewed_by": "Gabriel Pickard",
     "reviewed_at": "2026-10-22",
-    "license": "cc-by-4.0",
-    "license_url": "https://huggingface.co/datasets/nkp37/OpenVid-1M",
-    "notes": "One million high-aesthetic clips (Pexels, CelebV-HQ and others), 2-30 s, without sound."
+    "license": "cc-by-4.0 (card; the videos keep the terms of Panda-70M, ChronoMagic, CelebV-HQ and Pexels)",
+    "license_url": "https://huggingface.co/datasets/Dev-Jahn/OpenVid-1M-wds",
+    "notes": "All 1,019,957 OpenVid-1M clips (silent, 2-30 s; Pexels, Panda-70M, CelebV-HQ) with their LLaVA-written captions, repackaged as tar shards."
    },
    "gated": false,
    "include": [
-    "OpenVid_part*.zip"
+    "train/openvid-train-*.tar",
+    "val/openvid-val-*.tar"
    ],
    "columns": {
-    "video": "member",
-    "id": "__key__"
+    "video": "mp4",
+    "caption": "json.caption",
+    "id": "json.video_id",
+    "family": "json.video_id"
    },
    "options": {
-    "table": {
-     "path": "data/train/OpenVid-1M.csv",
-     "key": "{video}",
-     "columns": []
+    "max_seconds": 8.0,
+    "provenance": {
+     "text": "teacher"
     },
-    "max_seconds": 8.0
+    "tier": "model-labeled"
    },
    "inventory": {
     "items": 1019957,
     "hours": 2000,
-    "basis": "card: 1M clips; ~7 s average (estimated)",
-    "shards": 170,
-    "size_gb": 6656.8
+    "basis": "README: 1,018,957 train + 1,000 val clips in 3,488 tars",
+    "shards": 3488,
+    "size_gb": 7535.4
    },
-   "caveat": "Silent clips: they feed video identity only. Zip parts are 20-50 GB; split parts (partaa/partab) are not read."
+   "caveat": "Silent clips: video description and video identity only. Replaces the earlier read of nkp37/OpenVid-1M's zip parts, which skipped the split parts and the HD folder."
   },
   {
    "source_id": "insvie",

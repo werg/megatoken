@@ -21,7 +21,9 @@ import argparse
 import math
 
 from megatoken.data.media_sharding import CLIP_SECONDS, DEFAULT_CLIP_SECONDS
-from megatoken.data.open_media import SOURCES, OpenSource
+from pathlib import Path
+
+from megatoken.data.open_media import SOURCES, OpenSource, load_sources
 from megatoken.data.recipes import stage_recipe
 
 AUDIO_TOKENS_PER_SECOND = 25
@@ -43,6 +45,7 @@ TEXT_TOKENS = {
     "image_description": 142.2,
     "image_creation": 158.5,
     "audio_description": 30.0,
+    "video_description": 45.0,
     "image_edit": 11.1,
     "speech_edit": 10.0,
     "av_creation": 54.5,
@@ -104,7 +107,13 @@ def events(source: OpenSource) -> list[tuple[str, float]]:
     task, seconds = source.task, 0.0
     turns = source.inventory.get("mean_turns", 1.0)
     audio, video = audio_seconds(source), video_seconds(source)
-    if task in ("transcription", "translation_text", "sound", "captioned_audio"):
+    if task in (
+        "transcription",
+        "translation_text",
+        "sound",
+        "captioned_audio",
+        "audio_questions",
+    ):
         return [("audio", audio)]
     if task == "verbalization":
         return [("audio", audio), ("audio", audio)]  # the speech and the voice sample
@@ -118,7 +127,7 @@ def events(source: OpenSource) -> list[tuple[str, float]]:
         return [("image", seconds)] * round(1 + turns)
     if task in ("av_caption", "av_scenes"):
         return [("video", video), ("audio", video)]
-    if task == "video":
+    if task in ("video", "captioned_video", "video_questions"):
         return [("video", video)]
     if task == "video_edit":
         return [("video", video)] * 2
@@ -134,8 +143,10 @@ def episode_tokens(source: OpenSource) -> dict[str, tuple[float, float]]:
     turns = source.inventory.get("mean_turns", 1.0)
     first = media[0]
     text = dict(TEXT_TOKENS)
-    if source.task == "image_questions":
-        text["image_description"] = QUESTION_TURN_TOKENS * turns
+    if source.task.endswith("_questions"):
+        text["image_description"] = text["audio_description"] = text["video_description"] = (
+            QUESTION_TURN_TOKENS * turns
+        )
     if source.task in ("image_edit_chain", "video_edit_chain"):
         text["image_edit"] = text["av_edit"] = EDIT_TURN_TOKENS * turns
     result: dict[str, tuple[float, float]] = {}
@@ -198,6 +209,54 @@ def sources_table() -> str:
     return "\n".join(lines)
 
 
+def edits_table() -> str:
+    """The editing sources apart: edit requests, sessions, images or video clips, and bytes."""
+    lines = [
+        "| Source | Kind | Edit requests | Sessions | Mean edits per session | Images or clips "
+        "| Repository GB | Prepared GB (est.) |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    totals = {"edits": 0.0, "sessions": 0.0, "media": 0.0, "gb": 0.0, "prepared": 0.0}
+    chain_edits = chain_sessions = 0.0
+    for source in SOURCES.values():
+        if source.task not in EDIT_TASKS:
+            continue
+        inventory = source.inventory
+        sessions = inventory.get("items", 0)
+        turns = inventory.get("turns", sessions)
+        mean = turns / sessions if sessions else 1.0
+        chained = mean > 1.0
+        media = sum(1 for _ in events(source)) * sessions if not chained else (sessions + turns)
+        kind = ("video " if "video" in source.task else "image ") + (
+            "chains" if chained else "single edits"
+        )
+        row = (
+            turns,
+            sessions if chained else 0,
+            media,
+            inventory.get("size_gb", 0),
+            prepared_gb(source),
+        )
+        totals["edits"] += row[0]
+        totals["sessions"] += row[1]
+        totals["media"] += row[2]
+        totals["gb"] += row[3]
+        totals["prepared"] += row[4]
+        if chained:
+            chain_edits += turns
+            chain_sessions += sessions
+        lines.append(
+            f"| `{source.source_id}` | {kind} | {turns:,.0f} | {row[1]:,.0f} | {mean:.1f} | "
+            f"{media:,.0f} | {row[3]:,.0f} | {row[4]:,.0f} |"
+        )
+    mean_chain = chain_edits / chain_sessions if chain_sessions else 0.0
+    lines.append(
+        f"| **total** | | {totals['edits']:,.0f} | {totals['sessions']:,.0f} | {mean_chain:.1f} | "
+        f"{totals['media']:,.0f} | {totals['gb']:,.0f} | {totals['prepared']:,.0f} |"
+    )
+    return "\n".join(lines)
+
+
 def gap_table(only: set[str] | None = None) -> str:
     mixture = stage_recipe("P1").mixture
     streams = sorted(
@@ -237,11 +296,19 @@ def gap_table(only: set[str] | None = None) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("table", choices=("sources", "gap"))
+    parser.add_argument("table", choices=("sources", "gap", "edits"))
     parser.add_argument("--only", nargs="*", help="limit the gap table to these source ids")
+    parser.add_argument(
+        "--manifest", nargs="*", type=Path, help="read these manifests instead of the committed ones"
+    )
     args = parser.parse_args()
+    if args.manifest:
+        global SOURCES
+        SOURCES = load_sources(*args.manifest)
     if args.table == "sources":
         print(sources_table())
+    elif args.table == "edits":
+        print(edits_table())
     else:
         print(gap_table(set(args.only) if args.only else None))
 

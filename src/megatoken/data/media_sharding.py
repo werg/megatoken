@@ -24,6 +24,9 @@ from typing import Any
 from .open_media import SOURCES, TASKS, OpenSource
 from .sharding import SPLIT_ABOVE, Unit, assign
 
+# Readers whose sources divide by file (a linked source by its archives, unless one stream).
+FILE_READERS = ("parquet", "webdataset", "archive", "linked")
+
 # Estimated GPU seconds per clip by task: the teacher reads each media event once and the codec
 # encodes it once, whatever the number of episodes built from it. Images 20 a second, speech 40
 # clips a second (10-20 s each), video clips 2 a second, an edit pair is two media events.
@@ -63,7 +66,9 @@ def list_files(source: OpenSource) -> list[tuple[str, int]]:
     filesystem = HfFileSystem()
     prefix = f"datasets/{source.repository}@{source.revision}/"
     found: dict[str, int] = {}
-    for pattern in source.include:
+    # A linked source's tables are small and found when it runs; its archives are what divides.
+    patterns = source.options["linked"]["archives"] if source.reader == "linked" else source.include
+    for pattern in patterns:
         for item in filesystem.glob(prefix + pattern, detail=True).values():
             if item["type"] == "file":
                 found[item["name"].removeprefix(prefix)] = int(item["size"])
@@ -81,7 +86,7 @@ def read_listing(
     found = {
         source_id: list_files(source)
         for source_id, source in sources.items()
-        if source.reader in ("parquet", "webdataset", "archive")
+        if source.reader in FILE_READERS
     }
     if path is not None:
         Path(path).write_text(json.dumps(found, indent=1, sort_keys=True) + "\n")
@@ -97,7 +102,13 @@ def units_of(
         # One unit per language; the shard reads its languages' files only.
         languages = source.options["languages"]
         return [Unit(source.source_id, seconds / len(languages), (name,)) for name in languages]
-    if not listing or source.reader not in ("parquet", "webdataset", "archive"):
+    one_stream = source.reader == "linked" and source.options["linked"].get("multipart")
+    if not listing or source.reader not in FILE_READERS or one_stream:
+        if seconds > SPLIT_ABOVE * target:
+            # Whole-source readers (one archive cut in parts, tables of rows): every shard reads
+            # it all and keeps its share of the records.
+            stripes = min(count, max(2, math.ceil(seconds / (SPLIT_ABOVE * target))))
+            return [Unit(source.source_id, seconds / stripes, None, (i, stripes)) for i in range(stripes)]
         return [Unit(source.source_id, seconds)]
     total = sum(size for _, size in listing) or 1
     costs = [seconds * max(size, 1) / total for _, size in listing]

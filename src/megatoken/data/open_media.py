@@ -804,6 +804,8 @@ def _top_level(source: OpenSource) -> list[str]:
         *source.options.get("absent", ()),
         *([source.options["unique"]] if "unique" in source.options else []),
         *source.options.get("session", {}).values(),
+        *source.options.get("choose", {}).get("candidates", ()),
+        *source.options.get("choose", {}).get("scores", ()),
     ]
     names = {
         part.split(".")[0] for spec in specs for part in ([spec] if isinstance(spec, str) else spec)
@@ -1009,6 +1011,7 @@ def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any
     """Table rows joined with the images they name, read from archives in one pass.
 
     ``include`` names the tables (JSON lines or one JSON array of rows) and ``options.linked`` the images:
+    ``strip`` is a regex removed from the row's paths first (a leading folder the archive lacks),
     ``archives`` are patterns of tar(.gz) files (``multipart``: together one archive that was cut
     into parts), ``sequence`` the row's media in order (``images``: field names, ``{n}`` standing
     for 1, 2, ... while the row has it, a list field counting as several; ``texts`` likewise). An archive member belongs to a row
@@ -1020,10 +1023,13 @@ def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any
     spec = source.options["linked"]
     wanted: dict[str, tuple[int, int]] = {}
     rows: dict[int, dict[str, Any]] = {}
-    for table in shards.names():
+    strip = re.compile(spec["strip"]) if "strip" in spec else None
+    for table in shards.names(source.include):
         with shards.open(table) as handle:
             for row in _table_rows(handle, table, None):
                 paths = _numbered(row, spec["sequence"]["images"])
+                if strip is not None:
+                    paths = [strip.sub("", path) if isinstance(path, str) else path for path in paths]
                 if not paths or any(not isinstance(path, str) for path in paths):
                     continue
                 number = len(rows)
@@ -1035,7 +1041,9 @@ def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any
                 }
                 for position, path in enumerate(paths):
                     wanted[_path_key(path)] = (number, position)
-    names = shards.names(spec["archives"])
+    # A shard of a source with many archives reads its own (``files``); a table row whose
+    # images are in the others never completes and is dropped.
+    names = list(shards.files) if shards.files is not None else shards.names(spec["archives"])
     pending_limit = spec.get("pending", 4096)
     partial: dict[int, None] = {}  # rows with some image read, oldest first
     waiting = 0  # images read for rows that are not complete
@@ -1633,12 +1641,22 @@ def picture_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> l
     return [{"id": clip_id, "family": family, "image": image}] if image else []
 
 
+def _chosen(source: OpenSource, record: Mapping[str, Any]) -> Any:
+    """The best of several candidate edits: ``options.choose`` pairs ``candidates`` (columns)
+    with their ``scores`` (columns of ratings); the highest rated is taken, None if unrated."""
+    choice = source.options["choose"]
+    scores = [field_of(record, name) for name in choice["scores"]]
+    if any(not isinstance(score, (int, float)) for score in scores):
+        return None
+    return field_of(record, choice["candidates"][scores.index(max(scores))])
+
+
 def image_edit_clips(
     source: OpenSource, record: Mapping[str, Any], out: Path
 ) -> list[dict[str, Any]]:
     instruction = _text_label(source, record, "instruction")
     original = blob(_label(source, record, "original"))
-    edited = blob(_label(source, record, "edited"))
+    edited = blob(_chosen(source, record) if "choose" in source.options else _label(source, record, "edited"))
     if instruction is None or original is None or edited is None or not _accepts(source, record):
         return []
     clip_id, family = _identity(source, record)

@@ -1019,6 +1019,9 @@ def test_manifest_sources_are_pinned_licensed_approved_and_readable():
                 "video_edit_chain": {"instruction"},
                 "image_questions": {"image"},
                 "captioned_audio": {"audio", "caption"},
+                "captioned_video": {"video", "caption"},
+                "video_questions": {"video"},
+                "audio_questions": {"audio"},
             }[source.task]
             assert needed <= roles, source.source_id
             if source.task.endswith("_chain"):  # all versions in one field, or per-turn pairs
@@ -1695,3 +1698,81 @@ def test_webdataset_members_with_dotted_names_are_addressable_and_json_arrays_li
     _tar(folder / "part_0.tar", {"image/v2v_1.png": _image(1), "image/v2v_2.png": _image(2)})
     (episode,) = _run(media, edits, tmp_path, inputs=tmp_path / "inputs")
     assert episode.stream == "image_edit" and episode.records[1].payload == b"Remove the barrier"
+
+
+def test_the_better_rated_of_two_candidate_edits_is_the_edit(tmp_path, media):
+    source = make_source(
+        "pref",
+        "image_edit",
+        columns={"original": "source", "edited": "left", "instruction": "instruction", "id": "key"},
+        include=("*.parquet",),
+        options={
+            "choose": {"candidates": ["left", "right"], "scores": ["left_score", "right_score"]}
+        },
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "key": ["a", "b", "c"],
+                "instruction": ["add a hat", "make it red", "unrated"],
+                "source": [{"bytes": _image(i), "path": ""} for i in (1, 2, 3)],
+                "left": [{"bytes": _image(i), "path": ""} for i in (2, 3, 4)],
+                "right": [{"bytes": _image(i), "path": ""} for i in (5, 6, 7)],
+                "left_score": [1.0, 9.0, None],
+                "right_score": [8.0, 2.0, None],
+            }
+        ),
+        _local(tmp_path, "pref") / "0.parquet",
+    )
+    from megatoken.data.open_media import Shards, _chosen, parquet_records
+
+    records = list(parquet_records(source, Shards(source, tmp_path / "inputs")))
+    chosen = [_chosen(source, record) for record in records]
+    assert [c["bytes"] if c else None for c in chosen] == [_image(5), _image(3), None]
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_edit": 2}
+
+
+def test_linked_rows_lose_a_leading_folder_and_a_shard_reads_only_its_archives(tmp_path, media):
+    """Senorita: the table says ./style/19/h.png, the archive holds ./19/h.png in one of many tars."""
+    source = make_source(
+        "sen",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "source_image"},
+        include=("table.json",),
+        options={
+            "linked": {
+                "archives": ["up/*.tar.gz"],
+                "strip": r"^(?:\./)?[^/]+/",
+                "sequence": {"images": ["source_image", "target_image"], "texts": ["instruction"]},
+            }
+        },
+    )
+    folder = _local(tmp_path, "sen")
+    (folder / "up").mkdir()
+    (folder / "table.json").write_text(
+        json.dumps(
+            [
+                {
+                    "source_image": f"./style/{n}/a.png",
+                    "target_image": f"./style/{n}/a_org.png",
+                    "instruction": f"edit {n}",
+                }
+                for n in (1, 2)
+            ]
+        )
+    )
+    for n in (1, 2):
+        _tar(
+            folder / "up" / f"{n}.tar.gz",
+            {f"./{n}/a.png": _image(n), f"./{n}/a_org.png": _image(n + 4)},
+            "w:gz",
+        )
+    everything = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert len(everything) == 2
+    shard = Shards(source, tmp_path / "inputs", files=["up/2.tar.gz"])
+    from megatoken.data.open_media import linked_records
+
+    (record,) = linked_records(source, shard)
+    assert record["texts"] == ["edit 2"] and len(record["images"]) == 2

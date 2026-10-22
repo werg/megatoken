@@ -28,6 +28,9 @@ from megatoken.data.media_sharding import (
 
 
 def main() -> None:
+    from megatoken.hub import install
+
+    install()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--listing", type=Path, required=True)
     parser.add_argument("--shards", type=int)

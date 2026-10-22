@@ -92,6 +92,30 @@ def test_a_source_with_one_huge_file_is_striped_over_the_shards():
     assert all("files" not in spec["big"] for spec in plan if "big" in spec)
 
 
+def test_a_linked_source_divides_by_archive_unless_its_archive_is_one_stream():
+    def linked(source_id, multipart):
+        return source(
+            source_id,
+            task="image_edit_chain",
+            reader="linked",
+            items=1_000_000,
+            options={"linked": {"archives": ["up/*.tar.gz"], "multipart": multipart}},
+        )
+
+    sources = {"many": linked("many", False), "cut": linked("cut", True)}
+    listings = {
+        "many": [(f"up/{i}.tar.gz", 100) for i in range(8)],
+        "cut": [(f"up/{i}.tar.gz.part-{i:02d}", 100) for i in range(8)],
+    }
+    plan = plan_media_shards(sources, 4, listings)
+    taken = [name for spec in plan for name in spec.get("many", {}).get("files", ())]
+    assert sorted(taken) == [f"up/{i}.tar.gz" for i in range(8)]
+    # Parts of one gzip stream cannot be read apart: each shard reads it whole and keeps a stripe.
+    assert sorted(spec["cut"]["stripe"] for spec in plan if "cut" in spec) == [
+        [i, 4] for i in range(4)
+    ]
+
+
 def test_fleurs_is_divided_by_language():
     fleurs = source(
         "fleurs", task="translation_pair", reader="fleurs", options={"languages": list("abcdef")}
