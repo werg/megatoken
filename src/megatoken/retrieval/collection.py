@@ -443,7 +443,9 @@ class SourceCollection:
         """
         centroids = self._index()
         if centroids is None:
-            raise RuntimeError(f"Collection {self.name!r} has no index; run reindex first")
+            if self.count:
+                raise RuntimeError(f"Collection {self.name!r} has no index; run reindex first")
+            return []
         q = unit(query, width=EMBEDDING_WIDTH).astype(np.float64)
         cells = [
             int(c) for c in np.argsort(-(centroids @ q), kind="stable")[: probes or self.nprobe]

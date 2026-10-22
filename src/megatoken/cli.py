@@ -395,6 +395,9 @@ def parser() -> argparse.ArgumentParser:
     from megatoken.data.cli import add_data_commands
 
     add_data_commands(commands)
+    from megatoken.retrieval.cli import add_collection_commands
+
+    add_collection_commands(commands)
     item = commands.add_parser(
         "doctor", help="Validate the installed runtime and real device execution"
     )

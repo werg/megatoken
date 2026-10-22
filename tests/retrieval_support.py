@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from media_support import prepared_record
 from training_fixture import MODEL_OVERRIDES
 
 from megatoken.data import (
@@ -26,10 +27,11 @@ from megatoken.generation.codec import ByteCodec
 from megatoken.io import canonical_json
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
+from megatoken.omni.embeddinggemma2 import TeacherOutput
 from megatoken.retrieval.annotation import KEY, RetrievalAnnotation
 from megatoken.retrieval.collection import SourceCollection, text_item_id
 from megatoken.retrieval.index import unit
-from megatoken.teacher import EMBEDDING_WIDTH, PINNED_TEACHER
+from megatoken.teacher import EMBEDDING_WIDTH, HIDDEN_WIDTH, PINNED_TEACHER
 from megatoken.training.engine import prepare_batches, window_config
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
@@ -158,3 +160,31 @@ def forward(model, batches, config, *, differentiate=True):
         )
         ledger.finish()
     return metrics, ledger
+
+
+class FakeTeacher:
+    """A teacher whose embedding of a text is a fixed random unit vector of that text."""
+
+    limit = 5000
+
+    def text_pieces(self, text, *, prompt=""):
+        return [text[i : i + self.limit] for i in range(0, len(text), self.limit)]
+
+    def encode(self, modality, source, *, prompt=""):
+        seed = int(hashlib.sha256((prompt + source).encode()).hexdigest()[:8], 16)
+        rng = np.random.default_rng(seed)
+        embedding = torch.nn.functional.normalize(torch.from_numpy(rng.standard_normal(768)), dim=0)
+        features = torch.from_numpy(rng.standard_normal((4, HIDDEN_WIDTH)).astype(np.float32))
+        return TeacherOutput(features, embedding.float(), modality, PINNED_TEACHER)
+
+    def encode_batch(self, items, *, prompt=""):
+        return [self.encode(modality, source, prompt=prompt) for modality, source in items]
+
+
+class FakePreparer:
+    def __init__(self, root):
+        self.teacher, self.store = FakeTeacher(), TensorAssetStore(root)
+
+    def media(self, modality, path, *, target=True):
+        seed = int(hashlib.sha256(Path(path).read_bytes()).hexdigest()[:6], 16)
+        return prepared_record(self.store, modality, seed=seed, target=False)

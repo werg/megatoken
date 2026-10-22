@@ -21,6 +21,8 @@ from megatoken.data.storage import PreparedCorpus
 
 from .collection import TEXT_LIMIT, SourceCollection
 
+# The teacher's task prompt for the question side of a search (items use the document prompt).
+QUERY_PROMPT = "task: search result | query: "
 SUFFIXES = {
     "audio": {".wav", ".mp3", ".flac", ".ogg", ".opus", ".m4a"},
     "image": {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"},
