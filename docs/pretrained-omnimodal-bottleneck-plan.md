@@ -25,7 +25,7 @@ No new per-modality reasoning transformer, learned low-level scheduler, correlat
 
 ## 2. Current implementation and the remaining work
 
-Implemented in code: joint meridians with shared full-resolution KV, grouped text/media training through the engine, checksummed tensor assets with codec-latent targets, pinned-teacher media E, resident Pocket/Sana/Sana-Video realizers, separate media-loss denominators, a `G` event budget, the aligned-bundle compiler (`data/concordance.py`, `scripts/compile_aligned_bundles.py`), and one data-mix mechanism (the stage plan, `src/megatoken/data/stages.json`). The architecture, packs, preparation, phases and serving contract are in [media.md](media.md); [architecture.md](architecture.md) and the [grouped model](../src/megatoken/model/multitrack.py) describe the core.
+Implemented in code: joint meridians with shared full-resolution KV, grouped text/media training through the engine, checksummed tensor assets with codec-latent targets, pinned-teacher media E, resident Pocket/Sana/Sana-Video realizers, separate media-loss denominators, a `G` event budget, the aligned-bundle compiler (`data/concordance.py`) with open-dataset readers (`data/open_media.py`, `scripts/prepare_open_media.py`), and one data-mix mechanism (the stage plan, `src/megatoken/data/stages.json`). The architecture, packs, preparation, phases and serving contract are in [media.md](media.md); [architecture.md](architecture.md) and the [grouped model](../src/megatoken/model/multitrack.py) describe the core.
 
 Not established: any media-quality, perceptual or GPU-scale training result; rights-cleared media inventories; measured gates per phase. The remaining work this document tracks is data and evaluation:
 
@@ -179,7 +179,7 @@ The bundle is storage and supervision, not an automatic model prompt. No target 
 
 ## 8. Task compiler and relation specification
 
-A small deterministic compiler (`data/concordance.py`, driven by `scripts/compile_aligned_bundles.py`) sits beside the existing source adapters. It emits ordinary `Episode`, `TrackSpec`, `Meridian`, and `TrackEvent` records plus versioned supervision metadata. It is not a general workflow engine.
+A small deterministic compiler (`data/concordance.py`, driven by the dataset readers in `data/open_media.py`) sits beside the existing source adapters. It emits ordinary `Episode`, `TrackSpec`, `Meridian`, and `TrackEvent` records plus versioned supervision metadata. It is not a general workflow engine.
 
 Each compiled task needs:
 
@@ -583,7 +583,7 @@ Selected group publication/acceptance remains atomic. Even when current R is per
 | --- | --- | --- |
 | 1. Real-weight verification | `scripts/verify_packs.py`, media.md packs | Pocket/Sana/Sana-Video round trip, objective and rollout on an accelerator |
 | 2. Prepared inventories | `scripts/prepare_media.py`, `prepare_media_identity.py` | Identity and text-anchor streams from rights-cleared media, immutable identities |
-| 3. Bundle/task compiler at scale | `data/concordance.py`, `scripts/compile_aligned_bundles.py` | ASR/TTS, direct joint translation, image/description, AV/endpoints, and recorded edits with explicit input/target partitions |
+| 3. Bundle/task compiler at scale | `data/concordance.py`, `data/open_media.py`, `scripts/prepare_open_media.py` | ASR/TTS, direct joint translation, image/description, AV/endpoints, and recorded edits with explicit input/target partitions |
 | 4. Stage runs | `configs/train/media-bridge.example.yaml`, the stage plan | Media bridge, then base pretraining with media shares, chained by DiLoCo coordinator exports |
 | 5. Relation objectives and evaluation | `training/concordance_eval.py`, `scripts/eval_omni_concordance.py`, loss ledger | Sampled peer agreement, endpoint and edit-preservation checks |
 | 6. Interactive/long trajectories | Grouped recurrence, collectors, runtime | Prefix-limited translation, real student edit continuations, actual parallel tools, safe speculation |

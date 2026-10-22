@@ -1,5 +1,5 @@
-"""Omnimodal tasks (aligned bundles) and the resident media realizers."""
+"""Omnimodal relations and the resident media realizers (bundles compile in data/concordance.py)."""
 
-from .bundles import AlignedBundle, Artifact, Edit, Relation, TaskView, compile_views
+from .bundles import Relation
 
-__all__ = ["AlignedBundle", "Artifact", "TaskView", "Relation", "Edit", "compile_views"]
+__all__ = ["Relation"]

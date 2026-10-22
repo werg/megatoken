@@ -1,0 +1,537 @@
+{
+  "schema_version": 1,
+  "metadata_checked_at": "2026-10-22",
+  "sources": [
+    {
+      "source_id": "fineweb-edu-10bt",
+      "uri": "hf://datasets/HuggingFaceFW/fineweb-edu",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "natural_documents",
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "subset": "sample-10BT",
+      "split": "train",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "odc-by-1.0",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "ODC-By 1.0 attribution; also subject to the Common Crawl terms of use."
+      },
+      "field_map": {},
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Web pages scored >= 2 by an educational-quality classifier; family is the page URL."
+    },
+    {
+      "source_id": "stackv2-edu-0000",
+      "uri": "hf://datasets/common-pile/stackv2_edu_filtered",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "natural_code",
+      "revision": "c354dbe88469a1153e97c6a63ac50591849654de",
+      "subset": null,
+      "split": "train",
+      "max_rows": 600,
+      "files": [
+        {
+          "path": "stack-edu-0000.json.gz",
+          "sha256": "d5b9b8fd6068bfbd1a59c2ba1535b4cb0b066ee3751e17b1f1b56ba8b59388c0",
+          "size_bytes": 502259095
+        }
+      ],
+      "terms": {
+        "approved": false,
+        "license": "per-file permissive (Blue Oak list)",
+        "license_url": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Each file carries its own permissive licence (metadata.license, Blue Oak certified list); licence labelling can be wrong (see the dataset card's license-issues section)."
+      },
+      "field_map": {
+        "family": "metadata.repo_name",
+        "filename": "metadata.path",
+        "language": "metadata.language"
+      },
+      "options": {
+        "content_kind": "code"
+      },
+      "publisher_card": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Family is the repository, so every file of one repository stays in one split."
+    },
+    {
+      "source_id": "stackv2-edu-0020",
+      "uri": "hf://datasets/common-pile/stackv2_edu_filtered",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "natural_code",
+      "revision": "c354dbe88469a1153e97c6a63ac50591849654de",
+      "subset": null,
+      "split": "train",
+      "max_rows": 600,
+      "files": [
+        {
+          "path": "stack-edu-0020.json.gz",
+          "sha256": "a7e7e74b37216664012d24988cb749e0267d4b1ffebdb88311cdb762f00dc6f2",
+          "size_bytes": 992584353
+        }
+      ],
+      "terms": {
+        "approved": false,
+        "license": "per-file permissive (Blue Oak list)",
+        "license_url": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Each file carries its own permissive licence (metadata.license, Blue Oak certified list); licence labelling can be wrong (see the dataset card's license-issues section)."
+      },
+      "field_map": {
+        "family": "metadata.repo_name",
+        "filename": "metadata.path",
+        "language": "metadata.language"
+      },
+      "options": {
+        "content_kind": "code"
+      },
+      "publisher_card": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Family is the repository, so every file of one repository stays in one split."
+    },
+    {
+      "source_id": "stackv2-edu-0040",
+      "uri": "hf://datasets/common-pile/stackv2_edu_filtered",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "natural_code",
+      "revision": "c354dbe88469a1153e97c6a63ac50591849654de",
+      "subset": null,
+      "split": "train",
+      "max_rows": 600,
+      "files": [
+        {
+          "path": "stack-edu-0040.json.gz",
+          "sha256": "24725c43a6661ba18804b260f4597aea31d49a8a525b827c799861c489117e39",
+          "size_bytes": 935770568
+        }
+      ],
+      "terms": {
+        "approved": false,
+        "license": "per-file permissive (Blue Oak list)",
+        "license_url": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Each file carries its own permissive licence (metadata.license, Blue Oak certified list); licence labelling can be wrong (see the dataset card's license-issues section)."
+      },
+      "field_map": {
+        "family": "metadata.repo_name",
+        "filename": "metadata.path",
+        "language": "metadata.language"
+      },
+      "options": {
+        "content_kind": "code"
+      },
+      "publisher_card": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Family is the repository, so every file of one repository stays in one split."
+    },
+    {
+      "source_id": "stackv2-edu-0060",
+      "uri": "hf://datasets/common-pile/stackv2_edu_filtered",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "natural_code",
+      "revision": "c354dbe88469a1153e97c6a63ac50591849654de",
+      "subset": null,
+      "split": "train",
+      "max_rows": 600,
+      "files": [
+        {
+          "path": "stack-edu-0060.json.gz",
+          "sha256": "5b51f3baefff19a2ccde6ae610d302dcb72eec505ad2c63ba746c0579b2694e1",
+          "size_bytes": 965834238
+        }
+      ],
+      "terms": {
+        "approved": false,
+        "license": "per-file permissive (Blue Oak list)",
+        "license_url": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Each file carries its own permissive licence (metadata.license, Blue Oak certified list); licence labelling can be wrong (see the dataset card's license-issues section)."
+      },
+      "field_map": {
+        "family": "metadata.repo_name",
+        "filename": "metadata.path",
+        "language": "metadata.language"
+      },
+      "options": {
+        "content_kind": "code"
+      },
+      "publisher_card": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Family is the repository, so every file of one repository stays in one split."
+    },
+    {
+      "source_id": "stackv2-edu-0080",
+      "uri": "hf://datasets/common-pile/stackv2_edu_filtered",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "natural_code",
+      "revision": "c354dbe88469a1153e97c6a63ac50591849654de",
+      "subset": null,
+      "split": "train",
+      "max_rows": 600,
+      "files": [
+        {
+          "path": "stack-edu-0080.json.gz",
+          "sha256": "7847a264bc3abcfd02fb68bab0a2afb5ff099fa1dc670a8cb0d87f0d5d5d5608",
+          "size_bytes": 971712713
+        }
+      ],
+      "terms": {
+        "approved": false,
+        "license": "per-file permissive (Blue Oak list)",
+        "license_url": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Each file carries its own permissive licence (metadata.license, Blue Oak certified list); licence labelling can be wrong (see the dataset card's license-issues section)."
+      },
+      "field_map": {
+        "family": "metadata.repo_name",
+        "filename": "metadata.path",
+        "language": "metadata.language"
+      },
+      "options": {
+        "content_kind": "code"
+      },
+      "publisher_card": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Family is the repository, so every file of one repository stays in one split."
+    },
+    {
+      "source_id": "cosmopedia-web_samples_v2",
+      "uri": "hf://datasets/HuggingFaceTB/cosmopedia",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "synthetic_documents",
+      "revision": "0ae6ec63f91742bd2d1eaef4f02232c55d719385",
+      "subset": "web_samples_v2",
+      "split": "train",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Apache-2.0; text generated by Mixtral-8x7B-Instruct (Apache-2.0)."
+      },
+      "field_map": {},
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Family is the generation prompt, which embeds the seed extract."
+    },
+    {
+      "source_id": "cosmopedia-stanford",
+      "uri": "hf://datasets/HuggingFaceTB/cosmopedia",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "synthetic_documents",
+      "revision": "0ae6ec63f91742bd2d1eaef4f02232c55d719385",
+      "subset": "stanford",
+      "split": "train",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Apache-2.0; text generated by Mixtral-8x7B-Instruct (Apache-2.0)."
+      },
+      "field_map": {},
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Family is the generation prompt, which embeds the seed extract."
+    },
+    {
+      "source_id": "cosmopedia-stories",
+      "uri": "hf://datasets/HuggingFaceTB/cosmopedia",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "synthetic_documents",
+      "revision": "0ae6ec63f91742bd2d1eaef4f02232c55d719385",
+      "subset": "stories",
+      "split": "train",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Apache-2.0; text generated by Mixtral-8x7B-Instruct (Apache-2.0)."
+      },
+      "field_map": {},
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceTB/cosmopedia",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Family is the generation prompt, which embeds the seed extract."
+    },
+    {
+      "source_id": "openmathinstruct2-1m",
+      "uri": "hf://datasets/nvidia/OpenMathInstruct-2",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "synthetic_reasoning",
+      "revision": "469216e3f46f4dacf476b382e192485ea51a143e",
+      "subset": null,
+      "split": "train_1M",
+      "max_rows": 1500,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/OpenMathInstruct-2",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "CC-BY-4.0; solutions generated by Llama-3.1-405B-Instruct, so the Llama 3.1 community licence attribution terms may follow the outputs."
+      },
+      "field_map": {
+        "prompt": "problem",
+        "target": "generated_solution"
+      },
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/nvidia/OpenMathInstruct-2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Math chain-of-thought solutions; the expected answer is a majority vote for augmented problems."
+    },
+    {
+      "source_id": "openthoughts-114k",
+      "uri": "hf://datasets/open-thoughts/OpenThoughts-114k",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "synthetic_reasoning",
+      "revision": "bd093c3994fd54d2390985b66988ddf282a55eb6",
+      "subset": null,
+      "split": "train",
+      "max_rows": 1000,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/open-thoughts/OpenThoughts-114k",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Apache-2.0; reasoning traces generated by DeepSeek-R1 (MIT)."
+      },
+      "field_map": {},
+      "options": {
+        "include_reasoning": false
+      },
+      "publisher_card": "https://huggingface.co/datasets/open-thoughts/OpenThoughts-114k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Traces keep the <|begin_of_thought|> markup in the assistant turn; the dataset's system prompt is not imported."
+    },
+    {
+      "source_id": "oasst-top1",
+      "uri": "hf://datasets/OpenAssistant/oasst_top1_2023-08-25",
+      "format": "hf",
+      "adapter": "serialized_chat",
+      "stream": "chat",
+      "revision": "745b4a3d123f65ab0cac34a84a0528f6d2b67d1e",
+      "subset": null,
+      "split": "train",
+      "max_rows": 1500,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/OpenAssistant/oasst_top1_2023-08-25",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Apache-2.0; human-written multilingual conversations (top-ranked branch of each tree)."
+      },
+      "field_map": {},
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/OpenAssistant/oasst_top1_2023-08-25",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "ChatML text dumps."
+    },
+    {
+      "source_id": "smoltalk-new",
+      "uri": "hf://datasets/HuggingFaceTB/smoltalk",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "5feaf2fd3ffca7c237fc38d1861bc30365d48ffa",
+      "subset": "all",
+      "split": "train",
+      "max_rows": 4000,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "apache-2.0 (new subsets only)",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceTB/smoltalk",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Apache-2.0 applies to the four newly created subsets only; other subsets are third-party datasets with their own licences and are filtered out. Outputs generated by Llama-3.1-405B-Instruct."
+      },
+      "field_map": {},
+      "options": {
+        "row_filters": [
+          {
+            "path": "source",
+            "op": "in",
+            "value": [
+              "smol-magpie-ultra",
+              "smol-constraints",
+              "smol-rewrite",
+              "smol-summarize"
+            ]
+          }
+        ]
+      },
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceTB/smoltalk",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Row filter keeps only the Apache-2.0 subsets; use reject_invalid so filtered rows are counted, not fatal."
+    },
+    {
+      "source_id": "opencodeinstruct",
+      "uri": "hf://datasets/nvidia/OpenCodeInstruct",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "synthetic_code_dialogue",
+      "revision": "8f3ba5bafe4d6e8db46082cf7ae6741bc370604d",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/OpenCodeInstruct",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "CC-BY-4.0; instructions and solutions are LLM generated (see the card for the generator licences)."
+      },
+      "field_map": {
+        "prompt": "input",
+        "target": "output"
+      },
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/nvidia/OpenCodeInstruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Unit-test results are recorded in the row but not imported as outcome."
+    },
+    {
+      "source_id": "open-swe-v12",
+      "uri": "hf://datasets/nvidia/Open-SWE-Traces",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "executed_trajectories",
+      "revision": "1db674173119d71df45c22007af99e214600711a",
+      "subset": "v1.2",
+      "split": "openhands",
+      "max_rows": 300,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Open-SWE-Traces",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Record intended-use and upstream source obligations before acquisition."
+      },
+      "field_map": {},
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Open-SWE-Traces",
+      "metadata_checked_at": "2026-10-17",
+      "readiness": "pilot_schema_validation_required",
+      "notes": "Group by repository and instance_id across versions. resolved=1 is publisher-tested; failed turns need explicit recovery masks. Preserve raw tools and call IDs. Copied from sources.v13.json at its pinned revision; terms remain for the maintainer to approve."
+    },
+    {
+      "source_id": "agent-trove",
+      "uri": "hf://datasets/open-thoughts/AgentTrove",
+      "format": "hf",
+      "adapter": "agent_trove",
+      "stream": "executed_trajectories",
+      "revision": "b395a4307a2bc9950a90dc899438f149e115fc60",
+      "subset": null,
+      "split": "train",
+      "max_rows": 300,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/open-thoughts/AgentTrove",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Record intended-use and upstream source obligations before acquisition."
+      },
+      "field_map": {
+        "id": [
+          "trajectory_id",
+          "episode",
+          "sandbox_id"
+        ],
+        "task": [
+          "task_id",
+          "task_name",
+          "id"
+        ]
+      },
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/open-thoughts/AgentTrove",
+      "metadata_checked_at": "2026-10-17",
+      "readiness": "pilot_schema_validation_required",
+      "notes": "Read original messages, never Marin-rendered gold outcome labels. reward is publisher outcome, not uniformly hidden-test verification. Terminus-2 actions are parsed as complete JSON batches. Copied from sources.v13.json at its pinned revision; terms remain for the maintainer to approve."
+    },
+    {
+      "source_id": "terminal-corpus",
+      "uri": "hf://datasets/nvidia/Nemotron-Terminal-Corpus",
+      "format": "hf",
+      "adapter": "nemotron_terminal",
+      "stream": "executed_trajectories",
+      "revision": "a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9",
+      "subset": "dataset_adapters",
+      "split": "train",
+      "max_rows": 300,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "Record intended-use and upstream source obligations before acquisition."
+      },
+      "field_map": {
+        "task": [
+          "task_id",
+          "task_name",
+          "id"
+        ],
+        "outcome": [
+          "reward",
+          "success",
+          "resolved"
+        ]
+      },
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+      "metadata_checked_at": "2026-10-17",
+      "readiness": "pilot_schema_validation_required",
+      "notes": "Terminus-2 adapter; validate exact task/outcome fields against the chosen subset and join parent tasks. Unknown outcomes are masked unless explicitly admitted as unknown midtraining. Copied from sources.v13.json at its pinned revision; terms remain for the maintainer to approve."
+    }
+  ]
+}

@@ -38,3 +38,8 @@ the adapter. Use bounded pilot row counts and inspect the rejection report.
 `benchmark_quarantine.example.json` documents the explicit benchmark/family
 quarantine interface. Replace it with the IDs and transcript hashes from your
 versioned evaluation set before production preparation.
+
+`sources.open.json` and `sources.open-mb.json` are the permissively licensed pilot sources
+(licences read from each dataset card, recorded in `terms`, approval left to the maintainer);
+the cloud job `configs/cloud/prepare-open-mix.json` prepares them together with the open
+media datasets. See "Open-licence pilot mix" in [`docs/data.md`](../../docs/data.md).

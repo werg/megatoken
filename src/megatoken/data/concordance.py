@@ -381,7 +381,9 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
             )
         ),
         repository=bundle.lineage.repository,
-        task_id=view.family + ":" + view.view_id,
+        # Unique to this bundle's task: a task ID shared by every bundle would put all of them
+        # in one split family (Lineage.family_keys), quarantining mixed frozen splits.
+        task_id=f"{bundle.bundle_id}:{view.family}:{view.view_id}",
         parent_episode_id=bundle.lineage.parent_episode_id,
         source_uri=bundle.lineage.source_uri,
         created_at=bundle.lineage.created_at,

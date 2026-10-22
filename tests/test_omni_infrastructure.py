@@ -5,7 +5,6 @@ import torch
 
 from megatoken.controls import effective_event_payloads
 from megatoken.generation.latents import DiagonalGaussian
-from megatoken.omni.bundles import AlignedBundle, Artifact, Relation, TaskView, compile_views
 from megatoken.omni.clocks import TimeWindow, available_windows
 from megatoken.omni.relations import coordinate_kl, endpoint_targets
 
@@ -21,29 +20,6 @@ def test_distinct_event_requests_are_causal_and_repeatable():
     assert b"Describe visuals" not in prompts[0]
     with pytest.raises(ValueError):
         effective_event_payloads(b"", ("same", "same"), (("a", 0), ("b", 1)))
-
-
-def test_bundle_compiler_keeps_joint_targets_out_of_prefix():
-    a = (
-        Artifact("source", "text", b"hello"),
-        Artifact("speech", "text", b"hello spoken"),
-        Artifact("translation", "text", b"hallo"),
-    )
-    relation = Relation("translation_of", "translation", "source")
-    bundle = AlignedBundle("bundle1", "speaker1", "train", a, (relation,))
-    view = TaskView(
-        "speech_translation",
-        ("source",),
-        ("speech", "translation"),
-        {x.artifact_id: x.artifact_id + " instruction" for x in a},
-        relations=(relation,),
-    )
-    c = compile_views(bundle, (view,))[0]
-    assert len(c.episode.meridians) == 2
-    assert len(c.episode.meridians[1].events) == 2
-    assert all(not r.policy_mask for r in c.episode.records[:1])
-    assert all(r.policy_mask for r in c.episode.records[1:])
-    assert c.episode.lineage.frozen_split == "train"
 
 
 def test_analytic_kl_count_and_duplicate_invariance():

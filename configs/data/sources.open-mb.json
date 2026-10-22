@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "metadata_checked_at": "2026-10-22",
+  "sources": [
+    {
+      "source_id": "fineweb-edu-text",
+      "uri": "hf://datasets/HuggingFaceFW/fineweb-edu",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "text",
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "subset": "sample-10BT",
+      "split": "train",
+      "max_rows": 2000,
+      "files": [],
+      "terms": {
+        "approved": false,
+        "license": "odc-by-1.0",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
+        "reviewed_by": "",
+        "reviewed_at": "",
+        "notes": "ODC-By 1.0 attribution; also subject to the Common Crawl terms of use."
+      },
+      "field_map": {},
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Text replay for the media-bridge stage."
+    }
+  ]
+}

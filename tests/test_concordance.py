@@ -215,9 +215,7 @@ def test_image_creation_target_enters_existing_grouped_loss_ledger(tmp_path):
     config = tiny_train_config(
         tmp_path / "retrieval",
         phase="B0",
-        budget_meter="G",
         budget=10,
-        media_root=str(tmp_path),
         max_history_tokens=128,
         generated_capacity=32,
         effort=1,
@@ -228,7 +226,7 @@ def test_image_creation_target_enters_existing_grouped_loss_ledger(tmp_path):
             compiled, ByteCodec.byte_fallback(), WindowConfig(max_records=6, max_decisions=3)
         )
     )
-    (batch,) = prepare_batches(model, [EpisodeWindow(compiled, window)], config)
+    (batch,) = prepare_batches(model, [EpisodeWindow(compiled, window, store)], config)
     assert batch.counts["visual_prediction"] == 1
     assert batch.counts["relation_semantic"] == 1
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)

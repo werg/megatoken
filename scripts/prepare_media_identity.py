@@ -17,55 +17,11 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from megatoken.data import DedupConfig, DedupStore, Episode, Lineage, PhysicalRecord
-from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
-from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
+from megatoken.data import DedupConfig, DedupStore, Episode
+from megatoken.data.media_assets import MediaRecord, TensorAssetStore
+from megatoken.data.open_media import identity_episode
 from megatoken.data.storage import export_prepared
 from megatoken.loading import load_codec
-
-
-def identity_episode(record: MediaRecord) -> Episode:
-    if record.target is None:
-        raise ValueError("Identity episodes need a realization target")
-    modality = record.modality
-    note = f"Reproduce this {modality}.".encode()
-    records = (
-        PhysicalRecord("prompt", "user", note),
-        PhysicalRecord(
-            "reproduction",
-            "assistant",
-            record.to_bytes(),
-            turn_index=1,
-            policy_mask=True,
-            media_type=MEDIA_RECORD_TYPE,
-            provenance="natural",
-        ),
-    )
-    family = record.source.source_family
-    return Episode(
-        f"{modality}-identity-{family[:24]}",
-        records,
-        Lineage("media-identity", "v1", family),
-        stream=f"{modality}_identity",
-        tracks=(TrackSpec("prompt", "user"), TrackSpec("reproduction", "assistant")),
-        meridians=(
-            Meridian(0, (TrackEvent("prompt", "prompt", "text", 0, "user"),)),
-            Meridian(
-                1,
-                (
-                    TrackEvent(
-                        "reproduction",
-                        "reproduction",
-                        modality,
-                        1,
-                        "assistant",
-                        # Event identity is the observed source, never the R target.
-                        asset_sha256=record.source.sha256,
-                    ),
-                ),
-            ),
-        ),
-    )
 
 
 def main() -> None:

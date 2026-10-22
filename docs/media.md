@@ -11,8 +11,8 @@ cross-modal training live in
 media file ──EmbeddingGemma2 (frozen, offline)──► [T ≤ 8192, 512] hidden states
           └─realizer codec (frozen, offline)────► codec latents (training target)
 
-hidden states ─► MediaEncoder (Linear 512→E width, RMSNorm) ─► shared E reductions ─► [32, D] raw facets
-text bytes    ─► byte E ───────────────────────────────────────────────────────────► [32, D] raw facets
+hidden states ─► MediaEncoder (Linear 512→E width, RMSNorm, 32-query attention read) ─► [32, D] raw facets
+text bytes    ─► byte E ─────────────────────────────────────────────────────────────► [32, D] raw facets
 raw facets ─► C (context, + modality embedding) ─► P (prediction) ─► sampled facets
 sampled facets ─► FacetCondition ─► frozen donor: Pocket (speech) | Sana (image) | Sana-Video (video)
 ```
@@ -39,10 +39,22 @@ audio/vision towers and bidirectional backbone). It is never the pooled
   template, bf16 weights). `ModelConfig.media_extractor` must equal it; features,
   checkpoints and tapes from any other teacher are rejected. Changing the teacher is an architecture change.
 - **Model side.** `FacetedCore.encode_media(features, mask, extractor=...)` is
-  the single entry point: a trainable `MediaEncoder` projection feeds the same
-  E reduction hierarchy as text, so media and text share facet geometry. C
-  adds a learned modality embedding; no separate media stem, transformer or KV
-  exists.
+  the single entry point: a trainable `MediaEncoder` projects the teacher
+  states, 32 learned queries attend over all of them at once, and E's shared
+  facet refinement finishes the facets, so media and text land in the same
+  facet geometry. C adds a learned modality embedding; no separate media stem,
+  transformer or KV exists.
+- **Why one attention read.** Measured against reusing text's pairwise
+  halving on the teacher states (same initialization, same items, 1,500
+  encode-and-reconstruct steps on 400 items per modality from LibriSpeech,
+  Flickr, UCF101 and HotpotQA; 22 October 2026). The attention read matched
+  the teacher's own embedding far better once the shared average direction is
+  removed (centered cosine on held-out items, 0 = unrelated, 1 = identical:
+  0.25 to 0.36 per modality against about 0 for halving), reconstructed held-out
+  media at least as well (realizer loss, lower is better: speech 0.435 vs
+  0.513, image 1.05 vs 1.12, video 2.34 vs 2.68), trained more stably, and cost
+  the same time per step (0.80 vs 0.85 s) for 2.4M instead of 0.13M
+  parameters.
 - **Text is bytes.** Text always enters through byte E. Teacher features of
   text are used only as *text anchors* (below), never as input.
 
@@ -98,6 +110,11 @@ python scripts/prepare_media.py --manifest packs/lock.json --root prepared \
 python scripts/prepare_media_identity.py --records records.jsonl --root prepared \
   --codec <codec> --text-episodes <native text episodes>
 ```
+
+`scripts/prepare_open_media.py` builds the identity streams and the concordant task streams
+(transcription, verbalization, speech translation, image description/creation/editing, speech
+and audiovisual creation/editing) from pinned public datasets in one pass; the sources, licences
+and gaps are in [data.md](data.md#open-licence-pilot-mix).
 
 One decode of each original file yields the assets of a `MediaRecord`: the
 teacher features (`source`) and the teacher's pooled embedding of the same
@@ -159,7 +176,9 @@ owner identically on all workers, so their outer deltas are exactly zero and
 the DiLoCo merge is not diluted; the stage plan requires it for MB and forbids
 it elsewhere. A run uses the stage's mix with `use_stage_mixture: true`; shares
 are shares of *events* (a text chunk, an image, a clip, a compressed document
-each count one), and every named stream must exist in the prepared dataset.
+each count one), and every named stream must exist in one of the prepared roots
+listed in `datasets` (each preparation script writes its own root, with its media
+tensors; see [training.md](training.md)).
 `max_media_events_per_window` caps media events per window. Long-document
 reading streams are episodes whose reference documents are read compressed
 ([compressed-reading.md](compressed-reading.md)); in agent stages, large tool
