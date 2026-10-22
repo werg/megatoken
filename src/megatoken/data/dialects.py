@@ -371,18 +371,26 @@ def role_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
         out.append({"role": "system", "content": system})
     for turn, message in enumerate(_messages(value)):
         raw = message.get("role", message.get("from"))
+        if isinstance(raw, str):
+            raw = raw.replace(" ", "_")  # "tool call" is how one publisher spells tool_call
         if raw in {"tool_call", "function_call"}:
             body = message.get("content", message.get("value"))
             if isinstance(body, str):
                 body = _literal(body, "A tool call body")
-            if not isinstance(body, Mapping):
+            bodies = (
+                body if isinstance(body, list) and body else [body]
+            )  # one message, several calls
+            if any(not isinstance(item, Mapping) for item in bodies):
                 raise SchemaError("A tool call body must be an object")
-            (call_id,) = ledger.issue(turn, 1)
+            ids = ledger.issue(turn, len(bodies))
             out.append(
                 {
                     **message,
                     "role": "assistant",
-                    "content": [_use(call_id, body.get("name"), body.get("arguments", {}))],
+                    "content": [
+                        _use(call_id, item.get("name"), item.get("arguments", {}))
+                        for call_id, item in zip(ids, bodies, strict=True)
+                    ],
                 }
             )
         elif raw in {"tool_response", "observation", "tool"} and ledger.pending:
@@ -865,6 +873,22 @@ def device_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     return out, row.get("tools")
 
 
+def environment_roles(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """ReAct logs whose environment replies carry a ``function`` or ``tool`` role (ToolLLaMA):
+    the reply is spelled as the environment's turn, which the ReAct reader links to the action."""
+    out: Messages = []
+    for message in _messages(value):
+        role = role_of(message)
+        out.append(
+            {
+                **message,
+                "role": "user" if role == "tool" else role,
+                "content": _text_or_json(message),
+            }
+        )
+    return out, row.get("tools")
+
+
 def _response_text(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -945,6 +969,7 @@ def responses(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
 
 DIALECTS: dict[str, Dialect] = {
     "responses": responses,
+    "environment_roles": environment_roles,
     "call_list": call_list,
     "device_calls": device_calls,
     "tool_dict": tool_dict,

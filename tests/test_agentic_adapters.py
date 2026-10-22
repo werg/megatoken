@@ -950,6 +950,37 @@ def test_blank_user_turns_json_message_strings_and_empty_call_fields():
     assert len(adapt(strings, "chat").records) == 2
 
 
+def test_function_role_replies_in_react_logs_are_the_environment_turn():
+    row = {
+        "conversations": [
+            {"from": "system", "value": "You are AutoGPT."},
+            {"from": "user", "value": "Find a meme."},
+            {"from": "assistant", "value": "Thought: search\nAction: memes\nAction Input: {}"},
+            {"from": "function", "value": '{"error": "", "response": "ok"}'},
+            {"from": "assistant", "value": "Thought: done\nAction: Finish\nAction Input: {}"},
+        ]
+    }
+    episode = adapt(row, "react_function_agent", stream="environment_trajectories")
+    assert [r.role for r in episode.records].count("environment") == 1
+
+
+def test_call_roles_spelled_with_a_space_and_calls_listed_in_one_message():
+    row = {
+        "messages": [
+            {"role": "user", "content": "go"},
+            {
+                "role": "tool call",
+                "content": [{"name": "a", "arguments": {"x": 1}}, {"name": "b", "arguments": {}}],
+            },
+            {"role": "tool_response", "content": "1"},
+            {"role": "tool_response", "content": "2"},
+            {"role": "assistant", "content": "done"},
+        ]
+    }
+    episode = adapt(row, "simulated_tool_roles")
+    assert [a.tool_name for a in episode.actions] == ["a", "b"] and linked(episode)
+
+
 def test_xml_function_calls_keep_parameter_types():
     call = (
         "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"

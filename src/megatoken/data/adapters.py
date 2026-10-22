@@ -194,6 +194,9 @@ PROFILES: dict[str, AdapterProfile] = {
     ),
     # Plain ReAct text (Thought/Action turns, environment replies): no structured calls exist.
     "react_agent": AdapterProfile(observation_provenance="executed", environment_turns=True),
+    "react_function_agent": AdapterProfile(
+        observation_provenance="executed", environment_turns=True, dialect="environment_roles"
+    ),
     # Tool dialogues with an LLM-simulated tool backend.
     "hermes_tools": AdapterProfile(observation_provenance="simulated", dialect="hermes"),
     "python_call_tools": AdapterProfile(observation_provenance="simulated", dialect="python_calls"),
