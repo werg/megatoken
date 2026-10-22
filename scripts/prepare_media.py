@@ -36,7 +36,7 @@ def main() -> None:
         args.records.open("x") as records,
         args.anchors.open("x") if args.anchors else open("/dev/null", "w") as anchors,
     ):
-        for line in args.items.read_text(encoding="utf-8").splitlines():
+        for line in args.items.read_text(encoding="utf-8").split("\n"):
             if not line.strip():
                 continue
             item = json.loads(line)

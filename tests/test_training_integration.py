@@ -84,3 +84,48 @@ def test_resume_rejects_changed_objective(training_config):
             ),
             resume=first["checkpoint"],
         )
+
+
+def test_resume_compatibility_covers_every_setting_that_changes_the_trajectory():
+    from dataclasses import asdict
+
+    from megatoken.training.config import DecoupledConfig, TrainConfig
+    from megatoken.training.engine import _resume_compatible
+
+    base = TrainConfig(phase="B0", decoupled=DecoupledConfig("http://a:1", "run", workers=2))
+    saved = asdict(base)
+    # Where the coordinator lives (and how patiently it is polled) does not matter ...
+    moved = replace(
+        base,
+        decoupled=replace(
+            base.decoupled, coordinator_url="http://b:2", timeout_seconds=9.0, io_workers=1
+        ),
+    )
+    _resume_compatible(asdict(base), moved, False)
+    assert saved == asdict(base)  # the comparison does not rewrite the saved configuration
+    # ... what the learner computes does.
+    for changed in (
+        replace(base, decoupled=replace(base.decoupled, local_steps=7)),
+        replace(base, decoupled=replace(base.decoupled, workers=3)),
+        replace(base, decoupled=None),
+        replace(base, accumulate_events=base.accumulate_events + 1),
+        replace(base, max_media_events_per_window=base.max_media_events_per_window + 1),
+    ):
+        with pytest.raises(ValueError, match="Resume configuration changed"):
+            _resume_compatible(asdict(base), changed, False)
+
+
+def test_router_balance_recorders_are_released_when_a_forward_fails(training_config, monkeypatch):
+    models = []
+
+    def failing(model, *args, **kwargs):
+        models.append(model)
+        assert model.core.p_router.balance_recorder is not None
+        raise RuntimeError("forward failed")
+
+    monkeypatch.setattr("megatoken.training.engine.forward_meridian_batch", failing)
+    with pytest.raises(RuntimeError, match="forward failed"):
+        train(training_config)
+    (model,) = models
+    assert model.core.p_router.balance_recorder is None
+    assert model.core.u_router.balance_recorder is None

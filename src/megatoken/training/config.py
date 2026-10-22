@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import dataclasses
 import os
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 from megatoken.contracts import DEFAULT_LOSS_WEIGHTS
 from megatoken.data.recipes import stage_recipe
-from megatoken.io import content_hash, read_mapping
+from megatoken.io import read_mapping
 from megatoken.training.schedule import PHASES, Phase
 
 
@@ -23,8 +23,6 @@ class DecoupledConfig:
     workers: int = 8
     worker_id: int | None = None
     local_steps: int = 256
-    poll_steps: int = 4
-    heartbeat_steps: int = 8
     io_workers: int = 4
     timeout_seconds: float = 120.0
     max_offline_steps: int = 2048
@@ -37,7 +35,7 @@ class DecoupledConfig:
             raise ValueError("Decoupled training needs coordinator_url and run_id")
         if not 1 <= self.workers <= 256:
             raise ValueError("decoupled workers must be in [1, 256]")
-        if min(self.local_steps, self.poll_steps, self.heartbeat_steps, self.io_workers) < 1:
+        if min(self.local_steps, self.io_workers) < 1:
             raise ValueError("decoupled steps and I/O worker count must be positive")
         if self.timeout_seconds <= 0 or self.max_offline_steps < 0:
             raise ValueError("Invalid decoupled timeout/offline tolerance")
@@ -229,6 +227,3 @@ class TrainConfig:
         return cls.from_dict(
             {**read_mapping(path), **{k: v for k, v in overrides.items() if v is not None}}
         )
-
-    def fingerprint(self) -> str:
-        return content_hash(asdict(self))

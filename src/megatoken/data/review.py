@@ -13,7 +13,7 @@ import json
 import sqlite3
 import time
 from collections import Counter
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -25,7 +25,15 @@ from .adapters import AdapterContext, adapt_row
 from .chunking import ChunkingConfig
 from .lineage import LineageJoin
 from .quality import QualityPolicy, validate_quality, validate_row_filters
-from .schema import Codec, Episode, canonical_json, digest_bytes, encode_record, stable_id
+from .schema import (
+    Codec,
+    EncodedRecord,
+    Episode,
+    canonical_json,
+    digest_bytes,
+    encode_episode,
+    stable_id,
+)
 from .sources import SourceSpec
 
 REVIEW_VERSION = "parser-review-v1"
@@ -132,18 +140,17 @@ class ParserReviewPolicy:
 
 def validate_prepared_episode(
     episode: Episode,
-    codec: Codec,
+    encoded: Sequence[EncodedRecord],
     quality: QualityPolicy,
     *,
     max_record_tokens: int,
     max_record_bytes: int,
 ) -> None:
     """The shared normal preparation/replay gate, including native immutability."""
-    validate_quality(episode, codec, quality)
+    validate_quality(episode, encoded, quality)
     if any(
-        encode_record(record, codec).positions > max_record_tokens
-        or len(record.payload) > max_record_bytes
-        for record in episode.records
+        item.positions > max_record_tokens or len(item.record.payload) > max_record_bytes
+        for item in encoded
     ):
         raise ValueError(
             "A native generated physical record exceeds max_record_tokens or max_record_bytes; "
@@ -541,7 +548,7 @@ class ParserReviewQueue:
             episode = adapt_row(row, source.adapter, context)
             validate_prepared_episode(
                 episode,
-                codec,
+                encode_episode(episode, codec),
                 source_quality(source),
                 max_record_tokens=selected.hard_max_tokens,
                 max_record_bytes=selected.max_bytes,

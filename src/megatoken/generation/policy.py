@@ -5,15 +5,14 @@ from __future__ import annotations
 import math
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from itertools import chain
 from typing import Any
 
 import torch
 from torch import Tensor, nn
 
+from megatoken.contracts import ROLE_TO_ID
 from megatoken.controls import encode_controls
 from megatoken.model.media import MediaRealizers
-from megatoken.model.relations import RelationProjection
 from megatoken.teacher import EMBEDDING_WIDTH
 from megatoken.tensors import byte_tensor
 
@@ -83,7 +82,6 @@ class FacetedGenerator(nn.Module):
         self.embedding_realizer = EmbeddingRealizer(
             self.config.n_facets, self.config.facet_dim, EMBEDDING_WIDTH
         )
-        self.relations = RelationProjection(self.config.facet_dim)
         from megatoken.memory.transducer import TransducerBank
         from megatoken.model.transducer import NativeTransducer
 
@@ -290,7 +288,7 @@ class FacetedGenerator(nn.Module):
         detached_target, detached_mean = target.detach().float(), mean.detach().float()
         metrics = {
             "scored_positions": plan.scored_positions,
-            "capacity": plan.capacity,
+            "capacity": max(plan.capacities),
             "prior_examples": batch,
             "reconstruction_examples": batch,
             "reconstruction_direct_examples": batch,
@@ -311,7 +309,7 @@ class FacetedGenerator(nn.Module):
             "facet_alignment_coordinates": target.numel(),
             "facet_encodes": batch,
             "facet_bytes_encoded": sum(map(len, payloads)),
-            "capacity_positions": 2 * batch * plan.capacity,
+            "capacity_positions": 2 * sum(plan.capacities),
             "lexical_passes": 2,
             "structured_actions": int(isinstance(plan, PreparedAction)),
             "teacher_forced_action_continuations": int(
@@ -389,26 +387,12 @@ class FacetedGenerator(nn.Module):
         )
 
     @torch.no_grad()
-    def decode_state(self, state, *, spec: ActionSpec | None = None) -> DecodedAction:
-        """Decode selected raw facets, independent of central processing."""
-        return self.decoder(self.core, self.core.prepare_realization(state), self._spec(spec))
-
-    @torch.no_grad()
     def decode_facets(self, raw_facets: Tensor, *, spec: ActionSpec | None = None) -> DecodedAction:
         """Decode a canonical facet block without processing or committing it."""
         expected = (1, self.config.n_facets, self.config.facet_dim)
         if tuple(raw_facets.shape) != expected or not bool(torch.isfinite(raw_facets).all()):
             raise ValueError(f"decode_facets requires one finite raw tensor with shape {expected}")
         return self.decoder(self.core, self.core.prepare_realization(raw_facets), self._spec(spec))
-
-    @torch.no_grad()
-    def decode_mean(
-        self, state, *, spec=None, control_payload: bytes = b"", effort=6
-    ) -> DecodedAction:
-        """Inspect the predictor mean without sampling or committing anything."""
-        control = encode_controls(self.core, [control_payload], encoder_grad=False)
-        mean = self.core.predict_facets(state, control=control, effort=effort)
-        return self.decode_facets(mean, spec=spec)
 
     @torch.no_grad()
     def sample(
@@ -420,20 +404,10 @@ class FacetedGenerator(nn.Module):
         effort=6,
         generator=None,
         role_id=2,
-        rl=False,
-        temperature=1.0,
-        top_k=None,
-        top_p=None,
     ) -> PolicyResult:
         if state.batch_size != 1:
             raise ValueError("sample and score_tape require one independent episode")
-        if temperature != 1.0 or top_k is not None or top_p is not None:
-            raise ValueError(
-                "one Gaussian draw and deterministic argmax do not support token sampling controls"
-            )
-        if rl and effort != 6:
-            raise ValueError("outcome RL requires fixed effort 6")
-        if not 0 <= role_id <= 5:
+        if not 0 <= role_id < len(ROLE_TO_ID):
             raise ValueError("action role ID is unsupported")
         spec = self._spec(spec)
         self.core.routing_aux_loss(clear=True)
@@ -574,63 +548,6 @@ class FacetedGenerator(nn.Module):
         yield from self.core.media_encoder.parameters()
         yield self.core.central.modality_embedding.weight
         yield from self.media_realizers.parameters()
-
-    def parameter_owners(self) -> dict[str, tuple[nn.Parameter, ...]]:
-        """Disjoint owner groups (E, C, P, R) covering every parameter exactly once."""
-        transducer = self.transducer
-        hindsight = transducer.hindsight_realizer
-        groups = {
-            # The knowledge readout encodes an observation, like E does.
-            "E": (self.core.encoder_parameters(), transducer.readout.parameters()),
-            "C": (self.core.central_parameters(),),
-            # Queries, the search and the training-only hindsight head are policy-side.
-            "P": (
-                self.core.predictor_parameters(),
-                self.facet_distribution.parameters(),
-                self.relations.parameters(),
-                transducer.query_realizer.parameters(),
-                transducer.prefix_head.parameters(),
-                transducer.bank.parameters(),
-                () if hindsight is None else hindsight.parameters(),
-            ),
-            "R": (
-                self.decoder.parameters(),
-                self.media_realizers.parameters(),
-                self.embedding_realizer.parameters(),
-                self.core.control_parameters(),
-                self.core.realizer_parameters(),
-            ),
-        }
-        owners: dict[str, tuple[nn.Parameter, ...]] = {}
-        claimed: dict[int, str] = {}
-        for owner, sources in groups.items():
-            members = []
-            for parameter in chain.from_iterable(sources):
-                previous = claimed.setdefault(id(parameter), owner)
-                if previous != owner:
-                    raise RuntimeError(f"Parameter is owned by both {previous} and {owner}")
-                if previous == owner and all(parameter is not m for m in members):
-                    members.append(parameter)
-            owners[owner] = tuple(members)
-        missing = [n for n, p in self.named_parameters() if id(p) not in claimed]
-        if missing:
-            raise RuntimeError(f"Parameters without an owner: {missing[:5]}")
-        return owners
-
-    def deterministic_decoder_parameters(self):
-        """E, C and R: the fixed latent-RL action map."""
-        owners = self.parameter_owners()
-        yield from chain(owners["E"], owners["C"], owners["R"])
-
-    def freeze_decoder_for_rl(self) -> tuple[str, ...]:
-        frozen = {id(parameter) for parameter in self.deterministic_decoder_parameters()}
-        names = []
-        for name, parameter in self.named_parameters():
-            if id(parameter) in frozen:
-                parameter.requires_grad_(False)
-                parameter.grad = None
-                names.append(name)
-        return tuple(names)
 
     def served_state_dict(self) -> dict[str, Tensor]:
         """All encoder, decoder and predictor owners are shared with serving.

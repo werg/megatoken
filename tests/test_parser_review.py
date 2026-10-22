@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from prepare_support import interrupt_after_rows
 
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.dedup import DedupConfig
@@ -592,14 +593,16 @@ def test_incomplete_chat_opt_in_and_generation_headers_remain_unscored_context(
         assert not any(record.policy_mask for record in dataset[0].records)
 
 
-def test_review_capture_and_source_cursor_commit_together_on_resume(tmp_path):
+def test_review_capture_and_source_cursor_commit_together_on_resume(tmp_path, monkeypatch):
     rows = [{"text": "unframed", "family_id": f"family-{index}"} for index in range(3)]
     source = make_source(
         tmp_path, rows, adapter="serialized_chat", options={"chat_template": "chatml"}
     )
     root = tmp_path / "interrupted"
-    with pytest.raises(InterruptedError):
-        prepare_sources([source], root, ByteCodec(), _interrupt_after=1)
+    with monkeypatch.context() as crash:
+        interrupt_after_rows(crash, 1)
+        with pytest.raises(InterruptedError):
+            prepare_sources([source], root, ByteCodec())
     with ParserReviewQueue(root / "preparation.sqlite") as queue:
         assert queue.summary()["total"] == 1
         assert queue.connection.execute("SELECT next_row FROM source_progress").fetchone()[0] == 1

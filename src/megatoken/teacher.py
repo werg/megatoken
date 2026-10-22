@@ -19,7 +19,6 @@ import re
 from pathlib import Path
 
 PACK = "embeddinggemma2"
-REPOSITORY = "google/embeddinggemma-2"
 HIDDEN_WIDTH = 512
 EMBEDDING_WIDTH = 768
 HIDDEN_TAP = "language_model.embedding_projection:input"

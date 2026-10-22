@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 
 import pytest
+from prepare_support import interrupt_after_rows
 
 from megatoken.data import DedupConfig, TermsReview, pin_local_source, prepare_sources
 from megatoken.data.sources import iter_source_rows
@@ -50,7 +51,7 @@ def parquet_source(tmp_path):
 
 
 def test_local_parquet_row_groups_resume_rejections_and_byte_exact_preparation(
-    tmp_path, parquet_source
+    tmp_path, parquet_source, monkeypatch
 ):
     rows, source = parquet_source
     source.validate_local_files()
@@ -72,8 +73,10 @@ def test_local_parquet_row_groups_resume_rejections_and_byte_exact_preparation(
         prepare_sources([source], tmp_path / "strict", codec, **options)
 
     output = tmp_path / "resumed"
-    with pytest.raises(InterruptedError):
-        prepare_sources([source], output, codec, reject_invalid=True, _interrupt_after=3, **options)
+    with monkeypatch.context() as crash:
+        interrupt_after_rows(crash, 3)
+        with pytest.raises(InterruptedError):
+            prepare_sources([source], output, codec, reject_invalid=True, **options)
     with prepare_sources([source], output, codec, reject_invalid=True, **options) as prepared:
         episodes = list(prepared.iter_episodes())
         actual_payloads = {

@@ -2,6 +2,7 @@ import json
 from dataclasses import replace
 
 import pytest
+from prepare_support import interrupt_after_rows
 
 from megatoken.data import (
     DedupConfig,
@@ -148,12 +149,14 @@ def test_quality_rejection_still_quarantines_known_benchmark_ancestry(tmp_path):
         assert dataset.manifest["census"]["quarantined"] == 1
 
 
-def test_resume_after_atomic_row_commit_matches_uninterrupted_dataset(tmp_path):
+def test_resume_after_atomic_row_commit_matches_uninterrupted_dataset(tmp_path, monkeypatch):
     codec = ByteCodec.byte_fallback()
     source = write_demo_source(tmp_path / "raw.jsonl", count=7)
     config = DedupConfig(train_fraction=1, validation_fraction=0)
-    with pytest.raises(InterruptedError):
-        prepare_sources([source], tmp_path / "resumed", codec, dedup=config, _interrupt_after=3)
+    with monkeypatch.context() as crash:
+        interrupt_after_rows(crash, 3)
+        with pytest.raises(InterruptedError):
+            prepare_sources([source], tmp_path / "resumed", codec, dedup=config)
     with prepare_sources(
         [source], tmp_path / "resumed", codec, dedup=config, shard_bytes=1000
     ) as resumed:
@@ -168,7 +171,6 @@ def test_resume_after_atomic_row_commit_matches_uninterrupted_dataset(tmp_path):
     ) as straight:
         assert resumed_ids == [episode.episode_id for episode in straight.iter_episodes()]
         assert resumed_census == straight.manifest["census"]
-        assert straight.manifest["census"]["P"] == 0
         assert straight.manifest["census"]["free_position_candidates"] > 0
 
 
@@ -220,7 +222,7 @@ def test_source_revision_and_terms_are_explicit():
 def test_current_stage_budget_units_and_proposed_mixtures():
     assert {
         phase: (stage_recipe(phase).meter, stage_recipe(phase).limit)
-        for phase in ("B0", "MB", "P1", "M1", "M2", "LC", "S", "D", "R")
+        for phase in ("B0", "MB", "P1", "M1", "M2", "LC", "S", "D")
     } == {
         "B0": ("I", 250_000_000),
         "MB": ("G", 4_000_000),
@@ -230,14 +232,224 @@ def test_current_stage_budget_units_and_proposed_mixtures():
         "LC": ("D", 20_000_000_000),
         "S": ("P", 2_000_000_000),
         "D": ("P", 1_000_000_000),
-        "R": ("Z", 32_000_000_000),
     }
-    assert stage_recipe("M1").exposures["issue_pr_sequences"] == 22_766_400_000
-    assert stage_recipe("M1").exposures["build_logs"] == 669_600_000
+    m1 = stage_recipe("M1")
+    assert round(m1.mixture["issue_pr_sequences"] * m1.limit) == 22_766_400_000
+    assert round(m1.mixture["build_logs"] * m1.limit) == 669_600_000
     # Media is part of the plan: a bridge stage, then explicit shares and replay.
     assert stage_recipe("MB").constraints["trainable"] == "media_bridge"
     p1 = stage_recipe("P1").mixture
     media = ("audio_identity", "image_identity", "video_identity", "transcription")
     assert all(p1[name] > 0 for name in media) and p1["long_document_reading"] == 0.03
     assert stage_recipe("M2").mixture["image_identity"] > 0
-    assert stage_recipe("LC").constraints["writer_reader_scored_windows_min_fraction"] == 0.3
+
+
+def test_shared_boilerplate_never_quarantines_distinct_documents_or_hides_a_near_duplicate(
+    tmp_path,
+):
+    codec = ByteCodec.byte_fallback()
+    header = " ".join(f"licence{i}" for i in range(80))
+
+    def body(index, changed=None):
+        words = [f"doc{index}word{i}" for i in range(200)]
+        if changed is not None:
+            words[changed] = "changed"
+        return header + " " + " ".join(words)
+
+    config = DedupConfig(max_candidates=4)
+    with DedupStore(tmp_path / "families", config) as store:
+        with store.transaction():
+            statuses = [
+                store.add(document(f"d{index}", body(index), f"family-{index}"), codec)
+                for index in range(30)
+            ]
+            # After the header's shingles are shared by far more than four documents,
+            # a near duplicate of an early document must still be found.
+            near = store.add(document("near", body(3, changed=100), "near-family"), codec)
+        assert statuses == ["accepted_candidate"] * 30
+        assert near == "duplicate"
+        assert store.census()["quarantined"] == 0
+        assert (
+            store.connection.execute(
+                "SELECT duplicate_of FROM episodes WHERE episode_id='near'"
+            ).fetchone()[0]
+            == "d3"
+        )
+
+
+@pytest.mark.parametrize("train,validation", [(0.9, 0.1), (0.8, 0.2), (0.7, 0.3)])
+def test_split_fractions_that_sum_to_one_are_accepted_despite_float_rounding(train, validation):
+    DedupConfig(train_fraction=train, validation_fraction=validation)
+    with pytest.raises(ValueError, match="proportions"):
+        DedupConfig(train_fraction=train, validation_fraction=validation + 0.01)
+
+
+def test_episode_content_hash_is_computed_once_and_not_serialized():
+    episode = document("cached", "some text", "family")
+    first = episode.content_sha256
+    assert first == episode.content_sha256
+    assert "_content_sha256" not in episode.to_dict()
+    assert Episode.from_dict(episode.to_dict()).content_sha256 == first
+    assert replace(episode, stream="other").content_sha256 == first
+
+
+def filter_source(tmp_path, rows, *, adapter="document", options=None, **kwargs):
+    path = tmp_path / "rows.jsonl"
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    source = pin_local_source(
+        path,
+        source_id="fixture",
+        adapter=adapter,
+        stream="natural_documents",
+        terms=TermsReview(True, "test", reviewed_by="test", reviewed_at="2026-10-22"),
+    )
+    return replace(source, options=options or {}, **kwargs)
+
+
+def test_declared_row_filters_select_rows_without_aborting_the_default_run(tmp_path):
+    rows = [
+        {
+            "text": f"A document number {index} with enough words.",
+            "family_id": f"f{index}",
+            "metadata": {"score": index},
+        }
+        for index in range(6)
+    ]
+    source = filter_source(
+        tmp_path,
+        rows,
+        options={"row_filters": [{"path": "metadata.score", "op": "gte", "value": 3}]},
+    )
+    with prepare_sources([source], tmp_path / "out", ByteCodec.byte_fallback()) as dataset:
+        census = dataset.manifest["census"]
+        assert census["accepted_episodes"] == 3
+        assert census["filtered_rows"] == 3 and census["rejected_rows"] == 0
+        assert json.loads((tmp_path / "out" / "rejections.json").read_text())["rows"] == []
+
+
+def test_an_adapter_bug_is_never_swallowed_as_an_invalid_row(tmp_path, monkeypatch):
+    source = filter_source(tmp_path, [{"text": "fine", "family_id": "f"}])
+
+    def broken(row, adapter, context):
+        return {}["missing"]
+
+    monkeypatch.setattr("megatoken.data.prepare.adapt_row", broken)
+    with pytest.raises(KeyError) as raised:
+        prepare_sources([source], tmp_path / "out", ByteCodec.byte_fallback(), reject_invalid=True)
+    assert any("row 0" in note for note in raised.value.__notes__)
+
+
+def test_misspelled_adapter_options_fail_before_any_row_is_read(tmp_path):
+    source = filter_source(
+        tmp_path,
+        [{"text": "fine", "family_id": "f"}],
+        options={"allow_pending_final_actions": True},
+    )
+    with pytest.raises(ValueError, match="allow_pending_final_actions"):
+        prepare_sources([source], tmp_path / "out", ByteCodec.byte_fallback())
+    assert not (tmp_path / "out" / "preparation.sqlite").exists()
+
+
+def test_record_limits_can_raise_the_chunking_policy_and_manifest_commits_last(
+    tmp_path, monkeypatch
+):
+    from megatoken.data import storage
+    from megatoken.data.chunking import ChunkingConfig
+
+    written = []
+    real = storage.write_json
+    monkeypatch.setattr(
+        storage, "write_json", lambda path, value: (written.append(path.name), real(path, value))
+    )
+    source = write_demo_source(tmp_path / "raw.jsonl", count=3)
+    with prepare_sources(
+        [source],
+        tmp_path / "out",
+        ByteCodec.byte_fallback(),
+        chunking=ChunkingConfig(),
+        max_record_tokens=4096,
+        max_record_bytes=65536,
+    ) as dataset:
+        config = dataset.manifest["chunking"]["config"]
+        assert (config["hard_max_tokens"], config["max_bytes"]) == (4096, 65536)
+        assert config["soft_max_tokens"] == 768
+    assert written[-1] == "manifest.json"
+    assert set(written[:-1]) == {"rejections.json", "parser-review.json"}
+
+
+def test_prepared_roots_are_checksummed_once_per_process_and_unknown_splits_are_errors(
+    tmp_path, monkeypatch
+):
+    from megatoken.data import storage
+
+    source = write_demo_source(tmp_path / "raw.jsonl", count=3)
+    prepare_sources([source], tmp_path / "out", ByteCodec.byte_fallback()).close()
+    hashed = []
+    real = storage.sha256_file
+    monkeypatch.setattr(storage, "sha256_file", lambda path: (hashed.append(path), real(path))[1])
+    storage._VERIFIED_FILES.clear()
+    for _ in range(3):
+        with PreparedDataset(tmp_path / "out", split="train") as dataset:
+            list(dataset.iter_episodes())
+    first_pass = len(hashed)
+    assert first_pass == len(set(hashed)) > 0
+    with pytest.raises(ValueError, match="Unknown split"):
+        PreparedDataset(tmp_path / "out", split="trian")
+    (tmp_path / "out" / "episodes-000000.jsonl").write_bytes(b"tampered\n")
+    with pytest.raises(ValueError, match="checksum"):
+        with PreparedDataset(tmp_path / "out", split="train") as dataset:
+            list(dataset.iter_episodes())
+
+
+def test_source_identity_ignores_review_stamps_and_where_the_files_sit(tmp_path):
+    rows = tmp_path / "rows.jsonl"
+    rows.write_text('{"text": "a document", "family_id": "f"}\n')
+    moved = tmp_path / "elsewhere" / "rows.jsonl"
+    moved.parent.mkdir()
+    moved.write_bytes(rows.read_bytes())
+
+    def pinned(path, reviewed_at):
+        return pin_local_source(
+            path,
+            source_id="fixture",
+            adapter="document",
+            stream="natural_documents",
+            terms=TermsReview(True, "test", reviewed_by="someone", reviewed_at=reviewed_at),
+        )
+
+    first, later, relocated = (
+        pinned(rows, "2026-10-01"),
+        pinned(rows, "2026-10-22"),
+        pinned(moved, "2026-10-22"),
+    )
+    assert first.fingerprint == later.fingerprint == relocated.fingerprint
+    moved.write_text('{"text": "a different document", "family_id": "f"}\n')
+    assert pinned(moved, "2026-10-22").fingerprint != first.fingerprint
+
+
+def test_rows_before_a_pipeline_error_stay_committed_and_the_failing_row_does_not(
+    tmp_path, monkeypatch
+):
+    from megatoken.data import prepare
+
+    rows = [
+        {"text": f"Document number {index} is here.", "family_id": f"f{index}"}
+        for index in range(5)
+    ]
+    source = filter_source(tmp_path, rows)
+    real = prepare.adapt_row
+
+    def flaky(row, adapter, context):
+        if context.row_index == 3:
+            raise RuntimeError("adapter bug")
+        return real(row, adapter, context)
+
+    monkeypatch.setattr(prepare, "adapt_row", flaky)
+    with pytest.raises(RuntimeError, match="adapter bug"):
+        prepare_sources([source], tmp_path / "out", ByteCodec.byte_fallback())
+    monkeypatch.setattr(prepare, "adapt_row", real)
+    with DedupStore(tmp_path / "out" / "preparation.sqlite") as store:
+        assert store.source_cursor(source.fingerprint) == (3, False)
+        assert store.connection.execute("SELECT COUNT(*) FROM episodes").fetchone()[0] == 3
+    with prepare_sources([source], tmp_path / "out", ByteCodec.byte_fallback()) as dataset:
+        assert dataset.manifest["census"]["accepted_episodes"] == 5

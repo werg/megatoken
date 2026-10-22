@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from functools import cached_property, lru_cache
 from typing import Any
 
+from megatoken.contracts import ROLE_TO_ID
 from megatoken.io import strict_json_loads
 
 
@@ -88,7 +89,7 @@ class Observation:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "payload", bytes(self.payload))
-        if not 0 <= self.role_id <= 5:
+        if not 0 <= self.role_id < len(ROLE_TO_ID):
             raise ValueError("observation role ID must identify a supported record role")
 
 
@@ -207,6 +208,8 @@ class ActionSpec:
             raise ValueError("invalid text alphabet")
         if not 0 <= self.min_tokens <= self.max_tokens:
             raise ValueError("invalid action token limits")
+        if self.require_terminal is not None and not isinstance(self.require_terminal, bool):
+            raise ValueError("require_terminal must be true, false or null")
         if len({source.name for source in self.copy_sources}) != len(self.copy_sources):
             raise ValueError("copy source names must be unique")
 
@@ -299,7 +302,7 @@ class ActionTape:
                 raise ValueError("raw facet actions must be finite")
         if not math.isfinite(self.behavior_log_prob):
             raise ValueError("behavior Gaussian density must be finite")
-        if not 0 <= self.role_id <= 5:
+        if not 0 <= self.role_id < len(ROLE_TO_ID):
             raise ValueError("tape role ID is unsupported")
 
     def facet_array(self):
@@ -330,7 +333,7 @@ class ActionTape:
         if value.get("version") != TAPE_VERSION:
             raise ValueError("legacy action tape version is incompatible with raw-facet replay")
         if "control_payload" not in value:
-            raise ValueError("v4 action tapes require their exact control_payload bytes")
+            raise ValueError("action tapes require their exact control_payload bytes")
         value["trace"] = tuple(Decision(**decision) for decision in value.get("trace", ()))
         value["payload"] = _parse_bytes(value["payload"], "payload")
         value["control_payload"] = _parse_bytes(value["control_payload"], "control_payload")

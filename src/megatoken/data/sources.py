@@ -73,7 +73,19 @@ class SourceSpec:
 
     @property
     def fingerprint(self) -> str:
-        return content_hash(asdict(self))
+        """What is read, not who approved it or where the files sit on this machine."""
+        value = asdict(self)
+        value["terms"] = {"license": self.terms.license, "license_url": self.terms.license_url}
+        value["files"] = [{**item, "path": Path(item["path"]).name} for item in value["files"]]
+        if self.format != "hf":
+            value["uri"] = Path(self.uri).name
+        if value["options"].get("lineage_join"):
+            join = value["options"]["lineage_join"]
+            value["options"] = {
+                **value["options"],
+                "lineage_join": {**join, "path": Path(join["path"]).name},
+            }
+        return content_hash(value)
 
     @property
     def repository_id(self) -> str:

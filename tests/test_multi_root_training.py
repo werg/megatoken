@@ -338,6 +338,24 @@ def test_media_bridge_trains_from_two_roots_and_evaluates_every_stream(tmp_path,
     assert {int(s["step"]) for s in payload["optimizer"]["moments"].values()} == {2}
 
 
+def test_stage_mixture_with_autoencode_resumes_exactly(tmp_path, fake_realizers):
+    """The stream cursor, the encode-and-reconstruct draws and the random state all resume."""
+    torch.set_num_threads(1)
+    roots = media_bridge_roots(tmp_path)
+    config = media_bridge_config(tmp_path, roots, max_steps=1)
+    full = train(replace(config, output=config.output + "-full", max_steps=2))
+    first = train(config)
+    resumed = train(config, resume=first["checkpoint"])
+    uninterrupted, _ = load_checkpoint(full["checkpoint"])
+    recovered, _ = load_checkpoint(resumed["checkpoint"])
+    sampler = uninterrupted["rank_state"][0]["autoencode"]
+    assert sampler["turn"] > 64  # two steps of 64 draws each moved the sampler
+    assert recovered["rank_state"][0]["autoencode"] == sampler
+    assert recovered["rank_state"][0]["cursor"] == uninterrupted["rank_state"][0]["cursor"]
+    for name, value in uninterrupted["model"].items():
+        torch.testing.assert_close(recovered["model"][name], value, rtol=0, atol=0)
+
+
 def test_heldout_evaluation_is_deterministic_bounded_and_splits_across_ranks(
     tmp_path, fake_realizers
 ):
@@ -432,8 +450,6 @@ def test_diloco_worker_evaluates_and_trains_from_several_roots(tmp_path, monkeyp
         workers=1,
         worker_id=0,
         local_steps=1,
-        poll_steps=1,
-        heartbeat_steps=1,
         io_workers=2,
         timeout_seconds=30,
         max_offline_steps=20,

@@ -58,25 +58,23 @@ def test_selected_palette_and_row_confidence_receive_task_gradients():
 
 
 def test_routing_deterministic_replay_and_batch_membership_invariance():
-    router = EpochRouter(8, 8, 16, 4, exploration=0.2)
+    router = EpochRouter(8, 8, 16, 4)
     context = torch.randn(3, 8)
-    ids = torch.tensor([51, 72, 93])
-    together = router.route(context, 9, 31, record_ids=ids)
+    together = router.route(context, 9, 31)
     for index in range(3):
-        alone = router.route(context[index : index + 1], 9, 31, record_ids=ids[index : index + 1])
+        alone = router.route(context[index : index + 1], 9, 31)
         torch.testing.assert_close(
             alone.expert_ids, together.expert_ids[index : index + 1], rtol=0, atol=0
         )
         torch.testing.assert_close(
             alone.confidence, together.confidence[index : index + 1], rtol=1e-6, atol=1e-6
         )
-    other = router.route(context, 9, 31, record_ids=ids)
+    other = router.route(context, 9, 31)
     torch.testing.assert_close(other.expert_ids, together.expert_ids, rtol=0, atol=0)
-    # Policy replay overrides training exploration without mutating module mode.
-    deterministic = router.route(context, 9, 31, allow_exploration=False)
+    # Training mode never perturbs the selection.
     router.eval()
     evaluated = router.route(context, 9, 31)
-    torch.testing.assert_close(deterministic.expert_ids, evaluated.expert_ids, rtol=0, atol=0)
+    torch.testing.assert_close(evaluated.expert_ids, together.expert_ids, rtol=0, atol=0)
 
 
 def test_record_role_is_causal_model_input():

@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from media_support import observe_text
 
 from megatoken.generation.codec import ByteCodec
 from megatoken.generation.latents import DiagonalGaussian
@@ -47,6 +48,44 @@ def test_singleton_matches_original_core_and_predictor():
         atol=1e-5,
         rtol=1e-5,
     )
+
+
+def test_grouped_prediction_recomputes_stages_exactly_when_checkpointed(monkeypatch):
+    from megatoken.model import core as core_module
+
+    calls = []
+    original = core_module.checkpoint
+    monkeypatch.setattr(
+        core_module,
+        "checkpoint",
+        lambda *args, **kwargs: calls.append(1) or original(*args, **kwargs),
+    )
+    torch.manual_seed(5)
+    plain_core = FacetedCore(ModelConfig.tiny(max_history_chunks=8)).train()
+    checkpointed = FacetedCore(ModelConfig.tiny(max_history_chunks=8, checkpoint_stages=True))
+    checkpointed.load_state_dict(plain_core.state_dict())
+    checkpointed.train()
+    tracks = ("camera", "audio")
+    raw = _selected(plain_core, tracks)
+    grads, outputs, routed, stage_checkpoints = [], [], [], []
+    for core in (plain_core, checkpointed):
+        multi = MultiTrackCore(core)
+        state = multi.advance_group(
+            multi.initial_state(1), raw, tracks=tracks, role_ids=_roles(tracks)
+        )
+        core.p_bank.metrics(reset=True)
+        calls.clear()
+        predicted = multi.predict_group(state, tracks=("a", "b"), effort=2)
+        predicted.square().sum().backward()
+        outputs.append(predicted.detach())
+        stage_checkpoints.append(len(calls))
+        grads.append(core.p_bank.gate_up.grad.clone())
+        # Recomputing activations must not be counted as expert exposure.
+        routed.append(core.p_bank.metrics()["dispatches"].item())
+    torch.testing.assert_close(outputs[0], outputs[1], atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(grads[0], grads[1], atol=1e-4, rtol=1e-4)
+    assert routed[0] == routed[1] > 0
+    assert stage_checkpoints == [0, checkpointed.config.prediction_layers]
 
 
 def test_joint_observation_reads_peers_and_prediction_does_not_commit():
@@ -112,8 +151,8 @@ def test_invalid_identity_and_group_geometry():
 
 def test_observe_text_group():
     core, multi = _tiny()
-    state = multi.observe_text_group(
-        multi.initial_state(1), (b"Hello", b"World"), tracks=("speaker", "screen")
+    state = observe_text(
+        multi, multi.initial_state(1), (b"Hello", b"World"), tracks=("speaker", "screen")
     )
     assert state.history.slots == 2 * core.config.n_facets
     assert state.frontier_tracks == ("speaker", "screen")
@@ -124,9 +163,9 @@ def test_grouped_generation_tape_and_exact_replay():
     core, multi = _tiny()
     model = FacetedGenerator(core, ByteCodec.byte_fallback())
     serving = MultiTrackGenerator(model)
-    state = multi.observe_text_group(multi.initial_state(1), (b"Say hi",), tracks=("user",))
+    state = observe_text(multi, multi.initial_state(1), (b"Say hi",), tracks=("user",))
     specs = (ActionSpec(max_tokens=8), ActionSpec(max_tokens=8))
-    sample = serving.generate_text_group(
+    sample = serving.generate_group(
         state,
         tracks=("answer", "caption"),
         specs=specs,
@@ -139,13 +178,13 @@ def test_grouped_generation_tape_and_exact_replay():
     assert len(tape.event_log_probs) == 2
     assert sum(tape.event_log_probs) == pytest.approx(tape.behavior_log_prob, rel=1e-5)
     assert sample.state.meridian_sizes == (1, 2)
-    replay = serving.replay_text_group(state, tape, specs=specs, effort=1)
+    replay = serving.replay_group(state, tape, specs=specs, effort=1)
     torch.testing.assert_close(replay.state.final, sample.state.final, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(replay.log_prob, sample.log_prob, atol=1e-4, rtol=1e-5)
     with pytest.raises(ValueError, match="specifications"):
-        serving.replay_text_group(state, tape, specs=(ActionSpec(max_tokens=9),) * 2, effort=1)
+        serving.replay_group(state, tape, specs=(ActionSpec(max_tokens=9),) * 2, effort=1)
     with pytest.raises(ValueError, match="effort"):
-        serving.replay_text_group(state, tape, specs=specs, effort=3)
+        serving.replay_group(state, tape, specs=specs, effort=3)
     tampered = GroupActionTape.to_json(tape)
     import json
 

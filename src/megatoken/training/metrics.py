@@ -1,4 +1,4 @@
-"""A computation ledger with separate transcript, policy, and teacher meters."""
+"""A computation ledger with separate transcript, policy and media meters."""
 
 from __future__ import annotations
 
@@ -20,8 +20,6 @@ class Counters:
     video_frames: int = 0
     image_events: int = 0
     media_events: int = 0
-    Z: int = 0  # Coordinates of the one stochastic facet action.
-    T: int = 0
     source_bytes: int = 0
     record_ingestions: int = 0
     reconstruction_tokens: int = 0
@@ -31,10 +29,6 @@ class Counters:
     control_encodes: int = 0
     scored_windows: int = 0
     writer_reader_windows: int = 0
-    teacher_input_tokens: int = 0
-    teacher_cached_input_tokens: int = 0
-    accepted_episodes: int = 0
-    attempted_episodes: int = 0
 
     def add(self, other: Counters) -> None:
         for key, value in asdict(other).items():
@@ -78,7 +72,6 @@ def rates(counters: Counters, elapsed: float) -> dict[str, float]:
             "I",
             "P",
             "G",
-            "Z",
             "media_events",
             "source_bytes",
             "record_ingestions",

@@ -80,7 +80,7 @@ class FlowLM(nn.Module):
         self.states.append((previous.shape, embeddings.shape, steps))
         if embeddings.shape[1]:
             states["facets"] = embeddings.mean(dim=1)[:, :LDIM]
-        noise = torch.randn(previous.shape[0], LDIM)
+        noise = torch.randn(previous.shape[0], LDIM, device=previous.device)
         step = len(self.states) - 1
         eos = torch.full((previous.shape[0], 1), step >= self.eos_at)
         return (states["facets"] + 0.1 * noise).tanh(), eos
@@ -338,6 +338,33 @@ def test_realize_is_replayable_under_an_explicit_generator():
         r.latent(raw(), max_frames=0, steps=2)
     with pytest.raises(ValueError, match="Unbounded"):
         r.latent(raw(), max_frames=2, steps=129)
+
+
+@pytest.mark.parametrize("frames", [7, 14, 28, 55, 109, 218])
+def test_frame_count_is_exact_for_whole_frame_lengths(frames):
+    # Float division rounds these exact multiples of 1920 samples up to one frame too many.
+    r = realizer()
+    r.flow_lm.eos_at = 10**6  # never stop early: the step count is the requested frame count
+    spec = MediaOutputSpec("audio", sample_rate=24000, sample_count=1920 * frames)
+    assert r.realize(raw(), spec).shape == (1, 1920 * frames)
+    assert len(r.flow_lm.states) == frames
+
+
+def test_generator_device_plumbing_draws_the_seed_on_the_generators_device():
+    r = realizer()
+    generator = torch.Generator().manual_seed(5)
+    a = r.latent(raw(), max_frames=2, steps=2, generator=generator)
+    b = r.latent(raw(), max_frames=2, steps=2, generator=torch.Generator().manual_seed(5))
+    assert torch.equal(a, b)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
+def test_latent_accepts_a_generator_on_the_models_device():
+    r = realizer().to_device("cuda")
+    cuda_raw = raw().cuda()
+    a = r.latent(cuda_raw, max_frames=3, steps=2, generator=torch.Generator("cuda").manual_seed(5))
+    b = r.latent(cuda_raw, max_frames=3, steps=2, generator=torch.Generator("cuda").manual_seed(5))
+    assert a.is_cuda and torch.equal(a, b)
 
 
 def test_from_checkpoint_needs_a_local_pinned_yaml(tmp_path, monkeypatch):

@@ -32,7 +32,7 @@ class TextAnchors:
         self.stores = tuple(stores)
         self.assets: dict[str, TensorAsset] = {}
         self.embeddings: dict[str, TensorAsset] = {}
-        for line in Path(path).read_text(encoding="utf-8").splitlines():
+        for line in Path(path).read_text(encoding="utf-8").split("\n"):
             if not line.strip():
                 continue
             row = json.loads(line)

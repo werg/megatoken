@@ -5,7 +5,7 @@ committed ordinary meridian may make a bank lookup due, served before the
 next one; a completed assistant turn or an arriving tool, document or
 environment result always does. Ready tool results are observed in later
 meridians. Speculative branches are copy-on-write and can be rejected
-without disturbing the committed session. Delivery is an irreversible ledger.
+without disturbing the committed session.
 """
 
 from __future__ import annotations
@@ -33,15 +33,6 @@ class PendingGroup:
     result: GroupGeneration
 
 
-@dataclass(frozen=True)
-class Delivery:
-    """Physical output delivery never rewinds committed semantic history."""
-
-    event_id: str
-    transmitted_bytes: int
-    complete: bool
-
-
 @dataclass
 class TrackSession:
     """A single shared-history context, with no private per-agent transformers."""
@@ -49,7 +40,6 @@ class TrackSession:
     memory: TransducerSession
     revision: int = 0
     pending: PendingGroup | None = None
-    delivered: dict[str, Delivery] = field(default_factory=dict)
     events: list[tuple[int, tuple[str, ...]]] = field(default_factory=list)
 
     @property
@@ -150,24 +140,6 @@ class MultiTrackRuntime:
     def cancel(self, session: TrackSession) -> None:
         session.pending = None
 
-    @staticmethod
-    def record_delivery(
-        session: TrackSession,
-        event_id: str,
-        transmitted_bytes: int,
-        *,
-        complete: bool,
-    ) -> None:
-        if not event_id or transmitted_bytes < 0:
-            raise ValueError("Delivered output requires identity and byte count")
-        prior = session.delivered.get(event_id)
-        if prior is not None:
-            if transmitted_bytes < prior.transmitted_bytes:
-                raise ValueError("External delivery cannot be rolled back")
-            if prior.complete and not complete:
-                raise ValueError("A completed delivery cannot become incomplete")
-        session.delivered[event_id] = Delivery(event_id, transmitted_bytes, complete)
-
 
 class ConcurrentToolRunner:
     """IO-only parallel calls; results enter KV only through observe()."""
@@ -183,17 +155,25 @@ class ConcurrentToolRunner:
             raise ValueError("Parallel action requires a new stable action ID")
         self.pending[action_id] = self.executor.submit(function)
 
-    def collect_ready(self) -> dict[str, bytes]:
-        ready: dict[str, bytes] = {}
+    def collect_ready(self) -> tuple[dict[str, bytes], dict[str, BaseException]]:
+        """Finished calls, removed from the pending set: their bytes, and the errors that ended others.
+
+        One failed call must not hide the results of the others that finished with it.
+        """
+        results: dict[str, bytes] = {}
+        failures: dict[str, BaseException] = {}
         for action_id, future in tuple(self.pending.items()):
             if not future.done():
                 continue
-            value = future.result()
-            if not isinstance(value, bytes):
-                raise TypeError("Executed tool result must return raw bytes")
-            ready[action_id] = value
             del self.pending[action_id]
-        return ready
+            error = future.exception()
+            if error is None and not isinstance(future.result(), bytes):
+                error = TypeError("Executed tool result must return raw bytes")
+            if error is None:
+                results[action_id] = future.result()
+            else:
+                failures[action_id] = error
+        return results, failures
 
     def close(self) -> None:
         self.executor.shutdown(wait=True)

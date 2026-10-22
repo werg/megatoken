@@ -2,12 +2,20 @@
 
 A learner trains its local copy of the newest published bank for 32 local
 steps, then submits one ``LearnerRound``: per-field deltas against the rows it
-started from, its hindsight writes as (mass, packed mean), the structural
-evidence it added, and its provisional write-outs as packed rows.
+started from (the 32,768-wide value deltas packed to FP4 with stochastic
+rounding, so a round stays small; the coordinator merges exactly the rows it
+decodes), its hindsight writes as (mass, packed mean), the structural evidence
+it added, and its provisional write-outs as packed rows.
 The coordinator alone allocates canonical IDs, merges with age weight
 2^(-rounds behind / 8), adopts provisional rows (combining near-duplicates from
 different learners), evolves structure and publishes a change set. There is no
 outer KB optimizer and no momentum.
+
+The coordinator's clock is the furthest learner step carried by any merged
+round (``TransducerCoordinator.clock``). Row ages and evidence decay are
+measured in learner steps, so the clock must follow the learners however many
+rounds a merge combines; counting merges would run it up to the number of
+workers times too fast under partial quorums.
 """
 
 from __future__ import annotations
@@ -47,6 +55,7 @@ class LearnerRound:
     write_ids: Tensor = field(default_factory=lambda: torch.empty(0, dtype=torch.int64))
     write_mass: Tensor = field(default_factory=lambda: torch.empty(0))
     write_means: dict[str, Tensor] = field(default_factory=dict)  # packed FP4 columns
+    value_delta: dict[str, Tensor] = field(default_factory=dict)  # ids + packed FP4 columns
     evidence: EvidenceRows | None = None
     provisional: dict[str, Tensor] = field(default_factory=dict)  # packed rows, local IDs
 
@@ -67,9 +76,21 @@ class LearnerRound:
             "write_ids": self.write_ids,
             "write_mass": self.write_mass,
             "write_means": self.write_means,
+            "value_delta": self.value_delta,
             "evidence": None if self.evidence is None else vars(self.evidence),
             "provisional": self.provisional,
         }
+
+    def decoded_deltas(self, value_dim: int) -> dict[str, tuple[Tensor, Tensor]]:
+        """Every field's (edge IDs, rows), the packed value rows decoded as sent."""
+        result = dict(self.deltas)
+        if self.value_delta:
+            packed = self.value_delta
+            result["value"] = (
+                packed["ids"],
+                FP4Rows(packed["codes"], packed["groups"], packed["rows"]).decode(value_dim),
+            )
+        return result
 
     @classmethod
     def from_state(cls, state: dict) -> LearnerRound:
@@ -83,6 +104,7 @@ class LearnerRound:
             write_ids=state["write_ids"],
             write_mass=state["write_mass"],
             write_means=state["write_means"],
+            value_delta=state["value_delta"],
             evidence=None if state["evidence"] is None else EvidenceRows(**state["evidence"]),
             provisional=state["provisional"],
         )
@@ -108,6 +130,17 @@ def learner_round(
     for name, (ids, rows) in list(deltas.items()):
         keep = ids < PROVISIONAL_BASE
         deltas[name] = (ids[keep], rows[keep])
+    value_delta: dict[str, Tensor] = {}
+    if "value" in deltas:
+        ids, rows = deltas.pop("value")
+        if ids.numel():
+            packed = pack_fp4(rows, row_seeds(ids.to(rows.device), "value", step, worker))
+            value_delta = {
+                "ids": ids.cpu(),
+                "codes": packed.codes.cpu(),
+                "groups": packed.group_scales.cpu(),
+                "rows": packed.row_scales.cpu(),
+            }
     write_ids = [edge for edge in writes.ids() if edge in bank]
     write_means: dict[str, Tensor] = {}
     write_mass = torch.empty(0)
@@ -138,6 +171,7 @@ def learner_round(
         write_ids=torch.tensor(write_ids, dtype=torch.int64),
         write_mass=write_mass,
         write_means=write_means,
+        value_delta=value_delta,
         evidence=evidence,
         provisional=bank.export_rows(provisional_ids) if provisional_ids else {},
     )
@@ -227,6 +261,23 @@ def install_changes(
         growth.switch_to_learned()
 
 
+def _check_packed(ids: Tensor, packed: dict[str, Tensor], dim: int, message: str) -> None:
+    """Shapes, dtypes and finite scales of one FP4 row block (``decode`` would fail or lie)."""
+    count = ids.numel()
+    codes, groups, rows = packed["codes"], packed["groups"], packed["rows"]
+    if (
+        ids.ndim != 1
+        or codes.dtype != torch.uint8
+        or codes.shape != (count, -(-dim // 2))
+        or groups.dtype != torch.float8_e4m3fn
+        or groups.shape != (count, -(-dim // 16))
+        or rows.dtype != torch.float32
+        or rows.shape != (count,)
+        or not bool(torch.isfinite(groups.float()).all() & torch.isfinite(rows).all())
+    ):
+        raise ValueError(message)
+
+
 class TransducerCoordinator:
     """The canonical owner. Learners submit in any order; one merge per round."""
 
@@ -241,6 +292,7 @@ class TransducerCoordinator:
         self.growth = growth
         self.evidence_from = evidence_from
         self.version = 0
+        self.clock = 0
         # Highest merged sequence per worker: rounds arrive in order per worker.
         self.ledger: dict[int, int] = {}
         self.pending: list[LearnerRound] = []
@@ -252,7 +304,8 @@ class TransducerCoordinator:
 
     @property
     def step(self) -> int:
-        return self.version * LOCAL_STEPS
+        """The learners' step as of the last merged round (see the module docstring)."""
+        return self.clock
 
     def submit(self, submission: LearnerRound) -> bool:
         """Queue one round; duplicates are refused, late rounds are age-weighted."""
@@ -272,21 +325,37 @@ class TransducerCoordinator:
         g = self.bank.geometry
         for name, (ids, rows) in submission.deltas.items():
             width = 1 if name == "bias" else g.dims(name)
-            if name not in FIELD_COLUMNS or rows.shape != (ids.numel(), width):
+            if name not in FIELD_COLUMNS or name == "value" or rows.shape != (ids.numel(), width):
                 raise ValueError("Malformed transducer delta")
             if not bool(torch.isfinite(rows).all()) or bool((ids >= PROVISIONAL_BASE).any()):
                 raise ValueError("Nonfinite or provisional transducer delta")
+        if submission.value_delta:
+            _check_packed(
+                submission.value_delta["ids"],
+                {
+                    "codes": submission.value_delta["codes"],
+                    "groups": submission.value_delta["groups"],
+                    "rows": submission.value_delta["rows"],
+                },
+                g.value_dim,
+                "Malformed packed value delta",
+            )
+            if bool((submission.value_delta["ids"] >= PROVISIONAL_BASE).any()):
+                raise ValueError("Nonfinite or provisional transducer delta")
         if submission.write_ids.numel():
             mass = submission.write_mass
-            means = FP4Rows(
-                submission.write_means["value_codes"],
-                submission.write_means["value_groups"],
-                submission.write_means["value_rows"],
-            ).decode(g.value_dim)
-            if (
-                mass.shape != submission.write_ids.shape
-                or not bool(torch.isfinite(mass).all() & (mass >= 0).all())
-                or not bool(torch.isfinite(means).all())
+            _check_packed(
+                submission.write_ids,
+                {
+                    "codes": submission.write_means["value_codes"],
+                    "groups": submission.write_means["value_groups"],
+                    "rows": submission.write_means["value_rows"],
+                },
+                g.value_dim,
+                "Malformed submitted hindsight writes",
+            )
+            if mass.shape != submission.write_ids.shape or not bool(
+                torch.isfinite(mass).all() & (mass >= 0).all()
             ):
                 raise ValueError("Invalid submitted hindsight writes")
         if submission.provisional:
@@ -320,12 +389,13 @@ class TransducerCoordinator:
     def _merged_deltas(self, weights: list[float], denominator: float) -> dict[str, tuple]:
         device = self.bank.device
         merged = {}
+        decoded = [s.decoded_deltas(self.bank.geometry.value_dim) for s in self.pending]
         for name in FIELD_COLUMNS:
             ids, rows = [], []
-            for submission, weight in zip(self.pending, weights, strict=True):
-                if name not in submission.deltas:
+            for deltas, weight in zip(decoded, weights, strict=True):
+                if name not in deltas:
                     continue
-                edge_ids, delta = submission.deltas[name]
+                edge_ids, delta = deltas[name]
                 if name == "value" and not self.bank.learned_values:
                     raise ValueError("Written-phase values merge as mass-weighted means")
                 if not bool(torch.isfinite(delta).all()):
@@ -421,13 +491,7 @@ class TransducerCoordinator:
 
     def _adopt(self, weights: list[float]) -> tuple[Tensor, dict[tuple[int, int], int]]:
         """Combine provisional rows into new canonical edges; map (worker, local ID) to them."""
-        clusters = self._clusters(weights)
-        g = self.bank.geometry
-        room = min(
-            g.max_edges - self.bank.edge_count,
-            (g.byte_budget - self.bank.packed_bytes) // g.row_bytes,
-        )
-        clusters = clusters[: max(0, room)]
+        clusters = self._clusters(weights)[: self.bank.edge_room]
         if not clusters:
             return torch.empty(0, dtype=torch.int64), {}
         table = self.bank.table
@@ -508,19 +572,20 @@ class TransducerCoordinator:
         """Merge every pending round atomically, evolve structure, publish a version."""
         if not self.pending:
             return {"submitted": 0, "fields": 0, "written": 0, "adopted": 0}
-        weights = self._weights()
-        denominator = sum(weights)
-        if not denominator > 0:
-            raise ValueError("No positive merge evidence")
-        # Stage every computed row first: a bad submission changes nothing.
-        deltas = self._merged_deltas(weights, denominator)
-        writes = self._merged_writes(weights)
-        before = set(self.bank.edge_ids().tolist())
-        step = self.step + LOCAL_STEPS
         try:
-            return self._apply(weights, deltas, writes, before, step)
+            weights = self._weights()
+            denominator = sum(weights)
+            if not denominator > 0:
+                raise ValueError("No positive merge evidence")
+            self.clock = max(self.clock, *(s.step for s in self.pending))
+            # Stage every computed row first: a bad submission changes nothing.
+            deltas = self._merged_deltas(weights, denominator)
+            writes = self._merged_writes(weights)
+            before = set(self.bank.edge_ids().tolist())
+            return self._apply(weights, deltas, writes, before, self.clock)
         finally:
-            # Applied or not, these rounds are consumed: a retry must never reapply them.
+            # Applied, staged badly or not, these rounds are consumed: a round that cannot
+            # merge must not wedge every later merge, and a retry must never reapply one.
             for submission in self.pending:
                 self.ledger[submission.worker] = max(
                     submission.sequence, self.ledger.get(submission.worker, -1)
@@ -609,6 +674,7 @@ class TransducerCoordinator:
         return {
             "identity": self.bank.identity,
             "version": self.version,
+            "clock": self.clock,
             "ledger": dict(self.ledger),
             "switch": self.switch.state_dict(),
             "switch_requested": self.switch_requested,
@@ -620,6 +686,7 @@ class TransducerCoordinator:
         if state["identity"] != self.bank.identity:
             raise ValueError("Only a v10 coordinator state can be restored")
         self.version = int(state["version"])
+        self.clock = int(state["clock"])
         self.ledger = {int(k): int(v) for k, v in state["ledger"].items()}
         self.switch.load_state_dict(state["switch"])
         self.switch_requested = bool(state["switch_requested"])

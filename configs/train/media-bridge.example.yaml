@@ -44,8 +44,6 @@ decoupled:
   coordinator_url: https://PIN_COORDINATOR
   workers: 4
   local_steps: 128
-  poll_steps: 4
-  heartbeat_steps: 8
   io_workers: 4
   timeout_seconds: 120
   max_offline_steps: 512

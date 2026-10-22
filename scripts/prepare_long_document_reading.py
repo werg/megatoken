@@ -96,7 +96,11 @@ def main() -> None:
         parser.error("Prepared manifest already exists; prepared data is immutable")
     tasks = []
     if args.tasks is not None:
-        tasks += [json.loads(line) for line in args.tasks.read_text().splitlines() if line]
+        tasks += [
+            json.loads(line)
+            for line in args.tasks.read_text(encoding="utf-8").split("\n")
+            if line.strip()
+        ]
     if args.hotpot is not None or args.musique is not None:
         tasks += qa_tasks(args.hotpot, args.musique, args.count, args.seed)
     if not tasks:

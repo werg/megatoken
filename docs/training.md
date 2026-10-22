@@ -307,7 +307,6 @@ covered in [blackwell.md](blackwell.md). CPU correctness is not GPU throughput e
 | D | Transcript in newly selected learning windows, including actual observations |
 | I | D plus no-loss prefix reconstruction exposure |
 | P | Actual supervised free lexical positions evaluated by the deterministic decoder |
-| Z | Coordinates of stochastic facet actions evaluated in outcome RL |
 | T | Newly generated teacher output, including rejected attempts |
 
 Both bootstrap and recurrent stages count their prediction and reconstruction lexical
@@ -315,8 +314,7 @@ passes in P. A loss weight of zero does not erase an actually evaluated pass. Fi
 syntax and declared copies contribute transcript exposure and no free lexical CE.
 Actual emitted IDs can partition bytes differently from the reference codec;
 scoring retains emitted IDs rather than retokenizing them. Generated raw facet replay is
-recorded separately from byte encoding. Outcome RL scores a latent density with P=0;
-its output token count is not a lexical policy likelihood.
+recorded separately from byte encoding.
 
 `metrics.jsonl` records per-term sums/denominators, causal and reconstruction lexical CE,
 genuine-pair encoder alignment MSE, predicted/encoded facet norms, D/I/P/Z rates, source
@@ -388,56 +386,12 @@ optimizer owner enumeration. Baking folds its contribution into the native table
 only affected FP32 masters, clears affected row moments, and removes temporary owners.
 Export requires a completed bake. No donor model runs during training or serving.
 
-## Fresh executed outcome RL
+## Outcome RL
 
-RL draws one raw Gaussian facet action per chunk and runs the fixed deterministic decoder.
-The complete conditional decoding map is frozen: E, all four dense C stages, their
-role/position inputs and history/KV projections, and R including U experts. These owners
-have independent parameters from the twelve sparse P stages. The predictor, remix,
-prospective-control projection, and Gaussian scale remain trainable. Frozen model weights,
-FP32 masters, and Adam moments remain unchanged. This is necessary because changing a deterministic mapping while scoring only
-its input density would not represent the same policy-gradient objective.
-
-Collection retains every raw action, invalid or valid. Invalid actions receive no external
-execution; their attempted computation remains in state and an explicit public error can
-follow. Valid actions are sent to the actual environment with an idempotency key and state
-lease. Observations use the same semantic chunk policy as training and serving. A complete
-raw tape includes the action, codec/spec identities, effort, role, exact payload/IDs,
-validity, terminal flag, causal control bytes, behavior density, and deterministic decode trace.
-
-Before updating, every rank checks fresh same-weight replay against behavior density.
-Candidate history is rebuilt from frozen E/C and recorded raw actions, giving the same
-conditional R map. Current P routes are recomputed rather than copied from the old tape. Same-task leave-one-out advantages are computed from
-independently verified outcomes. Equal reward groups skip the optimizer entirely, avoiding
-a momentum or weight-decay-only update. There is no PPO reuse of stale rollouts.
-
-Effort is fixed at 6 for RL. `max_task_groups` bounds additional collection groups and
-`max_updates` bounds actual optimizer updates. Episode and latent-coordinate ceilings
-still apply; complete groups may cause a reported Z overshoot. RL checkpoints include
-task-content hashes, next task group, RNG, meters, frozen owner names, and optimizer state.
-Tool `terminal=False` does not finish an environment episode; environment `done` and the
-configured step limit govern episode completion.
-
-Task files are JSON arrays or JSONL objects. Fixture example:
-
-```json
-{"task_id":"edit-0001","prompt":"Change answer.txt to blue, then finish.","initial_files":{"answer.txt":"red"},"expected_files":{"answer.txt":"blue"}}
-```
-
-The fixture executes `list`, `read`, `write`, and `finish` in memory and verifies the final
-file map. Hidden expectations and rewards never enter model controls or observations.
-A real isolated environment service implements:
-
-| Endpoint | Request | Required response |
-|---|---|---|
-| `POST /reset` | `task` | `session_id`, `observation_base64`, `state_id` |
-| `POST /step` | `session_id`, `action_base64`, `action_id`, `expected_state_id` | `observation_base64`, `state_id`, `execution_id`, `done` |
-| `POST /verify` | `session_id` | `observation_base64`, `state_id`, `done`, `reward`, `verified` |
-
-The service enforces idempotency, state leases, and actual verification. Remote transport
-uses HTTPS; local development may use loopback HTTP. Credentials are read from a named
-environment variable without printing their values. Teacher serving and environment
-execution are provisioned separately from student training.
+Not implemented: the RL stage and its code were removed. The constraint any
+future latent-action RL must keep (freeze the whole conditional decoding map,
+E, C and R, while P's density changes) is recorded in
+[decisions/0004-contextual-realization.md](decisions/0004-contextual-realization.md).
 
 ## Decisions before scaling
 

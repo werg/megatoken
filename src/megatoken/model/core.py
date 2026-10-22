@@ -634,7 +634,6 @@ class FacetedCore(nn.Module):
             stages,
             sum(self._row_counts(self.config.n_facets, effort)),
             epoch="prediction",
-            allow_exploration=False,
         )
         self._record_routing_loss(program.balance_loss, program.stabilization_loss)
         for stage in stages:
@@ -642,15 +641,6 @@ class FacetedCore(nn.Module):
                 facets, stage, program.at(stage), effort, state.history, state.records_seen
             )
         return facets
-
-    def predict_from_processed(
-        self,
-        state: CoreState,
-        control: Tensor | None = None,
-        effort: int = 6,
-    ) -> Tensor:
-        """Explicit name for the same pure cached-C prediction operation."""
-        return self.predict_facets(state, control, effort)
 
     def prepare_realization(
         self, selected: CoreState | Tensor | RealizationContext
@@ -704,11 +694,16 @@ class FacetedCore(nn.Module):
         facets = facets + wrapper.attention_gate.sigmoid() * wrapper.attention.read(
             facets, projected, temporal_positions=time, slot_codes=addresses
         )
-        route_start = 0
+        return self.pair_updates(facets, stage, route, effort)
+
+    def pair_updates(self, facets: Tensor, stage: int, route: RowRoute, effort: int) -> Tensor:
+        """The stage's routed expert updates over [rows, facets, width] blocks."""
+        wrapper = self.stages[stage - 1]
+        begin = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
             selection = RowRoute(
-                route.expert_ids[:, route_start : route_start + count],
-                route.confidence[:, route_start : route_start + count],
+                route.expert_ids[:, begin : begin + count],
+                route.confidence[:, begin : begin + count],
                 route.eligible,
                 route.palette_probabilities,
                 route.balance_loss,
@@ -725,7 +720,7 @@ class FacetedCore(nn.Module):
                 self.pair_reduction_mask[stage - 1, update, EFFORTS.index(effort)],
                 self.pair_reduction_degree[stage - 1, update, EFFORTS.index(effort)],
             )
-            route_start += count
+            begin += count
         return facets
 
     def _execute_pair_stage(
@@ -737,6 +732,22 @@ class FacetedCore(nn.Module):
         history: KVHistory,
         positions: Tensor,
     ) -> Tensor:
+        return self.run_pair_stage(
+            facets,
+            stage,
+            route,
+            effort,
+            lambda value: self._pair_stage(value, stage, route, effort, history, positions),
+        )
+
+    def run_pair_stage(
+        self, facets: Tensor, stage: int, route: RowRoute, effort: int, compute
+    ) -> Tensor:
+        """Record the executed route once, then run ``compute(facets)`` for the stage.
+
+        Recording stays outside the computation, so activation recomputation is
+        never counted as learning exposure.
+        """
         self.p_router.record_executed(route)
         start = 0
         for update, count in enumerate(self._row_counts(self.config.n_facets, effort)):
@@ -747,13 +758,8 @@ class FacetedCore(nn.Module):
             )
             start += count
         if self.config.checkpoint_stages and self.training and torch.is_grad_enabled():
-            return checkpoint(
-                lambda value: self._pair_stage(value, stage, route, effort, history, positions),
-                facets,
-                use_reentrant=False,
-                preserve_rng_state=False,
-            )
-        return self._pair_stage(facets, stage, route, effort, history, positions)
+            return checkpoint(compute, facets, use_reentrant=False, preserve_rng_state=False)
+        return compute(facets)
 
     def _record_routing_loss(self, balance: Tensor, stabilization: Tensor) -> None:
         # Outside checkpointed operators: loss collection never affects routing.
@@ -781,7 +787,6 @@ class FacetedCore(nn.Module):
             level,
             rows.shape[1],
             eligible_limit=eligible,
-            allow_exploration=False,
         )
         self.u_router.record_executed(route)
         self.u_bank.record_routes(

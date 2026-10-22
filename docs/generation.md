@@ -383,12 +383,7 @@ torch.testing.assert_close(result.log_prob, replayed.log_prob, rtol=0, atol=1e-4
 assert torch.equal(result.state.facets, replayed.state.facets)
 assert model.codec.decode(result.emitted_ids) == result.payload
 
-# Reuse the selected chunk's C features without another history write.
-selected_output = model.decode_state(result.state, spec=spec)
-assert selected_output.payload == result.payload
-
-# Inspect alternatives against the same original causal history.
-mean_output = model.decode_mean(initial, spec=spec, control_payload=control_payload)
+# Realize an arbitrary canonical raw tensor without a history argument.
 encoded, lengths = byte_tensor([b"example"], initial.device)
 encoded_output = model.decode_facets(
     model.core.encode_chunk(encoded, lengths=lengths),
@@ -396,30 +391,12 @@ encoded_output = model.decode_facets(
 )
 ```
 
-`decode_mean` realizes the predicted mean without committing or sampling.
 `decode_facets` realizes an arbitrary canonical raw tensor without a
-history argument. `decode_state` directly realizes a selected state's
-raw facets.
+history argument.
 
 Small floating-point differences in recomputed attention intermediates can occur
 between collection and differentiable replay, so numerical parity gates use
 explicit tolerances. The saved raw facet coordinates themselves are reused exactly.
-
-Outcome RL scores the density of the **latent facet action**, not a text
-likelihood. One production action has `32 * 512 = 16,384` latent coordinates.
-`PolicyResult.scored_positions` and `ActionTape.scored_positions` are zero;
-`latent_dimensions` exposes the coordinate count. The R-stage budget uses Z, the
-number of sampled latent coordinates. D and I remain reference token counts of
-actual record bytes; supervised P counts both passes' actual free decoder targets.
-These units cannot be compared as if they were interchangeable.
-
-For latent-only RL, call `freeze_decoder_for_rl()` after constructing or loading
-the optimizer. It freezes E, all C owners, and R/U, and clears their
-gradients. P, its control path, and the Gaussian scale remain trainable. Freezing
-E, C/KV and R preserves exact historical reconstruction and materialization
-for fixed raw tapes while P's density changes. R itself does not read C;
-C must still be frozen to preserve the predictor's causal input and replay. Frozen owners remain
-present in the optimizer checkpoint and have no gradients or weight-decay updates.
 
 `replay(initial_state, records, specs=...)` accepts exact observations
 and raw tapes in order. `Observation(payload, role_id)` retains ownership; bare

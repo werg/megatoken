@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -265,3 +266,109 @@ def test_push_uploads_retried_parts_that_the_bootstrap_joins(tmp_path, monkeypat
     assert (work / "inputs" / "empty.bin").read_bytes() == b""
     assert (work / "megatoken" / "a.py").read_text() == "x = 1\n"
     assert not inbox.exists()
+
+
+def _stopped_sandbox_after_failed_launch(tmp_path, monkeypatch, **sandbox_attributes):
+    """Run ``cloud.start`` against a sandbox that fails right after creation; return its stops."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    (repo / "a.py").write_text("x = 1\n")
+    subprocess.run([*git, "add", "a.py"], check=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True)
+    monkeypatch.setattr(cloud, "STATE", tmp_path / "state")
+    monkeypatch.setattr(cloud, "SECRETS", tmp_path / "state" / "secrets")
+    stops = []
+
+    class Stopped:
+        def result(self):
+            return None
+
+    class Sandbox:
+        sandbox_id = "sb-1"
+        endpoint_share_token = None
+        service_urls = ()
+
+        def stop(self, **kwargs):
+            stops.append(kwargs)
+            return Stopped()
+
+        def get_status(self):
+            raise cloud.CloudError("gateway gone")
+
+        def wait(self, timeout):
+            raise AssertionError("unreachable")
+
+    for name, value in sandbox_attributes.items():
+        setattr(Sandbox, name, value)
+    monkeypatch.setattr(cloud, "_create", lambda job: Sandbox())
+    job = cloud.validate(_job(serve_port=8080, inputs=[]))
+    with pytest.raises(cloud.CloudError):
+        cloud.start(job, repo)
+    return stops
+
+
+def test_a_sandbox_is_stopped_when_the_share_token_or_url_step_fails(tmp_path, monkeypatch):
+    # No share token: this used to raise before the guarded region and leave it billing.
+    stops = _stopped_sandbox_after_failed_launch(tmp_path, monkeypatch)
+    assert len(stops) == 1
+    records = (tmp_path / "state" / "sandboxes.jsonl").read_text()
+    assert '"event": "stop"' in records
+
+
+def test_a_sandbox_is_stopped_when_its_service_url_never_arrives(tmp_path, monkeypatch):
+    class Token:
+        def get_secret_value(self):
+            return "x"
+
+    monkeypatch.setattr(cloud.time, "sleep", lambda _: None)
+    stops = _stopped_sandbox_after_failed_launch(
+        tmp_path, monkeypatch, endpoint_share_token=Token()
+    )
+    assert len(stops) == 1
+
+
+def _collect_with_manifest(tmp_path, monkeypatch, files):
+    class Result:
+        def __init__(self, value=None, returncode=0):
+            self.value, self.returncode, self.stdout = value, returncode, "0"
+
+        def result(self):
+            return self
+
+    pulled = []
+
+    class Sandbox:
+        def exec(self, argv):
+            return Result()
+
+        def read_file(self, path):
+            return types.SimpleNamespace(result=lambda: json.dumps({"files": files}).encode())
+
+        def write_file(self, path, data):
+            return Result()
+
+    monkeypatch.setattr(cloud, "_attach", lambda sandbox_id: Sandbox())
+    monkeypatch.setattr(cloud, "_pull", lambda sandbox, item, target: pulled.append(target))
+    monkeypatch.setattr(cloud, "STATE", tmp_path / "state")
+    return pulled
+
+
+@pytest.mark.parametrize("path", ["../escape", "out/../../escape", "/etc/passwd", ""])
+def test_collect_refuses_manifest_paths_outside_the_destination(tmp_path, monkeypatch, path):
+    item = {"path": path, "bytes": 1, "sha256": "0" * 64}
+    pulled = _collect_with_manifest(
+        tmp_path, monkeypatch, [{"path": "out/ok", "bytes": 1, "sha256": "1" * 64}, item]
+    )
+    with pytest.raises(cloud.CloudError, match="output path"):
+        cloud.collect("sb-1", tmp_path / "dest", timeout=1)
+    assert pulled == []  # nothing is pulled before every path has been checked
+
+
+def test_collect_pulls_safe_paths(tmp_path, monkeypatch):
+    pulled = _collect_with_manifest(
+        tmp_path, monkeypatch, [{"path": "out/a/b.bin", "bytes": 1, "sha256": "1" * 64}]
+    )
+    assert cloud.collect("sb-1", tmp_path / "dest", timeout=1)["files"] == 1
+    assert pulled == [tmp_path / "dest" / "out" / "a" / "b.bin"]

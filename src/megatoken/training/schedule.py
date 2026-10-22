@@ -20,10 +20,10 @@ class Phase:
     final_ratio: float = 0.2
 
     def __post_init__(self) -> None:
-        if self.name not in {"B0", "MB", "P1", "M1", "M2", "LC", "S", "D", "R"}:
+        if self.name not in {"B0", "MB", "P1", "M1", "M2", "LC", "S", "D"}:
             raise ValueError(f"Unknown training phase {self.name!r}")
-        if self.meter not in {"D", "I", "P", "Z", "G"} or self.budget <= 0 or self.peak_lr <= 0:
-            raise ValueError("A phase needs a positive budget/LR and a D, I, P, Z, or G meter")
+        if self.meter not in {"D", "I", "P", "G"} or self.budget <= 0 or self.peak_lr <= 0:
+            raise ValueError("A phase needs a positive budget/LR and a D, I, P, or G meter")
         if not 0 <= self.warmup_fraction < 1 or not 0 <= self.decay_fraction <= 1:
             raise ValueError("Invalid schedule fractions")
         if self.warmup_fraction + self.decay_fraction > 1:
@@ -59,5 +59,4 @@ PHASES = {
     "LC": _phase("LC", 2e-5),
     "S": _phase("S", 1e-5),
     "D": _phase("D", 5e-6),
-    "R": _phase("R", 2e-6),
 }

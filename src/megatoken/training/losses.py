@@ -54,18 +54,3 @@ class LossLedger:
                 raise RuntimeError(
                     f"Loss plan drift for {name}: expected {expected}, scored {actual}"
                 )
-
-
-def leave_one_out_advantages(rewards: torch.Tensor) -> torch.Tensor:
-    """Independent rollouts of the SAME task; no learned value baseline needed."""
-    if rewards.ndim != 2 or rewards.shape[1] < 2:
-        raise ValueError("rewards must have shape [task_seeds, independent_rollouts>=2]")
-    if not torch.isfinite(rewards).all():
-        raise ValueError("Rewards must be finite")
-    return (rewards - (rewards.sum(-1, keepdim=True) - rewards) / (rewards.shape[1] - 1)).detach()
-
-
-def outcome_policy_loss(log_probabilities: torch.Tensor, rewards: torch.Tensor) -> torch.Tensor:
-    if log_probabilities.shape != rewards.shape:
-        raise ValueError("Each rollout must have its complete augmented-action log probability")
-    return -(log_probabilities.float() * leave_one_out_advantages(rewards.float())).mean()

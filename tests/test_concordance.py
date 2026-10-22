@@ -25,7 +25,7 @@ from megatoken.data.schema import Lineage
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
-from megatoken.model.relations import RelationProjection, SelectedRelation
+from megatoken.model.relations import SelectedRelation, semantic_relation_loss
 from megatoken.training.engine import prepare_batches
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
@@ -119,17 +119,39 @@ def test_edit_requires_precise_base_and_increasing_request_revision(tmp_path):
         compile_task(bundle, view)
 
 
-def test_relation_projection_differentiates_selected_not_teacher():
-    projection = RelationProjection(32)
+def test_semantic_relation_loss_differentiates_selected_not_teacher():
     raw = torch.randn(1, 2, 4, 32, requires_grad=True)
     teachers = torch.randn(1, 2, 4, 32, requires_grad=True)
-    loss, count = projection(
-        raw, teachers, ("text", "audio"), (SelectedRelation("same_spoken_content", 0, 1),)
+    loss, count = semantic_relation_loss(
+        raw, teachers, (SelectedRelation("same_spoken_content", 0, 1),)
     )
     assert count == 1
     loss.backward()
     assert raw.grad is not None and raw.grad.norm() > 0
     assert teachers.grad is None
+
+
+def test_semantic_relation_loss_has_nothing_to_collapse_onto():
+    # Unrelated pairs: nothing trainable exists to map both sides to one constant
+    # vector, and gradient descent on the sampled facets alone only matches the teacher
+    # counterparts, so the loss at an unrelated pair stays at its fixed-space distance
+    # until the samples actually move toward the teachers.
+    torch.manual_seed(0)
+    teachers = torch.randn(1, 2, 8, 16)
+    raw = torch.randn(1, 2, 8, 16, requires_grad=True)
+    relation = (SelectedRelation("describes", 0, 1),)
+    first = semantic_relation_loss(raw, teachers, relation)[0]
+    assert first.item() > 0.5  # unrelated random pair: near-orthogonal pooled directions
+    # Pulling the sampled facets toward the *opposite* teachers drives it to zero ...
+    swapped = teachers.flip(1)
+    optimizer = torch.optim.SGD([raw], lr=5.0)
+    for _ in range(200):
+        optimizer.zero_grad()
+        semantic_relation_loss(raw, swapped, relation)[0].backward()
+        optimizer.step()
+    assert semantic_relation_loss(raw, swapped, relation)[0].item() < 0.05
+    # ... and only for those teachers: the original pair's loss is not also zero.
+    assert semantic_relation_loss(raw, teachers, relation)[0].item() > 0.5
 
 
 def _media(store, modality, seed):

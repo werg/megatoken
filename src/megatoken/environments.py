@@ -14,12 +14,33 @@ import os
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any, Protocol
 
 from megatoken.io import canonical_json, content_hash
+
+
+class _KeepCredentialsOrigin(urllib.request.HTTPRedirectHandler):
+    """Follow redirects, but never carry a bearer token to a different origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None:
+            old, new = urllib.parse.urlparse(req.full_url), urllib.parse.urlparse(newurl)
+            if (old.scheme, old.netloc) != (new.scheme, new.netloc):
+                redirected.headers.pop("Authorization", None)
+                redirected.unredirected_hdrs.pop("Authorization", None)
+        return redirected
+
+
+_OPENER = urllib.request.build_opener(_KeepCredentialsOrigin)
+
+
+def open_url(request: urllib.request.Request, *, timeout: float):
+    """``urlopen`` for authenticated requests; see :class:`_KeepCredentialsOrigin`."""
+    return _OPENER.open(request, timeout=timeout)
 
 
 @dataclass(frozen=True)
@@ -248,7 +269,7 @@ class HTTPEnvironment:
         request = urllib.request.Request(
             self.endpoint + path, data=canonical_json(value), headers=headers, method="POST"
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with open_url(request, timeout=self.timeout) as response:
             payload = response.read(64 << 20)
             if len(payload) >= 64 << 20:
                 raise ValueError("Environment response exceeds the 64-MiB observation limit")
@@ -292,7 +313,10 @@ class HTTPEnvironment:
         return result
 
 
-def environment_factory(endpoint: str):
+def environment_factory(
+    endpoint: str, *, token_env: str | None = None, timeout: float = 60.0
+) -> Callable[[], Environment]:
+    """``fixture`` selects the in-memory fixture; anything else is an executed HTTP service."""
     if endpoint == "fixture":
         return FixtureEnvironment
-    return lambda: HTTPEnvironment(endpoint, token_env="MEGATOKEN_ENV_TOKEN")
+    return lambda: HTTPEnvironment(endpoint, token_env=token_env, timeout=timeout)

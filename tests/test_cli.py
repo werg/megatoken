@@ -51,28 +51,3 @@ def test_launch_interfaces_parse_explicit_modes():
         ]
     )
     assert not args.require_blackwell and args.compile and args.max_steps == 1
-
-
-@pytest.mark.parametrize("alias,canonical", [("recurrent32", "32x512"), ("compact32", "32x256")])
-def test_model_aliases_are_normalized_only_for_preset_arguments(alias, canonical):
-    arguments = (
-        ["inspect"],
-        ["benchmark"],
-        ["train", "--config", "train.yaml"],
-        [
-            "engram",
-            "extract",
-            "--embedding-file",
-            "weights",
-            "--tensor-name",
-            "embedding",
-            "--donor-codec",
-            "tokenizer",
-            "--output",
-            "output",
-        ],
-    )
-    for command in arguments:
-        assert parser().parse_args([*command, "--model", alias]).model == canonical
-    # A directory may have either historical name; bundle paths are not presets.
-    assert parser().parse_args(["serve", "--model", alias]).model == alias

@@ -1,5 +1,6 @@
 """Fail-closed device preflight and actual-width CUDA attention gates."""
 
+import os
 from contextlib import nullcontext
 from types import SimpleNamespace
 
@@ -180,3 +181,20 @@ def test_full_history_projected_flash_gqa_values_and_gradients(compact):
     expected_grads = torch.autograd.grad(expected, inputs, upstream)
     for result, reference in zip(actual_grads, expected_grads, strict=True):
         torch.testing.assert_close(result, reference, rtol=3e-2, atol=2e-3)
+
+
+def test_deterministic_runs_fix_the_cublas_workspace_before_cuda_starts(monkeypatch):
+    from megatoken.runtime import seed_everything
+
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    try:
+        seed_everything(1, deterministic=False)
+        assert "CUBLAS_WORKSPACE_CONFIG" not in os.environ
+        seed_everything(1, deterministic=True)
+        assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+        # A value the operator chose is respected.
+        monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":16:8")
+        seed_everything(1, deterministic=True)
+        assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":16:8"
+    finally:
+        torch.use_deterministic_algorithms(False)

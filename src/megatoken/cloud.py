@@ -24,7 +24,8 @@ runs a DiLoCo phase on these primitives.
 Credentials come from the environment or ``MEGATOKEN_CW_ENV_FILE`` (mode 600):
 ``CWSANDBOX_AUTH=wandb`` with ``WANDB_API_KEY``, or ``CWSANDBOX_API_KEY``.
 They are never printed and never passed into a sandbox. Only the standard
-library and ``cwsandbox`` are imported, so this runs from a slim client venv.
+library, ``cwsandbox`` and ``megatoken.io`` (itself standard-library only) are
+imported, so this runs from a slim client venv.
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from megatoken.io import sha256_file
+
 SCHEMA = "megatoken.cloud-job/1"
 WORK = "/work"
 BOOTSTRAP = "/opt/megatoken/bootstrap.sh"
@@ -53,7 +56,6 @@ ENV_FILE = Path(
 STATE = Path(os.environ.get("MEGATOKEN_CW_STATE", Path.home() / ".local/state/megatoken/cloud"))
 SECRETS = STATE / "secrets"
 SERVICE_TIMEOUT = 900  # seconds; the platform maximum for an HTTPS request
-CHUNK = 8 << 20
 # Gateway streams are cut after ~25 s, so every transfer moves bounded parts.
 PART_BYTES = 32 << 20
 CREATE_ATTEMPTS = 6
@@ -61,14 +63,6 @@ CREATE_ATTEMPTS = 6
 
 class CloudError(RuntimeError):
     pass
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(CHUNK), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def load_credentials(path: Path = ENV_FILE) -> None:
@@ -329,22 +323,23 @@ def start(
                     raise CloudError(f"{source} does not match its declared sha256")
                 pushed.append((source, item["sha256"]))
         sandbox = _create(job)
-        entry = {
-            "event": "launched",
-            "sandbox_id": sandbox.sandbox_id,
-            "job": job["id"],
-            **code,
-            "inputs_sha256": hashlib.sha256(
-                json.dumps(job["inputs"], sort_keys=True).encode()
-            ).hexdigest(),
-        }
-        if job.get("serve_port"):
-            _keep_share_token(sandbox)
-            entry["url"] = service_url(sandbox)
-        record(entry)
-        # Waiting in "creating" is not billed, but a sandbox the controller gave up
-        # on must never start later and idle billed while it waits for inputs.
+        # From here the sandbox may bill: whatever fails next, it is stopped. Waiting in
+        # "creating" is not billed, but a sandbox the controller gave up on must never
+        # start later and idle billed while it waits for inputs.
         try:
+            entry = {
+                "event": "launched",
+                "sandbox_id": sandbox.sandbox_id,
+                "job": job["id"],
+                **code,
+                "inputs_sha256": hashlib.sha256(
+                    json.dumps(job["inputs"], sort_keys=True).encode()
+                ).hexdigest(),
+            }
+            if job.get("serve_port"):
+                _keep_share_token(sandbox)
+                entry["url"] = service_url(sandbox)
+            record(entry)
             started = time.time()
             sandbox.wait(timeout=start_timeout)
             record(
@@ -373,14 +368,16 @@ def start(
             sandbox.write_file(f"{WORK}/.cloud/inputs.json", json.dumps(spec).encode()).result()
             sandbox.write_file(f"{WORK}/.cloud/inputs-ready", b"").result()
         except BaseException as error:
-            sandbox.stop(graceful_shutdown_seconds=10, missing_ok=True).result()
-            record(
-                {
-                    "event": "stop",
-                    "sandbox_id": sandbox.sandbox_id,
-                    "reason": f"launch failed: {type(error).__name__}: {error}"[:400],
-                }
-            )
+            try:
+                sandbox.stop(graceful_shutdown_seconds=10, missing_ok=True).result()
+            finally:
+                record(
+                    {
+                        "event": "stop",
+                        "sandbox_id": sandbox.sandbox_id,
+                        "reason": f"launch failed: {type(error).__name__}: {error}"[:400],
+                    }
+                )
             raise
         record(
             {"event": "inputs_pushed", "sandbox_id": sandbox.sandbox_id, "files": len(pushed) + 1}
@@ -494,6 +491,18 @@ def _pull(sandbox, item: dict[str, Any], target: Path) -> None:
     staging.replace(target)
 
 
+def _output_target(destination: Path, relative: str) -> Path:
+    """Where a manifest-named output lands; the manifest is the sandbox's word, so a path
+    that is empty, absolute, climbs out with ``..`` or resolves outside is refused."""
+    path = Path(relative)
+    if not relative or path.is_absolute() or ".." in path.parts:
+        raise CloudError(f"Unsafe output path in the sandbox manifest: {relative!r}")
+    target = destination / path
+    if not target.resolve().is_relative_to(destination.resolve()):
+        raise CloudError(f"Output path escapes the destination: {relative!r}")
+    return target
+
+
 def collect(sandbox_id: str, destination: Path, *, timeout: float = 30 * 86400) -> dict[str, Any]:
     """Wait for outputs-ready, pull and verify every output file, then release the sandbox."""
     sandbox = _attach(sandbox_id)
@@ -511,8 +520,8 @@ def collect(sandbox_id: str, destination: Path, *, timeout: float = 30 * 86400) 
         else {"files": []}
     )
     pulled = 0
-    for item in manifest["files"]:
-        target = destination / item["path"]
+    targets = [_output_target(destination, item["path"]) for item in manifest["files"]]
+    for item, target in zip(manifest["files"], targets, strict=True):
         if target.is_file() and sha256_file(target) == item["sha256"]:
             continue  # already pulled by an earlier, interrupted collect
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -588,7 +597,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         path = STATE / "sandboxes.jsonl"
         result = (
-            [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+            [json.loads(line) for line in path.read_text().split("\n") if line]
+            if path.exists()
+            else []
         )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

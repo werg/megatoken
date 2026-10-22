@@ -3,21 +3,12 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
 from megatoken.kernels.grouped import grouped_linear
-
-
-@dataclass(frozen=True)
-class DispatchStats:
-    rows_per_expert: Tensor
-    eligible_per_expert: Tensor
-    rows: int
-    padded_rows: Tensor
 
 
 class ExpertBank(nn.Module):
@@ -91,9 +82,3 @@ class ExpertBank(nn.Module):
             gate, up = grouped_linear(x, self.gate_up, ids, self.backend).chunk(2, -1)
             y = grouped_linear(F.silu(gate) * up, self.down, ids, self.backend)
         return (y * confidence.reshape(-1, 1).to(y.dtype)).reshape(original_shape)
-
-    def stats(self, expert_ids: Tensor, eligible: Tensor, block_rows: int = 32) -> DispatchStats:
-        counts = torch.bincount(expert_ids.detach().flatten(), minlength=self.experts)
-        included = torch.bincount(eligible.detach().flatten(), minlength=self.experts)
-        padded = ((counts + block_rows - 1) // block_rows * block_rows).sum()
-        return DispatchStats(counts, included, expert_ids.numel(), padded)

@@ -54,7 +54,8 @@ def test_versioned_geometry_and_explicit_width_presets():
     )
     assert (compact.name, compact.n_facets, compact.facet_dim) == ("32x256", 32, 256)
     assert (large.encoder_layers, large.central_layers, large.prediction_layers) == (2, 4, 12)
-    assert (large.n_stages, large.central_hidden) == (16, 1024)
+    assert large.central_layers + large.prediction_layers == 16
+    assert large.central_hidden == 1024
     assert (large.p_experts, large.u_experts, large.source_dim) == (64, 32, 256)
     assert (large.query_heads, large.kv_heads, large.attention_head_dim) == (4, 2, 128)
     assert large.max_history_chunks == 1024
@@ -72,8 +73,6 @@ def test_versioned_geometry_and_explicit_width_presets():
         ModelConfig.from_dict(legacy)
     with pytest.raises(ValueError, match="Incompatible architecture"):
         ModelConfig(architecture_version=3)
-    with pytest.raises(ValueError, match="Old architecture names"):
-        ModelConfig(name="recurrent32")
     assert not any(
         field.name in {"pending_mask", "has_pending_input", "input_record_ids"}
         for field in fields(CoreState)
@@ -120,12 +119,10 @@ def test_realizer_reads_raw_while_predictor_reuses_cached_final_without_work():
     calls = []
     hook = core.central.register_forward_hook(lambda *args: calls.append(1))
     context = core.prepare_realization(state)
-    mean = core.predict_facets(state)
-    other = core.predict_from_processed(state)
+    core.predict_facets(state)
     hook.remove()
     assert calls == []
     assert context.facets is state.facets
-    torch.testing.assert_close(mean, other, rtol=0, atol=0)
     assert state.records_seen.item() == 1 and state.history.slots == core.config.n_facets
     assert [field.name for field in fields(RealizationContext)] == ["facets"]
     auxiliary = core.prepare_realization(state.facets)

@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -259,10 +260,20 @@ class MediaRecord:
 
 
 class TensorAssetStore:
-    """Immutable content-addressed asset store rooted at the prepared dataset directory."""
+    """Immutable content-addressed asset store rooted at the prepared dataset directory.
+
+    A file is read and checksummed when first loaded; its decoded array then stays
+    in a small byte-bounded cache and is trusted only while the file's size,
+    modification time and inode are what they were when it was verified.
+    """
+
+    CACHE_BYTES = 256 << 20
 
     def __init__(self, root: str | Path):
         self.root = Path(root)
+        # sha256 -> (file identity when verified, decoded array), least recently used first.
+        self._cache: OrderedDict[str, tuple[tuple[int, int, int], np.ndarray]] = OrderedDict()
+        self._cached_bytes = 0
 
     def put(self, value: np.ndarray, **metadata: Any) -> TensorAsset:
         values = np.ascontiguousarray(np.asarray(value, dtype="<f4"))
@@ -293,11 +304,39 @@ class TensorAssetStore:
         return features, embedding
 
     def load(self, asset: TensorAsset) -> np.ndarray:
-        """Fail closed on stale, substituted, or non-finite files."""
-        result = self._read(self.root / asset.relative_path, asset)
+        """Fail closed on stale, substituted, or non-finite files; a private writable copy."""
+        path = self.root / asset.relative_path
+        entry = self._cache.get(asset.sha256)
+        if entry is not None and entry[1].shape == asset.shape and self._identity(path) == entry[0]:
+            self._cache.move_to_end(asset.sha256)
+            return entry[1].copy()
+        result = self._read(path, asset)
         if result is None:
             raise ValueError("Media asset differs from its declared shape or SHA256")
-        return result
+        self._remember(asset.sha256, self._identity(path), result)
+        return result.copy()
+
+    @staticmethod
+    def _identity(path: Path) -> tuple[int, int, int] | None:
+        if path.is_symlink():
+            return None
+        try:
+            status = path.stat()
+        except OSError:
+            return None
+        return status.st_size, status.st_mtime_ns, status.st_ino
+
+    def _remember(self, sha256: str, identity: tuple[int, int, int] | None, array: np.ndarray):
+        previous = self._cache.pop(sha256, None)
+        if previous is not None:
+            self._cached_bytes -= previous[1].nbytes
+        if identity is None or array.nbytes > self.CACHE_BYTES:
+            return
+        self._cache[sha256] = (identity, array)
+        self._cached_bytes += array.nbytes
+        while self._cached_bytes > self.CACHE_BYTES:
+            _, (_, evicted) = self._cache.popitem(last=False)
+            self._cached_bytes -= evicted.nbytes
 
     @staticmethod
     def _read(path: Path, asset: TensorAsset) -> np.ndarray | None:

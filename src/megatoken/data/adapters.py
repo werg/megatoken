@@ -58,7 +58,6 @@ class AdapterProfile:
     require_turn_mask: bool = False
     require_parent: bool = False
     trajectory: bool = False
-    unknown_imitation: bool = False
     content_kind: str = "auto"
 
 
@@ -94,6 +93,7 @@ DEFAULT_FIELDS = {
     "before": ("before", "pre_change_state"),
     "patch": ("patch", "target_patch"),
     "benchmark": ("benchmark_tags", "metadata.benchmark_tags"),
+    "dependencies": ("metadata.dependencies",),
 }
 
 
@@ -118,9 +118,6 @@ PROFILES: dict[str, AdapterProfile] = {
     ),
     "nemotron_code": AdapterProfile(
         kind="document", fields=_fields(text="content"), require_parent=True, content_kind="code"
-    ),
-    "nemotron_stem": AdapterProfile(
-        kind="document", fields=_fields(text="text"), require_parent=True
     ),
     "smoltalk2": AdapterProfile(fields=_fields(messages="messages")),
     "nemotron_chat_v4": AdapterProfile(require_turn_mask=True),
@@ -156,8 +153,35 @@ PROFILES: dict[str, AdapterProfile] = {
         require_parent=True,
         fields=_fields(outcome="__no_verified_outcome__"),
     ),
-    "tool_use_seeds": AdapterProfile(kind="seed"),
 }
+
+
+_HINT_OPTIONS = frozenset(
+    {"content_kind", "language", "filename", "mime_type", "locale", "chat_template"}
+)
+# Read by the preparation pipeline itself rather than by an adapter.
+_PIPELINE_OPTIONS = frozenset({"lineage_join", "row_filters", "quality"})
+_PROFILE_OPTIONS: dict[str, frozenset[str]] = {
+    "native": frozenset({"preserve_native_stream"}),
+    "chat": _HINT_OPTIONS | {"allow_pending_final_action"},
+    "serialized_chat": _HINT_OPTIONS | {"allow_incomplete_serialized"},
+    "document": _HINT_OPTIONS | {"allow_incomplete_serialized"},
+    "artifact": _HINT_OPTIONS,
+    "repository": _HINT_OPTIONS,
+    "fim": _HINT_OPTIONS,
+}
+
+
+def validate_options(adapter: str, options: Mapping[str, Any]) -> None:
+    """Reject option names the selected adapter never reads; a typo must not pass silently."""
+    if adapter not in PROFILES:
+        raise SchemaError(f"Unknown adapter {adapter!r}; available: {', '.join(sorted(PROFILES))}")
+    allowed = _PROFILE_OPTIONS[PROFILES[adapter].kind] | _PIPELINE_OPTIONS
+    unknown = sorted(set(options) - allowed)
+    if unknown:
+        raise SchemaError(
+            f"Adapter {adapter!r} has no option(s) {unknown}; allowed: {sorted(allowed)}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,14 +275,29 @@ def _outcome(value: Any) -> str:
     return "unknown"
 
 
+def _list_of(value: Any, kind: type, name: str) -> tuple[Any, ...]:
+    if not isinstance(value, (list, tuple)) or any(type(item) is not kind for item in value):
+        raise SchemaError(f"{name} must be a list of {kind.__name__}")
+    return tuple(value)
+
+
+def _label(value: Any, name: str) -> str | None:
+    if value is None or isinstance(value, str):
+        return value
+    if type(value) is int:
+        return str(value)
+    raise SchemaError(f"{name} must be a string, got {type(value).__name__}")
+
+
 def _supervision(reader: _Reader) -> Supervision:
     outcome = _outcome(reader.get("outcome"))
-    verification = reader.context.options.get(
-        "outcome_verification", reader.profile.outcome_verification
-    )
+    verification = reader.profile.outcome_verification
     benchmark = reader.get("benchmark", ())
     if isinstance(benchmark, str):
         benchmark = (benchmark,)
+    reward = reader.get("reward")
+    if reward is not None and (isinstance(reward, bool) or not isinstance(reward, (int, float))):
+        raise SchemaError("reward must be a number")
     annotations = {
         key: reader.row[key]
         for key in ("metadata", "exit_status", "duration_sec", "license", "used_in")
@@ -267,42 +306,34 @@ def _supervision(reader: _Reader) -> Supervision:
     return Supervision(
         outcome=outcome,
         verification=verification if outcome != "unknown" else "none",
-        reward=reader.get("reward"),
-        recovery_turns=tuple(reader.get("recovery", ())),
-        benchmark_tags=tuple(benchmark),
+        reward=reward,
+        recovery_turns=_list_of(reader.get("recovery", ()), int, "recovery_turns"),
+        benchmark_tags=_list_of(benchmark, str, "benchmark_tags"),
         annotations_json=canonical_json(annotations),
     )
 
 
 def _lineage(reader: _Reader, raw_sha: str, prompt_override: bytes | None = None) -> Lineage:
-    repository = reader.get("repository")
-    task = reader.get("task")
-    family = reader.get("family")
+    repository = _label(reader.get("repository"), "repository")
+    task = _label(reader.get("task"), "task")
+    family = _label(reader.get("family"), "family")
     ancestors = reader.get("ancestors", ())
     if isinstance(ancestors, str):
         ancestors = (ancestors,)
+    if not isinstance(ancestors, (list, tuple)):
+        raise SchemaError("ancestor_ids must be a list")
     if not family:
         if repository:
             family = f"repository:{str(repository).casefold()}"
         elif task:
             family = f"task:{task}"
-        elif reader.context.options.get("require_parent", reader.profile.require_parent):
+        elif reader.profile.require_parent:
             raise SchemaError(
                 "Missing original parent/task lineage; supply field_map.family or a joined parent manifest"
             )
         else:
             # Prompt hashing groups repeated completions of the same prompt.
             prompt = prompt_override if prompt_override is not None else reader.get("prompt")
-            messages = reader.get("messages")
-            if prompt is None and isinstance(messages, list):
-                prompt = next(
-                    (
-                        m.get("content", m.get("value", ""))
-                        for m in messages
-                        if m.get("role", m.get("from")) in {"user", "human"}
-                    ),
-                    None,
-                )
             family = "content:" + digest_bytes(
                 _bytes(prompt, "prompt") if isinstance(prompt, (bytes, str)) else raw_sha.encode()
             )
@@ -315,7 +346,7 @@ def _lineage(reader: _Reader, raw_sha: str, prompt_override: bytes | None = None
         task_id=task,
         source_uri=reader.context.uri,
         source_row=reader.context.row_index,
-        created_at=reader.get("created_at"),
+        created_at=_label(reader.get("created_at"), "created_at"),
         raw_sha256=raw_sha,
     )
 
@@ -592,6 +623,39 @@ class _EpisodeBuilder:
         )
 
 
+def _call_id(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        raise SchemaError("Native tool calls require their original call ID as a nonempty string")
+    return value
+
+
+def _tool_call(call: Any) -> tuple[str, str, Any]:
+    """Validate one native tool call; returns its ID, tool name and arguments."""
+    if not isinstance(call, Mapping):
+        raise SchemaError("Every tool call must be an object")
+    function = call.get("function", call)
+    if not isinstance(function, Mapping):
+        raise SchemaError("A tool call's function must be an object")
+    name = function.get("name")
+    if not isinstance(name, str) or not name:
+        raise SchemaError("A tool call needs a nonempty function name")
+    return _call_id(call.get("id")), name, function.get("arguments", {})
+
+
+def _first_user_text(content: Any) -> bytes | None:
+    """The text of a user turn, whether plain or split into content blocks."""
+    if isinstance(content, (str, bytes)):
+        return _bytes(content, "content")
+    if isinstance(content, list):
+        texts = [
+            _bytes(block.get("text", ""), "content block")
+            for block in content
+            if isinstance(block, Mapping) and block.get("type", "text") in _TEXT_BLOCKS
+        ]
+        return b"".join(texts) if texts else None
+    return None
+
+
 def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | None:
     if harness == "terminus2":
         stripped = content.strip()
@@ -612,6 +676,9 @@ def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | 
         if len(commands) == 1:
             return "bash", {"command": commands[0]}
     return None
+
+
+_TEXT_BLOCKS = frozenset({"text", "input_text", "output_text"})
 
 
 def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
@@ -636,6 +703,8 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         if not isinstance(message, Mapping):
             raise SchemaError("Every message must be an object")
         role = message.get("role", message.get("from"))
+        if not isinstance(role, str):
+            raise SchemaError("Every message needs a string role")
         role = {"human": "user", "gpt": "assistant", "function": "tool"}.get(role, role)
         if role == "developer":
             builder.parser_annotations.setdefault("source_roles", {})[str(turn)] = role
@@ -649,19 +718,9 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         score = role == "assistant" and bool(own_mask) and (turn_mask is None or turn_mask[turn])
         base = f"{reader.origin('messages')}[{turn}]"
         content = message.get("content", message.get("value"))
-        if reader.context.options.get("include_reasoning", False) and message.get(
-            "reasoning_content"
-        ):
-            if role != "assistant":
-                raise SchemaError("reasoning_content belongs to an assistant turn")
-            builder.append(
-                _bytes(message["reasoning_content"], "reasoning_content"),
-                role=role,
-                turn=turn,
-                score=score,
-                source_field=base + ".reasoning_content",
-                parse_hints=hints,
-            )
+        if role == "user" and builder.family_prompt is None:
+            # Repeated prompts must share one family however they are encoded.
+            builder.family_prompt = _first_user_text(content)
         if isinstance(content, list):
             # Preserve block order, including interleaved Anthropic tool blocks.
             for index, block in enumerate(content):
@@ -670,7 +729,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                 kind = block.get("type", "text")
                 field_name = f"{base}.content[{index}]"
                 block_hints = builder.content_hints(message, block)
-                if kind in {"text", "input_text", "output_text"}:
+                if kind in _TEXT_BLOCKS:
                     builder.append(
                         _bytes(block.get("text", ""), field_name),
                         role=role,
@@ -680,9 +739,11 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                         parse_hints=block_hints,
                     )
                 elif kind == "tool_use" and role == "assistant":
+                    if not isinstance(block.get("name"), str) or "input" not in block:
+                        raise SchemaError("A tool_use block needs a name and an input object")
                     builder.action(
                         canonical_json(block).encode(),
-                        call_id=block["id"],
+                        call_id=_call_id(block.get("id")),
                         tool_name=block["name"],
                         arguments=block["input"],
                         turn=turn,
@@ -752,6 +813,8 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                     parse_hints=hints,
                 )
         calls = message.get("tool_calls") or []
+        if not isinstance(calls, list):
+            raise SchemaError("tool_calls must be a list")
         if message.get("function_call"):
             if calls:
                 raise SchemaError("Both function_call and tool_calls are present")
@@ -759,15 +822,12 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         if calls and role != "assistant":
             raise SchemaError("Only assistant messages can issue tools")
         for index, call in enumerate(calls):
-            function = call.get("function", call)
-            call_id = call.get("id")
-            if not call_id:
-                raise SchemaError("Native tool calls require their original call ID")
+            call_id, tool_name, arguments = _tool_call(call)
             builder.action(
                 canonical_json(call).encode(),
                 call_id=call_id,
-                tool_name=function["name"],
-                arguments=function.get("arguments", {}),
+                tool_name=tool_name,
+                arguments=arguments,
                 turn=turn,
                 score=score,
                 source_field=f"{base}.tool_calls[{index}]",
@@ -958,31 +1018,13 @@ def _documents(reader: _Reader, builder: _EpisodeBuilder) -> None:
             source_field=reader.origin("before"),
             provenance="natural",
         )
-        mode = reader.context.options.get("task_mode", "repair")
-        if mode == "review":
-            builder.append(
-                _bytes(reader.get("patch", required=True), "patch"),
-                role="document",
-                turn=2,
-                source_field=reader.origin("patch"),
-            )
-            builder.append(
-                _bytes(reader.get("target", required=True), "target"),
-                role="assistant",
-                turn=3,
-                score=True,
-                source_field=reader.origin("target"),
-            )
-        elif mode == "repair":
-            builder.append(
-                _bytes(reader.get("patch", required=True), "patch"),
-                role="assistant",
-                turn=2,
-                score=True,
-                source_field=reader.origin("patch"),
-            )
-        else:
-            raise SchemaError("Repository task_mode must be repair or review")
+        builder.append(
+            _bytes(reader.get("patch", required=True), "patch"),
+            role="assistant",
+            turn=2,
+            score=True,
+            source_field=reader.origin("patch"),
+        )
     elif reader.profile.kind == "fim":
         # A missing-span task has observed suffix conditioning; this is tagged FIM.
         for turn, name in enumerate(("prefix", "suffix", "middle")):
@@ -997,8 +1039,7 @@ def _documents(reader: _Reader, builder: _EpisodeBuilder) -> None:
 
 def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> Episode:
     """Convert one source row without rendering any supervision-side metadata."""
-    if adapter not in PROFILES:
-        raise SchemaError(f"Unknown adapter {adapter!r}; available: {', '.join(sorted(PROFILES))}")
+    validate_options(adapter, context.options)
     profile = PROFILES[adapter]
     if profile.kind == "native":
         from .masking import apply_tool_masks
@@ -1021,10 +1062,6 @@ def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> 
             episode
             if context.options.get("preserve_native_stream", False)
             else replace(episode, stream=context.stream)
-        )
-    if profile.kind == "seed":
-        raise SchemaError(
-            "Tool-use seed rows are TaskSeed inputs to collection, not completed trajectories"
         )
     reader = _Reader(row, profile, context)
     # Raw row hash audits transformations; source transport checksums are separate.
@@ -1071,13 +1108,19 @@ def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> 
     )
     if profile.trajectory:
         # Never promote an unverified Submitted flag or a failed branch to success.
-        episode = apply_recovery_policy(
-            episode,
-            imitate_unknown=bool(context.options.get("imitate_unknown", profile.unknown_imitation)),
-        )
+        episode = apply_recovery_policy(episode)
     dependencies = []
     # Explicit annotations use original message indices, then resolve after chunks.
-    for item in row.get("dependencies", ()):
+    annotated = reader.get("dependencies", [])
+    if not isinstance(annotated, list):
+        raise SchemaError("Dependency annotations must be a list")
+    for item in annotated:
+        if (
+            not isinstance(item, Mapping)
+            or type(item.get("writer_turn")) is not int
+            or type(item.get("reader_turn")) is not int
+        ):
+            raise SchemaError("A dependency needs integer writer_turn and reader_turn")
         writers = [record for record in episode.records if record.turn_index == item["writer_turn"]]
         readers = [
             record

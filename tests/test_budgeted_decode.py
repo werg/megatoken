@@ -15,6 +15,13 @@ def model():
     return FacetedGenerator(FacetedCore(ModelConfig.tiny()), ByteCodec.byte_fallback())
 
 
+@torch.no_grad()
+def _decode_mean(model, spec):
+    """Realize the predictor's mean facets without sampling or committing anything."""
+    mean = model.core.predict_facets(model.core.initial_state(1), effort=1)
+    return model.decode_facets(mean, spec=spec)
+
+
 def _schema():
     return SchemaSpec(
         "run",
@@ -56,10 +63,9 @@ def test_schema_capacity_reserves_json_wire_not_only_field_tokens(model, monkeyp
             (states.shape[0],), ord("a"), device=states.device, dtype=torch.long
         ),
     )
-    output = model.decode_mean(
-        model.core.initial_state(1),
-        spec=ActionSpec(allow_text=False, schemas=(schema,), max_tokens=budget),
-        effort=1,
+    output = _decode_mean(
+        model,
+        ActionSpec(allow_text=False, schemas=(schema,), max_tokens=budget),
     )
     assert output.valid, output.error
     assert output.payload == b'{"name":"run","args":"aaa"}'
@@ -72,10 +78,9 @@ def test_minimum_valid_wire_rejected_when_even_envelope_cannot_fit(model):
     minimum = wire_witness_tokens(schema, model.codec)
     assert minimum is not None and minimum > 0
     with pytest.raises(ValueError, match="no public output mode fits"):
-        model.decode_mean(
-            model.core.initial_state(1),
-            spec=ActionSpec(allow_text=False, schemas=(schema,), max_tokens=minimum - 1),
-            effort=1,
+        _decode_mean(
+            model,
+            ActionSpec(allow_text=False, schemas=(schema,), max_tokens=minimum - 1),
         )
 
 
@@ -94,13 +99,27 @@ def test_final_free_spans_share_one_lexical_readback_per_alphabet(model, monkeyp
         return torch.full((states.shape[0],), ord("z"), dtype=torch.long, device=states.device)
 
     monkeypatch.setattr(model.decoder.vocabulary, "argmax", sampled)
-    result = model.decode_mean(
-        model.core.initial_state(1),
-        spec=ActionSpec(allow_text=False, schemas=(schema,), max_tokens=128),
-        effort=1,
-    )
+    result = _decode_mean(model, ActionSpec(allow_text=False, schemas=(schema,), max_tokens=128))
     assert result.valid, result.error
     assert result.payload == b'{"first":"zz","second":"zzz"}'
     assert seen == [5]
     assert dict(result.field_ids)["first"] == (ord("z"),) * 2
     assert dict(result.field_ids)["second"] == (ord("z"),) * 3
+
+
+def test_a_schema_without_a_constructible_valid_example_is_not_admitted(model):
+    # allOf has no safe minimal example, so nothing proves the schema fits its budget.
+    schema = SchemaSpec(
+        "compound",
+        (
+            FieldSpec(
+                "value",
+                kind="json",
+                max_tokens=16,
+                json_schema='{"allOf":[{"type":"integer"},{"minimum":0}]}',
+            ),
+        ),
+    )
+    assert wire_witness_tokens(schema, model.codec) is None
+    with pytest.raises(ValueError, match="no public output mode fits"):
+        _decode_mean(model, ActionSpec(allow_text=False, schemas=(schema,), max_tokens=64))

@@ -16,6 +16,7 @@ import base64
 import hashlib
 import json
 import math
+import weakref
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING
@@ -25,21 +26,21 @@ import torch
 from torch import Tensor, nn
 from torch.func import functional_call
 
-from megatoken.contracts import DECODER_LOSSES, DEFAULT_LOSS_WEIGHTS, LOSS_NAMES
+from megatoken.contracts import DECODER_LOSSES, LOSS_NAMES
 from megatoken.controls import encode_controls
 from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.structure import ActionSpec
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.io import strict_json_loads
-from megatoken.tensors import byte_tensor
+from megatoken.tensors import byte_tensor, is_host
 
 from .attention import AttentionFeatures, join_attention
 from .config import RESERVED_TRACKS
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .media import MediaOutputSpec, MediaTrainTarget, validate_public_media_spec
-from .relations import SelectedRelation
+from .relations import KINDS, SelectedRelation, semantic_relation_loss
 from .routing import RowRoute
-from .state import KVHistory, RealizationContext, assert_cache_version
+from .state import KVHistory, assert_cache_version
 
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
@@ -280,7 +281,7 @@ class MultiTrackCore:
             raise ValueError("Every group member needs one device-local int64 role")
         if raw.device != state.device or not raw.is_floating_point():
             raise ValueError("Raw group has the wrong device or dtype")
-        if not bool(torch.isfinite(raw).all()):
+        if is_host(raw) and not bool(torch.isfinite(raw).all()):
             raise ValueError("Raw selected facets must be finite")
         # C reads the full causal pre-state. Whole-meridian eviction is done
         # at publication, after this incoming group has read older context.
@@ -358,31 +359,6 @@ class MultiTrackCore:
             ),
         )
 
-    def observe_text_group(
-        self,
-        state: MultiTrackState,
-        payloads: Sequence[bytes],
-        *,
-        tracks: Sequence[str],
-        roles: Sequence[int] | None = None,
-        encoder_grad: bool = True,
-    ) -> MultiTrackState:
-        """Observe simultaneous text events; they share one C/KV transition."""
-        payloads, tracks = tuple(payloads), tuple(tracks)
-        if len(payloads) != len(tracks):
-            raise ValueError("Payloads and tracks must correspond")
-        roles = tuple(roles) if roles is not None else (ROLE_IDS["user"],) * len(payloads)
-        if len(roles) != len(payloads):
-            raise ValueError("One role is required per observed event")
-        return self.observe_group(
-            state,
-            tuple(
-                ObservedEvent(track, "text", payload, role_id=role)
-                for track, payload, role in zip(tracks, payloads, roles, strict=True)
-            ),
-            encoder_grad=encoder_grad,
-        )
-
     def _predict_seed(self, state: MultiTrackState) -> Tensor:
         if state.final is None:
             # Match singleton startup: the sentinel is processed locally, not
@@ -437,8 +413,6 @@ class MultiTrackCore:
         # Track names are request descriptors, not ordinal positions.
         # Attention separately learns equality of stable session track IDs.
         if events > 1:
-            from megatoken.controls import encode_controls
-
             track_bytes = [b"<track>\n" + name.encode("utf-8") for name in tracks]
             track_control = encode_controls(self.core, track_bytes, encoder_grad=False)
             assert track_control is not None
@@ -452,17 +426,18 @@ class MultiTrackCore:
             stages,
             nrows,
             epoch="prediction",
-            allow_exploration=False,
         )
         self.core._record_routing_loss(routes.balance_loss, routes.stabilization_loss)
         for stage in stages:
-            facets = self._stage(
+            route = routes.at(stage)
+            facets = self.core.run_pair_stage(
                 facets,
                 stage,
-                routes.at(stage),
+                route,
                 effort,
-                state,
-                track_ids,
+                lambda value, stage=stage, route=route: self._stage(
+                    value, stage, route, effort, state, track_ids
+                ),
             )
         return facets
 
@@ -508,42 +483,8 @@ class MultiTrackCore:
             query_track_ids=slot_tracks,
         )
         joined = joined + wrapper.attention_gate.sigmoid() * mixed
-        individual = joined.reshape(batch * events, f, d)
-        core.p_router.record_executed(route)
-        begin = 0
-        for update, count in enumerate(core._row_counts(f, effort)):
-            selected = RowRoute(
-                route.expert_ids[:, begin : begin + count],
-                route.confidence[:, begin : begin + count],
-                route.eligible,
-                route.palette_probabilities,
-                route.balance_loss,
-                route.stabilization_loss,
-            )
-            core.p_bank.record_routes(
-                selected.expert_ids,
-                route.eligible if update == 0 else None,
-                gradient_enabled=torch.is_grad_enabled(),
-            )
-            individual = wrapper.update(
-                individual,
-                core.pair_left[stage - 1, update, :count],
-                core.pair_right[stage - 1, update, :count],
-                selected,
-                core.p_bank,
-                update,
-                core.pair_reduction_indices[stage - 1, update, EFFORTS.index(effort)],
-                core.pair_reduction_mask[stage - 1, update, EFFORTS.index(effort)],
-                core.pair_reduction_degree[stage - 1, update, EFFORTS.index(effort)],
-            )
-            begin += count
+        individual = core.pair_updates(joined.reshape(batch * events, f, d), stage, route, effort)
         return individual.reshape(batch, events, f, d)
-
-    def realization_context(self, state: MultiTrackState, event: int) -> RealizationContext:
-        self._validate(state)
-        if not 0 <= event < state.frontier_count or not state.frontier_tracks:
-            raise ValueError("Realization requires a selected event")
-        return self.core.prepare_realization(state.raw[:, event])
 
 
 @dataclass(frozen=True)
@@ -679,11 +620,8 @@ class GroupSupervisedResult:
     """One differentiable multitrack transaction with independent loss units."""
 
     state: MultiTrackState
-    loss: Tensor
-    components: dict[str, Tensor]
-    losses: dict[str, tuple[Tensor, int]] | None = None
-    metrics: dict[str, Tensor | int | float] | None = None
-    selected_raw: Tensor | None = None
+    losses: dict[str, tuple[Tensor, int]]
+    metrics: dict[str, Tensor | int | float]
 
 
 @dataclass(frozen=True)
@@ -749,9 +687,33 @@ class _GroupedTeacherReadout(nn.Module):
 class MultiTrackGenerator:
     """One shared P/C/Gaussian, with modality-specific deterministic realization."""
 
+    _shared: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+    @classmethod
+    def of(cls, generator: FacetedGenerator) -> MultiTrackGenerator:
+        """The one multitrack view of a model, so per-version caches outlive a window."""
+        if generator not in cls._shared:
+            cls._shared[generator] = cls(generator)
+        return cls._shared[generator]
+
     def __init__(self, generator: FacetedGenerator) -> None:
         self.generator = generator
         self.tracks = MultiTrackCore(generator.core)
+        self._frozen: tuple[int, dict[str, Tensor]] | None = None
+
+    def _frozen_readout(self, readout: nn.Module) -> dict[str, Tensor]:
+        """Detached views of every readout parameter, built once per model version.
+
+        The views alias the live parameters, so optimizer updates show through;
+        only a new version (or new parameter objects) needs a new dict.
+        """
+        version = self.generator.core.model_version
+        if self._frozen is None or self._frozen[0] != version:
+            self._frozen = (
+                version,
+                {name: parameter.detach() for name, parameter in readout.named_parameters()},
+            )
+        return self._frozen[1]
 
     @staticmethod
     def _sample_policy(
@@ -991,7 +953,7 @@ class MultiTrackGenerator:
         else:
             # Direct R is frozen for this encoder-only recurrent auxiliary;
             # only the encoder-produced canonical facets receive its gradient.
-            frozen = {name: parameter.detach() for name, parameter in readout.named_parameters()}
+            frozen = self._frozen_readout(readout)
             with core.discard_routing_losses():
                 recon_terms = functional_call(
                     readout,
@@ -1058,17 +1020,7 @@ class MultiTrackGenerator:
         # unrelated modality codec latents. All peers are sampled predictions.
         for relation_kind, left, right, strength in relations:
             if (
-                relation_kind
-                not in {
-                    "same_spoken_content",
-                    "translation_of",
-                    "describes",
-                    "synchronized_with",
-                    "first_frame_of",
-                    "last_frame_of",
-                    "edit_of",
-                    "preserves",
-                }
+                relation_kind not in KINDS
                 or not 0 <= left < len(names)
                 or not 0 <= right < len(names)
                 or left == right
@@ -1086,11 +1038,8 @@ class MultiTrackGenerator:
             sums["relation"] = sums["relation"] + strength * alignment_loss.sum()
             counts["relation"] += 1
         semantic_relations = tuple(semantic_relations)
-        relation_loss, relation_count = self.generator.relations(
-            sampled,
-            target_raw,
-            modalities,
-            semantic_relations,
+        relation_loss, relation_count = semantic_relation_loss(
+            sampled, target_raw, semantic_relations
         )
         sums["relation_semantic"] = relation_loss
         counts["relation_semantic"] = relation_count
@@ -1146,17 +1095,6 @@ class MultiTrackGenerator:
         if expected != counts:
             raise RuntimeError(f"Grouped loss plan drift: expected {expected}, observed {counts}")
         losses = {name: (sums[name], counts[name]) for name in LOSS_NAMES}
-        weighted = sum(
-            sums[name] * (DEFAULT_LOSS_WEIGHTS[name] / counts[name])
-            for name in LOSS_NAMES
-            if counts[name]
-        )
-        components = {
-            "prediction": prior_terms["lexical"][0] / max(1, prior_terms["lexical"][1]),
-            "reconstruction": recon_terms["lexical"][0] / max(1, recon_terms["lexical"][1]),
-            "facet_kl": correspondence / max(1, counts["facet_prediction"]),
-            "routing": balance * 0.005 + z_loss * 1e-4,
-        }
         metrics: dict[str, Tensor | int | float] = {
             "facet_examples": len(names),
             "prior_examples": len(names),
@@ -1185,7 +1123,7 @@ class MultiTrackGenerator:
                 mode == "recurrent" and teacher_forced_action
             ),
         }
-        return GroupSupervisedResult(next_state, weighted, components, losses, metrics, sampled)
+        return GroupSupervisedResult(next_state, losses, metrics)
 
     @torch.no_grad()
     def generate_group(
@@ -1364,80 +1302,3 @@ class MultiTrackGenerator:
             raise ValueError("Grouped realization replay mismatch")
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)
-
-    def score_recorded_group(
-        self,
-        state: MultiTrackState,
-        tape: GroupActionTape,
-        *,
-        effort: int | None = None,
-    ) -> tuple[Tensor, MultiTrackState]:
-        """Differentiable Gaussian score of immutable selected raw actions.
-
-        Required for native outcome/experience credit. Pinned KB controls and
-        causal replay remain in the computation; deterministic source events
-        are not falsely treated as sampled policy actions.
-        """
-        self.tracks._validate(state)
-        if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
-            raise ValueError("Policy score requires the original native causal meridian")
-        if tape.codec_fingerprint != self.generator.codec.fingerprint:
-            raise ValueError("Recorded policy codec differs")
-        if effort is not None and effort != tape.effort:
-            raise ValueError("Recorded policy effort differs")
-        encoded = self._controls(tape.controls, state.device)
-        predicted = self.tracks.predict_group(
-            state,
-            tracks=tape.tracks,
-            control=encoded,
-            effort=tape.effort,
-            modalities=tape.modalities,
-        )
-        selected = tape.raw(state.device).detach()
-        log_prob = self.generator.facet_distribution(predicted).log_prob(selected).sum()
-        next_state = self.tracks.advance_group(
-            state,
-            selected,
-            tracks=tape.tracks,
-            role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
-            modalities=tape.modalities,
-        )
-        return log_prob, next_state
-
-    def generate_text_group(
-        self,
-        state: MultiTrackState,
-        *,
-        tracks: Sequence[str],
-        controls: Sequence[bytes] | None = None,
-        specs: Sequence[ActionSpec] | None = None,
-        effort: int = 6,
-        generator: torch.Generator | None = None,
-    ) -> GroupGeneration:
-        return self.generate_group(
-            state,
-            tracks=tracks,
-            specs=specs,
-            controls=controls,
-            effort=effort,
-            generator=generator,
-        )
-
-    def replay_text_group(
-        self,
-        state: MultiTrackState,
-        tape: GroupActionTape,
-        *,
-        specs: Sequence[ActionSpec] | None = None,
-        effort: int = 6,
-        atol: float = 1e-4,
-        rtol: float = 1e-5,
-    ) -> GroupGeneration:
-        return self.replay_group(
-            state,
-            tape,
-            specs=specs,
-            effort=effort,
-            atol=atol,
-            rtol=rtol,
-        )

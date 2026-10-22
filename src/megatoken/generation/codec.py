@@ -69,35 +69,32 @@ class ByteCodec:
         self._split_pattern = split_pattern
         self._fast_tokenizer = None
         if tokenizer_document is not None:
-            try:
-                from tokenizers import Tokenizer
-            except ImportError:
-                pass
-            else:
-                # NFC changes bytes. Added-token interpretation also changes the
-                # output alphabet. Raw FMT text has neither operation.
-                document = dict(tokenizer_document)
-                document.update(
-                    normalizer=None,
-                    added_tokens=[],
-                    post_processor=None,
-                    truncation=None,
-                    padding=None,
-                )
-                model = dict(document["model"])
-                alphabet = _byte_alphabet()
+            from tokenizers import Tokenizer  # required: the pure-Python path is not equivalent
 
-                def legal_merge(merge):
-                    left, right = merge.split(" ") if isinstance(merge, str) else merge
-                    pair = bytes(alphabet[c] for c in left), bytes(alphabet[c] for c in right)
-                    return pair in self._merges
+            # NFC changes bytes. Added-token interpretation also changes the
+            # output alphabet. Raw FMT text has neither operation.
+            document = dict(tokenizer_document)
+            document.update(
+                normalizer=None,
+                added_tokens=[],
+                post_processor=None,
+                truncation=None,
+                padding=None,
+            )
+            model = dict(document["model"])
+            alphabet = _byte_alphabet()
 
-                model["merges"] = [merge for merge in model.get("merges", []) if legal_merge(merge)]
-                # Direct multi-byte vocabulary lookup could bypass a removed
-                # merge and return the masked protocol row again.
-                model["ignore_merges"] = False
-                document["model"] = model
-                self._fast_tokenizer = Tokenizer.from_str(json.dumps(document))
+            def legal_merge(merge):
+                left, right = merge.split(" ") if isinstance(merge, str) else merge
+                pair = bytes(alphabet[c] for c in left), bytes(alphabet[c] for c in right)
+                return pair in self._merges
+
+            model["merges"] = [merge for merge in model.get("merges", []) if legal_merge(merge)]
+            # Direct multi-byte vocabulary lookup could bypass a removed
+            # merge and return the masked protocol row again.
+            model["ignore_merges"] = False
+            document["model"] = model
+            self._fast_tokenizer = Tokenizer.from_str(json.dumps(document))
         if fingerprint is None:
             digest = hashlib.sha256(CODEC_VERSION.encode())
             for piece in self._pieces:
@@ -282,8 +279,3 @@ class ByteCodec:
             for i, piece in enumerate(self._pieces)
             if piece and all(b in permitted for b in piece)
         )
-
-
-class ByteFallbackCodec(ByteCodec):
-    def __init__(self) -> None:
-        super().__init__(tuple(bytes([b]) for b in range(256)))

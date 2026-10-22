@@ -38,7 +38,7 @@ def test_direct_realization_and_next_prediction_have_separate_core_dependencies(
     with pytest.raises(ValueError, match="initial sentinel"):
         model.core.prepare_realization(model.core.initial_state(1))
     assert selected.state.records_seen.item() == source.records_seen.item() + 1
-    assert model.decode_state(selected.state, spec=spec).payload == selected.payload
+    assert model.decode_facets(selected.state.facets, spec=spec).payload == selected.payload
     model.core.predict_facets(selected.state)
     assert len(central_calls) == 1
     central_hook.remove()
@@ -75,8 +75,8 @@ def test_direct_decoder_is_history_independent_and_tape_rejects_forged_bytes():
     hook = model.decoder.realizer.register_forward_hook(
         lambda module, args, output: captured.append(output.detach())
     )
-    original = model.decode_state(sampled.state, spec=spec)
-    alternate = model.decode_state(changed, spec=spec)
+    original = model.decode_facets(sampled.state.facets, spec=spec)
+    alternate = model.decode_facets(changed.facets, spec=spec)
     hook.remove()
     torch.testing.assert_close(captured[0], captured[1], rtol=0, atol=0)
     assert alternate.payload == original.payload

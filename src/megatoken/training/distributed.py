@@ -20,7 +20,6 @@ import torch.distributed as dist
 class DistributedContext:
     rank: int = 0
     world_size: int = 1
-    local_rank: int = 0
     device: torch.device = torch.device("cpu")
     owns_group: bool = False
 
@@ -45,7 +44,7 @@ class DistributedContext:
             owns = True
         if dist.is_initialized():
             rank, world = dist.get_rank(), dist.get_world_size()
-        return cls(rank, world, local, device, owns)
+        return cls(rank, world, device, owns)
 
     @property
     def is_primary(self) -> bool:
@@ -125,6 +124,9 @@ class DistributedContext:
                 continue
             if parameter.grad is None:
                 parameter.grad = torch.zeros_like(parameter)
+            elif not parameter.grad.is_contiguous():
+                # A flat view must alias the gradient, or the reduced values would be lost.
+                parameter.grad = parameter.grad.contiguous()
             needed = parameter.numel() * parameter.element_size()
             if bucket and size + needed > bucket_bytes:
                 reduce_bucket()
@@ -132,7 +134,7 @@ class DistributedContext:
             # Split a large packed expert parameter rather than allocating a
             # second full 1.2-GB flattened copy just for communication.
             if needed > bucket_bytes:
-                flat_gradient = parameter.grad.reshape(-1)
+                flat_gradient = parameter.grad.view(-1)
                 chunk = max(1, bucket_bytes // parameter.element_size())
                 for start in range(0, flat_gradient.numel(), chunk):
                     dist.all_reduce(flat_gradient[start : start + chunk], op=dist.ReduceOp.SUM)

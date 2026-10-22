@@ -1,6 +1,8 @@
 """Immutable worker checkpoint uploads to S3-compatible durable object storage.
 
-The latest pointer is committed only after all checkpoint objects upload.
+The latest pointer is committed only after all checkpoint objects upload; older
+checkpoints are then pruned by the local retention rule (newest ``keep`` periodic
+ones, every pinned one, and the one the pointer names).
 Workers recover the same per-rank cursor, optimizer, RNG and pending DiLoCo
 outbox, even when CoreWeave reclaims the original sandbox scratch disk.
 """
@@ -38,8 +40,9 @@ class CheckpointStore:
     def _key(self, name: str) -> str:
         return f"{self.prefix}/{name}"
 
-    def upload(self, checkpoint: str | Path) -> dict:
-        """Upload every checkpoint file (weights, transducer bank, manifests), then the pointer."""
+    def upload(self, checkpoint: str | Path, *, keep: int = 3) -> dict:
+        """Upload every checkpoint file (weights, transducer bank, manifests), then the
+        pointer, then prune what retention no longer keeps."""
         path = Path(checkpoint)
         meta = path / "metadata.json"
         metadata = json.loads(meta.read_text())
@@ -72,7 +75,40 @@ class CheckpointStore:
             Body=json.dumps(pointer, sort_keys=True).encode(),
             ContentType="application/json",
         )
+        self.prune(path.name, keep)
         return pointer
+
+    def prune(self, current: str, keep: int) -> None:
+        """Delete remote periodic checkpoints beyond the newest ``keep`` (pinned ones stay)."""
+        if keep < 1:
+            raise ValueError("At least one periodic checkpoint must be retained")
+        objects: dict[str, list[str]] = {}
+        token: dict[str, str] = {}
+        while True:
+            page = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=f"{self.prefix}/", **token)
+            for item in page.get("Contents", []):
+                name, _, rest = item["Key"].removeprefix(f"{self.prefix}/").partition("/")
+                if rest:
+                    objects.setdefault(name, []).append(item["Key"])
+            if not page.get("IsTruncated"):
+                break
+            token = {"ContinuationToken": page["NextContinuationToken"]}
+        periodic = []
+        for name, keys in objects.items():
+            if self._key(f"{name}/metadata.json") not in keys:
+                continue  # an upload still in flight has no metadata yet: keep it
+            body = self.s3.get_object(Bucket=self.bucket, Key=self._key(f"{name}/metadata.json"))
+            metadata = json.loads(body["Body"].read())
+            if not metadata.get("pinned", True):
+                periodic.append((metadata.get("global_step", 0), name))
+        for _, name in sorted(periodic, reverse=True)[keep:]:
+            if name != current:
+                keys = objects[name]
+                for start in range(0, len(keys), 1000):
+                    self.s3.delete_objects(
+                        Bucket=self.bucket,
+                        Delete={"Objects": [{"Key": key} for key in keys[start : start + 1000]]},
+                    )
 
     def restore(self, checkpoints: str | Path) -> Path | None:
         try:
@@ -98,6 +134,8 @@ class CheckpointStore:
             raise ValueError("Remote checkpoint lacks weights or metadata")
         root = Path(checkpoints)
         root.mkdir(parents=True, exist_ok=True)
+        for stale in root.glob(".download-*"):
+            shutil.rmtree(stale, ignore_errors=True)  # an earlier restore died mid-download
         destination = root / name
         if destination.exists():
             for filename, digest in files.items():

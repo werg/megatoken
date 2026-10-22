@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from megatoken.contracts import LOSS_NAMES
+from megatoken.contracts import LOSS_NAMES, ROLE_TO_ID
 
 from .codec import ByteCodec
 from .structure import (
@@ -26,7 +26,9 @@ class PreparedTargets:
     ids: tuple[tuple[int, ...], ...]
     free_masks: tuple[tuple[bool, ...], ...]
     terminals: tuple[bool, ...]
-    capacity: int
+    # One output workspace size per example: the power of two above its own length,
+    # exactly the rule serving applies to a free realization of that length.
+    capacities: tuple[int, ...]
     denominators: Mapping[str, int]
     scored_positions: int
     roles: tuple[int, ...]
@@ -58,6 +60,10 @@ class PreparedAction:
     @property
     def mode(self) -> str:
         return self.representation_mode
+
+    @property
+    def capacities(self) -> tuple[int, ...]:
+        return (self.capacity,)
 
 
 @dataclass
@@ -226,9 +232,13 @@ def prepare_targets(
     batch = len(ids)
     terminals = (terminal,) * batch if isinstance(terminal, bool) else tuple(map(bool, terminal))
     roles = (2,) * batch if role_ids is None else tuple(map(int, role_ids))
-    if len(terminals) != batch or len(roles) != batch or any(not 0 <= role <= 5 for role in roles):
+    if (
+        len(terminals) != batch
+        or len(roles) != batch
+        or any(not 0 <= role < len(ROLE_TO_ID) for role in roles)
+    ):
         raise ValueError("one supported role and terminal label are required per target")
-    capacity = workspace_capacity(max(map(len, ids)), capacity, config.max_capacity)
+    capacities = tuple(workspace_capacity(len(row), capacity, config.max_capacity) for row in ids)
     lexical = sum(map(sum, masks))
     pairs = _native_pairs(codec, config, payloads, ids, roles, native_tapes)
     denominators = _denominators(
@@ -244,7 +254,7 @@ def prepare_targets(
         ids,
         masks,
         terminals,
-        capacity,
+        capacities,
         denominators,
         denominators["lexical"] + denominators["reconstruction"],
         roles,
@@ -362,7 +372,7 @@ def prepare_action(
         raise ValueError("typed action including fixed syntax exceeds the public output limit")
     if spec.require_terminal is not None:
         terminal = spec.require_terminal
-    if not 0 <= role_id <= 5:
+    if not 0 <= role_id < len(ROLE_TO_ID):
         raise ValueError("target role ID is unsupported")
     pairs = _native_pairs(
         codec, config, (payload,), (tuple(codec.encode(payload)),), (role_id,), (native_tape,)
@@ -382,7 +392,9 @@ def prepare_action(
         spec,
         schema_index,
         layout,
-        workspace_capacity(max(output_length, value_length), capacity, config.max_capacity),
+        # The realizer emits value tokens only; the fixed wire syntax is serialized
+        # afterwards and needs no workspace (serving sizes it from the value length).
+        workspace_capacity(value_length, capacity, config.max_capacity),
         MappingProxyType(ids),
         MappingProxyType(declared_bindings),
         MappingProxyType(placements),

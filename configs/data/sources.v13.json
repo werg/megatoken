@@ -494,32 +494,6 @@
       "metadata_checked_at": "2026-10-17",
       "readiness": "pilot_schema_validation_required",
       "notes": "File/tool interactions have no project-build/test verification. Submitted is unknown, never success; failed/incomplete actions are context-only by default. No verified trajectory quota is filled from this source."
-    },
-    {
-      "source_id": "tool-simulation-seeds",
-      "uri": "hf://datasets/nvidia/Nemotron-RL-Agentic-Conversational-Tool-Use-Seed-v1",
-      "format": "hf",
-      "adapter": "tool_use_seeds",
-      "stream": "seed_material",
-      "revision": "9715a833ae2de4863e321067211f25efe42f6ebe",
-      "subset": "default",
-      "split": "train",
-      "max_rows": 1000,
-      "files": [],
-      "terms": {
-        "approved": false,
-        "license": "openmdw-1.1",
-        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-RL-Agentic-Conversational-Tool-Use-Seed-v1",
-        "reviewed_by": "",
-        "reviewed_at": "",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
-      },
-      "field_map": {},
-      "options": {},
-      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-RL-Agentic-Conversational-Tool-Use-Seed-v1",
-      "metadata_checked_at": "2026-10-17",
-      "readiness": "seed_material_not_training_episodes",
-      "notes": "Seed-only input: use TaskSeed.from_tool_use_seed with an actual public first user message and an explicit simulator. Private customer_scenario never enters model history."
     }
   ],
   "unacquired_required_streams": [

@@ -8,7 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from megatoken.io import content_hash, write_json
+from megatoken.io import content_hash
 from megatoken.teacher import PINNED_TEACHER
 
 from .adapters import (
@@ -18,17 +18,21 @@ from .adapters import (
     adapt_row,
     source_row_lineage,
     source_row_supervision,
+    validate_options,
 )
 from .chunking import ChunkingConfig
 from .compression import CompressionPolicy, DocumentCompressor
 from .dedup import DedupConfig, DedupStore
 from .lineage import LineageJoin
 from .media_assets import TensorAssetStore
-from .quality import validate_row_filters
+from .quality import RowFilterReject, validate_row_filters
 from .review import ParserReviewPolicy, ParserReviewQueue, source_quality, validate_prepared_episode
-from .schema import SCHEMA_VERSION, Codec, canonical_json
+from .schema import SCHEMA_VERSION, Codec, canonical_json, encode_episode
 from .sources import SourceSpec, iter_source_rows, load_source_manifest
 from .storage import PreparedDataset, export_prepared
+
+# Rows are committed in batches; a row's writes are all-or-nothing within its batch.
+COMMIT_EVERY_ROWS = 512
 
 
 def prepare_sources(
@@ -37,8 +41,8 @@ def prepare_sources(
     codec: Codec,
     *,
     dedup: DedupConfig | None = None,
-    max_record_bytes: int = 16384,
-    max_record_tokens: int = 1024,
+    max_record_bytes: int | None = None,
+    max_record_tokens: int | None = None,
     chunking: ChunkingConfig | None = None,
     review: ParserReviewPolicy | None = None,
     shard_bytes: int = 128 << 20,
@@ -47,16 +51,20 @@ def prepare_sources(
     compression: CompressionPolicy | None = None,
     teacher_packs: str | Path | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
-    _interrupt_after: int | None = None,
 ) -> PreparedDataset:
     """Prepare source rows, checking source identity before resuming any cursor.
 
+    ``max_record_tokens`` / ``max_record_bytes`` set the hard physical-record
+    limits (raising or lowering the chunking policy's own); by default the
+    policy's limits stand.
+
     Parser faults/ambiguities are captured in the review queue and excluded from
-    accepted shards. Ordinary schema/quality failures fail the default run.
-    ``reject_invalid=True`` writes their
-    explicit source/row/error receipts and continues; an operator can inspect
-    the rejection distribution before authorizing scale. `_interrupt_after` is
-    a deterministic crash-injection hook for the resume invariant test.
+    accepted shards. A row that a source's declared ``row_filters`` exclude is
+    recorded as ``filtered``. Any other invalid row (a schema or quality
+    failure) fails the default run; ``reject_invalid=True`` writes explicit
+    source/row/error receipts for those and continues, so an operator can inspect
+    the rejection distribution before authorizing scale. Errors that are not
+    about the row's data (a bug in an adapter) always stop the run.
 
     ``compression`` reads long observed fields (reference documents, large tool
     results) as teacher features (data/compression.py), with EmbeddingGemma2
@@ -67,10 +75,17 @@ def prepare_sources(
         raise ValueError("Compressed reading needs both a policy and the teacher pack manifest")
     dedup = dedup or DedupConfig()
     review = review or ParserReviewPolicy()
-    if min(max_record_bytes, max_record_tokens, shard_bytes) < 1:
+    if (
+        min(
+            1 if max_record_bytes is None else max_record_bytes,
+            1 if max_record_tokens is None else max_record_tokens,
+            shard_bytes,
+        )
+        < 1
+    ):
         raise ValueError("Physical record and shard limits must be positive")
-    chunking = (chunking or ChunkingConfig()).with_hard_limit(
-        max_record_tokens, max_bytes=max_record_bytes
+    chunking = (chunking or ChunkingConfig()).with_record_limits(
+        max_tokens=max_record_tokens, max_bytes=max_record_bytes
     )
     max_record_tokens = chunking.hard_max_tokens
     max_record_bytes = chunking.max_bytes
@@ -86,10 +101,11 @@ def prepare_sources(
     root.mkdir(parents=True, exist_ok=True)
     for source in source_list:
         source.validate_local_files()
+        validate_options(source.adapter, source.options)
     quarantine = benchmark_quarantine or {"family_keys": [], "content_sha256": []}
     identity = content_hash(
         {
-            "sources": [asdict(source) for source in source_list],
+            "sources": [source.fingerprint for source in source_list],
             "codec": codec.fingerprint,
             "dedup": asdict(dedup),
             "max_record_bytes": max_record_bytes,
@@ -105,7 +121,6 @@ def prepare_sources(
                 "roles": sorted(compression.roles),
                 "teacher": PINNED_TEACHER,
             },
-            "adapter_version": 5,
             "schema_version": SCHEMA_VERSION,
         }
     )
@@ -154,104 +169,68 @@ def prepare_sources(
                     if teacher.extractor != PINNED_TEACHER:
                         raise ValueError("The pack manifest's teacher is not the pinned teacher")
                     compressor = DocumentCompressor(teacher, TensorAssetStore(root), compression)
-                for row_index, row in iter_source_rows(source, start_row=start):
-                    raw_row = row
-                    context = AdapterContext(
-                        source_id=source.source_id,
-                        revision=source.revision,
-                        uri=source.uri,
-                        stream=source.stream,
-                        row_index=row_index,
-                        max_record_bytes=max_record_bytes,
-                        field_map=source.field_map,
-                        options=source.options,
-                        codec=codec,
-                        max_record_tokens=max_record_tokens,
-                        chunking=chunking,
-                        compressor=compressor,
-                    )
-                    with store.transaction():
-                        try:
-                            validate_row_filters(row, source.options.get("row_filters", []))
-                            if lineage_join is not None:
-                                row = lineage_join.apply(row, join_config.get("row_key", "uuid"))
+                rows_in_batch = 0
+                try:
+                    for row_index, row in iter_source_rows(source, start_row=start):
+                        context = AdapterContext(
+                            source_id=source.source_id,
+                            revision=source.revision,
+                            uri=source.uri,
+                            stream=source.stream,
+                            row_index=row_index,
+                            max_record_bytes=max_record_bytes,
+                            field_map=source.field_map,
+                            options=source.options,
+                            codec=codec,
+                            max_record_tokens=max_record_tokens,
+                            chunking=chunking,
+                            compressor=compressor,
+                        )
+                        with store.row_savepoint():
                             try:
-                                episode = adapt_row(row, source.adapter, context)
-                            except ChatFramingError as error:
-                                if not review.enabled:
-                                    raise
-                                # Even an unparseable frame must register its
-                                # source ancestry before family splits freeze.
-                                lineage = source_row_lineage(row, source.adapter, context)
-                                family = store.register_family(lineage.family_keys)
-                                supervision = source_row_supervision(row, source.adapter, context)
-                                if supervision.benchmark_tags:
-                                    store.connection.execute(
-                                        "INSERT OR IGNORE INTO benchmarks VALUES(?, 'family')",
-                                        (family,),
-                                    )
-                                detail = review_queue.capture(
-                                    source=source,
-                                    row_index=row_index,
-                                    raw_row=raw_row,
-                                    adapted_row=row,
-                                    episode=None,
-                                    parser_identity=chunking_identity,
+                                status, detail = _ingest_row(
+                                    store,
+                                    review_queue,
+                                    source,
+                                    row_index,
+                                    row,
+                                    context,
+                                    lineage_join,
+                                    join_config,
+                                    review=review,
                                     chunking=chunking,
-                                    policy=review,
-                                    reasons=error.diagnostics,
-                                    error=str(error),
+                                    chunking_identity=chunking_identity,
                                 )
-                                status, episode = "parser_review", None
-                            # A rejected low-quality variant still contributes its
-                            # known ancestor links before any train/eval split.
-                            if episode is not None:
-                                store.register_episode_lineage(episode)
-                                validate_prepared_episode(
-                                    episode,
-                                    codec,
-                                    source_quality(source),
-                                    max_record_tokens=max_record_tokens,
-                                    max_record_bytes=max_record_bytes,
+                            except RowFilterReject as error:
+                                status, detail = "filtered", str(error)
+                            except (SchemaError, ValueError) as error:
+                                if not reject_invalid:
+                                    raise ValueError(
+                                        f"Source {source.source_id}, row {row_index}: {error}"
+                                    ) from error
+                                status, detail = "rejected", str(error)
+                            except Exception as error:
+                                error.add_note(
+                                    f"Source {source.source_id}, row {row_index}: this is a "
+                                    "pipeline error, not an invalid row, so it is never rejected"
                                 )
-                                reasons = review.reasons(episode, adapter=source.adapter)
-                                if reasons:
-                                    detail = review_queue.capture(
-                                        source=source,
-                                        row_index=row_index,
-                                        raw_row=raw_row,
-                                        adapted_row=row,
-                                        episode=episode,
-                                        parser_identity=chunking_identity,
-                                        chunking=chunking,
-                                        policy=review,
-                                        reasons=reasons,
-                                    )
-                                    status = "parser_review"
-                                else:
-                                    status = store.add(episode, codec)
-                                    detail = episode.episode_id
-                        except (SchemaError, ValueError, TypeError, KeyError) as error:
-                            if not reject_invalid:
-                                raise ValueError(
-                                    f"Source {source.source_id}, row {row_index}: {error}"
-                                ) from error
-                            status, detail = "rejected", str(error)
-                        store.mark_source(
-                            source.fingerprint, row_index, status=status, detail=detail
-                        )
-                    last = row_index
-                    processed += 1
-                    if progress and processed % 100 == 0:
-                        progress({"source": source.source_id, "row": row_index, "status": status})
-                    if _interrupt_after is not None and processed >= _interrupt_after:
-                        if lineage_join is not None:
-                            lineage_join.close()
-                        raise InterruptedError(
-                            "Injected preparation interruption after durable row commit"
-                        )
-                if lineage_join is not None:
-                    lineage_join.close()
+                                raise
+                            store.mark_source(
+                                source.fingerprint, row_index, status=status, detail=detail
+                            )
+                        last = row_index
+                        processed += 1
+                        rows_in_batch += 1
+                        if rows_in_batch >= COMMIT_EVERY_ROWS:
+                            store.connection.commit()
+                            rows_in_batch = 0
+                        if progress and processed % 100 == 0:
+                            progress(
+                                {"source": source.source_id, "row": row_index, "status": status}
+                            )
+                finally:
+                    # Whatever stopped the loop, every completed row is durable.
+                    store.connection.commit()
                 with store.transaction():
                     # Empty sources still become durably complete without a fake row.
                     store.connection.execute(
@@ -262,17 +241,9 @@ def prepare_sources(
         store.set_meta("parser_review_summary", canonical_json(review_queue.summary()))
         store.connection.commit()
         receipts = [asdict(source) | {"fingerprint": source.fingerprint} for source in source_list]
-        export_prepared(
-            store,
-            root,
-            codec=codec,
-            source_receipts=receipts,
-            pipeline_fingerprint=identity,
-            shard_bytes=shard_bytes,
-            chunking=chunking,
-        )
         # Quarantine/reject details are metadata, never concatenated to transcripts.
-        report = {
+        # They are written with the data files, before the manifest commits the export.
+        rejections = {
             "schema_version": 1,
             "rows": [
                 dict(row)
@@ -283,6 +254,91 @@ def prepare_sources(
             "sample_limit": 10000,
             "total_rejected": store.census()["rejected_rows"],
         }
-        write_json(root / "rejections.json", report)
-        write_json(root / "parser-review.json", review_queue.summary() | {"policy": asdict(review)})
+        export_prepared(
+            store,
+            root,
+            codec=codec,
+            source_receipts=receipts,
+            pipeline_fingerprint=identity,
+            shard_bytes=shard_bytes,
+            chunking=chunking,
+            sidecars={
+                "rejections.json": rejections,
+                "parser-review.json": review_queue.summary() | {"policy": asdict(review)},
+            },
+        )
     return PreparedDataset(root, split=None)
+
+
+def _ingest_row(
+    store: DedupStore,
+    review_queue: ParserReviewQueue,
+    source: SourceSpec,
+    row_index: int,
+    row: dict[str, Any],
+    context: AdapterContext,
+    lineage_join: LineageJoin | None,
+    join_config: dict[str, Any] | None,
+    *,
+    review: ParserReviewPolicy,
+    chunking: ChunkingConfig,
+    chunking_identity: dict[str, Any],
+) -> tuple[str, str]:
+    """One source row into the store; returns its status and detail."""
+    raw_row = row
+    validate_row_filters(row, source.options.get("row_filters", []))
+    if lineage_join is not None:
+        row = lineage_join.apply(row, join_config.get("row_key", "uuid"))
+    try:
+        episode = adapt_row(row, source.adapter, context)
+    except ChatFramingError as error:
+        if not review.enabled:
+            raise
+        # Even an unparseable frame must register its source ancestry before
+        # family splits freeze.
+        lineage = source_row_lineage(row, source.adapter, context)
+        family = store.register_family(lineage.family_keys)
+        supervision = source_row_supervision(row, source.adapter, context)
+        if supervision.benchmark_tags:
+            store.connection.execute(
+                "INSERT OR IGNORE INTO benchmarks VALUES(?, 'family')", (family,)
+            )
+        detail = review_queue.capture(
+            source=source,
+            row_index=row_index,
+            raw_row=raw_row,
+            adapted_row=row,
+            episode=None,
+            parser_identity=chunking_identity,
+            chunking=chunking,
+            policy=review,
+            reasons=error.diagnostics,
+            error=str(error),
+        )
+        return "parser_review", detail
+    # A rejected low-quality variant still contributes its known ancestor links
+    # before any train/eval split.
+    store.register_episode_lineage(episode)
+    encoded = encode_episode(episode, context.codec)
+    validate_prepared_episode(
+        episode,
+        encoded,
+        source_quality(source),
+        max_record_tokens=context.max_record_tokens,
+        max_record_bytes=context.max_record_bytes,
+    )
+    reasons = review.reasons(episode, adapter=source.adapter)
+    if reasons:
+        detail = review_queue.capture(
+            source=source,
+            row_index=row_index,
+            raw_row=raw_row,
+            adapted_row=row,
+            episode=episode,
+            parser_identity=chunking_identity,
+            chunking=chunking,
+            policy=review,
+            reasons=reasons,
+        )
+        return "parser_review", detail
+    return store.add(episode, context.codec, encoded), episode.episode_id

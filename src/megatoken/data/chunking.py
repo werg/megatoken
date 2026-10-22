@@ -354,12 +354,20 @@ class ChunkingStats:
         self.histogram[bucket] += 1
 
     def to_dict(self) -> dict[str, Any]:
-        result = asdict(self)
-        for key in ("boundaries", "languages", "diagnostics"):
-            result[key] = dict(getattr(self, key))
-        result["mean_positions"] = self.positions / max(1, self.records)
-        result["histogram"] = {
-            str(bound): self.histogram[str(bound)] for bound in _HISTOGRAM_BOUNDS
-        } | {">1024": self.histogram[">1024"]}
-        result["histogram_kind"] = "disjoint buckets, inclusive upper bounds"
-        return result
+        return {
+            "records": self.records,
+            "bytes": self.bytes,
+            "reference_tokens": self.reference_tokens,
+            "positions": self.positions,
+            "max_positions": self.max_positions,
+            "over_soft_max": self.over_soft_max,
+            "forced_splits": self.forced_splits,
+            "unversioned_records": self.unversioned_records,
+            "boundaries": dict(self.boundaries),
+            "languages": dict(self.languages),
+            "diagnostics": dict(self.diagnostics),
+            "mean_positions": self.positions / max(1, self.records),
+            "histogram": {str(bound): self.histogram[str(bound)] for bound in _HISTOGRAM_BOUNDS}
+            | {">1024": self.histogram[">1024"]},
+            "histogram_kind": "disjoint buckets, inclusive upper bounds",
+        }

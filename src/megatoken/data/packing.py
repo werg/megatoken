@@ -32,23 +32,6 @@ class TrainingWindow:
     end: int
     index: int
     writer_reader_pairs: tuple[Dependency, ...] = ()
-    token_overshoot: int = 0
-
-    @property
-    def episode_id(self) -> str:
-        return self.episode.episode_id
-
-    @property
-    def reset_id(self) -> str:
-        return self.episode.identity
-
-    @property
-    def stream(self) -> str:
-        return self.episode.stream
-
-    @property
-    def source_id(self) -> str:
-        return self.episode.lineage.source_id
 
     @property
     def D(self) -> int:
@@ -66,30 +49,6 @@ class TrainingWindow:
     def G(self) -> int:
         """Actual physical megatokens, independently of lexical token count."""
         return len(self.records)
-
-    @property
-    def prefix_count(self) -> int:
-        return len(self.prefix)
-
-    @property
-    def record_ingestions(self) -> int:
-        return len(self.prefix) + len(self.records)
-
-    @property
-    def signature(self) -> tuple[tuple[str, bool, int, int, int, bool, bool], ...]:
-        """Compatible event schedules can batch without altering any trajectory."""
-        return tuple(
-            (
-                entry.record.role,
-                entry.record.policy_mask,
-                entry.positions,
-                entry.record.part_index,
-                entry.record.part_count,
-                entry.record.action_id is not None,
-                entry.record.result_of is not None,
-            )
-            for entry in self.records
-        )
 
 
 def iter_windows(
@@ -179,56 +138,5 @@ def iter_windows(
             end=end,
             index=window_index,
             writer_reader_pairs=pairs,
-            token_overshoot=max(0, tokens - config.max_window_tokens),
         )
         window_index += 1
-
-
-@dataclass
-class WindowAudit:
-    """Audit long-context requirements using observed windows, not source labels."""
-
-    windows: int = 0
-    scored_windows: int = 0
-    writer_reader_windows: int = 0
-    D: int = 0
-    long_dependency_D: int = 0
-    context_I: int = 0
-    long_context_I: int = 0
-
-    def observe(self, window: TrainingWindow, *, long_threshold: int = 131072) -> None:
-        self.windows += 1
-        self.D += window.D
-        self.context_I += window.I
-        if window.P:
-            self.scored_windows += 1
-            self.writer_reader_windows += bool(window.writer_reader_pairs)
-        episode_tokens = sum(record.tokens for record in window.prefix + window.records)
-        if episode_tokens >= long_threshold:
-            self.long_context_I += window.I
-            reader_ids = {record.record.record_id for record in window.records if record.P}
-            if any(dep.reader_id in reader_ids for dep in window.episode.dependencies):
-                self.long_dependency_D += window.D
-
-    def assert_requirements(
-        self,
-        *,
-        min_writer_reader_fraction: float = 0.0,
-        min_long_dependency_D_fraction: float = 0.0,
-        min_long_context_fraction: float = 0.0,
-    ) -> None:
-        if (
-            min_writer_reader_fraction
-            and self.writer_reader_windows
-            < min_writer_reader_fraction * max(1, self.scored_windows)
-        ):
-            raise ValueError("Insufficient differentiable writer-to-reader windows")
-        if (
-            min_long_dependency_D_fraction
-            and self.long_dependency_D < min_long_dependency_D_fraction * max(1, self.D)
-        ):
-            raise ValueError("Insufficient long-history D with a scored late dependency")
-        if min_long_context_fraction and self.long_context_I < min_long_context_fraction * max(
-            1, self.context_I
-        ):
-            raise ValueError("Insufficient long-history context exposure")

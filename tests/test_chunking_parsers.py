@@ -495,3 +495,63 @@ def test_empty_comment_lines_preserve_a_single_embedded_code_block():
         item.code in {"syntax_error", "unclosed_fence", "low_syntax_coverage"}
         for item in result.diagnostics
     )
+
+
+def test_a_cut_at_the_seam_between_comment_lines_keeps_the_next_lines_prefix_with_it():
+    payload = b"/*\n * First sentence here. Second one.\n * Third sentence here. Fourth one.\n */\nint x;\n"
+    parsed = parse(payload, language="c", needs_refinement=lambda start, end: True)
+    after_prefixes = {payload.index(b" * First") + 3, payload.index(b" * Third") + 3}
+    # A cut right after " * " would strand the comment marker behind the cut.
+    assert not {item.offset for item in parsed.boundaries} & after_prefixes
+    assert payload.index(b" * Third") in {item.offset for item in parsed.boundaries}
+
+
+def test_a_long_markup_document_keeps_its_structure_and_reports_a_real_budget_stop():
+    paragraph = b"<p>" + b"text " * 40 + b"</p>\n"
+    document = paragraph * 1500  # well over 100 KB, ~1500 elements
+    assert len(document) > 250_000
+    roomy = replace(LIMITS, max_regions=10_000, max_injections=10_000)
+    scan = scan_markup_fallback(document, "html", roomy)
+    elements = [region for region in scan.result.regions if region.kind == "element"]
+    assert len(elements) == 1500
+    assert not scan.result.diagnostics
+    tight = scan_markup_fallback(document, "html", replace(roomy, max_nodes=100))
+    assert scan.nodes > tight.nodes
+    assert [item.code for item in tight.result.diagnostics] == ["node_budget_exhausted"]
+    assert tight.result.diagnostics[0].end == len(document)
+
+
+def test_diagnostics_beyond_the_cap_are_counted_not_dropped():
+    # More unterminated literals than the engine's cap, in one embedded language each.
+    payload = b"".join(b"<script>var s = 'unterminated %d\n</script>\n" % i for i in range(400))
+    parsed = parse(payload, language="html")
+    truncated = [item for item in parsed.diagnostics if item.code == "diagnostics_truncated"]
+    assert len(truncated) == 1
+    counts = dict(part.split(":") for part in truncated[0].detail.split(", "))
+    assert sum(map(int, counts.values())) > 0
+    assert len(parsed.diagnostics) <= 257
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (b"# a comment about the module\nimport os\n\n\ndef main():\n    pass\n", "python"),
+        (b"# Title\n\nSome prose about things.\n\n```python\nimport os\n```\n", "markdown"),
+        (b"# Title\n\nimport the data first, then continue\n", "markdown"),
+    ],
+)
+def test_hash_led_python_is_not_mistaken_for_markdown(payload, expected):
+    assert registry.detect_content_language(payload) == expected
+
+
+@pytest.mark.parametrize(
+    ("kind", "language"), [("auto", "en"), ("prose", "pt-BR"), ("text", "English"), ("auto", "de")]
+)
+def test_a_natural_language_name_never_selects_an_unavailable_grammar(kind, language):
+    parsed = parse(
+        b"A first sentence. A second one.\n\nA new paragraph.",
+        content_kind=kind,
+        language=language,
+    )
+    assert not any(item.code == "grammar_unavailable" for item in parsed.diagnostics)
+    assert "unicode-prose" in parsed.parsers

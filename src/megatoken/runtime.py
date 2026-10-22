@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import os
 import platform
 import random
 import sys
@@ -14,6 +15,10 @@ import torch
 
 
 def seed_everything(seed: int, deterministic: bool = False) -> None:
+    if deterministic:
+        # Deterministic cuBLAS needs a fixed workspace, read when the first CUDA matmul
+        # creates its handle; without it deterministic algorithms raise on CUDA.
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     random.seed(seed)
     np.random.seed(seed % (2**32))
     torch.manual_seed(seed)

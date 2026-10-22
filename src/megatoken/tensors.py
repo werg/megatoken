@@ -9,25 +9,30 @@ from torch import Tensor
 
 
 def byte_tensor(payloads: Sequence[bytes], device: torch.device | str) -> tuple[Tensor, Tensor]:
-    """Pack bytes once on the host, then transfer independent record rows together.
+    """Pack bytes once on the host, then move the whole batch in one transfer.
 
     Zero-byte records retain their boundary through lengths=0; the padded byte is
-    never visible to the source encoder. Pinned CUDA transfers avoid per-byte
-    device construction and are shared by training, policy commitment, and serve.
+    never visible to the source encoder. Records are a few kilobytes, so a plain
+    copy beats allocating pinned memory on every call; the lengths ride in the
+    first column so a single host-to-device copy carries both. Values are bytes
+    and lengths are measured here, so they are valid by construction; consumers
+    validate only host tensors (``tensors.is_host``) and never synchronize a device.
     """
     if not payloads:
         raise ValueError("cannot pack an empty record batch")
     device = torch.device(device)
-    lengths = torch.tensor([len(payload) for payload in payloads], dtype=torch.long)
-    packed = torch.zeros((len(payloads), max(1, max(map(len, payloads)))), dtype=torch.long)
+    width = max(1, max(map(len, payloads)))
+    block = torch.zeros((len(payloads), 1 + width), dtype=torch.long)
     for index, payload in enumerate(payloads):
         if payload:
-            packed[index, : len(payload)] = torch.frombuffer(
+            block[index, 0] = len(payload)
+            block[index, 1 : 1 + len(payload)] = torch.frombuffer(
                 bytearray(payload), dtype=torch.uint8
             ).long()
-    if device.type == "cuda":
-        packed, lengths = packed.pin_memory(), lengths.pin_memory()
-    return (
-        packed.to(device, non_blocking=device.type == "cuda"),
-        lengths.to(device, non_blocking=device.type == "cuda"),
-    )
+    block = block.to(device)
+    return block[:, 1:].contiguous(), block[:, 0].contiguous()
+
+
+def is_host(tensor: Tensor) -> bool:
+    """Whether inspecting this tensor's values costs no device synchronization."""
+    return tensor.device.type == "cpu"

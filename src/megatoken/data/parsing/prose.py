@@ -401,7 +401,6 @@ def _segmentation_indices(
     result: ParseResult,
     view: _TextView,
     first: int,
-    start: int,
     max_boundaries: int,
 ) -> tuple[set[int], str]:
     if _ASCII_ATOM.fullmatch(text):
@@ -417,8 +416,8 @@ def _segmentation_indices(
             result.diagnostics.append(
                 Diagnostic(
                     "prose_boundary_budget",
-                    start + view.byte_offsets[first + run_start],
-                    start + view.byte_offsets[first + run_end],
+                    view.byte_offsets[first + run_start],
+                    view.byte_offsets[first + run_end],
                     "unicode-prose",
                     f"{kind}: stopped after {max_boundaries} boundary proposals",
                 )
@@ -434,8 +433,8 @@ def _segmentation_indices(
                 result.diagnostics.append(
                     Diagnostic(
                         "icu_refinement_failed",
-                        start + view.byte_offsets[first + run_start],
-                        start + view.byte_offsets[first + run_end],
+                        view.byte_offsets[first + run_start],
+                        view.byte_offsets[first + run_end],
                         "icu",
                         f"{kind}: {type(error).__name__}; retained Unicode boundaries",
                     )
@@ -446,8 +445,8 @@ def _segmentation_indices(
             result.diagnostics.append(
                 Diagnostic(
                     "prose_boundary_budget",
-                    start + view.byte_offsets[first],
-                    start + view.byte_offsets[first + len(text)],
+                    view.byte_offsets[first],
+                    view.byte_offsets[first + len(text)],
                     "unicode-prose",
                     f"{kind}: cumulative boundary proposals reached {max_boundaries}",
                 )
@@ -459,7 +458,7 @@ def _segmentation_indices(
     return indices, source
 
 
-def _limit_evidence(result: ParseResult, limits: ParseLimits, start: int, end: int) -> bool:
+def _limit_evidence(result: ParseResult, limits: ParseLimits, end: int) -> bool:
     """Stop analysis once bounded metadata is full; retain the source endpoint."""
     if len(result.regions) <= limits.max_regions and len(result.boundaries) <= limits.max_nodes:
         return False
@@ -469,7 +468,7 @@ def _limit_evidence(result: ParseResult, limits: ParseLimits, start: int, end: i
     result.diagnostics.append(
         Diagnostic(
             "prose_evidence_budget",
-            start,
+            0,
             end,
             "unicode-prose",
             "Prose evidence limit reached; remaining cuts use the bounded fallback planner",
@@ -481,7 +480,6 @@ def _limit_evidence(result: ParseResult, limits: ParseLimits, start: int, end: i
 def analyze_prose(
     payload: bytes,
     *,
-    start: int = 0,
     locale: str | None = None,
     refine: bool | Callable[[int, int], bool] = False,
     use_icu: bool = False,
@@ -495,8 +493,6 @@ def analyze_prose(
     paragraph's absolute byte range and selects it for refinement. ``use_icu``
     is an explicit backend choice, never inferred from the host environment.
     """
-    if type(start) is not int or start < 0:
-        raise ValueError("Prose source offset must be a nonnegative integer")
     icu = _load_icu() if use_icu else None
     limits = limits or ParseLimits()
     view = _TextView.from_bytes(payload)
@@ -510,8 +506,8 @@ def analyze_prose(
             result.diagnostics.append(
                 Diagnostic(
                     "prose_diagnostic_budget",
-                    start + view.byte_offsets[match.start()],
-                    start + len(payload),
+                    view.byte_offsets[match.start()],
+                    len(payload),
                     "unicode-prose",
                     "Additional invalid UTF-8 diagnostics omitted; every byte is retained",
                 )
@@ -520,17 +516,17 @@ def analyze_prose(
         result.diagnostics.append(
             Diagnostic(
                 "invalid_utf8",
-                start + view.byte_offsets[match.start()],
-                start + view.byte_offsets[match.end()],
+                view.byte_offsets[match.start()],
+                view.byte_offsets[match.end()],
                 "unicode-prose",
                 "Invalid UTF-8 bytes retained as independent fallback atoms",
             )
         )
     for first, last in _paragraph_ranges(view.text):
-        byte_first, byte_last = start + view.byte_offsets[first], start + view.byte_offsets[last]
+        byte_first, byte_last = view.byte_offsets[first], view.byte_offsets[last]
         result.regions.append(Region(byte_first, byte_last, "paragraph", "text", source="unicode"))
         result.boundaries.append(Boundary(byte_last, "paragraph", source="unicode"))
-        if _limit_evidence(result, limits, start, start + len(payload)):
+        if _limit_evidence(result, limits, len(payload)):
             break
         if not (refine(byte_first, byte_last) if callable(refine) else refine):
             continue
@@ -562,8 +558,8 @@ def analyze_prose(
         for begin, end, kind in protected:
             result.regions.append(
                 Region(
-                    start + view.byte_offsets[first + begin],
-                    start + view.byte_offsets[first + end],
+                    view.byte_offsets[first + begin],
+                    view.byte_offsets[first + end],
                     kind,
                     "text",
                     depth=2,
@@ -571,7 +567,7 @@ def analyze_prose(
                 )
             )
         sentence_ends, sentence_source = _segmentation_indices(
-            text, locale, "sentence", icu, result, view, first, start, limits.max_nodes
+            text, locale, "sentence", icu, result, view, first, limits.max_nodes
         )
         sentence_ends.update(
             islice(
@@ -596,8 +592,8 @@ def analyze_prose(
             if cursor < end:
                 result.regions.append(
                     Region(
-                        start + view.byte_offsets[first + cursor],
-                        start + view.byte_offsets[first + end],
+                        view.byte_offsets[first + cursor],
+                        view.byte_offsets[first + end],
                         "sentence",
                         "text",
                         depth=1,
@@ -607,7 +603,7 @@ def analyze_prose(
             if end in chosen_sentences:
                 result.boundaries.append(
                     Boundary(
-                        start + view.byte_offsets[first + end],
+                        view.byte_offsets[first + end],
                         "sentence",
                         depth=1,
                         source=sentence_source,
@@ -615,14 +611,14 @@ def analyze_prose(
                 )
             cursor = end
         words, word_source = _segmentation_indices(
-            text, locale, "word", icu, result, view, first, start, limits.max_nodes
+            text, locale, "word", icu, result, view, first, limits.max_nodes
         )
         word_ends = {finisher.finish(end, punctuation=True) for end in words if end > 0}
         for end in sorted(word_ends):
             if safety.safe(end):
                 result.boundaries.append(
                     Boundary(
-                        start + view.byte_offsets[first + end],
+                        view.byte_offsets[first + end],
                         "word",
                         depth=2,
                         source=word_source,
@@ -632,13 +628,13 @@ def analyze_prose(
             if safety.safe(match.end()):
                 result.boundaries.append(
                     Boundary(
-                        start + view.byte_offsets[first + match.end()],
+                        view.byte_offsets[first + match.end()],
                         "line",
                         depth=2,
                         source="unicode",
                     )
                 )
-        if _limit_evidence(result, limits, start, start + len(payload)):
+        if _limit_evidence(result, limits, len(payload)):
             break
     result.boundaries.sort(key=lambda item: (item.offset, item.depth, item.kind, item.source))
     return result

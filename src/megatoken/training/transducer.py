@@ -40,22 +40,20 @@ class BoundaryScheduler:
     lookup waits for the next boundary.
     """
 
-    training: bool = False
-    seed: int = 0
+    # Training draws each interval from this generator; serving uses the fixed one.
+    generator: torch.Generator | None = field(default=None, repr=False)
     max_lookups: int = 256
     lookups: int = 0
     ordinary_since: int = 0
     interval: int = ARTIFICIAL_INTERVAL
-    _rng: torch.Generator = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._rng = torch.Generator().manual_seed(self.seed)
         self._next_interval()
 
     def _next_interval(self) -> None:
-        if self.training:
+        if self.generator is not None:
             low, high = TRAINING_INTERVALS
-            self.interval = int(torch.randint(low, high + 1, (1,), generator=self._rng))
+            self.interval = int(torch.randint(low, high + 1, (1,), generator=self.generator))
         else:
             self.interval = ARTIFICIAL_INTERVAL
 
@@ -131,10 +129,7 @@ def plan_boundaries(
     The first follows the metadata event (before meridian 0). A boundary after
     the last meridian would serve nothing in this window and is not planned.
     """
-    scheduler = BoundaryScheduler(training=generator is not None, max_lookups=max_lookups)
-    if generator is not None:
-        scheduler._rng = generator
-        scheduler._next_interval()
+    scheduler = BoundaryScheduler(generator=generator, max_lookups=max_lookups)
     before = [0] * len(meridians)
     if not meridians or not scheduler.first_metadata():
         return before

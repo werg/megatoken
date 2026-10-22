@@ -127,6 +127,22 @@ def assert_same_context(actual, expected):
     torch.testing.assert_close(actual.history.values, expected.history.values, atol=1e-6, rtol=1e-6)
 
 
+def test_native_history_is_built_once_per_episode_and_model(model, collected, monkeypatch):
+    builds = []
+    original = NativeHistory.from_episode.__func__
+
+    def counting(cls, episode, owner):
+        builds.append(owner)
+        return original(cls, episode, owner)
+
+    monkeypatch.setattr(NativeHistory, "from_episode", classmethod(counting))
+    first = NativeHistory.of(collected.episode, model)
+    assert NativeHistory.of(collected.episode, model) is first and len(builds) == 1
+    # Another model validates the same tapes independently.
+    other = type(model)(model.core, model.codec)
+    assert NativeHistory.of(collected.episode, other) is not first and len(builds) == 2
+
+
 def test_native_invalid_empty_action_and_tool_replay_matches_live_context(model, collected):
     history = NativeHistory.from_episode(collected.episode, model)
     assert history.has_events
@@ -358,7 +374,6 @@ def integration_episodes(model, collected):
     target = replace(
         collected.episode,
         episode_id="scored-native-target",
-        reset_id="shared-reset",
         records=(
             collected.episode.records[0],
             replace(collected.episode.records[1], policy_mask=True),
@@ -370,7 +385,6 @@ def integration_episodes(model, collected):
     prefix = replace(
         collected.episode,
         episode_id="native-prefix",
-        reset_id="shared-reset",
         records=(
             *collected.episode.records,
             PhysicalRecord(

@@ -10,17 +10,18 @@ from __future__ import annotations
 
 import hashlib
 import heapq
+import json
 import re
 import sqlite3
 import struct
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .schema import Codec, Episode, canonical_json, encode_record
+from .schema import Codec, EncodedRecord, Episode, canonical_json, encode_record
 
 
 def _utc_timestamp(value: str) -> str:
@@ -56,9 +57,11 @@ class DedupConfig:
             raise ValueError("Sketch parameters must be positive")
         if self.anchor_count > self.sketch_size:
             raise ValueError("Cannot use more anchors than sketch values")
+        # Tolerance: 0.9 + 0.1 must be accepted although it exceeds 1.0 in floating point.
         if (
             not 0 <= self.train_fraction <= 1
-            or not 0 <= self.validation_fraction <= 1 - self.train_fraction
+            or not 0 <= self.validation_fraction
+            or self.train_fraction + self.validation_fraction > 1 + 1e-9
         ):
             raise ValueError("Invalid train/validation/test proportions")
         if self.min_near_words < 0 or self.max_descendants_per_parent < 1:
@@ -132,7 +135,7 @@ class DedupStore:
                 observation_tokens INTEGER NOT NULL, executed_tokens INTEGER NOT NULL,
                 outcome TEXT NOT NULL, verified_success INTEGER NOT NULL, created_at TEXT,
                 duplicate_of TEXT, quarantine_reason TEXT, split TEXT, variant_key TEXT NOT NULL,
-                inherited_split TEXT
+                inherited_split TEXT, record_shape TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS episode_content ON episodes(content_sha256);
             CREATE INDEX IF NOT EXISTS episode_family ON episodes(family_key);
@@ -144,10 +147,6 @@ class DedupStore:
             CREATE TABLE IF NOT EXISTS source_progress(source_key TEXT PRIMARY KEY, next_row INTEGER NOT NULL,
                                                         complete INTEGER NOT NULL DEFAULT 0);
         """)
-        if "inherited_split" not in {
-            row[1] for row in self.connection.execute("PRAGMA table_info(episodes)")
-        }:
-            self.connection.execute("ALTER TABLE episodes ADD COLUMN inherited_split TEXT")
         prior = self.get_meta("dedup_config")
         current = canonical_json(asdict(config))
         if prior is not None and prior != current:
@@ -168,6 +167,25 @@ class DedupStore:
     def transaction(self) -> Iterator[None]:
         with self.connection:
             yield
+
+    @contextmanager
+    def row_savepoint(self) -> Iterator[None]:
+        """One source row's writes, all or nothing; the caller commits batches of rows.
+
+        Nothing here is durable until ``connection.commit()``. A crash loses the
+        uncommitted rows together with their cursor advance, so they are simply
+        read again on resume.
+        """
+        if not self.connection.in_transaction:
+            self.connection.execute("BEGIN")
+        self.connection.execute("SAVEPOINT row")
+        try:
+            yield
+        except BaseException:
+            self.connection.execute("ROLLBACK TO row")
+            self.connection.execute("RELEASE row")
+            raise
+        self.connection.execute("RELEASE row")
 
     def get_meta(self, key: str) -> str | None:
         row = self.connection.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
@@ -261,20 +279,47 @@ class DedupStore:
             (key, row + 1, int(complete)),
         )
 
-    def add(self, episode: Episode, codec: Codec) -> str:
+    def _anchors(self, sketch: tuple[int, ...]) -> list[str]:
+        """The smallest sketch values that still discriminate between documents.
+
+        A value that more than ``max_candidates`` earlier documents already
+        carry (a licence header, a system prompt) says nothing about which of
+        them is a near duplicate, so it is skipped and the next-smallest value
+        takes its place.
+        """
+        anchors: list[str] = []
+        for value in sketch:
+            anchor = f"{value:016x}"
+            posting = self.connection.execute(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM anchors WHERE anchor=? LIMIT ?)",
+                (anchor, self.config.max_candidates + 1),
+            ).fetchone()[0]
+            if posting <= self.config.max_candidates:
+                anchors.append(anchor)
+                if len(anchors) == self.config.anchor_count:
+                    break
+        return anchors
+
+    def add(
+        self, episode: Episode, codec: Codec, encoded: Sequence[EncodedRecord] | None = None
+    ) -> str:
+        """Register one episode; a caller that already encoded it passes ``encoded``."""
         if self.frozen:
             raise ValueError(
                 "Base ingestion is closed after splits freeze; export descendants to a new preparation run with inherited frozen splits"
             )
+        episode_json = canonical_json(episode.to_dict())
         prior_episode = self.connection.execute(
             "SELECT episode_json FROM episodes WHERE episode_id=?", (episode.episode_id,)
         ).fetchone()
         if prior_episode:
-            if prior_episode[0] != canonical_json(episode.to_dict()):
+            if prior_episode[0] != episode_json:
                 raise ValueError(
                     "An immutable episode ID was reused with changed bytes, masks, or metadata"
                 )
             return "already_present"
+        if encoded is None:
+            encoded = tuple(encode_record(record, codec) for record in episode.records)
         root = self.register_episode_lineage(episode)
         sketch, word_count = _word_hashes(episode, self.config)
         duplicate = self.connection.execute(
@@ -283,37 +328,35 @@ class DedupStore:
         ).fetchone()
         reason = None
         duplicate_of = duplicate[0] if duplicate else None
+        anchors = [] if duplicate else self._anchors(sketch)
         if duplicate:
             root = self.register_family((root, duplicate[1]))
         elif len(sketch) >= self.config.shingle_words and word_count >= self.config.min_near_words:
-            anchors = [f"{value:016x}" for value in sketch[: self.config.anchor_count]]
             placeholders = ",".join("?" for _ in anchors)
+            # A near duplicate shares most of its anchors, so the candidates
+            # sharing the most of them are compared; the rest cannot beat them.
             candidates = self.connection.execute(
-                f"SELECT DISTINCT episode_id FROM anchors WHERE anchor IN ({placeholders}) LIMIT ?",
-                (*anchors, self.config.max_candidates + 1),
+                f"SELECT episode_id FROM anchors WHERE anchor IN ({placeholders}) "
+                "GROUP BY episode_id ORDER BY COUNT(*) DESC, episode_id LIMIT ?",
+                (*anchors, self.config.max_candidates),
             ).fetchall()
-            if len(candidates) > self.config.max_candidates:
-                # Do not silently claim deduplication when a template is saturated.
-                reason = "near_dedup_candidate_saturation"
-            else:
-                own = set(sketch)
-                for candidate in candidates:
-                    other = self.connection.execute(
-                        "SELECT sketch,family_key,word_count FROM episodes WHERE episode_id=?",
-                        (candidate[0],),
-                    ).fetchone()
-                    if (
-                        min(word_count, other[2]) / max(word_count, other[2], 1)
-                        < self.config.near_threshold
-                    ):
-                        continue
-                    values = _unpack(other[0])
-                    similarity = len(own & values) / max(1, len(own | values))
-                    if similarity >= self.config.near_threshold:
-                        root = self.register_family((root, other[1]))
-                        if duplicate_of is None:
-                            duplicate_of = candidate[0]
-        encoded = tuple(encode_record(record, codec) for record in episode.records)
+            own = set(sketch)
+            for candidate in candidates:
+                other = self.connection.execute(
+                    "SELECT sketch,family_key,word_count FROM episodes WHERE episode_id=?",
+                    (candidate[0],),
+                ).fetchone()
+                if (
+                    min(word_count, other[2]) / max(word_count, other[2], 1)
+                    < self.config.near_threshold
+                ):
+                    continue
+                values = _unpack(other[0])
+                similarity = len(own & values) / max(1, len(own | values))
+                if similarity >= self.config.near_threshold:
+                    root = self.register_family((root, other[1]))
+                    if duplicate_of is None:
+                        duplicate_of = candidate[0]
         if (
             episode.supervision.benchmark_tags
             or self.connection.execute(
@@ -332,15 +375,16 @@ class DedupStore:
             """INSERT INTO episodes(
             episode_id,content_sha256,family_key,stream,source_id,episode_json,sketch,word_count,
             token_count,scored_positions,assistant_tokens,observation_tokens,executed_tokens,
-            outcome,verified_success,created_at,duplicate_of,quarantine_reason,variant_key,inherited_split)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            outcome,verified_success,created_at,duplicate_of,quarantine_reason,variant_key,inherited_split,
+            record_shape)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 episode.episode_id,
                 episode.content_sha256,
                 root,
                 episode.stream,
                 episode.lineage.source_id,
-                canonical_json(episode.to_dict()),
+                episode_json,
                 _pack(sketch),
                 word_count,
                 sum(record.tokens for record in encoded),
@@ -363,15 +407,13 @@ class DedupStore:
                 reason,
                 variant,
                 episode.lineage.frozen_split,
+                json.dumps([[record.tokens, record.positions] for record in encoded]),
             ),
         )
-        if not duplicate_of and reason in {None, "benchmark_contamination"}:
+        if not duplicate_of:
             self.connection.executemany(
                 "INSERT OR IGNORE INTO anchors VALUES(?,?)",
-                (
-                    (f"{value:016x}", episode.episode_id)
-                    for value in sketch[: self.config.anchor_count]
-                ),
+                ((anchor, episode.episode_id) for anchor in anchors),
             )
         return "quarantine" if reason else "duplicate" if duplicate_of else "accepted_candidate"
 
@@ -454,16 +496,15 @@ class DedupStore:
                         "UPDATE episodes SET quarantine_reason='benchmark_family' WHERE resolved_family=?",
                         (root,),
                     )
-            if self.config.max_descendants_per_parent:
-                # SQL window functions avoid keeping all variant/task counts in RAM.
-                self.connection.execute(
-                    """UPDATE episodes SET quarantine_reason='parent_variant_cap'
-                    WHERE ordinal IN (SELECT ordinal FROM (
-                        SELECT ordinal, ROW_NUMBER() OVER (PARTITION BY variant_key ORDER BY ordinal) AS n
-                        FROM episodes WHERE duplicate_of IS NULL AND quarantine_reason IS NULL
-                    ) WHERE n > ?)""",
-                    (self.config.max_descendants_per_parent,),
-                )
+            # SQL window functions avoid keeping all variant/task counts in RAM.
+            self.connection.execute(
+                """UPDATE episodes SET quarantine_reason='parent_variant_cap'
+                WHERE ordinal IN (SELECT ordinal FROM (
+                    SELECT ordinal, ROW_NUMBER() OVER (PARTITION BY variant_key ORDER BY ordinal) AS n
+                    FROM episodes WHERE duplicate_of IS NULL AND quarantine_reason IS NULL
+                ) WHERE n > ?)""",
+                (self.config.max_descendants_per_parent,),
+            )
             self.set_meta("families_frozen", "true")
 
     def split_of(self, family_key: str) -> str:
@@ -476,13 +517,6 @@ class DedupStore:
         if row is None:
             raise ValueError("Family has no frozen split")
         return row[0]
-
-    def assert_descendant(self, episode: Episode) -> str:
-        """Collection uses this BEFORE a teacher is called, and again on export."""
-        roots = {self._find(key) for key in episode.lineage.family_keys}
-        if len(roots) != 1:
-            raise ValueError("Descendant introduces cross-split lineage")
-        return self.split_of(next(iter(roots)))
 
     def accepted_rows(self) -> Iterator[sqlite3.Row]:
         if not self.frozen:
@@ -502,11 +536,6 @@ class DedupStore:
         total = sum(row["U"] for row in accepted)
         return {
             "U": total,
-            "D": 0,
-            "I": 0,
-            "P": 0,
-            "T": 0,
-            "Z": 0,
             "free_position_candidates": sum(row["free_position_candidates"] for row in accepted),
             "accepted_episodes": sum(row["episodes"] for row in accepted),
             "independent_families": self.connection.execute(
@@ -521,7 +550,10 @@ class DedupStore:
             "rejected_rows": self.connection.execute(
                 "SELECT COUNT(*) FROM source_rows WHERE status='rejected'"
             ).fetchone()[0],
+            "filtered_rows": self.connection.execute(
+                "SELECT COUNT(*) FROM source_rows WHERE status='filtered'"
+            ).fetchone()[0],
             "strata": accepted,
-            "U_definition": "Raw-codec tokens in accepted deduplicated complete transcripts, including shared context; shared prefixes reported separately.",
-            "P_definition": "P is zero until loss is actually evaluated. free_position_candidates is the static masked target inventory.",
+            "U_definition": "Raw-codec tokens in accepted deduplicated complete transcripts, including shared context.",
+            "free_position_candidates_definition": "The static masked target inventory: positions that could carry loss.",
         }

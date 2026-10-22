@@ -158,7 +158,6 @@ terminal outputs need no C pass unless a successor state is requested.
 | `advance_raw(state, raw_facets, role_ids=None, record_ids=None)` | Preserve the exact supplied tensor, run C once, append current KV immediately, cache final features, increment the record count |
 | `observe(byte_ids, state, ..., encoder_grad=True)` | E(bytes), then the same `advance_raw` path; no processing of the previous input |
 | `predict_facets(state, control=None, effort=6)` | Read cached final C features and updated history, remix, run P, return the next mean; do not write history |
-| `predict_from_processed(...)` | Explicit alias for the same pure prediction operation |
 | `prepare_realization(state)` | Expose raw facets without running C or changing state |
 | `prepare_realization(raw_tensor)` | Same direct realization context as normal serving |
 | `encode_control(..., encoder_grad=True)` | Encode public controls; optionally detach shared byte features while keeping the control head trainable |

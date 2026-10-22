@@ -46,12 +46,6 @@ def endpoint_rmse(actual_video: np.ndarray, first: np.ndarray, last: np.ndarray)
     )
 
 
-def temporal_motion(video: np.ndarray) -> float:
-    if video.ndim != 4 or len(video) < 2:
-        raise ValueError("Temporal-motion evaluation needs a multi-frame video")
-    return float(np.mean(np.abs(np.diff(video.astype(np.float32), axis=0))))
-
-
 def edit_preservation_rmse(before: np.ndarray, after: np.ndarray, change_mask: np.ndarray) -> float:
     """Score preservation only OUTSIDE the requested changed region."""
     if before.shape != after.shape:
@@ -86,22 +80,6 @@ def timed_event_matches(reference, predicted, *, tolerance_seconds: float):
     return correct, len(reference)
 
 
-def sequence_order_accuracy(reference, predicted):
-    """Relative event order among named events; zero credit for hallucinated sequence."""
-    if len(reference) < 2:
-        return 0, 0
-    gold_pairs = [
-        (reference[i], reference[j])
-        for i in range(len(reference))
-        for j in range(i + 1, len(reference))
-        if reference[i] != reference[j]
-    ]
-    indices = {name: i for i, name in enumerate(predicted)}
-    return sum(
-        1 for a, b in gold_pairs if a in indices and b in indices and indices[a] < indices[b]
-    ), len(gold_pairs)
-
-
 @dataclass
 class MetricAccumulator:
     """Separate numerators and valid site counts, including grouped rank merge."""
@@ -133,15 +111,3 @@ class MetricAccumulator:
             for key in sorted(self.counts)
             if self.counts[key]
         }
-
-
-def four_way_deltas(scores: dict):
-    """Separate codec loss, bottleneck loss, and policy prediction loss."""
-    needed = ("native", "codec_roundtrip", "bottleneck", "causal")
-    if set(scores) != set(needed) or any(not np.isfinite(v) for v in scores.values()):
-        raise ValueError("Require all four declared, measured baselines")
-    return {
-        "codec_minus_native": scores["codec_roundtrip"] - scores["native"],
-        "bottleneck_minus_codec": scores["bottleneck"] - scores["codec_roundtrip"],
-        "causal_minus_bottleneck": scores["causal"] - scores["bottleneck"],
-    }

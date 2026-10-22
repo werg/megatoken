@@ -19,13 +19,19 @@ FORMAT_VERSION = 10
 
 
 def stage_checkpoint(root: str | Path, name: str) -> Path:
-    """Validate ``name`` and create the private staging directory for it."""
+    """Validate ``name`` and create the private staging directory for it.
+
+    A root has one writer at a time, so any staging directory still lying there is the
+    debris of a write that crashed; it is removed first.
+    """
     root = Path(root)
     if not name or Path(name).name != name or name.startswith("."):
         raise ValueError("Checkpoint name must be a simple visible filename")
     root.mkdir(parents=True, exist_ok=True)
     if (root / name).exists():
         raise FileExistsError(f"Refusing to replace committed checkpoint {root / name}")
+    for stale in root.glob(".checkpoint-*"):
+        shutil.rmtree(stale, ignore_errors=True)
     return Path(tempfile.mkdtemp(prefix=".checkpoint-", dir=root))
 
 
@@ -83,7 +89,10 @@ def transducer_attachment(state: Callable[[], dict]) -> Callable[[Path], dict[st
 
     def attach(stage: Path) -> dict[str, Any]:
         path = stage / "transducer.pt"
-        torch.save(state(), path)
+        with path.open("wb") as handle:
+            torch.save(state(), handle)
+            handle.flush()
+            os.fsync(handle.fileno())
         return {"transducer_checkpoint": {"file": path.name, "sha256": sha256_file(path)}}
 
     return attach

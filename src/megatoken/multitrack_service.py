@@ -256,5 +256,13 @@ def serve_multitrack_jsonl(
             response = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         if request_id is not None:
             response["id"] = request_id
-        output_stream.write(json.dumps(response, ensure_ascii=False, allow_nan=False) + "\n")
+        try:
+            line = json.dumps(response, ensure_ascii=False, allow_nan=False)
+        except (ValueError, TypeError) as exc:
+            # A result that is not strict JSON (a NaN density) fails its own request only.
+            failure = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            if request_id is not None:
+                failure["id"] = request_id
+            line = json.dumps(failure, ensure_ascii=False, allow_nan=False)
+        output_stream.write(line + "\n")
         output_stream.flush()

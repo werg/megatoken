@@ -140,8 +140,6 @@ def _target_plan(
     if len(entry.token_ids) > config.generated_capacity:
         raise ValueError("Grouped target exceeds generated_capacity")
     terminal = record.part_index + 1 == record.part_count
-    length = max(1, len(entry.token_ids))
-    capacity = min(config.generated_capacity, 1 << (length - 1).bit_length())
     tape = native.paired_tape(index)
     if item.episode.tools_json != "[]" and record.action_id and record.part_count == 1:
         spec = compile_tool_spec(
@@ -177,16 +175,11 @@ def _target_plan(
     return model.prepare_target(
         [entry.token_ids],
         free_mask=[entry.free_mask],
-        capacity=capacity,
         terminal=[terminal],
         role_ids=[ROLE_TO_ID[record.role]],
         representation_mode=config.representation_training,
         native_tapes=[tape],
     )
-
-
-def _center(recipe: Any, role: str, device: torch.device) -> torch.Tensor:
-    return torch.tensor(recipe.embedding_centers[role], device=device, dtype=torch.float32)
 
 
 def _media_record(model: Any, entry: EncodedRecord, modality: str) -> MediaRecord:
@@ -247,6 +240,7 @@ def prepare_meridian_batch(
     positions = {record.record_id: index for index, record in enumerate(episode.records)}
     prefix, steps = [], []
     counts = dict.fromkeys(DEFAULT_LOSS_WEIGHTS, 0)
+    relation_rows = None  # the episode's annotations, parsed at the first supervised meridian
     for meridian in episode.meridians:
         offsets = tuple(positions[event.record_id] for event in meridian.events)
         if offsets[-1] >= window.end:
@@ -311,14 +305,15 @@ def prepare_meridian_batch(
         counts["relation"] += len(same_step_relations)
         semantic_relations = ()
         if plans:
-            annotations = json.loads(episode.supervision.annotations_json)
-            if not isinstance(annotations, dict):
-                raise ValueError("Concordance annotations must be a JSON object")
-            rows = annotations.get("relations", ())
+            if relation_rows is None:
+                annotations = json.loads(episode.supervision.annotations_json)
+                if not isinstance(annotations, dict):
+                    raise ValueError("Concordance annotations must be a JSON object")
+                relation_rows = annotations.get("relations", ())
             current = {entry.record.record_id: i for i, entry in enumerate(records)}
             semantic_relations = tuple(
                 (relation["kind"], current[relation["left"]], current[relation["right"]])
-                for relation in rows
+                for relation in relation_rows
                 if relation["left"] in current and relation["right"] in current
             )
             counts["relation_semantic"] += len(semantic_relations)
@@ -476,7 +471,7 @@ def forward_meridian_batch(
     """
     from megatoken.training.engine import episode_control_payload
 
-    multi = MultiTrackGenerator(model)
+    multi = MultiTrackGenerator.of(model)
     store = batch.windows[0].assets
     state = multi.tracks.initial_state(1, device=device)
     if state.model_version != model_version:

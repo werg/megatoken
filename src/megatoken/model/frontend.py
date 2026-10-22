@@ -9,6 +9,8 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from megatoken.tensors import is_host
+
 from .config import ModelConfig
 from .layers import RMSNorm, masked_mean, position_features
 
@@ -54,13 +56,6 @@ class NativeNGramTable(nn.Module):
         self.descriptors = descriptors.to(device=self.embedding.weight.device, dtype=torch.float32)
         self.import_weights = weights.to(device=self.embedding.weight.device, dtype=torch.float32)
         return result
-
-    def row_for_exact_key(self, key: bytes) -> int:
-        if len(key) == 1:
-            return key[0]
-        if len(key) == 2 and self.config.exact_bigrams:
-            return 256 + 256 * key[0] + key[1]
-        raise ValueError("This configuration has no exact row for that native byte key")
 
     def indices(self, byte_ids: Tensor) -> tuple[Tensor, Tensor]:
         if byte_ids.ndim != 2 or byte_ids.dtype not in (torch.int32, torch.int64, torch.uint8):
@@ -246,7 +241,8 @@ class ByteFrontend(nn.Module):
             raise ValueError("A physical record batch must have shape [batch,bytes]")
         if byte_ids.dtype not in (torch.uint8, torch.int32, torch.int64):
             raise TypeError("byte_ids must be integer native bytes")
-        if bool(((byte_ids < 0) | (byte_ids > 255)).any()):
+        # Value checks inspect host tensors only; device tensors come from byte_tensor.
+        if is_host(byte_ids) and bool(((byte_ids < 0) | (byte_ids > 255)).any()):
             raise ValueError("Input byte values must lie in [0,255]")
         batch, length = byte_ids.shape
         if batch < 1:
@@ -255,7 +251,9 @@ class ByteFrontend(nn.Module):
             lengths = torch.full((batch,), length, device=byte_ids.device, dtype=torch.long)
         if lengths.dtype not in (torch.int32, torch.int64, torch.uint8):
             raise TypeError("Record lengths must be integer byte counts")
-        if lengths.shape != (batch,) or bool(((lengths < 0) | (lengths > length)).any()):
+        if lengths.shape != (batch,) or (
+            is_host(lengths) and bool(((lengths < 0) | (lengths > length)).any())
+        ):
             raise ValueError("Every record length must be in [0, padded byte length]")
         if length == 0:
             byte_ids = byte_ids.new_zeros((batch, 1))
@@ -291,6 +289,9 @@ class ByteFrontend(nn.Module):
 
 class SeedControlEncoder(nn.Module):
     """Encode explicit causal seed/reference features without touching memory."""
+
+    # The optimizer gives this module half the learning rate (training.optimizer).
+    slow_learning = True
 
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()

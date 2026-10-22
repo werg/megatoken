@@ -97,7 +97,7 @@ def main() -> None:
     if target.exists():
         raise FileExistsError("Do not overwrite an existing evaluation report")
     ledger = SampledEvalLedger()
-    for lineno, line in enumerate(samples.read_text().splitlines(), 1):
+    for lineno, line in enumerate(samples.read_text(encoding="utf-8").split("\n"), 1):
         if not line.strip():
             continue
         try:

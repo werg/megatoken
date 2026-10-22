@@ -23,10 +23,7 @@ from megatoken.memory.transducer import Lookup, SearchAgenda
 from megatoken.model.config import RESERVED_TRACKS
 from megatoken.model.multitrack import MultiTrackGenerator, MultiTrackState, ObservedEvent
 from megatoken.model.transducer import metadata_payload, real_boundary
-from megatoken.model.transducer_state import restore_causal_state, snapshot_causal_state
 from megatoken.training.transducer import BoundaryScheduler
-
-_SESSION_IDENTITY = "v10-serving-session"
 
 
 @dataclass
@@ -150,43 +147,3 @@ class TransducerInferenceEngine:
         finally:
             session.scheduler.finish(committed=lookup is not None)
         return state, lookup
-
-    def state_snapshot(self, session: TransducerSession) -> dict:
-        """Tensor-only session state, independent of Python object identity."""
-        with session.lock:
-            self._check(session)
-            return {
-                "identity": _SESSION_IDENTITY,
-                "session_id": session.session_id,
-                "bank_id": self.bank.bank_id,
-                "bank_version": self.bank.version,
-                "ordinary_since": session.scheduler.ordinary_since,
-                "agenda_locations": [x.detach().cpu().clone() for x in session.agenda.locations],
-                "agenda_state": session.agenda.state.detach().cpu().clone(),
-                "agenda_lookups": session.agenda.lookups,
-                "causal_state": snapshot_causal_state(session.state),
-            }
-
-    def restore_session(self, snapshot: dict) -> TransducerSession:
-        if snapshot.get("identity") != _SESSION_IDENTITY:
-            raise ValueError("Refusing an incompatible transducer session")
-        if snapshot["bank_id"] != self.bank.bank_id:
-            raise ValueError("Session refers to a different canonical v10 bank")
-        state = restore_causal_state(self.multi.tracks, snapshot["causal_state"])
-        scheduler = BoundaryScheduler(
-            max_lookups=self.bank.geometry.max_lookups,
-            lookups=int(snapshot["agenda_lookups"]),
-            ordinary_since=int(snapshot["ordinary_since"]),
-        )
-        if not snapshot["agenda_locations"]:
-            raise ValueError("Incomplete transducer session snapshot")
-        agenda = self.bank.agenda_from(
-            snapshot["agenda_locations"],
-            snapshot["agenda_state"],
-            int(snapshot["agenda_lookups"]),
-        )
-        restored = TransducerSession(
-            str(snapshot["session_id"]), state, agenda, scheduler, id(self)
-        )
-        self._check(restored)
-        return restored

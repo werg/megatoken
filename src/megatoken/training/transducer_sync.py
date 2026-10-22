@@ -117,17 +117,25 @@ class CanonicalBank:
     def seed(self, state: dict) -> None:
         """Start a new run from a checkpoint's bank, keeping its structural evidence if any.
 
-        Coordinator versions, ledgers and switch history belong to the old run.
+        Coordinator versions, ledgers, switch history and clock belong to the old run: the
+        new clock starts at 0, so every age stamp the old run left on a row (birth, last
+        write, evidence recency) is reset to 0 with it. Otherwise rows could be neither
+        removed nor decayed until the new clock passed the old run's last step.
         """
         self.bank.load_snapshot(state["bank"])
         if "canonical" in state:
             self.growth.load_state_dict(state["canonical"]["growth"])
+        self.bank.table.birth.zero_()
+        self.bank.table.last_write.zero_()
+        self.growth.evidence.last_step.zero_()
 
     def merge_or_skip(self) -> bool:
         try:
             self.coordinator.merge()
         except (ValueError, FloatingPointError, RuntimeError) as error:
-            # The failing rounds were consumed; learners re-base on the next version.
+            # The failing rounds were consumed and are never retried. A failure that struck
+            # before any row changed leaves the version where it was; one that struck
+            # halfway has moved it, and learners re-sync from that version.
             self.skipped_merges += 1
             print(f"transducer merge failed and was skipped: {error}", flush=True)
             return False
@@ -178,7 +186,10 @@ class TransducerHost(CanonicalBank):
         _save(self.root / "state.pt", self.state_dict())
 
     def submit(self, worker: int, sequence: int, base_version: int, incoming: Path) -> dict:
-        submission = LearnerRound.from_state(_load(incoming))
+        try:
+            submission = LearnerRound.from_state(_load(incoming))
+        except Exception as exc:
+            raise ValueError("Malformed transducer round") from exc
         if (submission.worker, submission.sequence, submission.base_version) != (
             worker,
             sequence,
@@ -190,10 +201,13 @@ class TransducerHost(CanonicalBank):
         if base_version > self.version():
             raise StaleRound("Stale transducer base: newer than the canonical bank")
         if not self.coordinator.submit(submission):
-            held = [s.sequence for s in self.coordinator.pending if s.worker == worker]
-            held.append(self.coordinator.ledger.get(worker, -1))
-            raise DuplicateRound("Duplicate transducer round", max(held))
+            raise DuplicateRound("Duplicate transducer round", self.sequence(worker))
         return {"transducer_version": self.version(), "pending": len(self.coordinator.pending)}
+
+    def sequence(self, worker: int) -> int:
+        """The newest round of ``worker`` the coordinator holds, merged or queued (0: none)."""
+        held = [s.sequence for s in self.coordinator.pending if s.worker == worker]
+        return max([self.coordinator.ledger.get(worker, 0), *held])
 
     def record_validation(self, step: int, loss: float) -> dict:
         return {"switch_requested": self.coordinator.record_validation(step, loss)}

@@ -96,7 +96,8 @@ class Vae(nn.Module):
 
 
 class Pipeline:
-    def __init__(self, frames=0, learned_sigma=False):
+    def __init__(self, frames=0, learned_sigma=False, grow=0):
+        self.grow = grow
         self.transformer = Transformer(learned_sigma)
         self.vae = Vae()
         self.scheduler = FlowScheduler()
@@ -105,14 +106,17 @@ class Pipeline:
 
     def __call__(self, **kwargs):
         # The real pipeline refuses a text negative prompt next to negative embeds,
-        # and its default negative prompt is "" (diffusers 0.41).
+        # and its default negative prompt is "" (diffusers 0.41). The condition has
+        # no trained null variant, so guidance is off and no null prompt is passed.
         assert "prompt" not in kwargs and kwargs["negative_prompt"] is None
+        assert kwargs["guidance_scale"] == 1.0
+        assert "negative_prompt_embeds" not in kwargs
         embeds = kwargs["prompt_embeds"]
         assert embeds.shape[1:] == (FACETS, CAPTION)
-        assert not kwargs["negative_prompt_embeds"].any()
         assert kwargs["prompt_attention_mask"].all()
         self.calls.append(kwargs)
-        batch, h, w = embeds.shape[0], kwargs["height"], kwargs["width"]
+        batch = embeds.shape[0]
+        h, w = kwargs["height"] + self.grow, kwargs["width"] + self.grow
         if self.frames:
             return (torch.ones(batch, self.frames, 3, h, w),)
         return (torch.ones(batch, 3, h, w),)
@@ -263,6 +267,16 @@ def test_video_realize_requests_frames_and_keeps_the_clip_layout():
     out = r.realize(raw(), spec)
     assert out.shape == (1, 9, 3, 32, 32)
     assert r.pipe.calls[0]["frames"] == 9
+
+
+def test_realize_rejects_output_that_differs_from_the_requested_geometry():
+    # The pipeline rounded the request to its own grid.
+    r = realizer("image", grow=8)
+    with pytest.raises(ValueError, match="size differs"):
+        r.realize(raw(), MediaOutputSpec("image", height=32, width=32))
+    v = realizer("video", frames=8)  # a clip one frame short of the request
+    with pytest.raises(ValueError, match="frame count"):
+        v.realize(raw(), MediaOutputSpec("video", frames=9, height=32, width=32, fps_num=8))
 
 
 def test_realize_rejects_a_decode_with_the_wrong_layout():

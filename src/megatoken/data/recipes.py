@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from importlib.resources import files
 from typing import Any
 
-from .accounting import Budget
-
 
 @dataclass(frozen=True)
 class StageRecipe:
@@ -18,16 +16,7 @@ class StageRecipe:
     limit: int
     mixture: dict[str, float]
     effort_mix: dict[int, float]
-    history_schedule: tuple[dict[str, Any], ...]
     constraints: dict[str, Any]
-
-    @property
-    def budget(self) -> Budget:
-        return Budget(self.meter, self.limit)
-
-    @property
-    def exposures(self) -> dict[str, int]:
-        return {stream: round(share * self.limit) for stream, share in self.mixture.items()}
 
 
 def load_recipes() -> dict[str, Any]:
@@ -54,6 +43,5 @@ def stage_recipe(phase: str) -> StageRecipe:
         limit=raw["limit"],
         mixture=raw["mixture"],
         effort_mix={int(key): value for key, value in raw["effort_mix"].items()},
-        history_schedule=tuple(raw["history_schedule"]),
         constraints=raw["constraints"],
     )

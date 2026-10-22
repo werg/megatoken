@@ -161,6 +161,12 @@ def test_retire_reuses_slots_and_never_reuses_ids():
     assert bank.table.high_water == 5
 
 
+def master_row(bank, name, edge):
+    """The cached FP32 master row of one edge's trained field."""
+    store = bank.masters.stores[name]
+    return store.data[store.find([edge])][0]
+
+
 def test_optimizer_steps_selected_rows_only_and_respects_angle_cap():
     bank = bank_with(12)
     optimizer = BlockScaleDescent(bank, address_lr=1.0)
@@ -171,13 +177,13 @@ def test_optimizer_steps_selected_rows_only_and_respects_angle_cap():
     rows, _ = bank.masters.collect()["key"]
     trained = set(bank.masters.stores["key"].edge[rows].tolist())
     assert trained and trained <= set(lookup.edge_ids.tolist())
-    masters = {e: bank.masters.rows("key", [e])[0].clone() for e in trained}
+    masters = {e: master_row(bank, "key", e).clone() for e in trained}
     result = optimizer.step(1)
     assert result["updated_fields"] > 0
     for edge, old in before.items():
         new = bank.decode("key", [edge])[0]
         if edge in trained:
-            moved = bank.masters.rows("key", [edge])[0]
+            moved = master_row(bank, "key", edge)
             angle = math.acos(min(1.0, float(unit(masters[edge]) @ unit(moved))))
             assert 0 < angle <= 0.0101  # the 0.01 rad cap on the FP32 master
         else:

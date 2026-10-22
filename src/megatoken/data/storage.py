@@ -8,7 +8,7 @@ import os
 import sqlite3
 from bisect import bisect_right
 from collections import OrderedDict
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from itertools import accumulate
 from pathlib import Path
 from typing import Any, BinaryIO, NamedTuple
@@ -23,7 +23,7 @@ from megatoken.io import (
 from .chunking import ChunkingConfig, ChunkingStats
 from .dedup import DedupStore
 from .media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
-from .schema import Codec, Episode, encode_record
+from .schema import Codec, Episode
 
 DATASET_VERSION = 3
 
@@ -37,8 +37,13 @@ def export_prepared(
     pipeline_fingerprint: str,
     shard_bytes: int = 128 << 20,
     chunking: ChunkingConfig | None = None,
+    sidecars: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The manifest is the commit marker; an interrupted export is safely rerun."""
+    """The manifest is the commit marker; an interrupted export is safely rerun.
+
+    ``sidecars`` maps file names to JSON reports written beside the shards
+    before the manifest, so a manifest never exists without them.
+    """
     if shard_bytes < 1:
         raise ValueError("shard_bytes must be positive")
     chunking = chunking or ChunkingConfig()
@@ -58,7 +63,6 @@ def export_prepared(
             PRIMARY KEY(scope,position));
         CREATE INDEX by_split_stream ON episodes(split,stream,entry_id);
         CREATE INDEX by_source ON episodes(source_id,entry_id);
-        CREATE TABLE shared_prefixes(hash TEXT PRIMARY KEY,tokens INTEGER NOT NULL,occurrences INTEGER NOT NULL);
         CREATE TABLE features(scope TEXT NOT NULL,position INTEGER NOT NULL,source TEXT NOT NULL,
             descriptor BLOB NOT NULL,PRIMARY KEY(scope,position));
         CREATE TABLE feature_sources(split TEXT NOT NULL,source TEXT NOT NULL,PRIMARY KEY(split,source));
@@ -72,8 +76,6 @@ def export_prepared(
     shard_name = ""
     shard_size = 0
     shard_count = 0
-    shared_prefix_tokens = 0
-    shared_prefix_bytes = 0
     transcript_counts = {
         "executed_transcript_U": 0,
         "simulated_transcript_U": 0,
@@ -103,13 +105,12 @@ def export_prepared(
     try:
         for entry_id, row in enumerate(store.accepted_rows()):
             episode = Episode.from_dict(json.loads(row["episode_json"]))
-            record_token_counts = []
-            for record in episode.records:
-                encoded = encode_record(record, codec)
-                record_token_counts.append(encoded.tokens)
+            # Token counts were measured when the episode was admitted.
+            shapes = json.loads(row["record_shape"])
+            for record, (tokens, positions) in zip(episode.records, shapes, strict=True):
                 chunking_stats.observe(
-                    positions=encoded.positions,
-                    reference_tokens=encoded.tokens,
+                    positions=positions,
+                    reference_tokens=tokens,
                     byte_count=len(record.payload),
                     boundary=record.chunk_boundary,
                     forced=record.forced_chunk_split,
@@ -191,25 +192,6 @@ def export_prepared(
                         (scope, position, descriptor.source.sha256, record.payload),
                     )
                     feature_counts[scope] = position + 1
-            # Prefix identity includes roles, bytes, and their preceding prefix.
-            # It reports shared causal context without dropping it from episodes.
-            prefix_digest = hashlib.sha256()
-            for record, token_count in zip(episode.records, record_token_counts, strict=True):
-                if record.policy_mask:
-                    break
-                prefix_digest.update(record.role.encode() + b"\0")
-                prefix_digest.update(len(record.payload).to_bytes(8, "big") + record.payload)
-                key = prefix_digest.hexdigest()
-                previous = connection.execute(
-                    "SELECT tokens FROM shared_prefixes WHERE hash=?", (key,)
-                ).fetchone()
-                if previous:
-                    shared_prefix_tokens += token_count
-                    shared_prefix_bytes += len(record.payload)
-                connection.execute(
-                    "INSERT INTO shared_prefixes VALUES(?,?,1) ON CONFLICT(hash) DO UPDATE SET occurrences=occurrences+1",
-                    (key, token_count),
-                )
             if entry_id % 256 == 0:
                 connection.commit()
         close_shard()
@@ -222,8 +204,6 @@ def export_prepared(
         fsync_directory(root)
         census = store.census()
         census.update(transcript_counts)
-        census["duplicate_prefix_bytes"] = shared_prefix_bytes
-        census["duplicate_prefix_tokens"] = shared_prefix_tokens
         parser_review = json.loads(store.get_meta("parser_review_summary") or "{}")
         census["parser_review_rows"] = parser_review.get("total", 0)
         manifest = {
@@ -243,6 +223,8 @@ def export_prepared(
             "complete": True,
         }
         manifest["fingerprint"] = content_hash(manifest)
+        for name, report in (sidecars or {}).items():
+            write_json(root / name, report)
         write_json(root / "manifest.json", manifest)
         return manifest
     except BaseException:
@@ -250,6 +232,24 @@ def export_prepared(
             shard_handle.close()
         connection.close()
         raise
+
+
+SPLITS = ("train", "validation", "test")
+
+# Files whose checksum this process already verified, so the many readers of one
+# root (one per stream and rank) do not each re-hash gigabytes. The size and
+# modification time are part of the key: a rewritten file is hashed again.
+_VERIFIED_FILES: set[tuple[str, str, int, int]] = set()
+
+
+def _verify_checksum(path: Path, expected: str, message: str) -> None:
+    status = path.stat()
+    key = (str(path), expected, status.st_size, status.st_mtime_ns)
+    if key in _VERIFIED_FILES:
+        return
+    if sha256_file(path) != expected:
+        raise ValueError(message)
+    _VERIFIED_FILES.add(key)
 
 
 class FeatureItem(NamedTuple):
@@ -279,6 +279,8 @@ class PreparedDataset:
         unsigned = {key: value for key, value in self.manifest.items() if key != "fingerprint"}
         if content_hash(unsigned) != expected_fingerprint:
             raise ValueError("Prepared manifest fingerprint is invalid")
+        if split is not None and split not in SPLITS:
+            raise ValueError(f"Unknown split {split!r}; choose from {', '.join(SPLITS)}")
         self.split, self.stream = split, stream
         self.assets = TensorAssetStore(self.root)
         self.verify_checksums = verify_checksums
@@ -293,12 +295,13 @@ class PreparedDataset:
         )
         self._length = self.manifest["counts"].get(self.scope, 0)
         index = self._safe_path(self.manifest["index"]["path"])
-        if verify_checksums and sha256_file(index) != self.manifest["index"]["sha256"]:
-            raise ValueError("Prepared episode index checksum mismatch")
+        if verify_checksums:
+            _verify_checksum(
+                index, self.manifest["index"]["sha256"], "Prepared episode index checksum mismatch"
+            )
         self.connection = sqlite3.connect(f"file:{index}?mode=ro&immutable=1", uri=True)
         self.connection.row_factory = sqlite3.Row
         self._shard_hashes = {item["path"]: item["sha256"] for item in self.manifest["shards"]}
-        self._verified: set[str] = set()
         self._handles: OrderedDict[str, BinaryIO] = OrderedDict()
 
     def _safe_path(self, name: str) -> Path:
@@ -351,10 +354,8 @@ class PreparedDataset:
         if name not in self._shard_hashes:
             raise ValueError("Index references an uncommitted shard")
         path = self._safe_path(name)
-        if self.verify_checksums and name not in self._verified:
-            if sha256_file(path) != self._shard_hashes[name]:
-                raise ValueError(f"Shard checksum mismatch: {name}")
-            self._verified.add(name)
+        if self.verify_checksums:
+            _verify_checksum(path, self._shard_hashes[name], f"Shard checksum mismatch: {name}")
         handle = self._handles.pop(name, None)
         if handle is None:
             handle = path.open("rb")
@@ -374,13 +375,6 @@ class PreparedDataset:
     def __getitem__(self, index: int) -> Episode:
         return self._read(self.index_entry(index))
 
-    def iter_index(self) -> Iterator[dict[str, Any]]:
-        for row in self.connection.execute(
-            "SELECT e.*,p.position FROM positions p JOIN episodes e USING(entry_id) WHERE p.scope=? ORDER BY p.position",
-            (self.scope,),
-        ):
-            yield dict(row)
-
     def iter_episodes(
         self, start: int = 0, rank: int = 0, world_size: int = 1
     ) -> Iterator[Episode]:
@@ -389,12 +383,6 @@ class PreparedDataset:
         first = start + (rank - start) % world_size
         for index in range(first, len(self), world_size):
             yield self[index]
-
-    def verify(self) -> None:
-        for name, expected in self._shard_hashes.items():
-            if sha256_file(self._safe_path(name)) != expected:
-                raise ValueError(f"Shard checksum mismatch: {name}")
-            self._verified.add(name)
 
     def close(self) -> None:
         for handle in self._handles.values():

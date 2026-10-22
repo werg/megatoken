@@ -52,6 +52,10 @@ class ControlledParser:
     def parse(self, payload):
         if payload == b"__crash__":
             os.kill(os.getpid(), signal.SIGKILL)
+        if payload == b"__noisy_crash__":
+            sys.stderr.write("native assertion failed: grammar table corrupt\\n")
+            sys.stderr.flush()
+            os.kill(os.getpid(), signal.SIGKILL)
         if payload == b"__hang__":
             time.sleep(30)
         if payload == b"__ignore_term__":
@@ -224,6 +228,15 @@ def test_crash_or_timeout_has_bounded_fallback_and_next_request_succeeds(
     recovered = workers.scan_syntax_isolated(SOURCE, language, LIMITS)
     assert f"tree_sitter:{language}" in recovered.result.parsers
     assert workers._worker is not original
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signal/crash semantics")
+def test_worker_stderr_is_kept_for_the_crash_diagnostic(provider):
+    language = register(provider.factory)
+    workers.scan_syntax_isolated(SOURCE, language, LIMITS)
+    result = workers.scan_syntax_isolated(b"__noisy_crash__", language, LIMITS)
+    crash = next(item for item in result.result.diagnostics if item.code == "native_parser_crash")
+    assert "grammar table corrupt" in crash.detail
 
 
 def test_tree_walk_exception_falls_back_inside_child_without_poisoning_it(provider):

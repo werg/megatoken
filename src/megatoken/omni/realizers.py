@@ -22,6 +22,7 @@ targets from decoded original media (``megatoken.data.media_prepare``),
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -261,7 +262,11 @@ class PocketRealizer(Realizer):
             devices = [raw.device.index] if raw.is_cuda and raw.device.index is not None else []
             with torch.random.fork_rng(devices=devices, enabled=generator is not None):
                 if generator is not None:
-                    torch.manual_seed(int(torch.randint(0, 2**31 - 1, (1,), generator=generator)))
+                    # The draw must happen on the generator's own device.
+                    seed = torch.randint(
+                        0, 2**31 - 1, (1,), generator=generator, device=generator.device
+                    )
+                    torch.manual_seed(int(seed))
                 next_latent, eos = self.flow_lm._sample_next_latent(
                     previous,
                     embeddings,
@@ -295,7 +300,10 @@ class PocketRealizer(Realizer):
 
     def realize(self, raw: Tensor, spec, generator=None) -> Tensor:
         """[B, spec.sample_count] at 24 kHz; renderer EOS may end speech early (zero pad)."""
-        frames = max(1, math.ceil(spec.sample_count / self.sample_rate * self.frame_rate))
+        # Exact rational ceiling: float division rounds some exact multiples up a frame.
+        frames = max(
+            1, math.ceil(Fraction(spec.sample_count) * Fraction(self.frame_rate) / self.sample_rate)
+        )
         audio = self.decode(
             self.latent(raw, max_frames=frames, steps=spec.steps, generator=generator)
         )
@@ -449,10 +457,11 @@ class SanaRealizer(Realizer):
             prompt_attention_mask=attention,
             # Precomputed embeddings replace the pipeline's text prompts (whose
             # negative default "" would otherwise conflict with them).
+            # No classifier-free guidance: the condition is never trained with a
+            # dropped (null) variant, so there is no unconditional branch to
+            # extrapolate from. Scale 1.0 makes the pipeline skip it entirely.
             negative_prompt=None,
-            negative_prompt_embeds=torch.zeros_like(embeds),
-            negative_prompt_attention_mask=attention,
-            guidance_scale=4.0,
+            guidance_scale=1.0,
             num_inference_steps=spec.steps,
             height=spec.height,
             width=spec.width,
@@ -470,4 +479,9 @@ class SanaRealizer(Realizer):
             output = output[:, None]
         elif output.ndim != 5 or output.shape[2] != 3:
             raise ValueError("Sana-Video decoded clip must be [B, frames, 3, H, W]")
+        # The pipeline may round the request to its own grid; the spec is a contract.
+        if output.shape[0] != raw.shape[0] or output.shape[1] != spec.frames:
+            raise ValueError("Sana output frame count differs from the requested geometry")
+        if output.shape[-2:] != (spec.height, spec.width):
+            raise ValueError("Sana output size differs from the requested geometry")
         return output

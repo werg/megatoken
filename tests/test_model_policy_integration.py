@@ -35,7 +35,17 @@ def test_bf16_conditional_tape_replay_with_frozen_central_writer_and_trainable_p
         device=device, dtype=torch.bfloat16
     )
     model.train()
-    model.freeze_decoder_for_rl()
+    for group in (
+        model.core.encoder_parameters(),
+        model.core.central_parameters(),
+        model.decoder.parameters(),
+        model.media_realizers.parameters(),
+        model.embedding_realizer.parameters(),
+        model.core.control_parameters(),
+        model.core.realizer_parameters(),
+    ):
+        for parameter in group:
+            parameter.requires_grad_(False)
     spec = ActionSpec(text_kind="ascii", min_tokens=3, max_tokens=4)
     initial = model.core.initial_state(1)
     prompt = torch.tensor([[65, 66, 67, 68]], device=device)

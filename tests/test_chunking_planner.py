@@ -230,7 +230,7 @@ def test_adjacent_atomic_source_units_can_relax_shared_token_ownership_without_q
     source = b"xxabyyy"
     index = TokenIndex.encode(source, codec)
     parsed = ParseResult(
-        regions=[Region(0, 3, "attachment"), Region(3, 7, "attachment")],
+        regions=[Region(0, 3, "heading_attachment"), Region(3, 7, "heading_attachment")],
         boundaries=[Boundary(3, "statement")],
     )
     plan = plan_chunks(index, parsed, config)

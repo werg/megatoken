@@ -1,7 +1,14 @@
-"""Bounded, independently counted semantic relation loss on sampled output peers.
+"""Semantic relation loss on sampled output peers, against detached teacher encodings.
+
+For each annotated pair (left, right) the sampled facets of one side are pulled
+toward the E-teacher encoding of the other side, in a *fixed* feature space: the
+facet block mean-pooled over its facets and unit-normalized. Nothing in the
+loss is trainable. A learned projection shared by both sides with no negative
+examples can drive the loss to zero by mapping every input to one constant
+vector (a grouped meridian carries one episode, so there is no in-batch
+contrast to prevent that); a fixed map cannot, so only the sampled facets move.
 
 Teacher target encodings remain ONLY in the loss branch after prospective P.
-Never force distinct speech/text/image/video raw facet tensors to equality.
 Actual acoustic/visual timing and preservation are checked on sampled decoded
 outputs in the separate concordance evaluation module.
 """
@@ -10,8 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import torch
-from torch import Tensor, nn
+from torch import Tensor
 from torch.nn import functional as F
 
 KINDS = frozenset(
@@ -26,7 +32,6 @@ KINDS = frozenset(
         "preserves",
     }
 )
-MODALITIES = ("text", "audio", "image", "video")
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,64 +45,31 @@ class SelectedRelation:
             raise ValueError("Invalid supervised pair relation")
 
 
-class RelationProjection(nn.Module):
-    """Per-modality learned semantic projection, NOT an alternative core.
+def _pooled(value: Tensor) -> Tensor:
+    """[batch, facets, width] -> unit-length pooled vector [batch, width]."""
+    return F.normalize(value.float().mean(1), dim=-1)
 
-    The corresponding E target lives in the supervised loss only. Pooling and
-    separate modality mappings avoid the invalid full-facet equality objective.
+
+def semantic_relation_loss(
+    selected: Tensor, teachers: Tensor, relations: tuple[SelectedRelation, ...]
+) -> tuple[Tensor, int]:
+    """Mean over relations of the two cross-cosine distances; and the relation count.
+
+    ``selected`` and ``teachers`` are [batch, tracks, facets, width] blocks of the
+    sampled and the independently encoded facets. Teachers never take gradients;
+    no teacher peer can enter a current P query.
     """
-
-    def __init__(self, width: int, hidden: int | None = None):
-        super().__init__()
-        shared = hidden or min(128, width)
-        self.projectors = nn.ModuleDict(
-            {
-                modality: nn.Sequential(
-                    nn.LayerNorm(width),
-                    nn.Linear(width, shared),
-                    nn.SiLU(),
-                    nn.Linear(shared, shared),
-                )
-                for modality in MODALITIES
-            }
+    if selected.shape != teachers.shape or selected.ndim != 4:
+        raise ValueError("Relation supervision needs sampled and E-teacher raw groups")
+    teachers = teachers.detach()
+    total = selected.sum() * 0
+    for rel in relations:
+        if max(rel.left, rel.right) >= selected.shape[1]:
+            raise ValueError("Relation index is outside this jointly selected meridian")
+        left, right = _pooled(selected[:, rel.left]), _pooled(selected[:, rel.right])
+        tleft, tright = _pooled(teachers[:, rel.left]), _pooled(teachers[:, rel.right])
+        total = (
+            total
+            + ((1 - (left * tright).sum(-1)).mean() + (1 - (right * tleft).sum(-1)).mean()) * 0.5
         )
-
-    def project(self, value: Tensor, modality: str) -> Tensor:
-        if modality not in self.projectors or value.ndim != 3:
-            raise ValueError("Relation projection needs one event and known modality")
-        layer = self.projectors[modality]
-        features = value.mean(1).to(next(layer.parameters()).dtype)
-        return F.normalize(layer(features).float(), dim=-1)
-
-    def forward(
-        self,
-        selected: Tensor,
-        teachers: Tensor,
-        modalities: tuple[str, ...],
-        relations: tuple[SelectedRelation, ...],
-    ) -> tuple[Tensor, int]:
-        if selected.shape != teachers.shape or selected.ndim != 4:
-            raise ValueError("Relation supervision needs sampled and E-teacher raw groups")
-        if len(modalities) != selected.shape[1]:
-            raise ValueError("Missing modality identity for relation participants")
-        zero = selected.sum() * 0
-        total = zero
-        count = 0
-        for rel in relations:
-            if max(rel.left, rel.right) >= len(modalities):
-                raise ValueError("Relation index is outside this jointly selected meridian")
-            # Directional contrast to detached counterpart representations.
-            # Each term supervises a free P sample against an independently
-            # encoded target. No teacher peer can enter a current P query.
-            left = self.project(selected[:, rel.left], modalities[rel.left])
-            right = self.project(selected[:, rel.right], modalities[rel.right])
-            with torch.no_grad():
-                tleft = self.project(teachers[:, rel.left].detach(), modalities[rel.left])
-                tright = self.project(teachers[:, rel.right].detach(), modalities[rel.right])
-            total = (
-                total
-                + ((1 - (left * tright).sum(-1)).mean() + (1 - (right * tleft).sum(-1)).mean())
-                * 0.5
-            )
-            count += 1
-        return total, count
+    return total, len(relations)

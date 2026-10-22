@@ -551,7 +551,11 @@ def read_docci(
 
     out.mkdir(parents=True, exist_ok=True)
     wanted = {}
-    for line in descriptions.read_text(encoding="utf-8").splitlines():
+    # JSONL lines end at "\n" only; str.splitlines would also cut at U+2028 or U+0085
+    # inside a description.
+    for line in descriptions.read_text(encoding="utf-8").split("\n"):
+        if not line.strip():
+            continue
         row = json.loads(line)
         if row["split"] == "train":
             wanted[f"images/{row['image_file']}"] = row

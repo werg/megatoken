@@ -18,8 +18,6 @@ from .config import ModelConfig
 from .frontend import ByteFrontend, SourceFeatures
 from .layers import RMSNorm, SwiGLU, position_features
 
-INGESTION_VERSION = "byte-pyramid-v2"
-
 
 class PairReduction(nn.Module):
     """One reusable ordered 2:1 merge followed by bounded local processing."""

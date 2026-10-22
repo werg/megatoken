@@ -366,11 +366,8 @@ class Lookup:
     pairs: tuple[tuple[int, int], ...]  # (agenda location index, edge ID)
     edge_ids: Tensor  # distinct selected edges
     edge_weights: Tensor  # each edge's total weight over its pairs, omega_i
-    query: Tensor  # unit query
     start: Tensor  # where the search was (the sink's hold-still destination)
     start_key: Tensor  # the query read through the start location
-    hindsight_destination: Tensor | None
-    overlay: float
     bank_version: int
 
 
@@ -424,9 +421,6 @@ class MasterCache:
         leaf = store.data[rows].requires_grad_()
         self.pending[name].append((rows, leaf))
         return leaf
-
-    def rows(self, name: str, ids: list[int]) -> Tensor:
-        return self.stores[name].data[self.stores[name].find(ids)]
 
     def collect(self) -> dict[str, tuple[Tensor, Tensor]]:
         """Per field: (rows, summed gradients) of every leaf that received one."""
@@ -535,6 +529,15 @@ class TransducerBank(nn.Module):
     def packed_bytes(self) -> int:
         return self.table.count * self.geometry.row_bytes
 
+    @property
+    def edge_room(self) -> int:
+        """How many more edges fit under both the edge ceiling and the packed-byte budget."""
+        g = self.geometry
+        return max(
+            0,
+            min(g.max_edges - self.edge_count, (g.byte_budget - self.packed_bytes) // g.row_bytes),
+        )
+
     def edge_ids(self) -> Tensor:
         """Live edge IDs in increasing order."""
         return self.table.ids_of(self.table.alive_slots()).sort().values
@@ -590,10 +593,8 @@ class TransducerBank(nn.Module):
             raise ValueError("Edge field dimensions do not match v10 geometry")
         if step < 0 or not bool(torch.isfinite(bias).all()) or bool((write_mass < 0).any()):
             raise ValueError("Invalid edge statistics or bias")
-        if self.table.count + count > g.max_edges:
-            raise BankFull("Transducer has reached its hard edge ceiling")
-        if self.packed_bytes + count * g.row_bytes > g.byte_budget:
-            raise BankFull("Packed-byte budget exceeded")
+        if count > self.edge_room:
+            raise BankFull("Transducer has reached its hard edge ceiling or packed-byte budget")
         if ids is None:
             ids = torch.arange(self.table.next_id, self.table.next_id + count)
         ids = ids.to(torch.int64).cpu()
@@ -697,15 +698,6 @@ class TransducerBank(nn.Module):
             + nn.functional.linear(metadata.float(), self.metadata_location.weight.float())
         )
         return SearchAgenda(locations=[start], state=start)
-
-    def agenda_from(self, locations: list[Tensor], state: Tensor, lookups: int) -> SearchAgenda:
-        agenda = SearchAgenda(
-            [unit(x.to(self.device).float()) for x in locations],
-            unit(state.to(self.device).float()),
-            lookups=lookups,
-        )
-        self.refresh(agenda)
-        return agenda
 
     def nearest(self, locations: Tensor, count: int) -> Tensor:
         """Exact scan of the packed departures: [rows, min(count, edges)] nearest slots."""
@@ -893,11 +885,8 @@ class TransducerBank(nn.Module):
             pairs=pairs,
             edge_ids=edge_ids,
             edge_weights=edge_weights,
-            query=q,
             start=start,
             start_key=self.modulated(q, start[None])[0],
-            hindsight_destination=destination,
-            overlay=overlay,
             bank_version=self.version,
         )
 

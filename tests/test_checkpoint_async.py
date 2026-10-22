@@ -111,6 +111,25 @@ class _FakeS3:
     def download_file(self, bucket, key, filename):
         Path(filename).write_bytes(self.objects[f"{bucket}/{key}"])
 
+    def list_objects_v2(self, Bucket, Prefix, ContinuationToken=None):
+        keys = sorted(
+            key.removeprefix(f"{Bucket}/")
+            for key in self.objects
+            if key.startswith(f"{Bucket}/{Prefix}")
+        )
+        start = int(ContinuationToken or 0)
+        page = keys[start : start + 2]  # tiny pages: pruning must follow the continuation
+        more = start + 2 < len(keys)
+        return {
+            "Contents": [{"Key": key} for key in page],
+            "IsTruncated": more,
+            **({"NextContinuationToken": str(start + 2)} if more else {}),
+        }
+
+    def delete_objects(self, Bucket, Delete):
+        for item in Delete["Objects"]:
+            del self.objects[f"{Bucket}/{item['Key']}"]
+
 
 def test_object_store_round_trips_the_transducer_bank_with_the_weights(tmp_path, monkeypatch):
     monkeypatch.setitem(
@@ -155,3 +174,61 @@ def test_object_store_round_trips_the_transducer_bank_with_the_weights(tmp_path,
     with pytest.raises(ValueError, match="transducer.pt checksum mismatch"):
         store.restore(root)
     assert not (root / name).exists()
+
+
+def _commit(root, name, step, *, pinned=False):
+    staged = stage_checkpoint(root, name)
+    bank = staged / "transducer.pt"
+    bank.write_bytes(b"rows")
+    return commit_checkpoint(
+        root,
+        name,
+        staged,
+        {"model": {"w": torch.zeros(1)}},
+        {"global_step": step},
+        extra={"transducer_checkpoint": {"file": "transducer.pt", "sha256": sha256_file(bank)}},
+        pinned=pinned,
+        keep=99,
+    )
+
+
+def test_object_store_keeps_only_what_local_retention_keeps(tmp_path):
+    root = tmp_path / "checkpoints"
+    store = CheckpointStore.__new__(CheckpointStore)
+    store.bucket, store.prefix, store.s3 = "bucket", "run/worker-00", _FakeS3()
+    names = ["P-000000001-periodic", "P-000000002-periodic", "P-000000003-periodic"]
+    store.upload(_commit(root, "P-000000000-phase-start", 0, pinned=True), keep=2)
+    for step, name in enumerate(names, start=1):
+        store.upload(_commit(root, name, step), keep=2)
+    remote = {key.split("/")[3] for key in store.s3.objects}
+    # The two newest periodic checkpoints and the pinned one; the oldest periodic is gone.
+    assert remote == {"P-000000000-phase-start", names[1], names[2], "latest.json"}
+    # A checkpoint whose upload has not committed metadata yet is never pruned.
+    store.s3.objects["bucket/run/worker-00/P-000000009-periodic/state.pt"] = b"partial"
+    store.upload(_commit(root, "P-000000004-periodic", 4), keep=2)
+    assert "bucket/run/worker-00/P-000000009-periodic/state.pt" in store.s3.objects
+    assert "bucket/run/worker-00/P-000000002-periodic/state.pt" not in store.s3.objects
+
+
+def test_stale_staging_directories_from_crashed_writes_are_removed(tmp_path):
+    root = tmp_path / "checkpoints"
+    crashed = root / ".checkpoint-crashed"
+    crashed.mkdir(parents=True)
+    (crashed / "state.pt").write_bytes(b"half a checkpoint")
+    staged = stage_checkpoint(root, "P1-000000001-periodic")
+    assert not crashed.exists() and staged.exists()
+
+
+def test_the_transducer_bank_is_fsynced_before_it_is_published(tmp_path, monkeypatch):
+    from megatoken.training import checkpoint
+
+    synced = []
+    real = checkpoint.os.fsync
+    monkeypatch.setattr(
+        checkpoint.os,
+        "fsync",
+        lambda fd: (synced.append(Path(f"/proc/self/fd/{fd}").resolve().name), real(fd))[1],
+    )
+    staged = stage_checkpoint(tmp_path / "checkpoints", "P1-000000001-periodic")
+    checkpoint.transducer_attachment(lambda: {"bank": torch.zeros(2)})(staged)
+    assert "transducer.pt" in synced

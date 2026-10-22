@@ -1,10 +1,9 @@
 """One codec, sampler, scorer and parallel realizer for training and serving."""
 
-from .codec import ByteCodec, ByteFallbackCodec
+from .codec import ByteCodec
 
 __all__ = [
     "ByteCodec",
-    "ByteFallbackCodec",
     "FacetedGenerator",
     "ActionTape",
     "ActionSpec",

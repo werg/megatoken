@@ -63,7 +63,7 @@ def test_arriving_observation_invalidates_pending_generation():
     assert session.revision == 1
 
 
-def test_accept_commits_whole_meridian_and_delivery_cannot_reverse():
+def test_accept_commits_whole_meridian():
     _, runtime = _runtime()
     session = runtime.open()
     # A finished assistant turn, so the lookup it makes due is deterministic.
@@ -77,10 +77,6 @@ def test_accept_commits_whole_meridian_and_delivery_cannot_reverse():
     assert session.revision == 1
     assert session.state.meridian_sizes == (1,) * (OPENED + 1 + LOOKUP)
     assert accepted.tape.tracks == ("answer",)
-    runtime.record_delivery(session, "answer:0", 10, complete=False)
-    runtime.record_delivery(session, "answer:0", 20, complete=True)
-    with pytest.raises(ValueError, match="rolled back|incomplete"):
-        runtime.record_delivery(session, "answer:0", 5, complete=False)
 
 
 def test_parallel_tool_result_is_not_committed_automatically():
@@ -93,7 +89,7 @@ def test_parallel_tool_result_is_not_committed_automatically():
         pool.submit("fetch-2", lambda: b"two")
         for task in pool.pending.values():
             task.result(timeout=5)
-        assert pool.collect_ready() == {"fetch-1": b"one", "fetch-2": b"two"}
+        assert pool.collect_ready() == ({"fetch-1": b"one", "fetch-2": b"two"}, {})
         assert session.state.history.slots == opened
         runtime.observe(
             session,
@@ -103,6 +99,28 @@ def test_parallel_tool_result_is_not_committed_automatically():
             ),
         )
         assert session.state.meridian_sizes[OPENED:] == (2,) + (1,) * LOOKUP
+    finally:
+        pool.close()
+
+
+def test_a_failed_parallel_call_does_not_lose_the_finished_ones():
+    def fail():
+        raise OSError("connection reset")
+
+    pool = ConcurrentToolRunner(3)
+    try:
+        pool.submit("good", lambda: b"ok")
+        pool.submit("bad", fail)
+        pool.submit("wrong-type", lambda: "text")
+        for task in pool.pending.values():
+            task.exception(timeout=5)
+        results, failures = pool.collect_ready()
+        assert results == {"good": b"ok"}
+        assert isinstance(failures["bad"], OSError) and isinstance(
+            failures["wrong-type"], TypeError
+        )
+        assert not pool.pending  # nothing finished is left behind, and nothing is reported twice
+        assert pool.collect_ready() == ({}, {})
     finally:
         pool.close()
 
@@ -251,3 +269,27 @@ def test_jsonl_speculative_media_is_provisional_until_accepted():
     assert rows[1]["outputs"][0]["shape"] == [64]
     assert rows[2]["pending"] is True and rows[2]["retained_events"] == OPENED
     assert rows[4]["pending"] is False and rows[4]["retained_events"] == OPENED + 1 + LOOKUP
+
+
+def test_jsonl_a_result_that_is_not_strict_json_fails_only_its_own_request(monkeypatch):
+    import dataclasses
+
+    model, _ = _runtime()
+    original = MultiTrackGenerator.generate_group
+
+    def nonfinite(self, *args, **kwargs):
+        group = original(self, *args, **kwargs)
+        return dataclasses.replace(group, log_prob=torch.tensor(float("nan")))
+
+    monkeypatch.setattr(MultiTrackGenerator, "generate_group", nonfinite)
+
+    def requests(results):
+        yield _line({"op": "open", "id": 1})
+        sid = json.loads(results.getvalue().splitlines()[-1])["session"]
+        outputs = [{"track": "reply", "modality": "text", "max_tokens": 4}]
+        yield _line({"op": "speculate", "id": 2, "session": sid, "effort": 1, "outputs": outputs})
+        yield _line({"op": "status", "id": 3, "session": sid})
+
+    rows = _serve(model, requests)
+    assert [row["ok"] for row in rows] == [True, False, True]
+    assert "ValueError" in rows[1]["error"] and rows[1]["id"] == 2

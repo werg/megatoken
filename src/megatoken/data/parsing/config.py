@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import math
 from dataclasses import asdict, dataclass, field, replace
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from megatoken.io import content_hash
 
+from .registry import parser_provider_specs
 from .types import ParseLimits
 
 if TYPE_CHECKING:
@@ -35,6 +37,20 @@ def implementation_fingerprint() -> str:
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+@lru_cache(maxsize=64)
+def _identity(
+    config: ChunkingConfig, codec_fingerprint: str, providers: tuple[tuple[str, str], ...]
+) -> dict[str, Any]:
+    """Computed once per policy, codec and registered parser set: it hashes the runtime."""
+    value = {
+        "config": config.to_dict(),
+        "config_fingerprint": config.fingerprint,
+        "codec_fingerprint": codec_fingerprint,
+        "parsers": config.parser_identity(),
+    }
+    return value | {"fingerprint": content_hash(value)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +112,22 @@ class ChunkingConfig:
             max_bytes=self.max_bytes if max_bytes is None else min(self.max_bytes, max_bytes),
         )
 
+    def with_record_limits(
+        self, *, max_tokens: int | None = None, max_bytes: int | None = None
+    ) -> ChunkingConfig:
+        """Set the hard physical-record limits, whether that lowers or raises them.
+
+        Targets stay where they are unless the new hard limit is below them.
+        """
+        hard = self.hard_max_tokens if max_tokens is None else max_tokens
+        return replace(
+            self,
+            hard_max_tokens=hard,
+            soft_max_tokens=min(self.soft_max_tokens, hard),
+            target_tokens=min(self.target_tokens, hard),
+            max_bytes=self.max_bytes if max_bytes is None else max_bytes,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -116,13 +148,8 @@ class ChunkingConfig:
         return content_hash({"config": self.to_dict(), "parsers": self.parser_identity()})
 
     def identity(self, codec: Codec) -> dict[str, Any]:
-        value = {
-            "config": self.to_dict(),
-            "config_fingerprint": self.fingerprint,
-            "codec_fingerprint": codec.fingerprint,
-            "parsers": self.parser_identity(),
-        }
-        return value | {"fingerprint": content_hash(value)}
+        providers = tuple((item.name, item.version) for item in parser_provider_specs())
+        return copy.deepcopy(_identity(self, codec.fingerprint, providers))
 
     @classmethod
     def from_identity(cls, identity: dict[str, Any], codec: Codec) -> ChunkingConfig:

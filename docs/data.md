@@ -164,8 +164,8 @@ logical-field/framing policy.
 
 Use `--chunking-config configs/data/chunking.production.json` for the full parser
 and planning policy. `--chunk-target-tokens`, `--chunk-soft-max-tokens`,
-`--max-record-tokens`, and `--max-record-bytes` provide explicit overrides and stage
-caps. Parsing hints include `content_kind`, `language`, `filename`, `mime_type`,
+`--max-record-tokens`, and `--max-record-bytes` provide explicit overrides; the two
+record limits set the hard physical limits, whether that lowers or raises the policy's. Parsing hints include `content_kind`, `language`, `filename`, `mime_type`,
 `locale`, and outer `chat_template`. Source options, row metadata, messages, and
 content blocks share one allowlisted hint path; a more local hint takes precedence.
 `locale` is the preferred natural-language hint. Templates are interpreted only
@@ -333,7 +333,13 @@ rows stop the default build with their source and row number.
 `--reject-invalid` records rejection receipts and continues. The full rejected
 row status remains in the preparation journal; `rejections.json` contains an
 explicitly labeled bounded sample and the full count. A source that rejects
-nearly every row is not silently counted as usable supply.
+nearly every row is not silently counted as usable supply. Rows excluded by a
+source's own declared `row_filters` are selection, not errors: they are counted
+as `filtered_rows` and never stop the build. An error that is not about a row's data
+(a bug in an adapter) always stops it, even with `--reject-invalid`. Source
+`options` are checked against the names the selected adapter reads, so a typo fails
+before any row is read. Rows are committed to the preparation journal in batches
+together with their cursor, so a crash repeats at most one batch.
 
 ### Shared adapters and explicit field maps
 
@@ -348,7 +354,7 @@ The generic adapters are `document`, `chat`, `serialized_chat`, `artifact`,
 `repository`, `fim` and `native`. Serialized tool trajectories require the original
 structured call/result identities; the importer never invents causal dependencies
 from ambiguous markup. Repository repair places issue and pre-change files before the patch
-target; review places the supplied patch before the review target. FIM explicitly
+target. FIM explicitly
 observes prefix/suffix before scoring the missing middle. Arbitrary corpus
 variants use declared `field_map` dotted paths, not per-dataset parser forks.
 
@@ -486,8 +492,10 @@ released or any descendant's split is inherited.
 
 Near matching is an approximate candidate search, not an exhaustive semantic
 proof. `DedupConfig` makes thresholds, minimum text length, sketch/anchor sizes and
-candidate limits explicit. Candidate saturation quarantines an item instead of
-silently accepting an unchecked match. At large scale, validate the chosen recall
+candidate limits explicit. A sketch value that more than `max_candidates` earlier
+documents share (a licence header, a system prompt) cannot tell near duplicates
+apart, so it is skipped and the next-smallest value takes its place; no document is
+dropped for it. At large scale, validate the chosen recall
 and rejection distribution on held-out duplicate labels. The per-original-task
 variant limit defaults to five; a whole repository's independent files are not
 mistakenly limited to five records.
@@ -528,15 +536,13 @@ in one pass. Later windows carry the complete actual prefix as reconstruction
 I, with no policy loss on the prefix. Ordinary prose and observation parts are
 valid window boundaries, so a long document cannot defeat `max_records` merely
 by retaining one logical source ID. Limits remain soft for complete tool actions
-and explicitly extended dependencies; any token overshoot is reported.
+and explicitly extended dependencies.
 
 An annotated writer receives gradient from a later reader only if both are in
 the window's differentiable `records`. With `respect_dependencies=True`, packing
 extends the segment to include linked readers and applies the explicit
 `max_dependency_tokens` hard graph limit. Prefix replay alone does not qualify
-as a writer-reader training window. `WindowAudit` counts actual writer-reader
-scored windows, long-history D with a late dependency, and long-context I, and
-can enforce the requested fractions at a stage gate.
+as a writer-reader training window.
 
 The canonical stage recipes live once in packaged
 [`stages.json`](../src/megatoken/data/stages.json). Read them with
@@ -554,13 +560,27 @@ The canonical stage recipes live once in packaged
 | D | 1B P | Frozen-student-state corrections and successful replay |
 | R | 32B Z | Fresh executed rollouts with one Gaussian facet action per prediction |
 
-The JSON preserves the stated effort and history schedules, exposure mixtures,
-LC requirements (at least 50% long-dependency D and 30% differentiable
-writer-reader scored windows), S context/control constraints, and correction/RL
-gates. B0's single `bootstrap` source stream is explicitly an implementation
+B0's single `bootstrap` source stream is explicitly an implementation
 choice. R rollout collection and PPO replay belong to the training runtime;
 teacher T does not substitute for RL Z. R also retains its independent episode
 ceiling; emitted byte/BPE counts are reported separately from Gaussian work.
+
+
+### Stage targets the runtime does not read
+
+The packaged `stages.json` carries only what code consumes (budget meter and limit, mixture, effort mix, `constraints.autoencode`, `constraints.trainable`, and the collection pilot). The remaining plan targets below are not enforced by any code; they are the intended gates for each stage and are recorded here so they are not lost.
+
+- Plan version `contextual32-v5`. Procurement targets: `unique_transcript_U` = [200000000000, 350000000000], `unique_executed_U_subtarget` = [15000000000, 25000000000], `accepted_fresh_episodes` = [500000, 1500000], `subtargets_overlap` = true, `inventory_verified` = false.
+- **B0**: history lengths (context lengths drawn from) until 250,000,000 consumed: [4096]. Implementation pilot stratum; mix concrete reconstruction, next-facet, structure, and copy skills. gates `representation_mode` = "bootstrap", `maximum_generated_capacity` = 1024, `workspace_follows_target_length` = true, `prior_from_first_batch` = true, `noisy_codec_reconstruction` = true, `encoder_distribution_kl` = true, `max_decisions_initial` = 2, `max_decisions_final` = 4.
+- **MB**: history lengths (context lengths drawn from) until 4,000,000 consumed: [4096]. Media bridge after the codec bootstrap: only the media input projection, modality embedding and realizer conditions train (trainable: media_bridge) while text replay and text anchors keep the facet space fixed. gates `representation_mode` = "recurrent".
+- **P1**: history lengths (context lengths drawn from) until 20,000,000,000 consumed: [8192]; until 200,000,000,000 consumed: [32768]; until 400,000,000,000 consumed: [32768, 65536]. unique acquisition targets `natural_documents` 50,000,000,000-70,000,000,000, `natural_code` 30,000,000,000-50,000,000,000, `synthetic_documents` 60,000,000,000-85,000,000,000, `synthetic_code_rewrite` 30,000,000,000-45,000,000,000, `synthetic_code_dialogue` 20,000,000,000-30,000,000,000, `synthetic_reasoning` 15,000,000,000-25,000,000,000, `chat` 3,000,000,000-7,000,000,000, `executed_trajectories` 8,000,000,000-15,000,000,000. gates `representation_mode` = "recurrent", `encoder_contextual_reconstruction` = true, `encoder_follows_native_pairs_only` = true, `short_examples_min_fraction` = 0.2, `max_decisions_initial` = 4, `max_decisions_final` = 8, `selected_max_decisions` = 16, `large_capacity_initial_max_fraction` = 0.1, `large_capacities_require_prior_gate` = true, `bake_engram_near_end` = true.
+- **M1**: history lengths (context lengths drawn from) until 60,000,000,000 consumed: [65536, 262144]. gates `representation_mode` = "recurrent", `encoder_contextual_reconstruction` = true, `encoder_follows_native_pairs_only` = true, `preserve_short_replay` = true, `trace_loss` = "assistant_only", `pre_change_state_before_patch` = true, `diagnostic_sft_at_boundary` = true.
+- **M2**: history lengths (context lengths drawn from) until 40,000,000,000 consumed: [32768, 65536, 131072, 262144]. trajectory mix `repository` 0.5, `terminal` 0.2, `structured_tools` 0.2, `evidence` 0.1. gates `representation_mode` = "recurrent", `encoder_contextual_reconstruction` = true, `encoder_follows_native_pairs_only` = true, `fim_max_fraction` = 0.02, `student_prefix_fraction_initial` = 0.1, `student_prefix_fraction_final` = 0.3, `changed_actions_require_new_observations` = true, `diagnostic_sft_at_boundary` = true.
+- **LC**: history lengths (context lengths drawn from) until 20,000,000,000 consumed: [32768, 65536, 131072, 262144]. gates `representation_mode` = "recurrent", `encoder_contextual_reconstruction` = true, `encoder_follows_native_pairs_only` = true, `long_episode_min_tokens` = 131072, `long_episode_max_tokens` = 262144, `long_dependency_D_min_fraction` = 0.5, `writer_reader_scored_windows_min_fraction` = 0.3, `preserve_short_medium` = true.
+- **S**: history lengths (context lengths drawn from) until 2,000,000,000 consumed: [4096, 32768, 65536, 131072, 262144]. gates `representation_mode` = "recurrent", `encoder_contextual_reconstruction` = true, `encoder_follows_native_pairs_only` = true, `long_context_exposure_min_fraction` = 0.2, `seed_only_control_fraction` = 0.7, `valid_reference_control_fraction` = 0.3, `future_control_fraction` = 0.0, `initial_serving_effort` = 6.
+- **D**: history lengths (context lengths drawn from) until 1,000,000,000 consumed: [4096, 32768, 65536, 131072, 262144]. gates `representation_mode` = "recurrent", `encoder_contextual_reconstruction` = true, `encoder_follows_native_pairs_only` = true, `frozen_student_collection` = true, `corrected_windows_initial_fraction` = 0.5, `corrected_windows_max_fraction` = 0.8, `correction_ramp_requires_coverage_gate` = true, `direct_teacher_token_kl` = false, `entry_requires_legal_prior_tasks` = true.
+- **R**: history lengths (context lengths drawn from) until 32,000,000,000 consumed: [4096, 32768, 65536, 131072, 262144]. gates `initial_task_seeds` = 10000, `rollouts_per_seed` = 4, `initial_episodes` = 40000, `maximum_task_seeds` = 50000, `maximum_total_episodes` = 200000, `likelihood` = "canonical_facet_gaussian_density", `freeze_encoder_central_and_decoder` = true, `latent_draws_per_chunk` = 1, `deterministic_decoding` = true, `same_weight_replay_gate` = true, `initial_full_differentiable_replay` = true, `candidate_state_rebuild` = true.
+- **Collection pilot**: `count_rejected_outputs` = true, `meter_teacher_inputs_and_cache` = true, `bulk_or_paid_generation_performed` = false.
 
 ## Run a budgeted collection pilot
 

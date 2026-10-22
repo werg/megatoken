@@ -599,6 +599,12 @@ def resolve_language(
     return detect_content_language(payload)
 
 
+_TOP_LEVEL_PYTHON = re.compile(
+    rb"(?m)^(?:from\s+[\w.]+\s+import\s+\S|import\s+[\w.]+(?:\s+as\s+\w+)?\s*$"
+    rb"|(?:async\s+)?def\s+\w+\s*\([^\n]*\)[^\n]*:\s*$|class\s+\w+[^\n]*:\s*$)"
+)
+
+
 def detect_content_language(payload: bytes) -> str | None:
     """Bounded, high-confidence format detection; ordinary prose is the fallback."""
     head = payload[:8192].lstrip(b"\xef\xbb\xbf \t\r\n")
@@ -634,7 +640,20 @@ def detect_content_language(payload: bytes) -> str | None:
         return "xml"
     if re.match(rb'(?s)^[\[{]\s*(?:[\[{"]|[-0-9]|true\b|false\b|null\b|[\]}])', head):
         return "json"
-    if re.search(rb"(?m)^[ \t]{0,3}(?:`{3,}|~{3,}|#{1,6}\s|>\s|[-*+]\s|[0-9]{1,9}[.)]\s)", head):
+    markdown = re.search(
+        rb"(?m)^[ \t]{0,3}(?:`{3,}|~{3,}|#{1,6}\s|>\s|[-*+]\s|[0-9]{1,9}[.)]\s)", head
+    )
+    if markdown:
+        # "# comment" opens Python and shell as readily as it opens a Markdown
+        # heading. Top-level Python before any fence settles which it was.
+        code = _TOP_LEVEL_PYTHON.search(head)
+        fence = re.search(rb"(?m)^[ \t]{0,3}(?:`{3,}|~{3,})", head)
+        if (
+            code
+            and markdown.group().lstrip().startswith(b"#")
+            and (not fence or code.start() < fence.start())
+        ):
+            return "python"
         return "markdown"
     if head.startswith((b"---\n", b"---\r\n")) and re.search(rb"(?m)^[A-Za-z_][\w-]*:\s", head):
         return "yaml"

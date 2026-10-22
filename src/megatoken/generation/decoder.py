@@ -6,6 +6,7 @@ import json
 import math
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 
 import torch
 from torch import Tensor, nn
@@ -13,12 +14,24 @@ from torch.nn import functional as F
 
 from megatoken.contracts import DECODER_LOSSES
 from megatoken.model.layers import position_features
+from megatoken.model.state import RealizationContext
 
 from .distributions import TiedVocabulary
 from .feasibility import wire_overhead_tokens, wire_witness_tokens
 from .realizer import ParallelRealizer
-from .structure import ActionSpec, Decision, FieldSpec
+from .structure import ActionSpec, Decision, FieldSpec, SchemaSpec
 from .targets import PreparedAction, PreparedTargets, planned_fields, source_ids, workspace_capacity
+
+
+@lru_cache(maxsize=4096)
+def _description_tokens(codec, text: str) -> tuple[int, ...]:
+    return tuple(codec.encode(text.encode()))
+
+
+@lru_cache(maxsize=1024)
+def _wire_costs(schema: SchemaSpec, codec) -> tuple[int, int | None]:
+    """(fixed wire overhead, smallest valid wire witness or None), per public schema."""
+    return wire_overhead_tokens(schema, codec), wire_witness_tokens(schema, codec)
 
 
 @dataclass(frozen=True)
@@ -146,7 +159,6 @@ class DeterministicDecoder(nn.Module):
         ):
             nn.init.normal_(codes.weight, std=width**-0.5)
         self.allowed_ids = {}
-        self._public_tokens: dict[str, tuple[int, ...]] = {}
         for kind in ("bytes", "utf8", "ascii", "identifier"):
             allowed = self.codec.allowed_ids(kind)
             self.allowed_ids[kind] = frozenset(allowed)
@@ -177,9 +189,7 @@ class DeterministicDecoder(nn.Module):
 
     def _description(self, value, reference):
         text = json.dumps(asdict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        if text not in self._public_tokens:
-            self._public_tokens[text] = tuple(self.codec.encode(text.encode()))
-        return self.public_embedding(self._public_tokens[text], reference)
+        return self.public_embedding(_description_tokens(self.codec, text), reference)
 
     def header(self, context) -> Tensor:
         raw = context if isinstance(context, Tensor) else context.facets
@@ -209,19 +219,36 @@ class DeterministicDecoder(nn.Module):
             batch,
         )
         header = self.condition(header, self.terminal_codes, terminals)
-        rows = self.realizer(core, context, plan.capacity, header)
-        positions, targets = [], []
-        for example, (ids, mask) in enumerate(zip(plan.ids, plan.free_masks, strict=True)):
-            for position, (token, scored) in enumerate(zip(ids, mask, strict=True)):
-                if scored:
-                    positions.append(example * plan.capacity + position)
-                    targets.append(token)
-        indices = torch.tensor(positions, device=header.device, dtype=torch.long)
+        # Each example is realized at its own workspace size, as serving does.
+        groups: dict[int, list[int]] = {}
+        for example, capacity in enumerate(plan.capacities):
+            groups.setdefault(capacity, []).append(example)
+        states = []
+        targets: list[int] = []
+        for capacity, members in groups.items():
+            if len(members) == batch:
+                group_context, group_header = context, header
+            else:
+                member_index = torch.tensor(members, device=header.device, dtype=torch.long)
+                group_context = RealizationContext(context.facets.index_select(0, member_index))
+                group_header = header.index_select(0, member_index)
+            rows = self.realizer(core, group_context, capacity, group_header).flatten(0, 1)
+            positions = []
+            for local, example in enumerate(members):
+                for position, (token, scored) in enumerate(
+                    zip(plan.ids[example], plan.free_masks[example], strict=True)
+                ):
+                    if scored:
+                        positions.append(local * capacity + position)
+                        targets.append(token)
+            states.append(
+                rows.index_select(0, torch.tensor(positions, device=rows.device, dtype=torch.long))
+            )
+        selected = torch.cat(states)
         targets = torch.tensor(targets, device=header.device, dtype=torch.long)
-        selected = rows.flatten(0, 1).index_select(0, indices)
         losses["lexical"] = (
             self.vocabulary.loss(selected, targets, self.valid_bytes).sum(),
-            len(positions),
+            selected.shape[0],
         )
         return losses
 
@@ -246,18 +273,17 @@ class DeterministicDecoder(nn.Module):
         # action must also fit its literal wire syntax (keys, separators, quotes).
         # Reserve those fixed tokens before deciding which schemas or value
         # lengths the model may choose.
-        schema_limits = {
-            index: limit - wire_overhead_tokens(schema, self.codec)
-            for index, schema in enumerate(spec.schemas)
-        }
+        costs = [_wire_costs(schema, self.codec) for schema in spec.schemas]
+        schema_limits = {index: limit - overhead for index, (overhead, _) in enumerate(costs)}
         feasible = []
         for index, fields in schema_fields.items():
             if fields is None or (
                 sum(value.minimum for value in fields.values()) > schema_limits[index]
             ):
                 continue
-            witness = wire_witness_tokens(spec.schemas[index], self.codec)
-            if witness is not None and witness > limit:
+            # No constructible minimal valid example means no proof that the schema fits.
+            witness = costs[index][1]
+            if witness is None or witness > limit:
                 continue
             feasible.append(index)
         modes = ([0] if spec.allow_text and spec.min_tokens <= limit else []) + (

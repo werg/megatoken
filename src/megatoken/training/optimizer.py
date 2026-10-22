@@ -18,23 +18,32 @@ class ParameterRule:
 
 
 def parameter_rules(module: nn.Module, weight_decay: float) -> dict[str, ParameterRule]:
-    """Use owning module semantics first; shared tensors get one optimizer slot."""
-    lookup_ids = {
+    """Rules by owning module, never by parameter name.
+
+    Embedding tables (sparse, row-wise updates) and modules that declare
+    ``slow_learning`` train at half the learning rate; tables take no weight
+    decay. Dense linears keep the full rate and decay wherever they live,
+    including the output projections of a vocabulary or embedding head. Norm
+    scales, biases and other vectors take no decay. Shared tensors have one rule.
+    """
+    tables = {
         id(p)
         for m in module.modules()
         if isinstance(m, nn.Embedding)
         for p in m.parameters(recurse=False)
     }
+    slow = tables | {
+        id(p)
+        for m in module.modules()
+        if getattr(m, "slow_learning", False)
+        for p in m.parameters()
+    }
     result = {}
     for name, parameter in module.named_parameters():
-        lower = name.lower()
-        lookup = id(parameter) in lookup_ids or any(
-            x in lower for x in ("lookup", "ngram", "embedding", "vocabulary", "byte_table")
+        no_decay = id(parameter) in tables or parameter.ndim < 2
+        result[name] = ParameterRule(
+            0.5 if id(parameter) in slow else 1.0, 0.0 if no_decay else weight_decay
         )
-        slower = lookup or "control" in lower
-        multiplier = 0.5 if slower else 1.0
-        no_decay = lookup or parameter.ndim < 2 or lower.endswith("bias") or "norm" in lower
-        result[name] = ParameterRule(multiplier, 0.0 if no_decay else weight_decay)
     return result
 
 
@@ -86,7 +95,7 @@ class MasterAdamW:
                 inner_optimizer == "muon"
                 and parameter.ndim == 2
                 and self.rules[name].weight_decay > 0
-                and "control" not in name.lower()
+                and self.rules[name].lr_multiplier == 1.0
             )
             if use_muon:
                 muon_groups[self.rules[name]].append(master)

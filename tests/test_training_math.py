@@ -10,8 +10,8 @@ import torch
 from megatoken.runtime import capture_rng, restore_rng, seed_everything
 from megatoken.training.checkpoint import load_checkpoint, save_checkpoint, transducer_attachment
 from megatoken.training.config import TrainConfig
-from megatoken.training.losses import LossLedger, leave_one_out_advantages
-from megatoken.training.optimizer import MasterAdamW
+from megatoken.training.losses import LossLedger
+from megatoken.training.optimizer import MasterAdamW, parameter_rules
 from megatoken.training.schedule import PHASES
 
 
@@ -84,6 +84,40 @@ def test_optimizer_resume_preserves_next_update(tmp_path):
         torch.testing.assert_close(a, b, rtol=0, atol=0)
     optimizer.close()
     resumed_optimizer.close()
+
+
+def test_learning_rules_follow_the_owning_module_not_the_parameter_name():
+    from megatoken.generation import ByteCodec
+    from megatoken.loading import build_model
+    from megatoken.model import ModelConfig
+
+    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    rules = parameter_rules(model, 0.1)
+    # Embedding tables: half rate, no decay.
+    for name in (
+        "core.frontend.bytes.weight",
+        "decoder.vocabulary.embedding.weight",
+        "core.central.role_embedding.weight",
+    ):
+        assert (rules[name].lr_multiplier, rules[name].weight_decay) == (0.5, 0.0), name
+    # Dense linears keep the full rate and decay even when their name says
+    # "embedding", "vocabulary" or "ngram".
+    for name in (
+        "embedding_realizer.query.weight",
+        "embedding_realizer.document.weight",
+        "decoder.vocabulary.projection.weight",
+        "core.frontend.ngram_projection.weight",
+        "core.frontend.ngram_mixture.weight",
+    ):
+        assert (rules[name].lr_multiplier, rules[name].weight_decay) == (1.0, 0.1), name
+    # The control encoder declares slow learning; vectors never decay.
+    assert (
+        rules["core.control_encoder.projection.weight"].lr_multiplier,
+        rules["core.control_encoder.projection.weight"].weight_decay,
+    ) == (0.5, 0.1)
+    assert rules["core.control_encoder.norm.weight"].weight_decay == 0.0
+    assert rules["embedding_realizer.norm.weight"] == rules["embedding_realizer.norm.bias"]
+    assert rules["embedding_realizer.norm.bias"].weight_decay == 0.0
 
 
 def test_freezing_decoder_preserves_bf16_owners_fp32_masters_and_adam_moments():
@@ -193,17 +227,9 @@ def test_phase_meters_and_schedules():
     assert sum(PHASES[name].budget for name in ("P1", "M1", "M2", "LC")) == 520_000_000_000
     assert PHASES["B0"].meter == "I"
     assert PHASES["D"].meter == "P"
-    assert PHASES["R"].meter == "Z"
     assert PHASES["B0"].learning_rate(0) == pytest.approx(2e-5)
     assert PHASES["P1"].learning_rate(320_000_000_000) == pytest.approx(2e-4)
     assert PHASES["P1"].learning_rate(400_000_000_000) == pytest.approx(4e-5)
-
-
-def test_leave_one_out_groups_by_task():
-    rewards = torch.tensor([[0.0, 1.0, 0.0, 1.0], [0.2, 0.2, 0.2, 0.2]])
-    advantages = leave_one_out_advantages(rewards)
-    torch.testing.assert_close(advantages[0], torch.tensor([-2 / 3, 2 / 3, -2 / 3, 2 / 3]))
-    torch.testing.assert_close(advantages[1], torch.zeros(4))
 
 
 def test_configuration_rejects_unknown_or_invalid_fields():

@@ -1,7 +1,9 @@
 """Streaming, byte-exact recovery for CSV, TSV, and pipe-separated records.
 
-Quoted fields may contain separators and physical line endings; doubled quotes
-are escapes only while inside a quoted field. No decoding, dialect guessing,
+In CSV, quoted fields may contain separators and physical line endings; doubled
+quotes are escapes only while inside a quoted field. TSV and pipe-separated
+files have no quoting convention, so a quotation mark there is ordinary text
+and every line ending ends a row. No decoding, dialect guessing,
 schema inference, CSV evaluation, or normalization takes place. Rows protect
 semantic chunk cohesion while field boundaries remain available when a row
 exceeds the physical caps.
@@ -25,6 +27,7 @@ def scan_delimited(payload: bytes, language: str, limits: ParseLimits) -> Scan:
     scan.result.parsers.add(source)
     scan.result.languages.add(language)
     delimiter, maximum = DELIMITERS[language], min(len(payload), limits.max_parse_bytes)
+    quoting = language == "csv"
     index = field_start = row_start = 0
     inside_quote = after_quote = False
     diagnostics = 0
@@ -68,7 +71,7 @@ def scan_delimited(payload: bytes, language: str, limits: ParseLimits) -> Scan:
                 after_quote = True
             index += 1
             continue
-        if value == 34 and index == field_start:
+        if quoting and value == 34 and index == field_start:
             inside_quote = True
             after_quote = False
         elif value == delimiter:
@@ -87,7 +90,7 @@ def scan_delimited(payload: bytes, language: str, limits: ParseLimits) -> Scan:
             after_quote = False
             index = stop
             continue
-        elif value == 34 or (after_quote and value not in {32, 9}):
+        elif quoting and (value == 34 or (after_quote and value not in {32, 9})):
             report("malformed_delimited_quote", index, index + 1)
             after_quote = False
         index += 1

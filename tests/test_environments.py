@@ -58,3 +58,49 @@ def test_public_tool_objects_are_validated(tools):
 
     with pytest.raises(ValueError, match="object|definition"):
         compile_tool_spec(tools)
+
+
+def test_a_bearer_token_is_not_sent_to_another_origin_by_a_redirect():
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from urllib.request import Request
+
+    from megatoken.environments import open_url
+
+    seen = []
+
+    class Target(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append((self.server.server_port, self.path, self.headers.get("Authorization")))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    class Redirector(Target):
+        def do_GET(self):
+            seen.append((self.server.server_port, self.path, self.headers.get("Authorization")))
+            self.send_response(302)
+            self.send_header("Location", self.server.location)
+            self.end_headers()
+
+    other, first = HTTPServer(("127.0.0.1", 0), Target), HTTPServer(("127.0.0.1", 0), Redirector)
+    first.location = f"http://127.0.0.1:{other.server_port}/elsewhere"
+    servers = (other, first)
+    threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in servers]
+    for thread in threads:
+        thread.start()
+    try:
+        header = {"Authorization": "Bearer secret"}
+        with open_url(
+            Request(f"http://127.0.0.1:{first.server_port}/cross", headers=header), timeout=5
+        ):
+            pass
+    finally:
+        for server in servers:
+            server.shutdown()
+            server.server_close()
+    assert (first.server_port, "/cross", "Bearer secret") in seen
+    assert (other.server_port, "/elsewhere", None) in seen

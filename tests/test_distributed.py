@@ -296,3 +296,16 @@ def test_two_rank_full_engine_checkpoint_resume_and_phase_transition(tmp_path):
         # One merged round per step, counted across the resume.
         assert saved["rounds"]["version"] == metadata["global_step"]
     assert rank0["transitioned"]["complete"]
+
+
+@pytest.mark.parametrize("bucket_bytes", [16, 1 << 20])
+def test_gradient_sync_keeps_the_result_for_a_non_contiguous_gradient(monkeypatch, bucket_bytes):
+    # A second rank holding identical gradients doubles every reduced value.
+    monkeypatch.setattr(dist, "all_reduce", lambda tensor, op=None: tensor.mul_(2))
+    context = DistributedContext(rank=0, world_size=2, device=torch.device("cpu"))
+    parameter = nn.Parameter(torch.zeros(4, 6))
+    parameter.grad = torch.arange(24.0).reshape(6, 4).t()
+    assert not parameter.grad.is_contiguous()
+    expected = parameter.grad.clone() * 2
+    context.synchronize_gradients([parameter], bucket_bytes=bucket_bytes)
+    assert torch.equal(parameter.grad, expected)

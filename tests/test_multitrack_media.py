@@ -20,7 +20,9 @@ from megatoken.model.multitrack import (
 )
 from megatoken.model.state import RealizationContext
 from megatoken.teacher import PINNED_TEACHER
-from tests.media_support import LATENT, features, install_fake_realizers
+from megatoken.training.config import DEFAULT_LOSS_WEIGHTS
+from megatoken.training.losses import LossLedger
+from tests.media_support import LATENT, features, install_fake_realizers, observe_text
 
 AUDIO = MediaOutputSpec("audio", sample_count=256, sample_rate=24000)
 IMAGE = MediaOutputSpec("image", height=16, width=16)
@@ -98,6 +100,13 @@ def test_media_events_are_only_pinned_teacher_features():
         )
 
 
+def _backward(result):
+    """Backward the training objective exactly as the engine does: global-count weighted terms."""
+    counts = {name: count for name, (_, count) in result.losses.items()}
+    ledger = LossLedger(counts, counts, dict(DEFAULT_LOSS_WEIGHTS))
+    ledger.backward_loss(result.losses).backward()
+
+
 def test_modality_reaches_the_model_through_embedding_not_a_separate_stem():
     core, _, service = _system()
     with torch.no_grad():  # the modality embedding starts at zero; give it a trained value
@@ -119,8 +128,11 @@ def test_modality_reaches_the_model_through_embedding_not_a_separate_stem():
 
 def test_mixed_media_generation_and_replay():
     core, model, service = _system()
-    state = service.tracks.observe_text_group(
-        service.tracks.initial_state(1), (b"Generate a picture and sound",), tracks=("prompt",)
+    state = observe_text(
+        service.tracks,
+        service.tracks.initial_state(1),
+        (b"Generate a picture and sound",),
+        tracks=("prompt",),
     )
     specifications = (ActionSpec(max_tokens=8), AUDIO, IMAGE, VIDEO)
     result = service.generate_group(
@@ -169,11 +181,10 @@ def test_grouped_multimodal_bootstrap_has_trainable_gradients():
         effort=1,
         generator=torch.Generator().manual_seed(4),
     )
-    assert training.loss.isfinite()
-    assert set(training.components) == {"prediction", "reconstruction", "facet_kl", "routing"}
+    assert all(value.isfinite() for value, _ in training.losses.values())
     assert training.losses["visual_prediction"][1] == 1
     assert training.losses["visual_reconstruction"][1] == 1
-    training.loss.backward()
+    _backward(training)
     realizer = model.media_realizers.resident("image")
     # The teacher-feature projection, the realizer condition and the shared core all learn.
     assert core.media_encoder.projection.weight.grad.abs().sum() > 0
@@ -185,8 +196,8 @@ def test_grouped_multimodal_bootstrap_has_trainable_gradients():
 
 def test_text_and_media_realize_raw_without_extra_meridian_c_pass():
     core, model, service = _system()
-    initial = service.tracks.observe_text_group(
-        service.tracks.initial_state(1), (b"preceding context",), tracks=("prompt",)
+    initial = observe_text(
+        service.tracks, service.tracks.initial_state(1), (b"preceding context",), tracks=("prompt",)
     )
     calls = []
     hook = core.central.register_forward_hook(
@@ -208,7 +219,7 @@ def test_text_and_media_realize_raw_without_extra_meridian_c_pass():
         hook.remove()
     assert len(calls) == 1  # Teacher-forced next state only, not R or reconstruction.
     torch.testing.assert_close(calls[0], result.state.raw.flatten(1, 2), rtol=0, atol=0)
-    result.loss.backward()
+    _backward(result)
     assert core.media_encoder.projection.weight.grad.abs().sum() > 0
     for modality in ("audio", "image"):
         condition = model.media_realizers.resident(modality).condition
@@ -311,7 +322,8 @@ def test_grouped_bootstrap_kl_is_normalized_once_per_latent_coordinate():
             torch.full_like(encoded.float(), math.log(core.config.codec_noise_std)),
         )
         expected = posterior.kl(model.facet_distribution(mean)).sum() / encoded.numel()
-    torch.testing.assert_close(result.components["facet_kl"], expected, rtol=1e-5, atol=1e-5)
+    total, count = result.losses["facet_prediction"]
+    torch.testing.assert_close(total / count, expected, rtol=1e-5, atol=1e-5)
     assert float(expected) > 0
 
 

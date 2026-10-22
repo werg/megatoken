@@ -44,13 +44,6 @@ def load_model_config(name_or_path: str, **overrides: Any) -> ModelConfig:
         return ModelConfig.compact32(**overrides)
     if name_or_path == "32x512":
         return ModelConfig(**overrides)
-    if name_or_path in {"recurrent32", "compact32"}:
-        raise ValueError(
-            "Training/model configuration uses canonical preset names 32x512 or 32x256; "
-            "recurrent32 and compact32 are command-line aliases only"
-        )
-    if name_or_path in {"v12", "v13", "reference"}:
-        raise ValueError("The old carry architecture is incompatible; select 32x512 or 32x256")
     return ModelConfig.from_dict({**read_mapping(name_or_path), **overrides})
 
 
@@ -143,9 +136,7 @@ def load_trained(
         phase_transition=False,
     )
     model.core.set_model_version(payload["global_step"])
-    bank = metadata.get("transducer_checkpoint")
-    if bank is None:
-        raise ValueError("Checkpoint lacks its transducer bank")
+    bank = metadata["transducer_checkpoint"]  # load_checkpoint verified it
     # Serving needs only the packed bank; optimizer and growth state stay behind.
     import torch
 

@@ -11,9 +11,10 @@ from __future__ import annotations
 import bisect
 import locale as system_locale
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from functools import cached_property
+from functools import cached_property, lru_cache
 
 from .documents import (
     DOCUMENT_LANGUAGES,
@@ -29,6 +30,7 @@ from .tabular import DELIMITERS, scan_delimited
 from .types import Diagnostic, ParseLimits, ParseResult, Region
 
 ENGINE_VERSION = "recursive-content-v1"
+_MAX_DIAGNOSTICS = 256
 _DEFAULT_LIMITS = ParseLimits()
 _MARKDOWN_SIGNATURE = re.compile(
     rb"(?m)^[ \t]{0,3}(?:`{3,}|~{3,}|#{1,6}[ \t]+|>[ \t]+|[-+*][ \t]+|[0-9]{1,9}[.)][ \t]+)"
@@ -36,6 +38,33 @@ _MARKDOWN_SIGNATURE = re.compile(
 _MARKUP_SIGNATURE = re.compile(
     rb"(?i)<(?:!\[CDATA\[|!--|/?(?:html|div|p|span|a|section|article|script|style|body|head|main|h[1-6]|pre|code|ul|ol|li|table)(?:[ \t\r\n/>]))"
 )
+
+
+_CODE_KINDS = frozenset({"code", "program", "source", "programming"})
+_PROSE_KINDS = frozenset({"prose", "text", "plain", "plaintext", "natural_language"})
+_LOCALE_SHAPE = re.compile(r"[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*")
+
+
+@lru_cache(maxsize=1)
+def _locale_languages() -> frozenset[str]:
+    return frozenset(name.split("_", 1)[0].split(".", 1)[0] for name in system_locale.locale_alias)
+
+
+def _known_grammars() -> set[str]:
+    return set(bundled_languages()) | {
+        item for spec in parser_provider_specs() for item in spec.languages
+    }
+
+
+def _locale_tag(language: str) -> str | None:
+    """The BCP 47-style locale ``language`` spells, unless it is also a grammar name."""
+    if (
+        canonical_language(language) in _known_grammars()
+        or not _LOCALE_SHAPE.fullmatch(language)
+        or language.lower().replace("_", "-").split("-", 1)[0] not in _locale_languages()
+    ):
+        return None
+    return language.replace("_", "-")
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,15 +159,32 @@ class _Engine:
         self.injections = 0
         self.seen: set[tuple[tuple[tuple[int, int], ...], str, str]] = set()
         self.limit_diagnostics: set[tuple[str, int, int]] = set()
+        self.suppressed: Counter[str] = Counter()
+
+    @staticmethod
+    def is_known(canonical: str) -> bool:
+        """A language this engine routes somewhere other than an unavailable grammar."""
+        return (
+            canonical in _known_grammars()
+            or canonical in DOCUMENT_LANGUAGES
+            or canonical in MARKUP_LANGUAGES
+            or canonical in DELIMITERS
+            or canonical in {"prose", "markdown", "markdown_inline"}
+        )
+
+    def record(self, diagnostic: Diagnostic) -> None:
+        """Keep the first ``_MAX_DIAGNOSTICS``; count the rest so none vanishes unseen."""
+        if len(self.result.diagnostics) < _MAX_DIAGNOSTICS:
+            self.result.diagnostics.append(diagnostic)
+        else:
+            self.suppressed[diagnostic.code] += 1
 
     def diagnostic(self, code: str, view: SourceView, detail: str = "") -> None:
-        if len(self.result.diagnostics) >= 256:
-            return
         start, end = view.position(0), view.position(len(view.data), end=True)
         key = (code, start, end)
         if key not in self.limit_diagnostics:
             self.limit_diagnostics.add(key)
-            self.result.diagnostics.append(Diagnostic(code, start, end, ENGINE_VERSION, detail))
+            self.record(Diagnostic(code, start, end, ENGINE_VERSION, detail))
 
     def remaining_limits(self) -> ParseLimits:
         return replace(
@@ -165,9 +211,13 @@ class _Engine:
             if len(self.result.boundaries) >= self.limits.max_regions * 4:
                 self.diagnostic("boundary_budget_exhausted", view)
                 break
+            # A cut at the seam between two source ranges belongs to the end of the
+            # earlier one, before the prefix ("# ", "> ") the view dropped.
             self.result.boundaries.append(
                 replace(
-                    boundary, offset=view.position(boundary.offset), depth=depth + boundary.depth
+                    boundary,
+                    offset=view.position(boundary.offset, end=True),
+                    depth=depth + boundary.depth,
                 )
             )
         for region in scan.result.regions:
@@ -179,19 +229,16 @@ class _Engine:
                 "end": view.position(region.end, end=True),
                 "depth": depth + region.depth,
             }
-            if hasattr(region, "path"):
-                prefix = f"{view.position(0)}:{view.position(len(view.data), end=True)}:{depth}"
-                changes["path"] = (prefix, *region.path)
-            self.result.regions.append(replace(region, **changes))
+            prefix = f"{view.position(0)}:{view.position(len(view.data), end=True)}:{depth}"
+            self.result.regions.append(replace(region, **changes, path=(prefix, *region.path)))
         for diagnostic in scan.result.diagnostics:
-            if len(self.result.diagnostics) < 256:
-                self.result.diagnostics.append(
-                    replace(
-                        diagnostic,
-                        start=view.position(diagnostic.start),
-                        end=view.position(diagnostic.end, end=True),
-                    )
+            self.record(
+                replace(
+                    diagnostic,
+                    start=view.position(diagnostic.start),
+                    end=view.position(diagnostic.end, end=True),
                 )
+            )
 
     def prose(self, view: SourceView, depth: int) -> None:
         if not view.data:
@@ -228,9 +275,9 @@ class _Engine:
         if self.nodes >= self.limits.max_nodes:
             self.diagnostic("node_budget_exhausted", view)
             return Scan()
-        if self.backend in {"fallback", "lexical", "builtin"}:
+        if self.backend == "fallback":
             return scan_generic(view.data, language, limits)
-        if getattr(limits, "isolate_native", False):
+        if limits.isolate_native:
             from .workers import scan_syntax_isolated
 
             result = scan_syntax_isolated(view.data, language, limits, self.backend)
@@ -279,7 +326,9 @@ class _Engine:
                 if resolved_kind in {"code", "program", "source", "programming"}
                 else "prose"
             )
-        if canonical in {"text", "plain", "plaintext"}:
+        if canonical in {"text", "plain", "plaintext"} or (
+            resolved_kind in _PROSE_KINDS and not self.is_known(canonical)
+        ):
             canonical = "prose"
         identity = (view.identity(), canonical, "content")
         if identity in self.seen:
@@ -423,36 +472,24 @@ def parse_content(
     """
     if not isinstance(payload, bytes):
         raise TypeError("Content parsing requires bytes to preserve exact source coordinates")
-    if backend not in {"tree_sitter", "fallback", "lexical", "builtin"}:
+    if backend not in {"tree_sitter", "fallback"}:
         raise ValueError(f"Unknown parser backend: {backend!r}")
     explicit_kind = content_kind.lower().replace("-", "_")
+    if language and explicit_kind not in _CODE_KINDS:
+        # A natural-language tag such as "en" or "pt-BR" names the text's locale,
+        # never a grammar; content detection still decides what the text is.
+        tag = _locale_tag(language)
+        if tag:
+            locale = locale or tag
+            language = None
     hint = language
-    if explicit_kind in {"prose", "text", "plain", "plaintext", "natural_language"} and language:
-        base = language.lower().replace("_", "-").split("-", 1)[0]
-        known_locales = {
-            name.split("_", 1)[0].split(".", 1)[0] for name in system_locale.locale_alias
-        }
-        grammars = set(bundled_languages()) | {
-            item for spec in parser_provider_specs() for item in spec.languages
-        }
-        if (
-            canonical_language(language) not in grammars
-            and base in known_locales
-            and re.fullmatch(r"[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*", language)
-        ):
-            locale = locale or language.replace("_", "-")
-            hint = "prose"
-    if hint is None and explicit_kind in DOCUMENT_LANGUAGES | MARKUP_LANGUAGES | {
+    if hint is None and explicit_kind in DOCUMENT_LANGUAGES | MARKUP_LANGUAGES | _PROSE_KINDS | {
         "json",
         "yaml",
         "toml",
         "csv",
         "tsv",
         "psv",
-        "prose",
-        "text",
-        "plain",
-        "plaintext",
     }:
         hint = explicit_kind
     resolved = resolve_language(hint, filename, mime_type, payload)
@@ -468,6 +505,16 @@ def parse_content(
     engine.result.boundaries = list(dict.fromkeys(engine.result.boundaries))
     engine.result.regions = list(dict.fromkeys(engine.result.regions))
     engine.result.diagnostics = list(dict.fromkeys(engine.result.diagnostics))
+    if engine.suppressed:
+        engine.result.diagnostics.append(
+            Diagnostic(
+                "diagnostics_truncated",
+                0,
+                len(payload),
+                ENGINE_VERSION,
+                ", ".join(f"{code}:{count}" for code, count in sorted(engine.suppressed.items())),
+            )
+        )
     engine.result.boundaries.sort(
         key=lambda item: (item.offset, item.depth, item.kind, item.source)
     )

@@ -144,7 +144,7 @@ def test_masks_follow_original_message_turns_and_hide_outcomes():
     context = AdapterContext("chat-v4", "abc", "local", "chat", max_record_bytes=3)
     episode = adapt_row(row, "nemotron_chat_v4", context)
     assert {record.turn_index for record in episode.records if record.policy_mask} == {3}
-    assert b"SECRET_GOLD" not in b"".join(record.payload for record in episode.model_records())
+    assert b"SECRET_GOLD" not in b"".join(record.payload for record in episode.records)
     assert "SECRET_GOLD" in episode.supervision.annotations_json
     row["metadata"]["train_turns_mask"] = [True]
     with pytest.raises(SchemaError, match="one boolean"):
@@ -283,3 +283,102 @@ def test_repository_patch_is_target_and_future_controls_are_forbidden():
         dataclasses.replace(
             episode, control_reference=b"SECRET_PATCH", reference_origin="future_target"
         )
+
+
+def chat_context(**options):
+    return AdapterContext(
+        "chat-fixture", "rev", "local", "chat", codec=ByteCodec.byte_fallback(), options=options
+    )
+
+
+def chat_row(**extra):
+    return {
+        "messages": [
+            {"role": "user", "content": "What is the capital of France? Answer briefly."},
+            {"role": "assistant", "content": "Paris is the capital of France."},
+        ],
+        **extra,
+    }
+
+
+@pytest.mark.parametrize(
+    "calls",
+    [
+        ["not an object"],
+        [{"id": "c1", "function": None}],
+        [{"id": "c1", "function": {"arguments": "{}"}}],
+        [{"id": 7, "function": {"name": "f", "arguments": "{}"}}],
+        "not a list",
+    ],
+)
+def test_malformed_tool_calls_are_validation_errors_not_crashes(calls):
+    row = chat_row()
+    row["messages"][1]["tool_calls"] = calls
+    with pytest.raises(SchemaError):
+        adapt_row(row, "chat", chat_context())
+
+
+def test_malformed_tool_use_blocks_are_validation_errors():
+    row = chat_row()
+    row["messages"][1]["content"] = [{"type": "tool_use", "id": "c1"}]
+    with pytest.raises(SchemaError, match="tool_use"):
+        adapt_row(row, "chat", chat_context())
+
+
+def test_a_natural_language_tag_is_a_locale_not_a_grammar():
+    plain = adapt_row(chat_row(), "chat", chat_context())
+    tagged = adapt_row(chat_row(language="en"), "chat", chat_context())
+    assert len(tagged.records) == len(plain.records) == 2
+    assert not any("grammar_unavailable" in record.chunk_diagnostics for record in tagged.records)
+    assert [record.chunk_boundary for record in tagged.records] == [
+        record.chunk_boundary for record in plain.records
+    ]
+
+
+def test_a_source_column_named_dependencies_is_not_a_dependency_annotation():
+    row = chat_row(dependencies=["numpy", "pandas"])
+    assert adapt_row(row, "chat", chat_context()).dependencies == ()
+
+
+def test_dependency_annotations_are_read_through_the_field_map_and_validated():
+    row = chat_row(metadata={"dependencies": [{"writer_turn": 0, "reader_turn": 1}]})
+    assert len(adapt_row(row, "chat", chat_context()).dependencies) == 1
+    mapped = chat_row(links=[{"writer_turn": 0, "reader_turn": 1}])
+    context = AdapterContext(
+        "chat-fixture",
+        "rev",
+        "local",
+        "chat",
+        codec=ByteCodec.byte_fallback(),
+        field_map={"dependencies": "links"},
+    )
+    assert len(adapt_row(mapped, "chat", context).dependencies) == 1
+    with pytest.raises(SchemaError, match="integer"):
+        adapt_row(
+            chat_row(metadata={"dependencies": [{"writer_turn": "0", "reader_turn": 1}]}),
+            "chat",
+            chat_context(),
+        )
+
+
+def test_repeated_prompts_share_a_family_however_the_messages_are_encoded():
+    plain = chat_row()
+    blocks = chat_row()
+    blocks["messages"][0]["content"] = [{"type": "text", "text": plain["messages"][0]["content"]}]
+    encoded = {"messages": json.dumps(chat_row()["messages"])}
+    other = chat_row()
+    other["messages"][0]["content"] = "A different question entirely."
+    families = [
+        adapt_row(row, "chat", chat_context()).lineage.family_id
+        for row in (plain, blocks, encoded, other)
+    ]
+    assert families[0] == families[1] == families[2] != families[3]
+
+
+def test_adapter_options_the_adapter_never_reads_are_rejected():
+    with pytest.raises(SchemaError, match="allow_pending_final_actions"):
+        adapt_row(chat_row(), "chat", chat_context(allow_pending_final_actions=True))
+    with pytest.raises(SchemaError, match="include_reasoning"):
+        adapt_row(chat_row(), "chat", chat_context(include_reasoning=True))
+    with pytest.raises(SchemaError, match="allow_pending_final_action"):
+        adapt_row(chat_row(), "document", chat_context(allow_pending_final_action=True))

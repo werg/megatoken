@@ -13,6 +13,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
+from megatoken.environments import environment_factory
 from megatoken.io import content_hash, read_mapping, sha256_file, write_json
 
 from .adapters import PROFILES
@@ -77,8 +78,8 @@ def _chunks(args: argparse.Namespace) -> dict[str, Any]:
         result = coverage_report(validate=not args.catalog_only)
     elif args.chunks_command == "inspect":
         codec = _codec(args.codec)
-        policy = _chunking_config(args).with_hard_limit(
-            args.max_record_tokens, max_bytes=args.max_record_bytes
+        policy = _chunking_config(args).with_record_limits(
+            max_tokens=args.max_record_tokens, max_bytes=args.max_record_bytes
         )
         payload = Path(args.input).read_bytes()
         report = segment_with_report(
@@ -328,8 +329,6 @@ def _collection_config(args: argparse.Namespace) -> CollectionConfig:
 
 
 def _collect(args: argparse.Namespace) -> dict[str, Any]:
-    from megatoken.environments import FixtureEnvironment, HTTPEnvironment
-
     config = _collection_config(args)
     codec = _codec(args.codec)
     root = Path(args.output)
@@ -362,7 +361,6 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
                 "teacher_endpoint": args.teacher_endpoint,
                 "teacher_model": args.teacher_model,
                 "environment": args.environment,
-                "student_bundle": str(args.student_bundle or ""),
                 "student_manifest_sha256": student_manifest,
                 "student_prefix_steps": student_steps,
                 "benchmark_quarantine": quarantine,
@@ -453,14 +451,9 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
             codec,
             token_env=args.token_env,
             timeout=args.timeout,
-            include_reasoning=config.include_reasoning,
         )
-        factory = (
-            FixtureEnvironment
-            if fixture
-            else lambda: HTTPEnvironment(
-                args.environment, token_env=args.environment_token_env, timeout=args.timeout
-            )
+        factory = environment_factory(
+            args.environment, token_env=args.environment_token_env, timeout=args.timeout
         )
         collector = Collector(teacher, factory, codec, ledger, families)
         episodes = collector.run_pilot(
@@ -515,8 +508,8 @@ def add_data_commands(subparsers: argparse._SubParsersAction) -> None:
         default="byte",
         help="Pinned codec directory/tokenizer JSON, or byte for smoke tests",
     )
-    prepare.add_argument("--max-record-bytes", type=int, default=16384)
-    prepare.add_argument("--max-record-tokens", type=int, default=1024)
+    prepare.add_argument("--max-record-bytes", type=int, help="Hard limit (default: the policy's)")
+    prepare.add_argument("--max-record-tokens", type=int, help="Hard limit (default: the policy's)")
     prepare.add_argument("--chunk-target-tokens", type=int, help="Packing target (default: 512)")
     prepare.add_argument("--chunk-soft-max-tokens", type=int, help="Soft limit (default: 768)")
     prepare.add_argument("--chunking-config", help="Versioned parser/planner policy JSON or YAML")
@@ -594,8 +587,8 @@ def add_data_commands(subparsers: argparse._SubParsersAction) -> None:
     inspect.add_argument("--chunk-target-tokens", type=int)
     inspect.add_argument("--chunk-soft-max-tokens", type=int)
     inspect.add_argument("--parser-backend", choices=["tree_sitter", "fallback"])
-    inspect.add_argument("--max-record-tokens", type=int, default=1024)
-    inspect.add_argument("--max-record-bytes", type=int, default=16384)
+    inspect.add_argument("--max-record-tokens", type=int)
+    inspect.add_argument("--max-record-bytes", type=int)
     inspect.add_argument("--include-payload", action="store_true")
     inspect.add_argument("--output")
     inspect.set_defaults(func=_chunks)

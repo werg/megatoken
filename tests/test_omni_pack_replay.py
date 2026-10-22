@@ -13,7 +13,7 @@ from megatoken.generation.structure import ActionSpec
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import GROUP_TAPE_VERSION, GroupActionTape, MultiTrackGenerator
-from tests.media_support import FakeRealizer, install_fake_realizers
+from tests.media_support import FakeRealizer, install_fake_realizers, observe_text
 
 
 def _tape(pack: str):
@@ -78,8 +78,8 @@ def test_realizer_requires_pinned_checkpoint_identity():
 
 def test_tape_payload_is_a_digest_bound_to_the_realizer_and_output():
     model, service = _service()
-    state = service.tracks.observe_text_group(
-        service.tracks.initial_state(1), (b"draw a square",), tracks=("prompt",)
+    state = observe_text(
+        service.tracks, service.tracks.initial_state(1), (b"draw a square",), tracks=("prompt",)
     )
     spec = MediaOutputSpec("image", height=16, width=16)
     result = service.generate_group(

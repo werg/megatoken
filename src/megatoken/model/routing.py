@@ -23,20 +23,6 @@ class RowRoute:
     router_context: Tensor | None = None
     router_stage: int = 0
 
-    def prefix(self, rows: int) -> RowRoute:
-        if rows > self.expert_ids.shape[1]:
-            raise ValueError("Route program has too few compiled rows")
-        return RowRoute(
-            self.expert_ids[:, :rows],
-            self.confidence[:, :rows],
-            self.eligible,
-            self.palette_probabilities,
-            self.balance_loss,
-            self.stabilization_loss,
-            self.router_context,
-            self.router_stage,
-        )
-
 
 @dataclass(frozen=True)
 class RoutingProgram:
@@ -46,12 +32,11 @@ class RoutingProgram:
     stages: tuple[int, ...]
     routes: tuple[RowRoute, ...]
 
-    def at(self, stage: int, rows: int | None = None) -> RowRoute:
+    def at(self, stage: int) -> RowRoute:
         try:
-            route = self.routes[self.stages.index(stage)]
+            return self.routes[self.stages.index(stage)]
         except ValueError as exc:
             raise ValueError(f"Stage {stage} is outside the {self.epoch!r} routing epoch") from exc
-        return route if rows is None else route.prefix(rows)
 
     @property
     def balance_loss(self) -> Tensor:
@@ -60,10 +45,6 @@ class RoutingProgram:
     @property
     def stabilization_loss(self) -> Tensor:
         return torch.stack([route.stabilization_loss for route in self.routes]).mean()
-
-    @property
-    def aux_loss(self) -> Tensor:
-        return self.balance_loss * 0.005 + self.stabilization_loss * 1e-4
 
 
 class EpochRouter(nn.Module):
@@ -82,14 +63,12 @@ class EpochRouter(nn.Module):
         experts: int,
         max_eligible: int,
         *,
-        exploration: float = 0.0,
         version: int = 1,
     ) -> None:
         super().__init__()
         self.experts = experts
         self.router_dim = router_dim
         self.max_eligible = min(max_eligible, experts)
-        self.exploration = exploration
         self.version = version
         self.norm = RMSNorm(input_dim)
         self.context_projection = nn.Linear(input_dim, router_dim, bias=False)
@@ -117,9 +96,6 @@ class EpochRouter(nn.Module):
         rows: int,
         *,
         eligible_limit: int | None = None,
-        record_ids: Tensor | None = None,
-        exploration_seed: int = 0,
-        allow_exploration: bool = True,
     ) -> RowRoute:
         if context.ndim != 2 or rows < 1:
             raise ValueError("Routing requires context[batch,dim] and a positive row count")
@@ -128,18 +104,7 @@ class EpochRouter(nn.Module):
         descriptor = position_features(1, self.router_dim, feature.device, offset=stage)[0]
         feature = feature + descriptor
         palette_logits = F.linear(feature, self.palette_codes.float()) / math.sqrt(self.router_dim)
-        selection_logits = palette_logits
-        if self.training and self.exploration and allow_exploration:
-            if record_ids is None or record_ids.shape != context.shape[:1]:
-                raise ValueError("Training exploration requires stable per-episode record IDs")
-            # Bounded stateless exploration, identical for an episode in any batch.
-            identity = record_ids[:, None].double()
-            expert = torch.arange(self.experts, device=feature.device)[None].double()
-            perturbation = torch.sin(
-                identity * 12.9898 + expert * 78.233 + stage * 3.19 + exploration_seed
-            )
-            selection_logits = palette_logits + perturbation.float() * self.exploration
-        eligible = torch.argsort(selection_logits, dim=-1, descending=True, stable=True)[
+        eligible = torch.argsort(palette_logits, dim=-1, descending=True, stable=True)[
             :, :eligible_count
         ]
         palette_probability = palette_logits.softmax(-1)
@@ -187,38 +152,8 @@ class EpochRouter(nn.Module):
         rows: int,
         *,
         epoch: str,
-        record_ids: Tensor | None = None,
-        exploration_seed: int = 0,
-        allow_exploration: bool = True,
     ) -> RoutingProgram:
         if not stages or len(set(stages)) != len(stages):
             raise ValueError("A routing epoch needs distinct stages")
-        routes = tuple(
-            self.route(
-                context,
-                stage,
-                rows,
-                record_ids=record_ids,
-                exploration_seed=exploration_seed,
-                allow_exploration=allow_exploration,
-            )
-            for stage in stages
-        )
+        routes = tuple(self.route(context, stage, rows) for stage in stages)
         return RoutingProgram(epoch, self.version, context, stages, routes)
-
-
-def expert_gradient_statistics(bank: nn.Module) -> dict[str, Tensor]:
-    """Report task-gradient slices, not just parameter movement under AdamW."""
-    result: dict[str, Tensor] = {}
-    for name in ("gate_up", "down"):
-        parameter = getattr(bank, name)
-        grad = parameter.grad
-        result[f"{name}_gradient_norm"] = (
-            torch.zeros(parameter.shape[0], device=parameter.device)
-            if grad is None
-            else grad.detach().float().flatten(1).norm(dim=-1)
-        )
-    result["nonzero_gradient"] = (
-        result["gate_up_gradient_norm"] + result["down_gradient_norm"]
-    ) > 0
-    return result

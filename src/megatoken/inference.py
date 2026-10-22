@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any, TextIO
 
 import torch
-from jsonschema.exceptions import SchemaError, ValidationError
 from safetensors.torch import load_file, save_file
 
 from megatoken.contracts import ROLE_TO_ID
@@ -397,6 +396,19 @@ def _request_spec(
     )
 
 
+def _encode_response(response: dict[str, Any], request_id: Any) -> str:
+    """One response line; a result that cannot be strict JSON becomes an error line."""
+    try:
+        return json.dumps(response, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (ValueError, TypeError) as exc:
+        failure = {
+            "ok": False,
+            "id": request_id,
+            "error": {"type": type(exc).__name__, "message": f"response is not strict JSON: {exc}"},
+        }
+        return json.dumps(failure, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+
+
 def serve_jsonl(
     engine: InferenceEngine, input_stream: TextIO, output_stream: TextIO, *, max_sessions: int = 32
 ) -> None:
@@ -487,13 +499,12 @@ def serve_jsonl(
                 else:
                     raise ValueError(f"unknown protocol operation {operation!r}")
             response = {"ok": True, "id": request_id, **response}
-        except (ValueError, TypeError, KeyError, RuntimeError, SchemaError, ValidationError) as exc:
+        except Exception as exc:
+            # A malformed request must never end the serving loop.
             response = {
                 "ok": False,
                 "id": request_id,
                 "error": {"type": type(exc).__name__, "message": str(exc)},
             }
-        output_stream.write(
-            json.dumps(response, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n"
-        )
+        output_stream.write(_encode_response(response, request_id) + "\n")
         output_stream.flush()

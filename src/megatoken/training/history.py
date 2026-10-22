@@ -7,6 +7,7 @@ This index keeps them causal without feeding a scored target's own tape forward.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -125,6 +126,26 @@ class NativeHistory:
             frozenset(generated),
         )
 
+    @classmethod
+    def of(cls, episode: Episode, model: FacetedGenerator) -> NativeHistory:
+        """The validated history of ``episode`` under ``model``, built once per episode.
+
+        An episode yields many optimizer windows, each of which needs the same
+        index; parsing and validating every stored tape per window is wasted work.
+        The cache holds its episodes and models strongly (so an object ID cannot
+        be reused while an entry lives) and keeps only the most recent few.
+        """
+        key = (id(episode), id(model))
+        entry = _HISTORIES.get(key)
+        if entry is not None and entry[0] is episode and entry[1] is model:
+            _HISTORIES.move_to_end(key)
+            return entry[2]
+        history = cls.from_episode(episode, model)
+        _HISTORIES[key] = (episode, model, history)
+        while len(_HISTORIES) > _HISTORY_CACHE:
+            _HISTORIES.popitem(last=False)
+        return history
+
     @property
     def has_events(self) -> bool:
         return bool(self._events)
@@ -160,6 +181,12 @@ class NativeHistory:
         if not include_record and cursor in self._generated_records:
             return events[:-1]
         return events
+
+
+_HISTORY_CACHE = 16
+_HISTORIES: OrderedDict[tuple[int, int], tuple[Episode, FacetedGenerator, NativeHistory]] = (
+    OrderedDict()
+)
 
 
 def replay_raw_tape(

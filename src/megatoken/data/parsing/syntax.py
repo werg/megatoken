@@ -741,12 +741,12 @@ def scan_syntax(
     useful for locally trusted grammars and testing. Native progress callbacks are
     intentionally unused: the pinned Python binding has an unsafe callback path.
     """
-    if backend in {"fallback", "lexical", "builtin"}:
+    if backend == "fallback":
         return scan_generic(payload, language, limits)
     parser_name = f"tree_sitter:{language}"
     try:
         parser = get_parser(language)
-        timeout_ms = getattr(limits, "max_parse_milliseconds", 0)
+        timeout_ms = limits.max_parse_milliseconds
         if timeout_ms:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)

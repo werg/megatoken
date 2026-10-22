@@ -66,6 +66,15 @@ class FeatureSampler:
     def __bool__(self) -> bool:
         return bool(self.modalities)
 
+    def state_dict(self) -> dict[str, Any]:
+        """Everything the next draw depends on, for exact resume."""
+        return {"random": self.random.getstate(), "turn": self.turn}
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        version, internal, gauss = state["random"]
+        self.random.setstate((version, tuple(internal), gauss))
+        self.turn = int(state["turn"])
+
     def draw(self, count: int) -> list[FeatureItem]:
         items = []
         for _ in range(count):

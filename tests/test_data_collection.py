@@ -250,3 +250,25 @@ def test_families_must_be_frozen_before_generation(tmp_path):
         Collector(RepairTeacher(), FixtureEnvironment, codec, ledger, families)
     families.close()
     ledger.close()
+
+
+def test_run_pilot_skips_a_quarantined_seed_instead_of_aborting(tmp_path):
+    held_out, usable = seed("held-out"), seed("usable")
+    store = DedupStore(tmp_path / "families", DedupConfig(train_fraction=1, validation_fraction=0))
+    store.quarantine_benchmarks(family_keys=(held_out.family_id,))
+    with store.transaction():
+        for item in (held_out, usable):
+            store.register_family((item.family_id,))
+    store.freeze()
+    ledger = CollectionLedger(tmp_path / "usage", config())
+    teacher = RepairTeacher()
+    collector = Collector(teacher, FixtureEnvironment, ByteCodec.byte_fallback(), ledger, store)
+    with pytest.raises(ValueError, match="quarantined"):
+        collector.collect(held_out)
+    episodes = list(collector.run_pilot([held_out, usable]))
+    assert [item.supervision.verified_success for item in episodes] == [True]
+    meters = ledger.meters()
+    # The held-out task never became a task, an attempt, or a teacher request.
+    assert meters["distinct_tasks"] == 1 and meters["attempts"] == 1
+    ledger.close()
+    store.close()

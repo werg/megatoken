@@ -282,11 +282,33 @@ def test_legacy_episode_and_native_tape_versions_fail_explicitly():
     value = episode.to_dict()
     assert value["schema_version"] == 3
     value["schema_version"] = 1
-    with pytest.raises(ValueError, match="old records"):
+    with pytest.raises(ValueError, match="Unsupported episode schema version"):
         Episode.from_dict(value)
-    with pytest.raises(ValueError, match="incompatible legacy"):
+    with pytest.raises(ValueError, match="malformed tape"):
         Supervision(
             annotations_json=json.dumps(
                 {"native_action_tapes": [{"tape": {"version": "v1", "carry": [0.0]}}]}
             )
         )
+
+
+def test_policy_identity_is_computed_once_and_follows_the_registered_parsers(monkeypatch):
+    from megatoken.data.parsing import registry
+
+    codec = ByteCodec.byte_fallback()
+    config = ChunkingConfig(target_tokens=17)
+    calls = []
+    real = ChunkingConfig.parser_identity
+    monkeypatch.setattr(
+        ChunkingConfig, "parser_identity", lambda self: (calls.append(1), real(self))[1]
+    )
+    first = config.identity(codec)
+    computed = len(calls)
+    second = config.identity(codec)
+    assert computed and len(calls) == computed
+    assert first == second and first is not second
+    first["config"]["target_tokens"] = -1  # A caller's edits never reach the cache.
+    assert config.identity(codec) == second
+    monkeypatch.setattr(registry, "_providers", {})
+    registry.register_parser_provider("identity-test", "v1", ["identity_test"], lambda name: None)
+    assert config.identity(codec)["fingerprint"] != second["fingerprint"]

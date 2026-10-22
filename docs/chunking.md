@@ -204,9 +204,10 @@ and the [updated validation status](validation.md#pr-6-follow-up-integration--20
 
 CSV, TSV, and pipe-separated records now have an explicit
 [`delimited-records-v1` scanner](../src/megatoken/data/parsing/tabular.py)
-instead of relying on generic punctuation heuristics. It handles quoted fields,
+instead of relying on generic punctuation heuristics. It handles CSV quoted fields,
 escaped quotes, embedded LF/CR/CRLF, empty fields, and malformed records with
-bounded, source-exact row/field evidence. Row protection is soft: records larger
+bounded, source-exact row/field evidence. TSV and pipe-separated files have no
+quoting convention, so a quotation mark there is ordinary text. Row protection is soft: records larger
 than a physical chunk cap can still be subdivided, and canonical token IDs
 remain unchanged. This is a structural lexer, not a full CSV schema validator
 or dialect auto-detection engine; callers should supply `language`, a `.csv`,
@@ -349,8 +350,9 @@ limits:
 Use `--chunking-config path/to/policy.yaml` with inspection or preparation.
 Explicit `--chunk-target-tokens`, `--chunk-soft-max-tokens`, and
 `--parser-backend` options override their policy fields. The stage's
-`--max-record-tokens` and `--max-record-bytes` can shrink configured hard limits;
-they do not raise them. Validation requires `1 <= target <= soft <= hard`.
+`--max-record-tokens` and `--max-record-bytes` set the hard physical-record limits,
+lowering or raising the policy's own (the target and soft limits only ever move down
+to fit). Validation requires `1 <= target <= soft <= hard`.
 
 Applications use the same entry point as the CLI and adapters:
 

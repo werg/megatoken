@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .schema import Codec, Episode, encode_record
+from .schema import EncodedRecord, Episode
 
 
 class QualityReject(ValueError):
     pass
+
+
+class RowFilterReject(QualityReject):
+    """A source's own declared row filter excludes this row; selection, not an error."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,9 +39,10 @@ class QualityPolicy:
             raise ValueError("Repetition limit must be a fraction")
 
 
-def validate_quality(episode: Episode, codec: Codec, policy: QualityPolicy | None = None) -> None:
+def validate_quality(
+    episode: Episode, encoded: Sequence[EncodedRecord], policy: QualityPolicy | None = None
+) -> None:
     policy = policy or QualityPolicy()
-    encoded = tuple(encode_record(record, codec) for record in episode.records)
     tokens = sum(record.tokens for record in encoded)
     if not policy.min_tokens <= tokens <= policy.max_tokens:
         raise QualityReject(
@@ -94,4 +99,4 @@ def validate_row_filters(row: Mapping[str, Any], filters: list[dict[str, Any]]) 
         else:
             raise ValueError(f"Unsupported source filter operation: {operation}")
         if not accepted:
-            raise QualityReject(f"source_filter:{rule['path']}:{operation}")
+            raise RowFilterReject(f"source_filter:{rule['path']}:{operation}")

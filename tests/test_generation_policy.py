@@ -59,8 +59,29 @@ def assert_replay_density_close(actual, expected, latent_dimensions):
     )
 
 
+def action_map_parameters(model):
+    """E, C and R: everything between the observations and a realized action."""
+    core = model.core
+    return [
+        *core.encoder_parameters(),
+        *core.central_parameters(),
+        *model.decoder.parameters(),
+        *model.media_realizers.parameters(),
+        *model.embedding_realizer.parameters(),
+        *core.control_parameters(),
+        *core.realizer_parameters(),
+    ]
+
+
+def freeze_action_map(model):
+    """Leave only the predictor (and its Gaussian) trainable."""
+    for parameter in action_map_parameters(model):
+        parameter.requires_grad_(False)
+        parameter.grad = None
+
+
 def predictor_parameters(model):
-    excluded = {id(parameter) for parameter in model.deterministic_decoder_parameters()}
+    excluded = {id(parameter) for parameter in action_map_parameters(model)}
     return [parameter for parameter in model.core.parameters() if id(parameter) not in excluded]
 
 
@@ -214,7 +235,7 @@ def test_teacher_processes_clean_canonical_target_from_original_history(model):
 def test_full_facet_tape_roundtrip_density_and_integrity(model):
     state = model.core.initial_state(1)
     spec = ActionSpec(text_kind="ascii", min_tokens=3, max_tokens=7)
-    sampled = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(13), rl=True)
+    sampled = model.sample(state, spec=spec, generator=torch.Generator().manual_seed(13))
     restored = ActionTape.from_json(sampled.tape.to_json())
     assert restored == sampled.tape
     assert not hasattr(restored, "root") and not hasattr(restored, "regional")
@@ -237,10 +258,6 @@ def test_full_facet_tape_roundtrip_density_and_integrity(model):
     legacy["version"] = "fmt-augmented-policy-v1"
     with pytest.raises(ValueError, match="legacy"):
         ActionTape.from_json(json.dumps(legacy))
-    with pytest.raises(ValueError, match="sampling controls"):
-        model.sample(state, temperature=0.7)
-    with pytest.raises(ValueError, match="effort 6"):
-        model.sample(state, rl=True, effort=3)
 
 
 def test_invalid_materialization_still_advances_and_replays_raw_computation(model, monkeypatch):
@@ -309,10 +326,10 @@ def test_replay_reconstructs_state_and_candidate_density_depends_on_history(mode
 
 
 def test_freezing_preserves_entire_encoder_and_action_map_under_latent_update(model):
-    names = model.freeze_decoder_for_rl()
-    frozen_ids = {id(parameter) for parameter in model.deterministic_decoder_parameters()}
-    assert names and all(
-        not parameter.requires_grad for parameter in model.deterministic_decoder_parameters()
+    freeze_action_map(model)
+    frozen_ids = {id(parameter) for parameter in action_map_parameters(model)}
+    assert frozen_ids and all(
+        not parameter.requires_grad for parameter in action_map_parameters(model)
     )
     assert all(parameter.requires_grad for parameter in predictor_parameters(model))
     assert all(parameter.requires_grad for parameter in model.facet_distribution.parameters())
@@ -647,7 +664,7 @@ def test_structured_recurrent_counts_cover_live_and_encoder_only_contextual_deco
 def test_nonempty_control_bytes_roundtrip_and_train_only_the_served_control_path(model):
     from megatoken.controls import build_control_payload
 
-    model.freeze_decoder_for_rl()
+    freeze_action_map(model)
     state = model.core.initial_state(1)
     spec = ActionSpec(text_kind="ascii", min_tokens=3, max_tokens=3)
     payload = build_control_payload(
@@ -697,7 +714,6 @@ def test_fixed_facets_have_identical_decoder_output_under_different_causal_contr
     assert first.tape.trace == second.tape.trace
     assert torch.equal(first.state.facets, second.state.facets)
     assert not torch.allclose(first.log_prob, second.log_prob)
-    assert model.decode_mean(state, spec=spec, control_payload=b"condition").valid
     with pytest.raises(TypeError, match="control"):
         model.sample(state, spec=spec, control=torch.zeros(1, model.config.control_dim))
 
@@ -796,33 +812,77 @@ def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model)
     )
 
 
-def test_owner_groups_partition_every_parameter_exactly_once(model):
-    owners = model.parameter_owners()
-    assert set(owners) == {"E", "C", "P", "R"}
-    seen = {}
-    for owner, parameters in owners.items():
-        for parameter in parameters:
-            assert id(parameter) not in seen, (owner, seen[id(parameter)])
-            seen[id(parameter)] = owner
-    assert seen.keys() == {id(p) for p in model.parameters()}
-    owner_of = lambda p: seen[id(p)]  # noqa: E731
-    transducer = model.transducer
-    assert owner_of(transducer.bank.modulation) == "P"
-    assert owner_of(next(transducer.query_realizer.parameters())) == "P"
-    assert owner_of(transducer.readout.row_identifiers) == "E"
-    assert (
-        owner_of(
-            model.embedding_realizer.query.weight
-            if hasattr(model.embedding_realizer.query, "weight")
-            else next(model.embedding_realizer.query.parameters())
-        )
-        == "R"
-    )
-
-
-def test_rl_freeze_leaves_p_side_retrieval_trainable(model):
-    model.freeze_decoder_for_rl()
-    # Latent RL adapts how P queries the transducer; the knowledge readout stays pinned.
+def test_freezing_the_action_map_leaves_p_side_retrieval_trainable(model):
+    freeze_action_map(model)
     assert model.transducer.query_realizer.query.weight.requires_grad
     assert model.transducer.bank.modulation.requires_grad
-    assert not model.transducer.readout.row_identifiers.requires_grad
+
+
+def _record_workspaces(model, monkeypatch):
+    sizes: list[int] = []
+    original = model.decoder.realizer.forward
+
+    def record(core, context, capacity, conditioning):
+        sizes.append(capacity)
+        return original(core, context, capacity, conditioning)
+
+    monkeypatch.setattr(model.decoder.realizer, "forward", record)
+    return sizes
+
+
+def test_training_and_serving_realize_at_the_same_workspace_size(model, monkeypatch):
+    sizes = _record_workspaces(model, monkeypatch)
+    for length in (1, 3, 4, 5, 16, 17, 33):
+        target = bytes([65 + length % 20]) * length
+        sizes.clear()
+        model.supervised_step(
+            model.core.initial_state(1), plan=model.prepare_target(target_bytes=target)
+        )
+        trained = sizes[:]
+        sizes.clear()
+        served = model.sample(
+            model.core.initial_state(1), spec=ActionSpec(min_tokens=length, max_tokens=length)
+        )
+        assert len(served.emitted_ids) == length
+        assert len(set(trained)) == 1 and set(trained) == set(sizes)
+
+
+def test_each_example_in_a_batch_keeps_its_own_workspace_size(model, monkeypatch):
+    sizes = _record_workspaces(model, monkeypatch)
+    plan = model.prepare_target(target_bytes=[b"abc", b"x" * 20, b"de"])
+    assert plan.capacities == (4, 32, 2)
+    model.supervised_step(model.core.initial_state(3), plan=plan)
+    assert sorted(set(sizes)) == [2, 4, 32]
+    # A row's loss does not depend on the other rows' lengths.
+    state = model.core.initial_state(3)
+    together = model.supervised_step(state, plan=plan, generator=torch.Generator().manual_seed(1))
+    alone = model.supervised_step(
+        model.core.initial_state(1),
+        plan=model.prepare_target(target_bytes=b"abc"),
+        generator=torch.Generator().manual_seed(1),
+    )
+    assert plan.denominators["lexical"] == 25
+    assert alone.losses["lexical"][1] == 3 and together.losses["lexical"][1] == 25
+
+
+def test_a_typed_action_is_sized_by_its_values_not_its_wire_syntax(model):
+    schema = SchemaSpec(
+        "call",
+        (
+            FieldSpec("name", kind="json", fixed_json='"edit_the_file"'),
+            FieldSpec("path", kind="ascii", min_tokens=1, max_tokens=8),
+        ),
+    )
+    spec = ActionSpec(allow_text=False, schemas=(schema,), max_tokens=128, require_terminal=True)
+    plan = model.prepare_action_target(b'{"name":"edit_the_file","path":"ab"}', spec=spec)
+    values = len(b'"edit_the_file"') + len(b"ab")
+    wire = len(plan.payload)
+    assert wire > 32 >= values  # the wire syntax alone crosses a power of two the values do not
+    assert plan.capacity == 32
+    decoded = model.decoder(
+        model.core,
+        torch.randn(1, model.config.n_facets, model.config.facet_dim),
+        spec,
+        teacher=plan,
+    )
+    assert decoded.capacity == plan.capacity

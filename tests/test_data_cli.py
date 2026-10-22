@@ -41,7 +41,6 @@ def test_cli_demo_prepare_and_idempotent_resume(tmp_path):
     ]
     prepared = invoke(command)
     assert prepared["census"]["accepted_episodes"] == 4
-    assert prepared["census"]["D"] == prepared["census"]["P"] == 0
     assert prepared["fingerprint"] == invoke(command)["fingerprint"]
     with PreparedDataset(tmp_path / "ready", split=None) as dataset:
         assert len(dataset) == 4

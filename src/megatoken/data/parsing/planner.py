@@ -38,7 +38,6 @@ BOUNDARY_COST = {
     "string": 0.30,
     "line": 0.70,
     "word": 1.20,
-    "whitespace": 1.20,
     "heading": 3.0,
     "grapheme": 2.5,
     "token": 8.0,
@@ -47,7 +46,6 @@ _CONTAINERS = frozenset(
     {
         "function",
         "definition",
-        "class",
         "section",
         "code_block",
         "element",
@@ -59,7 +57,7 @@ _CONTAINERS = frozenset(
         "comment",
     }
 )
-_ATTACHMENTS = frozenset({"heading_attachment", "signature_attachment", "attachment"})
+_ATTACHMENTS = frozenset({"heading_attachment", "signature_attachment"})
 _PROSE = frozenset({"prose", "text", "markdown", "html", "xml", "rst", "org", "asciidoc"})
 
 
@@ -608,7 +606,7 @@ def plan_chunks(index: TokenIndex, parsed: ParseResult, config: ChunkingConfig) 
     # signature/heading could be borrowed by the previous body to fill space.
     # Smaller containers can still be packed together, but only whole.
     for region in parsed.regions:
-        if region.kind not in {"function", "definition", "class", "section"}:
+        if region.kind not in {"function", "definition", "section"}:
             continue
         if index.count(region.start, region.end) <= config.soft_max_tokens:
             continue

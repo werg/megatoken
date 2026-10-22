@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 
-from megatoken.environments import Environment, EnvironmentResult
+from megatoken.environments import Environment, EnvironmentResult, open_url
 from megatoken.io import atomic_binary_writer, content_hash, write_json
 
 from .chunking import ChunkingConfig
@@ -48,6 +48,10 @@ _PILOT = load_recipes()["collection_pilot"]
 
 class CollectionLimit(RuntimeError):
     """The predeclared collection/task/attempt budget has no available capacity."""
+
+
+class QuarantinedSeed(ValueError):
+    """The seed's family is held out as benchmark data; the teacher never sees it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +216,6 @@ class OpenAICompatibleTeacher:
         *,
         token_env: str | None = None,
         timeout: float = 60.0,
-        include_reasoning: bool = False,
     ):
         parsed = urllib.parse.urlparse(endpoint)
         if (
@@ -225,7 +228,7 @@ class OpenAICompatibleTeacher:
         if parsed.scheme == "http" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
             raise ValueError("Remote teacher endpoints require HTTPS")
         self.endpoint, self.model, self.codec = endpoint, model, codec
-        self.token_env, self.timeout, self.include_reasoning = token_env, timeout, include_reasoning
+        self.token_env, self.timeout = token_env, timeout
 
     def respond(self, request: TeacherRequest) -> TeacherResponse:
         if request.codec_fingerprint != self.codec.fingerprint:
@@ -255,7 +258,7 @@ class OpenAICompatibleTeacher:
         call = urllib.request.Request(
             self.endpoint, data=canonical_json(payload).encode(), headers=headers, method="POST"
         )
-        with urllib.request.urlopen(call, timeout=self.timeout) as result:
+        with open_url(call, timeout=self.timeout) as result:
             raw = result.read((32 << 20) + 1)
         if len(raw) > 32 << 20:
             raise ValueError("Teacher response exceeds the explicit 32-MiB transport limit")
@@ -381,7 +384,7 @@ class CollectionLedger:
         self, seed: TaskSeed, *, split: str, student_snapshot: str | None = None
     ) -> str:
         if split == "quarantine":
-            raise ValueError("Benchmark-quarantined tasks cannot enter teacher collection")
+            raise QuarantinedSeed("Benchmark-quarantined tasks cannot enter teacher collection")
         self._begin()
         try:
             task = self.connection.execute(
@@ -1052,7 +1055,7 @@ class Collector:
                         student_snapshot=student_snapshot,
                         student_prefix_steps=student_prefix_steps,
                     )
-                except CollectionLimit:
+                except (QuarantinedSeed, CollectionLimit):
                     break
                 yield episode
                 if episode.supervision.verified_success:

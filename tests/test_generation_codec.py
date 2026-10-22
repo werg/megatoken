@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from megatoken.generation.codec import ByteCodec, ByteFallbackCodec, _byte_alphabet
+from megatoken.generation.codec import ByteCodec, _byte_alphabet
 
 
 @pytest.mark.parametrize(
@@ -17,9 +17,8 @@ from megatoken.generation.codec import ByteCodec, ByteFallbackCodec, _byte_alpha
     ],
 )
 def test_byte_codec_round_trip(raw):
-    codec = ByteFallbackCodec()
+    codec = ByteCodec.byte_fallback()
     assert codec.decode(codec.encode(raw)) == raw
-    assert codec.fingerprint == ByteCodec.byte_fallback().fingerprint
 
 
 def test_noncanonical_ids_are_not_retokenized():
@@ -137,3 +136,13 @@ def test_invalid_codecs_and_masks_fail_closed():
     assert ord("\n") in codec.allowed_ids("ascii")
     assert ord(" ") not in codec.allowed_ids("identifier")
     assert codec.decode(codec.allowed_ids("identifier"))
+
+
+def test_a_tokenizer_codec_requires_the_fast_tokenizer_library(tmp_path, monkeypatch):
+    import sys
+
+    path = tmp_path / "tokenizer.json"
+    path.write_text(json.dumps(tokenizer_document()))
+    monkeypatch.setitem(sys.modules, "tokenizers", None)  # an unimportable library
+    with pytest.raises(ImportError):
+        ByteCodec.from_tokenizer_json(path, expected_vocab_size=260)

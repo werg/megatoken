@@ -21,12 +21,12 @@ a SHA256 for every file (``megatoken.omni.loader.read_locked_manifest``).
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import shutil
 from pathlib import Path
 
+from megatoken.io import fsync_directory, sha256_file, write_json
 from megatoken.omni.loader import read_locked_manifest, snapshot_files
 
 PATTERNS = {
@@ -40,14 +40,6 @@ PATTERNS = {
     "sana_video": {"ignore_patterns": ["text_encoder/*", "tokenizer/*"]},
     "embeddinggemma2": {},
 }
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(8 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def pocket_config(snapshot: Path) -> Path:
@@ -66,12 +58,19 @@ def pocket_config(snapshot: Path) -> Path:
 
 
 def acquire(root: Path, inventory: dict, *, token: str | None = None) -> dict:
+    """Fetch each pack into a temporary directory, rename it into place, then lock it.
+
+    An interrupted run leaves either a temporary directory (removed on the next run) or a
+    finished snapshot the lock does not list yet (replaced on the next run); a rerun never
+    needs hand cleanup. Every pack is locked as soon as it is in place.
+    """
     from huggingface_hub import HfApi, snapshot_download
 
     if not inventory or set(inventory) - PATTERNS.keys():
         raise ValueError(f"Packs are {sorted(PATTERNS)}")
     root.mkdir(parents=True, exist_ok=True)
-    packs = {}
+    lock = root / "lock.json"
+    packs = json.loads(lock.read_text())["packs"] if lock.exists() else {}
     for name, item in sorted(inventory.items()):
         repository, revision = item["repository"], item["revision"]
         if not re.fullmatch(r"[0-9a-f]{40}", revision):
@@ -79,32 +78,33 @@ def acquire(root: Path, inventory: dict, *, token: str | None = None) -> dict:
         if HfApi(token=token).model_info(repository, revision=revision).sha != revision:
             raise ValueError(f"The Hub resolved another commit for {repository}")
         snapshot = root / name
-        if snapshot.exists():
+        if snapshot.exists() and name in packs:
             raise FileExistsError(f"Packs are immutable; remove {snapshot} first")
+        partial = root / f".{name}.partial"
+        for leftover in (partial, snapshot):  # an unlocked snapshot is an interrupted run's
+            shutil.rmtree(leftover, ignore_errors=True)
         snapshot_download(
             repo_id=repository,
             revision=revision,
-            local_dir=str(snapshot),
+            local_dir=str(partial),
             token=token,
             **PATTERNS[name],
         )
-        shutil.rmtree(snapshot / ".cache", ignore_errors=True)
+        shutil.rmtree(partial / ".cache", ignore_errors=True)
         entry = {"repository": repository, "revision": revision, "snapshot": name}
         if name == "pocket":
-            entry["config"] = pocket_config(snapshot).relative_to(root).as_posix()
+            entry["config"] = f"{name}/{pocket_config(partial).relative_to(partial).as_posix()}"
         entry["files"] = {
-            path.relative_to(root).as_posix(): _sha256(path)
-            for path in snapshot_files(snapshot)
+            f"{name}/{path.relative_to(partial).as_posix()}": sha256_file(path)
+            for path in snapshot_files(partial)
             if path.is_file()
         }
+        partial.rename(snapshot)
+        fsync_directory(root)
         packs[name] = entry
-    lock = root / "lock.json"
-    previous = json.loads(lock.read_text())["packs"] if lock.exists() else {}
-    lock.write_text(
-        json.dumps({"version": 1, "packs": {**previous, **packs}}, indent=2, sort_keys=True) + "\n"
-    )
+        write_json(lock, {"version": 1, "packs": packs})
     read_locked_manifest(str(lock))
-    return {"lock": str(lock), "packs": sorted({**previous, **packs})}
+    return {"lock": str(lock), "packs": sorted(packs)}
 
 
 def main() -> None:

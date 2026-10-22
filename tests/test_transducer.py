@@ -7,6 +7,7 @@ import types
 
 import pytest
 import torch
+from media_support import observe_text
 
 from megatoken.contracts import ROLE_TO_ID
 from megatoken.generation.codec import ByteCodec
@@ -186,7 +187,7 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
 
     def raw(index):
         state = multi.tracks.initial_state(1)
-        return multi.tracks.observe_text_group(state, [payloads[index]], tracks=("x",)).raw
+        return observe_text(multi.tracks, state, [payloads[index]], tracks=("x",)).raw
 
     for step in (1, 2):
         sequence = trainer.sequence(meridians, step=step, generator=torch.Generator())
@@ -194,9 +195,7 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
         state = sequence.begin(multi, multi.tracks.initial_state(1), metadata_payload({}))
         for index, meridian in enumerate(meridians):
             state = sequence.before_meridian(multi, state, index)
-            state = multi.tracks.observe_text_group(
-                state, [payloads[index]], tracks=meridian.tracks
-            )
+            state = observe_text(multi.tracks, state, [payloads[index]], tracks=meridian.tracks)
         # A loss that hindsight lowers: gradient -h on every lookup's value.
         loss = state.final.sum() * 0
         for record in trainer.records:
@@ -312,7 +311,7 @@ def test_coordinator_host_persists_and_publishes(tmp_path):
     assert again.version() == 1 and again.bank.edge_count == host.bank.edge_count
 
 
-def test_serving_session_cancels_cleanly_and_restores():
+def test_serving_session_cancels_cleanly():
     from megatoken.transducer_service import TransducerInferenceEngine
 
     model = tiny_model()
@@ -330,9 +329,6 @@ def test_serving_session_cancels_cleanly_and_restores():
     assert int(session.state.meridians_seen[0]) == int(before[0][0]) + 8
     lookup = engine.observe(session, result)
     assert lookup is not None and session.agenda.lookups == 2
-    restored = engine.restore_session(engine.state_snapshot(session))
-    torch.testing.assert_close(restored.agenda.state, session.agenda.state)
-    assert restored.scheduler.lookups == 2
 
 
 def test_write_outs_are_sent_once_and_learner_checkpoints_reload():
@@ -530,3 +526,149 @@ def test_learned_values_switch_reaches_the_learner_through_changes_and_snapshots
     install_published(trainer, TransducerSync(), "snapshot", upload)
     assert snapshot_bank.learned_values
     assert float(snapshot_gro.evidence.sketch_count.sum()) == 0.0
+
+
+def _learned_canonical(edges=3):
+    """A canonical bank already in the learned-values phase, with its coordinator."""
+    canonical = TransducerBank(GEOMETRY)
+    add_random(canonical, edges)
+    growth = TransducerGrowth(canonical)
+    canonical.switch_to_learned()
+    growth.switch_to_learned()
+    return canonical, growth, TransducerCoordinator(canonical, growth)
+
+
+def _value_round(canonical, *, worker=0, sequence=1, step=1):
+    bank, opt, gro = learner(canonical, worker)
+    bank.learned_values = False  # the learner crosses the switch as install_changes does
+    opt.switch_to_learned()
+    gro.switch_to_learned()
+    give_gradient(bank, 1, "value", torch.randn(GEOMETRY.value_dim))
+    opt.step(step)
+    return learner_round(
+        opt, gro, worker=worker, sequence=sequence, base_version=0, examples=1, step=step
+    )
+
+
+def test_value_deltas_travel_packed_and_merge_exactly_as_decoded():
+    from megatoken.memory.transducer_packing import pack_fp4, row_seeds
+    from megatoken.training.transducer_diloco import COORDINATOR_WORKER
+
+    torch.manual_seed(0)
+    canonical, _, coordinator = _learned_canonical()
+    submission = _value_round(canonical, step=5)
+    assert "value" not in submission.deltas and submission.value_delta["ids"].tolist() == [1]
+    dense = GEOMETRY.value_dim * 4  # bytes of one FP32 value row
+    packed = sum(t.numel() * t.element_size() for t in submission.value_delta.values())
+    assert packed * 4 <= dense + 8  # at least 4x smaller than the dense FP32 row
+    # The merge is exactly the decoded rows that were sent, added to the current row.
+    sent_ids, sent = submission.decoded_deltas(GEOMETRY.value_dim)["value"]
+    current = canonical.decode("value", sent_ids)
+    seeds = row_seeds(sent_ids, "value", 5, COORDINATOR_WORKER)
+    expected = pack_fp4(current + sent, seeds).decode(GEOMETRY.value_dim)
+    assert coordinator.submit(submission)
+    coordinator.merge()
+    torch.testing.assert_close(canonical.decode("value", sent_ids), expected, rtol=0, atol=0)
+    # The wire format round-trips through the torch archive the transport uses.
+    buffer = io.BytesIO()
+    torch.save(submission.state_dict(), buffer)
+    buffer.seek(0)
+    again = type(submission).from_state(torch.load(buffer, weights_only=True))
+    torch.testing.assert_close(
+        again.decoded_deltas(GEOMETRY.value_dim)["value"][1], sent, rtol=0, atol=0
+    )
+
+
+def test_a_round_that_cannot_stage_is_consumed_instead_of_wedging_every_merge():
+    torch.manual_seed(0)
+    canonical = TransducerBank(GEOMETRY)
+    add_random(canonical, 3)
+    host_growth = TransducerGrowth(canonical)
+    coordinator = TransducerCoordinator(canonical, host_growth)
+    # Built in the learned phase, queued, then the bank is still in the written phase at
+    # merge time: its value deltas cannot merge as means.
+    learned, _, _ = _learned_canonical()
+    bad = _value_round(learned, worker=0, sequence=1)
+    assert coordinator.submit(bad)
+    with pytest.raises(ValueError, match="Written-phase values"):
+        coordinator.merge()
+    assert not coordinator.pending and coordinator.ledger == {0: 1}
+    assert coordinator.version == 0  # nothing was applied
+    # The next round merges.
+    bank, opt, gro = learner(canonical, 1)
+    give_gradient(bank, 1, "bias", torch.tensor(1.0))
+    opt.step(1)
+    good = learner_round(opt, gro, worker=1, sequence=1, base_version=0, examples=1, step=1)
+    assert coordinator.submit(good)
+    assert coordinator.merge()["submitted"] == 1 and coordinator.version == 1
+
+
+def test_a_failed_staging_is_counted_as_a_skipped_merge(tmp_path):
+    settings = {"geometry": dict(vars(GEOMETRY)), "evidence_from": 0}
+    host = TransducerHost(tmp_path, settings, workers=1, min_quorum=1, grace_seconds=0)
+    add_random(host.bank, 3)
+    learned, _, _ = _learned_canonical()
+    host.coordinator.pending.append(_value_round(learned))
+    assert host.merge_or_skip() is False
+    assert host.skipped_merges == 1 and not host.coordinator.pending
+
+
+def test_malformed_packed_rows_are_refused_at_submission():
+    canonical, _, coordinator = _learned_canonical()
+    submission = _value_round(canonical)
+    submission.value_delta["codes"] = submission.value_delta["codes"][:, :-1]
+    with pytest.raises(ValueError, match="packed value delta"):
+        coordinator.submit(submission)
+    canonical = TransducerBank(GEOMETRY)
+    add_random(canonical, 3)
+    coordinator = TransducerCoordinator(canonical, TransducerGrowth(canonical))
+    bank, opt, gro = learner(canonical, 0)
+    opt.add_write(torch.tensor([2]), torch.tensor([1.0]), torch.randn(GEOMETRY.value_dim))
+    opt.step(1)
+    writes = learner_round(opt, gro, worker=0, sequence=1, base_version=0, examples=1, step=1)
+    writes.write_means["value_groups"] = writes.write_means["value_groups"][:, :-1]
+    with pytest.raises(ValueError, match="hindsight writes"):
+        coordinator.submit(writes)
+
+
+def test_the_coordinator_clock_follows_the_learners_not_the_merge_count():
+    canonical = TransducerBank(GEOMETRY)
+    add_random(canonical, 3)
+    coordinator = TransducerCoordinator(canonical, TransducerGrowth(canonical))
+    for worker in range(2):  # two workers, each round merged alone (partial quorum)
+        bank, opt, gro = learner(canonical, worker)
+        give_gradient(bank, 1, "bias", torch.tensor(1.0))
+        opt.step(LOCAL_STEPS)
+        submission = learner_round(
+            opt, gro, worker=worker, sequence=1, base_version=0, examples=1, step=LOCAL_STEPS
+        )
+        assert coordinator.submit(submission)
+        coordinator.merge()
+    # Two merges of 32-step rounds: the clock is the learners' 32, not 2 x 32.
+    assert coordinator.version == 2 and coordinator.step == LOCAL_STEPS
+    bank, opt, gro = learner(canonical, 0)
+    give_gradient(bank, 1, "bias", torch.tensor(1.0))
+    opt.step(1)
+    late = learner_round(opt, gro, worker=0, sequence=2, base_version=2, examples=1, step=7)
+    coordinator.submit(late)
+    coordinator.merge()
+    assert coordinator.step == LOCAL_STEPS  # never backwards
+    # The clock survives a checkpoint.
+    restored = TransducerCoordinator(canonical, TransducerGrowth(canonical))
+    restored.load_state_dict(coordinator.state_dict())
+    assert restored.step == LOCAL_STEPS and restored.version == 3
+
+
+def test_a_seeded_coordinator_restamps_rows_to_its_own_clock(tmp_path):
+    settings = {"geometry": dict(vars(GEOMETRY)), "evidence_from": 0}
+    first = TransducerHost(tmp_path / "one", settings, workers=1, min_quorum=1, grace_seconds=0)
+    add_random(first.bank, 4, step=640)
+    first.bank.table.last_write[:] = 700
+    first.growth.evidence.rows([1, 2], 900)
+    exported = torch.load(io.BytesIO(_pack(first.checkpoint_state())), weights_only=True)
+    second = TransducerHost(tmp_path / "two", settings, workers=1, min_quorum=1, grace_seconds=0)
+    second.seed(exported)
+    table = second.bank.table
+    slots = table.slots(second.bank.edge_ids().tolist())
+    assert table.birth[slots].tolist() == [0] * 4 and table.last_write[slots].tolist() == [0] * 4
+    assert int(second.growth.evidence.last_step.max()) == 0

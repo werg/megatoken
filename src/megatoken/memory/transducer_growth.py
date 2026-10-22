@@ -314,11 +314,7 @@ class TransducerGrowth:
 
     def _split(self, ids: list[int], step: int) -> int:
         bank = self.bank
-        room = min(
-            bank.geometry.max_edges - bank.edge_count,
-            (bank.geometry.byte_budget - bank.packed_bytes) // bank.geometry.row_bytes,
-        )
-        ids = ids[: max(0, room)]
+        ids = ids[: bank.edge_room]
         if not ids:
             return 0
         slots = bank.table.slots(ids)

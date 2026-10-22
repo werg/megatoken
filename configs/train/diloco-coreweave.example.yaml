@@ -46,8 +46,6 @@ decoupled:
   coordinator_url: https://REPLACE-WITH-COORDINATOR-HOST
   workers: 8
   local_steps: 256
-  poll_steps: 4
-  heartbeat_steps: 8
   io_workers: 4
   timeout_seconds: 120
   max_offline_steps: 2048

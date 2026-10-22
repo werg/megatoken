@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import secrets
+import signal
 import sys
 import tempfile
 import time
@@ -46,6 +47,8 @@ EXPORT = "out/export"
 RUN_CONFIG = f"{cloud.WORK}/run/train.json"
 URL_FILE = "run/coordinator-url"  # an input: the URL exists only once the coordinator does
 RUNS = cloud.STATE / "diloco"
+# The coordinator outlives its learners, so it can still export when the last one ends.
+COORDINATOR_EXTRA_HOURS = 2
 
 
 def validate(spec: dict[str, Any]) -> dict[str, Any]:
@@ -56,6 +59,11 @@ def validate(spec: dict[str, Any]) -> dict[str, Any]:
             raise cloud.CloudError(f"Run lacks {key!r}")
     if type(spec["workers"]) is not int or not 1 <= spec["workers"] <= 64:
         raise cloud.CloudError("workers must be in [1, 64]")
+    if not 0 < float(spec["lifetime_hours"]) <= 720 - COORDINATOR_EXTRA_HOURS:
+        raise cloud.CloudError(
+            f"lifetime_hours must be in (0, {720 - COORDINATOR_EXTRA_HOURS}]: "
+            f"the coordinator lives {COORDINATOR_EXTRA_HOURS} h longer than the learners"
+        )
     if set(spec["data"]) not in ({"peer", "prefixes"}, {"inputs"}):
         raise cloud.CloudError("data is {peer, prefixes} or {inputs}")
     if not spec.get("learners", {}).get("resources", {}).get("gpu"):
@@ -105,7 +113,7 @@ def coordinator_job(spec: dict[str, Any], inputs: list[dict[str, Any]]) -> dict[
         "id": f"{spec['id']}-coordinator",
         "image": spec["image"],
         "resources": spec.get("coordinator", {}).get("resources", {"cpu": "8", "memory": "32Gi"}),
-        "lifetime_hours": spec["lifetime_hours"],
+        "lifetime_hours": float(spec["lifetime_hours"]) + COORDINATOR_EXTRA_HOURS,
         "pip": spec.get("pip", []),
         "inputs": inputs,
         "serve_port": PORT,
@@ -200,6 +208,10 @@ def launch(path: Path, repo: Path, *, ready_timeout: float = 3 * 3600) -> dict[s
                     _status(entry["url"], token, gateway)
                     break
                 except OSError as error:
+                    if _exited(entry["sandbox_id"]):
+                        raise cloud.CloudError(
+                            f"Coordinator exited before it became ready (see its log): {error}"
+                        ) from error
                     if time.time() > deadline:
                         raise cloud.CloudError(
                             f"Coordinator never became ready: {error}"
@@ -218,13 +230,28 @@ def launch(path: Path, repo: Path, *, ready_timeout: float = 3 * 3600) -> dict[s
                 _save(run)
         except BaseException:
             # A partial phase must not bill: stop every sandbox this launch started.
-            for sandbox_id in started:
-                cloud._attach(sandbox_id).stop(missing_ok=True).result()
-                cloud.record({"event": "stop", "sandbox_id": sandbox_id, "reason": "launch failed"})
+            _stop_all(started, "launch failed")
             _run_path(spec["id"]).unlink(missing_ok=True)
             raise
     cloud.record({"event": "diloco_launched", **{k: v for k, v in run.items() if k != "url"}})
     return run
+
+
+def _stop_all(sandbox_ids: list[str], reason: str, *, grace: float | None = None) -> list[str]:
+    """Stop every sandbox, each on its own: one that fails to stop must not leave the rest
+    billing. Returns the ones that could not be stopped (also printed and recorded)."""
+    failed = []
+    for sandbox_id in sandbox_ids:
+        try:
+            options = {} if grace is None else {"graceful_shutdown_seconds": grace}
+            cloud._attach(sandbox_id).stop(missing_ok=True, **options).result()
+            cloud.record({"event": "stop", "sandbox_id": sandbox_id, "reason": reason})
+        except Exception as error:
+            failed.append(sandbox_id)
+            message = f"{type(error).__name__}: {error}"[:400]
+            cloud.record({"event": "stop_failed", "sandbox_id": sandbox_id, "error": message})
+            print(f"COULD NOT STOP {sandbox_id} (still billing): {message}", file=sys.stderr)
+    return failed
 
 
 def _save(run: dict[str, Any]) -> None:
@@ -259,17 +286,16 @@ def finish(run_id: str, destination: Path, *, poll: float = 300) -> dict[str, An
     failed = [entry["sandbox_id"] for entry in learners if entry["status"] != 0]
     if failed:
         # No export of a phase whose learners failed; their logs are collected.
-        for sandbox_id in (run["coordinator"], *run["learners"]):
-            cloud._attach(sandbox_id).stop(graceful_shutdown_seconds=60, missing_ok=True).result()
+        _stop_all([run["coordinator"], *run["learners"]], "learners failed", grace=60)
         cloud.record({"event": "diloco_failed", "run": run_id, "learners": failed})
         raise cloud.CloudError(f"Learners failed (logs under {destination}): {failed}")
     cloud._attach(run["coordinator"]).write_file(f"{cloud.WORK}/.cloud/finish", b"").result()
     exported = cloud.collect(run["coordinator"], destination / "coordinator")
-    for sandbox_id in (run["coordinator"], *run["learners"]):
-        cloud._attach(sandbox_id).stop(graceful_shutdown_seconds=60, missing_ok=True).result()
-    result = {"run": run_id, "coordinator": exported, "learners": learners}
+    unstopped = _stop_all([run["coordinator"], *run["learners"]], "finished", grace=60)
     cloud.record({"event": "diloco_finished", "run": run_id})
-    return result
+    if unstopped:
+        raise cloud.CloudError(f"Collected, but these sandboxes would not stop: {unstopped}")
+    return {"run": run_id, "coordinator": exported, "learners": learners}
 
 
 def derive(config: Path, url: str, workers: int, output: Path) -> None:
@@ -307,6 +333,9 @@ def main(argv: list[str] | None = None) -> int:
         derive(args.config, args.url, args.workers, args.output)
         return 0
     cloud.load_credentials()
+    # A terminated launcher must still stop the sandboxes it started (launch's
+    # BaseException handler), not leave them billing.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     if args.command == "launch":
         result: Any = launch(args.run, args.repo)
     elif args.command == "finish":

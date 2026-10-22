@@ -31,17 +31,17 @@ LIMITS = ParseLimits(isolate_native=False)
             "tsv",
             b'first\tsecond\rlast\t"two\tcolumns"\r',
             [b"first\tsecond\r", b'last\t"two\tcolumns"\r'],
-            [b"first", b"second", b"last", b'"two\tcolumns"'],
+            [b"first", b"second", b"last", b'"two', b'columns"'],
         ),
         (
             "psv",
             b'left|right\n"a|b"|value\n',
             [b"left|right\n", b'"a|b"|value\n'],
-            [b"left", b"right", b'"a|b"', b"value"],
+            [b"left", b"right", b'"a', b'b"', b"value"],
         ),
     ],
 )
-def test_record_scanner_is_byte_exact_and_respects_quoted_line_endings(
+def test_record_scanner_is_byte_exact_and_only_csv_quotes_line_endings(
     language, source, rows, fields
 ):
     scan = scan_delimited(source, language, LIMITS)
@@ -66,8 +66,9 @@ def test_delimited_records_are_routed_without_native_grammar(language):
         assert language in parsed.languages
         assert f"delimited-records-v1:{language}" in parsed.parsers
         rows = [r for r in parsed.regions if r.kind == "row"]
-        assert len(rows) == 2
-        assert payload[rows[0].start : rows[0].end].endswith(b"\r\n")
+        # Only CSV quotes a field, so only there is the embedded newline not a row end.
+        assert len(rows) == (2 if language == "csv" else 3)
+        assert payload[rows[-2].start : rows[-2].end].endswith(b"\r\n")
         assert not any(d.code == "grammar_unavailable" for d in parsed.diagnostics)
 
 
@@ -154,3 +155,15 @@ def test_large_single_record_uses_field_budget_not_byte_budget():
     assert [payload[row.start : row.end] for row in scan.result.regions if row.kind == "row"] == [
         payload
     ]
+
+
+@pytest.mark.parametrize("language", ["tsv", "psv"])
+def test_a_leading_quotation_mark_is_ordinary_text_in_tsv_and_psv(language):
+    delimiter = {"tsv": b"\t", "psv": b"|"}[language]
+    payload = b'"quoted"' + delimiter + b'9" pipe\n' + b"second" + delimiter + b"row\n"
+    scan = scan_delimited(payload, language, LIMITS)
+    assert [payload[r.start : r.end] for r in scan.result.regions if r.kind == "row"] == [
+        b'"quoted"' + delimiter + b'9" pipe\n',
+        b"second" + delimiter + b"row\n",
+    ]
+    assert not scan.result.diagnostics

@@ -445,3 +445,39 @@ def test_invalid_mixture_closes_opened_readers_and_rejects_invalid_meters(prepar
             rank=0,
             world_size=1,
         )
+
+
+def test_a_block_encodes_its_episode_once_and_yields_exactly_the_planned_windows(
+    prepared, monkeypatch
+):
+    from megatoken.data import iter_windows
+    from megatoken.training import stream as stream_module
+
+    codec = ByteCodec.byte_fallback()
+    passes = []
+
+    def counting(episode, codec_, config):
+        passes.append(episode.episode_id)
+        return iter_windows(episode, codec_, config)
+
+    monkeypatch.setattr(stream_module, "iter_windows", counting)
+    stream = WindowStream(PreparedCorpus([prepared], stream="alpha"), codec, WINDOWS, seed=0)
+    try:
+        seen = []
+        for _ in range(6):  # all three episodes: 1 + 3 + 2 windows
+            item = stream.next()
+            seen.append(item)
+        assert len(passes) == 3 and len(set(passes)) == 3  # one pass per episode, not two
+        for item in seen:
+            expected = list(iter_windows(item.episode, codec, WINDOWS))[item.window.index]
+            assert item.window == expected
+        # Resuming in the middle of a block is one pass too.
+        cursor = stream.state_dict()
+        passes.clear()
+        resumed = WindowStream(PreparedCorpus([prepared], stream="alpha"), codec, WINDOWS, seed=0)
+        resumed.load_state_dict(cursor)
+        resumed.next()
+        assert len(passes) == 1
+        resumed.close()
+    finally:
+        stream.close()

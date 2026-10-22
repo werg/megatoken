@@ -119,8 +119,6 @@ class ModelConfig:
         for name in positive:
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
-        if self.name in {"v12", "v13", "recurrent32", "compact32"}:
-            raise ValueError("Old architecture names are not aliases for the version-4 presets")
         for name in ("codec_noise_std", "prior_noise_std"):
             value = getattr(self, name)
             if not math.isfinite(value) or not math.exp(-4.0) < value < math.exp(1.0):
@@ -145,17 +143,8 @@ class ModelConfig:
         return 256 + (65_536 if self.exact_bigrams else 0)
 
     @property
-    def output_vocab(self) -> int:
-        return self.vocab_size
-
-    @property
     def pair_dim(self) -> int:
         return 2 * self.facet_dim
-
-    @property
-    def n_stages(self) -> int:
-        """Central plus predictive depth; encoder/realizer work is additional."""
-        return self.central_layers + self.prediction_layers
 
     @property
     def transducer_geometry(self):

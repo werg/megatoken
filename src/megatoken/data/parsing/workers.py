@@ -19,6 +19,7 @@ import signal
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -34,6 +35,8 @@ _HEADER = struct.Struct("!Q")
 _MAX_MESSAGE = 64 << 20
 _PROTOCOL_VERSION = 1
 _OWNER_ENV = "MEGATOKEN_PARSER_OWNER_PID"
+_LOG_LIMIT = 1 << 20  # The worker's stderr log is emptied before a request when it passes this.
+_LOG_TAIL = 400  # Bytes of that log quoted in a failure diagnostic.
 
 
 class _ProviderError(RuntimeError):
@@ -92,6 +95,10 @@ class _Worker:
         self.startup_error: Exception | None = None
         self.process: subprocess.Popen | None = None
         self.process_closed = False
+        # Native crashes explain themselves on stderr (assertion text, signal
+        # names, grammar load errors). An anonymous append-only file keeps them
+        # for the failure diagnostic without a pipe that could fill and stall.
+        self.log = tempfile.TemporaryFile(mode="a+b")
         environment = os.environ.copy()
         # Module invocation works from notebooks/stdin as well as entry points.
         # Reproduce trusted application imports, including local grammar plugins;
@@ -121,7 +128,7 @@ class _Worker:
                 [sys.executable, "-m", "megatoken.data.parsing.workers", "--worker"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=self.log,
                 bufsize=0,
                 close_fds=True,
                 start_new_session=os.name == "posix",
@@ -170,6 +177,8 @@ class _Worker:
             raise TimeoutError("Native parser startup exceeded its request watchdog")
         if self.startup_error is not None:
             raise self.startup_error
+        if os.fstat(self.log.fileno()).st_size > _LOG_LIMIT:
+            self.log.truncate(0)
         request = _Request(payload)
         self.requests.put(request)
         if not request.ready.wait(max(0.0, deadline - time.monotonic())):
@@ -177,6 +186,15 @@ class _Worker:
         if request.error is not None:
             raise request.error
         return request.value
+
+    def stderr_tail(self) -> str:
+        """The last lines the worker wrote to stderr, for failure diagnostics."""
+        try:
+            size = os.fstat(self.log.fileno()).st_size
+            raw = os.pread(self.log.fileno(), min(size, _LOG_TAIL), max(0, size - _LOG_TAIL))
+        except (OSError, ValueError):
+            return ""
+        return " ".join(raw.decode("utf-8", "replace").split())
 
     def _stop(self, *, force: bool = False) -> None:
         assert self.process is not None
@@ -197,7 +215,7 @@ class _Worker:
         if self.process is None:
             return
         self.process.returncode = 0  # This Popen is not our child to wait for.
-        for stream in (self.process.stdin, self.process.stdout):
+        for stream in (self.process.stdin, self.process.stdout, self.log):
             if stream is not None:
                 stream.close()
 
@@ -240,6 +258,8 @@ class _Worker:
             self.close_lock.release()
         if self.thread.ident is not None:
             self.thread.join(timeout=0.25)
+        if not self.thread.is_alive():
+            self.log.close()
 
 
 _worker: _Worker | None = None
@@ -418,6 +438,7 @@ def scan_syntax_isolated(
                 if previous is not None and previous.process is not None
                 else None
             )
+            stderr = previous.stderr_tail() if previous is not None else ""
             if previous is not None:
                 previous.close()
             code = (
@@ -432,7 +453,8 @@ def scan_syntax_isolated(
                 language,
                 limits,
                 code,
-                f"{type(error).__name__}; exit_code={exit_code}; worker will restart",
+                f"{type(error).__name__}; exit_code={exit_code}; worker will restart"
+                + (f"; stderr: {stderr}" if stderr else ""),
             )
 
 

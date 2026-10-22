@@ -556,3 +556,44 @@ def test_bundle_requires_the_pack_manifest_it_was_trained_with(bundle, tmp_path)
     lock.write_text("{}")
     with pytest.raises(ValueError, match="pack manifest the bundle was trained with"):
         InferenceEngine(directory, packs=lock, device="cpu")
+
+
+def test_a_malformed_request_never_ends_the_serving_loop(bundle, monkeypatch):
+    import dataclasses
+
+    _, directory, _ = bundle
+    engine = InferenceEngine(directory, device="cpu")
+    original = engine.generate
+
+    def nonfinite(session, **kwargs):
+        result = original(session, **kwargs)
+        if kwargs["seed"] == 99:
+            result = dataclasses.replace(result, log_prob=torch.tensor(float("nan")))
+        return result
+
+    monkeypatch.setattr(engine, "generate", nonfinite)
+    generate = {"op": "generate", "session": "s", "min_tokens": 1, "max_tokens": 2}
+    requests = [
+        {"op": "open"},
+        {**generate, "id": 1, "require_terminal": 2},  # an out-of-range flag, not a crash
+        {**generate, "id": 2, "kind": ["ascii"]},
+        {**generate, "id": 3, "max_tokens": None},
+        {**generate, "id": 4, "seed": 99},  # a NaN density cannot be strict JSON
+        {**generate, "id": 5, "seed": 1},  # the loop is still serving
+    ]
+    # serve_jsonl owns its session table: learn the session id from its own first reply.
+    output = io.StringIO()
+
+    class Lines:
+        def __iter__(self_inner):
+            yield json.dumps(requests[0]) + "\n"
+            first = json.loads(output.getvalue().splitlines()[0])["session"]
+            for request in requests[1:]:
+                yield json.dumps({**request, "session": first}) + "\n"
+
+    serve_jsonl(engine, Lines(), output)
+    responses = [json.loads(text) for text in output.getvalue().splitlines()]
+    assert [r["ok"] for r in responses] == [True, False, False, False, False, True]
+    assert responses[1]["error"]["type"] == "ValueError"
+    assert "strict JSON" in responses[4]["error"]["message"]
+    assert [r.get("id") for r in responses[1:]] == [1, 2, 3, 4, 5]

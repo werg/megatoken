@@ -58,8 +58,6 @@ def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, single_thr
         workers=1,
         worker_id=0,
         local_steps=1,
-        poll_steps=1,
-        heartbeat_steps=1,
         io_workers=2,
         timeout_seconds=30,
         max_offline_steps=20,

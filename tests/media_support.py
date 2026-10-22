@@ -14,12 +14,24 @@ import torch
 from torch import Tensor, nn
 
 from megatoken.data.media_assets import MediaRecord, OutputGeometry, TensorAssetStore
+from megatoken.model.core import ROLE_IDS
+from megatoken.model.multitrack import ObservedEvent
 from megatoken.omni.realizers import FacetCondition, Realizer, masked_square_error
 from megatoken.teacher import HIDDEN_WIDTH, PINNED_TEACHER
 
 NAMES = {"audio": "pocket", "image": "sana", "video": "sana_video"}
 # Latent geometry per event: audio [frames, 4], image [4, 2, 2], video [frames, 4, 2, 2].
 LATENT = {"audio": (6, 4), "image": (4, 2, 2), "video": (3, 4, 2, 2)}
+
+
+def observe_text(core, state, payloads, *, tracks, roles=None):
+    """Observe simultaneous text events as one meridian (``core`` is a MultiTrackCore)."""
+    roles = roles or (ROLE_IDS["user"],) * len(payloads)
+    events = (
+        ObservedEvent(track, "text", payload, role_id=role)
+        for track, payload, role in zip(tracks, payloads, roles, strict=True)
+    )
+    return core.observe_group(state, tuple(events))
 
 
 def features(tokens: int = 12, *, seed: int = 0, device: str = "cpu") -> Tensor:

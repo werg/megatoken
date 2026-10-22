@@ -160,3 +160,121 @@ def test_start_delivers_generated_files_secrets_and_peer_share_tokens(tmp_path, 
     records = (tmp_path / "state" / "sandboxes.jsonl").read_text()
     for value in ("share-secret", "peer-secret", "bearer"):
         assert value not in json.dumps(spec) and value not in records
+
+
+def test_the_coordinator_outlives_the_learners():
+    spec = cloud_diloco.validate(_spec(lifetime_hours=4))
+    inputs = spec["data"]["inputs"]
+    coordinator = cloud_diloco.coordinator_job(spec, inputs)
+    learner = cloud_diloco.learner_job(spec, inputs, 0)
+    assert coordinator["lifetime_hours"] == learner["lifetime_hours"] + 2
+    with pytest.raises(cloud.CloudError, match="lifetime_hours"):
+        cloud_diloco.validate(_spec(lifetime_hours=720))
+
+
+def _stoppable(monkeypatch, failing=()):
+    stopped = []
+
+    class Done:
+        def result(self):
+            return None
+
+    class Sandbox:
+        def __init__(self, sandbox_id):
+            self.sandbox_id = sandbox_id
+
+        def stop(self, **kwargs):
+            if self.sandbox_id in failing:
+                raise RuntimeError("gateway timeout")
+            stopped.append(self.sandbox_id)
+            return Done()
+
+    monkeypatch.setattr(cloud, "_attach", Sandbox)
+    monkeypatch.setattr(cloud, "record", lambda entry: None)
+    return stopped
+
+
+def test_every_sandbox_is_stopped_even_when_one_will_not_stop(monkeypatch, capsys):
+    stopped = _stoppable(monkeypatch, failing={"b"})
+    failed = cloud_diloco._stop_all(["a", "b", "c"], "launch failed")
+    assert stopped == ["a", "c"] and failed == ["b"]
+    assert "COULD NOT STOP b" in capsys.readouterr().err
+
+
+def _launch_env(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q"], check=True)
+    (repo / "a.py").write_text("x = 1\n")
+    subprocess.run([*git, "add", "a.py"], check=True)
+    subprocess.run([*git, "commit", "-qm", "init"], check=True)
+    monkeypatch.setattr(cloud, "STATE", tmp_path / "state")
+    monkeypatch.setattr(cloud, "SECRETS", tmp_path / "state" / "secrets")
+    monkeypatch.setattr(cloud_diloco, "RUNS", tmp_path / "state" / "diloco")
+    monkeypatch.setattr(cloud, "share_token", lambda sandbox_id: "gateway")
+    run = tmp_path / "run.json"
+    run.write_text(json.dumps(_spec()))
+    return repo, run
+
+
+def test_launch_fails_fast_when_the_coordinator_exits_and_stops_everything(tmp_path, monkeypatch):
+    repo, run = _launch_env(tmp_path, monkeypatch)
+    stopped = _stoppable(monkeypatch)
+    monkeypatch.setattr(
+        cloud,
+        "start",
+        lambda *args, **kwargs: ({"sandbox_id": "coord", "url": "https://c", "commit": "x"}, None),
+    )
+
+    def unreachable(*args):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(cloud_diloco, "_status", unreachable)
+    monkeypatch.setattr(cloud_diloco, "_exited", lambda sandbox_id: True)
+    monkeypatch.setattr(cloud_diloco.time, "sleep", lambda _: pytest.fail("kept waiting"))
+    with pytest.raises(cloud.CloudError, match="exited before it became ready"):
+        cloud_diloco.launch(run, repo)
+    assert stopped == ["coord"]
+    assert not cloud_diloco._run_path("unit-run").exists()
+
+
+def test_launch_stops_the_rest_when_a_learner_cannot_start(tmp_path, monkeypatch):
+    repo, run = _launch_env(tmp_path, monkeypatch)
+    stopped = _stoppable(monkeypatch, failing={"learner-0"})
+    starts = iter(
+        [
+            ({"sandbox_id": "coord", "url": "https://c", "commit": "x"}, None),
+            ({"sandbox_id": "learner-0"}, None),
+        ]
+    )
+
+    def start(*args, **kwargs):
+        try:
+            return next(starts)
+        except StopIteration:
+            raise cloud.CloudError("no capacity") from None
+
+    monkeypatch.setattr(cloud, "start", start)
+    monkeypatch.setattr(cloud_diloco, "_status", lambda *args: {})
+    with pytest.raises(cloud.CloudError, match="no capacity"):
+        cloud_diloco.launch(run, repo)
+    # learner-0 would not stop, yet the coordinator behind it was still stopped.
+    assert stopped == ["coord"]
+
+
+def test_a_terminated_launcher_tears_its_sandboxes_down(monkeypatch):
+    import signal
+
+    monkeypatch.setattr(cloud, "load_credentials", lambda: None)
+    monkeypatch.setattr(cloud_diloco, "status", lambda run_id: {})
+    previous = signal.getsignal(signal.SIGTERM)
+    try:
+        cloud_diloco.main(["status", "r"])
+        handler = signal.getsignal(signal.SIGTERM)
+        assert handler is not previous and callable(handler)
+        with pytest.raises(SystemExit) as exit_:
+            handler(signal.SIGTERM, None)  # SystemExit unwinds through launch's teardown
+        assert exit_.value.code == 143
+    finally:
+        signal.signal(signal.SIGTERM, previous)

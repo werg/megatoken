@@ -1,10 +1,9 @@
-"""Causal data contracts, streaming preparation, and exact stage accounting.
+"""Causal data contracts, streaming preparation, and stage recipes.
 
 The data package has no PyTorch dependency. Codec implementations remain in
 ``megatoken.generation.codec``; this package uses only their lightweight protocol.
 """
 
-from .accounting import Budget, TokenMeters
 from .adapters import PROFILES, AdapterContext, SchemaError, adapt_row
 from .chunking import (
     CHUNKING_VERSION,
@@ -29,7 +28,7 @@ from .collection import (
 )
 from .dedup import DedupConfig, DedupStore
 from .demo import make_demo_episodes, write_demo_source
-from .packing import TrainingWindow, WindowAudit, WindowConfig, iter_windows
+from .packing import TrainingWindow, WindowConfig, iter_windows
 from .parsing.types import ParseLimits
 from .prepare import prepare_sources
 from .recipes import StageRecipe, load_recipes, stage_recipe
@@ -64,7 +63,6 @@ from .student import ModelTeacher
 
 __all__ = [
     "AdapterContext",
-    "Budget",
     "ByteSpan",
     "Codec",
     "CHUNKING_VERSION",
@@ -96,9 +94,7 @@ __all__ = [
     "StageRecipe",
     "Supervision",
     "TermsReview",
-    "TokenMeters",
     "TrainingWindow",
-    "WindowAudit",
     "WindowConfig",
     "adapt_row",
     "apply_recovery_policy",

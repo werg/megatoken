@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import math
 import random
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
-from itertools import islice
 from typing import Any
 
 from megatoken.data import Episode, PreparedCorpus, TrainingWindow, WindowConfig, iter_windows
@@ -31,6 +30,35 @@ class EpisodeWindow:
     window: TrainingWindow
     # The root the episode was prepared in: its media tensors live there.
     assets: TensorAssetStore
+
+
+class _WindowPlan:
+    """An episode's windows, found by one pass and materialized one at a time.
+
+    Counting windows needs the whole episode encoded, and so does producing them;
+    doing both passes (and a third on resume) triples that work. One pass keeps
+    each window's span and the fully encoded record tuple, which every window's
+    prefix and records slice. Retaining the windows themselves would keep one
+    prefix tuple per window, quadratic in the episode's length.
+    """
+
+    def __init__(self, episode: Episode, codec: Any, config: WindowConfig) -> None:
+        self.episode = episode
+        self.spans: list[tuple[int, int, int, tuple]] = []
+        last = None
+        for window in iter_windows(episode, codec, config):
+            self.spans.append((window.start, window.end, window.index, window.writer_reader_pairs))
+            last = window
+        self.encoded = () if last is None else (*last.prefix, *last.records)
+
+    def __len__(self) -> int:
+        return len(self.spans)
+
+    def __getitem__(self, position: int) -> TrainingWindow:
+        start, end, index, pairs = self.spans[position]
+        return TrainingWindow(
+            self.episode, self.encoded[:start], self.encoded[start:end], start, end, index, pairs
+        )
 
 
 class WindowStream:
@@ -62,7 +90,7 @@ class WindowStream:
         self.block_start = self.slot = self.block_length = self.local_length = 0
         self._episode: Episode | None = None
         self._assets: TensorAssetStore | None = None
-        self._windows: Iterator[TrainingWindow] | None = None
+        self._plan: _WindowPlan | None = None
         self._opened = False
         self.fingerprint = content_hash(
             {
@@ -86,14 +114,13 @@ class WindowStream:
 
     def _open_block(self) -> None:
         error = None
-        episode = assets = None
+        episode = assets = plan = None
         local_length = 0
         if self.block_start + self.rank < len(self.dataset):
             try:
                 episode, assets = self.dataset.fetch(self._episode_index())
-                # Counting releases each prefix slice immediately. Retaining a
-                # list of every window would keep quadratic prefix references.
-                local_length = sum(1 for _ in iter_windows(episode, self.codec, self.config))
+                plan = _WindowPlan(episode, self.codec, self.config)
+                local_length = len(plan)
                 if local_length == 0:
                     raise ValueError(f"Episode {episode.episode_id} has no windows")
             except Exception as exc:
@@ -122,12 +149,7 @@ class WindowStream:
             raise ValueError("Invalid or changed synchronized window cursor")
         self.block_length = length
         self._episode, self._assets, self.local_length = episode, assets, local_length
-        if episode is not None:
-            self._windows = islice(
-                iter_windows(episode, self.codec, self.config),
-                min(self.slot, local_length),
-                None,
-            )
+        self._plan = plan
         self._opened = True
 
     def next(self) -> EpisodeWindow | None:
@@ -135,7 +157,7 @@ class WindowStream:
             self._open_block()
         result = None
         if self.slot < self.local_length:
-            result = EpisodeWindow(self._episode, next(self._windows), self._assets)
+            result = EpisodeWindow(self._episode, self._plan[self.slot], self._assets)
         self.slot += 1
         if self.slot == self.block_length:
             self.slot = self.block_length = self.local_length = 0
@@ -143,7 +165,7 @@ class WindowStream:
             if self.block_start >= len(self.dataset):
                 self.epoch += 1
                 self.block_start = 0
-            self._episode = self._assets = self._windows = None
+            self._episode = self._assets = self._plan = None
             self._opened = False
         return result
 
@@ -200,7 +222,7 @@ class WindowStream:
             value
         )
         self.local_length = 0
-        self._episode = self._assets = self._windows = None
+        self._episode = self._assets = self._plan = None
         self._opened = False
 
 
@@ -237,12 +259,12 @@ class IndependentWindowStream(WindowStream):
             self.epoch += 1
             self.block_start = 0
         episode, assets = self.dataset.fetch(self._episode_index())
-        length = sum(1 for _ in iter_windows(episode, self.codec, self.config))
+        plan = _WindowPlan(episode, self.codec, self.config)
+        length = len(plan)
         if length <= 0 or self.block_length not in (0, length) or self.slot >= length:
             raise ValueError("Invalid independent episode cursor or empty episode")
         self.block_length = self.local_length = length
-        self._episode, self._assets = episode, assets
-        self._windows = islice(iter_windows(episode, self.codec, self.config), self.slot, None)
+        self._episode, self._assets, self._plan = episode, assets, plan
         self._opened = True
 
     def state_dict(self) -> dict[str, Any]:

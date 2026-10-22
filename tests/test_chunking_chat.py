@@ -10,6 +10,7 @@ import pytest
 
 from megatoken.data.adapters import AdapterContext, ChatFramingError, SchemaError, adapt_row
 from megatoken.data.chunking import ChunkingConfig
+from megatoken.data.parsing import chat as chat_module
 from megatoken.data.parsing.chat import (
     CHAT_TEMPLATES,
     ChatFrame,
@@ -117,11 +118,11 @@ def test_known_templates_have_exact_framing_and_conservative_auto(template, payl
 @pytest.mark.parametrize(
     "body",
     [
-        b'code = "<|im_end|><|im_start|>assistant\nnot a turn<|im_end|>";\n',
+        b'code = "<|im_end|><|im_start|>assistant\\nnot a turn<|im_end|>";\n',
         b"code = '''<|im_end|><|im_start|>assistant\nnot a turn<|im_end|>''';\n",
         b'let s = r###"<|im_end|><|im_start|>assistant\n"quoted"<|im_end|>"###;\n',
         b'auto s = R"raw(<|im_end|><|im_start|>assistant\n"quoted"<|im_end|>)raw";\n',
-        b"Use `<|im_end|><|im_start|>assistant\nnot a turn<|im_end|>` literally.\n",
+        b"Use `<|im_end|><|im_start|>assistant\\nnot a turn<|im_end|>` literally.\n",
         b"```python\nx = 1\n<|im_end|><|im_start|>assistant\nnot a turn<|im_end|>\n```",
         b"<!-- <|im_end|><|im_start|>assistant\nnot a turn<|im_end|> -->\n",
         b"/* <|im_end|><|im_start|>assistant\nnot a turn<|im_end|> */\n",
@@ -193,17 +194,20 @@ def test_incomplete_headers_bodies_bom_crlf_and_invalid_utf8_are_preserved():
     assert_partition(header, parse_chat(header, "chatml"))
 
 
-def test_unknown_ambiguous_disabled_and_invalid_templates_fail_conservatively():
+def test_unknown_ambiguous_disabled_and_invalid_templates_fail_conservatively(monkeypatch):
     payload = b"<|im_start|>user\nHi<|im_end|>"
     assert parse_chat(payload, "none") == ChatParse("none")
     assert parse_chat(payload, "made-up").diagnostics[0].code == "chat_unknown_template"
     registry = dict(CHAT_TEMPLATES)
     registry["duplicate"] = replace(registry["chatml"], name="duplicate")
-    ambiguous = parse_chat(payload, templates=registry)
+    builtin_identity = template_identity()
+    monkeypatch.setattr(chat_module, "CHAT_TEMPLATES", registry)
+    ambiguous = parse_chat(payload)
     assert not ambiguous.detected
     assert ambiguous.diagnostics[0].code == "chat_ambiguous_template"
-    assert json.dumps(template_identity(registry))
-    assert template_identity(registry) != template_identity()
+    assert json.dumps(template_identity())
+    assert template_identity() != builtin_identity
+    monkeypatch.undo()
     with pytest.raises(ValueError, match="ranges"):
         ChatFrame(2, 1, 3, 4, "user")
     with pytest.raises(ValueError, match="partition"):
@@ -256,8 +260,67 @@ def test_malformed_binary_and_truncated_template_mutations_never_lose_bytes():
             result.validate(len(payload))
             if result.detected:
                 assert_partition(payload, result)
+                # Whatever the body fragments are, the intact first header owns frame 0.
+                if len(payload) >= len(spec.start + b"user" + spec.separator):
+                    assert result.frames[0].role in {"user", None}
+                assert {frame.role for frame in result.frames} <= {
+                    "system",
+                    "developer",
+                    "user",
+                    "assistant",
+                    "tool",
+                    "environment",
+                    None,
+                }
             else:
                 assert result.frames == ()
+
+
+# One serializer per delimiter family, each ending a turn's line as real dumps do.
+_SERIALIZERS = {
+    "chatml": lambda role, body: b"<|im_start|>" + role + b"\n" + body + b"<|im_end|>\n",
+    "llama3": lambda role, body: (
+        b"<|start_header_id|>" + role + b"<|end_header_id|>\n\n" + body + b"<|eot_id|>"
+    ),
+    "phi3": lambda role, body: b"<|" + role + b"|>\n" + body + b"<|end|>\n",
+    "gemma": lambda role, body: b"<start_of_turn>" + role + b"\n" + body + b"<end_of_turn>\n",
+}
+_STRAY = [
+    b'Use a 5" pipe',
+    b"a stray ` tick",
+    b'He said "hello',
+    b"it's fine",
+    b'ends with a quote"',
+]
+_LATER = [b'Say "ok"', b'"ok"', b"`code`", b"'quoted'", b'"""triple"""']
+
+
+def test_an_inch_mark_cannot_open_a_string_even_when_turns_share_a_line():
+    payload = b'<|user|>a 5" pipe<|end|><|assistant|>"ok"<|end|>'
+    result = parse_chat(payload, "phi3")
+    assert_partition(payload, result)
+    assert [frame.role for frame in result.frames] == ["user", "assistant"]
+
+
+@pytest.mark.parametrize("template", sorted(_SERIALIZERS))
+def test_stray_quotes_in_one_turn_never_merge_it_with_later_turns(template):
+    serialize = _SERIALIZERS[template]
+    for stray in _STRAY:
+        for later in _LATER:
+            turns = [
+                (b"user", stray),
+                (b"assistant", later),
+                (b"user", stray),
+                (b"assistant", b"Done."),
+            ]
+            payload = b"".join(serialize(role, body) for role, body in turns)
+            result = parse_chat(payload, template)
+            assert_partition(payload, result)
+            roles = [frame.role for frame in result.frames]
+            assert roles == [role.decode() for role, _ in turns], (template, stray, later)
+            assert [
+                payload[frame.header_end : frame.body_end].strip(b"\n") for frame in result.frames
+            ] == [body for _, body in turns]
 
 
 def test_structured_hints_are_specific_and_chat_inference_is_disabled(monkeypatch):
@@ -432,7 +495,8 @@ def test_document_can_explicitly_preserve_a_template_as_one_literal_field(disabl
     assert tuple(token for record in episode.records for token in record.cached_ids) == tuple(
         codec.encode(payload)
     )
-    assert adapt_row(episode.to_dict(), "native", context).records == episode.records
+    native = AdapterContext("s", "r", "u", "documents", codec=codec, chunking=policy)
+    assert adapt_row(episode.to_dict(), "native", native).records == episode.records
 
 
 def test_document_framing_fallback_keeps_diagnostics_and_original_bytes():
@@ -490,7 +554,7 @@ def test_serialized_adapter_has_exact_spans_masks_and_no_cross_turn_records():
         assert record.payload == payload[cursor : record.source_span.end]
         assert record.cached_ids == tuple(record.payload)
         cursor = record.source_span.end
-    assert b"SECRET" not in b"".join(record.payload for record in episode.model_records())
+    assert b"SECRET" not in b"".join(record.payload for record in episode.records)
     for group in episode.iter_logical_records():
         assert tuple(token for record in group for token in record.cached_ids) == tuple(
             b"".join(record.payload for record in group)

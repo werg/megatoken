@@ -2,7 +2,9 @@
 
 Network work runs on an I/O pool. Live model mutation happens exclusively
 between training optimizer transactions on the training thread; threads never
-touch CUDA tensors. Durable outbox files make failed uploads retryable.
+touch CUDA tensors. Durable outbox files make failed uploads retryable. A
+wall-clock heartbeat thread keeps the worker's lease and the coordinator status
+fresh however long a training step or a checkpoint takes.
 """
 
 from __future__ import annotations
@@ -10,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -43,6 +47,22 @@ class RemoteError(RuntimeError):
         self.detail: dict = detail if isinstance(detail, dict) else {}
 
 
+HEARTBEAT_SECONDS = 10.0
+
+
+class _SameOriginRedirects(urllib.request.HTTPRedirectHandler):
+    """urllib resends every request header, bearer token included, to a redirect's target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old = urllib.parse.urlsplit(req.full_url)
+        new = urllib.parse.urlsplit(urllib.parse.urljoin(req.full_url, newurl))
+        if (old.scheme, old.netloc) != (new.scheme, new.netloc):
+            raise urllib.error.HTTPError(
+                req.full_url, code, "Refusing a redirect to another origin", headers, fp
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class Transport:
     def __init__(self, url: str, token: str, timeout: float, allow_http: bool = False):
         self.url = url.rstrip("/")
@@ -61,6 +81,7 @@ class Transport:
         # (megatoken.cloud sandboxes) also needs that gateway credential.
         gateway = os.environ.get("MEGATOKEN_DILOCO_GATEWAY_TOKEN", "")
         self.gateway = {"X-Sandbox-Share-Token": gateway} if gateway else {}
+        self.opener = urllib.request.build_opener(_SameOriginRedirects)
 
     def request(
         self,
@@ -93,7 +114,7 @@ class Transport:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with self.opener.open(request, timeout=self.timeout) as response:
                 # Case-insensitive: HTTP/2 gateways lowercase header names.
                 response_headers = response.headers
                 if output is not None and response.status == 200:
@@ -204,17 +225,22 @@ class DecoupledWorker:
         self.pending: dict[int, dict] = {}
         self.awaiting_global: set[int] = set()
         self.downloads: dict[int, Future] = {}
-        self.heartbeat: Future | None = None
+        # The lease outlives a stalled step: the heartbeat runs on the wall clock.
+        self.heartbeat_seconds = min(HEARTBEAT_SECONDS, self.manifest["lease_seconds"] / 4)
+        self.heartbeat_thread: threading.Thread | None = None
+        self.stopping = threading.Event()
+        self.heartbeats = (
+            0  # successful beats; the training thread resets its offline count on a new one
+        )
+        self.heartbeats_seen = 0
+        self.heartbeat_error = ""
         self.local_steps = 0
         self.local_tokens = 0
         self.global_tokens = 0
         self.merges = 0
         self.finished = False
-        self.last_heartbeat_step = -settings.heartbeat_steps
-        self.last_poll_step = -settings.poll_steps
         self.last_progress_error = ""
         self.offline_steps = 0
-        self._poll_cursor = 0
         self.transducer = None
         self.remote_transducer_version: int | None = None
         self.dropped_transducer_rounds = 0
@@ -223,11 +249,64 @@ class DecoupledWorker:
         """Synchronize transducer rounds through the coordinator (transducer_sync)."""
         self.transducer = sync
 
-    def _lease(self) -> None:
+    def _lease(self) -> dict:
         status = self.transport.json(
             "POST", "/v1/lease", {"worker": self.worker, "session": self.session}
         )
         self._update_status(status)
+        return status
+
+    def _with_lease(self, call: Any) -> Any:
+        """Run a coordinator call; if our lease ran out meanwhile, lease again and retry once.
+
+        A lease of another live session (a different 409) is a real conflict and propagates.
+        """
+        try:
+            return call()
+        except RemoteError as exc:
+            if exc.status != 409 or not exc.detail.get("lease"):
+                raise
+            self._lease()
+            return call()
+
+    def _adopt_ledger(self, status: dict) -> None:
+        """Number new uploads after everything the coordinator already holds from this worker.
+
+        A learner restored from an older checkpoint would otherwise reuse sequences the
+        coordinator has merged or queued: its real update would be dropped as a duplicate.
+        """
+        held = status["sequences"]
+        self.sequences = [max(a, b) for a, b in zip(self.sequences, held["fragments"], strict=True)]
+        if self.transducer is not None:
+            self.transducer.sequence = max(self.transducer.sequence, held["transducer"])
+
+    def _start_heartbeat(self) -> None:
+        self.heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop, name="diloco-heartbeat", daemon=True
+        )
+        self.heartbeat_thread.start()
+
+    def _heartbeat_loop(self) -> None:
+        """Report progress and refresh the coordinator status every few wall-clock seconds."""
+        while not self.stopping.wait(self.heartbeat_seconds):
+            try:
+                status = self._with_lease(
+                    lambda: self.transport.json(
+                        "POST",
+                        "/v1/progress",
+                        {
+                            "worker": self.worker,
+                            "session": self.session,
+                            "steps": self.local_steps,
+                            "tokens": self.local_tokens,
+                        },
+                    )
+                )
+                self._update_status(status)
+                self.heartbeat_error = ""
+                self.heartbeats += 1
+            except (OSError, TimeoutError, ValueError, RemoteError) as exc:
+                self.heartbeat_error = str(exc)
 
     def _update_status(self, value: dict) -> None:
         self.global_tokens = int(value["global_tokens"])
@@ -241,7 +320,8 @@ class DecoupledWorker:
 
     def bootstrap(self, model: torch.nn.Module, optimizer: Any) -> None:
         """Get identical initialization, then reconcile with latest global fragments."""
-        self._lease()
+        self._adopt_ledger(self._lease())
+        self._start_heartbeat()
         path, _ = self.transport.fetch_file("/v1/bootstrap", self.outbox)
         assert path is not None
         try:
@@ -267,7 +347,8 @@ class DecoupledWorker:
         self.local_tokens = int(value["local_tokens"])
         self.pending = {int(k): dict(v, future=None) for k, v in value["pending"].items()}
         self.awaiting_global = set(value.get("awaiting_global", []))
-        self._lease()
+        ledger = self._lease()
+        self._start_heartbeat()
         # The committed checkpoint embeds each pending upload for recovery when
         # a sandbox's ephemeral scratch volume has been discarded.
         for index, entry in list(self.pending.items()):
@@ -283,6 +364,7 @@ class DecoupledWorker:
             if value.get("transducer") is None:
                 raise ValueError("DiLoCo checkpoint lacks transducer synchronization state")
             self.transducer.load_state_dict(value["transducer"])
+        self._adopt_ledger(ledger)
         self._fetch_all(optimizer)
 
     def _fetch(self, index: int, version: int) -> tuple[int, torch.Tensor] | None:
@@ -335,19 +417,22 @@ class DecoupledWorker:
             self._install(index, self._fetch(index, self.versions[index]), optimizer)
 
     def _upload(self, index: int, entry: dict) -> dict:
-        _, response, _ = self.transport.request(
-            "POST",
-            f"/v1/updates/{index}",
-            file=self._write_outbox(entry),
-            headers={
-                "X-Worker": str(self.worker),
-                "X-Session": self.session,
-                "X-Sequence": str(entry["sequence"]),
-                "X-Base-Version": str(entry["version"]),
-                "X-Steps": str(entry["steps"]),
-                "X-Tokens": str(entry["tokens"]),
-                "Content-Type": "application/octet-stream",
-            },
+        file = self._write_outbox(entry)
+        _, response, _ = self._with_lease(
+            lambda: self.transport.request(
+                "POST",
+                f"/v1/updates/{index}",
+                file=file,
+                headers={
+                    "X-Worker": str(self.worker),
+                    "X-Session": self.session,
+                    "X-Sequence": str(entry["sequence"]),
+                    "X-Base-Version": str(entry["version"]),
+                    "X-Steps": str(entry["steps"]),
+                    "X-Tokens": str(entry["tokens"]),
+                    "Content-Type": "application/octet-stream",
+                },
+            )
         )
         return response
 
@@ -370,42 +455,37 @@ class DecoupledWorker:
         return int(headers["X-Transducer-Version"]), path, "snapshot"
 
     def _upload_transducer(self, entry: dict) -> dict:
-        _, response, _ = self.transport.request(
-            "POST",
-            "/v1/transducer/rounds",
-            file=Path(entry["filename"]),
-            headers={
-                "X-Worker": str(self.worker),
-                "X-Session": self.session,
-                "X-Sequence": str(entry["sequence"]),
-                "X-Base-Version": str(entry["version"]),
-                "Content-Type": "application/octet-stream",
-            },
+        _, response, _ = self._with_lease(
+            lambda: self.transport.request(
+                "POST",
+                "/v1/transducer/rounds",
+                file=Path(entry["filename"]),
+                headers={
+                    "X-Worker": str(self.worker),
+                    "X-Session": self.session,
+                    "X-Sequence": str(entry["sequence"]),
+                    "X-Base-Version": str(entry["version"]),
+                    "Content-Type": "application/octet-stream",
+                },
+            )
         )
         return response
 
     def report_transducer_validation(self, step: int, loss: float) -> None:
         """Worker 0's bank-only validation loss, for the coordinator's switch rule."""
         self.control_io.submit(
-            self.transport.json,
-            "POST",
-            "/v1/transducer/validation",
-            {"worker": self.worker, "session": self.session, "step": step, "loss": loss},
+            self._with_lease,
+            lambda: self.transport.json(
+                "POST",
+                "/v1/transducer/validation",
+                {"worker": self.worker, "session": self.session, "step": step, "loss": loss},
+            ),
         )
 
-    def _transducer_step(self, steps: int, trainer: Any) -> tuple[int, Any]:
-        """Upload a round every 32 local steps; fetch newer canonical versions.
-
-        Returns (errors, ready (version, path, kind) or None) for the caller to
-        install between optimizer steps.
-        """
-        from megatoken.training.transducer_diloco import LOCAL_STEPS
-        from megatoken.training.transducer_sync import submit_round
-
+    def _settle_transducer_upload(self) -> int:
+        """Collect a finished round upload (or resend a failed one); returns its error count."""
         sync = self.transducer
         errors = 0
-        ready = None
-        sync.steps_since += 1
         entry = sync.pending
         if entry is not None and entry["future"] is not None and entry["future"].done():
             try:
@@ -445,6 +525,38 @@ class DecoupledWorker:
             sync.pending["future"] = self.control_io.submit(
                 self._upload_transducer, dict(sync.pending)
             )
+        return errors
+
+    def _start_transducer_round(self, trainer: Any, steps: int) -> None:
+        """Take this learner's round, keep it durably in the outbox and upload it."""
+        from megatoken.training.transducer_sync import submit_round
+
+        sync = self.transducer
+        submission = submit_round(trainer, sync, worker=self.worker, step=steps)
+        filename = self.outbox / f"transducer-{submission.sequence:09d}.pt"
+        with atomic_binary_writer(filename) as handle:
+            torch.save(submission.state_dict(), handle)
+        sync.pending = {
+            "filename": str(filename),
+            "sequence": submission.sequence,
+            "version": submission.base_version,
+            "future": None,
+        }
+        sync.pending["future"] = self.control_io.submit(self._upload_transducer, dict(sync.pending))
+
+    def _transducer_step(self, steps: int, trainer: Any) -> tuple[int, Any]:
+        """Upload a round every 32 local steps (a fixed cadence of the transducer, unrelated
+        to the fragment ``local_steps``); fetch newer canonical versions.
+
+        Returns (errors, ready (version, path, kind) or None) for the caller to
+        install between optimizer steps.
+        """
+        from megatoken.training.transducer_diloco import LOCAL_STEPS
+
+        sync = self.transducer
+        ready = None
+        sync.steps_since += 1
+        errors = self._settle_transducer_upload()
         if sync.download is not None and sync.download.done():
             try:
                 result = sync.download.result()
@@ -458,23 +570,10 @@ class DecoupledWorker:
                 self.last_progress_error = str(exc)
             sync.download = None
         if sync.steps_since >= LOCAL_STEPS and sync.pending is None:
-            submission = submit_round(trainer, sync, worker=self.worker, step=steps)
-            filename = self.outbox / f"transducer-{submission.sequence:09d}.pt"
-            with atomic_binary_writer(filename) as handle:
-                torch.save(submission.state_dict(), handle)
-            sync.pending = {
-                "filename": str(filename),
-                "sequence": submission.sequence,
-                "version": submission.base_version,
-                "future": None,
-            }
-            sync.pending["future"] = self.control_io.submit(
-                self._upload_transducer, dict(sync.pending)
-            )
+            self._start_transducer_round(trainer, steps)
         newer = (
-            self.remote_transducer_version > sync.version
-            if self.remote_transducer_version is not None
-            else steps % self.settings.poll_steps == 0
+            self.remote_transducer_version is not None
+            and self.remote_transducer_version > sync.version
         )
         if ready is None and sync.download is None and (sync.force_snapshot or newer):
             sync.download = self.control_io.submit(
@@ -494,10 +593,23 @@ class DecoupledWorker:
             os.replace(staging, filename)
         return filename
 
+    def _flushable(self, index: int, optimizer: Any) -> bool:
+        """Local progress on this fragment that the coordinator has not been sent.
+
+        A fragment made only of frozen parameters never changes locally and is never sent.
+        """
+        return (
+            self.steps_since[index] > 0
+            and self.tokens_since[index] > 0
+            and not all(
+                part.name in optimizer.frozen_names for part in self.fragments[index].slices
+            )
+        )
+
     def _queue(self, index: int, optimizer: Any) -> None:
         if index in self.pending or index in self.awaiting_global or self.versions[index] < 0:
             return
-        if self.steps_since[index] <= 0 or self.tokens_since[index] <= 0:
+        if not self._flushable(index, optimizer):
             return
         baseline = self.baselines[index]
         assert baseline is not None
@@ -527,28 +639,8 @@ class DecoupledWorker:
         self.tokens_since[index] = 0
         self._send_async(index)
 
-    def after_step(
-        self,
-        optimizer: Any,
-        *,
-        steps: int,
-        tokens: int,
-        transducer: Any = None,
-    ) -> dict:
-        """Called *after* each complete optimizer step; never blocks on network.
-
-        With an attached transducer sync, the result's ``transducer_ready`` is a
-        downloaded (version, path, kind) for the caller to install between
-        optimizer steps; kind is "changes" or "snapshot".
-        """
-        transducer_errors, transducer_ready = (
-            self._transducer_step(steps, transducer) if self.transducer is not None else (0, None)
-        )
-        self.local_steps = steps
-        self.local_tokens += tokens
-        for i in range(len(self.fragments)):
-            self.steps_since[i] += 1
-            self.tokens_since[i] += tokens
+    def _collect_uploads(self, steps: int) -> int:
+        """Settle finished fragment uploads, resend failed ones; returns the error count."""
         errors = 0
         for index, entry in list(self.pending.items()):
             future = entry["future"]
@@ -581,8 +673,13 @@ class DecoupledWorker:
         for index, entry in list(self.pending.items()):
             if entry["future"] is None and steps >= entry["retry_after"]:
                 self._send_async(index)
+        return errors
 
+    def _collect_downloads(self, optimizer: Any) -> tuple[bool, int]:
+        """Install finished global fragments and start fetching the ones the coordinator
+        advanced; returns (installed any, error count)."""
         updated = False
+        errors = 0
         for index, future in list(self.downloads.items()):
             if not future.done():
                 continue
@@ -598,38 +695,39 @@ class DecoupledWorker:
             for index, remote in enumerate(self.remote_versions):
                 if remote > self.versions[index] and index not in self.downloads:
                     self.downloads[index] = self.io.submit(self._fetch, index, self.versions[index])
-        elif steps - self.last_poll_step >= self.settings.poll_steps:
-            self.last_poll_step = steps
-            for _ in range(min(self.settings.io_workers, len(self.fragments))):
-                index = self._poll_cursor % len(self.fragments)
-                self._poll_cursor += 1
-                if index not in self.downloads:
-                    self.downloads[index] = self.io.submit(self._fetch, index, self.versions[index])
+        return updated, errors
 
-        if self.heartbeat is not None and self.heartbeat.done():
-            try:
-                self._update_status(self.heartbeat.result())
-                self.offline_steps = 0
-            except (OSError, TimeoutError, ValueError, RemoteError) as exc:
-                errors += 1
-                self.last_progress_error = str(exc)
-            self.heartbeat = None
-        if (
-            self.heartbeat is None
-            and steps - self.last_heartbeat_step >= self.settings.heartbeat_steps
-        ):
-            self.last_heartbeat_step = steps
-            self.heartbeat = self.control_io.submit(
-                self.transport.json,
-                "POST",
-                "/v1/progress",
-                {
-                    "worker": self.worker,
-                    "session": self.session,
-                    "steps": self.local_steps,
-                    "tokens": self.local_tokens,
-                },
-            )
+    def after_step(
+        self,
+        optimizer: Any,
+        *,
+        steps: int,
+        tokens: int,
+        transducer: Any = None,
+    ) -> dict:
+        """Called *after* each complete optimizer step; never blocks on network.
+
+        With an attached transducer sync, the result's ``transducer_ready`` is a
+        downloaded (version, path, kind) for the caller to install between
+        optimizer steps; kind is "changes" or "snapshot".
+        """
+        transducer_errors, transducer_ready = (
+            self._transducer_step(steps, transducer) if self.transducer is not None else (0, None)
+        )
+        self.local_steps = steps
+        self.local_tokens += tokens
+        for i in range(len(self.fragments)):
+            self.steps_since[i] += 1
+            self.tokens_since[i] += tokens
+        errors = self._collect_uploads(steps)
+        updated, download_errors = self._collect_downloads(optimizer)
+        errors += download_errors
+        if self.heartbeats != self.heartbeats_seen:
+            self.heartbeats_seen = self.heartbeats
+            self.offline_steps = 0
+        if self.heartbeat_error:
+            errors += 1
+            self.last_progress_error = self.heartbeat_error
 
         # H steps per fragment with stable staggered offsets; no global barrier.
         for index in range(len(self.fragments)):
@@ -664,6 +762,41 @@ class DecoupledWorker:
                 else {}
             ),
         }
+
+    def finish(self, optimizer: Any, trainer: Any = None) -> bool:
+        """Send the coordinator what the last, partial window trained, and wait for it.
+
+        Fragment rounds go out every ``local_steps`` steps, so without this the final
+        window of a phase would never be merged. Waits at most two merge grace periods plus
+        one request timeout; returns whether everything was handed over (anything left
+        stays in the final checkpoint's outbox).
+        """
+        deadline = (
+            time.monotonic() + 2 * self.manifest["grace_seconds"] + self.settings.timeout_seconds
+        )
+        clock = self.local_steps
+        sync = self.transducer
+        while True:
+            clock += 1  # the retry clock of failed uploads: one tick per pass
+            self._collect_uploads(clock)
+            self._collect_downloads(optimizer)
+            for index in range(len(self.fragments)):
+                self._queue(index, optimizer)
+            if sync is not None:
+                self._settle_transducer_upload()
+                if sync.pending is None and sync.steps_since > 0:
+                    self._start_transducer_round(trainer, self.local_steps)
+            done = not self.pending and not any(
+                self._flushable(index, optimizer) for index in range(len(self.fragments))
+            )
+            if sync is not None:
+                done = done and sync.pending is None and sync.steps_since == 0
+            if done:
+                return True
+            if time.monotonic() > deadline:
+                print("DiLoCo final round not fully delivered before the deadline", flush=True)
+                return False
+            time.sleep(0.2)
 
     def state_dict(self) -> dict:
         """Checkpoint baseline+cursor, not live Futures or socket objects."""
@@ -709,6 +842,9 @@ class DecoupledWorker:
         }
 
     def close(self) -> None:
+        self.stopping.set()
+        if self.heartbeat_thread is not None:
+            self.heartbeat_thread.join(timeout=self.settings.timeout_seconds + 5)
         self.io.shutdown(wait=True, cancel_futures=False)
         self.control_io.shutdown(wait=True, cancel_futures=False)
         if (

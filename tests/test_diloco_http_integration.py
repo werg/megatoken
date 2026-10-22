@@ -37,8 +37,6 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
         workers=1,
         worker_id=0,
         local_steps=1,
-        poll_steps=1,
-        heartbeat_steps=1,
         io_workers=2,
         timeout_seconds=30,
         max_offline_steps=20,

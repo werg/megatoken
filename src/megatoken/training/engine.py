@@ -3,7 +3,7 @@
 Windows are independent optimizer transactions: reconstruct the actual prefix
 under current weights, retain gradients through selected writer/reader records,
 and discard all runtime state after updating parameters. No stale cache survives
-an update. Outcome RL uses the same optimizer/checkpoints but complete tapes.
+an update.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from typing import Any
 import torch
 
 from megatoken.contracts import ROLE_TO_ID
-from megatoken.controls import build_control_payload, encode_controls
+from megatoken.controls import build_control_payload
 from megatoken.data import PreparedCorpus, WindowConfig, stage_recipe
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import MediaRecord
@@ -69,6 +69,7 @@ from megatoken.training.metrics import (
     rates,
 )
 from megatoken.training.optimizer import MasterAdamW
+from megatoken.training.router_balance import RouterBalanceWindow
 from megatoken.training.stream import (
     EpisodeWindow,
     IndependentWindowStream,
@@ -106,101 +107,6 @@ def episode_control_payload(episode: Any) -> bytes:
     )
 
 
-def make_control(
-    model: Any, windows: list[EpisodeWindow], device: torch.device, *, encoder_grad: bool = True
-) -> torch.Tensor | None:
-    payloads = [episode_control_payload(item.episode) for item in windows]
-    return encode_controls(model.core, payloads, encoder_grad=encoder_grad)
-
-
-# The trajectory-reference teacher is deliberately confined to supervised
-# training. It is never serialized as a causal control or supplied to serving/RL.
-_RECURRENT_REFERENCE_FRACTION = 0.5
-_RECURRENT_REFERENCE_NOISE_STD = 0.1
-_RECURRENT_REFERENCE_BYTES_PER_QUARTER = 1024
-
-
-def _successful_trajectory_reference(episode: Any) -> bytes:
-    """A bounded, chronological reference from a verified successful execution.
-
-    The teacher sees future recorded content by design. Never include hidden
-    supervision labels, rewards or verifier annotations. Four chronological
-    slices retain both early instructions and later actions/observations without
-    making control encoding proportional to a long full transcript.
-    """
-    records = episode.records
-    frames = [b"<" + record.role.encode("ascii") + b">\n" + record.payload for record in records]
-    sections = []
-    for quarter in range(4):
-        start = quarter * len(frames) // 4
-        end = (quarter + 1) * len(frames) // 4
-        chunk = b"\n".join(frames[start:end])
-        limit = _RECURRENT_REFERENCE_BYTES_PER_QUARTER
-        if len(chunk) > limit:
-            chunk = chunk[: limit // 2] + chunk[-(limit - limit // 2) :]
-        if chunk:
-            sections.append(chunk)
-    return b"\n".join(sections)
-
-
-def make_training_control(
-    model: Any, windows: list[EpisodeWindow], device: torch.device, *, recurrent: bool
-) -> tuple[torch.Tensor | None, int]:
-    """Mix causal controls with detached noisy successful-trajectory references.
-
-    In recurrent phases, half of eligible verified-success windows use a
-    teacher reference from the *recorded* trajectory. Its complete encoded
-    vector is detached before Gaussian perturbation: training the predictor
-    cannot push the byte/control encoder to memorize a future target.
-    Remaining windows use the ordinary trainable, serving-compatible causal
-    control. One choice and one noise draw is reused across a window's chunks.
-    """
-    if not recurrent:
-        return make_control(model, windows, device, encoder_grad=True), 0
-    eligible = [
-        index
-        for index, item in enumerate(windows)
-        if item.episode.supervision.verified_success
-        and any(record.policy_mask for record in item.episode.records)
-    ]
-    selection = torch.rand(len(eligible)).tolist()
-    selected = [
-        index
-        for index, draw in zip(eligible, selection, strict=True)
-        if draw < _RECURRENT_REFERENCE_FRACTION
-    ]
-    # Encode each window *once*: the teacher and causal rows are disjoint.
-    selected_set = set(selected)
-    causal_payloads = [
-        b"" if index in selected_set else episode_control_payload(item.episode)
-        for index, item in enumerate(windows)
-    ]
-    causal = encode_controls(model.core, causal_payloads, encoder_grad=False)
-    if not selected:
-        return causal, 0
-    # Explicitly training-only: this adds the *current* successful trajectory's
-    # reference, not an external/earlier-history reference permitted at inference.
-    teacher_payloads = [
-        episode_control_payload(windows[index].episode)
-        + b"\n<reference>\n"
-        + _successful_trajectory_reference(windows[index].episode)
-        for index in selected
-    ]
-    with torch.no_grad():
-        teacher = encode_controls(model.core, teacher_payloads, encoder_grad=False)
-        assert teacher is not None
-        teacher = teacher.detach().float()
-        teacher = teacher + _RECURRENT_REFERENCE_NOISE_STD * torch.randn_like(teacher)
-    if len(selected) == len(windows):
-        return teacher, len(selected)
-    if causal is None:
-        control = teacher.new_zeros((len(windows), model.config.control_dim))
-    else:
-        control = causal.clone()
-    indices = torch.tensor(selected, device=device, dtype=torch.long)
-    return control.index_copy(0, indices, teacher.to(control.dtype)), len(selected)
-
-
 def prepare_batches(
     model: Any, windows: list[EpisodeWindow], config: TrainConfig
 ) -> list[MeridianPreparedBatch]:
@@ -210,7 +116,6 @@ def prepare_batches(
     applying a different loss/history schedule.
     """
     result: list[MeridianPreparedBatch] = []
-    histories: dict[int, NativeHistory] = {}
     verified_streams = {
         "verified_trajectories",
         "verified_successful_multiturn",
@@ -237,10 +142,7 @@ def prepare_batches(
             raise ValueError("Training stream requires independent verified success")
         if episode.stream == "long_verified_dependencies" and not episode.dependencies:
             raise ValueError("Long dependency stream requires causal source relationships")
-        identity = id(episode)
-        if identity not in histories:
-            histories[identity] = NativeHistory.from_episode(episode, model)
-        result.append(prepare_meridian_batch(model, item, histories[identity], config))
+        result.append(prepare_meridian_batch(model, item, NativeHistory.of(episode, model), config))
     return result
 
 
@@ -307,8 +209,18 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
     return result
 
 
+# The decoupled settings that change what a resumed learner computes. Where the
+# coordinator listens, timeouts, polling and storage do not.
+_DECOUPLED_IDENTITY = ("run_id", "workers", "local_steps", "wire_dtype")
+
+
 def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transition: bool) -> None:
     current = asdict(config)
+    for state in (old, current):
+        decoupled = state.get("decoupled")
+        state["decoupled"] = (
+            None if decoupled is None else {key: decoupled[key] for key in _DECOUPLED_IDENTITY}
+        )
     critical = (
         "model",
         "model_overrides",
@@ -332,7 +244,10 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "generated_capacity",
             "accumulate_scored",
             "accumulate_ingested",
+            "accumulate_events",
             "max_accumulation_windows",
+            "max_media_events_per_window",
+            "max_record_bytes",
             "use_stage_mixture",
             "use_effort_mixture",
             "effort",
@@ -358,8 +273,6 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
 def train(
     config: TrainConfig, *, resume: str | None = None, phase_transition: bool = False
 ) -> dict[str, Any]:
-    if config.phase == "R":
-        raise ValueError("Outcome RL requires executed episodes: use the rl command")
     if phase_transition and not resume:
         raise ValueError("A phase transition requires the previous phase's checkpoint")
     if config.decoupled is not None and (
@@ -493,7 +406,7 @@ def train(
             text_anchors = TextAnchors(
                 config.text_anchors, dataset.stores, extractor=model_config.media_extractor
             )
-        autoencode = None
+        sampler = center = None
         plan = AutoencodePlan.from_stage(stage_recipe(config.phase).constraints)
         if config.use_stage_mixture and plan.items:
             sampler = FeatureSampler(
@@ -506,7 +419,7 @@ def train(
                     f"Stage {config.phase} trains encode-and-reconstruct on prepared "
                     "feature items, but the datasets have none"
                 )
-            autoencode = (plan, sampler, embedding_center(sampler).to(context.device))
+            center = embedding_center(sampler).to(context.device)
         chunking = ChunkingConfig.from_identity(dataset.chunking, codec)
         chunking_identity = chunking.identity(codec)
         if (
@@ -587,6 +500,10 @@ def train(
                     raise ValueError("Exact resume requires the checkpoint's rank count")
                 rank_state = payload["rank_state"][context.rank]
                 stream.load_state_dict(rank_state["cursor"])
+                if (sampler is None) != (rank_state["autoencode"] is None):
+                    raise ValueError("Exact resume changed the encode-and-reconstruct sampler")
+                if sampler is not None:
+                    sampler.load_state_dict(rank_state["autoencode"])
                 restore_rng(rank_state["rng"])
                 consumed = payload["phase_consumed"]
                 counters = Counters(**payload["counters"])
@@ -633,7 +550,11 @@ def train(
             """
             nonlocal last_saved
             rank_state = context.all_gather_object(
-                {"cursor": stream.state_dict(), "rng": capture_rng()}
+                {
+                    "cursor": stream.state_dict(),
+                    "rng": capture_rng(),
+                    "autoencode": None if sampler is None else sampler.state_dict(),
+                }
             )
             name = f"{phase.name}-{global_step:09d}-{label}"
             if rank_rounds is not None:
@@ -688,7 +609,7 @@ def train(
                         keep=config.keep_checkpoints,
                     )
                     if checkpoint_store is not None:
-                        checkpoint_store.upload(root / name)
+                        checkpoint_store.upload(root / name, keep=config.keep_checkpoints)
 
                 checkpoint_writer.submit(write)
                 if pinned:
@@ -767,50 +688,49 @@ def train(
             weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
-            from megatoken.training.router_balance import RouterBalanceWindow
-
+            routers = {"p": model.core.p_router, "u": model.core.u_router}
             router_replay = RouterBalanceWindow()
-            model.core.p_router.balance_recorder = router_replay
-            model.core.u_router.balance_recorder = router_replay
             learning_rate = phase.learning_rate(
                 diloco.global_tokens if diloco is not None else consumed
             )
             optimizer.set_lr(learning_rate)
             model.core.dispatch_metrics(reset=True)
             step_diagnostics: dict[str, float | torch.Tensor] = {}
-            for batch in batches:
-                diagnostics_batch = forward_meridian_batch(
-                    model,
-                    batch,
-                    ledger,
-                    config,
-                    context.device,
-                    global_step,
-                    text_anchors=(
-                        None
-                        if text_anchors is None
-                        else (text_anchors, anchor_denom, config.text_anchor_weight)
-                    ),
-                    transducer=transducer,
-                )
-                for key, value in diagnostics_batch.items():
-                    step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
-            ledger.finish()
-            if router_replay is not None:
+            for router in routers.values():
+                router.balance_recorder = router_replay
+            try:
+                for batch in batches:
+                    diagnostics_batch = forward_meridian_batch(
+                        model,
+                        batch,
+                        ledger,
+                        config,
+                        context.device,
+                        global_step,
+                        text_anchors=(
+                            None
+                            if text_anchors is None
+                            else (text_anchors, anchor_denom, config.text_anchor_weight)
+                        ),
+                        transducer=transducer,
+                    )
+                    for key, value in diagnostics_batch.items():
+                        step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
+                ledger.finish()
                 # All ranks participate, including workers with zero eligible
                 # assignments. The model's version remains fixed until step().
                 step_diagnostics.update(
                     router_replay.backward(
                         context,
-                        routers={"p": model.core.p_router, "u": model.core.u_router},
+                        routers=routers,
                         coefficient=config.loss_weights["router_balance"],
                     )
                 )
-                model.core.p_router.balance_recorder = None
-                model.core.u_router.balance_recorder = None
+            finally:
+                for router in routers.values():
+                    router.balance_recorder = None
             step_diagnostics.update(transducer.after_backward(global_step))
-            if autoencode is not None:
-                plan, sampler, center = autoencode
+            if sampler is not None:
                 terms = autoencode_losses(
                     model,
                     sampler.draw(plan.items),
@@ -982,6 +902,9 @@ def train(
             if stops["stop"]:
                 last_checkpoint = checkpoint("interrupted", pinned=True)
                 break
+        if diloco is not None and not stop_requested and updates_this_run > 0:
+            # Hand the coordinator the last, partial window before the final checkpoint.
+            diloco.finish(optimizer, transducer)
         if (updates_this_run > 0 and consumed >= phase.budget) or last_saved != global_step:
             last_checkpoint = checkpoint(
                 "phase-end" if consumed >= phase.budget else "run-end", pinned=True

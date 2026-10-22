@@ -53,10 +53,3 @@ def position_features_at(positions: Tensor, dim: int) -> Tensor:
 def masked_mean(x: Tensor, mask: Tensor, dim: int = 1) -> Tensor:
     weights = mask.to(x.dtype).unsqueeze(-1)
     return (x * weights).sum(dim) / weights.sum(dim).clamp_min(1)
-
-
-def initialize_module(module: nn.Module) -> None:
-    if isinstance(module, nn.Linear):
-        nn.init.normal_(module.weight, std=1 / math.sqrt(module.in_features))
-        if module.bias is not None:
-            nn.init.zeros_(module.bias)

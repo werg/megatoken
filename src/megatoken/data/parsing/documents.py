@@ -480,7 +480,6 @@ _ATTRIBUTE = re.compile(
 _EVENT_NAMES = frozenset(
     name.encode("ascii")
     for name in (
-        "ascii",
         "click",
         "dblclick",
         "input",
@@ -581,17 +580,25 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
     scan.result.languages.add(language)
     index, text_start, length = 0, 0, len(payload)
     stack: list[tuple[bytes, int]] = []
-    while index < length and scan.nodes < limits.max_nodes:
-        scan.nodes += 1
-        if payload[index] != 60:
-            index += 1
-            continue
+    while index < length:
+        # Text between constructs costs nothing; only a tag, comment or CDATA
+        # section is a node, so the budget bounds structure rather than bytes.
+        index = payload.find(b"<", index)
+        if index < 0:
+            index = length
+            break
         tag_match = re.match(
             rb"<(/?)([A-Za-z_][A-Za-z_0-9:.-]*)", payload[index : min(length, index + 256)]
         )
         if not tag_match and not payload.startswith((b"<!--", b"<![CDATA["), index):
             index += 1
             continue
+        if scan.nodes >= limits.max_nodes:
+            scan.result.diagnostics.append(
+                Diagnostic("node_budget_exhausted", index, length, source)
+            )
+            break
+        scan.nodes += 1
         if index > text_start and len(scan.injections) < limits.max_injections:
             scan.injections.append(Injection(text_start, index, "auto", None, "markup_text"))
         if payload.startswith(b"<!--", index):
@@ -626,13 +633,8 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
                 )
             index = text_start = end
             continue
-        match = tag_match
-        if not match:
-            index += 1
-            text_start = min(text_start, index)
-            continue
-        closing, name = bool(match.group(1)), match.group(2).lower()
-        cursor, quote = index + match.end(), None
+        closing, name = bool(tag_match.group(1)), tag_match.group(2).lower()
+        cursor, quote = index + tag_match.end(), None
         while cursor < length:
             value = payload[cursor]
             if quote is not None:
@@ -645,7 +647,9 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
                 break
             cursor += 1
         _region(scan, index, cursor, "tag", language, source, limits)
-        attributes = _markup_attributes(payload, index + match.end(), cursor) if not closing else []
+        attributes = (
+            _markup_attributes(payload, index + tag_match.end(), cursor) if not closing else []
+        )
         if not closing:
             for attribute, _value, left, right in attributes:
                 if len(scan.injections) >= limits.max_injections:
@@ -698,10 +702,15 @@ def scan_markup_fallback(payload: bytes, language: str, limits: ParseLimits) -> 
         }:
             stack.append((name, index))
         index = text_start = cursor
-        if (
-            len(scan.injections) >= limits.max_injections
-            or len(scan.result.regions) >= limits.max_regions
-        ):
+        exhausted = (
+            "injection_budget_exhausted"
+            if len(scan.injections) >= limits.max_injections
+            else "region_budget_exhausted"
+            if len(scan.result.regions) >= limits.max_regions
+            else None
+        )
+        if exhausted:
+            scan.result.diagnostics.append(Diagnostic(exhausted, cursor, length, source))
             break
     if text_start < length and len(scan.injections) < limits.max_injections:
         scan.injections.append(Injection(text_start, length, "auto", None, "markup_text"))

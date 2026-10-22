@@ -12,8 +12,10 @@ import hashlib
 import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal, Protocol
+
+from megatoken.contracts import ROLE_TO_ID
 
 from .chunking import ChunkingConfig, segment_bytes
 from .media_assets import MEDIA_RECORD_TYPE
@@ -140,9 +142,7 @@ class Supervision:
                 for entry in annotations["native_action_tapes"]:
                     ActionTape.from_json(canonical_json(entry["tape"]))
             except (KeyError, TypeError, ValueError) as error:
-                raise ValueError(
-                    "Native action metadata contains an incompatible legacy or malformed tape"
-                ) from error
+                raise ValueError("Native action metadata contains an malformed tape") from error
 
     @property
     def verified_success(self) -> bool:
@@ -197,14 +197,7 @@ class TrackSpec:
     settings_json: str = "{}"
 
     def __post_init__(self) -> None:
-        if not self.track_id or self.role not in {
-            "system",
-            "user",
-            "assistant",
-            "tool",
-            "document",
-            "environment",
-        }:
+        if not self.track_id or self.role not in ROLE_TO_ID:
             raise ValueError("Track spec needs an identity and a supported role")
         if not isinstance(self.description, str) or not isinstance(
             json.loads(self.settings_json), dict
@@ -235,7 +228,7 @@ class TrackEvent:
             raise ValueError("Track event needs ID, track and nonnegative meridian")
         if self.modality not in {"text", "audio", "image", "video", "compressed_text"}:
             raise ValueError("Unknown event modality")
-        if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
+        if self.role not in ROLE_TO_ID:
             raise ValueError("Unknown track event role")
         if (
             not isinstance(self.request, str)
@@ -308,7 +301,6 @@ class PhysicalRecord:
     artifact_version: str = ""
     base_artifact_version: str = ""
     edit_continuation: str = ""
-    auxiliary_observation_loss: bool = False
     chunk_boundary: str | None = None
     chunking_fingerprint: str | None = None
     forced_chunk_split: bool = False
@@ -317,7 +309,7 @@ class PhysicalRecord:
     chunk_diagnostics: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.role not in {"system", "user", "assistant", "tool", "document", "environment"}:
+        if self.role not in ROLE_TO_ID:
             raise ValueError(f"Unknown record role: {self.role}")
         if self.provenance not in {
             "natural",
@@ -344,8 +336,6 @@ class PhysicalRecord:
                 raise TypeError(f"{name} must be an immutable tuple of strings")
         if self.policy_mask and self.role not in {"assistant", "document"}:
             raise ValueError("Only assistant/document emission can carry policy loss")
-        if self.auxiliary_observation_loss and self.role not in {"tool", "environment"}:
-            raise ValueError("Observation reconstruction needs an observation role")
         if self.action_id and (self.role != "assistant" or self.result_of):
             raise ValueError("A tool action must be assistant-owned and cannot also be its result")
         if self.result_of and self.role not in {"tool", "environment"}:
@@ -431,7 +421,6 @@ class Episode:
     records: tuple[PhysicalRecord, ...]
     lineage: Lineage
     stream: str = "chat"
-    reset_id: str = ""
     actions: tuple[LogicalAction, ...] = ()
     supervision: Supervision = Supervision()
     dependencies: tuple[Dependency, ...] = ()
@@ -443,6 +432,8 @@ class Episode:
     tracks: tuple[TrackSpec, ...] = ()
     meridians: tuple[Meridian, ...] = ()
     omni_relations: tuple[EpisodeRelation, ...] = ()
+    # Hashing every payload is linear in the episode; it is computed once, on first use.
+    _content_sha256: str = field(default="", init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.episode_id or not self.records or not isinstance(self.records, tuple):
@@ -580,19 +571,18 @@ class Episode:
                 raise ValueError("Every physical record requires a meridian event")
 
     @property
-    def identity(self) -> str:
-        return self.reset_id or self.episode_id
-
-    @property
     def content_sha256(self) -> str:
-        return stable_id(
-            "episode-content-v3",
-            *(
-                value
-                for group in self.iter_logical_records()
-                for value in (group[0].role, b"".join(record.payload for record in group))
-            ),
-        )
+        if not self._content_sha256:
+            digest = stable_id(
+                "episode-content-v3",
+                *(
+                    value
+                    for group in self.iter_logical_records()
+                    for value in (group[0].role, b"".join(record.payload for record in group))
+                ),
+            )
+            object.__setattr__(self, "_content_sha256", digest)
+        return self._content_sha256
 
     def iter_logical_records(self) -> Iterable[tuple[PhysicalRecord, ...]]:
         """Return original logical events independent of physical chunk limits."""
@@ -602,13 +592,10 @@ class Episode:
                 yield self.records[start : index + 1]
                 start = index + 1
 
-    def model_records(self) -> tuple[PhysicalRecord, ...]:
-        """The entire model-visible payload; labels remain outside this boundary."""
-        return self.records
-
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["schema_version"] = SCHEMA_VERSION
+        del result["_content_sha256"]
         for record, value in zip(self.records, result["records"], strict=True):
             value["payload"] = base64.b64encode(record.payload).decode("ascii")
         result["control_seed"] = base64.b64encode(self.control_seed).decode("ascii")
@@ -619,9 +606,7 @@ class Episode:
     def from_dict(cls, value: Mapping[str, Any]) -> Episode:
         obj = dict(value)
         if obj.pop("schema_version", None) != SCHEMA_VERSION:
-            raise ValueError(
-                "Unsupported episode schema version; old records are intentionally unsupported"
-            )
+            raise ValueError("Unsupported episode schema version")
         lineage = dict(obj["lineage"])
         lineage["ancestor_ids"] = tuple(lineage.get("ancestor_ids", ()))
         obj["lineage"] = Lineage(**lineage)
@@ -775,6 +760,10 @@ def encode_record(record: PhysicalRecord, codec: Codec) -> EncodedRecord:
     return EncodedRecord(record, ids, mask, tuple(spans), codec.fingerprint, transcript_tokens)
 
 
+def encode_episode(episode: Episode, codec: Codec) -> tuple[EncodedRecord, ...]:
+    return tuple(encode_record(record, codec) for record in episode.records)
+
+
 def split_payload(payload: bytes, max_bytes: int) -> Iterable[tuple[int, bytes]]:
     """Prefer semantic line/word breaks; retain every byte including whitespace."""
     if max_bytes <= 0:
@@ -905,11 +894,9 @@ def make_records(
     return tuple(result)
 
 
-def apply_recovery_policy(episode: Episode, *, imitate_unknown: bool = False) -> Episode:
+def apply_recovery_policy(episode: Episode) -> Episode:
     """Failures provide context/outcome learning; imitate only annotated repairs."""
     if episode.supervision.outcome == "success":
-        return episode
-    if episode.supervision.outcome == "unknown" and imitate_unknown:
         return episode
     turns = frozenset(episode.supervision.recovery_turns)
     records = tuple(

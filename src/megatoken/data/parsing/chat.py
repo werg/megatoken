@@ -89,13 +89,12 @@ class ChatParse:
 
 @dataclass(frozen=True, slots=True)
 class ChatTemplate:
-    """Declarative extension point for delimiter-based text dumps.
+    """Declarative description of one delimiter-based text-dump template.
 
-    Custom templates can be supplied via the immutable ``templates`` argument
-    to :func:`parse_chat`. There is no process-global mutable registration or
-    remote code loading. Include :func:`template_identity` in external policies
-    that use a custom registry. ``mode`` is ``delimited``, ``inst``, or
-    ``deepseek``; only the two built-in families need specialized state machines.
+    The built-in set is the only registry: there is no registration hook or
+    remote code loading, and :func:`template_identity` fingerprints it for the
+    chunking policy. ``mode`` is ``delimited``, ``inst``, or ``deepseek``; only
+    the two non-delimited families need specialized state machines.
     """
 
     name: str
@@ -192,7 +191,7 @@ CHAT_TEMPLATES: Mapping[str, ChatTemplate] = MappingProxyType(
 )
 
 
-def template_identity(templates: Mapping[str, ChatTemplate] = CHAT_TEMPLATES) -> dict:
+def template_identity() -> dict:
     """JSON-safe parser identity, including every configured delimiter byte."""
 
     def encode(value):
@@ -206,7 +205,7 @@ def template_identity(templates: Mapping[str, ChatTemplate] = CHAT_TEMPLATES) ->
         "version": CHAT_PARSER_VERSION,
         "templates": {
             name: {key: encode(value) for key, value in asdict(spec).items()}
-            for name, spec in sorted(templates.items())
+            for name, spec in sorted(CHAT_TEMPLATES.items())
         },
     }
 
@@ -291,6 +290,7 @@ def _quoted_end(payload: bytes, position: int) -> int | None:
 
     Delimiters inside fenced/inline code, ordinary/triple strings, JS templates,
     C++ raw strings, Rust raw strings and HTML/C-style comments are literal.
+    Ordinary quotes and inline code end at their line; block literals do not.
     This is a framing guard, not a claim of a universal programming grammar.
     """
     if payload[position] not in b"<'\"`/rbR":
@@ -320,6 +320,8 @@ def _quoted_end(payload: bytes, position: int) -> int | None:
         return None
     if value == b"'" and position and chr(payload[position - 1]).isalnum():
         return None
+    if value == b'"' and position and payload[position - 1 : position].isdigit():
+        return None  # An inch or second mark (5"), not the start of a string.
     delimiter = value * 3 if value != b"`" and payload.startswith(value * 3, position) else value
     if value == b"`":
         end = position + 1
@@ -327,12 +329,20 @@ def _quoted_end(payload: bytes, position: int) -> int | None:
             end += 1
         delimiter = payload[position:end]
     cursor = position + len(delimiter)
+    # Only triple quotes and backtick fences span lines. An ordinary quotation
+    # mark or inline code span ends at its line: a stray inch mark or backtick
+    # in one turn must not swallow the turn boundary and the next speaker's
+    # own quotation.
+    block = len(delimiter) >= 3
+    line_end = len(payload) if block else payload.find(b"\n", cursor)
+    if line_end < 0:
+        line_end = len(payload)
     while True:
-        close = payload.find(delimiter, cursor)
+        close = payload.find(delimiter, cursor, line_end)
         if close < 0:
             # An unmatched ordinary quotation mark may just be prose punctuation.
             # Unclosed block/triple literals are protected through truncation.
-            return len(payload) if len(delimiter) >= 3 else None
+            return len(payload) if block else None
         escapes = 0
         prior = close - 1
         while prior >= cursor and payload[prior] == 92:
@@ -576,7 +586,6 @@ def parse_chat(
     payload: bytes,
     template: str = "auto",
     *,
-    templates: Mapping[str, ChatTemplate] = CHAT_TEMPLATES,
     max_frames: int = 20_000,
 ) -> ChatParse:
     """Frame a serialized chat only from a recognized, anchored source prefix.
@@ -596,7 +605,9 @@ def parse_chat(
     selected = template.strip().casefold()
     if selected == "none":
         return ChatParse("none")
-    candidates = [spec for name, spec in templates.items() if selected in {name, *spec.aliases}]
+    candidates = [
+        spec for name, spec in CHAT_TEMPLATES.items() if selected in {name, *spec.aliases}
+    ]
     if selected != "auto" and not candidates:
         return ChatParse(
             selected, diagnostics=(_diagnostic("chat_unknown_template", 0, len(payload), selected),)
@@ -604,7 +615,7 @@ def parse_chat(
     if selected == "auto":
         candidates = [
             spec
-            for spec in templates.values()
+            for spec in CHAT_TEMPLATES.values()
             if payload.startswith(spec.start, _prefix(payload, spec))
             or (
                 spec.mode == "deepseek"

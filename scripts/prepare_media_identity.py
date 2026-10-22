@@ -46,7 +46,9 @@ def main() -> None:
     counts: dict[str, int] = {}
     try:
         with dedup.transaction():
-            for line in args.records.read_text(encoding="utf-8").splitlines():
+            for line in args.records.read_text(encoding="utf-8").split("\n"):
+                if not line.strip():
+                    continue
                 record = MediaRecord.from_bytes(json.loads(line)["record"].encode())
                 for asset in (record.source, record.target):
                     if asset is not None:
@@ -55,7 +57,9 @@ def main() -> None:
                 dedup.add(episode, codec)
                 counts[episode.stream] = counts.get(episode.stream, 0) + 1
             if args.text_episodes is not None:
-                for line in args.text_episodes.read_text(encoding="utf-8").splitlines():
+                for line in args.text_episodes.read_text(encoding="utf-8").split("\n"):
+                    if not line.strip():
+                        continue
                     episode = Episode.from_dict(json.loads(line))
                     if any(
                         event.modality != "text"

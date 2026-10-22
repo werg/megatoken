@@ -37,37 +37,36 @@ def test_paragraph_scan_is_lazy_and_keeps_soft_wrapping_and_crlf(monkeypatch):
     first = "第一段 e\u0301。\r\nA soft wrap stays here.\r\n\t\r\n"
     second = "下一段。\r\n"
     payload = (first + second).encode()
-    result = analyze_prose(payload, start=17)
-    assert boundaries_of(result, "paragraph") == {17 + len(first.encode()), 17 + len(payload)}
+    result = analyze_prose(payload)
+    assert boundaries_of(result, "paragraph") == {len(first.encode()), len(payload)}
     assert {item.kind for item in result.boundaries} == {"paragraph"}
     paragraphs = [item for item in result.regions if item.kind == "paragraph"]
-    assert [payload[item.start - 17 : item.end - 17] for item in paragraphs] == [
+    assert [payload[item.start : item.end] for item in paragraphs] == [
         first.encode(),
         second.encode(),
     ]
-    result.validate(17 + len(payload))
+    result.validate(len(payload))
 
 
 def test_refinement_predicate_sees_absolute_byte_ranges_and_selects_only_oversized_paragraph():
     first = "短い段落。\n\n".encode()
     second = b"A much longer first sentence. A second sentence.\n\n"
     third = "終わり。".encode()
-    base = 13
     seen = []
 
     def refine(start, end):
         seen.append((start, end))
         return end - start > 32
 
-    result = analyze_prose(first + second + third, start=base, refine=refine)
+    result = analyze_prose(first + second + third, refine=refine)
     assert seen == [
-        (base, base + len(first)),
-        (base + len(first), base + len(first) + len(second)),
-        (base + len(first) + len(second), base + len(first) + len(second) + len(third)),
+        (0, len(first)),
+        (len(first), len(first) + len(second)),
+        (len(first) + len(second), len(first) + len(second) + len(third)),
     ]
     assert boundaries_of(result, "sentence") == {
-        base + len(first) + len(b"A much longer first sentence. "),
-        base + len(first) + len(second),
+        len(first) + len(b"A much longer first sentence. "),
+        len(first) + len(second),
     }
 
 
@@ -196,12 +195,9 @@ def test_malformed_utf8_retains_valid_graphemes_and_reports_exact_bad_ranges():
     first = "e\u0301".encode()
     last = "👩🏽\u200d🚀".encode()
     payload = b"\xff" + first + b"\x80\x81" + last + b"\xfe"
-    base = 19
-    result = analyze_prose(payload, start=base, refine=True)
+    result = analyze_prose(payload, refine=True)
     assert [
-        (item.start - base, item.end - base)
-        for item in result.diagnostics
-        if item.code == "invalid_utf8"
+        (item.start, item.end) for item in result.diagnostics if item.code == "invalid_utf8"
     ] == [(0, 1), (1 + len(first), 3 + len(first)), (len(payload) - 1, len(payload))]
     offsets = grapheme_offsets(payload)
     assert offsets == (
@@ -214,8 +210,8 @@ def test_malformed_utf8_retains_valid_graphemes_and_reports_exact_bad_ranges():
         len(payload),
     )
     assert b"".join(payload[a:b] for a, b in zip(offsets, offsets[1:], strict=False)) == payload
-    assert all(item.offset - base in offsets for item in result.boundaries)
-    result.validate(base + len(payload))
+    assert all(item.offset in offsets for item in result.boundaries)
+    result.validate(len(payload))
 
 
 def test_every_byte_value_has_a_lossless_fallback():
@@ -277,12 +273,10 @@ def test_icu_utf16_indices_are_mapped_back_to_exact_source_bytes(monkeypatch):
     monkeypatch.setattr(prose, "_load_icu", lambda: icu)
     first = "🙂 First. "
     second = "Second."
-    result = analyze_prose(
-        (first + second).encode(), start=23, refine=True, use_icu=True, locale="de-DE"
-    )
+    result = analyze_prose((first + second).encode(), refine=True, use_icu=True, locale="de-DE")
     assert boundaries_of(result, "sentence") == {
-        23 + len(first.encode()),
-        23 + len((first + second).encode()),
+        len(first.encode()),
+        len((first + second).encode()),
     }
     assert result.parsers == {"unicode-prose", "icu"}
     assert not result.diagnostics
@@ -431,10 +425,6 @@ def test_empty_and_whitespace_only_payloads_and_offsets():
     result.validate(len(payload))
     assert not boundaries_of(result, "sentence")
     assert boundaries_of(result, "paragraph") == {len(payload)}
-    with pytest.raises(ValueError, match="nonnegative integer"):
-        analyze_prose(b"hello", start=-1)
-    with pytest.raises(ValueError, match="nonnegative integer"):
-        analyze_prose(b"hello", start=True)
 
 
 @pytest.mark.parametrize(
@@ -452,12 +442,12 @@ def test_empty_and_whitespace_only_payloads_and_offsets():
 def test_installed_icu_refines_real_multilingual_text_without_offset_drift(locale, text, sentences):
     pytest.importorskip("icu", reason="Optional ICU integration runs in the i18n CI job")
     payload = ("👩🏾‍💻 " + text + "\r\n").encode()
-    result = analyze_prose(payload, start=37, locale=locale, refine=True, use_icu=True)
-    safe = {37 + offset for offset in grapheme_offsets(payload)}
+    result = analyze_prose(payload, locale=locale, refine=True, use_icu=True)
+    safe = set(grapheme_offsets(payload))
     assert "icu" in result.parsers
     assert not result.diagnostics
     assert bool(boundaries_of(result, "sentence")) is sentences
     assert len(boundaries_of(result, "word")) > 2
     assert all(boundary.offset in safe for boundary in result.boundaries)
-    assert max(boundary.offset for boundary in result.boundaries) == 37 + len(payload)
+    assert max(boundary.offset for boundary in result.boundaries) == len(payload)
     assert prose_runtime_identity(True)["icu"]["library"]

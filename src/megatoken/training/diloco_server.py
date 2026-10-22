@@ -47,7 +47,8 @@ class Conflict(ValueError):
     """A stale or duplicated submission, or a live worker holding the slot.
 
     ``detail`` rides along in the 409 body: ``stale`` for a base the coordinator
-    cannot reconcile, ``sequence`` for a duplicate round (the last one it has).
+    cannot reconcile, ``sequence`` for a duplicate round (the last one it has),
+    ``lease`` when the worker's own lease ran out (the learner leases again).
     """
 
     def __init__(self, message: str, **detail: object) -> None:
@@ -77,6 +78,7 @@ def initialize_coordinator(
     outer_momentum: float = 0.9,
     grace_seconds: float = 8.0,
     max_staleness: int = 2,
+    lease_seconds: float = 600.0,
     token_budget: int = 0,
     transducer: dict,
     transducer_state: dict | None = None,
@@ -94,6 +96,7 @@ def initialize_coordinator(
         or not 1 <= min_quorum <= workers <= 256
         or not 0 <= grace_seconds <= 3600
         or not 0 <= max_staleness <= 32
+        or not 0 < lease_seconds <= 86400
         or token_budget < 0
         or not (0 < outer_lr <= 4 and 0 <= outer_momentum < 1)
         or max_transducer_round_bytes < 1024
@@ -113,6 +116,7 @@ def initialize_coordinator(
         "outer_momentum": outer_momentum,
         "grace_seconds": grace_seconds,
         "max_staleness": max_staleness,
+        "lease_seconds": lease_seconds,
         "token_budget": token_budget,
         "model_config": model_config,
         "codec_fingerprint": codec_fingerprint,
@@ -216,7 +220,7 @@ class Coordinator:
     def _lease_valid(self, worker: int, session: str) -> None:
         lease = self.progress["leases"].get(str(worker))
         if lease is None or lease["session"] != session or lease["expires"] < time.time():
-            raise Conflict("Worker lease expired or belongs to a different session")
+            raise Conflict("Worker lease expired or belongs to a different session", lease=True)
 
     def lease(self, worker: int, session: str) -> dict:
         with self.lock:
@@ -229,10 +233,27 @@ class Coordinator:
                 raise Conflict("Worker ID already leased by a live session")
             self.progress["leases"][str(worker)] = {
                 "session": session,
-                "expires": time.time() + 180,
+                "expires": time.time() + self.manifest["lease_seconds"],
             }
             self._write_progress()
-            return self.status()
+            return {**self.status(), "sequences": self._sequences(worker)}
+
+    def _sequences(self, worker: int) -> dict:
+        """The newest update sequence the coordinator holds from ``worker``, per fragment
+        (merged or queued) and for transducer rounds. A learner restored from an older
+        checkpoint numbers its next uploads after these, so none is mistaken for one
+        already merged."""
+        fragments = []
+        for fragment in self.fragments:
+            merged = json.loads(_metadata(self._path(fragment.index)).get("last_seq", "{}"))
+            queued = self._pending_dir(fragment.index) / f"{worker:03d}.safetensors"
+            fragments.append(
+                max(
+                    int(merged.get(str(worker), 0)),
+                    int(_metadata(queued)["sequence"]) if queued.exists() else 0,
+                )
+            )
+        return {"fragments": fragments, "transducer": self.transducer.sequence(worker)}
 
     def heartbeat(self, worker: int, session: str, steps: int, tokens: int) -> dict:
         with self.lock:
@@ -246,7 +267,9 @@ class Coordinator:
                 "steps": max(steps, previous["steps"]),
                 "tokens": max(tokens, previous["tokens"]),
             }
-            self.progress["leases"][str(worker)]["expires"] = time.time() + 180
+            self.progress["leases"][str(worker)]["expires"] = (
+                time.time() + self.manifest["lease_seconds"]
+            )
             self._write_progress()
             return self.status()
 
@@ -307,7 +330,10 @@ class Coordinator:
                 return {"status": "already_merged", "version": version}
             if base_version > version or version - base_version > self.manifest["max_staleness"]:
                 raise Conflict("Stale fragment baseline; fetch current global weights")
-            tensors = load_tensors(incoming)
+            try:
+                tensors = load_tensors(incoming)
+            except Exception as exc:
+                raise ValueError("Malformed safetensors update") from exc
             if tensors.keys() != {"delta"}:
                 raise ValueError("Expected exactly one safetensors delta")
             delta = tensors["delta"]
@@ -337,7 +363,8 @@ class Coordinator:
             self._try_merge(index)
             return {"status": "queued", "version": self._version(index)}
 
-    def _try_merge(self, index: int) -> None:
+    def _try_merge(self, index: int, *, final: bool = False) -> None:
+        """Merge the queued quorum; ``final`` merges whatever is queued, however few."""
         path = self._path(index)
         meta = _metadata(path)
         version = int(meta["version"])
@@ -354,12 +381,13 @@ class Coordinator:
                 file.unlink()
                 continue
             proposals.append((file, item, age))
-        if len(proposals) < self.manifest["min_quorum"]:
+        if len(proposals) < (1 if final else self.manifest["min_quorum"]):
             self.quorum_since.pop(index, None)
             return
         since = self.quorum_since.setdefault(index, time.monotonic())
         if (
-            len(proposals) < self.manifest["workers"]
+            not final
+            and len(proposals) < self.manifest["workers"]
             and time.monotonic() - since < self.manifest["grace_seconds"]
         ):
             return
@@ -421,8 +449,14 @@ class Coordinator:
             self.transducer.try_merge()
 
     def close(self) -> None:
-        """Leave the transducer bank current on disk for the next start or phase export."""
+        """Merge what learners sent last, however few, and leave the bank current on disk.
+
+        The final window of a phase is flushed by learners that finish at different
+        moments; it must reach the exported model even without a full quorum.
+        """
         with self.lock:
+            for fragment in self.fragments:
+                self._try_merge(fragment.index, final=True)
             if self.transducer.coordinator.pending:
                 self.transducer.merge_or_skip()
             self.transducer.persist()
@@ -442,7 +476,9 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
             pass
 
         def _auth(self) -> bool:
-            if hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {token}"):
+            # Bytes: a non-ASCII header must be refused, not crash the comparison.
+            offered = self.headers.get("Authorization", "").encode("utf-8", "replace")
+            if hmac.compare_digest(offered, f"Bearer {token}".encode()):
                 return True
             self._json(401, {"error": "Unauthorized"})
             return False
@@ -486,12 +522,18 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                 raise ValueError("Expected a JSON object")
             return result
 
+        def _header(self, name: str) -> str:
+            value = self.headers.get(name)
+            if value is None:
+                raise ValueError(f"Missing {name} header")
+            return value
+
         def _round_headers(self) -> tuple[int, str, int, int]:
             return (
-                int(self.headers["X-Worker"]),
-                str(self.headers["X-Session"]),
-                int(self.headers["X-Sequence"]),
-                int(self.headers["X-Base-Version"]),
+                int(self._header("X-Worker")),
+                self._header("X-Session"),
+                int(self._header("X-Sequence")),
+                int(self._header("X-Base-Version")),
             )
 
         def _receive(self, maximum: int) -> Path:
@@ -573,7 +615,7 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                         self._stream_file(file, version)
                 else:
                     self._json(404, {"error": "Unknown endpoint"})
-            except (ValueError, OSError) as exc:
+            except (TypeError, ValueError, OSError) as exc:
                 self._json(400, {"error": str(exc)})
             except (BrokenPipeError, ConnectionResetError):
                 pass
@@ -602,8 +644,8 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                         result = coordinator.submit(
                             index,
                             *self._round_headers(),
-                            int(self.headers["X-Steps"]),
-                            int(self.headers["X-Tokens"]),
+                            int(self._header("X-Steps")),
+                            int(self._header("X-Tokens")),
                             filename,
                         )
                     finally:
@@ -630,7 +672,7 @@ def serve_coordinator(root: str | Path, host: str, port: int, token: str) -> Non
                 self._json(200, result)
             except Conflict as exc:
                 self._json(409, {"error": str(exc), **exc.detail})
-            except (KeyError, ValueError, OSError) as exc:
+            except (KeyError, TypeError, ValueError, OSError) as exc:
                 self._json(400, {"error": str(exc)})
 
     server = ThreadingHTTPServer((host, port), Handler)
