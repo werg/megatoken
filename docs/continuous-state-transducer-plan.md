@@ -12,7 +12,7 @@ Replace point/pair semantic memory with a **continuous-state transducer**. Each 
 | --- | --- |
 | Edge | Departure location, query key, knowledge value, destination location, and scalar bias |
 | Geometry | 256-dimensional locations; 1,024-dimensional query/key; 32,768-dimensional value |
-| Retrieval | Every query searches the 128 nearest departures of every agenda location, with no global search; location-modulated query scoring; one softmax over the 32 best location–edge pairs |
+| Retrieval | Every query searches the 128 nearest departures of every agenda location, with no global search; location-modulated query scoring; one softmax over the 32 best location–edge pairs and a learned attention sink |
 | State movement | The softmax blend of the selected edges' destinations joins the agenda; paths are order-sensitive because which edges can be taken depends on where the search is |
 | Returned knowledge | Mix wide values first; shared U mixture-of-experts (MoE); one **32 x 512** knowledge megatoken |
 | Persistent precision | **NVFP4-style values; FP8 keys, departures and destinations** |
@@ -50,23 +50,29 @@ $$
 \qquad
 z_{ji}=\beta_s\,\hat s_j^\top\hat d_i+\beta_q\,\tilde q_{t,j}^\top\hat k_i+b_i,
 \qquad
-w_{ji}=\frac{e^{z_{ji}}}{\sum_{(j',i')}e^{z_{j'i'}}}.
+w_{ji}=\frac{e^{z_{ji}}}{e^{z_\varnothing}+\sum_{(j',i')}e^{z_{j'i'}}},
+\qquad
+z_\varnothing=b_\varnothing+u_\varnothing^\top\hat q_t.
 $$
 
-$M\in\mathbb R^{1024\times256}$ is one shared dense model parameter, initialized to zero; $M\hat s_j$ is cached with each agenda location. Before normalization, $\tilde q^\top k_i=q^\top\operatorname{diag}(k_i)\,(1+\tanh(Ms))$: each edge's query/location interaction is a bilinear form built from its own key and one shared factor. The same query therefore selects different edges at different locations. The departure term keeps each pair's edge close to its own location. The softmax runs over the 32 highest-scoring pairs from all locations together, so query–key similarity decides which locations matter for this question. There is no null alternative: like ordinary attention, retrieval always blends what it finds, and the model learns how much to rely on the result. The positive scales $\beta_s,\beta_q$ are model parameters.
+$M\in\mathbb R^{1024\times256}$ is one shared dense model parameter, initialized to zero; $M\hat s_j$ is cached with each agenda location. Before normalization, $\tilde q^\top k_i=q^\top\operatorname{diag}(k_i)\,(1+\tanh(Ms))$: each edge's query/location interaction is a bilinear form built from its own key and one shared factor. The same query therefore selects different edges at different locations. The departure term keeps each pair's edge close to its own location. The softmax runs over the 32 highest-scoring pairs from all locations together, so query–key similarity decides which locations matter for this question. The positive scales $\beta_s,\beta_q$ are model parameters.
+
+### The retrieval sink
+
+The softmax always includes one learned **attention sink**, as in ordinary transformer attention. It is not an empty state and not a gate: every lookup commits its knowledge event and its new location, whatever the sink's share. The sink only gives the softmax somewhere to put mass when nothing nearby fits, so the best pair is not forced to full weight. Its logit $z_\varnothing$ has a learned bias $b_\varnothing$ and a learned query direction $u_\varnothing$, so a query can ask for less. Its value $v_\varnothing$ is a learned dense 32,768-wide parameter, the bank's default knowledge. Its destination is the newest location, so mass on the sink holds the search still. $b_\varnothing$ starts at the mean initial pair score. The sink is a model parameter trained by gradient, never written by hindsight. Before the first edge exists, it is the only entry.
 
 ### Transitions are destinations
 
 Each edge stores where it leads:
 
 $$
-\bar v_t=\sum_{(j,i)} w_{ji}\,v_i,\qquad
-s_{t+1}=\operatorname{normalize}\Big(\sum_{(j,i)} w_{ji}\,\hat e_i\Big).
+\bar v_t=w_\varnothing v_\varnothing+\sum_{(j,i)} w_{ji}\,v_i,\qquad
+s_{t+1}=\operatorname{normalize}\Big(w_\varnothing\hat s_t+\sum_{(j,i)} w_{ji}\,\hat e_i\Big).
 $$
 
 An edge is a directed graph edge from the region around $d_i$ to $e_i$, answering query $k_i$ on the way. Paths are order-sensitive because the edges available depend on where the search is: after A then B the agenda holds A's and B's destinations and offers their neighbourhoods, which differs from B then A. Each query is also read through each location (above). This is the weighted-automaton form of a transducer, with continuous states. The new location is the softmax blend of the selected destinations, dominated by the pairs that answered the query best. Edges near one another share neighbourhoods, so structure is shared rather than enumerated per path.
 
-**The weights are identical for knowledge and movement.** Keep every location on the unit sphere. Use FP32 norms, scores, softmax, weighted sums and state accumulation. Nonfinite inputs are errors, not values to hide with clamping. Agenda locations older than the unroll window (§3) are detached. An edge's weight $\omega_i=\sum_j w_{ji}$ is its total over its pairs.
+**The weights are identical for knowledge and movement.** Keep every location on the unit sphere. Use FP32 norms, scores, softmax, weighted sums and state accumulation. Nonfinite inputs are errors, not values to hide with clamping. Agenda locations older than the unroll window (§3) are detached. An edge's weight $\omega_i=\sum_j w_{ji}$ is its total over its pairs; $w_\varnothing$ is the sink's weight.
 
 ### Exploration stays local
 
@@ -86,7 +92,7 @@ A query cannot use the answer it is about to predict. Training targets may updat
 
 ### A fixed wide-value projection
 
-Decode and blend the 32,768-wide values before projection. Divide the resulting vector into **64 rows of width 512**, add learned row identities, apply a small shared adapter, route the rows through the **existing U expert bank**, and use **32 learned facet queries** to gather a native $[32,512]$ block. Query and search-state summaries condition the routing/readout.
+Decode and blend the 32,768-wide values before projection. Divide the resulting vector into **64 rows of width 512**, add learned row identities, apply a small shared adapter, route the rows through the **existing U expert bank**, and use **32 learned facet queries** to gather a native $[32,512]$ block. The facet queries also see one learned sink row, so a facet can take little from the value. Query and search-state summaries condition the routing/readout.
 
 Commit this block as an observed event on a reserved knowledge track. It attends to previous retrieval and generation history through C and writes **ordinary native KV**. Register new adapters/readouts once; reuse the U bank's existing parameter owner and optimizer. Shared U remains part of the frozen realization map for any later latent-policy RL phase.
 
@@ -100,9 +106,9 @@ The hindsight track is a reserved, **training-only** track. For each lookup it p
 
 **The hindsight pass** runs C once over the sequence's ordinary events with a **group-inverse mask**. Ordinary events are those observed or generated, never query or knowledge events. Under the mask, an event attends bidirectionally to every event of its own retrieval group, and to every event of later groups. Each group's final C states therefore summarize that group and everything after it. The pass never touches retrieval, so it runs once per sequence, before the causal pass, for all lookups in parallel. Its activations never enter `KVHistory`, and no causal track or serving path can read them. The cost is one C pass over the ordinary events, in training only.
 
-**The hindsight realizer** is a head on C, a sibling of the retrieval-query realizer. Its 64 learned row queries attend over the final states of one group's events and emit $h_t$ in the bank's own format: a 32,768-wide value, packed to FP4 and decoded exactly like a stored edge value. $h_t$ is the only thing the track emits. It is not conditioned on the query: it is what the future needs at lookup $t$, and queries, keys and locations learn to find it.
+**The hindsight realizer** is a head on C, a sibling of the retrieval-query realizer. Its 64 learned row queries attend over the final states of one group's events, plus one learned sink key and value, and emit $h_t$ in the bank's own format: a 32,768-wide value, packed to FP4 and decoded exactly like a stored edge value. The sink lets a row query take little from a group, and it is the whole input when the group to read lies past the end of the sequence: the last lookups' $h_t$ then comes from the sink alone. $h_t$ is the only thing the track emits. It is not conditioned on the query: it is what the future needs at lookup $t$, and queries, keys and locations learn to find it.
 
-Tracks gain a masking mode, implemented as an explicit mask built from per-query and per-key group, meridian and track metadata. This replaces today's purely structural causality. Causal stays the default. Which group the realizer reads decides what $h_t$ may see, and that follows a curriculum during warm-up:
+Tracks gain a masking mode, implemented as an explicit mask built from per-query and per-key group, meridian and track metadata. This replaces today's purely structural causality. Causal stays the default. Every attention layer of C and P gains one learned, position-free sink key/value slot per KV head, visible to every query under every mask. It is added at attention time and never stored in `KVHistory`. Heads get a place to park attention instead of overloading the metadata prefix or the newest events, and no query row can ever be fully masked. Which group the realizer reads decides what $h_t$ may see, and that follows a curriculum during warm-up:
 
 1. **Full** (first 4,096 steps): the pass is bidirectional over the whole sequence; read $G_t$.
 2. **Gap 1** (next 4,096 steps): group-inverse pass; read $G_t$, the group the knowledge serves, and everything after it.
@@ -113,7 +119,7 @@ Stages 2 and 3 are the same pass read one group apart.
 **Training order.**
 
 - **Hindsight warm-up (first 16,384 steps, spanning the mask curriculum).** Every knowledge event's value is $h_t$, read through the ordinary readout and committed through C. The future loss trains the hindsight track and realizer, the readout, P and C together. From the gap-2 stage on, successful hindsight entries are written out as edges (§6), so the bank exists when warm-up ends.
-- **Overlay.** Every lookup's value becomes $(1-\alpha)\,\bar v_t+\alpha\,h_t$ before readout. $\alpha$ anneals linearly from 1 to 0 over 65,536 steps. While no edge exists yet, the bank side contributes zero. The model keeps receiving good knowledge while the bank learns to supply it.
+- **Overlay.** Every lookup's value becomes $(1-\alpha)\,\bar v_t+\alpha\,h_t$ before readout. $\alpha$ anneals linearly from 1 to 0 over 65,536 steps. While no edge exists yet, the bank side is the sink alone. The model keeps receiving good knowledge while the bank learns to supply it.
 - **Hindsight write, until the switch.** Every training lookup writes $h_t$ into the edges it used, weighted and blended (§4).
 - **After the overlay ends,** one in eight training sequences runs hindsight-only (every value is $h_t$). This keeps the hindsight track training against the current reader and keeps writing out entries. The other seven use the bank alone, with the hindsight write.
 - **Switch to a learned bank (§6).** When the bank has warmed up, hindsight stops and values train by gradient.
@@ -214,7 +220,7 @@ The hindsight value is used only to set parameters after the prediction, as §3 
 
 ### Structure from statistics training already computes
 
-Structural decisions use no buffer, no candidate search and no extra forward passes. On every lookup, the backward pass already has the future-loss gradient $g=\partial L_{\mathrm{future}}/\partial F$ for the mixture output $F=(\bar v_t,\ \sum w_{ji}\hat e_i)$, each selected edge's output $u_i=(v_i,\hat e_i)$, and its weight $\omega_i$. Removing edge $i$ would renormalize the mixture to $(F-\omega_iu_i)/(1-\omega_i)$, so to first order it would change the loss by
+Structural decisions use no buffer, no candidate search and no extra forward passes. On every lookup, the backward pass already has the future-loss gradient $g=\partial L_{\mathrm{future}}/\partial F$ for the mixture output $F=(\bar v_t,\ w_\varnothing\hat s_t+\sum w_{ji}\hat e_i)$, which includes the sink's output $(v_\varnothing,\hat s_t)$, each selected edge's output $u_i=(v_i,\hat e_i)$, and its weight $\omega_i$. Removing edge $i$ would renormalize the mixture to $(F-\omega_iu_i)/(1-\omega_i)$, so to first order it would change the loss by
 
 $$
 \Delta_i=\frac{\omega_i}{1-\omega_i}\,g^\top(F-u_i).
@@ -306,6 +312,6 @@ These totals exclude biases, counters, gradients, activations, replicas and chec
 
 At the existing native geometry, each knowledge event adds 32 KiB of BF16 KV and a C pass. Use the existing whole-meridian history bound. Cap a request at 256 retrieval opportunities; after the cap or an explicit retrieval timeout, continue without changing the agenda.
 
-**Check correctness before burning the run, and measure quality during it.** Required automated checks are agenda-only candidates (no code path reaches an edge outside the agenda's neighbourhoods or the training exploration band); cached neighbourhoods equal fresh scans after each window boundary; location-modulated scores against an unfused reference; order sensitivity of paths; matched value/destination weights; write-out conditions and fields, including the content-derived destination; written-out row reconciliation; utility, dispersion and coherence statistics against brute-force removal and gradient sets on a small bank; split, remove and budget rules; hindsight masks (full and group-inverse, the realizer reading $G_t$ or $G_{t+1}$ by stage, and no hindsight activation reachable from any causal track or the serving path); artificial-boundary scheduling; FP4 round-trip of $h_t$; overlay schedule; the write rule equal to the decayed weighted mean, with no optimizer step on values before the switch; cross-learner value blending equal to a single learner writing the same lookups; the switch conditions and state hand-over; age-weighted late merges of deltas and statistics; no-recursion; metadata causality; query and selected-row gradients; packed-forward/recomputation identity; small-update and cache-eviction behavior; dormant-row return updates; split behavior; sparse merge normalization; and checkpoint recovery. Finite-difference tests apply to the decoded differentiable reference; test the quantization surrogate separately.
+**Check correctness before burning the run, and measure quality during it.** Required automated checks are agenda-only candidates (no code path reaches an edge outside the agenda's neighbourhoods or the training exploration band); cached neighbourhoods equal fresh scans after each window boundary; location-modulated scores against an unfused reference; order sensitivity of paths; matched value/destination weights; the retrieval sink in every softmax and its hold-still destination; C/P sink slots under every mask, absent from `KVHistory`; no fully masked attention row; the realizer's sink-only output past the sequence end; write-out conditions and fields, including the content-derived destination; written-out row reconciliation; utility, dispersion and coherence statistics against brute-force removal and gradient sets on a small bank; split, remove and budget rules; hindsight masks (full and group-inverse, the realizer reading $G_t$ or $G_{t+1}$ by stage, and no hindsight activation reachable from any causal track or the serving path); artificial-boundary scheduling; FP4 round-trip of $h_t$; overlay schedule; the write rule equal to the decayed weighted mean, with no optimizer step on values before the switch; cross-learner value blending equal to a single learner writing the same lookups; the switch conditions and state hand-over; age-weighted late merges of deltas and statistics; no-recursion; metadata causality; query and selected-row gradients; packed-forward/recomputation identity; small-update and cache-eviction behavior; dormant-row return updates; split behavior; sparse merge normalization; and checkpoint recovery. Finite-difference tests apply to the decoded differentiable reference; test the quantization surrogate separately.
 
-During training log continuation loss, multi-hop completion, rare-task retention, first-visit recovery after dormancy, nearest-departure distance per location, write-out rate and the survival of written-out edges, agenda size and the share of weight by location age, hindsight-assisted versus bank-only loss gap, write residual $\|h_t-\bar v_t\|$ by edge age, split and removal rates, utility distribution, merge age distribution, realized versus intended updates, edge/byte growth, latency and all memory tiers. Observe on a fixed validation stream; keep test targets outside training and growth.
+During training log continuation loss, multi-hop completion, rare-task retention, first-visit recovery after dormancy, nearest-departure distance per location, write-out rate and the survival of written-out edges, agenda size and the share of weight by location age, hindsight-assisted versus bank-only loss gap, write residual $\|h_t-\bar v_t\|$ by edge age, sink weight in retrieval, readout and realizer, and C/P attention mass on sink slots, split and removal rates, utility distribution, merge age distribution, realized versus intended updates, edge/byte growth, latency and all memory tiers. Observe on a fixed validation stream; keep test targets outside training and growth.
