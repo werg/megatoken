@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -93,6 +93,8 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
 
 
 def _text_bytes(text: str) -> bytes:
+    if not isinstance(text, str):
+        _fail("Semantic transport requires a string record")
     try:
         return text.encode("utf-8", errors="strict")
     except UnicodeEncodeError as error:
@@ -117,7 +119,6 @@ def _validate(
         _fail("Execution needs observed source/input and generated continuation")
     if len(groups) > max_history:
         _fail("Episode exceeds model history; continuation segmentation is required")
-    source_parts: list[str] = []
     prefix: list[tuple[str, dict[str, Any]]] = []
     observed = generated = 0
     completed: dict[str, int] = {}
@@ -185,7 +186,6 @@ def _validate(
             if phase == 0:
                 if not isinstance(fields.get("text"), str) or not fields["text"]:
                     _fail("Missing exact source bytes")
-                source_parts.append(fields["text"])
             prefix.append((kind, fields))
             phase += 1
             observed += 1
@@ -241,6 +241,7 @@ def adapt_semantic_execution(
     max_positions: int = 1024,
     max_history: int = 1024,
     allow_local: bool = False,
+    admission_verifier: Callable[[Mapping[str, Any]], bool] | None = None,
 ) -> tuple[Episode, SemanticExecutionReceipt]:
     """Validate a tracer export and convert it to native causal Episode records.
 
@@ -256,8 +257,11 @@ def adapt_semantic_execution(
     status = sidecar.get("admission", "locally_verified")
     if status != "admitted" and not allow_local:
         _fail("Unadmitted execution requires allow_local=True for diagnostic conversion")
-    if status == "admitted" and sidecar.get("referenceStatus") != "agreed":
-        _fail("Admitted execution lacks independent outcome agreement")
+    if status == "admitted":
+        if sidecar.get("referenceStatus") != "agreed":
+            _fail("Admitted execution lacks independent outcome agreement")
+        if admission_verifier is None or not admission_verifier(export):
+            _fail("Admitted execution requires an independent external admission verifier")
     public = export["public"]
     groups, prefix, counts = _validate(
         public, codec=codec, max_positions=max_positions, max_history=max_history
