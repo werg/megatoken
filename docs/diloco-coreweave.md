@@ -286,8 +286,10 @@ verbatim to `megatoken diloco init`, so `["--resume", "<path>/latest.json"]` wor
 if that path exists inside the coordinator sandbox. The only delivery
 mechanism is the run's `data` (its files reach every sandbox of the run), for
 example a peer job serving the export, with the export's files beside
-`latest.json` at the same relative paths. Seeding a phase this way has not been
-exercised end to end. Outside the launcher the command is
+`latest.json` at the same relative paths. This was exercised on 2026-10-22
+(`diloco-smoke-5`: a 2-learner run seeded through `data.inputs` from the
+`diloco-smoke-4` export; its export is 0.14 from the seed and 0.23 from a fresh
+initialization in parameter L2). Outside the launcher the command is
 `megatoken diloco init --config NEXT.yaml --root NEW_ROOT --resume <export>/latest.json`.
 
 Owners that are new in the next phase (for example realizer conditions when
