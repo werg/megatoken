@@ -364,7 +364,7 @@ def test_verified_streams_only_take_sources_that_filter_to_a_recorded_test_verdi
 
 def test_gated_sources_are_kept_apart_from_the_ones_the_account_can_read():
     # The first four need the maintainer to accept the publisher's terms on the Hub; the last two have
-    # their first prompts withheld until restored (configs/cloud/restore-chat-v3-prompts.json for v3).
+    # their first prompts withheld until restored (configs/cloud/prepare-chat-gated.json for v3).
     assert set(GATED) == {
         "lmsys-chat-1m",
         "infinity-instruct-7m",
@@ -406,7 +406,7 @@ def test_scaled_caps_keep_the_leading_rows_and_shards_partition_the_manifest():
 def test_cloud_jobs_read_the_manifests_they_name():
     for name, manifest in (
         ("prepare-agentic-mix", "sources.agentic.json"),
-        ("restore-chat-v3-prompts", "sources.agentic-gated.json"),
+        ("prepare-chat-gated", "sources.agentic-gated.json"),
     ):
         job = cloud.validate(
             json.loads((Path(__file__).parents[1] / f"configs/cloud/{name}.json").read_text())

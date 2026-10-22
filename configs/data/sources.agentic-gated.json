@@ -71,7 +71,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
       "metadata_checked_at": "2026-10-22",
-      "notes": "The publisher withholds the first user turn of rows seeded from LMSYS-Chat-1M or WildChat-1M (null content); the restore step in configs/cloud/restore-chat-v3-prompts.json puts them back and needs LMSYS terms accepted."
+      "notes": "The publisher withholds the first user turn of rows seeded from LMSYS-Chat-1M or WildChat-1M (null content); configs/cloud/prepare-chat-gated.json restores them with scripts/restore_chat_v3_prompts.py (rows whose prompt is not in either source are dropped) and prepares the result."
     },
     {
       "source_id": "lmsys-chat-1m",
