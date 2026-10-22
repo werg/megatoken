@@ -1592,3 +1592,47 @@ def test_json_lines_in_a_file_named_json_are_read_line_by_line(tmp_path):
         ["caption"],
     )
     assert rows == {"x_1.wav": {"caption": "Slow piano"}, "y.wav": {"caption": "Fast drums"}}
+
+
+def test_a_table_with_one_file_per_archive_is_read_with_its_archive(tmp_path, media):
+    source = make_source(
+        "parts",
+        "captioned_image",
+        "archive",
+        columns={"image": "member", "caption": "caption", "id": "__key__"},
+        include=("part_*.tar",),
+        options={
+            "table": {
+                "path": "unused.csv",
+                "key": "{clip_id}.png",
+                "columns": ["caption"],
+                "per_archive": {"pattern": r"part_(\d+)", "path": "caps_{0}.csv"},
+            }
+        },
+    )
+    folder = _local(tmp_path, "parts")
+    for number in (1, 2):
+        (folder / f"caps_{number:03d}.csv").write_text(
+            f"clip_id,caption\nc{number},Caption of clip {number} here\n"
+        )
+        _tar(folder / f"part_{number:03d}.tar", {f"d/c{number}.png": _image(number)})
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    captions = sorted(e.records[1].payload for e in episodes if e.stream == "image_description")
+    assert captions == [b"Caption of clip 1 here", b"Caption of clip 2 here"]
+
+
+def test_webdataset_keys_may_hold_dots_when_asked(tmp_path):
+    source = make_source(
+        "dots", "av_caption", "webdataset", include=("*.tar",), options={"key_split": "last"}
+    )
+    _tar(
+        _local(tmp_path, "dots") / "0.tar",
+        {"d/abc.0.mp4": b"v0", "d/abc.0.json": b'{"caption": "a"}', "d/abc.1.mp4": b"v1"},
+    )
+    from megatoken.data.open_media import webdataset_records
+
+    records = list(webdataset_records(source, Shards(source, tmp_path / "inputs")))
+    assert [(r["__key__"], sorted(set(r) - {"__key__"})) for r in records] == [
+        ("abc.0", ["json", "mp4"]),
+        ("abc.1", ["mp4"]),
+    ]

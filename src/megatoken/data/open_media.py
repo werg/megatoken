@@ -57,6 +57,7 @@ VALIDATION_PERCENT = 5
 MIN_SPEECH_SECONDS = 0.5
 MAX_SPEECH_SECONDS = 20.0
 MAX_SIDE = 1024
+VIDEO_FPS = 16
 # The manifests, in the order they were written: the first forty-four sources, the full-volume
 # additions, and the additions whose repositories need the Hub account's agreement first.
 MANIFEST_NAMES = (
@@ -840,7 +841,14 @@ def webdataset_records(source: OpenSource, shards: Shards) -> Iterator[dict[str,
             for member in tar:
                 if not member.isfile():
                     continue
-                stem, _, extension = PurePosixPath(member.name).name.partition(".")
+                name = PurePosixPath(member.name).name
+                # A sample's files share the text before the first dot (``a.mp4``, ``a.json``), or
+                # before the last when the key itself holds a dot (``video.3.mp4``).
+                stem, _, extension = (
+                    name.rpartition(".")
+                    if source.options.get("key_split") == "last"
+                    else name.partition(".")
+                )
                 if stem != key and group:
                     yield {"__key__": key, **_sample(group)}
                     group = {}
@@ -904,15 +912,27 @@ def _table(shards: Shards, spec: Mapping[str, Any], wanted: Iterable[str]) -> di
 def archive_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
     """Members of zip/tar archives joined with their table row (and, for zips, a partner member).
 
-    ``options.table`` names the csv/jsonl file and the ``key`` template that matches a row to a
-    member's file name; the member's bytes are the record's ``member``. ``options.partner`` (a
+    ``options.table`` names the csv/json/jsonl file and the ``key`` template that matches a row to
+    a member's file name; the member's bytes are the record's ``member``. A table with one file
+    per archive says so in ``per_archive`` (``{"pattern": regex over the archive's name, "path":
+    template over the regex groups}``) and is read when its archive is. ``options.partner`` (a
     template over the archive's file name) names a second zip whose same-named member is the
     record's ``partner``, as in a source/edited pair of videos.
     """
     spec = source.options["table"]
-    rows = _table(shards, spec, spec.get("columns", ()))
+    each = spec.get("per_archive")
+    rows = {} if each else _table(shards, spec, spec.get("columns", ()))
     partner_template = source.options.get("partner")
     for name in shards.names():
+        if each:
+            match = re.search(each["pattern"], PurePosixPath(name).name)
+            if match is None:
+                raise ValueError(f"{source.source_id}: {name} does not match {each['pattern']}")
+            rows = _table(
+                shards,
+                {**spec, "path": each["path"].format(*match.groups())},
+                spec.get("columns", ()),
+            )
         with ExitStack() as stack:
             handle = stack.enter_context(shards.open(name))
             members = _zip_members(handle) if name.endswith(".zip") else _tar_members(handle)
@@ -1225,9 +1245,11 @@ def transcode(
     *,
     start: float = 0.0,
     seconds: float | None = None,
+    fps: int = VIDEO_FPS,
 ) -> None:
-    """A clip as small video (scaled into 640x640 at 16 frames/s, no sound) and, optionally, its
-    soundtrack at 24 kHz mono (the speech realizer's rate)."""
+    """A clip as small video (scaled into 640x640 at ``fps`` frames/s, no sound) and, optionally,
+    its soundtrack at 24 kHz mono (the speech realizer's rate). The video realizer takes at most
+    193 frames, so ``seconds * fps`` stays below that."""
     cut = ["-ss", str(start), *(["-t", str(seconds)] if seconds else [])]
     _ffmpeg(
         *cut,
@@ -1237,11 +1259,15 @@ def transcode(
         "-vf",
         "scale=640:640:force_original_aspect_ratio=decrease:force_divisible_by=2",
         "-r",
-        "16",
+        str(fps),
         str(video),
     )
     if audio is not None:
         _ffmpeg(*cut, "-i", str(source), "-vn", "-ac", "1", "-ar", "24000", str(audio))
+
+
+def _fps(source: OpenSource) -> int:
+    return source.options.get("fps", VIDEO_FPS)
 
 
 def first_sentence(text: str) -> str:
@@ -1520,14 +1546,23 @@ def audio_question_clips(
 
 
 def _cut_video(source: OpenSource, payload: bytes, clip_id: str, out: Path) -> Path | None:
-    """A clip of at most ``max_seconds`` as small video (the source's own sound dropped)."""
+    """A clip of at most ``max_seconds`` as small video (the source's own sound dropped);
+    ``options.whole_only`` skips a longer video instead of cutting it."""
     original = _video_source(payload, out, _stem(clip_id))
     try:
         seconds, kinds = probe(original)
+        longest = source.options.get("max_seconds", 8.0)
         if "video" not in kinds or seconds < source.options.get("min_seconds", 1.5):
             return None
+        if source.options.get("whole_only") and seconds > longest:
+            return None  # a question about the whole video cannot be asked of a cut of it
         video = out / f"{_stem(clip_id)}.mp4"
-        transcode(original, video, seconds=min(seconds, source.options.get("max_seconds", 8.0)))
+        transcode(
+            original,
+            video,
+            seconds=min(seconds, source.options.get("max_seconds", 8.0)),
+            fps=_fps(source),
+        )
     finally:
         original.unlink()
     return video
@@ -1642,7 +1677,7 @@ def av_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> list[d
         ):
             return []
         video, audio = out / f"{_stem(clip_id)}.mp4", out / f"{_stem(clip_id)}.wav"
-        transcode(original, video, audio, seconds=min(seconds, high))
+        transcode(original, video, audio, seconds=min(seconds, high), fps=_fps(source))
     finally:
         original.unlink()
     template = source.options.get("request", "Create a short clip of: {caption}.")
@@ -1694,7 +1729,7 @@ def scene_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> lis
         for start, seconds, title, description in windows:
             clip_id = f"{video_id}:{start:.1f}"
             video, audio = out / f"{_stem(clip_id)}.mp4", out / f"{_stem(clip_id)}.wav"
-            transcode(original, video, audio, start=start, seconds=seconds)
+            transcode(original, video, audio, start=start, seconds=seconds, fps=_fps(source))
             clips.append(
                 {
                     "id": clip_id,
@@ -1722,7 +1757,7 @@ def video_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> lis
         if "video" not in kinds or seconds < source.options.get("min_seconds", 1.5):
             return []
         video = out / f"{_stem(clip_id)}.mp4"
-        transcode(original, video, seconds=min(seconds, high))
+        transcode(original, video, seconds=min(seconds, high), fps=_fps(source))
     finally:
         original.unlink()
     return [{"id": clip_id, "family": family, "video": video}]
@@ -1752,7 +1787,7 @@ def video_edit_clips(
         seconds = min(min(durations.values()), high)
         paths = {name: out / f"{_stem(clip_id)}-{name}.mp4" for name in sources}
         for name, path in sources.items():
-            transcode(path, paths[name], seconds=seconds)
+            transcode(path, paths[name], seconds=seconds, fps=_fps(source))
     finally:
         for path in sources.values():
             path.unlink()
@@ -1849,7 +1884,7 @@ def video_chain_clips(
         seconds = min(min(durations[:kept]), source.options.get("max_seconds", 6.0))
         paths = [out / f"{_stem(clip_id)}-{index}.mp4" for index in range(kept)]
         for path, video in zip(sources, paths, strict=False):
-            transcode(path, video, seconds=seconds)
+            transcode(path, video, seconds=seconds, fps=_fps(source))
     finally:
         for path in sources:
             path.unlink(missing_ok=True)
