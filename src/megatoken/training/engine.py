@@ -35,6 +35,7 @@ from megatoken.loading import (
 )
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.tensors import byte_tensor
+from megatoken.training.autoencode import AutoencodePlan, FeatureSampler, autoencode_losses
 from megatoken.training.checkpoint import (
     CheckpointWriter,
     commit_checkpoint,
@@ -780,6 +781,31 @@ def train(
         dataset = PreparedDataset(config.dataset)
         if dataset.manifest.get("codec_fingerprint", codec.fingerprint) != codec.fingerprint:
             raise ValueError("Prepared dataset uses a different codec")
+        autoencode = None
+        plan = AutoencodePlan.from_stage(stage_recipe(config.phase).constraints)
+        if config.use_stage_mixture and plan.items:
+            from megatoken.data.media_assets import TensorAssetStore
+
+            sampler = FeatureSampler(
+                dataset,
+                seed=config.seed,
+                worker=config.decoupled.resolved_worker_id if config.decoupled else context.rank,
+            )
+            if not sampler:
+                raise ValueError(
+                    f"Stage {config.phase} trains encode-and-reconstruct on prepared "
+                    "feature items, but the dataset has none"
+                )
+            autoencode = (
+                plan,
+                sampler,
+                TensorAssetStore(config.media_root or config.dataset),
+                torch.tensor(
+                    retrieval_recipe.embedding_centers["document"],
+                    device=context.device,
+                    dtype=torch.float32,
+                ),
+            )
         chunking = ChunkingConfig.from_identity(dataset.manifest["chunking"], codec)
         chunking_identity = chunking.identity(codec)
         if (
@@ -1141,6 +1167,29 @@ def train(
                 model.core.u_router.balance_recorder = None
             if transducer is not None:
                 step_diagnostics.update(transducer.after_backward(global_step + 1))
+            if autoencode is not None:
+                plan, sampler, store, center = autoencode
+                terms = autoencode_losses(
+                    model,
+                    sampler.draw(plan.items),
+                    store,
+                    space_fingerprint=retrieval_recipe.space.fingerprint,
+                    center=center,
+                )
+                totals = context.sum_counts({name: count for name, (_, count) in terms.items()})
+                weights = {
+                    "reconstruction": plan.reconstruction_weight,
+                    "embedding": plan.embedding_weight,
+                }
+                loss = sum(
+                    weights[name] * value / totals[name]
+                    for name, (value, _) in terms.items()
+                    if totals[name]
+                )
+                loss.backward()
+                for name, (value, count) in terms.items():
+                    if count:
+                        step_diagnostics[f"autoencode_{name}"] = float(value.detach()) / count
             context.synchronize_gradients(optimizer.parameters)
             optimizer_started = time.perf_counter()
             step_metrics = optimizer.step(config.grad_clip)

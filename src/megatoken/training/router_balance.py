@@ -114,7 +114,8 @@ class RouterBalanceWindow:
             loss = coefficient * pool_scale * router.experts * (fraction * soft_sum / a).sum()
             total_loss = loss if total_loss is None else total_loss + loss
             diagnostics[f"balance_{name}_loss"] = float(loss.detach())
-        if total_loss is not None and coefficient:
+        # Frozen routers (the media-bridge stage trains no router) take no balance update.
+        if total_loss is not None and coefficient and total_loss.requires_grad:
             total_loss.backward()
         self.states.clear()
         return diagnostics

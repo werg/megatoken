@@ -100,18 +100,16 @@ def test_target_and_geometry_come_together_and_share_one_source(tmp_path):
     store = TensorAssetStore(tmp_path)
     full = prepared_record(store, "image", seed=7)
     with pytest.raises(ValueError, match="come together"):
-        MediaRecord("image", full.source, full.target)
+        MediaRecord("image", full.source, full.target, embedding=full.embedding)
     with pytest.raises(ValueError, match="come together"):
-        MediaRecord("image", full.source, None, full.output_geometry)
+        MediaRecord("image", full.source, None, full.output_geometry, embedding=full.embedding)
     foreign = prepared_record(store, "image", seed=8)
     with pytest.raises(ValueError, match="different media"):
-        MediaRecord("image", full.source, foreign.target, full.output_geometry)
+        MediaRecord(
+            "image", full.source, foreign.target, full.output_geometry, embedding=full.embedding
+        )
     with pytest.raises(ValueError, match="geometry modality"):
-        MediaRecord("image", full.source, full.target, geometry("video"))
-    # The observed view drops the target and its geometry entirely.
-    observed = full.observed()
-    assert observed == MediaRecord("image", full.source)
-    assert full.target.sha256.encode() not in observed.to_bytes()
+        MediaRecord("image", full.source, full.target, geometry("video"), embedding=full.embedding)
 
 
 def test_geometry_bounds_are_exact_per_modality():
@@ -204,16 +202,24 @@ def test_valid_count_masks_codec_padding_in_the_resolved_target(tmp_path, modali
         assert target.target_mask is None
 
 
-def test_media_record_wire_format_is_strict_v4(tmp_path):
+def test_media_record_wire_format_is_strict_v5(tmp_path):
     record = prepared_record(TensorAssetStore(tmp_path), "image", seed=10)
     raw = record.to_bytes()
     value = json.loads(raw)
-    assert value["version"] == 4
-    assert set(value) == {"version", "modality", "source", "target", "output_geometry", "prompt"}
-    value["version"] = 3
+    assert value["version"] == 5
+    assert set(value) == {
+        "version",
+        "modality",
+        "source",
+        "target",
+        "output_geometry",
+        "prompt",
+        "embedding",
+    }
+    value["version"] = 4
     with pytest.raises(ValueError, match="unsupported version"):
         MediaRecord.from_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
-    value["version"] = 4
+    value["version"] = 5
     with pytest.raises(ValueError, match="canonical"):
         MediaRecord.from_bytes(json.dumps(value, indent=1).encode())
     del value["target"]

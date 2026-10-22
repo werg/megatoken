@@ -50,9 +50,9 @@ SPACE = {
 }
 
 
-def _vector(seed: int, offset: float = 0.0) -> list[float]:
+def _vector(seed: int, offset: float = 0.0, dimension: int = SEMANTIC_DIM) -> list[float]:
     # Deterministic, finite, nonzero vectors.
-    return [((seed * 31 + i * 7) % 13 + 1 + offset) / 13.0 for i in range(SEMANTIC_DIM)]
+    return [((seed * 31 + i * 7) % 13 + 1 + offset) / 13.0 for i in range(dimension)]
 
 
 def make_episode(index: int, *, turns: int = 1) -> Episode:
@@ -134,16 +134,17 @@ def write_retrieval_artifacts(
     request: str = "request",
     answer: str = "answer",
     turns: int = 1,
+    dimension: int = SEMANTIC_DIM,
 ) -> dict:
     """Write recipe, query sidecar and document sidecar under ``root``.
 
     ``doc``/``request``/``answer`` name the episode records they annotate."""
     root.mkdir(parents=True, exist_ok=True)
-    model_config = load_model_config(MODEL, **MODEL_OVERRIDES)
+    model_config = load_model_config(MODEL, **{**MODEL_OVERRIDES, "semantic_dim": dimension})
     recipe = {
         "schema": "megatoken-retrieval-recipe-v1",
         "phase": phase,
-        "space": SPACE,
+        "space": {**SPACE, "dimension": dimension},
         "model": model_config.to_dict(),
         "growth": {
             "value_dim": SEMANTIC_VALUE_DIM,
@@ -161,11 +162,11 @@ def write_retrieval_artifacts(
         "max_source_bytes": 256,
         "max_kb_positions": model_config.max_kb_positions,
         "max_readout_groups": 2,
-        "embedding_centers": {role: [0.0] * SEMANTIC_DIM for role in ("query", "document")},
+        "embedding_centers": {role: [0.0] * dimension for role in ("query", "document")},
     }
     recipe_path = root / "recipe.json"
     recipe_path.write_text(json.dumps(recipe, sort_keys=True))
-    space_fp = SemanticSpace(**SPACE).fingerprint
+    space_fp = SemanticSpace(**{**SPACE, "dimension": dimension}).fingerprint
     queries, documents = [], []
     # Turn t's query sits at the causal clock of its answering meridian: 2t - 1.
     asked = [(request, answer, 1)] + [
@@ -201,7 +202,7 @@ def write_retrieval_artifacts(
                     annotations_complete=True,
                     source_snapshot=source_snapshot,
                     split_family=f"family-{i}",
-                    teacher_target=tuple(_vector(i + seed)),
+                    teacher_target=tuple(_vector(i + seed, dimension=dimension)),
                     main_request_b64=base64.b64encode(request_bytes).decode(),
                 )
             )
@@ -213,7 +214,7 @@ def write_retrieval_artifacts(
                 sha256(doc_bytes).hexdigest(),
                 Footprint((doc_range,)),
                 doc_range,
-                tuple(_vector(i + 5 + seed, 1.0)),
+                tuple(_vector(i + 5 + seed, 1.0, dimension)),
                 "e2e-preprocess-1",
             )
         )

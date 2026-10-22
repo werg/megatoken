@@ -136,17 +136,15 @@ def _media(store, modality, seed):
     return prepared_record(store, modality, seed=seed, tokens=10)
 
 
-def test_observed_media_never_exposes_its_realization_target(tmp_path):
+def test_observed_media_keeps_its_own_latents_for_encode_and_reconstruct(tmp_path):
+    # An input's own codec latents are the input itself, never a future answer;
+    # training reads only an observed event's features.
     store = TensorAssetStore(tmp_path)
     full = _media(store, "image", 3)
     artifact = BundleArtifact("picture", "image", "image", media=full)
     shown, media_type = artifact.record_bytes(generated=False)
     assert media_type == MEDIA_RECORD_TYPE
-    reader = MediaRecord.from_bytes(shown)
-    assert reader == full.observed() and reader.target is None
-    assert reader.output_geometry is None
-    assert full.target.sha256.encode() not in shown
-    assert b'output_geometry":null' in shown
+    assert MediaRecord.from_bytes(shown) == full
     # A generated event carries the target and its geometry for E/R supervision.
     realized, _ = artifact.record_bytes(generated=True)
     assert MediaRecord.from_bytes(realized) == full
@@ -279,9 +277,10 @@ def test_edit_view_requires_the_prior_base_and_compiles_a_verified_chain(tmp_pat
         for r in episode.records
         if r.media_type == MEDIA_RECORD_TYPE
     ]
-    # The base is only observed; the edited version is the supervised output.
+    # The base is only observed (keeping its own latents); the edited version is
+    # the supervised output.
     assert [(m.source, m.target is not None) for m in media] == [
-        (original.media.source, False),
+        (original.media.source, True),
         (edited.media.source, True),
     ]
     explicit = edit_task_view(

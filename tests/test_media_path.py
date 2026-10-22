@@ -33,7 +33,7 @@ from megatoken.teacher import (
 from megatoken.training.config import TrainConfig
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.text_anchors import TextAnchors, anchor_loss
-from tests.media_support import LATENT, features, install_fake_realizers
+from tests.media_support import LATENT, features, install_fake_realizers, teacher_embedding
 
 REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"
 
@@ -415,7 +415,12 @@ def anchor_row(store, payload, *, extractor=PINNED_TEACHER, family=None, modalit
         extractor=extractor,
         source_family=family or key,
     )
-    return {"text_sha256": key, "asset": dataclasses.asdict(asset)}
+    embedding = teacher_embedding(store, modality, family or key, extractor=extractor)
+    return {
+        "text_sha256": key,
+        "asset": dataclasses.asdict(asset),
+        "embedding": dataclasses.asdict(embedding),
+    }
 
 
 def test_text_anchor_sidecar_loads_features_for_exact_text(tmp_path):

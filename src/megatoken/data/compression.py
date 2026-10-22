@@ -59,15 +59,12 @@ class DocumentCompressor:
         out, offset = [], 0
         for text in self.teacher.text_pieces(payload.decode("utf-8"), prompt=self.policy.prompt):
             piece = text.encode("utf-8")
-            observation = self.teacher.encode("text", text, prompt=self.policy.prompt)
-            source = self.store.put(
-                observation.features.numpy(),
-                modality="text",
-                kind="features",
-                extractor=observation.extractor,
+            source, embedding = self.store.put_teacher(
+                self.teacher.encode("text", text, prompt=self.policy.prompt),
                 source_family=hashlib.sha256(piece).hexdigest(),
             )
-            out.append((offset, piece, MediaRecord("text", source, prompt=self.policy.prompt)))
+            descriptor = MediaRecord("text", source, prompt=self.policy.prompt, embedding=embedding)
+            out.append((offset, piece, descriptor))
             offset += len(piece)
         if offset != len(payload):
             raise RuntimeError("Compressed pieces must cover the field exactly")
