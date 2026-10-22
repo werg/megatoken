@@ -13,6 +13,8 @@ ARCHITECTURE_VERSION = 10
 # Reserved system track for retrieval queries. It occupies track index
 # ``max_tracks`` and never counts against the user-visible track registry.
 RETRIEVAL_QUERY_TRACK = "__retrieval_query__"
+KNOWLEDGE_TRACK = "__transducer_knowledge__"
+HINDSIGHT_TRACK = "__transducer_hindsight__"
 
 
 @dataclass(frozen=True)
