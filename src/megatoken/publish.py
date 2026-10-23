@@ -640,10 +640,11 @@ def build_card(
         "Prepared conversations, tool-use and agent trajectories, reasoning traces and code "
         "sessions used to train megatoken models. Each row is one *episode*: a transcript made "
         "of role-tagged records, with the tool definitions it used. Episodes were parsed from the "
-        "public sources listed below, checked, deduplicated against each other across all "
-        "subsets (a text two sources share appears once, in the most permissive subset that "
-        "has it) and split into train, validation and test by family, so related episodes stay "
-        "on one side.",
+        "public sources listed below and checked. Within each preparation run, episodes are "
+        "deduplicated across licence groups (the copy from the most permissive source is kept) "
+        "and split into train, validation and test by family, so related episodes stay on one "
+        "side. Different runs may contain overlapping episodes and families; consumers combining "
+        "runs should deduplicate and establish their splits again.",
         "",
         "## Subsets and licences",
         "",
