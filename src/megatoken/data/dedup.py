@@ -134,6 +134,7 @@ class DedupStore:
                 inherited_split TEXT, record_shape TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS episode_content ON episodes(content_sha256);
+            CREATE INDEX IF NOT EXISTS episode_original_content ON episodes(content_sha256) WHERE duplicate_of IS NULL;
             CREATE INDEX IF NOT EXISTS episode_family ON episodes(family_key);
             CREATE INDEX IF NOT EXISTS episode_resolved_family ON episodes(resolved_family);
             CREATE TABLE IF NOT EXISTS anchors(anchor TEXT NOT NULL, episode_id TEXT NOT NULL,
@@ -325,6 +326,9 @@ class DedupStore:
         )
         if variant.startswith("repository:"):
             variant = episode.lineage.raw_sha256 or episode.episode_id
+        from .causal_identity import training_contract_hash
+
+        variant = f"causal:{training_contract_hash(episode)}:variant:{variant}"
         return self._admit(
             episode_id=episode.episode_id,
             content_sha256=episode.content_sha256,
@@ -361,20 +365,32 @@ class DedupStore:
     def _admit(self, *, root: str, sketch: tuple[int, ...], tagged: bool, **row: Any) -> str:
         """Compare a measured episode with those already held, then record it.
 
-        Exact duplicates (same transcript) and near duplicates (sketch similarity) join
-        the earlier episode's family and are kept only as duplicates; ``tagged`` marks an
-        episode known to come from a benchmark.
+        Equal/near transcripts join source families. Only equal training contracts
+        are discarded: identical words with different causal groups or controls
+        remain necessary views. ``tagged`` marks benchmark contamination.
         """
         word_count = row["word_count"]
-        duplicate = self.connection.execute(
-            "SELECT episode_id,family_key FROM episodes WHERE content_sha256=? ORDER BY ordinal LIMIT 1",
+        from .causal_identity import equivalence_key
+
+        same_content = self.connection.execute(
+            "SELECT episode_id,family_key,variant_key FROM episodes WHERE content_sha256=? AND duplicate_of IS NULL ORDER BY ordinal",
             (row["content_sha256"],),
-        ).fetchone()
+        ).fetchall()
+        own_contract = equivalence_key(row["variant_key"])
+        duplicate = next(
+            (item for item in same_content if equivalence_key(item[2]) == own_contract), None
+        )
         duplicate_of = duplicate[0] if duplicate else None
+        # Same words still link families and benchmark contamination, even when
+        # a different causal contract makes both training views necessary.
+        for item in same_content:
+            root = self.register_family((root, item[1]))
         anchors = [] if duplicate else self._anchors(sketch)
-        if duplicate:
-            root = self.register_family((root, duplicate[1]))
-        elif len(sketch) >= self.config.shingle_words and word_count >= self.config.min_near_words:
+        if (
+            not same_content
+            and len(sketch) >= self.config.shingle_words
+            and word_count >= self.config.min_near_words
+        ):
             placeholders = ",".join("?" for _ in anchors)
             # A near duplicate shares most of its anchors, so the candidates
             # sharing the most of them are compared; the rest cannot beat them.
@@ -386,7 +402,7 @@ class DedupStore:
             own = set(sketch)
             for candidate in candidates:
                 other = self.connection.execute(
-                    "SELECT sketch,family_key,word_count FROM episodes WHERE episode_id=?",
+                    "SELECT sketch,family_key,word_count,variant_key FROM episodes WHERE episode_id=?",
                     (candidate[0],),
                 ).fetchone()
                 if (
@@ -398,7 +414,7 @@ class DedupStore:
                 similarity = len(own & values) / max(1, len(own | values))
                 if similarity >= self.config.near_threshold:
                     root = self.register_family((root, other[1]))
-                    if duplicate_of is None:
+                    if duplicate_of is None and equivalence_key(other[3]) == own_contract:
                         duplicate_of = candidate[0]
         reason = (
             "benchmark_contamination"
@@ -513,6 +529,20 @@ class DedupStore:
                 "quarantine_reason=d.quarantine_reason, split=d.split, "
                 "resolved_family=d.resolved_family FROM verdicts.decisions AS d "
                 "WHERE main.episodes.episode_id=d.episode_id"
+            )
+            # `split_of` answers from this shard's own family roots, so the adopted verdicts
+            # must be recorded under them too (a shard finished from shared decisions would
+            # otherwise report "no frozen split" for every family).
+            chosen: dict[str, str] = {}
+            for family_key, split in self.connection.execute(
+                "SELECT DISTINCT family_key, split FROM main.episodes "
+                "WHERE duplicate_of IS NULL AND split IS NOT NULL"
+            ).fetchall():
+                root = self._find(family_key)
+                if chosen.setdefault(root, split) != split:
+                    raise ValueError("Shared verdicts split one family of this shard")
+            self.connection.executemany(
+                "INSERT OR REPLACE INTO splits VALUES(?,?)", sorted(chosen.items())
             )
             self.set_meta("families_frozen", "true")
             self.connection.commit()

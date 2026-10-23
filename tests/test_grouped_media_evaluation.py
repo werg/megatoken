@@ -7,6 +7,7 @@ from test_multitrack_media import AUDIO, _system
 
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, TensorAssetStore
 from megatoken.data.schema import Episode, Lineage, Meridian, PhysicalRecord, TrackEvent, TrackSpec
+from megatoken.omni.quality import DecodedQualityArchive
 from megatoken.training.evaluation import evaluate_served_records
 from tests.media_support import prepared_record
 
@@ -22,7 +23,7 @@ def test_served_evaluation_generates_same_track_media_from_checked_observations(
         PhysicalRecord(
             "speech", "assistant", speech.to_bytes(), policy_mask=True, media_type=MEDIA_RECORD_TYPE
         ),
-        PhysicalRecord("caption", "assistant", b"A caption", policy_mask=True),
+        PhysicalRecord("caption", "assistant", b"A caption", policy_mask=True, media_type="text/plain"),
     )
     episode = Episode(
         "evaluation",
@@ -48,9 +49,20 @@ def test_served_evaluation_generates_same_track_media_from_checked_observations(
         torch.device("cpu"),
         episodes=1,
         output_specs={"audio": AUDIO},
+        decoded_evaluator=DecodedQualityArchive(
+            tmp_path / "decoded",
+            evaluator_metadata={"reference": "test fixture; no speech recognizer"},
+        ),
     )
     assert report["skipped_media_episodes"] == 0
     assert report["decoded_media_events"] == 1
     assert report["generated_text_chunks"] == 1
     assert report["generated_chunks"] == 2
     assert report["media_quality_established"] is False
+    import numpy as np
+
+    archived = report["decoded_quality"][0]["sampled_assets"]["speech"]
+    actual = np.load(tmp_path / "decoded" / archived["path"], allow_pickle=False)
+    assert actual.ndim == 1 and actual.size > 0 and np.isfinite(actual).all()
+    assert report["observation_mode"] == "recorded_observation_replay"
+    assert report["tool_actions_executed"] is False

@@ -124,7 +124,7 @@ and evaluation gates.
 | High-quality generated voices/images/videos | **Not established** |
 | Joint audiovisual lip-synchronization and perceptual evaluations | **Not implemented** |
 | Executed-trajectory integration and verified whole-selection outcome supervision | Implemented in the ordinary grouped trainer; quality unmeasured |
-| Separate frozen-decoder latent-only outcome RL stage | **Not implemented** |
+| Frozen-decoder latent-only outcome improvement | Implemented as an explicit restricted mode of the ordinary student-stage optimizer; held-out quality unmeasured |
 | GPU memory/latency benchmarking of grouped rendering | **Not measured** |
 
 Media realization uses frozen pretrained donors (Pocket, Sana, Sana-Video)
@@ -371,8 +371,10 @@ selected facet in that group has the same time coordinate, irrespective of
 track ordering or modality. The same-track relation is a zero-initialized
 learned per-query-head attention bias for matching categorical track identities;
 it applies to current, temporary, and retained-history attention, without an
-ordinal track axis or separate track KV. There is no additional cross-track
-history window: all retained earlier meridians remain visible.
+ordinal track axis or separate track KV. Attention now has separate bounded windows for earlier events on the current
+track and recent events on other tracks. Both use the same shared model and
+causal event archive. Older evidence must be explicitly read again before it is
+used; moving work between tracks does not grant access to future events.
 
 `MediaSpan` and `alignment_id` describe content-time relationships, not
 causal permission or rotary positions. They are currently validated in the

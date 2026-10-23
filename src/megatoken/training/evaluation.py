@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import defaultdict
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import torch
@@ -18,6 +20,8 @@ from megatoken.generation.structure import ActionSpec
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.multitrack_runtime import MultiTrackRuntime
+from megatoken.omni.concordance import SampledEvent
+from megatoken.omni.quality import canonical_decoded_array
 from megatoken.training.engine import episode_control_payload, ingest_records
 from megatoken.training.history import NativeHistory, replay_raw_tape
 
@@ -151,6 +155,7 @@ def evaluate_served_records(
     threshold: float | None = None,
     chunking: ChunkingConfig | None = None,
     output_specs: dict[str, ActionSpec | MediaOutputSpec] | None = None,
+    decoded_evaluator: Callable[[Any, Mapping[str, SampledEvent]], dict] | None = None,
 ) -> dict[str, Any]:
     was_training = model.training
     runtime = None
@@ -174,6 +179,7 @@ def evaluate_served_records(
             max_sources=max_sources,
             threshold=threshold,
             collections=collections,
+            decoded_evaluator=decoded_evaluator,
         )
     finally:
         try:
@@ -199,6 +205,7 @@ def _evaluate_served_runtime(
     max_sources: int,
     threshold: float | None,
     collections: dict[str, str] | None,
+    decoded_evaluator: Callable[[Any, Mapping[str, SampledEvent]], dict] | None = None,
 ) -> dict[str, Any]:
     """Score sampled outputs after real observations and session retrieval.
 
@@ -219,13 +226,15 @@ def _evaluate_served_runtime(
 
     exact = attempted = text_attempted = valid = 0
     completed_episodes = skipped_media = skipped_mixed = 0
-    decoded_media = 0
+    decoded_media = invalid_utf8_text = 0
     lookups = collection_retrievals = 0
+    decoded_reports = []
+    generation_times, episode_times = [], []
     for episode_index, episode in enumerate(dataset.iter_episodes()):
         if completed_episodes + skipped_media + skipped_mixed >= episodes:
             break
         if any(
-            record.media_type not in {"text/plain; charset=utf-8", MEDIA_RECORD_TYPE}
+            record.media_type not in {"text/plain", "text/plain; charset=utf-8", MEDIA_RECORD_TYPE}
             for record in episode.records
         ):
             skipped_media += 1
@@ -285,6 +294,9 @@ def _evaluate_served_runtime(
         # An item may be returned at open, after a user observation, and after
         # a generated terminal response. Count the real source-session log.
         sources = session.memory.sources
+        sampled_outputs = {}
+        episode_started = time.perf_counter()
+        first_generated = None
         for group_index, group in enumerate(groups):
             if group[0][1].policy_mask:
                 tracks = tuple(track for track, _ in group)
@@ -300,6 +312,7 @@ def _evaluate_served_runtime(
                 rng = torch.Generator(device=device).manual_seed(
                     seed + episode_index * 1_000_003 + group_index
                 )
+                generation_started = time.perf_counter()
                 generated = runtime.generate(
                     session,
                     tracks=tracks,
@@ -316,6 +329,22 @@ def _evaluate_served_runtime(
                     effort=config.effort,
                     generator=rng,
                 )
+                if device.type == "cuda":
+                    torch.cuda.synchronize(device)
+                elapsed = time.perf_counter() - generation_started
+                if first_generated is None:
+                    first_generated = time.perf_counter() - episode_started
+                generation_times.append(
+                    {
+                        "episode_id": getattr(episode, "episode_id", str(episode_index)),
+                        "group_index": group_index,
+                        "events": len(group),
+                        "seconds": elapsed,
+                    }
+                )
+                recorder = getattr(decoded_evaluator, "record_generation", None)
+                if recorder is not None:
+                    recorder(episode, generated)
                 for index, ((_, record), payload, is_valid) in enumerate(
                     zip(group, generated.tape.payloads, generated.tape.valid, strict=True)
                 ):
@@ -325,9 +354,27 @@ def _evaluate_served_runtime(
                         tensor = generated.media_outputs[index]
                         if is_valid and tensor is not None and torch.isfinite(tensor).all():
                             decoded_media += 1
+                            if decoded_evaluator is not None:
+                                modality = MediaRecord.from_bytes(record.payload).modality
+                                decoded = tensor.detach().float().cpu().numpy().copy()
+                                decoded = canonical_decoded_array(modality, decoded)
+                                sampled_outputs[record.record_id] = SampledEvent(
+                                    record.record_id,
+                                    modality,
+                                    decoded,
+                                )
                     else:
                         text_attempted += 1
                         exact += int(is_valid and payload == record.payload)
+                        if decoded_evaluator is not None and is_valid:
+                            try:
+                                text = payload.decode("utf-8", errors="strict")
+                            except UnicodeDecodeError:
+                                invalid_utf8_text += 1
+                            else:
+                                sampled_outputs[record.record_id] = SampledEvent(
+                                    record.record_id, "text", text
+                                )
                 runtime.release_generation(session, session.revision)
             else:
                 stores = getattr(dataset, "stores", ())
@@ -376,6 +423,15 @@ def _evaluate_served_runtime(
                             session.state, revision.track_id, revision.purpose, revision.revision
                         )
         completed_episodes += 1
+        episode_times.append(
+            {
+                "episode_id": getattr(episode, "episode_id", str(episode_index)),
+                "first_generated_output_seconds": first_generated,
+                "total_observe_and_generate_seconds": time.perf_counter() - episode_started,
+            }
+        )
+        if decoded_evaluator is not None:
+            decoded_reports.append(decoded_evaluator(episode, sampled_outputs))
         lookups += session.memory.agenda.lookups
         collection_retrievals += 0 if sources is None else len(sources.log)
 
@@ -387,14 +443,19 @@ def _evaluate_served_runtime(
         )
     report = {
         "evaluation_mode": "served_session_generation",
+        "observation_mode": "recorded_observation_replay",
+        "tool_actions_executed": False,
         "episodes": evaluated,
         "skipped_media_episodes": skipped_media,
         "skipped_mixed_meridian_episodes": skipped_mixed,
         "generated_chunks": attempted,
         "generated_text_chunks": text_attempted,
         "decoded_media_events": decoded_media,
+        "generation_times": generation_times,
+        "episode_times": episode_times,
         "media_quality_established": False,
         "valid_generation_rate": valid / max(1, attempted),
+        "valid_generation_definition": "decoder structural validity; independent of UTF-8, meaning, and task success",
         "exact_chunk_rate": exact / max(1, text_attempted),
         "exact_chunks": exact,
         "session_lookups": lookups,
@@ -410,4 +471,7 @@ def _evaluate_served_runtime(
             "are counted as skipped; decoded media availability alone does not measure quality."
         ),
     }
+    if decoded_evaluator is not None:
+        report["decoded_quality"] = decoded_reports
+        report["invalid_utf8_generated_text_chunks"] = invalid_utf8_text
     return report

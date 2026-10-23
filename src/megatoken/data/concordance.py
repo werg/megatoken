@@ -32,7 +32,7 @@ from megatoken.data.schema import (
     stable_id,
 )
 
-COMPILER_VERSION = "concordance-v2"
+COMPILER_VERSION = "concordance-v3"
 RELATION_KINDS = frozenset(
     {
         "same_spoken_content",
@@ -560,6 +560,36 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
             ),
             tuple(relations),
         )
+        if has("translated_speech"):
+            add(
+                "speech_translation",
+                "text-then-speech-translation",
+                (
+                    group(
+                        observed(
+                            labels["source_speech"],
+                            "source_speech",
+                            "Listen to the available source-language speech.",
+                        )
+                    ),
+                    group(
+                        generated(
+                            labels["translated_text"],
+                            "translation",
+                            "Translate the available source into the requested language.",
+                        )
+                    ),
+                    group(
+                        generated(
+                            labels["translated_speech"],
+                            "translation",
+                            "Speak the translation that was committed in the preceding step.",
+                            reference_artifact_ids=(labels["translated_text"],),
+                        )
+                    ),
+                ),
+                tuple(relations),
+            )
     if has("image", "display_caption"):
         add(
             "image_description",

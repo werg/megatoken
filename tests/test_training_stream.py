@@ -136,6 +136,16 @@ def test_actual_source_sampling_is_restartable_and_excludes_padding(prepared):
         restarted.load_state_dict(cursor)
         assert item_identity(original.next()) == item_identity(restarted.next())
         assert restarted.state_dict() == original.state_dict()
+        original.load_state_dict(cursor)
+        restarted.load_state_dict(
+            {**cursor, "dataset_fingerprint": restarted.compatible_v3_fingerprint}
+        )
+        assert item_identity(original.next()) == item_identity(restarted.next())
+        assert restarted.state_dict() == original.state_dict()
+        with pytest.raises(ValueError, match="dataset_fingerprint"):
+            restarted.load_state_dict(
+                {**cursor, "dataset_fingerprint": "unrelated-dataset-or-packing"}
+            )
         bad = {**cursor, "sampled_source_windows": {"fixture": -1}}
         before = restarted.state_dict()
         with pytest.raises(ValueError, match="sampled source"):

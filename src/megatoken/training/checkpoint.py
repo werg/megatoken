@@ -226,7 +226,11 @@ def load_checkpoint(
         not bank_path.is_file() or sha256_file(bank_path) != transducer["sha256"]
     ):
         raise ValueError("Checkpoint transducer bank missing or checksum mismatch")
-    payload = torch.load(state_path, map_location=map_location, weights_only=True)
+    # Checkpoints are immutable, checksummed torch.save archives. Private
+    # mappings avoid eagerly copying every optimizer tensor into host RAM before
+    # restore copies it to the learner. This is especially important on unified
+    # memory accelerators, where that second host copy competes with the model.
+    payload = torch.load(state_path, map_location=map_location, weights_only=True, mmap=True)
     if payload.get("format_version") != FORMAT_VERSION:
         raise ValueError("Unsupported payload format")
     return payload, metadata

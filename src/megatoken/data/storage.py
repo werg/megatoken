@@ -24,6 +24,7 @@ from .chunking import ChunkingConfig, ChunkingStats
 from .dedup import DedupStore
 from .media_assets import MEDIA, MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from .schema import Codec, Episode
+from .supply import SupplyCensus
 
 DATASET_VERSION = 5
 
@@ -92,6 +93,7 @@ def export_prepared(
     from .coverage import Coverage
 
     coverage = Coverage(connection)
+    structured_supply = SupplyCensus(connection)
     asset_store = TensorAssetStore(root)
     shard_index = 0
     shard_handle: BinaryIO | None = None
@@ -143,6 +145,7 @@ def export_prepared(
                     if asset is not None:
                         asset_store.load(asset)
             coverage.add(episode, row["split"], row["stream"])
+            structured_supply.add(episode, row["split"], row["stream"])
             for modality, count in _scored_media_outputs(episode).items():
                 key = f"{row['split']}|{row['stream']}|{modality}"
                 scored_media_counts[key] = scored_media_counts.get(key, 0) + count
@@ -237,6 +240,7 @@ def export_prepared(
                 connection.commit()
         close_shard()
         behavior_coverage = coverage.report()
+        structured_supply_report = structured_supply.report()
         connection.commit()
         connection.execute("VACUUM")
         connection.close()
@@ -277,6 +281,7 @@ def export_prepared(
             "feature_counts": feature_counts,
             "scored_media_counts": scored_media_counts,
             "behavior_coverage": behavior_coverage,
+            "structured_supply": structured_supply_report,
             "feature_extractors": feature_extractors,
             "complete": True,
         }

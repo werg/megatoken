@@ -1238,7 +1238,94 @@
     "family": "client_id"
    },
    "options": {
-    "max_seconds": 20.0
+    "max_seconds": 20.0,
+    "sustained_translation": true,
+    "language_pairs": {
+     "fr_en": {
+      "source": "fr",
+      "target": "en"
+     },
+     "de_en": {
+      "source": "de",
+      "target": "en"
+     },
+     "es_en": {
+      "source": "es",
+      "target": "en"
+     },
+     "ca_en": {
+      "source": "ca",
+      "target": "en"
+     },
+     "fa_en": {
+      "source": "fa",
+      "target": "en"
+     },
+     "it_en": {
+      "source": "it",
+      "target": "en"
+     },
+     "ru_en": {
+      "source": "ru",
+      "target": "en"
+     },
+     "pt_en": {
+      "source": "pt",
+      "target": "en"
+     },
+     "zh-CN_en": {
+      "source": "zh-CN",
+      "target": "en"
+     },
+     "nl_en": {
+      "source": "nl",
+      "target": "en"
+     },
+     "tr_en": {
+      "source": "tr",
+      "target": "en"
+     },
+     "et_en": {
+      "source": "et",
+      "target": "en"
+     },
+     "mn_en": {
+      "source": "mn",
+      "target": "en"
+     },
+     "lv_en": {
+      "source": "lv",
+      "target": "en"
+     },
+     "sl_en": {
+      "source": "sl",
+      "target": "en"
+     },
+     "sv-SE_en": {
+      "source": "sv-SE",
+      "target": "en"
+     },
+     "ta_en": {
+      "source": "ta",
+      "target": "en"
+     },
+     "ja_en": {
+      "source": "ja",
+      "target": "en"
+     },
+     "id_en": {
+      "source": "id",
+      "target": "en"
+     },
+     "ar_en": {
+      "source": "ar",
+      "target": "en"
+     },
+     "cy_en": {
+      "source": "cy",
+      "target": "en"
+     }
+    }
    },
    "inventory": {
     "items": 652586,
@@ -1367,7 +1454,8 @@
      "yue_hant_hk",
      "zu_za"
     ],
-    "target": "en_us"
+    "target": "en_us",
+    "sustained_translation": true
    },
    "inventory": {
     "items": 140000,

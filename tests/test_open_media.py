@@ -67,10 +67,29 @@ class FakePreparer:
         seed = int(hashlib.sha256(Path(path).read_bytes()).hexdigest()[:6], 16)
         return prepared_record(self.store, modality, seed=seed, target=target)
 
+    def audio_interval(self, path, *, start_sample, end_sample, channel, target=True):
+        values, _ = soundfile.read(path, start=start_sample, stop=end_sample, always_2d=True)
+        digest = hashlib.sha256(values[:, channel].tobytes()).hexdigest()
+        return prepared_record(self.store, "audio", seed=int(digest[:6], 16), target=target)
+
 
 @pytest.fixture
 def media(tmp_path):
     return CachingPreparer(FakePreparer(TensorAssetStore(tmp_path / "assets")))
+
+
+def test_preparation_cache_checks_content_and_bounds_retained_entries(tmp_path):
+    inner = FakePreparer(TensorAssetStore(tmp_path / "assets"))
+    cached = CachingPreparer(inner, max_entries=1)
+    path = tmp_path / "reused.wav"
+    path.write_bytes(_wave(1, fmt="WAV"))
+    first = cached.media("audio", path)
+    assert cached.media("audio", path) is first
+    assert len(inner.calls) == 1
+    path.write_bytes(_wave(2, fmt="WAV"))
+    changed = cached.media("audio", path)
+    assert changed.source.sha256 != first.source.sha256
+    assert len(inner.calls) == 2 and len(cached._records) == 1
 
 
 def make_source(source_id="unit", task="transcription", reader="parquet", **fields) -> OpenSource:
@@ -328,7 +347,33 @@ def test_text_translation_of_speech_gives_translation_transcription_and_identity
         "translation",
     ]
     assert episode.lineage.family_id == "ast:video-9"
-    assert _generated(episode) == []  # text-only target: no media is generated
+    assert _generated(episode) == []
+
+
+def test_sharded_translation_reader_preserves_executed_waits(tmp_path):
+    from megatoken.data.coverage import behaviors
+    from megatoken.data.open_media import translation_text_episodes
+
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(_wave(3, fmt="WAV"))
+    source = make_source("translation", "translation_text", options={"sustained_translation": True})
+    episodes = translation_text_episodes(
+        CachingPreparer(FakePreparer(TensorAssetStore(tmp_path / "assets"))),
+        source,
+        {
+            "id": "original",
+            "family": "original-speaker",
+            "audio": audio,
+            "text": "Bonjour.",
+            "translation": "Hello.",
+            "language": {"source": "fr", "target": "en"},
+        },
+    )
+    sustained = next(e for e in episodes if e.stream == "streaming_translation")
+    assert "streaming_wait_emit" in behaviors(sustained)
+    assert sustained.lineage.family_id == "original-speaker"
+    assert sustained.lineage.source_id == source.source_id
+    assert len([a for a in sustained.actions if a.tool_name == "track_wait"]) == 2
 
 
 def test_fleurs_pairs_the_same_sentence_in_two_languages(tmp_path, media):
@@ -362,7 +407,7 @@ def test_fleurs_pairs_the_same_sentence_in_two_languages(tmp_path, media):
     ]
     episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
     # The same labelled recording also supports plain transcription in the source language.
-    assert _streams(episodes) == {"speech_translation": 1, "transcription": 1}
+    assert _streams(episodes) == {"speech_translation": 2, "transcription": 1}
     episode = next(e for e in episodes if e.stream == "speech_translation")
     outputs = [event.track_id for event in episode.meridians[1].events]
     assert outputs == ["source_transcript", "translation", "translated_speech"]
@@ -1183,8 +1228,10 @@ def test_the_prepare_script_builds_an_immutable_root_from_counts(
         shard / "0000.parquet",
     )
     root = tmp_path / "root"
+    packs = tmp_path / "packs.json"
+    packs.write_text('{"version": 1, "packs": {}}')
     arguments = [
-        *("--packs", "unused", "--codec", "byte", "--device", "cpu"),
+        *("--packs", str(packs), "--codec", "byte", "--device", "cpu"),
         *("--work", str(tmp_path / "scratch"), "--inputs", str(tmp_path / "inputs")),
         *("--count", "librispeech_asr=5"),
     ]
@@ -1196,6 +1243,10 @@ def test_the_prepare_script_builds_an_immutable_root_from_counts(
     run("--root", str(root))
     counts = json.loads((root / "manifest.json").read_text())["counts"]
     assert counts["stream:transcription"] == counts["stream:audio_identity"] == 5
+    assert (
+        json.loads((root / "manifest.json").read_text())["sources"][0]["format"]
+        == "open-media-preparation/v3"
+    )
     assert json.loads(capsys.readouterr().out.splitlines()[-1])["transcription"] == 5
     with pytest.raises(SystemExit):  # prepared roots are immutable
         run("--root", str(root))
@@ -1203,6 +1254,45 @@ def test_the_prepare_script_builds_an_immutable_root_from_counts(
         run("--root", str(tmp_path / "new"), "--count", "nonexistent=1")
     with pytest.raises(SystemExit):  # malformed slice
         run("--root", str(tmp_path / "new"), "--shard-slice", "3/2")
+
+    specification = tmp_path / "shard.json"
+    specification.write_text(
+        json.dumps({"librispeech_asr": {"files": ["all/train.clean.100/0000.parquet"]}})
+    )
+    ingested = tmp_path / "ingested"
+    argv = [
+        "prepare_open_media",
+        "--packs",
+        str(packs),
+        "--codec",
+        "byte",
+        "--device",
+        "cpu",
+        "--work",
+        str(tmp_path / "second-scratch"),
+        "--inputs",
+        str(tmp_path / "inputs"),
+        "--shard-spec",
+        str(specification),
+        "--root",
+        str(ingested),
+        "--ingest-only",
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    prepare_script.main()
+    prepare_script.main()  # Exact retry retains the already committed digest.
+    specification.write_text(
+        json.dumps(
+            {
+                "librispeech_asr": {
+                    "files": ["all/train.clean.100/0000.parquet"],
+                    "options": {"max_seconds": 0.5},
+                }
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="different preparation"):
+        prepare_script.main()
 
 
 def test_the_same_media_through_two_sources_is_two_mergeable_episodes(tmp_path: Path) -> None:

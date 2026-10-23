@@ -31,6 +31,7 @@ from megatoken.loading import (
     parameter_report,
     restore_weights,
 )
+from megatoken.model import ModelConfig
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.teacher import PINNED_TEACHER
 from megatoken.tensors import byte_tensor
@@ -265,13 +266,15 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "deterministic",
             "gradient_checkpointing",
             "representation_mode",
+            "format_supervision_version",
             "router_balance_mode",
             "trainable",
             "text_anchors",
             "text_anchor_weight",
         )
     for key in critical:
-        if old.get(key) != current.get(key):
+        default = 1 if key == "format_supervision_version" else None
+        if old.get(key, default) != current.get(key):
             raise ValueError(
                 f"Resume configuration changed {key}; use an explicit phase transition "
                 "only when the architecture/codec are unchanged"
@@ -416,6 +419,23 @@ def train(
                     f"Active training objectives need installed media packs for: {', '.join(missing)}"
                 )
         packs_fingerprint = sha256_file(config.packs) if config.packs else None
+        payload = None
+        if resume:
+            payload, _ = load_checkpoint(resume, map_location="cpu")
+            _resume_compatible(payload["train_config"], config, phase_transition)
+            if payload["codec_fingerprint"] != codec.fingerprint:
+                raise ValueError("Checkpoint codec identity differs")
+            declared_model = ModelConfig.from_dict(payload["model_config"])
+            # A named preset is a convenience for NEW runs. Its defaults may
+            # evolve while a long-running experiment is executing. The saved
+            # model geometry remains authoritative on restart; explicit caller
+            # overrides must still agree exactly with that declaration.
+            declared_values = declared_model.to_dict()
+            if any(
+                declared_values.get(key) != model_config.to_dict().get(key) for key in overrides
+            ):
+                raise ValueError("Checkpoint model configuration differs from explicit overrides")
+            model_config = declared_model
         model = build_model(
             model_config,
             codec,
@@ -424,14 +444,7 @@ def train(
             packs=config.packs,
         )
         new_owners: tuple[str, ...] = ()
-        payload = None
-        if resume:
-            payload, _ = load_checkpoint(resume, map_location="cpu")
-            _resume_compatible(payload["train_config"], config, phase_transition)
-            if payload["codec_fingerprint"] != codec.fingerprint:
-                raise ValueError("Checkpoint codec identity differs")
-            if payload["model_config"] != model_config.to_dict():
-                raise ValueError("Checkpoint model configuration differs")
+        if payload is not None:
             # Dynamic temporary imports must be restored before optimizer owner
             # enumeration, or their FP32 masters and hooks would be missing.
             new_owners = restore_weights(
@@ -472,6 +485,13 @@ def train(
             bridge = {id(parameter) for parameter in model.media_bridge_parameters()}
             optimizer.freeze(
                 [name for name, p in optimizer.model_parameters.items() if id(p) not in bridge]
+            )
+        elif config.trainable == "latent_policy":
+            from .outcome import latent_policy_parameter_ids
+
+            policy = latent_policy_parameter_ids(model)
+            optimizer.freeze(
+                [name for name, p in optimizer.model_parameters.items() if id(p) not in policy]
             )
         # Shape-harmonized expert banks are one global owner used by many
         # routed sites. Keep their gradients in one clipping domain rather than
