@@ -50,8 +50,8 @@ from pathlib import Path
 from typing import Any
 
 from megatoken import cache, hub
-from megatoken.data.sources import REDISTRIBUTION_GROUPS
 from megatoken.io import sha256_file
+from megatoken.redistribution import REDISTRIBUTION_GROUPS
 
 PIP = ["pyarrow", *cache.PIP]  # what a sandbox needs beside the project's own requirements
 PUBLIC_GROUPS = REDISTRIBUTION_GROUPS[:-1]

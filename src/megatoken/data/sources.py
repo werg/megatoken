@@ -12,14 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from megatoken.io import content_hash, sha256_file, write_json
+from megatoken.redistribution import REDISTRIBUTION_GROUPS
 
 PARQUET_BATCH_BYTES = 64 << 20
-
-
-# Whether the prepared rows of a source may be published in the clear, and in which licence
-# group. The groups are listed most permissive first: when the same text appears in two
-# sources, the copy in the earlier group is the one kept (see ``plan_group_shards``).
-REDISTRIBUTION_GROUPS = ("permissive", "share_alike", "non_commercial", "no")
 
 
 @dataclass(frozen=True, slots=True)
