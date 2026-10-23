@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  pull_request:
 
 permissions:
   contents: read
@@ -28,7 +29,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: werg/tracing-js-self
-          ref: 223407c96113f5d1e61cf0f3d8c7989bf414c4b5
+          ref: 52e0293a6caf5256ccb2be073206f652683e26bc
           path: tracing-js-self
           persist-credentials: false
       - uses: actions/setup-node@v4

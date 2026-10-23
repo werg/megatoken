@@ -67,28 +67,138 @@ _WORDS = frozenset(
 # not silently treated as valid execution reasoning.
 _FIELDS = {
     "code": {"sourceId", "text", "codes", "sites", "staticFunctions"},
-    "enter": {"invocation", "entry", "code", "receiver", "arguments", "captures", "dependsOn"},
-    "value": {"entry", "invocation", "graph", "id", "site", "dependsOn", "control", "result", "reads", "writes"},
-    "branch": {"id", "invocation", "site", "dependsOn", "control", "test", "path", "reads"},
+    "enter": {
+        "invocation",
+        "entry",
+        "code",
+        "receiver",
+        "arguments",
+        "captures",
+        "dependsOn",
+    },
+    "value": {
+        "entry",
+        "invocation",
+        "graph",
+        "id",
+        "site",
+        "dependsOn",
+        "control",
+        "result",
+        "reads",
+        "writes",
+    },
+    "branch": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "test",
+        "path",
+        "reads",
+    },
     "loop": {"id", "invocation", "site", "dependsOn", "control", "path", "reads"},
-    "carry": {"id", "invocation", "site", "dependsOn", "control", "from", "to", "reads"},
-    "alloc": {"id", "invocation", "site", "dependsOn", "control", "allocations", "writes", "result", "reads"},
+    "carry": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "from",
+        "to",
+        "reads",
+    },
+    "alloc": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "allocations",
+        "writes",
+        "result",
+        "reads",
+    },
     "read": {"id", "invocation", "site", "dependsOn", "control", "reads", "result"},
-    "write": {"id", "invocation", "site", "dependsOn", "control", "reads", "writes", "result", "update"},
+    "write": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "reads",
+        "writes",
+        "result",
+        "update",
+    },
     "delete": {"id", "invocation", "site", "dependsOn", "control", "writes"},
-    "call": {"id", "invocation", "site", "dependsOn", "control", "child", "code", "receiver", "arguments", "captures", "reads", "result", "writes"},
-    "return": {"id", "invocation", "site", "dependsOn", "control", "result", "destination"},
-    "throw": {"id", "invocation", "site", "dependsOn", "control", "result", "destination", "reason"},
+    "call": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "child",
+        "code",
+        "receiver",
+        "arguments",
+        "captures",
+        "reads",
+        "result",
+        "writes",
+    },
+    "return": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "result",
+        "destination",
+    },
+    "throw": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "result",
+        "destination",
+        "reason",
+    },
     "await": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
     "resume": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
     "settle": {"id", "invocation", "site", "dependsOn", "control", "promise", "result"},
-    "request": {"id", "invocation", "site", "dependsOn", "control", "effect", "operation", "arguments", "codec", "signature", "payload"},
-    "observe": {"id", "invocation", "site", "dependsOn", "control", "effect", "result", "input"},
+    "request": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "effect",
+        "operation",
+        "arguments",
+        "codec",
+        "signature",
+        "payload",
+    },
+    "observe": {
+        "id",
+        "invocation",
+        "site",
+        "dependsOn",
+        "control",
+        "effect",
+        "result",
+        "input",
+    },
     "end": {"invocation", "kind"},
     "value-open": {"id", "type"},
     "value-part": {"id", "data"},
     "value-close": {"id"},
 }
+
 
 class SemanticExecutionError(ValueError):
     """An execution export cannot enter the training corpus."""
@@ -151,9 +261,9 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
     if head == "loop" and fields.get("path") != "repeat":
         _fail("Missing executed loop backedge")
     if head == "carry" and not all(
-        isinstance(fields.get(name), dict) and
-        isinstance(fields[name].get("env"), str) and
-        isinstance(fields[name].get("key"), str)
+        isinstance(fields.get(name), dict)
+        and isinstance(fields[name].get("env"), str)
+        and isinstance(fields[name].get("key"), str)
         for name in ("from", "to")
     ):
         _fail("Malformed lexical iteration carry")

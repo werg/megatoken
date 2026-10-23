@@ -24,7 +24,11 @@ def fixture():
         ("observed", "value", {"entry": "f", "graph": {"roots": [["num", 3]], "objects": []}}),
         ("generated", "enter", {"invocation": "f1", "entry": "f", "arguments": [["num", 3]]}),
         ("generated", "value", {"id": "e1", "invocation": "f1", "result": ["num", 3]}),
-        ("generated", "branch", {"id": "e2", "dependsOn": ["e1"], "test": ["bool", True], "path": "then"}),
+        (
+            "generated",
+            "branch",
+            {"id": "e2", "dependsOn": ["e1"], "test": ["bool", True], "path": "then"},
+        ),
         ("generated", "return", {"id": "e3", "dependsOn": ["e2"], "result": ["num", 4]}),
         ("generated", "end", {"invocation": "f1", "kind": "return"}),
     ]
