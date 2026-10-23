@@ -399,6 +399,10 @@ def main():
         model="tiny",
         model_overrides={"max_capacity": 512},
         phase="P1",
+        # This experiment starts from random weights. Its public text reader
+        # must learn together with prediction and realization; a frozen random
+        # reader is not the pretrained reader assumed by recurrent-only tuning.
+        representation_mode="bootstrap",
         budget=1000000,
         datasets=[str(args.root / "data")],
         output=str(args.root / "training"),

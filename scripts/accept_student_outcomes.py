@@ -36,6 +36,7 @@ class _UnusedTeacher:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True)
+    parser.add_argument("--packs", type=Path)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--packs", type=Path)
