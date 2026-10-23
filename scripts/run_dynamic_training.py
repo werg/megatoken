@@ -23,6 +23,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--writer", type=Path, required=True)
+    parser.add_argument("--writer-sha256", required=True)
+    parser.add_argument("--writer-wait-seconds", type=int, default=3600)
     parser.add_argument("--annotations", type=Path, required=True)
     parser.add_argument("--terms", type=Path, required=True)
     parser.add_argument("--foundation-steps", type=int, default=256)
@@ -31,7 +33,13 @@ def main():
     args = parser.parse_args()
     if min(args.foundation_steps, args.bridge_steps, args.joint_steps) < 1:
         parser.error("All training segments require a positive update budget")
-    for path in (args.writer / "training.safetensors", args.annotations, args.terms):
+    if len(args.writer_sha256) != 64 or any(
+        c not in "0123456789abcdef" for c in args.writer_sha256
+    ):
+        parser.error("The writer requires its exact SHA256 identity")
+    if args.writer_wait_seconds < 0:
+        parser.error("The writer wait bound cannot be negative")
+    for path in (args.annotations, args.terms):
         if not path.is_file():
             raise FileNotFoundError(path)
     from megatoken.data.sources import TermsReview
@@ -49,7 +57,7 @@ def main():
             "script_sha256": sha256_file(__file__),
             "terms_sha256": sha256_file(args.terms),
             "annotations_sha256": sha256_file(args.annotations),
-            "writer_sha256": sha256_file(args.writer / "training.safetensors"),
+            "writer_sha256": args.writer_sha256,
             "budgets": {
                 "foundation_updates": args.foundation_steps,
                 "bridge_updates": args.bridge_steps,
@@ -235,6 +243,15 @@ def main():
                 "heldout_episodes": len(heldout),
             },
         )
+    deadline = time.monotonic() + args.writer_wait_seconds
+    writer_weights = args.writer / "training.safetensors"
+    while not (args.writer / "receipt.json").is_file():
+        write_json(root / "status.json", {"state": "awaiting_verified_writer"})
+        if time.monotonic() >= deadline:
+            raise TimeoutError("The required pinned writer has not been supplied")
+        time.sleep(10)
+    if sha256_file(writer_weights) != args.writer_sha256:
+        raise ValueError("The writer differs from the declared immutable source")
     common = [
         "--packs",
         packs,
