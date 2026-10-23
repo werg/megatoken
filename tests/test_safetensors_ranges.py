@@ -109,3 +109,66 @@ def test_http_reader_rejects_servers_that_ignore_range_before_reading_body(monke
             file_size=1024,
             expected_sha256="d" * 64,
         )
+
+
+def test_http_reader_caches_signed_cdn_url_and_refreshes_without_auth_leak():
+    shard = make_shard()
+    origin = "https://huggingface.co/model/resolve/revision/table.safetensors"
+    cdn1 = "https://cdn.example/first?signature=one"
+    cdn2 = "https://cdn.example/second?signature=two"
+    reader = SafetensorsRangeReader(
+        origin,
+        "table",
+        file_size=len(shard),
+        expected_sha256="e" * 64,
+        headers={"Authorization": "Bearer private-token"},
+        fetch=lambda start, end: shard[start : end + 1],
+    )
+
+    class Response:
+        def __init__(self, status, url, expected, history=()):
+            self.status_code = status
+            self.url = url
+            self.history = history
+            self.headers = {"Content-Range": expected}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def iter_bytes(self):
+            yield b"xy"
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+            self.responses = [
+                Response(206, cdn1, f"bytes 10-11/{len(shard)}", history=(object(),)),
+                Response(206, cdn1, f"bytes 10-11/{len(shard)}"),
+                Response(403, cdn1, ""),
+                Response(206, cdn2, f"bytes 10-11/{len(shard)}", history=(object(),)),
+                Response(206, cdn2, f"bytes 10-11/{len(shard)}"),
+            ]
+
+        def stream(self, method, url, *, headers):
+            self.calls.append((method, url, dict(headers)))
+            return self.responses.pop(0)
+
+        def close(self):
+            pass
+
+    client = Client()
+    reader._client = client
+    assert reader._http_range(10, 11) == b"xy"
+    assert reader._http_range(10, 11) == b"xy"
+    assert reader._http_range(10, 11) == b"xy"
+    assert reader._http_range(10, 11) == b"xy"
+    assert [url for _, url, _ in client.calls] == [origin, cdn1, cdn1, origin, cdn2]
+    assert client.calls[0][2]["Authorization"] == "Bearer private-token"
+    assert client.calls[1][2].get("Authorization") is None
+    assert client.calls[2][2].get("Authorization") is None
+    assert client.calls[3][2]["Authorization"] == "Bearer private-token"
+    assert client.calls[4][2].get("Authorization") is None
+    reader.close()

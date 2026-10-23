@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 import torch
 
@@ -96,6 +97,12 @@ class SafetensorsRangeReader:
                 )
         self._headers = dict(headers or {})
         self._fetch = fetch or self._http_range
+        self._cdn_url: str | None = None
+        self._cdn_headers = {
+            name: value
+            for name, value in self._headers.items()
+            if name.casefold() != "authorization"
+        }
         prefix = self._fetch(0, 7)
         if len(prefix) != 8:
             raise ValueError("Safetensors shard has a truncated header length")
@@ -161,13 +168,25 @@ class SafetensorsRangeReader:
             )
         for attempt in range(8):
             try:
+                request_url = self._cdn_url or self.url
+                request_headers = self._headers if self._cdn_url is None else self._cdn_headers
                 with self._client.stream(
                     "GET",
-                    self.url,
-                    headers={**self._headers, "Range": f"bytes={start}-{end}"},
+                    request_url,
+                    headers={**request_headers, "Range": f"bytes={start}-{end}"},
                 ) as response:
                     with self._stats_lock:
-                        self.requests += 1
+                        self.requests += 1 + len(getattr(response, "history", ()))
+                    if (
+                        self._cdn_url is not None
+                        and response.status_code in {401, 403}
+                        and attempt < 7
+                    ):
+                        # Signed Hub CDN URLs expire. Return to the pinned resolve
+                        # URL, which can mint a fresh signed URL; auth is sent only
+                        # to that original Hub host, never to the CDN host.
+                        self._cdn_url = None
+                        continue
                     content_range = response.headers.get("Content-Range", "")
                     expected = f"bytes {start}-{end}/{self.file_size}"
                     if response.status_code in {429, 500, 502, 503, 504}:
@@ -192,6 +211,9 @@ class SafetensorsRangeReader:
                     body = b"".join(body_parts)
                     with self._stats_lock:
                         self.bytes_received += len(body)
+                    resolved_url = str(response.url)
+                    if urlsplit(resolved_url).netloc != urlsplit(self.url).netloc:
+                        self._cdn_url = resolved_url
                     return body
             except httpx.HTTPError as exc:
                 if attempt == 7:
