@@ -49,3 +49,9 @@ licence, each recorded); `sources.agentic-gated.json` holds the ones that need t
 maintainer to accept terms on the Hub or restore withheld prompts first. The cloud job
 `configs/cloud/prepare-agentic-mix.json` prepares the first in eight shards, scaled with
 `AGENTIC_ROW_SCALE`. See "Agentic and chat data" in [`docs/data.md`](../../docs/data.md).
+
+`sources.later-stages.json` holds the public sources for the streams the later stages read
+(issue and pull-request data, change histories, logs, long documents, grounded artifacts,
+tested code, clarification and recovery, code rewrites, environment episodes). The cloud job
+`configs/cloud/prepare-later-stages.json` prepares it in eight shards, scaled with
+`LATER_ROW_SCALE`. See "Later-stage streams" at the end of [`docs/data.md`](../../docs/data.md).

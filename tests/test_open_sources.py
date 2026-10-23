@@ -63,11 +63,12 @@ def test_every_source_is_pinned_licensed_and_approved_by_the_maintainer():
         source.terms.require_approval()
 
 
-def test_streams_cover_the_stage_plan_except_synthetic_code_rewrite():
+def test_streams_cover_the_stage_plan():
     text = {s.stream for s in SOURCES.values()}
-    text |= {s.stream for s in load_source_manifest(CONFIGS / "sources.agentic.json")}
+    for manifest in ("sources.agentic.json", "sources.later-stages.json"):
+        text |= {s.stream for s in load_source_manifest(CONFIGS / manifest)}
     covered = text | STREAMS | {"long_document_reading", "base_reading", "collection_reading"}
-    assert set(stage_recipe("P1").mixture) - covered == {"synthetic_code_rewrite"}
+    assert set(stage_recipe("P1").mixture) - covered == set()
     mb_text = {s.stream for s in load_source_manifest(CONFIGS / "sources.open-mb.json")}
     assert set(stage_recipe("MB").mixture) <= mb_text | STREAMS
 

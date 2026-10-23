@@ -28,9 +28,36 @@ ROW_KIB = {
     "environment_trajectories": 8,
     "chat": 5,
     "typed_exact_instructions": 3,
-    "recovery_clarification": 2,
+    "recovery_clarification": 30,
+    "long_verified_dependencies": 120,
+    "issue_pr_sequences": 40,
+    "issue_pr_diffs": 40,
+    "code_evolution": 30,
+    "connected_repositories": 200,
+    "long_natural_code_replay": 200,
+    "build_logs": 100,
+    "long_context": 700,
+    "natural_document_replay": 700,
+    "grounded_artifacts": 80,
+    "long_context_fim": 40,
+    "synthetic_code_rewrite": 12,
+    "tested_artifacts": 4,
 }
 
+# Sources whose rows are far from their stream's typical size.
+SOURCE_ROW_KIB = {
+    "when2call-sft": 2,
+    "gharchive-threads": 2,
+    "pr-traces-10k": 190,
+    "adp-go-browse-wa": 48,
+    "adp-nnetnav-wa": 170,
+    "adp-mind2web": 460,
+    "agentrefine-gpt4o": 3,
+    "commit-chronicle": 4,
+    "commitpackft": 3,
+    "swe-fixer-train-110k": 7,
+    "pie-perf-slow-to-fast": 1.5,
+}
 
 # Share of rows read that pass a source's row filter (measured on the first rows of each); a
 # rejected row costs a read but no preparation, so only the passing share counts as work.
@@ -45,13 +72,25 @@ PASS_RATE = {
     "s-verified-rebench": 0.48,
     "s-verified-swe-smith": 0.43,
     "s-verified-orchard": 0.7,
+    "ldep-rebench-openhands": 0.2,
+    "ldep-scale-swe-v4-pro": 0.4,
+    "ldep-coderforge": 0.3,
+    "pr-resolve-issue-to-patch": 0.69,
+    "pr-resolve-comment-to-fix": 0.31,
+    "code-world-traces-affected": 0.33,
+    "s-tested-opencodeinstruct": 0.39,
+    "repository-v2-long": 0.5,
+    "repository-v2-long-replay": 0.5,
+    "pg19-books": 0.5,
+    "pre-1929-books": 0.5,
 }
 
 
 def cost(source: dict) -> float:
     """Estimated KiB of source text to prepare for one source."""
     rate = PASS_RATE.get(source["source_id"], 1.0)
-    return source["max_rows"] * rate * ROW_KIB.get(source["stream"], 10)
+    row_kib = SOURCE_ROW_KIB.get(source["source_id"], ROW_KIB.get(source["stream"], 10))
+    return source["max_rows"] * rate * row_kib
 
 
 def scale(manifest: dict, factor: float) -> dict:
