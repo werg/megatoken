@@ -480,3 +480,106 @@ def test_the_command_line_makes_a_key_once_and_never_prints_it(tmp_path, capsys)
     with pytest.raises(SystemExit) as refused:
         cli.main(["cache", "keygen", "--path", str(path)])
     assert refused.value.code == 1
+
+
+def test_compression_reduces_the_stored_stream_and_round_trips(tmp_path):
+    source = tmp_path / "src"
+    source.mkdir()
+    payload = b'{"message":"repeatable training text","tokens":[1,2,3]}\n' * 100000
+    (source / "episodes.jsonl").write_bytes(payload)
+    (source / "empty.jsonl").touch()
+    hub = FakeHub()
+    receipt = store_part(hub, tmp_path)
+    assert receipt["compression"] == "zstd"
+    assert receipt["compressed_bytes"] < len(payload) // 100
+    assert receipt["pieces"] < len(payload) // PIECE // 100
+    manifest = verify(hub, receipt, tmp_path)
+    assert manifest["compression"] == "zstd"
+    assert manifest["uncompressed_bytes"] == len(payload)
+    assert manifest["stream_bytes"] == receipt["compressed_bytes"]
+    dest = tmp_path / "restored"
+    fetch_part(hub, receipt, dest)
+    assert read_tree(dest) == read_tree(source)
+
+
+def test_retry_reuses_verified_compressed_files_and_rejects_damaged_cache(tmp_path, monkeypatch):
+    import zstandard
+
+    hub, receipt = stored(tmp_path)
+    real = zstandard.ZstdCompressor
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("compression needed")
+
+    monkeypatch.setattr(zstandard, "ZstdCompressor", unavailable)
+    store_part(hub, tmp_path)  # already verified compressed copy needs no compressor
+    target = tmp_path / "work/compressed/00000/index.sqlite"
+    target.write_bytes(b"broken compressed copy")
+    with pytest.raises(RuntimeError, match="compression needed"):
+        store_part(hub, tmp_path)
+    monkeypatch.setattr(zstandard, "ZstdCompressor", real)
+    store_part(hub, tmp_path)
+    fetch_part(hub, receipt, tmp_path / "restored")
+    assert (tmp_path / "restored/00000/index.sqlite").read_bytes() == (
+        tmp_path / "src/00000/index.sqlite"
+    ).read_bytes()
+
+
+def test_a_more_compressible_rebuild_removes_superseded_remote_pieces(tmp_path):
+    hub, first = stored(tmp_path)
+    assert first["pieces"] > 1
+    for path in (tmp_path / "src").rglob("*"):
+        if path.is_file():
+            path.write_bytes(b"x" * 100)
+    second = store_part(hub, tmp_path)
+    assert second["pieces"] == 1
+    assert len(repo_files(hub)) == 2  # the one piece and its manifest
+    fetch_part(hub, second, tmp_path / "restored")
+
+
+@pytest.mark.parametrize("bad", ["invalid", "truncated", "too_large"])
+def test_invalid_compressed_files_are_not_committed(tmp_path, bad):
+    import zstandard
+
+    from megatoken.io import sha256_file
+
+    raw = b"training text\n" * 100000
+    original = tmp_path / "original"
+    original.write_bytes(raw)
+    packed = zstandard.ZstdCompressor(write_checksum=True).compress(raw)
+    if bad == "invalid":
+        packed = b"invalid compressed frame"
+    elif bad == "truncated":
+        packed = packed[: len(packed) // 2]
+    item = {
+        "path": "root/data",
+        "offset": 0,
+        "bytes": 1 if bad == "too_large" else len(raw),
+        "compressed_bytes": len(packed),
+        "sha256": sha256_file(original),
+    }
+    manifest = {"compression": "zstd", "stream_bytes": len(packed), "files": [item]}
+    dest = tmp_path / "out"
+    unpacker = cache._Unpacker(manifest, dest, set())
+    with pytest.raises(cache.CacheError):
+        unpacker.write(packed)
+    assert not (dest / "root/data").exists()
+    assert not list(dest.rglob("*.partial*"))
+
+
+def test_previously_published_uncompressed_files_still_restore(tmp_path):
+    import hashlib
+
+    payload = b"previously published training data"
+    item = {
+        "path": "old/data",
+        "offset": 0,
+        "bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    manifest = {"stream_bytes": len(payload), "files": [item]}
+    done = set()
+    unpacker = cache._Unpacker(manifest, tmp_path, done)
+    unpacker.write(payload)
+    assert (tmp_path / "old/data").read_bytes() == payload
+    assert done == {"old/data"}

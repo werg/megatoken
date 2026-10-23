@@ -241,7 +241,7 @@ def test_the_pin_records_one_commit_and_the_whole_run_comes_back(tmp_path):
     receipt, prepared = store(hub, tmp_path)
     pin = finalize(hub, [receipt], tmp_path)
     assert pin["revision"] == hub.head[REPO] and pin["repo"] == REPO
-    assert b"ENCRYPTED" in hub.commits[REPO][pin["revision"]]["README.md"]
+    assert b"Zstandard-compressed" in hub.commits[REPO][pin["revision"]]["README.md"]
     path = tmp_path / "run.pin.json"
     path.write_text(json.dumps(pin))
     assert publish.decide(path, KEY, hub, tmp_path / "s").mode == "stored"
@@ -435,7 +435,7 @@ def test_the_card_is_rebuilt_from_the_repository_across_runs(tmp_path):
     (row,) = [
         line for line in card.splitlines() if line.startswith("| demo") or "example/" in line
     ][:1]
-    assert "permissive" in card and "2 encrypted parts" in card
+    assert "permissive" in card and "2 compressed parts" in card
     assert str(2 * second["episodes"]["permissive"]) in row.replace(",", "")
     # Nothing changed: rebuilding again makes no new commit.
     before = hub.head[REPO]
@@ -462,7 +462,7 @@ def test_a_card_update_reloads_sources_when_another_run_uploads(tmp_path, monkey
     hub.create_commit = commit
     revision = publish.refresh_card(hub, REPO, scratch=tmp_path / "card")
     card = hub.commits[REPO][revision]["README.md"].decode()
-    assert "2 encrypted parts" in card
+    assert "2 compressed parts" in card
     assert "| 14 |" in card  # both runs' public episodes are described
 
 
@@ -494,7 +494,7 @@ ENTRIES = {
 }
 
 
-def test_the_card_opens_with_the_encrypted_notice_and_attributes_every_source():
+def test_the_card_labels_compression_and_attributes_every_source():
     card = publish.build_card(
         repo=REPO,
         subsets=ENTRIES,
@@ -506,8 +506,9 @@ def test_the_card_opens_with_the_encrypted_notice_and_attributes_every_source():
     assert "config_name: permissive" in front and "permissive/**/*.parquet" in front
     assert "non_commercial/**/*.parquet" in front
     assert "share_alike" not in front and "encrypted" not in front  # not a loadable config
-    notice = body.index("ENCRYPTED cache of preprocessed machine-learning training data")
-    assert notice < body.index("## ") and "cannot be used without the project's private key" in body
+    notice = body.index("Zstandard-compressed training data")
+    assert notice < body.index("## ") and "project's download tools" in body
+    assert "encrypt" not in body.lower() and "private key" not in body.lower()
     assert "write to maintainer@example.org" in body
     assert "| `permissive` |" in body and "| `non_commercial` | " in body
     assert "CC-BY-NC-SA-4.0" in body  # a share-alike non-commercial source sets the subset licence
@@ -516,18 +517,19 @@ def test_the_card_opens_with_the_encrypted_notice_and_attributes_every_source():
         in body
     )
     assert "1,500" in body and "local file" in body
-    assert "4 encrypted parts, 5.0 GiB" in body
+    assert "4 compressed parts, 5.0 GiB" in body
     assert "### `permissive`" in body and "### `non_commercial`" in body
     assert "### `share_alike`" not in body
     assert body.index("### `permissive`") < body.index("### `non_commercial`")
-    assert "ENCRYPTED" in publish.encrypted_card("c") and "private key" in publish.encrypted_card(
+    assert "Compressed" in publish.encrypted_card(
         "c"
-    )
+    ) and "download tools" in publish.encrypted_card("c")
+    assert "encrypt" not in publish.encrypted_card("c").lower()
 
 
 def test_a_card_without_public_data_declares_no_subset():
     card = publish.build_card(repo=REPO, subsets={}, encrypted={"parts": 1, "bytes": 1})
-    assert "configs:" not in card and "ENCRYPTED" in card
+    assert "configs:" not in card and "Zstandard-compressed" in card
 
 
 def test_the_subset_licences():

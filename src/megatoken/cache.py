@@ -5,12 +5,12 @@ licences do not clearly allow redistribution are copied encrypted: every file is
 AES-256-GCM under a key that lives only in a local file (``megatoken cache keygen`` makes it)
 and reaches a sandbox only as a secret file. What the public repository holds under
 ``encrypted/`` is ciphertext with opaque names. Nothing about the sources, their licences or
-their sizes is readable there, and the repository's README says so plainly (``megatoken.publish``
-writes it). The sources that may be published go to the same repository in the clear.
+their sizes is readable there. Public descriptions label this as a compressed project cache.
+The sources that may be published go to the same repository in the clear.
 
 What goes up, for one *part* (the encrypted roots one finishing sandbox wrote):
 
-* The part's files are laid end to end as one byte stream and cut into *pieces* of the
+* Each file is compressed with Zstandard first. Those frames are laid end to end and cut into *pieces* of the
   same size (the last is padded with zeros), so file and source sizes are not visible.
   Each piece is sealed on its own, in 4 MiB segments, so a multi-GB piece is never held
   in memory. A segment's nonce counts its position and marks the last one, so reordering
@@ -23,8 +23,8 @@ What goes up, for one *part* (the encrypted roots one finishing sandbox wrote):
 
 Reading back needs the key and a *pin* (``megatoken.publish``: the repository and one commit of
 it; it holds no secret and may be committed). ``fetch_part`` downloads the pinned commit's files,
-checks every piece's ciphertext hash against the manifest, decrypts, and checks every file's
-plaintext hash.
+checks every piece's ciphertext hash against the manifest, decrypts, decompresses, and checks
+every file's original plaintext hash. Earlier uncompressed uploads can still be restored.
 
   megatoken cache keygen [--path FILE]            create the key (never overwrites)
 """
@@ -55,7 +55,7 @@ KEY_FILE = Path(
     os.environ.get("MEGATOKEN_CACHE_KEY_FILE", Path.home() / ".config/megatoken/cache.key")
 )
 SECRET_NAME = "cache-key"  # the file name a sandbox finds the key under, in its secrets directory
-PIP = ["cryptography>=43,<51"]  # what a sandbox needs beside the project's own requirements
+PIP = ["cryptography>=43,<51", "zstandard>=0.23,<1"]
 
 MAGIC = b"MTC1"
 SALT_BYTES = 32
@@ -78,6 +78,8 @@ SKIP_NAMES = frozenset(
 )
 MANIFEST_SCHEMA = "megatoken.cache-part/2"
 RECEIPT_SCHEMA = "megatoken.cache-receipt/2"
+COMPRESSION = "zstd"
+COMPRESSION_LEVEL = 3
 NOT_FOUND = frozenset(
     {
         "RepositoryNotFoundError",
@@ -445,6 +447,48 @@ def _write_state(path: Path, value: Mapping[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def _compress_files(source: Path, entries: Sequence[Entry], work: Path) -> list[Entry]:
+    """Compress each file independently, retaining bounded memory and resumable downloads."""
+    import zstandard
+
+    plan = content_hash(
+        {
+            "compression": COMPRESSION,
+            "level": COMPRESSION_LEVEL,
+            "version": zstandard.ZSTD_VERSION,
+            "files": [[e.path, e.bytes, e.sha256] for e in entries],
+        }
+    )
+    state = work / "compressed.json"
+    root = work / "compressed"
+    if state.exists():
+        saved = json.loads(state.read_text())
+        if saved.get("plan") == plan:
+            found = [Entry(**item) for item in saved["files"]]
+            if all(
+                (root / e.path).is_file()
+                and (root / e.path).stat().st_size == e.bytes
+                and sha256_file(root / e.path) == e.sha256
+                for e in found
+            ):
+                return found
+    shutil.rmtree(root, ignore_errors=True)
+    compressed = []
+    offset = 0
+    compressor = zstandard.ZstdCompressor(level=COMPRESSION_LEVEL, write_checksum=True)
+    for entry in entries:
+        target = root / entry.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with (source / entry.path).open("rb") as reader, target.open("wb") as sink:
+            if entry.bytes:
+                compressor.copy_stream(reader, sink, read_size=8 << 20, write_size=1 << 20)
+        size = target.stat().st_size
+        compressed.append(Entry(entry.path, offset, size, sha256_file(target)))
+        offset += size
+    _write_state(state, {"plan": plan, "files": [vars(e) for e in compressed]})
+    return compressed
+
+
 def store(
     *,
     keys: Keys,
@@ -471,13 +515,16 @@ def store(
     total = sum(entry.bytes for entry in entries)
     if not total:
         raise CacheError(f"{source} holds no files to store")
+    packed = _compress_files(source, entries, work)
+    compressed_total = sum(e.bytes for e in packed)
     plan = content_hash(
         {
+            "compression": COMPRESSION,
             "run": run,
             "part": part,
             "piece_bytes": piece_bytes,
             "segment": segment,
-            "files": [[e.path, e.bytes, e.sha256] for e in entries],
+            "files": [[e.path, e.bytes, e.sha256] for e in packed],
         }
     )
     plan_file = work / "plan.json"
@@ -485,7 +532,7 @@ def store(
         shutil.rmtree(work / "upload", ignore_errors=True)
         shutil.rmtree(work / "state", ignore_errors=True)
         _write_state(plan_file, {"plan": plan})
-    pieces = -(-total // piece_bytes)
+    pieces = -(-compressed_total // piece_bytes)
     folder = folder_name(keys, run, part)
     local = work / "upload" / folder
 
@@ -503,13 +550,13 @@ def store(
                 return {"name": name, "bytes": done["bytes"], "sha256": done["sha256"]}
         target.parent.mkdir(parents=True, exist_ok=True)
         staging = target.with_name(target.name + ".partial")
-        reader = _Slice(source, entries, index * piece_bytes, piece_bytes)
+        reader = _Slice(work / "compressed", packed, index * piece_bytes, piece_bytes)
         try:
             plain = hashlib.sha256()
             while block := reader.read(8 << 20):
                 plain.update(block)
             reader.close()
-            reader = _Slice(source, entries, index * piece_bytes, piece_bytes)
+            reader = _Slice(work / "compressed", packed, index * piece_bytes, piece_bytes)
             with staging.open("wb") as sink:
                 sha, size = encrypt_stream(
                     reader,
@@ -536,10 +583,18 @@ def store(
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "piece_bytes": piece_bytes,
         "segment": segment,
-        "stream_bytes": total,
+        "compression": COMPRESSION,
+        "stream_bytes": compressed_total,
+        "uncompressed_bytes": total,
         "files": [
-            {"path": e.path, "offset": e.offset, "bytes": e.bytes, "sha256": e.sha256}
-            for e in entries
+            {
+                "path": e.path,
+                "offset": c.offset,
+                "bytes": e.bytes,
+                "sha256": e.sha256,
+                "compressed_bytes": c.bytes,
+            }
+            for e, c in zip(entries, packed, strict=True)
         ],
         "pieces": sealed,
     }
@@ -576,6 +631,31 @@ def store(
         if remote.remote_sha256(repo, name, head, item, work / "verify") != sha256_file(path):
             raise CacheError(f"{repo}: {name} differs from what was uploaded")
     shutil.rmtree(work / "verify", ignore_errors=True)
+    # A more compressible rebuild may need fewer pieces than the previous upload.
+    from huggingface_hub import CommitOperationDelete
+
+    wanted = {f"{folder}/{p.name}" for p in local.iterdir() if p.is_file()}
+
+    def prune() -> bool:
+        head = remote.head(repo)
+        stale = sorted(
+            name
+            for name, item in remote.tree(repo, head, folder).items()
+            if name not in wanted and getattr(item, "size", None) is not None
+        )
+        if not stale:
+            return False
+        api.create_commit(
+            repo_id=repo,
+            repo_type="dataset",
+            parent_commit=head,
+            operations=[CommitOperationDelete(path_in_repo=p) for p in stale[:100]],
+            commit_message="Remove superseded compressed cache pieces",
+        )
+        return True
+
+    while hub.retry_conflicts(prune):
+        pass
     log(f"uploaded and verified {folder}")
     return {
         "schema": RECEIPT_SCHEMA,
@@ -583,6 +663,8 @@ def store(
         "part": part,
         "files": len(entries),
         "stream_bytes": total,
+        "compression": COMPRESSION,
+        "compressed_bytes": compressed_total,
         "pieces": pieces,
         "repo": repo,
         "folder": folder,
@@ -627,6 +709,11 @@ def read_manifest(
         raise CacheError(f"Part {part}: the manifest belongs to another run or part")
     for item in manifest["files"]:
         _safe_relative(item["path"])
+    if manifest.get("compression") not in (None, COMPRESSION):
+        raise CacheError(f"Unsupported cache compression: {manifest['compression']}")
+    if manifest.get("compression") == COMPRESSION:
+        if any("compressed_bytes" not in item for item in manifest["files"]):
+            raise CacheError("Compressed cache is missing file lengths")
     return manifest
 
 
@@ -674,6 +761,7 @@ class _Unpacker:
         self.files = [item for item in manifest["files"] if item["bytes"]]
         self.offsets = [item["offset"] for item in self.files]
         self.total = manifest["stream_bytes"]
+        self.compressed = manifest.get("compression") == COMPRESSION
         self.dest, self.done = dest, done
         self.handle: BinaryIO | None = None
         self.hasher: Any = None
@@ -688,7 +776,7 @@ class _Unpacker:
         while len(view) and self.position < self.total:
             index = bisect.bisect_right(self.offsets, self.position) - 1
             item = self.files[index]
-            end = item["offset"] + item["bytes"]
+            end = item["offset"] + item.get("compressed_bytes", item["bytes"])
             take = min(len(view), end - self.position, self.total - self.position)
             if item["path"] not in self.done:
                 self._append(index, item, view[:take])
@@ -707,7 +795,8 @@ class _Unpacker:
             self.hasher, self.current = hashlib.sha256(), index
         assert self.handle is not None
         self.handle.write(block)
-        self.hasher.update(block)
+        if not self.compressed:
+            self.hasher.update(block)
 
     def _close(self, item: Mapping[str, Any]) -> None:
         assert self.handle is not None
@@ -715,6 +804,34 @@ class _Unpacker:
         target = self.dest / _safe_relative(item["path"])
         partial = target.with_name(target.name + ".partial")
         self.handle, self.current = None, -1
+        if self.compressed:
+            import zstandard
+
+            packed = partial.with_name(partial.name + ".zst")
+            partial.replace(packed)
+            self.hasher = hashlib.sha256()
+            size = 0
+            try:
+                with (
+                    packed.open("rb") as source,
+                    zstandard.ZstdDecompressor().stream_reader(source) as reader,
+                    partial.open("wb") as sink,
+                ):
+                    while block := reader.read(8 << 20):
+                        size += len(block)
+                        if size > item["bytes"]:
+                            raise CacheError(f"{item['path']}: decompressed file exceeds its size")
+                        sink.write(block)
+                        self.hasher.update(block)
+                if size != item["bytes"]:
+                    raise CacheError(f"{item['path']}: decompressed file has the wrong size")
+            except BaseException as error:
+                partial.unlink(missing_ok=True)
+                if isinstance(error, zstandard.ZstdError):
+                    raise CacheError(f"{item['path']}: invalid compressed data") from error
+                raise
+            finally:
+                packed.unlink(missing_ok=True)
         if self.hasher.hexdigest() != item["sha256"]:
             partial.unlink(missing_ok=True)
             raise CacheError(f"{item['path']}: decrypted content does not match its recorded hash")
@@ -802,7 +919,9 @@ def fetch_part(
         if any(
             item["path"] not in done
             for item in manifest["files"]
-            if item["bytes"] and item["offset"] < end and item["offset"] + item["bytes"] > start
+            if item["bytes"]
+            and item["offset"] < end
+            and item["offset"] + item.get("compressed_bytes", item["bytes"]) > start
         ):
             wanted.append((index, piece))
 
@@ -833,8 +952,11 @@ def fetch_part(
             target = dest / _safe_relative(item["path"])
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"")
-    log(f"part {part}: {len(manifest['files'])} encrypted files restored")
-    return {"files": len(manifest["files"]), "bytes": manifest["stream_bytes"]}
+    log(f"part {part}: {len(manifest['files'])} cached files restored")
+    return {
+        "files": len(manifest["files"]),
+        "bytes": manifest.get("uncompressed_bytes", manifest["stream_bytes"]),
+    }
 
 
 # ---- command line -------------------------------------------------------------------------

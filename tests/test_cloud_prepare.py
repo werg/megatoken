@@ -583,7 +583,7 @@ def test_launch_gives_the_key_to_the_finish_wave_alone_and_pins_the_result(tmp_p
     assert pin["run"] == "unit-prep" and [p["part"] for p in pin["parts"]] == [0, 1]
     # One commit of the one repository holds every part and the rebuilt card.
     assert pin["repo"] == REPO and pin["revision"] == hub.head[REPO]
-    assert b"ENCRYPTED" in hub.commits[REPO][pin["revision"]]["README.md"]
+    assert b"Zstandard-compressed" in hub.commits[REPO][pin["revision"]]["README.md"]
     assert key not in Path(run["cache_pin"]).read_text()
     # The data is safe in the repository, so every sandbox, the finish ones too, is released.
     assert len(fleet.stopped) == 5 and set(fleet.stopped) == set(fleet.jobs)

@@ -1652,13 +1652,13 @@ permissive/<run>/part-0003/<shard>/data-00000.parquet ...   readable rows, files
 permissive/<run>/part-0003/<shard>/root/   the root's manifest, index and reports
 permissive/<run>/part-0003/sources.json    which sources that part holds, with attribution
 share_alike/...   non_commercial/...         the same for the other public groups
-encrypted/README.md                        says plainly that the folder is unusable ciphertext
+encrypted/README.md                        labels the compressed project cache
 encrypted/<opaque>/<opaque>.bin            everything in group `no`, sealed (see below)
 ```
 
-The card (`license: other`) opens with a prominent notice that `encrypted/` is an ENCRYPTED cache of
-preprocessed training data for the megatoken project that cannot be used without the project's
-private key, then gives one licence per subset, a contact and takedown note, the columns, and a
+The card (`license: other`) labels the data as compressed, with `compressed` and `zstandard`
+tags. It describes the public Parquet subsets and the compressed project cache without an
+encryption notice, then gives one licence per subset, a contact and takedown note, the columns, and a
 per-source attribution table grouped by subset (upstream repository URL, revision, licence, licence
 URL, episodes). Only the public subsets are declared as loadable configs; `encrypted/` is not. The
 card is rebuilt from what the repository holds, once, at the end of each run (and by `python -m
@@ -1684,12 +1684,14 @@ Current guidance: [Hub storage limits](https://huggingface.co/docs/hub/storage-l
 2026-10-23; it no longer gives a 300 GB per-repository recommendation.
 
 **The encrypted folder.** A finishing sandbox seals its group-`no` roots (just the files, never
-the working databases `preparation.sqlite` and `digest.sqlite`). The files are laid end to end and
-cut into pieces of exactly 1 GiB of plaintext (the last is padded with zeros), so the pieces are all
+the working databases `preparation.sqlite` and `digest.sqlite`). Each file is compressed independently
+with Zstandard level 3 and a frame checksum, using bounded streaming buffers. The compressed frames
+are laid end to end and cut into pieces of exactly 1 GiB of pre-encryption bytes (the last is padded with zeros), so the pieces are all
 the same size. Each piece is encrypted with AES-256-GCM, 4 MiB at a time, so a multi-GB piece is
 never held in memory. A piece's segments carry their position and the last one is marked, so
 reordering, cutting off or swapping a piece for another file's is detected. The manifest (file
-paths, offsets, the sha256 of every plaintext file and of every encrypted piece) is encrypted the
+paths, compressed offsets and lengths, original lengths, `compression: zstd`, and the sha256 of
+every original file and every encrypted piece) is encrypted the
 same way and padded to a multiple of 1 MiB. File and folder names are `HMAC(key, logical name)`, so
 nothing in a name says what it holds. There is no source list, no licence and no per-source size
 there. Identical content sealed twice gives identical bytes (the salt is a hash of the content,
@@ -1722,8 +1724,9 @@ id>.cache-pin.json`): the repository, that one commit (which holds every part an
 sha256 of every public file. It checks the pin before stopping every sandbox, the finishing ones too.
 The pin holds no secret and may be committed. Resuming is cheap: converted and sealed files are kept
 in the sandbox until published, the upload skips what the Hub holds, and a redone sandbox produces
-the same sealed bytes. The finishing sandbox needs free disk for one more copy of its roots while
-converting and sealing, and `hours.finish` of these run files is 4 to cover it.
+the same sealed bytes. Verified compressed files are reused on retries. The finishing sandbox needs
+space for a Parquet copy of its public roots and two compressed copies of its private roots while
+compressing and sealing, and `hours.finish` of these run files is 4 to cover it.
 
 **How a training run gets its data (the decision).** `python -m megatoken.cloud_prepare ensure
 RUN.json` (also run by `cloud_diloco launch` when the data is `{"cache": {"run": "RUN.json"}}`):
@@ -1739,7 +1742,7 @@ A rebuild is `launch` from the pinned sources (the old run record is set aside),
 pins the result again. Learners then run `python -m megatoken.publish fetch --pin PIN --dest
 /work/data/prepared`: public files are downloaded from the pinned commit and checked against the
 pin, rebuilt into prepared roots and checked against each root's manifest; each encrypted piece's
-ciphertext hash is checked before it is opened and each file's plaintext hash before it gets its
+ciphertext hash is checked before it is opened and each file is decompressed and its original length and plaintext hash checked before it gets its
 name; a rerun skips encrypted files already there and verified. Any mismatch stops the learner,
 since training on altered data must not start; run `ensure` again to rebuild. A training config can
 list `/work/data/prepared/*` among its `datasets`; a pattern stands for every directory it matches
@@ -1770,7 +1773,7 @@ and of text) for the four text run files:
 The other text manifests (`sources.agentic-more*.json`, `later-stages`, `v13`, the gated ones) have
 no file listing yet: `agentic-more` has 127 permissive, 28 share_alike, 7 non_commercial and 237
 `no`; `later-stages` 18, 0, 1 and 28; `v13` 6, 0, 0 and 10; the three gated manifests 34 `no`. The
-encrypted size is the text plus under 0.5 percent and up to 1 GiB of padding per sandbox; the Parquet size is not
+encrypted size is the Zstandard-compressed files plus under 0.5 percent and up to 1 GiB of padding per sandbox; the Parquet size is not
 measured (see above). Pulling a run into a training
 sandbox moves its bytes once; at 100 MB/s that is about 3 minutes per 17 GiB part, so a learner that
 fetches everything needs several hours at that rate and the local disk for the rebuilt roots

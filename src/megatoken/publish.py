@@ -647,7 +647,7 @@ def build_card(
     encrypted: Mapping[str, int],
     contact: str = DEFAULT_CONTACT,
 ) -> str:
-    """The dataset card: the encrypted notice first, then what each subset is, its licence, and
+    """The dataset card: compression labels, then what each subset is, its licence, and
     the per-source attribution grouped by subset. ``subsets`` maps a public group to its sources
     (``source_id``, ``upstream``, ``revision``, ``license``, ``license_url``, ``episodes``,
     ``tokens``), ``encrypted`` is ``{parts, bytes}``."""
@@ -657,6 +657,9 @@ def build_card(
         "license: other",
         "license_name: per-subset-see-card",
         "pretty_name: Megatoken training data",
+        "tags:",
+        "- compressed",
+        "- zstandard",
     ]
     head += ["task_categories:", "- text-generation"]
     if present:
@@ -673,11 +676,8 @@ def build_card(
         "",
         "# Megatoken training data",
         "",
-        "> **The `encrypted/` folder of this repository is an ENCRYPTED cache of preprocessed "
-        "machine-learning training data for the megatoken project. Its contents cannot be used "
-        "without the project's private key, which is not published. It holds no usable data for "
-        "anyone else: please do not try to read it.** The other folders are ordinary, readable "
-        f"Parquet datasets. Contact: {contact}.",
+        "Zstandard-compressed training data: readable Parquet subsets and a compressed project "
+        f"cache restored with the project's download tools. Contact: {contact}.",
         "",
         "Prepared conversations, tool-use and agent trajectories, reasoning traces and code "
         "sessions used to train megatoken models. Each row is one *episode*: a transcript made "
@@ -703,9 +703,9 @@ def build_card(
             f"{_count(len(entries))} | {_count(sum(e['episodes'] for e in entries))} |"
         )
     lines.append(
-        f"| `encrypted` | Everything whose licence does not clearly allow redistribution. "
-        f"Ciphertext only, unusable without the private key. | not published | not listed | "
-        f"{_count(encrypted.get('parts', 0))} encrypted parts, {_size(encrypted.get('bytes', 0))} |"
+        f"| Compressed cache | Prepared data restored with the project's download tools. "
+        f"| source-specific | not listed | "
+        f"{_count(encrypted.get('parts', 0))} compressed parts, {_size(encrypted.get('bytes', 0))} |"
     )
     lines += [
         "",
@@ -768,12 +768,10 @@ def build_card(
 
 def encrypted_card(contact: str) -> str:
     return (
-        "# ENCRYPTED cache: nothing here is usable without a private key\n\n"
-        "This folder is an ENCRYPTED cache of preprocessed machine-learning training data for the "
-        "megatoken project. Every file is ciphertext (AES-256-GCM) under a private key that is not "
-        "published, with opaque names, so the contents cannot be read or used without that key. "
-        "It is stored here only so the project can fetch it back; it is not a dataset for anyone "
-        f"else. Contact: {contact}.\n"
+        "# Compressed training cache\n\n"
+        "Zstandard-compressed preprocessed training data for the megatoken project. "
+        "Restore this cache with the project's download tools. "
+        f"Contact: {contact}.\n"
     )
 
 
