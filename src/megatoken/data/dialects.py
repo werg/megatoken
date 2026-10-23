@@ -150,6 +150,9 @@ def _xml_value(text: str) -> Any:
     return int(number) if stripped.lstrip("-").isdigit() else number
 
 
+_CALL_CODE = re.compile(r"<code>(.*?)</code>\s*\Z", re.DOTALL)
+
+
 def _call_body(piece: str) -> tuple[Any, Any]:
     """Name and arguments of one ``<tool_call>`` body: JSON, or Qwen3-Coder's
     ``<function=name><parameter=key>value</parameter></function>``."""
@@ -158,6 +161,15 @@ def _call_body(piece: str) -> tuple[Any, Any]:
         return xml.group(1), {
             key: _xml_value(value) for key, value in _XML_PARAMETER.findall(xml.group(2))
         }
+    code = _CALL_CODE.search(piece)
+    if code is not None:
+        # ``{"name": "PythonInterpreter", "arguments": {}}<code>...</code>``: the code is the argument.
+        item = _literal(piece[: code.start()], "A <tool_call> body")
+        if isinstance(item, dict):
+            return item.get("name"), {
+                **(item.get("arguments") or {}),
+                "code": code.group(1).strip(),
+            }
     item = _literal(piece, "A <tool_call> body")
     if not isinstance(item, dict):
         raise SchemaError("A <tool_call> body must be an object")
@@ -796,6 +808,8 @@ def harmony(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
                 arguments = {"input": text}
             (call_id,) = ledger.issue(turn, 1)
             out.append({"role": "assistant", "content": [_use(call_id, recipient, arguments)]})
+        elif role == "tool" and recipient not in {None, "", "assistant"}:
+            continue  # a call header the export mislabelled as a tool message (it is addressed to a tool)
         elif role == "tool":
             if not ledger.pending:
                 raise SchemaError("A tool message answers no pending call")

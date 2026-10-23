@@ -1113,6 +1113,32 @@ def test_glaive_calls_inside_messages_and_reasoning_roles():
     assert linked(episode)
 
 
+def test_python_interpreter_code_after_the_json_is_its_argument_and_mislabelled_tool_headers_drop():
+    call = '<tool_call>{"name": "PythonInterpreter", "arguments": {}}<code>\nprint(1)\n</code></tool_call>'
+    episode = adapt(hermes_row(call, "<tool_response>1</tool_response>"), "hermes_tools")
+    assert json.loads(episode.actions[0].arguments_json) == {"code": "print(1)"}
+
+    def message(role, text, **rest):
+        return {
+            "role": role,
+            "content": [{"text": text}],
+            "channel": None,
+            "recipient": None,
+        } | rest
+
+    row = {
+        "messages": [
+            message("user", "Q"),
+            message("assistant", '{"query": "a"}', recipient="browser.search"),
+            message("tool", '{"query": "b"}', name="assistant", recipient="code"),
+            message("tool", "result", name="browser.search", recipient="assistant"),
+            message("assistant", "Answer", channel="final"),
+        ]
+    }
+    episode = adapt(row, "harmony_tools")
+    assert [r.payload for r in episode.records if r.result_of] == [b"result"]
+
+
 def test_xml_function_calls_keep_parameter_types():
     call = (
         "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"
