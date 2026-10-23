@@ -806,7 +806,12 @@ def test_captioned_clips_with_sound_become_av_creation_and_video_identity(tmp_pa
     assert [clip["id"] for clip in clips] == ["a_clip", "e_clip"]
     assert soundfile.info(clips[0]["audio"]).samplerate == 24000
     episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs", procedural=1)
-    assert _streams(episodes) == {"av_creation": 2, "video_identity": 2, "av_edit": 1}
+    assert _streams(episodes) == {
+        "av_creation": 2,
+        "video_identity": 2,
+        "av_edit": 1,
+        "edit_plan": 1,
+    }
     creation = next(e for e in episodes if e.stream == "av_creation")
     assert creation.records[0].payload.startswith(b"Create a short first-person clip of: Core Body")
     assert len(_generated(creation)) == 2  # the video and its soundtrack
@@ -950,7 +955,12 @@ def test_procedural_edits_follow_the_first_clips_of_speech_sources(tmp_path, med
         _local(tmp_path, "asr") / "0.parquet",
     )
     episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs", procedural=2)
-    assert _streams(episodes) == {"transcription": 3, "audio_identity": 3, "speech_edit": 2}
+    assert _streams(episodes) == {
+        "transcription": 3,
+        "audio_identity": 3,
+        "speech_edit": 2,
+        "edit_plan": 2,
+    }
     assert not list((tmp_path / "work").rglob("*.edited.*"))
 
 
@@ -1860,7 +1870,13 @@ def test_a_transcription_source_can_also_be_read_aloud_from_its_transcripts(tmp_
         include=("*.parquet",),
         options={"verbalize": True},
     )
-    assert source.streams == ("audio_identity", "speech_edit", "transcription", "verbalization")
+    assert source.streams == (
+        "audio_identity",
+        "edit_plan",
+        "speech_edit",
+        "transcription",
+        "verbalization",
+    )
     parquet.write_table(
         pa.table(
             {
@@ -1875,7 +1891,12 @@ def test_a_transcription_source_can_also_be_read_aloud_from_its_transcripts(tmp_
     assert _streams(episodes) == {"transcription": 1, "verbalization": 1, "audio_identity": 1}
     said = next(e for e in episodes if e.stream == "verbalization")
     assert said.records[0].payload == b"Hello, world." and said.records[1].policy_mask
-    assert make_source("plain").streams == ("audio_identity", "speech_edit", "transcription")
+    assert make_source("plain").streams == (
+        "audio_identity",
+        "edit_plan",
+        "speech_edit",
+        "transcription",
+    )
 
 
 def test_a_parquet_table_with_nested_turns_links_to_its_images(tmp_path, media):
@@ -2279,3 +2300,134 @@ def test_a_table_cut_short_by_the_server_is_resumed_and_a_wrong_pin_is_refused(t
             download(f"{site.url}/t.jsonl", tmp_path / "other.jsonl", sha256="0" * 64)
     finally:
         site.close()
+
+
+def test_every_picture_edit_program_runs_and_its_plan_is_the_program(tmp_path):
+    from megatoken.data.open_media import IMAGE_EDITS, image_edit
+
+    picture = tmp_path / "photo.jpg"
+    picture.write_bytes(_image(3, size=(64, 48), fmt="JPEG"))
+    seen = set()
+    for number in range(400):
+        edit = image_edit({"id": f"p{number}", "family": "f", "image": picture}, tmp_path / "e")
+        seen.add(edit["instruction"])
+        assert edit["plan"].startswith("```python\n") and edit["plan"].endswith("\n```")
+        assert Image.open(edit["edited"]).size[0] > 0
+        edit["edited"].unlink()
+    assert seen == {instruction for instruction, _ in IMAGE_EDITS}
+    gray = next(c for i, c in IMAGE_EDITS if i.startswith("Convert the picture to black"))
+    assert "grayscale" in gray
+
+
+@ffmpeg
+def test_procedural_video_and_speech_edits_carry_their_ffmpeg_command_as_the_plan(tmp_path, media):
+    from megatoken.data.open_media import plan_episodes
+
+    source = make_source("proc")
+    video = _video(tmp_path / "clip.mp4", 1, sound=False, size="64x48")
+    edit = video_edit({"id": "c", "family": "proc:r", "video": video}, tmp_path / "videos")
+    assert re.fullmatch(r"```sh\nffmpeg -i input\.mp4 -vf \S+ output\.mp4\n```", edit["plan"])
+    clip = {
+        "id": "c",
+        "family": "proc:r",
+        "frames": [edit["original"], edit["edited"]],
+        "plans": [edit["plan"]],
+        "instruction": edit["instruction"],
+    }
+    (episode,) = plan_episodes(media, source, "av", clip, provenance="executed", tier="procedural")
+    assert episode.stream == "edit_plan"
+    assert [r.policy_mask for r in episode.records] == [False, False, True, True]
+    assert episode.records[2].payload.decode() == edit["plan"]
+
+
+def test_picture_sources_make_executed_plans_for_the_clips_they_are_asked_to(tmp_path, media):
+    pytest.importorskip("PIL")
+    source = make_source(
+        "pics", "picture", columns={"image": "image", "id": "id"}, include=("*.parquet",)
+    )
+    assert "edit_plan" in source.streams and "image_edit" not in source.streams
+    parquet.write_table(
+        pa.table(
+            {
+                "image": [{"bytes": _image(n, size=(64, 48)), "path": ""} for n in (1, 2)],
+                "id": ["a", "b"],
+            }
+        ),
+        _local(tmp_path, "pics") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs", procedural=2)
+    assert _streams(episodes) == {"image_identity": 2, "edit_plan": 2}
+    plan = next(e for e in episodes if e.stream == "edit_plan")
+    code = next(r for r in plan.records if r.policy_mask and not _is_media(r)).payload.decode()
+    assert code.startswith("```python\nedited = ")
+    assert [d.kind for d in plan.dependencies] == ["edit"]
+    assert not list((tmp_path / "work").rglob("*.png"))
+
+
+JARVIS_SETTINGS = """Temperature = 6450,
+Tint = -11,
+SaturationAdjustmentOrange = -5,
+SaturationAdjustmentRed = 0,
+Exposure2012 = -0.05,
+Highlights2012 = -79,
+ConvertToGrayscale = false,
+OverrideLookVignette = true,
+ToneCurveName = "Medium Contrast",
+"""
+
+
+def test_jarvisart_folders_become_a_plan_with_the_lightroom_settings_as_a_tool_call(
+    tmp_path, media
+):
+    source = make_source(
+        "jarvis",
+        "image_edit_plan",
+        reader="folders",
+        columns={
+            "original": "original",
+            "edited": "edited",
+            "instruction": "instruction",
+            "plan": "plan",
+            "id": "__key__",
+        },
+        include=("global/*/before.jpg",),
+        options={
+            "members": {
+                "before": "before.jpg",
+                "after": "processed.jpg",
+                "settings": "config.lua",
+                "request": "en/user_want_middle/user_prompt.txt",
+                "reasoning": "en/user_want_middle/revised160_expert_cot.txt",
+            },
+            "transform": "jarvis_plan",
+        },
+    )
+    folder = _local(tmp_path, "jarvis")
+    for name in ("0001", "0002"):
+        root = folder / "global" / name
+        (root / "en/user_want_middle").mkdir(parents=True)
+        (root / "before.jpg").write_bytes(_image(1, fmt="JPEG"))
+        (root / "processed.jpg").write_bytes(_image(2, fmt="JPEG"))
+        (root / "config.lua").write_text(JARVIS_SETTINGS)
+        (root / "en/user_want_middle/user_prompt.txt").write_text("Make it warmer and sharper.")
+        if name == "0001":
+            (root / "en/user_want_middle/revised160_expert_cot.txt").write_text(
+                "Alright, the user wants a warmer look. I will correct the white balance first."
+            )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    (episode,) = episodes  # the second folder lacks its reasoning file
+    plan = next(r for r in episode.records if r.policy_mask and not _is_media(r)).payload.decode()
+    assert plan.startswith("Alright, the user wants a warmer look.")
+    call = json.loads(plan.split("Tool call: ", 1)[1])
+    assert call == {
+        "tool": "lightroom.develop",
+        "settings": {
+            "Temperature": 6450,
+            "Tint": -11,
+            "SaturationAdjustmentOrange": -5,
+            "Exposure2012": -0.05,
+            "Highlights2012": -79,
+            "OverrideLookVignette": True,
+            "ToneCurveName": "Medium Contrast",
+        },
+    }

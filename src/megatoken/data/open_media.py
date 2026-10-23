@@ -31,6 +31,7 @@ import hashlib
 import io
 import json
 import re
+import shlex
 import subprocess
 import tarfile
 import tempfile
@@ -110,7 +111,11 @@ class OpenSource:
             else set()
         )
         return tuple(
-            sorted(task.streams | extra | ({task.edit_stream} if task.edit_stream else set()))
+            sorted(
+                task.streams
+                | extra
+                | {stream for stream in (task.edit_stream, task.plan_stream) if stream}
+            )
         )
 
     def with_options(self, **overrides: Any) -> OpenSource:
@@ -618,7 +623,7 @@ def plan_episodes(
     """The original and the request are shown; the model writes a plan (or tool call) and then
     renders the edit it describes. ``clip["frames"]`` is the original followed by each step's
     result and ``clip["plans"]`` each step's plan text; ``kind`` is ``image`` or ``av``."""
-    modality = {"image": "image", "av": "video"}[kind]
+    modality = {"image": "image", "av": "video", "speech": "audio"}[kind]
     frames, plans = clip["frames"], clip["plans"]
     if len(frames) != len(plans) + 1 or not plans:
         raise ValueError("An edit plan needs one plan per edited version")
@@ -982,6 +987,11 @@ def _top_level(source: OpenSource) -> list[str]:
         ),
         *source.options.get("judge", {}).get("overall", ()),
         *(
+            [source.options["judge"]["vote"]["column"]]
+            if "vote" in source.options.get("judge", {})
+            else []
+        ),
+        *(
             [source.options["judge"]["reason"]]
             if "reason" in source.options.get("judge", {})
             else []
@@ -1065,29 +1075,80 @@ def _pico_edit(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-# Table rows whose layout is the publisher's own are reshaped into the columns a task reads.
+def table_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
+    """Rows of table files (parquet, csv, JSON array or JSON lines), for datasets that name their
+    pictures by URL (``options.fetch``) instead of holding them."""
+    for name in shards.names():
+        with shards.open(name) as handle:
+            for number, row in enumerate(_table_rows(handle, name, None)):
+                yield {**row, "__key__": f"{name}:{number}"}
+
+
+_TEXT_SUFFIXES = frozenset((".txt", ".lua", ".json", ".md"))
+
+
+def folders_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
+    """One record per folder of loose files: the folders holding the files ``include`` matches,
+    each record with the files ``options.members`` names (field name -> path inside the folder;
+    text files as text, the rest as bytes). A folder missing a member is skipped."""
+    for anchor in shards.names():
+        folder = PurePosixPath(anchor).parent
+        record: dict[str, Any] = {"__key__": folder.as_posix()}
+        for field_name, relative in source.options["members"].items():
+            try:
+                with shards.open((folder / relative).as_posix()) as handle:
+                    data = handle.read()
+            except FileNotFoundError:
+                break
+            record[field_name] = (
+                data.decode("utf-8", "replace")
+                if PurePosixPath(relative).suffix in _TEXT_SUFFIXES
+                else data
+            )
+        else:
+            yield record
+
+
+def _jarvis_plan(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """JarvisArt's folder -> the retoucher's reasoning followed by the exact Lightroom settings
+    (the nonzero entries of ``config.lua``) as a tool call, which renders the result."""
+    settings: dict[str, Any] = {}
+    for line in row["settings"].splitlines():
+        name, separator, value = line.strip().rstrip(",").partition(" = ")
+        if not separator:
+            continue
+        value = value.strip()
+        if value.startswith('"') and value.endswith('"'):
+            settings[name] = value[1:-1]
+        elif value in {"true", "false"}:
+            if value == "true":
+                settings[name] = True
+        else:
+            try:
+                number = float(value)
+            except ValueError:
+                continue
+            if number:
+                settings[name] = int(number) if number.is_integer() else number
+    if not settings or not row["reasoning"].strip():
+        return None
+    call = json.dumps({"tool": "lightroom.develop", "settings": settings}, ensure_ascii=False)
+    return {
+        "original": row["before"],
+        "edited": row["after"],
+        "instruction": row["request"],
+        "plan": f"{row['reasoning'].strip()}\n\nTool call: {call}",
+    }
+
+
+# Rows whose layout is the publisher's own are reshaped (``options.transform``) into the columns a
+# task reads; a row a transform cannot reshape is skipped.
 ROW_TRANSFORMS: dict[str, Callable[[OpenSource, Mapping[str, Any]], dict[str, Any] | None]] = {
     "pico_session": _pico_session,
     "pico_preference": _pico_preference,
     "pico_edit": _pico_edit,
+    "jarvis_plan": _jarvis_plan,
 }
-
-
-def table_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
-    """Rows of table files (parquet, csv, JSON array or JSON lines), for datasets that name their
-    pictures by URL (``options.fetch``) instead of holding them. ``options.transform`` names a
-    reshaping of each row (``ROW_TRANSFORMS``); a row it cannot reshape is skipped."""
-    transform = (
-        ROW_TRANSFORMS[source.options["transform"]] if "transform" in source.options else None
-    )
-    for name in shards.names():
-        with shards.open(name) as handle:
-            for number, row in enumerate(_table_rows(handle, name, None)):
-                if transform is not None:
-                    row = transform(source, row)
-                    if row is None:
-                        continue
-                yield {**row, "__key__": f"{name}:{number}"}
 
 
 _TEXT_EXTENSIONS = frozenset(("txt", "cls", "caption"))
@@ -2289,18 +2350,21 @@ def _verdict(source: OpenSource, record: Mapping[str, Any], order: Sequence[int]
     """The judgement of the candidates shown in ``order`` (indexes into the source's candidates).
 
     ``columns.verdict`` is a judgement written out by the publisher. Otherwise the text is built
-    from ``options.judge``: ``scores`` (aspect -> one score column per candidate, with ``outof``
-    the scale's top), ``overall`` (one column per candidate, the winner's basis; else the scores
-    are added) or ``winner`` (the index of the best candidate in the source's list, when the
-    publisher lists the preferred edit first), and ``reason`` (a column of text).
+    from ``options.judge``:
+
+    - ``scores``: aspect -> one score column per candidate (``outof``: the scale's top);
+    - ``overall``: one column per candidate (``overall_outof``: its scale's top);
+    - which candidate is best, taken from the first of ``vote`` (a column and the value meaning
+      each candidate, or a tie), ``winner`` (the index of the best candidate in the source's
+      list, when the publisher lists the preferred edit first) or the highest ``overall`` (else
+      the sum of the scores);
+    - ``reason``: a column of text added at the end.
     """
     written = _text_label(source, record, "verdict")
     judge = source.options.get("judge", {})
     if written is not None:
         return written
     letters = [chr(65 + position) for position in range(len(order))]
-    lines = []
-    totals: list[float] = []
     scores = {
         aspect: [field_of(record, column) for column in columns]
         for aspect, columns in judge.get("scores", {}).items()
@@ -2309,38 +2373,42 @@ def _verdict(source: OpenSource, record: Mapping[str, Any], order: Sequence[int]
     for values in [*scores.values(), overall]:
         if any(not isinstance(value, (int, float)) for value in values):
             return None
-    if scores or overall:
-        outof = f" of {judge['outof']}" if "outof" in judge else ""
-        for position, index in enumerate(order):
-            parts = [
-                f"{aspect} {_number(values[index])}{outof}" for aspect, values in scores.items()
-            ]
-            if overall and scores:
-                parts.append(f"overall {_number(overall[index])}{outof}")
-            lines.append(
-                f"Candidate {letters[position]}: "
-                + (", ".join(parts) if parts else f"overall {_number(overall[index])}{outof}")
-                + "."
-            )
-        basis = overall or [sum(values[i] for values in scores.values()) for i in range(len(order))]
-        totals = [basis[index] for index in order]
-        best = max(totals)
-        winners = [letters[position] for position, total in enumerate(totals) if total == best]
-        if len(winners) == len(order):
-            lines.append("Verdict: the candidates are equally good.")
-        elif len(winners) == 1:
-            lines.append(f"Verdict: Candidate {winners[0]} is the better edit.")
-        else:
-            lines.append(f"Verdict: Candidates {' and '.join(winners)} are the best edits.")
+    lines = []
+    for position, index in enumerate(order):
+        parts = [
+            f"{aspect} {_number(values[index])}"
+            + (f" of {judge['outof']}" if "outof" in judge else "")
+            for aspect, values in scores.items()
+        ]
+        if overall:
+            top = judge.get("overall_outof", judge.get("outof"))
+            parts.append(f"overall {_number(overall[index])}" + (f" of {top}" if top else ""))
+        if parts:
+            lines.append(f"Candidate {letters[position]}: {', '.join(parts)}.")
+    if "vote" in judge:
+        value = field_of(record, judge["vote"]["column"])
+        meaning = judge["vote"]["values"]
+        if value not in meaning:
+            return None
+        best = [] if meaning[value] is None else [meaning[value]]
     elif "winner" in judge:
-        winner = letters[list(order).index(judge["winner"])]
-        lines.append(
-            f"Verdict: Candidate {winner} is the better edit."
-            if len(order) == 2
-            else f"Verdict: Candidate {winner} is the best edit; the others are worse."
-        )
+        best = [judge["winner"]]
+    elif scores or overall:
+        basis = overall or [sum(values[i] for values in scores.values()) for i in range(len(order))]
+        top = max(basis)
+        best = [index for index, total in enumerate(basis) if total == top]
+        best = [] if len(best) == len(order) else best
     else:
         return None
+    winners = [letters[list(order).index(index)] for index in best]
+    if not winners:
+        lines.append("Verdict: the candidates are equally good.")
+    elif len(winners) > 1:
+        lines.append(f"Verdict: Candidates {' and '.join(sorted(winners))} are the best edits.")
+    elif len(order) == 2:
+        lines.append(f"Verdict: Candidate {winners[0]} is the better edit.")
+    else:
+        lines.append(f"Verdict: Candidate {winners[0]} is the best edit; the others are worse.")
     reason = _text_value(source, field_of(record, judge["reason"])) if "reason" in judge else None
     if reason:
         lines.append(reason)
@@ -2399,12 +2467,42 @@ SPEECH_EDITS = (
     ("Make the speech 6 decibels louder.", ("-af", "volume=6dB,alimiter=limit=0.97")),
     ("Speak 25 percent faster without changing the pitch.", ("-af", "atempo=1.25")),
     ("Play the recording backwards.", ("-af", "areverse")),
+    ("Add a short echo.", ("-af", "aecho=0.8:0.88:60:0.4")),
+    ("Fade the recording in over the first half second.", ("-af", "afade=t=in:d=0.5")),
+    ("Cut out the low rumble below 150 hertz.", ("-af", "highpass=f=150")),
 )
 VIDEO_EDITS = (
     ("Mirror the video horizontally.", ("-vf", "hflip")),
+    ("Flip the video upside down.", ("-vf", "vflip")),
     ("Convert the video to black and white.", ("-vf", "hue=s=0")),
     ("Play the video at double speed.", ("-vf", "setpts=0.5*PTS")),
     ("Play the video in reverse.", ("-vf", "reverse")),
+    ("Make the video brighter.", ("-vf", "eq=brightness=0.15")),
+    ("Blur the video.", ("-vf", "boxblur=6:1")),
+    ("Rotate the video a quarter turn clockwise.", ("-vf", "transpose=1")),
+)
+# Picture edits are small programs on a PIL ``image``; the plan is the program itself, which is
+# run to make the edited picture, so the plan and its result always agree.
+IMAGE_EDITS = (
+    (
+        "Convert the picture to black and white.",
+        'edited = ImageOps.grayscale(image).convert("RGB")',
+    ),
+    ("Mirror the picture horizontally.", "edited = ImageOps.mirror(image)"),
+    ("Flip the picture upside down.", "edited = ImageOps.flip(image)"),
+    ("Rotate the picture a quarter turn clockwise.", "edited = image.rotate(-90, expand=True)"),
+    ("Make the picture brighter.", "edited = ImageEnhance.Brightness(image).enhance(1.4)"),
+    ("Increase the contrast.", "edited = ImageEnhance.Contrast(image).enhance(1.5)"),
+    ("Make the colors more vivid.", "edited = ImageEnhance.Color(image).enhance(1.8)"),
+    ("Blur the picture.", "edited = image.filter(ImageFilter.GaussianBlur(radius=4))"),
+    ("Sharpen the picture.", "edited = image.filter(ImageFilter.SHARPEN)"),
+    ("Invert the colors.", "edited = ImageOps.invert(image)"),
+    ("Reduce the colors to eight levels per channel.", "edited = ImageOps.posterize(image, 3)"),
+    (
+        "Crop to the middle half of the picture.",
+        "width, height = image.size\n"
+        "edited = image.crop((width // 4, height // 4, width - width // 4, height - height // 4))",
+    ),
 )
 
 
@@ -2414,17 +2512,23 @@ def _procedural(
     original: Path,
     out: Path,
 ) -> dict[str, Any]:
-    """Apply the one edit this clip id selects (deterministically) and return its clip."""
+    """Apply the one edit this clip id selects (deterministically) and return its clip, with
+    the ffmpeg command that made it as the plan."""
     out.mkdir(parents=True, exist_ok=True)
     instruction, arguments = options[int(_sha(clip["id"]), 16) % len(options)]
     edited = out / f"{_stem(clip['id'])}.edited{original.suffix}"
     _ffmpeg("-i", str(original), *arguments, str(edited))
+    command = " ".join(
+        ["ffmpeg", "-i", f"input{original.suffix}", *(shlex.quote(a) for a in arguments)]
+        + [f"output{original.suffix}"]
+    )
     return {
         "id": clip["id"],
         "family": clip["family"],
         "original": original,
         "edited": edited,
         "instruction": instruction,
+        "plan": f"```sh\n{command}\n```",
     }
 
 
@@ -2436,6 +2540,32 @@ def video_edit(clip: Mapping[str, Any], out: Path) -> dict[str, Any]:
     return _procedural(VIDEO_EDITS, clip, Path(clip["video"]), out)
 
 
+def image_edit(clip: Mapping[str, Any], out: Path) -> dict[str, Any]:
+    """A deterministic edit of a picture by a short PIL program, which is also its plan."""
+    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+
+    out.mkdir(parents=True, exist_ok=True)
+    instruction, code = IMAGE_EDITS[int(_sha(clip["id"]), 16) % len(IMAGE_EDITS)]
+    with Image.open(clip["image"]) as opened:
+        namespace: dict[str, Any] = {
+            "image": opened.convert("RGB"),
+            "ImageEnhance": ImageEnhance,
+            "ImageFilter": ImageFilter,
+            "ImageOps": ImageOps,
+        }
+        exec(code, {"__builtins__": {}}, namespace)  # our own constant programs, no input is code
+    edited = out / f"{_stem(clip['id'])}.edited.png"
+    namespace["edited"].save(edited)
+    return {
+        "id": clip["id"],
+        "family": clip["family"],
+        "original": Path(clip["image"]),
+        "edited": edited,
+        "instruction": instruction,
+        "plan": f"```python\n{code}\n```",
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class Task:
     """What a source's labels mean: how a record becomes a clip, and a clip becomes episodes."""
@@ -2445,14 +2575,20 @@ class Task:
         [Preparer, OpenSource, Mapping[str, Any], Mapping[str, Any] | None], list[Episode]
     ]
     materialize: Callable[[OpenSource, Mapping[str, Any], Path], list[dict[str, Any]]] | None = None
-    # Which procedural edit applies to this task's clips: "speech" or "video".
+    # Which procedural edit applies to this task's clips: "speech", "video" or "image".
     procedural: str | None = None
     # Whether the previous clip of the same family is passed as a voice reference.
     reference: bool = False
 
     @property
     def edit_stream(self) -> str | None:
+        """The edit stream a procedural edit feeds (a picture's is only read as a plan)."""
         return {"speech": "speech_edit", "video": "av_edit"}.get(self.procedural or "")
+
+    @property
+    def plan_stream(self) -> str | None:
+        """Every procedural edit is also an executed plan: the program that made it."""
+        return "edit_plan" if self.procedural else None
 
 
 def _plain(episodes: Callable[[Preparer, OpenSource, Mapping[str, Any]], list[Episode]]):
@@ -2486,8 +2622,11 @@ TASKS = {
         frozenset({"image_description", "image_creation", "image_identity"}),
         _plain(image_episodes),
         image_clips,
+        procedural="image",
     ),
-    "picture": Task(frozenset({"image_identity"}), _plain(picture_episodes), picture_clips),
+    "picture": Task(
+        frozenset({"image_identity"}), _plain(picture_episodes), picture_clips, procedural="image"
+    ),
     "image_questions": Task(
         frozenset({"image_description", "image_identity"}),
         _plain(question_episodes),
@@ -2705,6 +2844,7 @@ CONTAINERS: dict[str, Callable[[OpenSource, Shards], Iterator[dict[str, Any]]]] 
     "archive": archive_records,
     "linked": linked_records,
     "table": table_records,
+    "folders": folders_records,
 }
 CLIP_READERS: dict[str, Callable[[OpenSource, Shards, Path, int], Iterator[dict[str, Any]]]] = {
     "fleurs": read_fleurs,
@@ -2762,6 +2902,13 @@ def _materialized(source: OpenSource, shards: Shards, out: Path) -> Iterator[dic
         # Every n-th record of all the files: the share of a source too big to divide by file.
         index, count = shards.stripe
         records = (record for number, record in enumerate(records) if number % count == index)
+    if "transform" in source.options:
+        transform = ROW_TRANSFORMS[source.options["transform"]]
+        records = (
+            {"__key__": record.get("__key__"), **reshaped}
+            for record in records
+            if (reshaped := transform(source, record)) is not None
+        )
     if "fetch" in source.options:
         # The table names its pictures by URL: this sandbox downloads them (see ``fetch.py``),
         # only for the rows it keeps, and counts every dead link.
@@ -2811,13 +2958,25 @@ def build_episodes(
             index < procedural
             or (procedural_every and int(_sha(clip["id"]), 16) % procedural_every == 0)
         ):
-            make = speech_edit if task.procedural == "speech" else video_edit
-            edit = make(clip, work / "edits")
-            yield from edit_episodes(
+            kind = {"speech": "speech", "video": "av", "image": "image"}[task.procedural]
+            edit = {"speech": speech_edit, "video": video_edit, "image": image_edit}[
+                task.procedural
+            ](clip, work / "edits")
+            if kind != "image":  # real picture edits are plentiful: only their plans are made
+                yield from edit_episodes(
+                    media, source, kind, edit, provenance="executed", tier="procedural"
+                )
+            yield from plan_episodes(
                 media,
                 source,
-                "speech" if task.procedural == "speech" else "av",
-                edit,
+                kind,
+                {
+                    "id": edit["id"],
+                    "family": edit["family"],
+                    "frames": [edit["original"], edit["edited"]],
+                    "plans": [edit["plan"]],
+                    "instruction": edit["instruction"],
+                },
                 provenance="executed",
                 tier="procedural",
             )

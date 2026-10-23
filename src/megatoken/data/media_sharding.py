@@ -25,7 +25,7 @@ from .open_media import SOURCES, TASKS, OpenSource, is_web
 from .sharding import SPLIT_ABOVE, Unit, assign
 
 # Readers whose sources divide by file (a linked source by its archives, unless one stream).
-FILE_READERS = ("parquet", "webdataset", "archive", "linked", "table")
+FILE_READERS = ("parquet", "webdataset", "archive", "linked", "table", "folders")
 
 # Estimated GPU seconds per clip by task: the teacher reads each media event once and the codec
 # encodes it once, whatever the number of episodes built from it. Images 20 a second, speech 40
