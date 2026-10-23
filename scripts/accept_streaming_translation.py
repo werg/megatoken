@@ -55,7 +55,7 @@ def main():
         device=args.device,
         precision=args.precision,
         packs=None if args.packs is None else str(args.packs),
-        model_overrides={"max_capacity": 512},
+        model_overrides={"max_capacity": 512, "vocab_size": 256},
         max_steps=args.steps,
         microbatch_episodes=args.microbatch_episodes,
         max_accumulation_windows=1,
