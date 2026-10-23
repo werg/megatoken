@@ -194,7 +194,9 @@ def load_donor_profile(name: str, donor_root: str | Path) -> DonorAsset:
     try:
         profile = DONOR_PROFILES[name]
     except KeyError as exc:
-        raise ValueError(f"Unknown donor profile {name!r}; choose from {sorted(DONOR_PROFILES)}") from exc
+        raise ValueError(
+            f"Unknown donor profile {name!r}; choose from {sorted(DONOR_PROFILES)}"
+        ) from exc
 
     root = Path(donor_root)
     _read_pinned_file(root / "tokenizer.json", profile.tokenizer_sha256)

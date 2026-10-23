@@ -56,7 +56,31 @@ def test_versioned_geometry_and_explicit_width_presets():
     assert (large.encoder_layers, large.central_layers, large.prediction_layers) == (2, 4, 12)
     assert large.central_layers + large.prediction_layers == 16
     assert large.central_hidden == 1024
-    assert (large.p_experts, large.u_experts, large.source_dim) == (64, 32, 512)
+    assert (
+        large.p_experts,
+        large.u_experts,
+        large.projection_experts,
+        large.router_experts,
+        large.eligible_experts,
+        large.source_dim,
+    ) == (68, 40, 10, 10, 8, 512)
+    assert (large.adapter_experts, large.adapter_rank, large.adapter_topk) == (8, 8, 2)
+    assert (compact.adapter_experts, compact.adapter_rank, compact.adapter_topk) == (8, 8, 2)
+    assert (
+        compact.p_experts,
+        compact.u_experts,
+        compact.projection_experts,
+        compact.router_experts,
+        compact.eligible_experts,
+    ) == (68, 40, 10, 10, 8)
+    tiny = ModelConfig.tiny()
+    assert (
+        tiny.p_experts,
+        tiny.u_experts,
+        tiny.projection_experts,
+        tiny.router_experts,
+        tiny.eligible_experts,
+    ) == (8, 8, 4, 4, 8)
     assert (large.query_heads, large.kv_heads, large.attention_head_dim) == (4, 2, 128)
     assert large.max_history_chunks == 1024
     assert large.codec_noise_std == large.prior_noise_std == 0.1
@@ -77,6 +101,88 @@ def test_versioned_geometry_and_explicit_width_presets():
         field.name in {"pending_mask", "has_pending_input", "input_record_ids"}
         for field in fields(CoreState)
     )
+
+
+@pytest.mark.parametrize(
+    ("config_factory", "expected_delta", "maximum_growth", "expected_counts"),
+    [
+        (ModelConfig, 54_643_840, 0.10, (607_216_132, 661_859_972)),
+        (ModelConfig.compact32, None, 0.10, None),
+    ],
+    ids=("32x512", "32x256"),
+)
+def test_default_full_model_budget_expansion_is_bounded_and_legacy_counts_roundtrip(
+    config_factory, expected_delta, maximum_growth, expected_counts
+):
+    from megatoken.generation import ByteCodec
+    from megatoken.loading import build_model
+
+    config = config_factory()
+    previous = replace(
+        config,
+        p_experts=64,
+        u_experts=32,
+        projection_experts=8,
+        router_experts=8,
+    )
+    restored = ModelConfig.from_dict(previous.to_dict())
+    assert restored == previous
+    assert restored.state_geometry == config.state_geometry
+
+    codec = ByteCodec(
+        [bytes((value,)) for value in range(256)] + [None] * (config.vocab_size - 256)
+    )
+    with torch.device("meta"):
+        expanded = build_model(config, codec, device="meta")
+        legacy = build_model(previous, codec, device="meta")
+
+    def pool_signature(model):
+        manifest = model.core.expert_pools.manifest()
+        banks = {
+            pool["name"]: (
+                pool["type"],
+                pool["input_dim"],
+                pool["output_dim"],
+                pool["hidden_dim"],
+            )
+            for pool in manifest["pools"]
+        }
+        return banks, manifest["sites"], manifest["routing"]["router_dim"]
+
+    expanded_signature = pool_signature(expanded)
+    legacy_signature = pool_signature(legacy)
+    assert expanded_signature == legacy_signature
+    expanded_pools = expanded.core.expert_pools
+    assert expanded_pools.projection_experts == 10
+    assert expanded_pools.router_experts == 10
+    assert expanded_pools.eligible_experts == 8
+    assert expanded.core.p_bank.experts == 68
+    assert expanded.core.u_bank.experts == 40
+
+    expanded_audit = audit_parameters(expanded)
+    legacy_audit = audit_parameters(legacy)
+    expanded_count = expanded_audit["total_parameters"]
+    legacy_count = legacy_audit["total_parameters"]
+    details = (
+        f"legacy={legacy_count}, expanded={expanded_count}, delta={expanded_count - legacy_count}"
+    )
+    assert expanded_audit["aliases"] == legacy_audit["aliases"] == 0
+    if expected_delta is not None:
+        assert expanded_count - legacy_count == expected_delta, details
+    if expected_counts is not None:
+        assert (legacy_count, expanded_count) == expected_counts, details
+    assert legacy_count < expanded_count <= legacy_count * (1 + maximum_growth), details
+
+    # Every shared parameter is registered once at the global pool owner; routed
+    # sites refer to the pools without creating duplicate optimizer/checkpoint owners.
+    owner_ids = [
+        id(parameter)
+        for name, parameter in expanded.named_parameters(remove_duplicate=False)
+        if name.startswith("core.expert_pools.")
+    ]
+    shared_ids = {id(parameter) for parameter in expanded.core.shared_parameters()}
+    assert len(owner_ids) == len(set(owner_ids))
+    assert set(owner_ids) == shared_ids
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), 0.0, 0.001, 3.0])

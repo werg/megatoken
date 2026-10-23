@@ -48,12 +48,14 @@ class ModelConfig:
     ngram_orders: tuple[int, ...] = (1, 2, 3, 4, 8)
     codec_noise_std: float = 0.1
     prior_noise_std: float = 0.1
-    p_experts: int = 64
-    u_experts: int = 32
-    projection_experts: int = 8
+    # Capacity grows mainly in the smaller shared pools; keep the active
+    # palette and matrix widths fixed (see the audited budget in architecture.md).
+    p_experts: int = 68
+    u_experts: int = 40
+    projection_experts: int = 10
     eligible_experts: int = 8
     router_dim: int = 64
-    router_experts: int = 8
+    router_experts: int = 10
     routing_version: int = 4
     query_heads: int = 4
     kv_heads: int = 2
