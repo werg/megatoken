@@ -66,7 +66,15 @@ _WORDS = frozenset(
 # Restrict each operation to its declared fields so old engine-format data is
 # not silently treated as valid execution reasoning.
 _FIELDS = {
-    "code": {"sourceId", "text", "codes", "sites", "staticFunctions", "staticRegExps", "randomSeed"},
+    "code": {
+        "sourceId",
+        "text",
+        "codes",
+        "sites",
+        "staticFunctions",
+        "staticRegExps",
+        "randomSeed",
+    },
     "enter": {
         "invocation",
         "entry",
@@ -266,8 +274,7 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
         _fail("Missing executed loop backedge")
     if head == "code":
         if "randomSeed" in fields and (
-            type(fields["randomSeed"]) is not int
-            or not 0 <= fields["randomSeed"] <= 0xFFFFFFFF
+            type(fields["randomSeed"]) is not int or not 0 <= fields["randomSeed"] <= 0xFFFFFFFF
         ):
             _fail("Invalid deterministic source seed")
         if "staticRegExps" in fields and (
@@ -294,8 +301,7 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
                 "allocation" in rest
                 and (
                     not isinstance(rest["allocation"], dict)
-                    or set(rest["allocation"])
-                    != {"identity", "kind", "shapeVersion", "properties"}
+                    or set(rest["allocation"]) != {"identity", "kind", "shapeVersion", "properties"}
                     or rest["allocation"]["kind"] != "array"
                     or rest["allocation"]["identity"] != rest["value"][1]
                     or not isinstance(rest["allocation"]["properties"], list)
@@ -304,6 +310,7 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
         ):
             _fail("Malformed published rest parameter")
     if head == "carry":
+
         def valid_endpoint(endpoint: Any) -> bool:
             return (
                 isinstance(endpoint, dict)
