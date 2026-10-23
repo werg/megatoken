@@ -362,6 +362,36 @@ megatoken --json-output runs/recurrent-benchmark.json benchmark \
   --batch 8 --capacity 256 --history-records 128 --steps 20
 ```
 
+Inference benchmarks run a fresh served session by default. They include the initial
+metadata lookup, observed prompt, generated answer, and retrieval from any mounted
+collections or knowledge bases. Add repeatable `--collection NAME=DIRECTORY` and
+`--base NAME=FILE` options to measure those sources; `--max-sources` and `--threshold`
+control collection reads, while `--trained-weight` sets the trained bank's blend.
+`--core-only` keeps the lower-level diagnostic that bypasses session memory. Training
+benchmarks selected with `--backward` retain their existing objective and optimizer
+measurements. `--model-only` preserves the full generator timing without the session
+lookup cost. Mounting a knowledge base requires `--bundle`, because its identity is
+bound to the exact shipped weights; `--packs` supplies that bundle's media pack manifest.
+
+Final generated-sample evaluation uses the same served session path by default:
+
+```bash
+megatoken evaluate --checkpoint CHECKPOINT --datasets PREPARED_DATASET \
+  --collection docs=COLLECTION_DIR --base notes=KNOWLEDGE_BASE
+```
+
+The report names the lookup and retrieved-item counts, plus valid and exact generated
+text chunks. Text-only episodes with simultaneous target and observed events in one
+causal group, or media records, are reported as skipped because they cannot be replayed
+without leaking the target or preparing the media. Use `--core-only` for the separate
+model-only loss and sampling diagnostic, which includes lexical loss but no session
+retrieval. `--datasets` replaces the checkpoint's original data paths before its saved
+training settings are loaded, so a checkpoint can be evaluated against local prepared
+roots after relocation.
+`--packs` similarly relocates the checkpoint's media pack manifest while retaining its
+fingerprint check. Benchmark reports distinguish individual session latency from the wall
+time for a serial batch, and identify that serial execution explicitly.
+
 The two production presets are `32x512` and `32x256`; both use all 32 facet slots.
 Run `inspect` for the current actual unique-owner count, including E-private
 frontend and block structure, the four C block sites, sparse P, R/U, and the

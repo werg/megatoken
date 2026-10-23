@@ -30,6 +30,10 @@ from megatoken.teacher import (
     validate_extractor,
 )
 from megatoken.training.config import TrainConfig
+from megatoken.training.media_dependencies import (
+    required_media_modalities,
+    validate_media_realizers,
+)
 from megatoken.training.optimizer import MasterAdamW
 from megatoken.training.text_anchors import TextAnchors, anchor_loss
 from tests.media_support import LATENT, features, install_fake_realizers, teacher_embedding
@@ -721,6 +725,33 @@ def test_trainable_rejects_unknown_scopes():
 def test_media_bridge_requires_packs():
     with pytest.raises(ValueError, match="realizer packs"):
         config(phase="MB", trainable="media_bridge")
+
+
+def test_startup_media_requirements_follow_outputs_and_active_autoencode_inputs():
+    dataset = SimpleNamespace(
+        feature_count=lambda split, modality: {"audio": 3, "image": 2}.get(modality, 0)
+    )
+    # A media observation has no output modality. Only decoded generated
+    # media targets are included in the prepared summary.
+    assert required_media_modalities(dataset, (), autoencode_items=0) == ()
+    # Creation and edit tasks score generated media; audiovisual creation needs
+    # both decoders, while encode-and-reconstruct also samples present media.
+    assert required_media_modalities(dataset, ("audio", "video", "image"), autoencode_items=0) == (
+        "audio",
+        "image",
+        "video",
+    )
+    assert required_media_modalities(dataset, (), autoencode_items=16) == ("audio", "image")
+
+
+def test_startup_media_requirements_report_missing_realizer_modalities():
+    model = SimpleNamespace(
+        media_realizers=SimpleNamespace(
+            resident=lambda modality: (_ for _ in ()).throw(ValueError("not installed"))
+        )
+    )
+    with pytest.raises(ValueError, match="audio, video"):
+        validate_media_realizers(model, ("audio", "video"))
 
 
 def test_text_anchor_weight_is_a_fraction_in_the_half_open_unit_interval():

@@ -22,10 +22,27 @@ from megatoken.io import (
 
 from .chunking import ChunkingConfig, ChunkingStats
 from .dedup import DedupStore
-from .media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
+from .media_assets import MEDIA, MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from .schema import Codec, Episode
 
 DATASET_VERSION = 3
+
+
+def _scored_media_outputs(episode: Episode) -> dict[str, int]:
+    """Count media targets that are actually selected by training meridians."""
+    records = {record.record_id: record for record in episode.records}
+    counts: dict[str, int] = {}
+    for meridian in episode.meridians:
+        for event in meridian.events:
+            record = records[event.record_id]
+            if not record.policy_mask or event.modality not in MEDIA:
+                continue
+            if record.media_type != MEDIA_RECORD_TYPE:
+                continue
+            media = MediaRecord.from_bytes(record.payload)
+            if media.modality == event.modality and media.target is not None:
+                counts[event.modality] = counts.get(event.modality, 0) + 1
+    return counts
 
 
 def export_prepared(
@@ -70,6 +87,7 @@ def export_prepared(
     shards: list[dict[str, Any]] = []
     scope_counts: dict[str, int] = {}
     feature_counts: dict[str, int] = {}
+    scored_media_counts: dict[str, int] = {}
     shard_index = 0
     shard_handle: BinaryIO | None = None
     shard_temp: Path | None = None
@@ -105,6 +123,9 @@ def export_prepared(
     try:
         for entry_id, row in enumerate(store.accepted_rows()):
             episode = Episode.from_dict(json.loads(row["episode_json"]))
+            for modality, count in _scored_media_outputs(episode).items():
+                key = f"{row['split']}|{row['stream']}|{modality}"
+                scored_media_counts[key] = scored_media_counts.get(key, 0) + count
             # Token counts were measured when the episode was admitted.
             shapes = json.loads(row["record_shape"])
             for record, (tokens, positions) in zip(episode.records, shapes, strict=True):
@@ -233,6 +254,7 @@ def export_prepared(
             "index": {"path": "index.sqlite", "sha256": sha256_file(root / "index.sqlite")},
             "counts": scope_counts,
             "feature_counts": feature_counts,
+            "scored_media_counts": scored_media_counts,
             "feature_extractors": feature_extractors,
             "complete": True,
         }
@@ -330,6 +352,90 @@ class PreparedDataset:
     def feature_count(self, split: str, modality: str) -> int:
         """Distinct prepared feature items of ``modality`` (``text`` = compressed text)."""
         return self.manifest["feature_counts"].get(f"split:{split}|modality:{modality}", 0)
+
+    def scored_media_modalities(self, streams: Sequence[str]) -> set[str]:
+        """Media decoder modalities used by selected scored outputs.
+
+        New roots carry this compact summary in their verified manifest. Older
+        roots derive it once from their actual episode records and cache the
+        result outside the immutable prepared root.
+        """
+        if self.split is None:
+            raise ValueError("Scored media outputs require a selected data split")
+        selected = set(streams)
+        if "scored_media_counts" in self.manifest:
+            summary = self.manifest["scored_media_counts"]
+            if not isinstance(summary, dict):
+                raise ValueError("Prepared scored-media summary is malformed")
+            result = set()
+            for key, count in summary.items():
+                try:
+                    split, remainder = key.split("|", 1)
+                    stream, modality = remainder.rsplit("|", 1)
+                except (AttributeError, ValueError):
+                    raise ValueError("Prepared scored-media summary is malformed") from None
+                if (
+                    split not in SPLITS
+                    or not stream
+                    or modality not in MEDIA
+                    or type(count) is not int
+                    or count <= 0
+                ):
+                    raise ValueError("Prepared scored-media summary is malformed")
+                if split == self.split and stream in selected:
+                    result.add(modality)
+            return result
+        result = set()
+        if not any(self.feature_count(self.split, modality) for modality in MEDIA):
+            return result
+        for stream in sorted(selected):
+            result.update(self._legacy_scored_media_modalities(stream))
+        return result
+
+    def _legacy_scored_media_modalities(self, stream: str) -> set[str]:
+        cache_name = content_hash(
+            {"fingerprint": self.manifest["fingerprint"], "split": self.split, "stream": stream}
+        )
+        cache_root = Path("/tmp/megatoken-prepared-media-summary")
+        cache_root.mkdir(parents=True, exist_ok=True)
+        cache_path = cache_root / f"{cache_name}.json"
+        lock_path = cache_root / f"{cache_name}.lock"
+        import fcntl
+
+        with lock_path.open("a+b") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                try:
+                    cached = json.loads(cache_path.read_text())
+                    modalities = cached["modalities"]
+                    if (
+                        cached.get("fingerprint") == self.manifest["fingerprint"]
+                        and cached.get("split") == self.split
+                        and cached.get("stream") == stream
+                        and isinstance(modalities, list)
+                        and set(modalities) <= set(MEDIA)
+                    ):
+                        return set(modalities)
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+                modalities: set[str] = set()
+                with PreparedDataset(
+                    self.root, self.split, stream, verify_checksums=self.verify_checksums
+                ) as scoped:
+                    for episode in scoped.iter_episodes():
+                        modalities.update(_scored_media_outputs(episode))
+                write_json(
+                    cache_path,
+                    {
+                        "fingerprint": self.manifest["fingerprint"],
+                        "split": self.split,
+                        "stream": stream,
+                        "modalities": sorted(modalities),
+                    },
+                )
+                return modalities
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     def feature_item(self, split: str, modality: str, position: int) -> FeatureItem:
         row = self.connection.execute(
@@ -496,6 +602,13 @@ class PreparedCorpus:
 
     def feature_count(self, split: str, modality: str) -> int:
         return sum(part.feature_count(split, modality) for part in self.parts)
+
+    def scored_media_modalities(self, streams: Sequence[str]) -> set[str]:
+        """Union selected output modalities across the canonical prepared roots."""
+        result: set[str] = set()
+        for part in self.parts:
+            result.update(part.scored_media_modalities(streams))
+        return result
 
     def feature_item(self, split: str, modality: str, position: int) -> FeatureItem:
         if position < 0:

@@ -8,11 +8,11 @@ This report preserves the initial production-path audit and distinguishes comple
 
 - Cached coordinator initialization now receives a small verified corpus identity without dataset mounts or cache credentials. Tests exercise the actual launcher delivery and initialization with nonexistent data mounts. The existing live storage trial was backfilled and read back with all 19 original files unchanged.
 - Imported donor contributions survive regular training and DiLoCo export, are folded into the served table with exact BF16 lookup parity, and seed the next phase without donor assets. Tests include updates to both learned donor maps, untouched FP32 residuals, media packs, nondefault chunking and source-asset removal. Both selected donors' actual native memories also passed a live cloud extraction check.
+- Final generated-sample evaluation and the default inference benchmark now use `MultiTrackRuntime`, including session open, prompt observations, generated answers and configured collection/knowledge-base lookups. `evaluate --core-only` preserves the lower-level loss/sampling diagnostic. Tests mount a real source collection and confirm items are retrieved during metadata, prompt and generated-answer lookups.
+- Media dependencies are checked before optimizer creation against actual scored media events and the active feature-reconstruction sampler. New prepared manifests carry the required output summary; legacy roots derive it from verified records. Tests cover custom stream names, generated targets, input-only media and missing generators. Both production examples now declare their required media pack path.
 
 ### Remaining production findings from the audited code state
 
-- **Media pack startup validation:** the generic P1 example can select donor-dependent outputs without a pack manifest. The new production donor recipe includes its required pack path, but general validation still needs to check the actual selected loss/autoencoding/generation paths; text-only and feature-observation-to-text runs should continue to work without media generators.
-- **Generation evaluation memory parity:** final generated-sample evaluation and inference benchmarks call the core sampler and omit session retrieval. Add a separately labeled session-runtime measurement; retain the core-only diagnostic if useful.
 - **Fixed effort and context defaults:** the example explicitly disables sampled effort and sets a fixed effort/history bound. This is an operational default, not a broken feature; any desired progressive context or effort schedule still needs explicit configuration and implementation.
 - **Knowledge-base model identity:** bases correctly reject reuse with different weights. This is deliberate; add a clear rebuild workflow rather than relaxing the version check.
 
@@ -44,6 +44,8 @@ Evidence locations: `src/megatoken/cloud_diloco.py:98-104,135-159,163-192,231-28
 
 ### 2. Media-bearing P1 runs can start without the frozen media packs they need
 
+**Resolved in the current code:** startup checks actual scored-output modalities and active reconstruction before optimizer creation. Existing manifests are supported by a cached, checksum-verifying scan; current exports record the summary directly. A media observation used only for text prediction does not require a generator. The evidence below describes the earlier behavior.
+
 **Confidence: high. Consequence: training fails as soon as media target or media feature reconstruction work is drawn. Not intentional for a media-bearing run.**
 
 Expected capability: P1 trains the shared model and media conditions on its listed audio, image, video, and cross-modal streams, while the pretrained donors remain frozen. Media input features alone do not require the corresponding generator: they can be encoded as observations for text-only answers. A donor is needed when a selected loss reconstructs or generates that modality.
@@ -57,6 +59,8 @@ Recommended fix: validate the actual active paths after opening the corpus: requ
 Evidence locations: `src/megatoken/data/stages.json:16-20`; `configs/train/diloco-coreweave.example.yaml:8-20,38-39`; `src/megatoken/training/config.py:174-183`; `src/megatoken/loading.py:50-75`; `src/megatoken/model/media.py:184-209`; `src/megatoken/training/autoencode.py:106-153`.
 
 ### 3. Final sample-quality evaluation and inference benchmarks skip transducer lookups
+
+**Resolved in the current code:** the default `evaluate` and inference `benchmark` paths now run through the serving session runtime. `evaluate --core-only` retains the historical model-only loss and sampling diagnostic. The text session evaluator reports media and mixed observed/target meridians as skipped rather than leaking same-group targets. See [training.md](training.md) for the current commands. The remaining evidence below is a trace of the pre-repair code state.
 
 **Confidence: high. Consequence: reported generation quality and latency do not describe served sessions. Partly intentional for synthetic/core-only diagnostics, but not labeled as a no-memory production measure.**
 
