@@ -365,7 +365,13 @@ class Fleet:
             def read_file(self, path):
                 if path.endswith("receipt.json"):  # a finish sandbox's upload receipt
                     part = int(sandbox_id.rsplit("-", 1)[1])
-                    receipt = {"part": part, "repo": "owner/data", "public": [], "encrypted": None}
+                    receipt = {
+                        "run": "unit-prep",
+                        "part": part,
+                        "repo": "owner/data",
+                        "public": [],
+                        "encrypted": None,
+                    }
                     return Result(json.dumps(receipt).encode())
                 return Result(json.dumps({"files": fleet.files(sandbox_id)}).encode())
 
