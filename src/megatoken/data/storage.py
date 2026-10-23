@@ -382,10 +382,7 @@ class PreparedDataset:
                     or count <= 0
                 ):
                     raise ValueError("Prepared scored-media summary is malformed")
-                if (
-                    split == self.split
-                    and stream in selected
-                ):
+                if split == self.split and stream in selected:
                     result.add(modality)
             return result
         result = set()
