@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import signal
+import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -230,13 +231,12 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             None if decoupled is None else {key: decoupled[key] for key in _DECOUPLED_IDENTITY}
         )
     critical = (
+        "purpose",
         "model",
         "model_overrides",
         "codec",
         "precision",
         "expert_backend",
-        "engram_import",
-        "engram_imports",
         "weight_decay",
         "inner_optimizer",
         "decoupled",
@@ -244,6 +244,8 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
     if not phase_transition:
         critical += (
             "phase",
+            "engram_import",
+            "engram_imports",
             "datasets",
             "seed",
             "microbatch_episodes",
@@ -270,6 +272,8 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "trainable",
             "text_anchors",
             "text_anchor_weight",
+            "hindsight_targets",
+            "hindsight_distill_weight",
         )
     for key in critical:
         if key not in old or old[key] != current[key]:
@@ -282,6 +286,9 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
 def train(
     config: TrainConfig, *, resume: str | None = None, phase_transition: bool = False
 ) -> dict[str, Any]:
+    from megatoken.data.recipes import validate_training_donors
+
+    validate_training_donors(config)
     if phase_transition and not resume:
         raise ValueError("A phase transition requires the previous phase's checkpoint")
     if config.decoupled is not None and (
@@ -313,7 +320,7 @@ def train(
     checkpoint_writer = None
     optimizer = None
     transducer = None
-    dataset = stream = heldout = None
+    dataset = stream = heldout = teacher_targets = None
     old_handlers = {}
     stop_requested = False
 
@@ -356,6 +363,20 @@ def train(
                 f"Prepared features come from teacher {dataset.extractor!r}, "
                 f"not this model's {model_config.media_extractor!r}"
             )
+        from megatoken.data.hindsight import HindsightTargets
+
+        teacher_targets = (
+            HindsightTargets(
+                config.hindsight_targets,
+                config=config,
+                codec=codec,
+                value_dim=model_config.transducer_geometry.value_dim,
+            )
+            if config.hindsight_targets
+            else None
+        )
+        if teacher_targets is not None:
+            teacher_targets.validate_corpus(dataset.identity)
         recipe = stage_recipe(config.phase)
         plan = AutoencodePlan.from_stage(recipe.constraints)
         if config.use_stage_mixture:
@@ -448,12 +469,11 @@ def train(
             new_owners = restore_weights(
                 model, payload, packs_fingerprint, phase_transition=phase_transition
             )
-        elif config.engram_import or config.engram_imports:
-            from megatoken.assets import install_engram_asset
+        from megatoken.assets import install_configured_imports
 
-            paths = [config.engram_import] if config.engram_import else config.engram_imports
-            for path in paths:
-                install_engram_asset(model, path)
+        new_owners += install_configured_imports(
+            model, config, resumed=bool(resume), phase_transition=phase_transition
+        )
         # Check decoder requirements before enumerating optimizer owners. This
         # catches a missing pack at startup while leaving media observations
         # that only feed text prediction usable without a decoder.
@@ -461,7 +481,12 @@ def train(
         # Synchronous ranks are learners of one canonical bank merged on rank 0.
         transducer = TransducerTrainer(
             model.transducer,
+            teacher_targets=teacher_targets,
             bank_trainable=config.trainable == "all",
+            teacher_weight=config.hindsight_distill_weight,
+            navigation_weight=config.navigation_weight,
+            navigation_examples=config.navigation_examples,
+            navigation_negatives=config.navigation_negatives,
             worker=config.decoupled.resolved_worker_id if config.decoupled else context.rank,
             provisional=config.decoupled is not None or context.world_size > 1,
         )
@@ -469,7 +494,12 @@ def train(
         if context.world_size > 1:
             rank_rounds = RankRounds(transducer, context)
         if resume:
-            resume_transducer(transducer, rank_rounds, resolve_checkpoint(resume))
+            resume_transducer(
+                transducer,
+                rank_rounds,
+                resolve_checkpoint(resume),
+                allow_target_transition=phase_transition,
+            )
         context.broadcast_model(model)
         phase = config.schedule
         optimizer = MasterAdamW(
@@ -850,6 +880,8 @@ def train(
             # The old per-operation router loss has been replaced.
             weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
+            # Per-window mean losses are divided by the windows of the whole transaction.
+            window_scale = 1.0 / max(1, context.sum_counts({"windows": len(batches)})["windows"])
             optimizer.zero_grad()
             # Include core selectors and any routed sites owned by the
             # training-only transducer heads; those sites still train the same
@@ -879,6 +911,7 @@ def train(
                             else (text_anchors, anchor_denom, config.text_anchor_weight)
                         ),
                         transducer=transducer,
+                        window_scale=window_scale,
                     )
                     for key, value in diagnostics_batch.items():
                         step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
@@ -1093,18 +1126,33 @@ def train(
     finally:
         for signum, handler in old_handlers.items():
             signal.signal(signum, handler)
+        # Every resource is released even if an earlier close fails (a failed checkpoint
+        # write must not leave the optimizer, streams and coordinator session open, nor
+        # replace the error that ended the run); the first failure is raised at the end.
+        failures: list[BaseException] = []
+
+        def release(closer) -> None:
+            try:
+                closer()
+            except Exception as error:
+                failures.append(error)
+
         if checkpoint_writer is not None:
             # A periodic write still in flight must land before the run returns.
-            checkpoint_writer.close()
+            release(checkpoint_writer.close)
         if diloco is not None:
-            diloco.close()
+            release(diloco.close)
         if optimizer is not None:
-            optimizer.close()
+            release(optimizer.close)
         if stream is not None:
-            stream.close()
+            release(stream.close)
         if heldout is not None:
-            heldout.close()
+            release(heldout.close)
+        if teacher_targets is not None:
+            release(teacher_targets.close)
         if dataset is not None:
-            dataset.close()
-        close_mounted()
-        context.close()
+            release(dataset.close)
+        release(close_mounted)
+        release(context.close)
+        if failures and sys.exc_info()[0] is None:
+            raise failures[0]

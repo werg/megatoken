@@ -3,9 +3,9 @@
 New models default to longer direct attention within a track and shorter direct
 attention across tracks. The local allowance is 256 committed events on that track;
 the foreign allowance covers other-track events within the most recent 16 committed
-events globally. These are experimental values, bounded by the existing session
-cache capacity. Committed events include internal retrieval work and ordinary
-messages. Representative quality and latency comparisons must calibrate the defaults.
+events globally. These are deliberately guessed operating defaults, bounded by the
+existing session cache capacity. Committed events include internal retrieval work
+and ordinary messages. They apply now; calibration is not a prerequisite for use.
 
 Busy neighbors do not age out a quiet track's local allowance. The global cache
 budget can still force reclamation when several tracks collectively need too much
@@ -111,22 +111,55 @@ Prepare authored demonstrations through ordinary deduplication and export:
 ```bash
 python scripts/prepare_context_tasks.py \
   --root /absolute/new/context-corpus --codec /absolute/codec \
-  --families 32 --local-events 4 --cross-events 1
+  --families 32
 ```
 
-The count denotes original task instances. Each has related fetch, retained-source,
-long-local-history, and unavailable-source variants kept in one split. Archive
-reads actually execute with checksummed receipts and linked results. The source
-has one declared task template; numeric variation does not demonstrate new-template
-generalization. Unavailable-source clarification is marked incomplete rather than
-successful task completion.
+The count denotes original instances **per task template**. The six templates
+exercise document fields, invoice arithmetic, corrected source revisions, user
+formatting constraints, joining two sources, and exact quotation. Each instance
+has recent-evidence, local-history, pinned-evidence, archive-reread, compact-summary,
+and unavailable-source variants. These are authored exercises, not natural data or
+student rollouts. Archive reads execute against bounded source storage with checked
+receipts. Unavailable-source clarification remains incomplete task completion.
 
-This corpus uses the existing dynamic-execution stream in the ordinary trainer.
-Preparation reports public context changes, checked reads, and unavailable-source
-cases. Training and held-out reports include retained events and cache bytes per
-training window. The preparation, restore, batch, and backward regression checks
-that these demonstrations reach actual training losses. Broader delegation data
-is still required.
+The default curriculum uses local/foreign allowances of 16/8, 64/8, and 256/16
+events; the last matches the operating defaults. All window and strategy variants
+of one original task remain in the same split. Training, validation and test
+contain different original task instances, with every template represented in each.
+This is instance holdout, not unseen-template generalization. The preparation
+report counts examples after deduplication and records the producer checksum.
+
+The ordinary training mixture now includes a dedicated context-management stream:
+0.5% of the mixture budget in pretraining and intermediate stages, and 1% in
+supervised training, taken from the previous dynamic-execution allocation. Keep
+the original dynamic-execution corpus too. Include the new prepared root alongside
+the other required roots in the training datasets. Admission requires independent
+original tasks for each context strategy, every template, the operating defaults,
+and completed-history release, in both training and validation. Old one-template
+demonstrations cannot satisfy this supply. Missing supply fails before allocation
+of expensive model resources; start a new run after changing mixture semantics.
+The default preparation supplies at least four original instances of every
+template in validation. Smaller diagnostic preparations may fail regular stage
+admission even though they are usable for bounded integration checks.
+
+The production training examples include a separate prepared context root. Bind
+it alongside the existing roots before preparing teacher guidance with
+`megatoken prepare-hindsight --train-config ...`. Generate that guidance for the
+complete new corpus, then run `megatoken validate-training-inputs` on the resulting
+training configuration as described in [production training](training.md). Adding
+this root after preparing teacher guidance leaves the new examples uncovered.
+
+Answer checking recomputes facts from actual sources, verifies linked read results,
+and checks visibility for answers and summaries. The tests also replay episodes
+through actual serving context, including internal retrieval events, and sample
+scored decisions through the normal mixture loader. Training and held-out reports
+include retained events and cache bytes per window. Broader natural conversation
+and media evidence, learned choices, and quality evaluation remain necessary.
+
+Small public evidence indexes retain original source addresses on their consumers.
+Fetch targets therefore name addresses the model was actually given. Evidence
+retention is requested by a source owner that can still read it when the selected
+request executes.
 
 ## Acceptance and remaining work
 
@@ -152,8 +185,8 @@ run completed this path; it does not establish learned delegation quality. Prepa
 and train against the same unchanged source revision because preparation records
 the reader implementation identity.
 
-The [follow-up plan](dynamic-tracks-defaults-follow-up-plan.md) still requires broad
-task families, learned handoffs and summaries, calibrated windows, sustained voice
+The [follow-up plan](dynamic-tracks-defaults-follow-up-plan.md) still requires broader
+natural task families, demonstrated learned handoffs and summaries, sustained voice
 sessions, server-wide memory admission, durable recovery, and quality comparisons
 at equal memory budgets. Archive rereading is a new causal observation; exact
 offloading/restoration of a suspended track's old projected cache remains separate

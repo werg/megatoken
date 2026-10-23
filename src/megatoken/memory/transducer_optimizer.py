@@ -15,8 +15,11 @@ import torch
 from torch import Tensor
 
 from .transducer import ADDRESS_FIELDS, FIELD_COLUMNS, FIELDS, TransducerBank
-from .transducer_packing import unit
+from .transducer_packing import FP4Rows, pack_fp4, row_seeds, unit
 from .transducer_rows import RowStore
+
+# Rows of a wide field decoded and packed at a time (elements per block).
+ROUND_BLOCK_ELEMENTS = 1 << 22
 
 BLOCK = 256
 STAT_HALF_LIFE = 4096
@@ -247,18 +250,50 @@ class BlockScaleDescent:
         for column, values in self.bank.table.columns(name, slots).items():
             getattr(store, column)[rows[at]] = values
 
-    def round_deltas(self) -> dict[str, tuple[Tensor, Tensor]]:
-        """Per field: (edge IDs, published rows minus the round's base rows)."""
+    def round_deltas(
+        self, packed_value: tuple[int, int, int] | None = None
+    ) -> dict[str, tuple[Tensor, Tensor | FP4Rows]]:
+        """Per field: (edge IDs, published rows minus the round's base rows).
+
+        ``packed_value = (step, worker, id_limit)`` returns the wide value field already
+        packed to FP4, in blocks of rows, for the edges below ``id_limit`` (canonical ones):
+        the dense float32 delta is 128 KB per edge, so for a large round it is never built
+        whole. The packed bytes equal those of packing the dense delta at once.
+        """
         result = {}
         table = self.bank.table
         for name, store in self.round_origin.items():
             edges = [edge for edge in store.ids() if edge in self.bank]
+            if packed_value is not None and name == "value":
+                edges = [edge for edge in edges if edge < packed_value[2]]
             if not edges:
                 continue
-            base = table.decode_columns(name, store.columns(edges))
-            current = table.decode(name, table.slots(edges))
-            delta = (current - base).reshape(len(edges), -1).float().cpu()
-            result[name] = (torch.tensor(edges, dtype=torch.int64), delta)
+            if packed_value is None or name != "value":
+                base = table.decode_columns(name, store.columns(edges))
+                current = table.decode(name, table.slots(edges))
+                delta = (current - base).reshape(len(edges), -1).float().cpu()
+                result[name] = (torch.tensor(edges, dtype=torch.int64), delta)
+                continue
+            step, worker, _ = packed_value
+            width = self.bank.geometry.value_dim
+            block = max(1, ROUND_BLOCK_ELEMENTS // width)
+            parts = []
+            for start in range(0, len(edges), block):
+                chunk = edges[start : start + block]
+                base = table.decode_columns(name, store.columns(chunk))
+                current = table.decode(name, table.slots(chunk))
+                delta = (current - base).reshape(len(chunk), -1).float()
+                ids = torch.tensor(chunk, dtype=torch.int64, device=delta.device)
+                parts.append(pack_fp4(delta, row_seeds(ids, "value", step, worker)))
+                del delta, base, current
+            result[name] = (
+                torch.tensor(edges, dtype=torch.int64),
+                FP4Rows(
+                    torch.cat([p.codes for p in parts]).cpu(),
+                    torch.cat([p.group_scales for p in parts]).cpu(),
+                    torch.cat([p.row_scales for p in parts]).cpu(),
+                ),
+            )
         return result
 
     def forget(self, ids) -> None:
@@ -298,12 +333,12 @@ class BlockScaleDescent:
         self.bank.switch_to_learned()
         self.round_writes = writes_store(self.bank.device, self.bank.geometry.value_dim)
 
-    def take_round(self) -> tuple[dict, RowStore]:
+    def take_round(self, packed_value: tuple[int, int, int] | None = None) -> tuple[dict, RowStore]:
         """Deltas and writes since the last call, for a DiLoCo submission.
 
         The FP32 masters restart from the next installed bank.
         """
-        deltas = self.round_deltas()
+        deltas = self.round_deltas(packed_value)
         writes = self.round_writes
         self.discard_round()
         return deltas, writes

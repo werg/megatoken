@@ -132,7 +132,7 @@ def test_native_lookup_hindsight_and_parameter_ownership():
         torch.tensor([[1, 1, 2]]),
         torch.tensor([[0, 0, 1]]),
     )
-    hindsight = native.hindsight_pass(events, [0, 1, None], mode="group-inverse")
+    hindsight = native.hindsight_pass(events, [0, 1, None])
     assert hindsight.values.shape == (3, native.bank.geometry.value_dim)
     assert hindsight.sink_only.tolist() == [False, False, True]
     with pytest.raises(ValueError, match="not ordinary"):
@@ -146,7 +146,6 @@ def test_native_lookup_hindsight_and_parameter_ownership():
                 events.groups[:, :1],
             ),
             [0],
-            mode="full",
         )
     state, second = native.boundary(
         multi, state, agenda, training=True, hindsight=hindsight.values[0], overlay=0.5
@@ -232,8 +231,8 @@ def test_hindsight_pass_clears_any_live_adapter_scope():
     assert plan is not None
     weights = plan.weights[0, :, 0]
     with expert_scope(weights):
-        scoped = native.hindsight_pass(events, [0, 1, None], mode="group-inverse").values
-    unscoped = native.hindsight_pass(events, [0, 1, None], mode="group-inverse").values
+        scoped = native.hindsight_pass(events, [0, 1, None]).values
+    unscoped = native.hindsight_pass(events, [0, 1, None]).values
     torch.testing.assert_close(scoped, unscoped)
 
 
@@ -261,7 +260,7 @@ def test_hindsight_source_routing_uses_each_events_track(monkeypatch):
         )
 
     monkeypatch.setattr(model.core.expert_pools, "router_features", record)
-    native.hindsight_pass(events, [0, 1, None], mode="group-inverse")
+    native.hindsight_pass(events, [0, 1, None])
     assert seen[0][0] == (3, width)
     assert seen[0][1].tolist() == [0, 1, 0]
 
@@ -281,22 +280,25 @@ def test_boundary_plan_starts_after_metadata_and_respects_real_boundaries_and_ca
 
 def test_hindsight_schedule():
     schedule = HindsightSchedule()
-    assert [schedule.stage(s) for s in (0, 4096, 8192)] == ["full", "gap1", "gap2"]
     assert schedule.overlay(0, 3) == 0.0
     assert schedule.overlay(16384 + 32768, 3) == 0.0
     after = 16384 + 65536
     assert schedule.overlay(after, 8) == 1.0 and schedule.overlay(after, 9) == 0.0
-    assert not schedule.computes_hindsight(after, 9, learned=True)
-    assert schedule.computes_hindsight(after, 9, learned=False)
-    assert schedule.reads(9000, groups=3, lookups=3) == [1, 2, None]
-    assert schedule.reads(0, groups=3, lookups=3) == [0, 1, 2]
 
 
 def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
     model = tiny_model()
     trainer = TransducerTrainer(
         model.transducer,
-        schedule=HindsightSchedule(full_steps=0, gap1_steps=0, evidence_steps=4),
+        schedule=HindsightSchedule(evidence_steps=4),
+    )
+    from types import SimpleNamespace
+
+    from megatoken.model.transducer import HindsightValues
+
+    trainer.teacher_targets = SimpleNamespace(
+        identity="fixed-targets",
+        manifest={"encoding_identity": "fixed-encoding", "memory_policy": "teacher-text-only-v1"},
     )
     multi = MultiTrackGenerator(model)
     meridians = [Meridian((f"t{i % 2}",), (1,), ("text",), i % 3 == 2) for i in range(8)]
@@ -310,6 +312,9 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
         sequence = trainer.sequence(
             meridians, step=step, generator=torch.Generator(), teacher_supervision=True
         )
+        values = torch.randn(sequence.planned, model.transducer.bank.geometry.value_dim)
+        sink = torch.zeros(sequence.planned, dtype=torch.bool)
+        sequence.stored = HindsightValues(values, sink)
         sequence.hindsight(meridians, raw)
         state = sequence.begin(multi, multi.tracks.initial_state(1), metadata_payload({}))
         for index, meridian in enumerate(meridians):
@@ -326,7 +331,9 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
         if step == 1:
             assert usable and metrics["transducer_writeouts"] == usable
     assert trainer.bank.edge_count > 0
-    restored = TransducerTrainer(tiny_model().transducer, schedule=trainer.schedule)
+    restored = TransducerTrainer(
+        tiny_model().transducer, schedule=trainer.schedule, teacher_targets=trainer.teacher_targets
+    )
     restored.load_state_dict(trainer.state_dict())
     assert restored.bank.edge_ids().tolist() == trainer.bank.edge_ids().tolist()
 
@@ -812,3 +819,76 @@ def test_the_annotated_lookup_is_the_one_after_the_first_finished_user_message()
     # and a window without a finished question has none to annotate.
     assert planned([answer, asked])[1] is None
     assert planned([system, answer])[1] is None
+
+
+def test_installing_canonical_rows_at_the_ceiling_drops_the_learners_unsent_write_outs():
+    geometry = TransducerGeometry(**{**vars(GEOMETRY), "max_edges": 4})
+    donor = TransducerBank(geometry)
+    add_random(donor, 3)
+    rows = donor.export_rows(donor.edge_ids().tolist())
+    learner = TransducerBank(geometry)
+    add_random(learner, 2, provisional=True)  # unsent local write-outs
+    learner.import_rows(rows, retired=[], next_id=int(donor.table.next_id))
+    ids = learner.edge_ids().tolist()
+    assert sorted(ids) == sorted(rows["ids"].tolist())  # all three canonical rows, no provisional
+    assert all(edge < PROVISIONAL_BASE for edge in ids)
+
+
+def test_a_malformed_round_is_refused_before_anything_is_applied():
+    from megatoken.memory.transducer_growth import EvidenceRows
+
+    torch.manual_seed(0)
+    canonical = TransducerBank(GEOMETRY)
+    add_random(canonical, 3)
+    coordinator = TransducerCoordinator(canonical, TransducerGrowth(canonical))
+    for damage in ("missing write key", "nonfinite evidence"):
+        bank, opt, gro = learner(canonical, 0)
+        give_gradient(bank, 1, "bias", torch.tensor(1.0))
+        opt.step(1)
+        bad = learner_round(opt, gro, worker=0, sequence=1, base_version=0, examples=1, step=1)
+        if damage == "missing write key":
+            bad.write_ids, bad.write_mass, bad.write_means = torch.tensor([1]), torch.ones(1), {}
+        else:
+            nan = torch.full((1,), float("nan"))
+            bad.evidence = EvidenceRows(
+                torch.tensor([1]),
+                nan,
+                nan,
+                nan,
+                torch.zeros(1, 64),
+                nan,
+                nan,
+                torch.zeros(1).long(),
+            )
+        coordinator.pending.clear()
+        with pytest.raises(ValueError):  # refused on arrival or at the merge, never half-applied
+            coordinator.submit(bad)
+            coordinator.merge()
+        assert coordinator.version == 0  # nothing was applied
+        coordinator.ledger.clear()
+
+
+def test_training_done_while_a_round_is_in_flight_survives_the_install():
+    torch.manual_seed(0)
+    canonical = TransducerBank(GEOMETRY)
+    add_random(canonical, 3)
+    coordinator = TransducerCoordinator(canonical, TransducerGrowth(canonical))
+    bank, opt, gro = learner(canonical, 0)
+    give_gradient(bank, 1, "bias", torch.tensor(1.0))
+    opt.step(1)
+    first = learner_round(opt, gro, worker=0, sequence=1, base_version=0, examples=1, step=1)
+    sent = float(bank.decode("bias", [1])[0])
+    # More training on the same row after the round was taken and before the install.
+    give_gradient(bank, 1, "bias", torch.tensor(1.0))
+    opt.step(2)
+    local_progress = float(bank.decode("bias", [1])[0]) - sent
+    assert local_progress != 0.0
+    assert coordinator.submit(first)
+    coordinator.merge()
+    merged = float(canonical.decode("bias", [1])[0])
+    install_changes(bank, opt, gro, coordinator.changes_since(0))
+    assert float(bank.decode("bias", [1])[0]) == pytest.approx(merged + local_progress, abs=1e-5)
+    # The carried progress is part of the next round, measured from the installed row.
+    second = opt.round_deltas()["bias"]
+    assert second[0].tolist() == [1]
+    assert float(second[1][0, 0]) == pytest.approx(local_progress, abs=1e-5)

@@ -581,18 +581,40 @@ def _transducer_sequence(
     sources = None
     if batch.retrieval is not None:
         sources = mount(batch.retrieval, store.root, model.config.media_extractor)
+    teacher_supervision = (
+        batch.windows[0].episode.tools_json == "[]" and not batch.native_history.has_events
+    )
     sequence = trainer.sequence(
         meridians,
         step=model_version,
         generator=torch.Generator().manual_seed(seed),
         mounted=mounted,
         sources=sources,
-        # Auxiliary look-ahead teaching is never a student trajectory and never
-        # conditions tool/lifecycle decisions or recorded student selections.
-        teacher_supervision=(
-            batch.windows[0].episode.tools_json == "[]" and not batch.native_history.has_events
+        teacher_supervision=teacher_supervision,
+        memory_eligible=(
+            batch.windows[0].episode.stream not in {"base_reading", "collection_reading"}
+            and (trainer.teacher_targets is not None or mounted is None)
         ),
     )
+    if (
+        teacher_supervision
+        and trainer.native.training
+        and trainer.teacher_targets is not None
+        and trainer.bank_trainable
+    ):
+        from megatoken.model.transducer import HindsightValues
+
+        item = batch.windows[0]
+        values, sink = trainer.teacher_targets.load(
+            item.episode, item.window.start, item.window.end, sequence.before, device=device
+        )
+        if values is None:
+            # Explicit non-text coverage: retrieve normally, with no unaligned substitute.
+            sequence.alpha = 0.0
+            sequence.memory_eligible = False
+            sequence.teacher_unsupported = True
+        else:
+            sequence.stored = HindsightValues(values, sink)
     sequence.hindsight(
         meridians,
         lambda index: _actual_raw(
@@ -619,6 +641,7 @@ def forward_meridian_batch(
     text_anchors=None,
     differentiate: bool = True,
     transducer: Any,
+    window_scale: float = 1.0,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
@@ -627,6 +650,11 @@ def forward_meridian_batch(
     (under ``torch.no_grad``). The transducer looks up at the window's planned
     boundaries; ``transducer`` is the run's ``TransducerTrainer`` (in evaluation
     its lookups read the bank alone and record nothing).
+
+    The ingest, teacher-distillation and navigation losses are means over one window's
+    items. ``window_scale`` (one over the number of windows in the whole optimizer
+    transaction, across ranks) keeps their sum over windows a mean, as the globally
+    divided losses are: without it their gradient grows with the accumulation length.
     """
     multi = MultiTrackGenerator.of(model)
     store = batch.windows[0].assets
@@ -701,6 +729,18 @@ def forward_meridian_batch(
         model, batch, transducer, store, device, model_version, seed, mounted
     )
     metrics["teacher_assisted_windows" if sequence.alpha else "causal_student_windows"] = 1
+    teaching = None
+    if differentiate and model.training and transducer.navigation_weight > 0:
+        from megatoken.training.structure import StructuralTeaching
+
+        teaching = StructuralTeaching.prepare(
+            model,
+            multi,
+            episode,
+            batch.steps,
+            max_examples=transducer.navigation_examples,
+            negatives=transducer.navigation_negatives,
+        )
     state = sequence.begin(
         multi,
         state,
@@ -926,6 +966,10 @@ def forward_meridian_batch(
                 )
             )
         state = announce(state, step)
+        if teaching is not None:
+            teaching.after(
+                multi, state, [r.record.record_id for r in step.records], effort=batch.effort
+            )
     if batch.retrieval is not None and _question_scored(batch.prefix, batch.steps):
         if sequence.question_search is None:
             raise RuntimeError("The annotated lookup after the question did not run")
@@ -935,9 +979,23 @@ def forward_meridian_batch(
         losses.append(ledger.backward_loss(terms))
         for name, value in retrieved.items():
             metrics[name] = metrics.get(name, 0) + value
+    if getattr(sequence, "teacher_unsupported", False):
+        metrics["teacher_unsupported_windows"] = 1
+    if sequence.stored is not None:
+        metrics["teacher_target_windows"] = 1
+        metrics["teacher_target_values"] = int((~sequence.stored.sink_only).sum())
+    if sequence.teacher_loss is not None:
+        losses.append(sequence.teacher_loss * transducer.teacher_weight * window_scale)
+        metrics["hindsight_distill_loss"] = sequence.teacher_loss.detach()
+    if teaching is not None:
+        loss, measured = teaching.terms()
+        metrics.update(measured)
+        if loss is not None:
+            losses.append(loss * transducer.navigation_weight * window_scale)
+            metrics["navigation_loss"] = loss.detach()
     for name, loss in sequence.ingest_losses().items():
         weight = INGEST_VALUE_WEIGHT if name == "ingest_value" else INGEST_KEY_WEIGHT
-        losses.append(loss * weight)
+        losses.append(loss * weight * window_scale)
         metrics[f"{name}_loss"] = loss.detach()
     if differentiate and losses:
         torch.stack(losses).sum().backward()

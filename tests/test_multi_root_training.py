@@ -213,15 +213,13 @@ def test_mixture_streams_resolve_assets_per_episode_and_shard_for_diloco_workers
 
 
 def test_a_run_defaults_to_its_stages_own_meter_and_limit():
+    from training_fixture import production_config
+
     for phase in ("B0", "MB", "P1", "M1", "S"):
-        schedule = TrainConfig(
-            phase=phase,
-            trainable="media_bridge" if phase == "MB" else "all",
-            packs="p" if phase == "MB" else None,
-        ).schedule
+        schedule = production_config(phase).schedule
         assert (schedule.meter, schedule.budget) == (PHASES[phase].meter, PHASES[phase].budget)
-    assert [TrainConfig(phase=p).schedule.meter for p in ("B0", "P1", "S")] == ["I", "D", "P"]
-    shorter = TrainConfig(phase="P1", budget=1000).schedule
+    assert [production_config(p).schedule.meter for p in ("B0", "P1", "S")] == ["I", "D", "P"]
+    shorter = production_config("P1", budget=1000).schedule
     assert (shorter.meter, shorter.budget) == ("D", 1000)
     assert shorter.learning_rate(500) > shorter.learning_rate(1000)  # the decay fits the override
     with pytest.raises(ValueError, match="stage's own limit"):
@@ -539,7 +537,13 @@ def test_a_dataset_pattern_stands_for_every_root_it_matches(tmp_path):
     for name in ("00002", "00000", "00001"):
         (tmp_path / "prepared" / name).mkdir(parents=True)
     (tmp_path / "prepared" / "stray.json").write_text("{}")  # a file is not a root
-    config = TrainConfig.from_dict({"datasets": [str(tmp_path / "prepared" / "0*"), "plain/root"]})
+    config = TrainConfig.from_dict(
+        {
+            "purpose": "diagnostic",
+            "max_steps": 1,
+            "datasets": [str(tmp_path / "prepared" / "0*"), "plain/root"],
+        }
+    )
     roots = [str(tmp_path / "prepared" / name) for name in ("00000", "00001", "00002")]
     assert config.datasets == [*roots, "plain/root"]
     with pytest.raises(ValueError, match="matches no prepared root"):

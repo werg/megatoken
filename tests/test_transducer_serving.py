@@ -159,7 +159,7 @@ def test_training_metadata_may_be_partial_or_empty_and_evaluation_is_complete():
         supervision=SimpleNamespace(annotations_json="{}"),
     )
     full = json.loads(_metadata(episode, None))
-    assert (full["task"], full["modality"], full["version"]) == ("chat", ["text"], "v10")
+    assert (full["task"], full["modality"], full["version"]) == ("chat", ["text"], "v12")
     drawn = [_metadata(episode, seed) for seed in range(64)]
     assert metadata_payload({}) in drawn and len(set(drawn)) > 4
     for payload in drawn:

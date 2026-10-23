@@ -6,7 +6,7 @@ and both roles' resources:
 
     {"schema": "megatoken.cloud-diloco/1", "id": "p1", "image": "...",
      "lifetime_hours": 24, "pip": ["pyarrow"], "workers": 4,
-     "config": "configs/train/diloco-coreweave.example.yaml",
+     "config": "configs/train/pretraining.example.yaml",
      "data": {"peer": "<sandbox id>", "prefixes": ["out/datasets/train"]},
      "coordinator": {"resources": {"cpu": "8", "memory": "32Gi"}, "args": ["--quorum", "3"]},
      "learners": {"resources": {"cpu": "8", "memory": "32Gi", "gpu": 1}}}
@@ -57,6 +57,7 @@ URL_FILE = "run/coordinator-url"  # an input: the URL exists only once the coord
 PIN_FILE = "in/cache-pin.json"  # an input: the pin of the stored data
 CORPUS_FILE = "in/corpus-metadata.json"  # small identity bootstrap for the coordinator
 DATA_DIR = f"{cloud.WORK}/data/prepared"  # where a learner restores the stored roots
+HINDSIGHT_DIR = "data/hindsight"
 RUNS = cloud.STATE / "diloco"
 # The coordinator outlives its learners, so it can still export when the last one ends.
 COORDINATOR_EXTRA_HOURS = 2
@@ -83,6 +84,14 @@ def validate(spec: dict[str, Any]) -> dict[str, Any]:
         or not isinstance(spec["assets"]["inputs"], list)
     ):
         raise cloud.CloudError("assets is {inputs: ordinary verified sandbox input files}")
+    if "hindsight" in spec and (
+        not isinstance(spec["hindsight"], dict)
+        or set(spec["hindsight"]) != {"peer", "prefix"}
+        or not all(isinstance(v, str) and v for v in spec["hindsight"].values())
+        or Path(spec["hindsight"]["prefix"]).is_absolute()
+        or ".." in Path(spec["hindsight"]["prefix"]).parts
+    ):
+        raise cloud.CloudError("hindsight is {peer, prefix: a relative completed artifact path}")
     if "cache" in spec["data"]:
         stored = spec["data"]["cache"]
         if (
@@ -117,6 +126,56 @@ def data_inputs(data: dict[str, Any]) -> list[dict[str, Any]]:
     return [dict(item, peer=data["peer"]) for item in chosen]
 
 
+def hindsight_inputs(spec):
+    """Deliver one prepared artifact to every learner, without regenerating per worker."""
+    if "hindsight" not in spec:
+        return []
+    source = spec["hindsight"]
+    prefix = source["prefix"].rstrip("/") + "/"
+    chosen = data_inputs({"peer": source["peer"], "prefixes": [source["prefix"]]})
+    return [{**item, "path": HINDSIGHT_DIR + "/" + item["path"][len(prefix) :]} for item in chosen]
+
+
+def validate_memory_delivery(config, inputs):
+    paths = {item["path"] for item in inputs}
+    if config.hindsight_targets:
+        try:
+            expected = str(Path(config.hindsight_targets).relative_to(cloud.WORK))
+        except ValueError as error:
+            raise cloud.CloudError("Cloud teacher targets must be located under /work") from error
+        required = {f"{expected}/manifest.json", f"{expected}/targets.sqlite"}
+        if not required <= paths:
+            raise cloud.CloudError(
+                "Teacher-backed training requires the prepared manifest and index "
+                "as verified inputs; supply hindsight: {peer, prefix} or assets.inputs"
+            )
+    required_assets = [config.packs, config.text_anchors]
+    for root in [config.engram_import] if config.engram_import else config.engram_imports or []:
+        required_assets.extend(
+            [str(Path(root) / "engram.json"), str(Path(root) / "descriptors.npz")]
+        )
+    if config.codec != "byte":
+        codec = Path(config.codec)
+        required_assets.append(str(codec if codec.suffix else codec / "codec.json"))
+    for path in required_assets:
+        if path and Path(path).is_relative_to(cloud.WORK):
+            relative = str(Path(path).relative_to(cloud.WORK))
+            if relative not in paths:
+                raise cloud.CloudError(
+                    f"Required training asset is absent from verified launch inputs: {path}"
+                )
+
+
+def _coordinator_inputs(inputs):
+    # The CPU coordinator needs the identity, not every teacher vector or its lookup index.
+    prefix = HINDSIGHT_DIR + "/"
+    return [
+        item
+        for item in inputs
+        if not item["path"].startswith(prefix) or item["path"] == prefix + "manifest.json"
+    ]
+
+
 def _shell(*lines: str) -> list[str]:
     return ["bash", "-c", "set -e; " + "; ".join(lines)]
 
@@ -144,7 +203,7 @@ def coordinator_job(spec: dict[str, Any], inputs: list[dict[str, Any]]) -> dict[
         "resources": spec.get("coordinator", {}).get("resources", {"cpu": "8", "memory": "32Gi"}),
         "lifetime_hours": float(spec["lifetime_hours"]) + COORDINATOR_EXTRA_HOURS,
         "pip": spec.get("pip", []),
-        "inputs": inputs,
+        "inputs": _coordinator_inputs(inputs),
         "serve_port": PORT,
         "env": {"MEGATOKEN_RUN_CONFIG": spec["config"]},
         "command": _shell(
@@ -228,7 +287,58 @@ def launch(
     spec = validate(json.loads(path.read_text()))
     if _run_path(spec["id"]).exists():
         raise cloud.CloudError(f"Run {spec['id']} exists; finish it or choose a new id")
-    inputs = [*data_inputs(spec["data"]), *spec.get("assets", {}).get("inputs", [])]
+    from megatoken.training.config import TrainConfig
+
+    config = TrainConfig.load(repo / spec["config"], expand_data=False)
+    if config.purpose == "production" and config.decoupled.workers != spec["workers"]:
+        raise cloud.CloudError("Cloud workers must match the stage's decoupled worker count")
+    unresolved = [
+        *config.datasets,
+        config.codec,
+        config.packs,
+        config.text_anchors,
+        config.hindsight_targets,
+        config.engram_import,
+        *(config.engram_imports or []),
+    ]
+    if config.decoupled is not None:
+        unresolved.append(config.decoupled.run_id)
+    if any(isinstance(path, str) and "PIN_" in path for path in unresolved):
+        raise cloud.CloudError("Training config still contains unresolved PIN_* artifact paths")
+    # Later stages start from the preceding export; reject omissions before billable work.
+    resume_path = None
+    if config.purpose == "production":
+        from megatoken.data.recipes import stage_recipe
+
+        arguments = spec.get("coordinator", {}).get("args", [])
+        if "--resume" in arguments:
+            index = arguments.index("--resume")
+            if index + 1 >= len(arguments):
+                raise cloud.CloudError(
+                    "Coordinator --resume requires the preceding checkpoint path"
+                )
+            resume_path = arguments[index + 1]
+        if stage_recipe(config.phase).previous_phase is not None and resume_path is None:
+            raise cloud.CloudError(
+                "Production stage requires the preceding checkpoint via coordinator --resume"
+            )
+    inputs = [
+        *data_inputs(spec["data"]),
+        *spec.get("assets", {}).get("inputs", []),
+        *hindsight_inputs(spec),
+    ]
+    if len({item["path"] for item in inputs}) != len(inputs):
+        raise cloud.CloudError("Launch inputs contain duplicate destination paths")
+    if resume_path is not None:
+        try:
+            relative = str(Path(resume_path).relative_to(cloud.WORK))
+        except ValueError as error:
+            raise cloud.CloudError(
+                "The preceding checkpoint must be delivered under /work"
+            ) from error
+        if relative not in {item["path"] for item in inputs}:
+            raise cloud.CloudError("Preceding checkpoint is absent from verified launch inputs")
+    validate_memory_delivery(config, inputs)
     learner_secrets: dict[str, bytes] = {}
     pin = b""
     corpus_metadata = b""
@@ -349,6 +459,12 @@ def finish(run_id: str, destination: Path, *, poll: float = 300) -> dict[str, An
     cloud._attach(run["coordinator"]).write_file(f"{cloud.WORK}/.cloud/finish", b"").result()
     exported = cloud.collect(run["coordinator"], destination / "coordinator")
     unstopped = cloud.stop_all([run["coordinator"], *run["learners"]], "finished", grace=60)
+    if exported["status"] != 0:
+        cloud.record({"event": "diloco_failed", "run": run_id, "export_status": exported["status"]})
+        raise cloud.CloudError(
+            f"The coordinator's export failed (status {exported['status']}); "
+            f"the global model is missing, logs under {destination / 'coordinator'}"
+        )
     cloud.record({"event": "diloco_finished", "run": run_id})
     if unstopped:
         raise cloud.CloudError(f"Collected, but these sandboxes would not stop: {unstopped}")
@@ -361,7 +477,8 @@ def derive(config: Path, url: str, workers: int, output: Path) -> None:
 
     from megatoken.training.config import TrainConfig
 
-    loaded = TrainConfig.load(config)
+    # The cached-data coordinator intentionally has no corpus directories to glob.
+    loaded = TrainConfig.load(config, expand_data=False)
     if loaded.decoupled is None or loaded.decoupled.workers != workers:
         raise SystemExit(f"{config}: decoupled.workers must equal the run's {workers} learners")
     derived = replace(loaded, decoupled=replace(loaded.decoupled, coordinator_url=url))

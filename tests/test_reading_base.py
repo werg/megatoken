@@ -155,8 +155,20 @@ def hindsight_sequence(step: int, shape):
         )
         for i, (role, kinds) in enumerate(shape)
     ]
-    trainer = TransducerTrainer(model.transducer)
+    from megatoken.model.transducer import HindsightValues
+
+    targets = SimpleNamespace(
+        identity="fixed-targets",
+        manifest={"encoding_identity": "fixed", "memory_policy": "teacher-text-only-v1"},
+    )
+    trainer = TransducerTrainer(model.transducer, teacher_targets=targets)
     sequence = trainer.sequence(meridians, step=step, generator=torch.Generator().manual_seed(0))
+    groups = sequence.groups()
+    if sequence.planned:
+        sequence.stored = HindsightValues(
+            torch.randn(sequence.planned, model.transducer.bank.geometry.value_dim),
+            torch.tensor([t + 1 > groups[-1] for t in range(sequence.planned)]),
+        )
     torch.manual_seed(1)
     sequence.hindsight(
         meridians, lambda index: torch.randn(1, len(shape[index][1]), c.n_facets, c.facet_dim)
@@ -175,18 +187,16 @@ DOCUMENT = [
 
 
 def test_a_lookup_matches_the_item_its_hindsight_group_is_or_contains():
-    # Full pass: lookup t reads its own group; group 0 holds the question and one item.
-    _, _, full = hindsight_sequence(0, DOCUMENT)
-    assert full.items.matches == ((0, 0), (1, 1), (2, 2))
-    # Gap 2: lookup t reads the group after; the last two have no item or lie past the end.
+    # Prepared targets always read the next group, including at the first step.
+    _, _, initial = hindsight_sequence(0, DOCUMENT)
+    assert initial.items.matches == ((0, 2), (1, 3), (2, 4))
     _, _, gap = hindsight_sequence(8192, DOCUMENT)
-    assert gap.items.matches == ((0, 1), (1, 2))
-    assert gap.items.values.shape == (3, gap.native.bank.geometry.value_dim)
-    assert gap.items.keys.shape == (3, gap.native.bank.geometry.query_dim)
-    # A group of two items has no single item to learn from; neither has one without items.
-    two = [("user", TEXT), ("document", ITEM + ITEM), ("assistant", TEXT)]
-    assert hindsight_sequence(0, two)[2].items is None
-    assert hindsight_sequence(0, [("user", TEXT), ("assistant", TEXT)])[2].items is None
+    assert gap.items.matches == ((0, 2), (1, 3), (2, 4))
+    assert gap.items.values.shape == (5, gap.native.bank.geometry.value_dim)
+    assert gap.items.keys.shape == (5, gap.native.bank.geometry.query_dim)
+    # Two records in one group never become one item, and an empty plan has none.
+    assert hindsight_sequence(0, [("document", ITEM + ITEM)])[2].items is None
+    assert hindsight_sequence(0, [])[2].items is None
 
 
 def test_ingest_losses_distil_the_hindsight_value_and_contrast_the_keys():
@@ -224,16 +234,19 @@ def test_only_lookups_actually_made_are_paired_and_one_item_has_nothing_to_contr
     model, _, sequence = hindsight_sequence(0, DOCUMENT)
     multi = MultiTrackGenerator(model)
     state = sequence.begin(multi, multi.tracks.initial_state(1), metadata_payload({"task": "t"}))
-    sequence.before_meridian(multi, state, 0, effort=1)  # only the first lookup happens
+    assert sequence.ingest_losses() == {}  # No query has actually been made.
+    sequence.before_meridian(multi, state, 0, effort=1)
     assert len(sequence.queries) == 1
-    # The one lookup made is matched with its item, and still contrasted with the other items.
     assert set(sequence.ingest_losses()) == {"ingest_value", "ingest_key"}
-    # With a single item in the window there is nothing to contrast it with.
-    _, _, alone = hindsight_sequence(0, [("user", TEXT), ("document", ITEM), ("assistant", TEXT)])
+    # Only actual causal queries participate in the next-group contrast.
+    sequence.before_meridian(multi, state, 2, effort=1)
+    assert set(sequence.ingest_losses()) == {"ingest_value", "ingest_key"}
+    # A one-item window has no future group, so it has no teacher loss.
+    _, _, alone = hindsight_sequence(0, [("document", ITEM)])
     multi = MultiTrackGenerator(model)
     state = alone.begin(multi, multi.tracks.initial_state(1), metadata_payload({"task": "t"}))
     alone.before_meridian(multi, state, 0, effort=1)
-    assert set(alone.ingest_losses()) == {"ingest_value"}
+    assert alone.ingest_losses() == {}
 
 
 # ------------------------------------------------------- the reading base
@@ -303,11 +316,20 @@ def test_a_window_that_mounts_a_base_learns_nothing_into_the_trained_bank(tmp_pa
     )
     assert all(ids.numel() == 0 for ids, _ in submitted.deltas.values())
     assert submitted.write_ids.numel() == 0 and not submitted.deltas.get("value")
-    assert set(trainer.state_dict()) == {"bank", "optimizer", "growth", "sequences", "switch"}
+    assert set(trainer.state_dict()) == {
+        "schedule",
+        "bank",
+        "optimizer",
+        "growth",
+        "sequences",
+        "switch",
+        "supervision",
+    }
+    assert trainer.state_dict()["supervision"]["teacher"] is None
     assert trainer.state_dict()["bank"]["rows"]["ids"].numel() == 0
 
 
-def test_ingest_losses_reach_the_heads_through_a_whole_training_window(tmp_path):
+def test_compressed_windows_use_causal_retrieval_without_substitute_targets(tmp_path):
     from megatoken.data.compression import CompressionPolicy, DocumentCompressor
     from megatoken.data.schema import stable_id
 
@@ -328,6 +350,9 @@ def test_ingest_losses_reach_the_heads_through_a_whole_training_window(tmp_path)
     model.core.set_model_version(0)
     (batch, *_) = prepare_batches(model, [window_of(episode, store)], config)
     ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
+    trainer = TransducerTrainer(
+        model.transducer, teacher_targets=SimpleNamespace(load=lambda *args, **kwargs: (None, None))
+    )
     metrics = forward_meridian_batch(
         model,
         batch,
@@ -335,11 +360,13 @@ def test_ingest_losses_reach_the_heads_through_a_whole_training_window(tmp_path)
         config,
         torch.device("cpu"),
         0,
-        transducer=TransducerTrainer(model.transducer),
+        transducer=trainer,
     )
-    assert torch.isfinite(metrics["ingest_value_loss"]) and "ingest_key_loss" in metrics
+    assert metrics["teacher_unsupported_windows"] == 1
+    assert "ingest_value_loss" not in metrics and "ingest_key_loss" not in metrics
+    assert all(record.hindsight is None and not record.writes for record in trainer.records)
     heads = model.transducer.ingest
-    assert heads.value.queries.grad is not None and heads.key.pool.grad is not None
+    assert heads.value.queries.grad is None and heads.key.pool.grad is None
 
 
 # ----------------------------------------------- the engine, the producer, the measurement

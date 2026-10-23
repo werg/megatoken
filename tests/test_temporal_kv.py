@@ -164,7 +164,7 @@ def test_old_architecture_version_cannot_reuse_rotary_history_cache():
     config = ModelConfig.tiny()
     with pytest.raises(ValueError, match="requires version 15"):
         ModelConfig.tiny(architecture_version=5)
-    with pytest.raises(ValueError, match="architecture_version=15"):
+    with pytest.raises(ValueError, match="architecture_version=16"):
         ModelConfig.from_dict({**config.to_dict(), "architecture_version": 5})
     core = FacetedCore(config)
     state = core.advance_raw(core.initial_state(1), torch.randn(1, 4, 32))

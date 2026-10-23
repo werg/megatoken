@@ -426,6 +426,7 @@ def integration_config():
     from megatoken.training.config import TrainConfig
 
     return TrainConfig(
+        purpose="diagnostic",
         phase="D",
         precision="fp32",
         device="cpu",

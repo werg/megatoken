@@ -125,7 +125,10 @@ def test_teacher_assistance_is_opt_in_and_student_windows_start_immediately():
     trainer = TransducerTrainer(model.transducer)
     events = [Meridian(("assistant",), (1,), ("text",), False)]
     student = trainer.sequence(events, step=0)
-    assert student.alpha == 0 and not student.wants_hindsight
+    assert student.alpha == 0 and student.stored is None
+    from types import SimpleNamespace
+
+    trainer.teacher_targets = SimpleNamespace()
     assisted = [trainer.sequence(events, step=0, teacher_supervision=True) for _ in range(8)]
     assert sum(window.alpha == 0 for window in assisted) == 7
     assert sum(window.alpha == 1 for window in assisted) == 1
@@ -149,7 +152,7 @@ def test_frozen_memory_cannot_accumulate_or_apply_sparse_updates():
     sequence = trainer.sequence(
         [Meridian(("assistant",), (1,), ("text",), False)], step=0, teacher_supervision=True
     )
-    assert sequence.alpha == 0 and not sequence.wants_hindsight
+    assert sequence.alpha == 0 and sequence.stored is None
     assert trainer.after_backward(1)["transducer_writes"] == 0
     assert trainer.barrier(1)["transducer_updated_fields"] == 0
     after = trainer.bank.state_snapshot()

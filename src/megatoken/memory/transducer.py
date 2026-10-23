@@ -729,7 +729,7 @@ class TransducerBank(EdgeStore, nn.Module):
     its controls are model parameters; it searches whatever the session mounted.
     """
 
-    identity = "continuous-state-transducer-v11"
+    identity = "continuous-state-transducer-v12"
 
     def __init__(self, geometry: TransducerGeometry | None = None) -> None:
         super().__init__()
@@ -1035,7 +1035,8 @@ class TransducerBank(EdgeStore, nn.Module):
                 selected = owner == b
                 distinct, inverse = torch.unique(ids[selected], return_inverse=True)
                 total = torch.zeros(distinct.numel(), device=self.device).index_add(
-                    0, inverse, pair_weights[selected])
+                    0, inverse, pair_weights[selected]
+                )
                 base_edges[mount.name] = (distinct, total)
             if own is not None and bool((owner == own).any()):
                 mine = owner == own
@@ -1137,12 +1138,24 @@ class TransducerBank(EdgeStore, nn.Module):
         if gone:
             self.retire(gone)
         if rows["ids"].numel():
-            count = self.table.count + sum(
-                int(edge) not in self.table.slot_of for edge in rows["ids"].tolist()
-            )
-            if count > self.geometry.max_edges or count * self.geometry.row_bytes > (
-                self.geometry.byte_budget
-            ):
+
+            def room_needed() -> int:
+                return self.table.count + sum(
+                    int(edge) not in self.table.slot_of for edge in rows["ids"].tolist()
+                )
+
+            def too_many(count: int) -> bool:
+                return count > self.geometry.max_edges or count * self.geometry.row_bytes > (
+                    self.geometry.byte_budget
+                )
+
+            if too_many(room_needed()):
+                # Canonical rows outrank this learner's own unsent write-outs (provisional
+                # IDs), which count against the ceiling: drop them rather than fail the install.
+                provisional = [e for e in self.table.slot_of if e >= PROVISIONAL_BASE]
+                if provisional:
+                    self.retire(provisional)
+            if too_many(room_needed()):
                 raise BankFull("Published rows exceed the canonical edge or byte budget")
             self.table.upsert(rows)
             self.masters.drop(rows["ids"].tolist())
@@ -1163,7 +1176,7 @@ class TransducerBank(EdgeStore, nn.Module):
 
     def load_snapshot(self, data: dict[str, Any]) -> None:
         if data.get("identity") != self.identity or data["geometry"] != vars(self.geometry):
-            raise ValueError("Only exact v11 packed-edge snapshot identities are accepted")
+            raise ValueError("Only exact v12 packed-edge snapshot identities are accepted")
         rows = data["rows"]
         count = int(rows["ids"].numel())
         if count > self.geometry.max_edges or count * self.geometry.row_bytes > (

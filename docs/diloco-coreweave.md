@@ -82,10 +82,12 @@ file (`megatoken.cloud-diloco/1`, JSON):
   "image": "nvcr.io/nvidia/pytorch:26.09-py3",
   "lifetime_hours": 24,
   "pip": ["pyarrow"],
-  "workers": 4,
-  "config": "configs/train/diloco-engram-import.example.yaml",
+  "workers": 8,
+  "config": "configs/train/pretraining.example.yaml",
   "data": {"peer": "<sandbox id>", "prefixes": ["out/corpus/datasets/rc-train"]},
-  "coordinator": {"resources": {"cpu": "8", "memory": "32Gi"}, "args": ["--quorum", "3"]},
+  "assets": {"inputs": []},
+  "hindsight": {"peer": "<completed teacher-preparation sandbox>", "prefix": "out/hindsight"},
+  "coordinator": {"resources": {"cpu": "8", "memory": "32Gi"}, "args": ["--quorum", "3", "--resume", "/work/assets/previous-stage/latest.json"]},
   "learners": {"resources": {"cpu": "8", "memory": "32Gi", "gpu": 1}}
 }
 ```
@@ -123,7 +125,7 @@ temporary maps and all donor dependencies.
   Its `coordinator_url` is filled in inside each sandbox
   (`python -m megatoken.cloud_diloco derive`), and `decoupled.workers` **must
   equal** `workers` or the sandbox fails. Use
-  [configs/train/diloco-engram-import.example.yaml](../configs/train/diloco-engram-import.example.yaml)
+  [configs/train/pretraining.example.yaml](../configs/train/pretraining.example.yaml)
   as the production template; its paths (datasets, codec, donor assets and media packs) must point at where the
   data lands under `/work`.
 - `workers` is 1..64. Learner resources must request one GPU.
@@ -354,3 +356,40 @@ baselines.
 - [CoreWeave serverless GPU sandboxes](https://docs.coreweave.com/products/sandboxes/serverless/gpu-sandboxes)
 - [Sandbox configuration and lifetime](https://docs.coreweave.com/products/sandboxes/client/guides/sandbox-configuration)
 - [PyTorch Muon](https://docs.pytorch.org/docs/stable/generated/torch.optim.Muon.html)
+
+The default templates now require the joint teacher/structure memory recipe. Complete setup,
+artifact delivery and readiness commands are in
+[default memory recipe and launch readiness](training.md#default-memory-recipe-and-launch-readiness).
+Teacher preparation preserves the full corpus and mixture; the earlier sampled text-tranche
+helper is a diagnostic route and is rejected by the default production memory contract.
+Coordinator initialization validates teacher/corpus identity before allocating its model. The
+coordinator receives teacher metadata only; each learner receives the indexed values. Teacher
+manifests are part of the distributed objective identity, so roles cannot accidentally train against
+different encodings or target sets. Frozen training scopes also freeze the coordinator's bank.
+
+
+### One production curriculum
+
+`configs/train/pretraining.example.yaml` is the sole pretraining binding. Every stage inherits
+its methods and learning schedule from `data/stages.json`; the other files in `configs/train`
+bind the remaining stages' artifacts and process settings. Production rejects attempts to
+select another optimizer, disable effort sampling or guidance, omit the selected imports,
+or disable evaluation/checkpoints. Both imported text assets are checked against the pinned
+profiles before allocating the model and remain installed until final serving export.
+
+Stages after the initial representation bootstrap must restore the preceding checkpoint.
+Later stage jobs must include coordinator `--resume /work/assets/previous-stage/latest.json`.
+The default cloud job starts at the initial stage and therefore has no `--resume`.
+Deliver that pointer and its complete referenced export as verified `assets.inputs` together
+with the codec, teacher targets, realizers and import assets. Missing checkpoint delivery is
+rejected before any sandbox starts; actual stage lineage is checked when the coordinator
+loads the export. For the initial stage, use its binding and omit `--resume`.
+
+The aligned-task data root supplies endpoints, endpoint-conditioned video, speech
+counterfactuals and cross-track evidence. It must contain actual prepared original families
+and validation supply; naming the root in an example does not produce those data.
+
+Teacher preparation after the initial stage must also receive the preceding teacher manifest
+and `encoding.pt`, using `--encoding-from /work/assets/previous-hindsight`. Add this required
+argument when adapting the initial preparation example for a later stage. This preserves the learned bank's value coordinates rather
+than silently fitting an incompatible new projection at each stage.

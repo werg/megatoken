@@ -91,3 +91,9 @@ def test_recorded_native_selections_require_explicit_member_bindings():
     )
     with pytest.raises(ValueError, match="record_ids"):
         NativeHistory.from_episode(sample, model)
+
+
+def test_no_internal_corpus_converter_is_installed():
+    from importlib.util import find_spec
+
+    assert find_spec("megatoken.data.legacy_linear") is None

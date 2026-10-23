@@ -94,6 +94,18 @@ def _train(args):
     return train(config, resume=args.resume, phase_transition=args.phase_transition)
 
 
+def _prepare_hindsight(args):
+    from megatoken.data.hindsight_prepare import run
+
+    return run(args)
+
+
+def _train_check(args):
+    from megatoken.training.readiness import run
+
+    return run(args)
+
+
 def _diloco_initialize(args):
     """Create immutable coordinator bootstrap from the exact train architecture."""
     import json
@@ -116,6 +128,13 @@ def _diloco_initialize(args):
         args.config,
         expand_data=not bool(getattr(args, "corpus_metadata", None)),
     )
+    from megatoken.data.recipes import validate_training_donors
+
+    if not args.resume:
+        from megatoken.data.recipes import validate_stage_start
+
+        validate_stage_start(config, None)
+    validate_training_donors(config)
     if config.decoupled is None:
         raise ValueError("Set decoupled settings in the training config before initializing")
     seed_everything(config.seed, config.deterministic)
@@ -126,50 +145,6 @@ def _diloco_initialize(args):
     }
     model_config = load_model_config(config.model, **overrides)
     codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
-    model = build_model(
-        model_config,
-        codec,
-        device=torch.device("cpu"),
-        precision=config.precision,
-        packs=config.packs,
-    )
-    weights: dict = {}
-    transducer_state = None
-    if args.resume:
-        # A new coordinator is the DiLoCo phase transition: it may install
-        # realizers the previous phase lacked, whose masters start from init.
-        payload, _ = load_checkpoint(args.resume, map_location="cpu")
-        if payload["model_config"] != model_config.to_dict():
-            raise ValueError("Bootstrap checkpoint model architecture changed")
-        if payload["codec_fingerprint"] != codec.fingerprint:
-            raise ValueError("Bootstrap checkpoint codec differs")
-        restore_weights(
-            model,
-            payload,
-            sha256_file(config.packs) if config.packs else None,
-            phase_transition=True,
-        )
-        # A coordinator export carries the global FP32 masters; a local
-        # training checkpoint carries its optimizer's.
-        weights = (
-            payload["master_weights"]
-            if payload.get("export_only")
-            else payload["optimizer"]["master_weights"]
-        )
-        # The previous phase's bank seeds this coordinator's canonical bank.
-        transducer_state = load_transducer_state(resolve_checkpoint(args.resume))
-    elif config.engram_import or config.engram_imports:
-        from megatoken.assets import install_engram_asset
-
-        paths = [config.engram_import] if config.engram_import else config.engram_imports
-        for path in paths:
-            install_engram_asset(model, path)
-    masters = {
-        # Owners new in this phase start from their initialization.
-        name: weights.get(name, parameter).detach().cpu().float()
-        for name, parameter in model.named_parameters()
-        if parameter.requires_grad
-    }
     if getattr(args, "corpus_metadata", None):
         corpus = json.loads(Path(args.corpus_metadata).read_text())
         roots = corpus.get("roots")
@@ -223,6 +198,83 @@ def _diloco_initialize(args):
         with PreparedCorpus(config.datasets) as prepared:
             dataset_fingerprint = prepared.identity
             chunking_identity = prepared.chunking
+    from megatoken.data.hindsight import HindsightTargets
+
+    teacher_targets = (
+        HindsightTargets(
+            config.hindsight_targets,
+            config=config,
+            codec=codec,
+            value_dim=model_config.transducer_geometry.value_dim,
+            metadata_only=True,
+        )
+        if config.hindsight_targets
+        else None
+    )
+    if teacher_targets is not None:
+        teacher_targets.validate_corpus(dataset_fingerprint)
+    model = build_model(
+        model_config,
+        codec,
+        device=torch.device("cpu"),
+        precision=config.precision,
+        packs=config.packs,
+    )
+    supervision = {
+        "teacher": None
+        if teacher_targets is None
+        else teacher_targets.manifest["encoding_identity"],
+        "targets": None if teacher_targets is None else teacher_targets.identity,
+        "memory_policy": (
+            "causal-only-v1"
+            if teacher_targets is None
+            else teacher_targets.manifest["memory_policy"]
+        ),
+        "bank_trainable": config.trainable == "all",
+        "teacher_weight": config.hindsight_distill_weight,
+        "navigation_weight": config.navigation_weight,
+        "navigation_examples": config.navigation_examples,
+        "navigation_negatives": config.navigation_negatives,
+    }
+    weights: dict = {}
+    transducer_state = None
+    if args.resume:
+        # A new coordinator is the DiLoCo phase transition: it may install
+        # realizers the previous phase lacked, whose masters start from init.
+        payload, _ = load_checkpoint(args.resume, map_location="cpu")
+        from megatoken.data.recipes import validate_stage_start
+
+        validate_stage_start(config, payload["train_config"]["phase"])
+        if payload["model_config"] != model_config.to_dict():
+            raise ValueError("Bootstrap checkpoint model architecture changed")
+        if payload["codec_fingerprint"] != codec.fingerprint:
+            raise ValueError("Bootstrap checkpoint codec differs")
+        restore_weights(
+            model,
+            payload,
+            sha256_file(config.packs) if config.packs else None,
+            phase_transition=True,
+        )
+        # A coordinator export carries the global FP32 masters; a local
+        # training checkpoint carries its optimizer's.
+        weights = (
+            payload["master_weights"]
+            if payload.get("export_only")
+            else payload["optimizer"]["master_weights"]
+        )
+        # The previous phase's bank seeds this coordinator's canonical bank.
+        transducer_state = load_transducer_state(resolve_checkpoint(args.resume))
+    from megatoken.assets import install_configured_imports
+
+    install_configured_imports(
+        model, config, resumed=bool(args.resume), phase_transition=bool(args.resume)
+    )
+    masters = {
+        # Owners new in this phase start from their initialization.
+        name: weights.get(name, parameter).detach().cpu().float()
+        for name, parameter in model.named_parameters()
+        if parameter.requires_grad
+    }
     return initialize_coordinator(
         args.root,
         run_id=config.decoupled.run_id,
@@ -234,7 +286,7 @@ def _diloco_initialize(args):
         dataset_fingerprint=dataset_fingerprint,
         chunking_identity=chunking_identity,
         workers=config.decoupled.workers,
-        min_quorum=args.quorum,
+        min_quorum=args.quorum if args.quorum is not None else min(4, config.decoupled.workers),
         fragment_bytes=args.fragment_mib * 1024 * 1024,
         outer_lr=args.outer_lr,
         outer_momentum=args.outer_momentum,
@@ -244,6 +296,8 @@ def _diloco_initialize(args):
         transducer={
             "geometry": dict(vars(model_config.transducer_geometry)),
             "evidence_from": HindsightSchedule().evidence_steps,
+            "supervision": supervision,
+            "frozen": config.trainable != "all",
         },
         transducer_state=transducer_state,
     )
@@ -469,9 +523,7 @@ def _runtime(args, *, preparer=None):
     from megatoken.multitrack_runtime import MultiTrackRuntime
     from megatoken.served import ServedBundle
 
-    collections = dict(item.partition("=")[::2] for item in args.collection)
-    if not all(collections.values()):
-        raise ValueError("--collection is NAME=DIRECTORY")
+    collections = _named_paths(args.collection, "--collection")
     bundle = ServedBundle(args.model, packs=args.packs, device=args.device, compile=args.compile)
     runtime = MultiTrackRuntime(
         MultiTrackGenerator(bundle.model),
@@ -490,10 +542,7 @@ def _generate(args):
 
     bundle, runtime = _runtime(args)
     bases = {}
-    for item in args.base:
-        name, _, path = item.partition("=")
-        if not path:
-            raise ValueError("--base is NAME=FILE")
+    for name, path in _named_paths(args.base, "--base").items():
         runtime.memory.open_base(name, path)
         bases[name] = 1.0
     service = MultiTrackService(runtime)
@@ -685,6 +734,24 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--phase")
     item.set_defaults(func=_recipes)
     item = commands.add_parser(
+        "train-check", help="Check the actual production inputs without loading a model"
+    )
+    item.add_argument("--config", required=True)
+    item.add_argument("--report", type=Path)
+    item.set_defaults(func=_train_check)
+    item = commands.add_parser(
+        "prepare-hindsight", help="Prepare teacher targets for the selected corpus"
+    )
+    item.add_argument("--train-config")
+    item.add_argument("--output")
+    item.add_argument("--writer", required=True)
+    item.add_argument("--cloud-inputs", help="Write verified writer inputs for cloud preparation")
+    item.add_argument("--device", default="cpu")
+    item.add_argument("--horizon", type=int, default=8192)
+    item.add_argument("--fit-windows", type=int, default=8)
+    item.add_argument("--encoding-from", help="Reuse the preceding segment's frozen value encoding")
+    item.set_defaults(func=_prepare_hindsight)
+    item = commands.add_parser(
         "train", help="Run one supervised stage, under torchrun when distributed"
     )
     item.add_argument("--config", required=True)
@@ -726,7 +793,12 @@ def parser() -> argparse.ArgumentParser:
         "--corpus-metadata",
         help="Verified compact prepared-data identity; avoids fetching a stored corpus on coordinator",
     )
-    initial.add_argument("--quorum", type=int, default=4)
+    initial.add_argument(
+        "--quorum",
+        type=int,
+        default=None,
+        help="Learners needed before a merge (default: 4, or all workers if fewer)",
+    )
     initial.add_argument("--fragment-mib", type=int, default=64)
     initial.add_argument("--outer-lr", type=float, default=0.7)
     initial.add_argument("--outer-momentum", type=float, default=0.9)
@@ -829,7 +901,7 @@ def parser() -> argparse.ArgumentParser:
     item = commands.add_parser("export", help="Create a checksummed served-only safetensors bundle")
     item.add_argument("--checkpoint", required=True)
     item.add_argument("--output", required=True)
-    item.add_argument("--codec", default="byte")
+    item.add_argument("--codec", help="Codec location, if the checkpoint's has moved")
     item.add_argument("--packs", help="Locked realizer pack manifest the model was trained with")
     item.set_defaults(func=_export)
     item = commands.add_parser(
@@ -969,6 +1041,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.json_output:
                 write_json(args.json_output, result)
             print(json.dumps(result, sort_keys=True, indent=2, allow_nan=False))
+        if args.command == "train-check" and result is not None and not result["ready"]:
+            return 1
         # Keep the verified-replay receipt available to automation while making
         # a failed repair a failing shell gate. Other commands retain their
         # existing return contract.

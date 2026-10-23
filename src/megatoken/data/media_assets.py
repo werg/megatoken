@@ -69,7 +69,7 @@ class TensorAsset:
     """
 
     modality: Literal["text", "audio", "image", "video"]
-    kind: Literal["features", "embedding", "codec_latents", "rendered"]
+    kind: Literal["features", "embedding", "codec_latents", "rendered", "hindsight"]
     sha256: str
     shape: tuple[int, ...]
     extractor: str
@@ -110,6 +110,18 @@ class TensorAsset:
                 or self.fps_den != 1
             ):
                 raise ValueError("Teacher features are unpadded, unnormalized and clock-free")
+        elif self.kind == "hindsight":
+            if (
+                self.modality != "text"
+                or len(self.shape) != 1
+                or not self.extractor.startswith("hindsight:")
+                or self.valid_count
+                or self.normalization
+                or self.sample_rate
+                or self.fps_num
+                or self.fps_den != 1
+            ):
+                raise ValueError("Hindsight assets require one packed vector and a pinned identity")
         elif self.kind == "codec_latents":
             if (
                 self.modality not in MEDIA
@@ -137,7 +149,8 @@ class TensorAsset:
 
     @property
     def relative_path(self) -> Path:
-        return Path("media") / f"{self.sha256}.f32le"
+        suffix = "fp4" if self.kind == "hindsight" else "f32le"
+        return Path("media") / f"{self.sha256}.{suffix}"
 
     @classmethod
     def from_dict(cls, mapping: dict[str, Any]) -> TensorAsset:
@@ -299,6 +312,8 @@ class TensorAssetStore:
         self._cached_bytes = 0
 
     def put(self, value: np.ndarray, **metadata: Any) -> TensorAsset:
+        if metadata.get("kind") == "hindsight":
+            raise ValueError("Use put_hindsight for packed teacher vectors")
         values = np.ascontiguousarray(np.asarray(value, dtype="<f4"))
         if not np.isfinite(values).all():
             raise ValueError("Media tensor contains nonfinite values")
@@ -313,6 +328,35 @@ class TensorAssetStore:
             return asset
         with atomic_binary_writer(path) as output:
             output.write(data)
+        return asset
+
+    def put_hindsight(self, value, *, extractor: str, source_family: str) -> TensorAsset:
+        """Store one FP4 vector, scales included; never used as an observed media record."""
+        import torch
+
+        from megatoken.memory.transducer_packing import pack_fp4
+
+        values = torch.as_tensor(value).detach().float().cpu().reshape(1, -1)
+        packed = pack_fp4(values)
+        data = (
+            packed.codes.numpy().tobytes()
+            + packed.group_scales.view(torch.uint8).numpy().tobytes()
+            + packed.row_scales.numpy().astype("<f4").tobytes()
+        )
+        asset = TensorAsset(
+            "text",
+            "hindsight",
+            hashlib.sha256(data).hexdigest(),
+            (values.shape[1],),
+            extractor,
+            source_family,
+        )
+        path = self.root / asset.relative_path
+        if path.exists():
+            self.load(asset)
+        else:
+            with atomic_binary_writer(path) as output:
+                output.write(data)
         return asset
 
     def put_teacher(self, output: Any, *, source_family: str) -> tuple[TensorAsset, TensorAsset]:
@@ -376,6 +420,26 @@ class TensorAssetStore:
     @staticmethod
     def _read(path: Path, asset: TensorAsset) -> np.ndarray | None:
         # Only the digest-derived path is read; size is checked before reading.
+        if asset.kind == "hindsight":
+            import torch
+
+            from megatoken.memory.transducer_packing import FP4Rows, fp4_nbytes
+
+            dim = asset.shape[0]
+            if path.is_symlink() or path.stat().st_size != fp4_nbytes(dim):
+                return None
+            data = path.read_bytes()
+            if hashlib.sha256(data).hexdigest() != asset.sha256:
+                return None
+            codes_end = (dim + 1) // 2
+            groups_end = codes_end + (dim + 15) // 16
+            codes = torch.from_numpy(np.frombuffer(data[:codes_end], dtype=np.uint8).copy())[None]
+            scales = torch.from_numpy(
+                np.frombuffer(data[codes_end:groups_end], dtype=np.uint8).copy()
+            ).view(torch.float8_e4m3fn)[None]
+            row = torch.from_numpy(np.frombuffer(data[groups_end:], dtype="<f4").copy())
+            result = FP4Rows(codes, scales, row).decode(dim)[0].numpy()
+            return result.copy() if np.isfinite(result).all() else None
         if path.is_symlink() or path.stat().st_size != math.prod(asset.shape) * 4:
             return None
         data = path.read_bytes()

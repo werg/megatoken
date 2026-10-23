@@ -1,0 +1,40 @@
+{
+  "schema": "megatoken.cloud-diloco/1",
+  "id": "default-training-bootstrap",
+  "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+  "lifetime_hours": 24,
+  "pip": [
+    "transformers==5.20.2",
+    "safetensors>=0.5,<1",
+    "pyarrow>=18,<24"
+  ],
+  "workers": 8,
+  "config": "configs/train/coherence.example.yaml",
+  "data": {
+    "inputs": []
+  },
+  "assets": {
+    "inputs": []
+  },
+  "hindsight": {
+    "peer": "PIN_COMPLETED_TEACHER_PREPARATION_SANDBOX",
+    "prefix": "out/hindsight"
+  },
+  "coordinator": {
+    "resources": {
+      "cpu": "8",
+      "memory": "32Gi"
+    },
+    "args": [
+      "--quorum",
+      "6"
+    ]
+  },
+  "learners": {
+    "resources": {
+      "cpu": "8",
+      "memory": "64Gi",
+      "gpu": 1
+    }
+  }
+}

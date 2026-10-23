@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from megatoken.data.recipes import stage_recipe
+from megatoken.data.recipes import load_recipes, stage_recipe
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,7 @@ class Phase:
     final_ratio: float = 0.2
 
     def __post_init__(self) -> None:
-        if self.name not in {"B0", "MB", "P1", "M1", "M2", "LC", "S", "D"}:
+        if self.name not in load_recipes()["phases"]:
             raise ValueError(f"Unknown training phase {self.name!r}")
         if self.meter not in {"D", "I", "P", "G", "Q"} or self.budget <= 0 or self.peak_lr <= 0:
             raise ValueError("A phase needs a positive budget/LR and a D, I, P, G, or Q meter")
@@ -45,18 +45,9 @@ class Phase:
         return self.peak_lr * ratio
 
 
-def _phase(name: str, peak_lr: float, warmup: float = 0.02, decay: float = 0.1) -> Phase:
+def _phase(name: str) -> Phase:
     recipe = stage_recipe(name)
-    return Phase(name, recipe.meter, recipe.limit, peak_lr, warmup, decay)
+    return Phase(name, recipe.meter, recipe.limit, **recipe.learning_rate)
 
 
-PHASES = {
-    "B0": _phase("B0", 2e-4, 0.10, 0.0),
-    "MB": _phase("MB", 1e-4, 0.05, 0.10),
-    "P1": _phase("P1", 2e-4, 0.0, 0.20),
-    "M1": _phase("M1", 8e-5),
-    "M2": _phase("M2", 5e-5),
-    "LC": _phase("LC", 2e-5),
-    "S": _phase("S", 1e-5),
-    "D": _phase("D", 5e-6),
-}
+PHASES = {name: _phase(name) for name in load_recipes()["phases"]}

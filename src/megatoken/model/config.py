@@ -9,7 +9,9 @@ from typing import Any
 
 from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
-ARCHITECTURE_VERSION = 15
+from .context import DEFAULT_CROSS_EVENTS, DEFAULT_LOCAL_EVENTS
+
+ARCHITECTURE_VERSION = 16
 # Reserved system track addresses; they share the session equality registry.
 TRANSDUCER_QUERY_TRACK = "__transducer_query__"
 KNOWLEDGE_TRACK = "__transducer_knowledge__"
@@ -34,8 +36,8 @@ class ModelConfig:
     central_layers: int = 4
     prediction_layers: int = 12
     max_history_chunks: int = 1024
-    context_local_events: int = 256
-    context_cross_events: int = 16
+    context_local_events: int = DEFAULT_LOCAL_EVENTS
+    context_cross_events: int = DEFAULT_CROSS_EVENTS
     # Runtime default for simultaneously active tasks; never a learned identity vocabulary.
     max_tracks: int = 8
     # The one media input: pinned EmbeddingGemma2 hidden states (see

@@ -409,7 +409,7 @@ They must not be reported as `causal_student_windows` or as generated student qu
 Policy-only optimization also freezes the sparse memory contents, its writes and
 its growth, in addition to dense encoder/renderer parameters. Exact checkpoint
 restart requires the saved current memory-teaching schedule. Current model and
-checkpoint version 15, grouped action version 18 and native bank identity v11
+checkpoint version 16, grouped action version 19 and native bank identity v12
 reject the superseded model-bound artifacts. Unchanged prepared-data version 6
 and independently pinned donor/source assets retain their own current identities.
 
