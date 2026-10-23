@@ -140,7 +140,7 @@ class WindowStream:
                 "window": asdict(config),
                 # Version the semantics of optimizer window boundaries. Old
                 # cursors must not resume after introducing atomic meridians.
-                "packing_contract": "meridian-atomic-decisions-tail-v3",
+                "packing_contract": "meridian-atomic-context-windows-v4",
             }
         )
 

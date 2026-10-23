@@ -56,6 +56,7 @@ def capture(state, raw, tracks, event_ids, roles, modalities, semantics):
             "roles": roles[0].tolist(),
             "modalities": modalities,
             "descriptions": state.track_descriptions,
+            "context_policy": state.context_policy.to_json(),
             "semantics": _pack(semantics),
             "adapter_logits": _pack(None if mixture is None else mixture.logits),
             "adapter_strength": _pack(None if mixture is None else mixture.strength),
@@ -80,6 +81,11 @@ def reconstruct(multi, entries, *, device):
             state,
             adapters=None if logits is None else AdapterMixture(logits, strength),
             track_descriptions=tuple(tuple(d) for d in value["descriptions"]),
+        )
+        from megatoken.model.context import ContextPolicy
+
+        state = multi.tracks.set_context_policy(
+            state, ContextPolicy.from_json(value["context_policy"])
         )
         state = multi.tracks.advance_group(
             state,

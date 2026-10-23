@@ -485,6 +485,32 @@ class MultiTrackService:
                     effort=int(request.get("effort", 6)), seed=int(request.get("seed", 0))
                 )
                 answer["session"] = session_id
+            elif op == "context_status":
+                answer = {
+                    "session": session_id,
+                    **runtime.context_status(session, track=request.get("track")),
+                }
+            elif op == "fetch_context":
+                answer = {
+                    "session": session_id,
+                    **runtime.fetch_context(
+                        session,
+                        track=request["track"],
+                        source_event=request["source_event"],
+                        effort=int(request.get("effort", 1)),
+                    ),
+                }
+            elif op == "configure_context":
+                answer = {
+                    "session": session_id,
+                    **runtime.configure_context(
+                        session,
+                        track=request["track"],
+                        local_events=request["local_events"],
+                        cross_events=request["cross_events"],
+                        pinned_events=request.get("pinned_events", ()),
+                    ),
+                }
             elif op == "track_action":
                 description = runtime.track_action(
                     session,

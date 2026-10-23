@@ -63,6 +63,11 @@ def policy_outcome(multi, tape, credit: OutcomeCredit, *, device):
     if credit.selected_events != len(tape.tracks):
         raise ValueError("Outcome work count differs from the complete selected decision")
     state = reconstruct(multi, tape.policy_context, device=device)
+    from megatoken.model.context import ContextPolicy
+
+    state = multi.tracks.set_context_policy(
+        state, ContextPolicy.from_json(tape.context_policy_json)
+    )
     log_prob = multi.score_group(state, tape)
     delta = log_prob - tape.behavior_log_prob
     # Bounded exponentiation avoids nonfinite importance weights while PPO's

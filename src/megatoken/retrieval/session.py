@@ -60,6 +60,7 @@ class Search:
     query: Any
     candidates: list[Candidate]
     snapshots: dict[str, dict[str, int]] = field(default_factory=dict)
+    excluded: dict[str, frozenset[int]] | None = None
 
 
 @dataclass
@@ -80,24 +81,36 @@ class SourceSession:
             raise ValueError("A source session mounts a collection and reads at least one item")
         self.observed = {name: set() for name in self.collections}
 
-    def candidates(self, query: np.ndarray, depth: int = DEPTH) -> list[Candidate]:
+    def candidates(
+        self,
+        query: np.ndarray,
+        depth: int = DEPTH,
+        *,
+        excluded: Mapping[str, set[int] | frozenset[int]] | None = None,
+        snapshots: Mapping[str, Mapping[str, int]] | None = None,
+    ) -> list[Candidate]:
         """The best ``depth`` unobserved items over every collection, best first.
 
         Ties go to the earlier-mounted collection, then the lower row.
         """
         merged = []
-        snapshots = {}
+        searched = {}
         for order, (name, collection) in enumerate(self.collections.items()):
+            if snapshots is not None and name not in snapshots:
+                continue
+            prior = None if snapshots is None else snapshots[name]
             snapshot, hits = collection.search_snapshot(
                 query,
                 depth,
-                exclude=self.observed[name],
-                max_revision=None
-                if self.revision_limits is None
-                else self.revision_limits.get(name),
-                available_at_ns=self.available_at_ns,
+                exclude=self.observed[name] if excluded is None else excluded.get(name, set()),
+                max_revision=prior["revision"]
+                if prior is not None
+                else (None if self.revision_limits is None else self.revision_limits.get(name)),
+                available_at_ns=prior["available_at_ns"]
+                if prior is not None
+                else self.available_at_ns,
             )
-            snapshots[name] = snapshot
+            searched[name] = snapshot
             for hit in hits:
                 merged.append(
                     (
@@ -108,7 +121,8 @@ class SourceSession:
                     )
                 )
         merged.sort(key=lambda entry: entry[:3])
-        self.search_snapshots = snapshots
+        if snapshots is None:
+            self.search_snapshots = searched
         return [entry[3] for entry in merged[:depth]]
 
     def floor(self, name: str) -> float:

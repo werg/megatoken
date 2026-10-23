@@ -93,7 +93,14 @@ def retrieval_terms(
     if annotation.positives:
         terms["retrieval_ranking"] = (_ranking(search, sources, annotation), 1)
         top = [(c.collection, c.hit.item_id) for c in search.candidates[:RECALL_K]]
-        reference = sources.candidates(target.float().cpu().numpy(), RECALL_K)
+        # Compare both queries against the same pre-search visibility. The
+        # student's chosen sources may already have been committed by now.
+        reference = sources.candidates(
+            target.float().cpu().numpy(),
+            RECALL_K,
+            excluded=search.excluded,
+            snapshots=search.snapshots or None,
+        )
         metrics["retrieval_queries"] = 1.0
         metrics["retrieval_student_recall"] = _recall(top, annotation.positives)
         metrics["retrieval_teacher_recall"] = _recall(

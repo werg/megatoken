@@ -42,14 +42,26 @@ class TrackDescription:
 @dataclass
 class TrackRegistry:
     max_active: int = 8
+    max_waiting: int = 64
     tracks: dict[str, TrackDescription] = field(default_factory=dict)
     sequence: int = 0
     address_prefix: str = "track"
     # Runtime choices and model actions are recorded separately by the caller.
     transitions: list[tuple[str, TrackDescription]] = field(default_factory=list)
 
+    def __post_init__(self):
+        if (
+            type(self.max_active) is not int
+            or self.max_active < 1
+            or type(self.max_waiting) is not int
+            or self.max_waiting < 0
+        ):
+            raise ValueError(
+                "Track capacities need a positive active and nonnegative waiting limit"
+            )
+
     def create(self, purpose: str, **options) -> TrackDescription:
-        if sum(t.status in {"active", "waiting"} for t in self.tracks.values()) >= self.max_active:
+        if sum(t.status == "active" for t in self.tracks.values()) >= self.max_active:
             raise ValueError("Active work capacity exhausted; queue work or finish an active track")
         if options.get("budget", 128) < 1:
             raise ValueError("New work requires a positive budget")
@@ -85,12 +97,15 @@ class TrackRegistry:
         }[operation]
         if set(changes) - allowed:
             raise ValueError("Lifecycle action contains unsupported changes")
-        if operation == "resume" and current.status in {"completed", "cancelled"}:
-            if (
-                sum(t.status in {"active", "waiting"} for t in self.tracks.values())
-                >= self.max_active
-            ):
+        if operation in {"resume", "continue"} and current.status != "active":
+            if sum(t.status == "active" for t in self.tracks.values()) >= self.max_active:
                 raise ValueError("Active work capacity exhausted; queue resumption")
+        if (
+            operation == "wait"
+            and current.status != "waiting"
+            and sum(t.status == "waiting" for t in self.tracks.values()) >= self.max_waiting
+        ):
+            raise ValueError("Waiting work capacity exhausted; finish or cancel pending work")
         status = {
             "wait": "waiting",
             "complete": "completed",
@@ -114,9 +129,7 @@ class TrackRegistry:
         ready = [t.address for t in self.tracks.values() if t.status == "active" and t.budget > 0]
         live = [t.address for t in self.tracks.values() if t.status in {"active", "waiting"}]
         closed = [t.address for t in self.tracks.values() if t.status in {"completed", "cancelled"}]
-        available = (
-            sum(t.status in {"active", "waiting"} for t in self.tracks.values()) < self.max_active
-        )
+        available = sum(t.status == "active" for t in self.tracks.values()) < self.max_active
         result = []
         for tool in tools:
             name = tool["name"]
@@ -130,6 +143,26 @@ class TrackRegistry:
                     properties.pop("parent")
             elif name == "track_resume":
                 choices = closed if available else []
+                if not choices:
+                    continue
+                properties["address"] = {"enum": choices}
+            elif name in {"track_continue", "track_wait"}:
+                choices = [
+                    track.address
+                    for track in self.tracks.values()
+                    if track.address in live
+                    and (
+                        (name == "track_continue" and (track.status == "active" or available))
+                        or (
+                            name == "track_wait"
+                            and (
+                                track.status == "waiting"
+                                or sum(t.status == "waiting" for t in self.tracks.values())
+                                < self.max_waiting
+                            )
+                        )
+                    )
+                ]
                 if not choices:
                     continue
                 properties["address"] = {"enum": choices}
@@ -196,6 +229,46 @@ def lifecycle_tools(capabilities=("text",)) -> list[dict]:
                     "modality": {"enum": ["auto", *capabilities]},
                 },
                 "required": ["address", "request", "modality"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "track_context",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "address": {"type": "string"},
+                    "local_events": {"type": "integer", "minimum": 0},
+                    "cross_events": {"type": "integer", "minimum": 0},
+                    "pinned_events": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "maxItems": 8,
+                        "uniqueItems": True,
+                    },
+                },
+                "required": ["address", "local_events", "cross_events", "pinned_events"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "track_fetch",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "address": {"type": "string"},
+                    "source_event": {"type": "string"},
+                },
+                "required": ["address", "source_event"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "track_context_status",
+            "parameters": {
+                "type": "object",
+                "properties": {"address": {"type": "string"}},
+                "required": ["address"],
                 "additionalProperties": False,
             },
         },

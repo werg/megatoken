@@ -34,6 +34,8 @@ class ModelConfig:
     central_layers: int = 4
     prediction_layers: int = 12
     max_history_chunks: int = 1024
+    context_local_events: int = 256
+    context_cross_events: int = 16
     # Runtime default for simultaneously active tasks; never a learned identity vocabulary.
     max_tracks: int = 8
     # The one media input: pinned EmbeddingGemma2 hidden states (see
@@ -84,6 +86,11 @@ class ModelConfig:
     adapter_topk: int = 2
 
     def __post_init__(self) -> None:
+        if any(
+            type(value) is not int or value < 0
+            for value in (self.context_local_events, self.context_cross_events)
+        ):
+            raise ValueError("Context windows must be nonnegative event counts")
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
                 f"Incompatible architecture version: this model requires version {ARCHITECTURE_VERSION}; "
@@ -211,6 +218,8 @@ class ModelConfig:
             self.kv_heads,
             self.attention_head_dim,
             self.media_extractor,
+            self.context_local_events,
+            self.context_cross_events,
         )
 
     @classmethod
@@ -267,6 +276,13 @@ class ModelConfig:
         if unknown:
             raise ValueError(f"Unknown model configuration fields: {sorted(unknown)}")
         values = dict(values)
+        if ("context_local_events" in values) != ("context_cross_events" in values):
+            raise ValueError("Saved context configuration must declare both window sizes")
+        # Existing compatible weights keep their original shared-window behavior.
+        # New configurations record asymmetric windows explicitly.
+        if "context_local_events" not in values and "context_cross_events" not in values:
+            values["context_local_events"] = values.get("max_history_chunks", 1024)
+            values["context_cross_events"] = values.get("max_history_chunks", 1024)
         if "ngram_orders" in values:
             values["ngram_orders"] = tuple(values["ngram_orders"])
         return cls(**values)

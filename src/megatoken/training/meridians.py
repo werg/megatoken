@@ -614,6 +614,7 @@ def forward_meridian_batch(
         # The core owner is versioned by the outer training loop.
         raise ValueError("Meridian trainer received a stale model version")
     from megatoken.controls import resolve_event_control
+    from megatoken.data.context import apply_context_announcement
     from megatoken.model.relations import SelectedRelation
 
     episode = batch.windows[0].episode
@@ -638,6 +639,13 @@ def forward_meridian_batch(
                 state = multi.tracks.describe_track(
                     state, revision.track_id, revision.purpose, revision.revision
                 )
+        return state
+
+    def context_before(state, step):
+        for track, entry in zip(step.tracks, step.records, strict=True):
+            state = apply_context_announcement(
+                multi, state, track, entry.record.payload, entry.record.role
+            )
         return state
 
     losses = []
@@ -681,6 +689,7 @@ def forward_meridian_batch(
     meridian_index = 0
     with torch.no_grad():
         for step in batch.prefix:
+            state = context_before(state, step)
             state = sequence.before_meridian(multi, state, meridian_index, effort=batch.effort)
             meridian_index += 1
             state, replayed = _preceding_native(multi, state, batch.native_history, step)
@@ -716,6 +725,7 @@ def forward_meridian_batch(
             )
             state = announce(state, step)
     for step in batch.steps:
+        state = context_before(state, step)
         if text_anchors is not None:
             anchors, global_count, weight = text_anchors
             for entry, modality in zip(step.records, step.modalities, strict=True):
@@ -906,4 +916,10 @@ def forward_meridian_batch(
         metrics[f"{name}_loss"] = loss.detach()
     if differentiate and losses:
         torch.stack(losses).sum().backward()
+    metrics["context_windows"] = 1
+    metrics["context_retained_events_sum"] = len(state.history_event_ids)
+    metrics["context_cache_bytes_sum"] = sum(
+        value.numel() * value.element_size()
+        for value in (state.history.keys, state.history.values)
+    )
     return metrics

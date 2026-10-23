@@ -14,6 +14,34 @@ def behaviors(episode) -> set[str]:
     for action in actions.values():
         if action.tool_name.startswith("track_"):
             result.add("lifecycle_" + action.tool_name.removeprefix("track_"))
+    from .context import context_announcement
+
+    if any(
+        context_announcement(record.payload, record.role) is not None for record in episode.records
+    ):
+        result.add("public_context_window")
+    annotations = json.loads(episode.supervision.annotations_json)
+    for receipt in annotations.get("context_read_receipts", ()):
+        action = actions.get(receipt.get("action_id"))
+        record = records.get(receipt.get("result_record_id"))
+        if (
+            action is not None
+            and action.tool_name == "track_fetch"
+            and record is not None
+            and record.result_of == action.action_id
+        ):
+            from .schema import digest_bytes
+
+            if (
+                record.execution_id == action.execution_id
+                and digest_bytes(record.payload) == receipt.get("sha256")
+                and type(receipt.get("available")) is bool
+            ):
+                result.add(
+                    "explicit_context_read"
+                    if receipt.get("available") is True
+                    else "context_unavailable"
+                )
     events = [e for group in episode.meridians for e in group.events]
     for group in episode.meridians:
         calls = {records[e.record_id].action_id for e in group.events}

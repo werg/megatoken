@@ -158,7 +158,7 @@ class HeldOutEvaluator:
                                     )
                                 for key, value in metrics.items():
                                     if key.startswith(
-                                        ("retrieval_", "modality_", "outcome_")
+                                        ("retrieval_", "modality_", "outcome_", "context_")
                                     ) or key in {
                                         "grouped_selected_events",
                                         "grouped_supervised_meridians",
@@ -224,7 +224,8 @@ def behavior_report(values: dict[str, float]) -> dict[str, Any]:
     """Report decisions with their own denominators, separately from retrieval."""
     events = values.get("modality_events", 0)
     decisions = values.get("outcome_decisions", 0)
-    if not events and not decisions:
+    windows = values.get("context_windows", 0)
+    if not events and not decisions and not windows:
         return {}
     result = {
         "selected_events": values.get("grouped_selected_events", 0),
@@ -241,6 +242,12 @@ def behavior_report(values: dict[str, float]) -> dict[str, Any]:
             "decisions": decisions,
             "mean_advantage": values.get("outcome_advantage_sum", 0) / decisions,
             "mean_log_ratio": values.get("outcome_log_ratio_sum", 0) / decisions,
+        }
+    if windows:
+        result["context"] = {
+            "windows": windows,
+            "mean_retained_events": values.get("context_retained_events_sum", 0) / windows,
+            "mean_cache_bytes": values.get("context_cache_bytes_sum", 0) / windows,
         }
     return {"behavior": result}
 

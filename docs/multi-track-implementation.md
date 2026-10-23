@@ -317,7 +317,7 @@ reference assets or fetch pack weights.
 ## Strict formats and no migrations
 
 - Architecture version: **10** (`ARCHITECTURE_VERSION`); the one tape serving, collection
-  and training exchange is `GroupActionTape` (`fmt-multitrack-facets-v15`), recording
+  and training exchange is `GroupActionTape` (`fmt-multitrack-facets-v16`), recording
   renderer seeds and realizer pack identities per event. A single-track draw (a student's
   rollout step) is a group of one event; the decoder-level single-event tape
   `fmt-canonical-facets-v8` is only the output of the single-track diagnostic sampler.

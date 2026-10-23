@@ -2,6 +2,12 @@
 
 Proposed implementation and training work, 23 October 2026.
 
+The first context implementation now provides asymmetric direct-attention windows,
+physical cache reclamation, bounded source rereading, public policy changes, and
+training replay. See [track context support](track-context.md) for exact behavior,
+acceptance evidence, and remaining calibration, cache offloading, and recovery work.
+The current-support table below records the starting point for this follow-up.
+
 The system should make useful progress from an ordinary user request: create tracks
 when they help, coordinate tools and sources, keep listening during speech, recover
 from failure, and finish without leaving resources occupied. Training must teach
@@ -166,7 +172,7 @@ Give every track an explicit context policy whose default allows a longer histor
 of its own events and a shorter recent history of events from other tracks. Count
 the within-track allowance in committed events on that track, so unrelated work
 does not prematurely age out its local history. Count the cross-track allowance
-over recent committed events from all other tracks combined, so creating more
+by global committed-event age for events on other tracks, so creating more
 tracks does not multiply that allowance. Keep all facets belonging to one event
 together, and preserve causal ordering and correspondence within joint outputs.
 

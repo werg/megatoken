@@ -25,6 +25,7 @@ from threading import BoundedSemaphore, RLock
 
 import torch
 
+from megatoken.context_archive import ContextArchive
 from megatoken.contracts import ROLE_TO_ID
 from megatoken.data.chunking import ChunkingConfig, segment_bytes
 from megatoken.data.knowledge import FilePreparer
@@ -115,6 +116,7 @@ class TrackSession:
     scheduling_steps: int = 0
     scheduling_log: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     reserved_output_bytes: dict[int, int] = field(default_factory=dict)
+    context_archive: ContextArchive = field(default_factory=ContextArchive)
 
     @property
     def state(self) -> MultiTrackState:
@@ -136,9 +138,16 @@ class MultiTrackRuntime:
         record_policy_context: bool = False,
         max_event_output_bytes: int = 64 << 20,
         max_session_output_bytes: int = 256 << 20,
+        context_archive_bytes: int = 64 << 20,
+        context_archive_events: int = 1024,
     ) -> None:
         """``chunking`` is the served bundle's physical chunk policy (default: the model's)."""
         self.generator = generator
+        ContextArchive(max_bytes=context_archive_bytes, max_events=context_archive_events)
+        self.context_archive_bytes, self.context_archive_events = (
+            context_archive_bytes,
+            context_archive_events,
+        )
         if not 1 <= max_event_output_bytes <= max_session_output_bytes:
             raise ValueError("Output byte budgets must be positive and ordered")
         self.max_event_output_bytes = max_event_output_bytes
@@ -254,12 +263,161 @@ class MultiTrackRuntime:
                 effort=effort,
                 collections=collections,
                 threshold=threshold,
-                overlay=overlay, scope=scope, write_policy=write_policy,
+                overlay=overlay,
+                scope=scope,
+                write_policy=write_policy,
                 memory_writes=memory_writes,
                 **options,
             ),
             tracks=TrackRegistry(max_active=self.generator.generator.config.max_tracks),
+            context_archive=ContextArchive(
+                max_bytes=self.context_archive_bytes, max_events=self.context_archive_events
+            ),
         )
+
+    @_commit_owner
+    def configure_context(
+        self,
+        session: TrackSession,
+        *,
+        track: str,
+        local_events: int,
+        cross_events: int,
+        pinned_events: Sequence[str] = (),
+    ):
+        """Record a bounded public context change after validating its references.
+
+        Expanding a window grants access to still resident context. It cannot
+        fabricate data already evicted; those sources need an explicit new read.
+        """
+        state = session.state
+        if track not in state.track_registry and track not in session.tracks.tracks:
+            raise ValueError("Context policy requires a declared track")
+        if any(
+            type(n) is not int or not 0 <= n <= self.generator.generator.config.max_history_chunks
+            for n in (local_events, cross_events)
+        ):
+            raise ValueError("Context request exceeds the session event budget")
+        values = dict(
+            local_events=local_events, cross_events=cross_events, pinned_events=tuple(pinned_events)
+        )
+        policy = state.context_policy.configure(track, **values)
+        updated = self.generator.tracks.set_context_policy(state, policy)
+        # Public announcement and cache read use the newly accepted policy.
+        # The same typed announcement is consumed by ordinary training replay.
+        payload = json.dumps({"context_window": values}, sort_keys=True).encode()
+        event = ObservedEvent(
+            track,
+            "text",
+            payload,
+            ROLE_TO_ID["system"],
+            event_id=f"context:{session.revision}:{session.work_sequence}",
+        )
+        session.memory.state = updated
+        try:
+            self.observe(session, (event,), effort=1)
+        except Exception:
+            session.memory.state = state
+            raise
+        return self.context_status(session, track=track)
+
+    @_commit_owner
+    def context_status(
+        self, session: TrackSession, *, track: str | None = None, include_sources=False
+    ):
+        state = session.state
+        cache_bytes = sum(
+            t.numel() * t.element_size() for t in (state.history.keys, state.history.values)
+        )
+        states = [state, *(group.state for group in session.selected_groups.values())]
+        if session.pending is not None:
+            states.append(session.pending.result.state)
+        for work in session.rendering.values():
+            states.extend((work.selection.before, work.selection.state))
+            if work.result is not None:
+                states.append(work.result.state)
+        storage = {}
+        for retained in states:
+            for tensor in (retained.history.keys, retained.history.values):
+                owner = tensor.untyped_storage()
+                storage[(str(tensor.device), owner.data_ptr())] = owner.nbytes()
+        result = {
+            "policy": json.loads(state.context_policy.to_json()),
+            "resident_events": len(state.history_event_ids),
+            "cache_bytes": cache_bytes,
+            "cache_storage_bytes_including_snapshots": sum(storage.values()),
+            "event_budget": self.generator.generator.config.max_history_chunks,
+            "archived_events": len(session.context_archive.events),
+            "host_payload_bytes": session.context_archive.payload_bytes,
+            "last_cache_evictions": [
+                {
+                    "event_id": event,
+                    "reason": reason,
+                    "retrievable": event in session.context_archive.events,
+                }
+                for event, reason in state.context_dropped
+            ],
+        }
+        if track is not None:
+            mask = self.generator.tracks.context_visibility(state, (track,))[0]
+            result["visible_events"] = [
+                event
+                for event, visible in zip(state.history_event_ids, mask, strict=True)
+                if visible
+            ]
+        if include_sources:
+            purposes = {address: purpose for address, purpose, _ in state.track_descriptions}
+            result["recent_sources"] = [
+                {
+                    "event_id": event_id,
+                    "purpose": purposes.get(event.track, "Available session evidence"),
+                    "modality": event.modality,
+                }
+                for event_id, (event, _) in list(session.context_archive.events.items())[-8:]
+            ]
+        return result
+
+    @_commit_owner
+    def fetch_context(self, session: TrackSession, *, track: str, source_event: str, effort=1):
+        """Reobserve an admitted source after an explicit request on its consumer track."""
+        if track not in session.state.track_registry and track not in session.tracks.tracks:
+            raise ValueError("Context retrieval requires a declared track")
+        event = session.context_archive.get(source_event)
+        origin = "session_archive"
+        if event is None and session.memory.sources is not None:
+            from megatoken.model.sources import source_event as read_source
+
+            found = [
+                entry for entry in session.memory.sources.log if entry.event_id == source_event
+            ]
+            if len(found) == 1:
+                event = read_source(session.memory.sources, found[0], session.state.device)
+                origin = "mounted_source"
+        if event is None:
+            raise ValueError(
+                "Requested context is unavailable; request its original source or clarification"
+            )
+        payload = event.payload
+        if isinstance(payload, torch.Tensor):
+            payload = payload.to(session.state.device)
+        event_id = f"context-read:{session.revision}:{session.work_sequence}"
+        self.observe(
+            session,
+            (
+                replace(
+                    event,
+                    track=track,
+                    event_id=event_id,
+                    payload=payload,
+                    role_id=ROLE_TO_ID["document"],
+                    valid_mask=None
+                    if event.valid_mask is None
+                    else event.valid_mask.to(session.state.device),
+                ),
+            ),
+            effort=effort,
+        )
+        return {"event_id": event_id, "source_event_id": source_event, "origin": origin}
 
     def add_files(
         self,
@@ -300,13 +458,29 @@ class MultiTrackRuntime:
                 raise ValueError(
                     "Text event exceeds the served chunk policy; observe_text cuts it into chunks"
                 )
-        self.memory.observe(session.memory, ready, effort=effort)
+        from megatoken.data.context import apply_context_announcement
+
+        previous = session.state
+        updated = previous
+        for event in ready:
+            if event.modality == "text" and event.role_id == ROLE_TO_ID["system"]:
+                updated = apply_context_announcement(
+                    self.generator, updated, event.track, event.payload, "system"
+                )
+        session.memory.state = updated
+        try:
+            self.memory.observe(session.memory, ready, effort=effort)
+        except Exception:
+            session.memory.state = previous
+            raise
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, tuple(x.track for x in ready)))
         session.history.extend(x.payload for x in ready if x.modality == "text")
         session.completed_events.update(ids)
         session.occupied_events.update(ids)
+        for event in ready:
+            session.context_archive.put(event)
         return session.state
 
     def observe_text(
@@ -428,7 +602,29 @@ class MultiTrackRuntime:
             for payload, modality in zip(result.tape.payloads, result.tape.modalities, strict=True)
             if modality == "text"
         )
+        self._archive_outputs(session, result)
         return result
+
+    @staticmethod
+    def _archive_outputs(session, group):
+        for track, event_id, modality, payload, valid in zip(
+            group.tape.tracks,
+            group.tape.event_ids,
+            group.tape.modalities,
+            group.tape.payloads,
+            group.tape.valid,
+            strict=True,
+        ):
+            if modality == "text" and valid and payload:
+                session.context_archive.put(
+                    ObservedEvent(
+                        track,
+                        "text",
+                        payload,
+                        ROLE_TO_ID["assistant"],
+                        event_id=event_id,
+                    )
+                )
 
     def generate(
         self,
@@ -616,6 +812,7 @@ class MultiTrackRuntime:
                     )
                     if m == "text"
                 )
+                self._archive_outputs(session, work.result)
         if work.status == "failed" and not work.outcome_published:
             self.observe_text(
                 session,
@@ -741,18 +938,32 @@ class MultiTrackRuntime:
                 description = registry.change(address, operation, **values)
             # Publish only semantic fields. The address attaches the event to
             # its task through attention equality, never instruction bytes.
-            payload = json.dumps(
-                {
-                    k: v
-                    for k, v in asdict(description).items()
-                    if k not in {"address", "parent", "prerequisites"}
-                },
-                sort_keys=True,
-            ).encode()
+            public = {
+                k: v
+                for k, v in asdict(description).items()
+                if k not in {"address", "parent", "prerequisites"}
+            }
+            window = None
+            if description.status in {"completed", "cancelled"}:
+                window = {
+                    "local_events": 0,
+                    "cross_events": 0,
+                    "pinned_events": [],
+                }
+            elif operation == "resume":
+                config = self.generator.generator.config
+                window = {
+                    "local_events": min(config.context_local_events, config.max_history_chunks),
+                    "cross_events": min(config.context_cross_events, config.max_history_chunks),
+                    "pinned_events": [],
+                }
+            payload = json.dumps(public, sort_keys=True).encode()
             self.observe_text(session, description.address, payload, role="system", effort=1)
             session.memory.state = self.generator.tracks.describe_track(
                 session.state, description.address, description.purpose, description.revision
             )
+            if window is not None:
+                self.configure_context(session, track=description.address, **window)
         except Exception:
             # Published chunks remain causal facts. An allocated address is
             # consumed even if the rest of its announcement could not publish.
@@ -821,7 +1032,22 @@ class MultiTrackRuntime:
             # Keep attachment to the requesting task even when it closes itself.
             session.tool_routes[action_id] = (address, group.tape.event_ids[index])
             try:
-                if name == "track_output":
+                if name == "track_context_status":
+                    outcome = self.context_status(
+                        session, track=arguments["address"], include_sources=True
+                    )
+                elif name == "track_fetch":
+                    target = arguments.pop("address")
+                    outcome = self.fetch_context(session, track=target, **arguments)
+                elif name == "track_context":
+                    target = arguments.pop("address")
+                    # A selected worker action can only hand off evidence it
+                    # could itself read. Host configuration is separately trusted.
+                    visible = self.context_status(session, track=address)["visible_events"]
+                    if any(event not in visible for event in arguments["pinned_events"]):
+                        raise ValueError("Context handoff requires evidence visible to the sender")
+                    outcome = self.configure_context(session, track=target, **arguments)
+                elif name == "track_output":
                     target = session.tracks.tracks[arguments["address"]]
                     if not session.tracks.selectable(target.address, session.completed_events):
                         raise ValueError("Output work requires an active ready track")
@@ -853,6 +1079,18 @@ class MultiTrackRuntime:
                         "status": "queued",
                     }
                 else:
+                    if (
+                        name == "track_create"
+                        and arguments.get("parent") is None
+                        and address in session.tracks.tracks
+                    ):
+                        # Work started by a track descends from it: it cannot grant a child
+                        # what it does not itself hold by leaving the parent out.
+                        arguments = {**arguments, "parent": address}
+                        if arguments.get("budget", 128) > session.tracks.tracks[address].budget:
+                            raise ValueError(
+                                "Child work cannot exceed its parent's remaining work budget"
+                            )
                     description = self.track_action(
                         session, name.removeprefix("track_"), **arguments
                     )
@@ -982,15 +1220,21 @@ class MultiTrackRuntime:
 class ConcurrentToolRunner:
     """IO-only parallel calls; results enter KV only through observe()."""
 
-    def __init__(self, max_workers: int = 4, max_pending: int = 64) -> None:
+    def __init__(
+        self, max_workers: int = 4, max_pending: int = 64, call_timeout: float | None = 120.0
+    ) -> None:
         if not 1 <= max_workers <= 32:
             raise ValueError("Tool runner requires 1 to 32 IO workers")
         if max_pending < max_workers:
             raise ValueError("Tool queue must accommodate its active workers")
+        if call_timeout is not None and not call_timeout > 0:
+            raise ValueError("A tool call timeout must be positive")
         self.max_pending = max_pending
+        self.call_timeout = call_timeout
         self.seen: set[str] = set()
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.pending: dict[str, Future[bytes]] = {}
+        self.started: dict[str, float] = {}
 
     def submit(self, action_id: str, function: Callable[[], bytes]) -> None:
         if not action_id or action_id in self.seen:
@@ -1000,6 +1244,7 @@ class ConcurrentToolRunner:
                 "Tool request queue exhausted; retry admission after collecting results"
             )
         self.pending[action_id] = self.executor.submit(function)
+        self.started[action_id] = time.monotonic()
         self.seen.add(action_id)
 
     def collect_ready(self) -> tuple[dict[str, bytes], dict[str, BaseException]]:
@@ -1009,10 +1254,24 @@ class ConcurrentToolRunner:
         """
         results: dict[str, bytes] = {}
         failures: dict[str, BaseException] = {}
+        now = time.monotonic()
         for action_id, future in tuple(self.pending.items()):
             if not future.done():
+                if self.call_timeout is not None and now - self.started[action_id] > (
+                    self.call_timeout
+                ):
+                    # A thread cannot be interrupted: stop waiting for it (an unstarted
+                    # call is cancelled) and report the call as failed, so the model is
+                    # told instead of waiting forever. A late result is discarded.
+                    future.cancel()
+                    del self.pending[action_id]
+                    del self.started[action_id]
+                    failures[action_id] = TimeoutError(
+                        f"Tool call exceeded its {self.call_timeout:g} s limit"
+                    )
                 continue
             del self.pending[action_id]
+            del self.started[action_id]
             error = (
                 CancelledError("Tool computation cancelled before execution")
                 if future.cancelled()
@@ -1027,4 +1286,5 @@ class ConcurrentToolRunner:
         return results, failures
 
     def close(self) -> None:
-        self.executor.shutdown(wait=True)
+        # Do not wait for a hung tool: closing a session must always return.
+        self.executor.shutdown(wait=False, cancel_futures=True)

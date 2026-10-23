@@ -66,7 +66,12 @@ def read_sources(
     """
     query = source_query(multi, raw)
     candidates = sources.candidates(query.detach().float().cpu().numpy())
-    sources.last = Search(query, candidates, dict(sources.search_snapshots))
+    sources.last = Search(
+        query,
+        candidates,
+        dict(sources.search_snapshots),
+        {name: frozenset(rows) for name, rows in sources.observed.items()},
+    )
     chosen = sources.choose(candidates, lookup)
     for entry in chosen:
         if cancelled is not None and cancelled():

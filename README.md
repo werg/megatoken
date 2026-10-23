@@ -53,7 +53,11 @@ There is one serving program, the multitrack runtime ([generation](docs/generati
 [protocol](docs/multi-track-implementation.md#group-native-jsonl-protocol)). `generate` is a
 one-shot session of the protocol `serve` speaks, and the frozen student that collects rollouts for
 training runs it too, so lookups, the adapter mixture and mounted collections and knowledge bases behave
-the same when serving, collecting and training. Its tape is the group tape (`fmt-multitrack-facets-v15`).
+the same when serving, collecting and training. Its tape is the group tape (`fmt-multitrack-facets-v16`).
+
+New models support [longer local and shorter cross-track context](docs/track-context.md),
+with physical cache reclamation, explicit evidence rereads, and recorded training
+policies. Initial window defaults remain experimental.
 
 For dynamic workers, grouped media collection, timed translation, executed voice/tool
 traces, and their preparation and evaluation gates, use the

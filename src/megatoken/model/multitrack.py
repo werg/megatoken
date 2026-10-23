@@ -16,7 +16,6 @@ import base64
 import hashlib
 import json
 import math
-import weakref
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import TYPE_CHECKING
@@ -32,6 +31,7 @@ from megatoken.generation.latents import DiagonalGaussian
 from megatoken.generation.structure import ActionSpec
 from megatoken.generation.targets import PreparedAction, PreparedTargets
 from megatoken.io import strict_json_loads
+from megatoken.model.context import DEFAULT_CONTEXT_POLICY, ContextPolicy
 from megatoken.tensors import byte_tensor, is_host
 
 from .adapters import OWNERS, AdapterMixture, AdapterPlan
@@ -47,7 +47,7 @@ from .state import KVHistory, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v15"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v16"
 
 
 @dataclass(frozen=True)
@@ -108,6 +108,11 @@ class MultiTrackState:
     track_descriptions: tuple[tuple[str, str, int], ...] = ()
     policy_history: tuple[str, ...] | None = None
     history_event_ids: tuple[str, ...] = ()
+    history_event_tracks: tuple[str, ...] = ()
+    history_positions: tuple[int, ...] = ()
+    context_seen: int = 0
+    context_policy: ContextPolicy = ContextPolicy()
+    context_dropped: tuple[tuple[str, str], ...] = ()
 
     @property
     def batch_size(self) -> int:
@@ -160,6 +165,10 @@ class MultiTrackCore:
             routing_version=state.routing_version,
             geometry=state.geometry,
             policy_history=() if getattr(self, "record_policy_context", False) else None,
+            context_policy=ContextPolicy(
+                local_events=self.core.config.context_local_events,
+                cross_events=self.core.config.context_cross_events,
+            ),
         )
 
     def _validate(self, state: MultiTrackState) -> None:
@@ -193,6 +202,22 @@ class MultiTrackCore:
             raise ValueError("Retained track metadata must match whole KV event blocks")
         if len(state.history_event_ids) != sum(state.meridian_sizes):
             raise ValueError("Retained evidence addresses must match whole KV event blocks")
+        if (
+            type(state.context_seen) is not int
+            or state.context_seen < 0
+            or not isinstance(state.context_policy, ContextPolicy)
+            or len(state.history_event_tracks) != len(state.history_event_ids)
+            or len(state.history_positions) != len(state.history_event_ids)
+            or any(
+                a >= b
+                for a, b in zip(state.history_positions, state.history_positions[1:], strict=False)
+            )
+            or any(
+                position < 0 or position >= state.context_seen
+                for position in state.history_positions
+            )
+        ):
+            raise ValueError("Retained context metadata must preserve original event positions")
         if state.history.slots > core.config.max_history_chunks * f:
             raise ValueError("History exceeds its full-block capacity")
         if state.adapters is not None and state.adapters.logits.shape != (
@@ -260,28 +285,145 @@ class MultiTrackCore:
         encoded = encode_controls(self.core, payloads, encoder_grad=False)
         return None if encoded is None else encoded.reshape(state.batch_size, len(tracks), -1)
 
-    def _history_for(
-        self, state: MultiTrackState, new_events: int
-    ) -> tuple[KVHistory, tuple[int, ...]]:
-        """Evict complete oldest meridians, never a fraction of a selected event."""
+    def set_context_policy(self, state, policy: ContextPolicy):
+        """Change public visibility without inventing or restoring missing context."""
+        self._validate(state)
+        for _, event_id in policy.pins:
+            if state.history_event_ids.count(event_id) != 1:
+                raise ValueError("Pinned context must identify one retained earlier event")
+        if policy.max_pins > 8:
+            raise ValueError("Context pins exceed the host allowance")
+        return replace(state, context_policy=policy)
+
+    def context_visibility(self, state, tracks):
+        return tuple(
+            state.context_policy.visible(
+                track,
+                state.history_event_tracks,
+                state.history_positions,
+                state.history_event_ids,
+                state.context_seen,
+            )
+            for track in tracks
+        )
+
+    def context_view(self, state, tracks):
+        """Gather the union of readable blocks once, with a per-reader mask.
+
+        Projected keys retain their original temporal rotations. No reconstruction
+        or positional renumbering happens when the storage is gathered.
+        """
+        visible = self.context_visibility(state, tracks)
+        kept = tuple(
+            i for i in range(len(state.history_event_ids)) if any(row[i] for row in visible)
+        )
+        facets = self.core.config.n_facets
+        slots = torch.tensor(
+            [i * facets + j for i in kept for j in range(facets)],
+            dtype=torch.long,
+            device=state.device,
+        )
+        history = state.history
+        if len(kept) != len(state.history_event_ids):
+            history = KVHistory(
+                history.keys.index_select(2, slots),
+                history.values.index_select(2, slots),
+                None if history.mask is None else history.mask.index_select(1, slots),
+            )
+        ids = torch.tensor(kept, dtype=torch.long, device=state.device)
+        history_tracks = state.history_tracks.index_select(1, ids).repeat_interleave(facets, dim=1)
+        mask = None
+        if any(not row[i] for row in visible for i in kept):
+            mask = torch.tensor(
+                [[row[i] for i in kept] for row in visible],
+                dtype=torch.bool,
+                device=state.device,
+            )[None].expand(state.batch_size, -1, -1)
+            mask = mask.repeat_interleave(facets, 1).repeat_interleave(facets, 2)
+            mask = torch.cat(
+                (
+                    mask,
+                    torch.ones(
+                        state.batch_size,
+                        len(tracks) * facets,
+                        len(tracks) * facets,
+                        dtype=torch.bool,
+                        device=state.device,
+                    ),
+                ),
+                dim=-1,
+            )
+        return history, history_tracks, mask
+
+    def _history_for(self, state: MultiTrackState, tracks: Sequence[str]):
+        """Reclaim unneeded whole groups before the one final KV write.
+
+        Group retention is conservative: if any peer is needed, retain all peers.
+        A hard global cap still bounds memory, including pinned/locally wanted
+        groups; pressure that would discard a pin is rejected before publication.
+        """
+        new_events = len(tracks)
         budget = self.core.config.max_history_chunks
         if new_events > budget:
             raise ValueError("One meridian exceeds the global historical event capacity")
-        sizes = list(state.meridian_sizes)
-        count = sum(sizes)
-        history = state.history
-        to_drop = 0
+        names = (*state.history_event_tracks, *tracks)
+        policy = state.context_policy
+        wanted = set()
+        for track in set(names):
+            local, _ = policy.window(track)
+            own = [i for i, name in enumerate(names) if name == track]
+            if local:
+                wanted.update(own[-local:])
+        cross = max((policy.cross_events, *(row[2] for row in policy.windows)))
+        wanted.update(
+            i
+            for i, position in enumerate(state.history_positions)
+            if position >= state.context_seen + new_events - cross
+        )
+        pinned = {event for _, event in policy.pins}
+        wanted.update(i for i, event in enumerate(state.history_event_ids) if event in pinned)
+        groups, start = [], 0
+        for size in state.meridian_sizes:
+            indices = tuple(range(start, start + size))
+            if any(i in wanted for i in indices):
+                groups.append(indices)
+            start += size
+        count = sum(map(len, groups))
+        pressure = set()
         while count + new_events > budget:
-            oldest = sizes.pop(0)
-            count -= oldest
-            to_drop += oldest * self.core.config.n_facets
-        if to_drop:
-            history = KVHistory(
-                history.keys[:, :, to_drop:],
-                history.values[:, :, to_drop:],
-                None if history.mask is None else history.mask[:, to_drop:],
+            removable = next(
+                (
+                    i
+                    for i, group in enumerate(groups)
+                    if not any(state.history_event_ids[j] in pinned for j in group)
+                ),
+                None,
             )
-        return history, tuple(sizes)
+            if removable is None:
+                raise ValueError(
+                    "Context budget cannot retain pinned evidence and the incoming group"
+                )
+            removed = groups.pop(removable)
+            pressure.update(removed)
+            count -= len(removed)
+        kept = tuple(i for group in groups for i in group)
+        history = state.history
+        if len(kept) != len(state.history_event_ids):
+            f = self.core.config.n_facets
+            slots = torch.tensor(
+                [i * f + j for i in kept for j in range(f)], device=state.device, dtype=torch.long
+            )
+            history = KVHistory(
+                history.keys.index_select(2, slots),
+                history.values.index_select(2, slots),
+                None if history.mask is None else history.mask.index_select(1, slots),
+            )
+        dropped = tuple(
+            (event, "global_budget" if i in pressure else "window_expired")
+            for i, event in enumerate(state.history_event_ids)
+            if i not in kept
+        )
+        return history, tuple(map(len, groups)), kept, dropped
 
     def advance_group(
         self,
@@ -325,8 +467,7 @@ class MultiTrackCore:
             raise ValueError("Raw group has the wrong device or dtype")
         if is_host(raw) and not bool(torch.isfinite(raw).all()):
             raise ValueError("Raw selected facets must be finite")
-        # C reads the full causal pre-state. Whole-meridian eviction is done
-        # at publication, after this incoming group has read older context.
+        # Visibility applies before C; physical reclamation follows the read.
         track_ids, registry = self._track_indices(state, names)
         modality_ids = torch.tensor(
             [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
@@ -335,18 +476,20 @@ class MultiTrackCore:
         if track_semantics is not None:
             semantics = track_semantics if semantics is None else semantics + track_semantics
         adapter_plan = self.core.adapters.plan("c", state.adapters, track_ids, semantics)
+        read_history, read_tracks, read_mask = self.context_view(state, names)
         final = self.core.central(
             raw.flatten(1, 2),
-            state.history,
+            read_history,
             role_ids,
             state.meridians_seen,
             track_ids=track_ids,
             modality_ids=modality_ids,
-            history_track_ids=state.history_tracks.repeat_interleave(c.n_facets, dim=1),
+            history_track_ids=read_tracks,
+            attention_mask=read_mask,
             track_semantics=semantics,
             adapters=adapter_plan,
         )
-        history, retained = self._history_for(state, events)
+        history, retained, kept, dropped = self._history_for(state, names)
         next_history = self.core.central.write(
             final,
             history,
@@ -355,8 +498,9 @@ class MultiTrackCore:
             track_ids=track_ids,
             track_semantics=semantics,
         )
-        kept = sum(retained)
-        old_tracks = state.history_tracks[:, -kept:] if kept else state.history_tracks[:, :0]
+        old_tracks = state.history_tracks.index_select(
+            1, torch.tensor(kept, dtype=torch.long, device=state.device)
+        )
         next_history_tracks = torch.cat((old_tracks, track_ids), dim=1)
         shape = (state.batch_size, events, c.n_facets, c.facet_dim)
         policy_history = state.policy_history
@@ -387,7 +531,15 @@ class MultiTrackCore:
             adapters=state.adapters,
             frontier_event_ids=identities,
             track_descriptions=state.track_descriptions,
-            history_event_ids=(*(state.history_event_ids[-kept:] if kept else ()), *identities),
+            history_event_ids=(*(state.history_event_ids[i] for i in kept), *identities),
+            history_event_tracks=(*(state.history_event_tracks[i] for i in kept), *names),
+            history_positions=(
+                *(state.history_positions[i] for i in kept),
+                *range(state.context_seen, state.context_seen + events),
+            ),
+            context_seen=state.context_seen + events,
+            context_policy=state.context_policy,
+            context_dropped=dropped,
             policy_history=policy_history,
         )
 
@@ -458,6 +610,27 @@ class MultiTrackCore:
             return final
         return state.final.mean(dim=1)
 
+    def _predict_seeds(self, state, tracks):
+        if state.final is None:
+            return self._predict_seed(state)[:, None].expand(-1, len(tracks), -1, -1)
+        visible = self.context_visibility(state, tracks)
+        retained = {event: i for i, event in enumerate(state.history_event_ids)}
+        seeds, startup = [], None
+        for row in visible:
+            indices = [
+                i
+                for i, event in enumerate(state.frontier_event_ids)
+                if event in retained and row[retained[event]]
+            ]
+            if indices:
+                seeds.append(state.final[:, indices].mean(1))
+            else:
+                if startup is None:
+                    initial = self.initial_state(state.batch_size, device=state.device)
+                    startup = self._predict_seed(initial)
+                seeds.append(startup)
+        return torch.stack(seeds, dim=1)
+
     def predict_group(
         self,
         state: MultiTrackState,
@@ -489,7 +662,7 @@ class MultiTrackCore:
         descriptions = self.description_controls(state, tracks)
         if descriptions is not None:
             control = descriptions if control is None else control + descriptions
-        base = self._predict_seed(state)
+        base = self._predict_seeds(state, tracks)
         track_ids, _ = self._track_indices(state, tracks)
         adapters = self.core.adapters.plan("p", state.adapters, track_ids, control)
         first_weights = None if adapters is None else adapters.weights[0]
@@ -499,9 +672,9 @@ class MultiTrackCore:
         modality_ids = torch.tensor(
             [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
         ).expand(batch, -1)
-        facets = base[:, None].expand(-1, events, -1, -1).reshape(batch * events, f, d)
+        facets = base.reshape(batch * events, f, d)
         with self.core.expert_pools.routing_epoch(
-            base.mean(1)[:, None].expand(-1, events, -1),
+            base.mean(2),
             track_ids=track_ids,
             track_semantics=control,
             role="p",
@@ -532,6 +705,7 @@ class MultiTrackCore:
                 epoch="prediction",
             )
         self.core._record_routing_loss(routes.balance_loss, routes.stabilization_loss)
+        read_view = self.context_view(state, tracks)
         for stage in stages:
             route = routes.at(stage)
             with self.core.expert_pools.routing_epoch(
@@ -548,7 +722,7 @@ class MultiTrackCore:
                     route,
                     effort,
                     lambda value, stage=stage, route=route: self._stage(
-                        value, stage, route, effort, state, track_ids, adapters
+                        value, stage, route, effort, state, track_ids, adapters, read_view
                     ),
                 )
         return facets
@@ -566,7 +740,7 @@ class MultiTrackCore:
         purpose = self.description_controls(state, tracks)
         if purpose is not None:
             control = purpose if control is None else control + purpose
-        base = self._predict_seed(state).mean(1)[:, None].expand(-1, count, -1)
+        base = self._predict_seeds(state, tracks).mean(2)
         if control is None:
             control = base.new_zeros(state.batch_size, count, self.core.config.control_dim)
         logits = self.core.modality_head(torch.cat((base, control.to(base.dtype)), -1)).float()
@@ -589,6 +763,7 @@ class MultiTrackCore:
         state: MultiTrackState,
         track_ids: Tensor,
         adapters: AdapterPlan | None,
+        read_view=None,
     ) -> Tensor:
         core = self.core
         batch, events, f, d = facets.shape
@@ -607,12 +782,17 @@ class MultiTrackCore:
                 slot_codes=addresses,
                 track_ids=slot_tracks,
             )
+        read_history, read_tracks, read_mask = read_view or (
+            state.history,
+            state.history_tracks.repeat_interleave(f, dim=1),
+            None,
+        )
         history = (
             AttentionFeatures(
-                state.history.keys,
-                state.history.values,
-                state.history.mask,
-                state.history_tracks.repeat_interleave(f, dim=1),
+                read_history.keys,
+                read_history.values,
+                read_history.mask,
+                read_tracks,
             )
             if time is not None
             else None
@@ -625,6 +805,7 @@ class MultiTrackCore:
                 temporal_positions=time,
                 slot_codes=addresses,
                 query_track_ids=slot_tracks,
+                query_key_mask=read_mask if time is not None else None,
             )
         joined = joined + wrapper.attention_gate.sigmoid() * mixed
         with expert_scope(None if weights is None else weights.flatten(0, 1)):
@@ -665,8 +846,10 @@ class GroupActionTape:
     render_status: str = "rendered"
     track_descriptions: tuple[tuple[str, str, int], ...] = ()
     policy_context: tuple[str, ...] | None = None
+    context_policy_json: str = DEFAULT_CONTEXT_POLICY
 
     def __post_init__(self) -> None:
+        ContextPolicy.from_json(self.context_policy_json)
         if self.render_status not in {"selected", "rendered"}:
             raise ValueError("Unknown grouped rendering state")
         if self.version != GROUP_TAPE_VERSION:
@@ -752,6 +935,7 @@ class GroupActionTape:
             render_status=self.render_status,
             track_descriptions=self.track_descriptions,
             policy_context=self.policy_context,
+            context_policy_json=self.context_policy_json,
             modality_masks=self.modality_masks,
             modality_log_probs=self.modality_log_probs,
             modalities=self.modalities,
@@ -792,6 +976,7 @@ class GroupActionTape:
             policy_context=None
             if value["policy_context"] is None
             else tuple(value["policy_context"]),
+            context_policy_json=value["context_policy_json"],
             modality_masks=tuple(tuple(x) for x in value["modality_masks"]),
             modality_log_probs=tuple(value["modality_log_probs"]),
             roles=tuple(value["roles"]),
@@ -965,14 +1150,17 @@ class _GroupedTeacherReadout(nn.Module):
 class MultiTrackGenerator:
     """One shared P/C/Gaussian, with modality-specific deterministic realization."""
 
-    _shared: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
-
     @classmethod
     def of(cls, generator: FacetedGenerator) -> MultiTrackGenerator:
-        """The one multitrack view of a model, so per-version caches outlive a window."""
-        if generator not in cls._shared:
-            cls._shared[generator] = cls(generator)
-        return cls._shared[generator]
+        """The one multitrack view of a model, so per-version caches outlive a window.
+
+        The view is kept on the model itself: a weak-keyed table whose values hold the model
+        strongly would keep every model (and its device memory) alive for the whole process.
+        """
+        view = generator.__dict__.get("_multitrack_view")
+        if view is None:
+            view = generator.__dict__["_multitrack_view"] = cls(generator)
+        return view
 
     def __init__(self, generator: FacetedGenerator) -> None:
         self.generator = generator
@@ -1041,7 +1229,8 @@ class MultiTrackGenerator:
         if not any(value[1] for value in separated):
             return None if encoded is None else encoded[None].to(state.device)
         rows = []
-        for _, references in separated:
+        visibility = self.tracks.context_visibility(state, tracks)
+        for row, (_, references) in zip(visibility, separated, strict=True):
             if not references:
                 rows.append(core.initial_facets.new_zeros(1, core.config.control_dim))
                 continue
@@ -1050,6 +1239,10 @@ class MultiTrackGenerator:
                 if state.history_event_ids.count(address) != 1:
                     raise ValueError("Reference must identify one retained earlier event")
                 index = state.history_event_ids.index(address)
+                if not row[index]:
+                    raise ValueError(
+                        "Reference is outside this track's context window; request a context handoff"
+                    )
                 indices.extend(
                     range(index * core.config.n_facets, (index + 1) * core.config.n_facets)
                 )
@@ -1256,6 +1449,10 @@ class MultiTrackGenerator:
         self.tracks._validate(state)
         if state.batch_size != 1:
             raise ValueError("Grouped supervised meridians require one independent episode")
+        if full_group is not None:
+            state = self.tracks.set_context_policy(
+                state, ContextPolicy.from_json(full_group.context_policy_json)
+            )
         names = self.tracks._names(tracks, len(tracks))
         identities = self.tracks._event_ids(names, event_ids)
         plans = tuple(plans)
@@ -1712,6 +1909,7 @@ class MultiTrackGenerator:
             render_status="selected",
             track_descriptions=tuple(d for d in state.track_descriptions if d[0] in names),
             policy_context=state.policy_history,
+            context_policy_json=state.context_policy.to_json(),
             modality_masks=tuple(tuple(row) for row in masks[0].tolist()),
             modality_log_probs=tuple(float(x) for x in modality_densities[0]),
             roles=roles,
@@ -1784,6 +1982,9 @@ class MultiTrackGenerator:
         revision and event controls are restored before the shared C transition.
         Failed rendering and empty physical output still have a selected state.
         """
+        state = self.tracks.set_context_policy(
+            state, ContextPolicy.from_json(tape.context_policy_json)
+        )
         for address, purpose, revision in tape.track_descriptions:
             state = self.tracks.describe_track(state, address, purpose, revision)
         control = self._controls(tape.controls, state, tape.tracks)
@@ -1805,6 +2006,8 @@ class MultiTrackGenerator:
         renderer success, playback and completion timing are not policy draws.
         """
         self.tracks._validate(state)
+        if state.context_policy.to_json() != tape.context_policy_json:
+            raise ValueError("Policy scoring requires the recorded context window policy")
         if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
             raise ValueError("Policy scoring requires the original causal meridian")
         if tape.codec_fingerprint != self.generator.codec.fingerprint:
@@ -1843,6 +2046,8 @@ class MultiTrackGenerator:
         if tape.render_status != "rendered":
             raise ValueError("Replay of rendered output requires a completed rendering outcome")
         self.tracks._validate(state)
+        if state.context_policy.to_json() != tape.context_policy_json:
+            raise ValueError("Group replay requires the recorded context window policy")
         if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
             raise ValueError("Group replay requires the original causal meridian")
         if effort != tape.effort:
