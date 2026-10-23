@@ -384,3 +384,83 @@ def test_wrong_external_request_codec_or_shape_is_rejected():
         candidate["public"]["groups"][3]["events"][0]["record"] = line("request", request)
         with pytest.raises(SemanticExecutionError, match="codec"):
             adapt_semantic_execution(candidate, allow_local=True)
+
+
+def test_current_tracer_extensions_are_preserved_as_exact_native_records():
+    """Accept bounded v2 extensions without promoting local candidates."""
+    candidate = fixture()
+    groups = candidate["public"]["groups"]
+
+    def rewrite(index, extra, kind=None):
+        row = groups[index]["events"][0]
+        original_kind, json_body = row["record"].split(" ", 1)
+        fields = json.loads(json_body)
+        fields.update(extra)
+        row["record"] = line(kind or original_kind, fields)
+
+    rewrite(0, {
+        "staticRegExps": [
+            {"name": "pattern", "identity": "r1", "pattern": "a+", "flags": "g"}
+        ],
+        "randomSeed": 42,
+    })
+    rewrite(2, {"rest": {
+        "name": "values", "value": ["ref", "rest1"],
+        "allocation": {
+            "identity": "rest1", "kind": "array", "shapeVersion": 0,
+            "properties": [{"key": "length", "value": ["num", 0], "version": 0}],
+        },
+    }})
+    rewrite(3, {
+        "allocations": [{
+            "identity": "child1", "kind": "object", "shapeVersion": 0, "properties": [],
+        }],
+    }, kind="call")
+    rewrite(4, {
+        "copies": [
+            {"from": {"env": "env1", "key": "x", "version": 0},
+             "to": {"env": "env2", "key": "x", "version": 0}},
+            {"from": {"env": "env1", "key": "y", "version": 1},
+             "to": {"env": "env2", "key": "y", "version": 1}},
+        ],
+    }, kind="carry")
+    body = json.loads(groups[4]["events"][0]["record"].split(" ", 1)[1])
+    body.pop("test")
+    body.pop("path")
+    groups[4]["events"][0]["record"] = line("carry", body)
+    rewrite(5, {"writes": [{
+        "kind": "property", "object": "child1", "key": "x",
+        "present": True, "version": 1, "value": ["num", 4],
+    }]})
+    episode, receipt = adapt_semantic_execution(candidate, allow_local=True)
+    expected = [g["events"][0]["record"].encode("utf-8") for g in groups]
+    assert [record.payload for record in episode.records] == expected
+    assert receipt.admission == "locally_verified"
+    assert episode.supervision.outcome == "unknown"
+    assert all(b"sidecar" not in record.payload for record in episode.records)
+
+
+@pytest.mark.parametrize(
+    ("index", "fields", "kind"),
+    [
+        (0, {"randomSeed": -1}, "code"),
+        (0, {"randomSeed": True}, "code"),
+        (0, {"staticRegExps": [{"pattern": "x", "leak": "oracle"}]}, "code"),
+        (2, {"rest": {"name": "values", "value": ["ref", "r1"],
+                     "oracle": "hidden"}}, "enter"),
+        (4, {"copies": [{"from": {"env": "a", "key": "x", "version": -1},
+                         "to": {"env": "b", "key": "x", "version": 0}}]}, "carry"),
+    ],
+)
+def test_current_tracer_extensions_fail_closed_when_malformed(index, fields, kind):
+    candidate = fixture()
+    row = candidate["public"]["groups"][index]["events"][0]
+    _, payload = row["record"].split(" ", 1)
+    payload = json.loads(payload)
+    payload.update(fields)
+    if kind == "carry":
+        payload.pop("test", None)
+        payload.pop("path", None)
+    row["record"] = line(kind, payload)
+    with pytest.raises(SemanticExecutionError):
+        adapt_semantic_execution(candidate, allow_local=True)

@@ -66,7 +66,7 @@ _WORDS = frozenset(
 # Restrict each operation to its declared fields so old engine-format data is
 # not silently treated as valid execution reasoning.
 _FIELDS = {
-    "code": {"sourceId", "text", "codes", "sites", "staticFunctions"},
+    "code": {"sourceId", "text", "codes", "sites", "staticFunctions", "staticRegExps", "randomSeed"},
     "enter": {
         "invocation",
         "entry",
@@ -75,6 +75,7 @@ _FIELDS = {
         "arguments",
         "captures",
         "dependsOn",
+        "rest",
     },
     "value": {
         "entry",
@@ -107,6 +108,7 @@ _FIELDS = {
         "control",
         "from",
         "to",
+        "copies",
         "reads",
     },
     "alloc": {
@@ -147,6 +149,7 @@ _FIELDS = {
         "reads",
         "result",
         "writes",
+        "allocations",
     },
     "return": {
         "id",
@@ -156,6 +159,7 @@ _FIELDS = {
         "control",
         "result",
         "destination",
+        "writes",
     },
     "throw": {
         "id",
@@ -260,13 +264,72 @@ def _record(line: Any) -> tuple[str, dict[str, Any]]:
         _fail("Missing source-level branch value or selected path")
     if head == "loop" and fields.get("path") != "repeat":
         _fail("Missing executed loop backedge")
-    if head == "carry" and not all(
-        isinstance(fields.get(name), dict)
-        and isinstance(fields[name].get("env"), str)
-        and isinstance(fields[name].get("key"), str)
-        for name in ("from", "to")
-    ):
-        _fail("Malformed lexical iteration carry")
+    if head == "code":
+        if "randomSeed" in fields and (
+            type(fields["randomSeed"]) is not int
+            or not 0 <= fields["randomSeed"] <= 0xFFFFFFFF
+        ):
+            _fail("Invalid deterministic source seed")
+        if "staticRegExps" in fields and (
+            not isinstance(fields["staticRegExps"], list)
+            or any(
+                not isinstance(regex, dict)
+                or set(regex) != {"name", "identity", "pattern", "flags"}
+                or not all(isinstance(value, str) for value in regex.values())
+                for regex in fields["staticRegExps"]
+            )
+        ):
+            _fail("Malformed visible regexp context")
+    if head == "enter" and "rest" in fields:
+        rest = fields["rest"]
+        if (
+            not isinstance(rest, dict)
+            or not {"name", "value"} <= set(rest) <= {"name", "value", "allocation"}
+            or not isinstance(rest["name"], str)
+            or not isinstance(rest["value"], list)
+            or len(rest["value"]) != 2
+            or rest["value"][0] != "ref"
+            or not isinstance(rest["value"][1], str)
+            or (
+                "allocation" in rest
+                and (
+                    not isinstance(rest["allocation"], dict)
+                    or set(rest["allocation"])
+                    != {"identity", "kind", "shapeVersion", "properties"}
+                    or rest["allocation"]["kind"] != "array"
+                    or rest["allocation"]["identity"] != rest["value"][1]
+                    or not isinstance(rest["allocation"]["properties"], list)
+                )
+            )
+        ):
+            _fail("Malformed published rest parameter")
+    if head == "carry":
+        def valid_endpoint(endpoint: Any) -> bool:
+            return (
+                isinstance(endpoint, dict)
+                and isinstance(endpoint.get("env"), str)
+                and isinstance(endpoint.get("key"), str)
+                and type(endpoint.get("version")) is int
+                and endpoint["version"] >= 0
+            )
+
+        if "copies" in fields:
+            if (
+                "from" in fields
+                or "to" in fields
+                or not isinstance(fields["copies"], list)
+                or not fields["copies"]
+                or any(
+                    not isinstance(pair, dict)
+                    or set(pair) != {"from", "to"}
+                    or not valid_endpoint(pair["from"])
+                    or not valid_endpoint(pair["to"])
+                    for pair in fields["copies"]
+                )
+            ):
+                _fail("Malformed multi-binding lexical iteration carry")
+        elif not (valid_endpoint(fields.get("from")) and valid_endpoint(fields.get("to"))):
+            _fail("Malformed lexical iteration carry")
     return head, fields
 
 
