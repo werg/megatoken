@@ -23,7 +23,10 @@ def main():
     p.add_argument("--model", choices=["tiny", "32x256", "32x512"], default="tiny")
     p.add_argument("--precision", choices=["fp32", "bf16"], default="fp32")
     p.add_argument("--capacity", type=int, default=512)
-    p.add_argument("--hindsight-targets", type=Path)
+    teacher = p.add_mutually_exclusive_group()
+    teacher.add_argument("--hindsight-targets", type=Path)
+    teacher.add_argument("--teacher-writer", type=Path)
+    p.add_argument("--teacher-encoding-from", type=Path)
     p.add_argument("--text-anchors", type=Path)
     p.add_argument("--microbatch-episodes", type=int, default=1)
     p.add_argument("--evaluation-episodes", type=int, default=4)
@@ -39,12 +42,16 @@ def main():
         help="Declare image/video outputs at 256x192, nine video frames, 8 fps and four decoder steps",
     )
     p.add_argument("--device", default="cuda")
-    p.add_argument("--_stage", default="train", choices=["train", "restart", "export", "evaluate"])
+    p.add_argument(
+        "--_stage", default="train", choices=["train", "optimize", "restart", "export", "evaluate"]
+    )
     args = p.parse_args()
     if min(args.steps, args.microbatch_episodes, args.evaluation_episodes) < 1:
         p.error("Training steps, batch size and evaluation count must be positive")
     if args.capacity < 512:
         p.error("Capacity must accommodate the declared 512-token generation bound")
+    if args.teacher_encoding_from is not None and args.teacher_writer is None:
+        p.error("Reusing an exact teacher encoding requires --teacher-writer")
     from megatoken.training.config import TrainConfig
 
     config = TrainConfig(
@@ -90,7 +97,24 @@ def main():
 
     if args._stage == "train":
         args.root.mkdir(parents=True, exist_ok=False)
+        if args.teacher_writer is not None:
+            from megatoken.data.hindsight_corpus import prepare_corpus
+            from megatoken.data.hindsight_prepare import LocalWriter
+
+            write_json(args.root / "requested-config.json", asdict(config))
+            prepare_corpus(
+                config,
+                args.root / "teacher-targets",
+                LocalWriter(args.teacher_writer, device=args.device),
+                encoding_from=args.teacher_encoding_from,
+            )
+            config = TrainConfig.load(args.root / "teacher-targets/train.json")
         write_json(args.root / "train-config.json", asdict(config))
+        # Release the frozen target writer in a fresh process before allocating
+        # trainable weights, optimizer buffers and the real media decoders.
+        next_stage("optimize")
+    config = TrainConfig.load(args.root / "train-config.json")
+    if args._stage == "optimize":
         from megatoken.training.engine import train
 
         result = train(
@@ -104,7 +128,6 @@ def main():
         next_stage("restart")
     # Stage transitions use the recipe recorded before the first update. Later
     # helper defaults must not silently alter an already running experiment.
-    config = TrainConfig.load(args.root / "train-config.json")
     if args._stage == "restart":
         from megatoken.training.engine import train
 
