@@ -411,7 +411,7 @@ def test_cached_coordinator_initializes_with_teacher_metadata_only(tmp_path):
     assert not (metadata_only / "targets.sqlite").exists()
 
 
-def test_frozen_training_scope_keeps_search_active_but_prevents_memory_updates():
+def test_frozen_training_scope_keeps_search_active_but_prevents_memory_updates(monkeypatch):
     from megatoken.model.multitrack import MultiTrackGenerator
     from megatoken.model.transducer import metadata_payload
     from megatoken.training.transducer import Meridian
@@ -431,11 +431,21 @@ def test_frozen_training_scope_keeps_search_active_but_prevents_memory_updates()
     )
     before = bank.decode("value", bank.edge_ids()).clone()
     trainer = TransducerTrainer(model.transducer, bank_trainable=False)
+    lookups = []
+    boundary = model.transducer.boundary
+
+    def capture(*args, **kwargs):
+        result = boundary(*args, **kwargs)
+        lookups.append(result[1])
+        return result
+
+    monkeypatch.setattr(model.transducer, "boundary", capture)
     sequence = trainer.sequence([Meridian(("a",), (1,), ("text",), False)], step=32768)
     assert sequence.values is None and sequence.alpha == 0
     state = sequence.begin(multi, multi.tracks.initial_state(1), metadata_payload({}))
     state = sequence.before_meridian(multi, state, 0, effort=1)
-    assert trainer.records and trainer.records[0].lookup.edge_ids.numel() == 1
+    assert len(lookups) == 1 and lookups[0].edge_ids.numel() == 1
+    assert trainer.records == []
     state.final.square().sum().backward()
     trainer.after_backward(32768)
     report = trainer.barrier(32768)
