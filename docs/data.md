@@ -401,7 +401,9 @@ recovery, connected repository/issue/PR sequences, change histories and build
 logs, sufficiently long verified dependencies, grounded artifacts, fresh student
 corrections and fresh RL rollouts. They have usable adapter/collection interfaces
 and declared mixture slots. A recipe target is not evidence of enough independent
-high-quality examples to fill it.
+high-quality examples to fill it. The later-stage streams among them now have pinned public
+sources; see "Later-stage streams" at the end of this page for what each holds and what
+is still short.
 
 ## Open-licence pilot mix
 
@@ -470,11 +472,11 @@ sha256 was computed from the downloads.
 
 ### Still missing
 
-- **synthetic_code_rewrite**: no open, permissively licensed set of LLM code rewrites or
-  transpilations was found. `sources.v13.json` pins the Nemotron code subsets, but they are
-  under the NVIDIA Data Access Agreement and need `options.lineage_join` parent files.
-- **Other phases' streams** (M1/M2/LC/S: repository, issue/PR, build-log and verified
-  trajectories) are untouched here; `sources.v13.json` remains their source of record.
+- **synthetic_code_rewrite** and the **other phases' streams** (M1/M2/LC/S: repository,
+  issue/PR, build-log and verified streams) were not sourced in this pilot. They are now in
+  `configs/data/sources.later-stages.json`; see "Later-stage streams" at the end of this
+  page. `sources.v13.json` pins the Nemotron code subsets, which stay behind the NVIDIA
+  Data Access Agreement and need `options.lineage_join` parent files.
 - **Higher-volume captioned video with speech**: `HuggingFaceFV/finevideo` (CC-BY YouTube videos with
   sound and rich annotations) is gated and this account has not accepted its terms (HTTP 403);
   accepting them would also add removal-request obligations. Common Voice, CoVoST 2
@@ -542,8 +544,8 @@ share and `long_document_reading`):
 Raw and generic web text (`natural_documents` plus `synthetic_documents`) falls from 36.9% to
 14% (two points went to reading from a knowledge base and from a source collection); the
 three agent streams plus environment tasks rise from 4.1% to 28.1%.
-`synthetic_code_rewrite` still has no source (see "Still missing" above) and keeps a smaller
-share until one exists.
+`synthetic_code_rewrite` has a source only since the later-stage round (see "Later-stage
+streams"); the smaller share is kept.
 
 **M1** (60B): `executed_trajectories` 9.3% to 21%, new `verified_trajectories` 8%,
 `tool_use` 4%, `chat` 2%; paid for by `issue_pr_sequences` 37.9% to 28.4%,
@@ -919,16 +921,12 @@ masks, result provenance and outcome label.
 
 ### Still missing for these streams
 
-- **recovery_clarification** has 7M unique tokens against 0.28B planned positions (about
-  40 passes); it needs more recovery data (failed-then-fixed runs, asking for missing
-  arguments).
-- **environment_trajectories** is only 0.1B tokens (4 passes in P1). It is deliberately a
-  small share.
+- **recovery_clarification** and **environment_trajectories** were thin here (7M and 0.1B
+  tokens); the later-stage round adds sources to both (see "Later-stage streams").
 - **Executed tool results from real APIs.** Most tool-use results are simulated; only
   Toucan's MCP calls were executed.
 - **Failure and recovery in SWE traces.** Only Open-SWE-Traces records failed runs;
   everywhere else the failed attempts were already filtered out by the publisher.
-- **synthetic_code_rewrite** (above) remains unsourced.
 
 ## Freeze ancestry, deduplicate, then split
 
@@ -1439,3 +1437,364 @@ the FLEURS files and the pilot's other media files are streamed from the Hub rat
 hashed job inputs; FineVideo, Common Voice and CoVoST 2 are now sources (FineVideo gated, Common
 Voice through the `fixie-ai/common_voice_17_0` mirror, CoVoST 2 through `fixie-ai/covost2`), and
 OpenVid-1M is read for video identity from its zip parts.
+
+## Later-stage streams (M1, M2, LC, S, and two P1 streams)
+
+The agentic section above feeds the trajectory streams. This section fills the streams that
+the later stages read and that were still empty or thin: connected repository, issue and
+pull-request (PR) data, change histories, logs, long documents, long dependencies, grounded
+artifacts, clarification and recovery, tested code, and the two P1 streams that had no source
+(`synthetic_code_rewrite`) or a thin one (`environment_trajectories`).
+
+All of it is public data. Nothing was generated for this round: where a publisher's own
+pipeline used a model to write rows, the table and the entry's `notes` say so. Licences are
+those printed on each publisher's card, read on 2026-10-22 (a card is not legal advice);
+every source is recorded in `configs/data/sources.later-stages.json` with `approved: true`,
+`reviewed_by: Gabriel Pickard`, `reviewed_at: 2026-10-22`, and none was left out for its
+licence. Non-commercial, share-alike, research-only and model-licence terms are named in the
+tables and in each entry's `terms.notes`.
+
+Every source is pinned to a 40-character dataset commit and, where a repository holds many
+files, to the exact files read. Entries were run through their real adapter on the first rows
+of the pinned files (see "What was checked for the later stages"). The first-run caps are row counts read from the
+start of the pinned files before filters, sized to roughly 30 to 150 million tokens per source.
+
+### New row shapes
+
+Four things the earlier adapters could not express were added, each one code path:
+
+| What | How it works | Used by |
+| --- | --- | --- |
+| Lists of files and passages | In a `repository` row the request is followed by `hints` (discussion), `before` (files as they were) and then the scored `patch`. Each of the three can be text, a list of strings, or a list of objects with a path and content (`content`, `before_content`, `body`, `comment`; patches may be `unified_patch`, `diff` or `resolving_diff`). A field map can name several row fields for one role and they are read in order. An item's path becomes the parser's filename hint; null or empty items are skipped; an object with none of the known keys is an error. `before` and `hints` are optional, `patch` is required. | issue/PR, commit, log and review sources |
+| Observed context for infilling and artifacts | `fim` reads a `context` list (ranked chunks of other files) before the prefix; `artifact` reads its document as a list. | `sourcegraph-context-fim`, `imported-context-files` |
+| Artifacts without a stored request, and recorded verdicts | The profiles `code_rewrite` and `human_code_rewrite` read an original as an observed document and score the rewrite; no request text is invented. `tested_artifact` and `human_tested_artifact` record `success` with verification `publisher_tests` only from the row's own verdict field (a test pass, an instruction checker, an answer match); the field map's `outcome` names it and a row filter keeps the passes. A verdict spelled `"True"`, `"1"` or `1.0` counts as a pass and `"False"` or `0` as a failure; fractions are unknown. | S-stage streams, rewrite streams |
+| Evidence between tool calls | With the source option `path_dependencies`, a scored editor call (arguments `old_str`, `new_str`, `file_text` or `insert_line`) with a `path` is linked to the first earlier result that answered a call naming the same `path`. Only structured arguments are read; shell commands create no link and nothing is inferred from text. This is what lets long agent runs fill `long_verified_dependencies`, whose episodes the training engine refuses without dependencies. | `ldep-*` views |
+
+Smaller additions: a `tool-result` content block in the AI SDK spelling (`toolCallId`,
+`output.value`) answers its call like an Anthropic `tool_result`; the role `function_call`
+reads as an assistant turn; and the repository normalizer in lineage keys treats `o/r`,
+`github.com/o/r` and `https://github.com/o/r.git` as one repository, so a repository stays in
+one split across sources that spell it differently.
+
+### Later-stage sources by stream
+
+Row filters keep only what a stream must contain (the passing rows of a tested source, the
+`affected` traces, the human-authored commits). "Unique tokens" is the whole filtered source
+(text bytes divided by four, from the cards' sizes and from rows measured with the adapter);
+it is a lower bound where a quality limit later drops rows.
+
+#### synthetic_code_rewrite
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `swallow-code-v2-rewrite` | `tokyotech-llm/swallow-code-v2` | apache-2.0 | 60,000 | 71B |
+| `pie-perf-slow-to-fast` | `rootacess/pie-perf` | none on the card (derived from IBM Project CodeNet) | 40,000 | 13M |
+
+#### tested_artifacts
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `kodcode-sft-4o` | `KodCode/KodCode-V1-SFT-4o` | cc-by-nc-4.0 | 30,000 | 130M |
+| `kodcode-sft-r1` | `KodCode/KodCode-V1-SFT-R1` | cc-by-nc-4.0 | 30,000 | 100M |
+| `openr1-verifiable-python-tested` | `open-r1/verifiable-coding-problems-python_decontaminated-tested` | none on the card (problems from TACO, APPS and CodeContests) | 15,068 | 10M |
+| `s-tested-opencodeinstruct` | `nvidia/OpenCodeInstruct` | cc-by-4.0 | 60,000 | 1.2B |
+
+#### verified_successful_multiturn
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `scale-swe-distilled-v4-pro` | `AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k` | cc-by-4.0 | 4,000 | 1.4B |
+| `swe-lego-real-resolved` | `Lego-X/SWE-Lego-Real-Data` | apache-2.0 | 5,009 | 270M |
+| `ifeval-like-filtered` | `argilla/ifeval-like-data` (filtered) | other (Qwen license) | 56,339 | 15M |
+| `if-multi-constraints-sft` | `UniLu/IF_multi_constraints_upto5_SFT` | odc-by | 42,161 | 11M |
+| `openmathinstruct1-correct` | `nvidia/OpenMathInstruct-1` | other (NVIDIA License) | 60,000 | 450M |
+
+#### issue_pr_sequences
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `gharchive-threads` | `common-pile/github_archive` | per row: Blue Oak Council permissive list (metadata.license) | 200,000 | 13.7B |
+| `pr-resolve-issue-to-patch` | `PotatoHD/github-pr-resolve` | other (no text on the card) | 12,000 | 0.9B |
+| `pr-resolve-comment-to-fix` | `PotatoHD/github-pr-resolve` | other (no text on the card) | 8,000 | 0.4B |
+| `pr-traces-10k` | `bulatSharif/gh-pr-issue-traces-10k` | apache-2.0 | 4,000 | 0.18B |
+
+#### code_evolution
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `commit-chronicle` | `JetBrains-Research/commit-chronicle` | other (permissive repositories only; licence kept per row) | 60,000 | 9B |
+| `locus-commit-pool` | `ahnaftaz/locus-commit-pool-v1` | other (each source file keeps its repository's licence) | 8,000 | 100B+ |
+
+#### connected_repositories
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `repository-v2-long` | `placeholderlabs/pretrain-repository-v2-mix-long-context` | none on the card (code is under its repositories' own licences) | 1,500 | 130B |
+
+#### long_natural_code_replay
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `repository-v2-long-replay` | `placeholderlabs/pretrain-repository-v2-mix-long-context` | none on the card (code is under its repositories' own licences) | 1,000 | 130B |
+
+#### build_logs
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `code-world-traces-affected` | `marin-community/swe-rebench-v2-CodeWorldModeling` | cc-by-4.0 | 6,000 | 15B |
+| `swe-gym-failure-logs` | `swesynth/SWE-Gym-logs` | none on the card (SWE-Gym itself is MIT) | 2,438 | 21M |
+| `swe-synth-failure-logs` | `swesynth/SWE-Synth` | none on the card | 4,000 | 88M |
+
+#### long_context
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `longmino-science-pdfs` | `allenai/dolma3_longmino_pool` | odc-by | 400 | 50B |
+| `pg19-books` | `emozilla/pg19` | none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919) | 600 | 1.7B |
+| `pre-1929-books` | `common-pile/pre_1929_books` | none on the card (US books before 1929, public domain) | 300 | 10B |
+
+#### natural_document_replay
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `s-replay-pg19` | `emozilla/pg19` | none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919) | 120 | 1.7B |
+
+#### issue_pr_diffs
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `github-patches` | `rasdani/github-patches` | none on the card | 3,000 | 1.8B |
+| `swe-fixer-train-110k` | `internlm/SWE-Fixer-Train-110K` | mit | 40,000 | 0.18B |
+| `swe-gym-raw` | `SWE-Gym/SWE-Gym-Raw` | none on the card (SWE-Gym is MIT) | 20,000 | 0.4B |
+| `swe-rebench-v2-prs` | `nebius/SWE-rebench-V2-PRs` | cc-by-4.0 | 8,000 | 1.2B |
+| `multi-swe-rl-reupload` | `PrimeIntellect/Multi-SWE-RL-Reupload` | other (card names CC0 with a ByteDance notice) | 4,703 | 25M |
+| `commitpackft` | `bigcode/commitpackft` | mit | 100,000 | 0.8B |
+
+#### grounded_artifacts
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `longcite-45k` | `zai-org/LongCite-45k` | apache-2.0 | 2,000 | 1.4B |
+| `imported-context-files` | `tingtang2/the_stack_v2_2M_repos_pretraining_dataset_imported_context-dataset` | none on the card | 20,000 | 1.9B |
+
+#### long_context_fim
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `sourcegraph-context-fim` | `sourcegraph/context-aware-fim-code-completions` | none on the card | 13,489 | 0.25B |
+| `tiger-fim-midtraining` | `TIGER-Lab/FIM-Midtraining-400K` | other (multiple open-source licences) | 10,000 | 2.6B |
+
+#### long_verified_dependencies
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `ldep-scale-swe-v4-pro` | `AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k` | cc-by-4.0 | 3,000 | 0.8B |
+| `ldep-rebench-openhands` | `nebius/SWE-rebench-openhands-trajectories` | cc-by-4.0 | 4,000 | 1.3B |
+| `ldep-coderforge` | `togethercomputer/CoderForge-Preview` (trajectories) | per row (Apache-2.0 in the sampled rows); none on the card | 3,000 | 2.2B |
+
+#### mixed_quality_episodes
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `scale-swe-distilled-v32` | `AweAI-Team/Scale-SWE-Distilled` | cc-by-4.0 | 3,000 | 3.5B |
+
+#### recovery_clarification
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `opencode-question-tool` | `nvidia/Nemotron-SFT-OpenCode-v1` | cc-by-4.0 | 2,500 | 1.1B |
+| `opencode-agent-skills-question-tool` | `nvidia/Nemotron-SFT-OpenCode-v1` | cc-by-4.0 | 1,500 | 0.4B |
+| `code-feedback` | `m-a-p/Code-Feedback` | apache-2.0 | 30,000 | 94M |
+
+#### environment_trajectories
+
+| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
+| --- | --- | --- | --- | --- |
+| `adp-go-browse-wa` | `neulab/agent-data-collection` | mit | 3,000 | 180M |
+| `adp-nnetnav-wa` | `neulab/agent-data-collection` | apache-2.0 | 800 | 150M |
+| `adp-mind2web` | `neulab/agent-data-collection` | cc-by-4.0 | 300 | 100M |
+| `agentrefine-gpt4o` | `fudayuan/AgentRefine-gpt4o-64000` | apache-2.0 | 64,000 | 68M |
+
+### Later-stage tokens against planned exposure
+
+"Unique tokens" is what the pinned sources hold after their row filters (a lower bound where
+a quality limit later drops rows); the first-run caps above prepare far less. "Planned" is
+the stage's share times its budget, the last column how many times each token would be seen if
+the plan ran as written. Above about 4 it is time to find more data or lower the share; far
+below 1 means the source is not the limit.
+
+| Stream | Phase and share | Unique tokens (B) | Planned (B) | Times each token is seen |
+| --- | --- | --- | --- | --- |
+| issue_pr_sequences | M1, 28.4% | 15.2 | 17.1 | 1.1x |
+| connected_repositories | M1, 13% | 130 | 7.8 | 0.06x |
+| code_evolution | M1, 2.8% | 9 or more (commit diffs); the full commit pool is far larger | 1.7 | 0.2x |
+| build_logs | M1, 1.1% | 15 | 0.67 | 0.04x |
+| long_context | M1, 4.7% | 60 or more | 2.8 | 0.05x |
+| issue_pr_diffs | M2, 9.3% | 3.5 after removing overlaps (4.4 raw) | 3.7 | 1.1x |
+| grounded_artifacts | M2, 9% | 3.3 | 3.6 | 1.1x |
+| long_context_fim | M2, 4.7% | 2.85 (0.25 of it true cross-file) | 1.9 | 0.65x |
+| long_verified_dependencies | LC, 40% | about 4.3 (shared with `verified_trajectories`) | 8.0 | 1.9x |
+| long_natural_code_replay | LC, 8% | 130 (same pool as connected_repositories) | 1.6 | 0.01x |
+| mixed_quality_episodes | LC, 20% | 15.5 (3.5 new, 12 already in `swe-zero-openhands`) | 4.0 | 0.26x |
+| synthetic_code_rewrite | P1, 3.9% | 71 | 15.6 | 0.22x |
+| environment_trajectories | P1, 0.1% | 0.6 (0.5 new, 0.1 before) | 0.4 | 0.7x |
+
+The S stage is metered in scored positions (assistant tokens the loss is computed on), not
+transcript tokens. Scored tokens are the share of a source's transcript that the assistant
+wrote, so the transcript totals below overstate what S can learn from:
+
+| Stream | S share | Unique transcript tokens (B) | Of which scored (B, estimate) | Planned scored positions (B) | Passes |
+| --- | --- | --- | --- | --- | --- |
+| verified_successful_multiturn | 46% | 2.15 new, plus the pinned verified sets that `s-verified-*` re-read | 0.45 new | 0.92 | 2x on the new rows alone; the re-read sets add more |
+| recovery_clarification | 14% | 1.6 (was 0.007) | 0.5 | 0.28 | 0.6x (was 40x) |
+| tested_artifacts | 8% | 1.4 | 0.6 | 0.16 | 0.3x |
+| natural_document_replay | 1% | 1.7 | 1.7 | 0.02 | 0.01x |
+
+`long_verified_dependencies` is not independent supply: its three views re-read the same
+trajectories as `verified_trajectories` for another stream, as the `s-verified-*` entries do.
+
+### What was checked for the later stages
+
+Each of the 47 entries was streamed from its pinned revision and files through the real
+streaming reader and its own adapter on its first 6 to 20 rows after the entry's row filters.
+Every row produced an episode in the declared stream, with these exceptions: one CoderForge
+row (the segmenter message "Parser diagnostic is outside the original source" already noted
+for that source above), and `pr-resolve-comment-to-fix`, where only one of the first eight
+rows of the file was a review-fix row (the file mixes both task types; the filter is
+working). Findings that changed the manifest:
+
+- The read-batch-size option is a Parquet reader setting; JSON entries that set it would not
+  open, so it is now set for Parquet files only.
+- `bigcode/commitpackft` ships a loading script the streaming reader refuses, so the entry
+  pins the Hub's automatic Parquet conversion of that same commit.
+- `argilla/ifeval-like-data` needs its `filtered` configuration; reading the file directly
+  fails the card's declared columns.
+- `nvidia/Nemotron-SFT-OpenCode-v1` writes tools as `{id, inputSchema.jsonSchema}`; four of
+  six rows were rejected until the adapter learned that spelling.
+- Numeric or label-valued `id` columns (Go-Browse, AgentRefine, the IF sets) are not used as
+  lineage families; a hash of the first request is.
+- The edit-to-read links come out as expected on real rows (one to six per run in Scale-SWE,
+  SWE-rebench-OpenHands and CoderForge); Orchard produced none.
+
+The fixture tests in `tests/test_later_stage_sources.py` build a row in each source's real
+shape (field names and nesting from rows read that day), run the adapter named in the
+manifest, and check the stream, scored records, provenance, verdict and the row filters;
+`tests/test_later_stage_adapters.py` covers the new row shapes. Neither touches the network.
+
+### Considered and not added for the later stages
+
+- **Pairs and sets that cannot be streamed as they are.** Single-file JSON arrays
+  (`xlangai/AgentTrek`, `agent-eto/eto-sft-trajectory`, `WeixiangYan/CodeTransOcean`,
+  `Yhyu13/ToolBench_toolllama_G123_dfs`, `Vezora/Tested-143k-Python-Alpaca`); an archive of
+  logs whose `.xz` files are really 7z (`pkgforge/build-logs`, real Actions run logs, about 5 GB
+  that expand to roughly 85 GB, with no fixes); Arrow-only layouts
+  (`project-themis/git-commits`, `iNeil77/CodeNet`) that need a conversion job first.
+- **Shapes the adapters do not read.** `stellalisy/MediQ_AskDocs` (the one human-written set of
+  clarifying questions: about 20k rows with a few dozen scored tokens each, with the question in
+  a separate column from the history), `SenseLLM/ReflectionSeq-DS` (typed code and execution
+  parts), `tuandunghcmut/toolbench-v1` (column-oriented conversations), the three CodeNet
+  translation sets (a column per language), and the Stack v3 training split itself (nested
+  file lists of a whole repository need a renderer; `placeholderlabs` already ships that
+  rendering).
+- **Shuffled or unsortable.** `bigcode/commitpack` (3.8 TB, rows shuffled, fork lists as
+  repository), `luowenyang/issues_prs_grouped` (2.7 GB single row groups),
+  `open-index/open-github-issues` (relational tables for seven repositories),
+  `common-pile/stackv2` and `codeparrot/github-code` (per-file rows in random repository order).
+- **Evaluation or benchmark-derived.** SWE-bench and its variants, Multi-SWE-bench,
+  `Anonym01048/SWE-Bench-Pro-interactive-*`, `agentica-org/DeepCoder-Preview-Dataset` (its
+  `lcbv5` and `codeforces` splits), `tianyang/repobench*`, `CSJianYang/ExecRepoBench`,
+  `eyuansu71/logdx-ci` and the CI-repair benchmarks.
+- **Duplicates or weaker copies.** `nebius/SWE-rebench-V2` (a subset of `-V2-PRs`),
+  `nebius/SWE-bench-extra`, `SWE-Gym/SWE-Gym` (a subset of `-Raw`), the `SWE-Fixer` chain-of-thought
+  variants (the same 70k rows as `rasdani/github-patches`), `bigcode/commitpackmeta`, the
+  LogHub system logs (one line per row, no failures to fix) and `nvidia/Nemotron-Instruction-Following-Chat-v1`
+  (no per-row verdict, so it cannot enter a verified stream).
+- **No failures with recovery marks.** Unresolved runs of `SI2CA-Training-Trajectories`,
+  `nebius/SWE-rebench-openhands-trajectories` and SWE-smith carry a recorded failure; an
+  episode with a recorded failure gets no imitation loss unless recovery turns are marked, so
+  they would add context tokens without scored positions and were not added to
+  `mixed_quality_episodes`.
+- **Fully model-written environments or turns.** `inclusionAI/AReaL-tau2-data` and
+  `fuvty/tau-bench-synthetic` (simulated users, mostly repeated turns of the same dialogue),
+  `TIGER-Lab/BrowserAgent-Data` and `HongbangYuan/sciworld_sft_warmup` (single-step rows),
+  `the-acorn-ai/textarena-player-game-traces` (cumulative history that needs a custom parser).
+
+### Gated repositories
+
+Nothing in `sources.later-stages.json` needs a click: every entry was read with this
+account's token. Four gated repositories were checked (data file metadata, HTTP 403 on each) and
+left out, because the ungated sets above cover the same ground. Clicking "Agree to access" on
+these would allow them to be added:
+
+- https://huggingface.co/datasets/bigcode/the-stack-github-issues (about 13B tokens of GH
+  Archive issue and PR threads with masked usernames; the same pool as
+  `common-pile/github_archive`)
+- https://huggingface.co/datasets/bigcode/starcoderdata (adds `git-commits-cleaned`; its
+  issues subset duplicates the one above)
+- https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2 (manual approval; its
+  Synthetic-Rewriting and Synthetic-Transpilation subsets are already pinned in
+  `sources.v13.json` but need the parent files of Nemotron-Pretraining-Code-v1 to join their
+  originals, and `swallow-code-v2` now fills the rewrite stream)
+- https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v1 (manual approval; the
+  originals those rewrites came from)
+
+### Preparing the later-stage sources
+
+`configs/cloud/prepare-later-stages.json` (one 16-CPU, 32 GiB sandbox, no GPU, nothing
+launches by itself; it needs `--secret hf-token=FILE` and a clean commit) splits the manifest into
+`LATER_SHARDS` (8) pieces with `scripts/scale_source_caps.py`, which assigns the costliest
+sources first to the lightest shard, and runs one `megatoken prepare --reject-invalid` per
+shard into `out/prepared/later-<i>`, with the same parser-review policy as the agentic job.
+`LATER_ROW_SCALE` multiplies every cap. The row-size and pass-rate tables in the script now
+cover these streams, so shards balance by estimated text.
+
+Things to expect on the first run:
+
+- The long documents (`longmino-science-pdfs`, books, repository documents) are up to a
+  megabyte each and sentence segmentation costs about 25 KB of text per second per process, so
+  they set the wall clock; lower `LATER_ROW_SCALE` for a smoke test.
+- Documents and traces over the quality limit (250k to 400k tokens) are rejected by their
+  length rule rather than cut; the rejects are counted.
+- `locus-commit-pool` reads nested JSON whose `meta` object differs between shards. If the
+  streaming JSON reader reports a column type change on some shard, drop that file from the
+  entry; the `placeholderlabs` document sets read from flat Parquet and avoid it.
+- The Hub's streaming reader resolves the glob patterns used for the long shard lists on every
+  start; a failed run is resumed from the committed cursor.
+- Several sources are alphabetical or repository-contiguous (`pr-resolve-*`, `commit-chronicle`,
+  `imported-context-files`), so a small cap covers only the first repositories.
+
+### Still missing after this round
+
+- **issue_pr_sequences.** No public set links an issue, its pull-request thread and the
+  follow-up commits in one row at scale. The 13.7B-token thread source holds issue and PR
+  threads as separate rows; the linked material (issue, files or base commit, patch) is about
+  3B unique tokens, and review-then-fix pairs exist only in `pr-resolve-comment-to-fix`
+  (about 27k rows) and `pr-traces-10k` (10k rows). Human issue text with the pre-change files
+  exists only in `github-patches` (70k rows); the other SWE sets give a base commit alone, and
+  `swe-rebench-v2-prs` writes its problem statement with a model.
+- **long_verified_dependencies.** No public data has a 131k to 262k episode, annotated evidence
+  and a verified result together. The three views are derived: episodes of at least 32k tokens
+  (public agent runs rarely pass about 125k), with evidence taken from structured editor
+  arguments only. Microsoft Orchard's runs produced no links in the 8 rows read (its calls
+  name no editor `path`), so it was left out. `LongCite-45k` has real citation spans, but model-written answers and no
+  verdict, so it sits in `grounded_artifacts` without links.
+- **build_logs.** Real CI failures paired with their fixes exist only as small benchmarks.
+  The stream is filled by executed test runs on pull-request tasks, not CI logs.
+- **recovery_clarification.** Every large source is model-written, with a simulated user
+  answering. The one human-written set (`MediQ_AskDocs`) is small and in a shape the adapters do
+  not read. Nothing public is dedicated to pushback and self-correction after a user
+  disagrees; `code-feedback` is the nearest and records no fix verdict.
+- **tested_artifacts.** Volume is fine; human solutions with a recorded pass are only
+  `open-r1/verifiable-coding-problems-python_decontaminated-tested` (15k rows). TACO, APPS and
+  CodeContests have human solutions and tests but no per-row pass record.
+- **long_context_fim.** True cross-file fill-in-the-middle is 0.25B tokens. The larger set
+  has a model writing the missing body. Cutting infills from the long natural repository
+  documents would add unlimited volume but is not implemented.
+- **synthetic_code_rewrite.** Python only, and equivalence of the rewrite is not checked.
+- **Decontamination.** `swe-fixer-train-110k` and `swe-gym-raw` include SWE-bench's own
+  repositories; the KodCode sets carry a similarity score against HumanEval, MBPP, BigCodeBench
+  and LiveCodeBench. Supply a quarantine snapshot (`--benchmark-quarantine`) before training.
+- **Terms.** Several sources are non-commercial or carry model licences (the two KodCode
+  sets are cc-by-nc-4.0, `argilla/ifeval-like-data` the Qwen licence, OpenMathInstruct-1 the
+  NVIDIA licence); each is named in its entry so a release decision can
+  filter on it.
