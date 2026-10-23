@@ -109,7 +109,9 @@ def _forward(model, episode, config, store, *, window_config=None):
 
 
 def _condition_grad(model, name):
-    return model.media_realizers.packs[name].condition.project.weight.grad
+    # Realizer-specific trainability is carried by the site's local output
+    # gain; the shape-pool router head is shared with other same-shaped sites.
+    return model.media_realizers.packs[name].condition.project.output_gain.grad
 
 
 def test_media_reference_counts_its_input_size_not_text_and_corruption_fails(tmp_path):
@@ -169,7 +171,9 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, mode):
     assert _condition_grad(model, "pocket") is None
     assert model.core.frontend.facet_queries.grad is not None
     if mode == "bootstrap":
-        assert model.core.media_encoder.projection.weight.grad is not None
+        projection = model.core.media_encoder.projection
+        assert projection.router.weight.grad is not None
+        assert projection._bank.weight.grad is not None
     counters = batch_counters([batch])
     assert counters.G == len(episode.records)
     assert counters.media_events == 2
@@ -227,7 +231,8 @@ def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
     assert batch.counts["lexical"] == len(b"bright")
     assert _condition_grad(model, "pocket").abs().sum() > 0
     assert _condition_grad(model, "sana").abs().sum() > 0
-    # Different realizers, different latents: the two gradients are not one signal.
+    # The site-local gains remain distinct for the two realizer branches even
+    # though their shape-pool routing head is shared.
     assert not torch.equal(_condition_grad(model, "pocket"), _condition_grad(model, "sana"))
     counters = batch_counters([batch])
     assert counters.audio_samples == 48

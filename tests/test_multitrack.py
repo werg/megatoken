@@ -32,7 +32,7 @@ def test_singleton_matches_original_core_and_predictor():
     old_initial = core.initial_state(1)
     initial = multi.initial_state(1)
     old_prior = core.predict_facets(old_initial, effort=1)
-    new_prior = multi.predict_group(initial, tracks=("assistant",), effort=1)
+    new_prior = multi.predict_group(initial, tracks=("user",), effort=1)
     torch.testing.assert_close(new_prior[:, 0], old_prior, atol=1e-5, rtol=1e-5)
 
     raw = _selected(core, ("user",))[:, 0]
@@ -43,10 +43,16 @@ def test_singleton_matches_original_core_and_predictor():
     torch.testing.assert_close(new.history.keys, old.history.keys, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(new.history.values, old.history.values, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(
-        multi.predict_group(new, tracks=("assistant",), effort=1)[:, 0],
+        # A true singleton retains track 0. A newly named assistant track has
+        # a distinct routing code and is deliberately a different prediction.
+        multi.predict_group(new, tracks=("user",), effort=1)[:, 0],
         core.predict_facets(old, effort=1),
         atol=1e-5,
         rtol=1e-5,
+    )
+    assert not torch.allclose(
+        multi.predict_group(new, tracks=("assistant",), effort=1),
+        multi.predict_group(new, tracks=("user",), effort=1),
     )
 
 
@@ -258,20 +264,34 @@ def test_every_member_of_a_meridian_has_the_same_rope_time():
         tracks=("mic", "camera"),
         role_ids=_roles((1, 2)),
     )
-    expected = core.central.memory(
-        first.final.flatten(1, 2),
-        temporal_positions=torch.tensor([0], dtype=torch.long),
-        slot_codes=core.central.slot_codes().repeat(2, 1),
-    )
+    track_ids, _ = multi._track_indices(first, first.frontier_tracks)
+    with core.expert_pools.routing_epoch(
+        first.final.mean(2),
+        track_ids=track_ids,
+        role="c",
+        stage=core.config.central_layers,
+    ):
+        expected = core.central.memory(
+            first.final.flatten(1, 2),
+            temporal_positions=torch.tensor([0], dtype=torch.long),
+            slot_codes=core.central.slot_codes().repeat(2, 1),
+        )
     torch.testing.assert_close(first.history.keys, expected.keys, atol=0, rtol=0)
     second = multi.advance_group(
         first, _selected(core, ("mic",)), tracks=("mic",), role_ids=_roles((1,))
     )
-    expected_next = core.central.memory(
-        second.final.flatten(1, 2),
-        temporal_positions=torch.tensor([1], dtype=torch.long),
-        slot_codes=core.central.slot_codes(),
-    )
+    track_ids, _ = multi._track_indices(second, second.frontier_tracks)
+    with core.expert_pools.routing_epoch(
+        second.final.mean(2),
+        track_ids=track_ids,
+        role="c",
+        stage=core.config.central_layers,
+    ):
+        expected_next = core.central.memory(
+            second.final.flatten(1, 2),
+            temporal_positions=torch.tensor([1], dtype=torch.long),
+            slot_codes=core.central.slot_codes(),
+        )
     torch.testing.assert_close(
         second.history.keys[:, :, -core.config.n_facets :],
         expected_next.keys,

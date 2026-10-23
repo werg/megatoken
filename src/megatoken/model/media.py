@@ -17,6 +17,7 @@ from megatoken.teacher import HIDDEN_WIDTH
 
 from .attention import AttentionBranch
 from .config import ModelConfig
+from .expert_pools import current_adapter_weights
 from .layers import RMSNorm, SwiGLU
 from .state import RealizationContext
 
@@ -151,7 +152,13 @@ class MediaEncoder(nn.Module):
         self.ffn = SwiGLU(config.facet_dim, 2 * config.facet_dim)
 
     def forward(
-        self, core, features: Tensor, mask: Tensor | None = None, *, extractor: str
+        self,
+        core,
+        features: Tensor,
+        mask: Tensor | None = None,
+        *,
+        extractor: str,
+        track_ids: Tensor | None = None,
     ) -> Tensor:
         if extractor != self.extractor:
             raise ValueError("Media features come from a different teacher than this model's")
@@ -171,14 +178,19 @@ class MediaEncoder(nn.Module):
             or not bool(mask.any(dim=1).all())
         ):
             raise ValueError("Media mask must mark at least one real token per row")
-        projected = self.norm(self.projection(features.to(self.projection.weight.dtype)))
-        projected = projected.masked_fill(~mask[..., None], 0)
-        # One read of every teacher token by 32 learned queries, then E's
-        # shared facet refinement.
-        queries = self.queries.to(projected.dtype)[None].expand(projected.shape[0], -1, -1)
-        facets = queries + self.attention(queries, projected, mask)
-        facets = facets + self.ffn(self.ffn_norm(facets))
-        return core.frontend._finish(facets)
+        summary = (features.float() * mask[..., None]).sum(1) / mask.sum(1, keepdim=True)
+        weights = current_adapter_weights(summary)
+        with core.expert_pools.routing_epoch_if_absent(
+            summary, track_ids=track_ids, role="e", adapter_weights=weights
+        ):
+            projected = self.norm(self.projection(features.to(self.projection.weight.dtype)))
+            projected = projected.masked_fill(~mask[..., None], 0)
+            # One read of every teacher token by 32 learned queries, then E's
+            # shared facet refinement.
+            queries = self.queries.to(projected.dtype)[None].expand(projected.shape[0], -1, -1)
+            facets = queries + self.attention(queries, projected, mask)
+            facets = facets + self.ffn(self.ffn_norm(facets))
+            return core.frontend._finish(facets)
 
 
 class MediaRealizers(nn.Module):

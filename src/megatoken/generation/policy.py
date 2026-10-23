@@ -58,6 +58,25 @@ class _TeacherReadout(nn.Module):
         return self.decoder(self.core, context, plan.spec, teacher=plan).losses
 
 
+class _BoundMediaRealizers(MediaRealizers):
+    """Keep late-installed media conditioners connected to the shared pools."""
+
+    def __init__(self, pools):
+        super().__init__()
+        # The core is the sole owner of pools; this is a routing callback, not
+        # a second registered module reference.
+        object.__setattr__(self, "_expert_pools", pools)
+
+    def register(self, realizer: nn.Module) -> None:
+        super().register(realizer)
+        condition = getattr(realizer, "condition", None)
+        if condition is not None:
+            self._expert_pools.bind(
+                condition,
+                f"media_realizers.packs.{realizer.name}.condition",
+            )
+
+
 class FacetedGenerator(nn.Module):
     """The same raw chunk space joins observations, predictions and realization.
 
@@ -76,7 +95,7 @@ class FacetedGenerator(nn.Module):
         self.training_heads = training_heads
         self.facet_distribution = FacetGaussian(self.config.facet_dim, self.config.prior_noise_std)
         self.decoder = DeterministicDecoder(self.config, self.codec)
-        self.media_realizers = MediaRealizers()
+        self.media_realizers = _BoundMediaRealizers(self.core.expert_pools)
         from .embedding import EmbeddingRealizer
 
         self.embedding_realizer = EmbeddingRealizer(
@@ -86,8 +105,28 @@ class FacetedGenerator(nn.Module):
         from megatoken.model.transducer import NativeTransducer
 
         self.transducer = NativeTransducer(
-            core, TransducerBank(self.config.transducer_geometry), training_heads=training_heads
+            core,
+            TransducerBank(self.config.transducer_geometry),
+            # Construct hindsight temporarily in served mode too, so every
+            # projection shape it needs is present in the shared pool manifest.
+            training_heads=True,
         )
+        pools = self.core.expert_pools
+        pools.bind(self.facet_distribution, "facet_distribution")
+        pools.bind(self.decoder, "decoder")
+        pools.bind(self.embedding_realizer, "embedding_realizer")
+        pools.bind(self.transducer, "transducer")
+        # Existing and future packs bind their trainable facet conditioners,
+        # while frozen donor weights remain outside the module tree.
+        for realizer in self.media_realizers.packs.values():
+            condition = getattr(realizer, "condition", None)
+            if condition is not None:
+                pools.bind(
+                    condition,
+                    f"media_realizers.packs.{realizer.name}.condition",
+                )
+        if not training_heads:
+            self.transducer.hindsight_realizer = None
 
     @property
     def latent_dimensions(self) -> int:
@@ -109,6 +148,13 @@ class FacetedGenerator(nn.Module):
         if plan.mode not in {"bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be bootstrap or recurrent")
 
+    def _prior_distribution(self, mean: Tensor):
+        """Run the Gaussian scale head under the same coarse P context as prediction."""
+        with self.core.expert_pools.routing_epoch_if_absent(
+            mean.mean(1), role="p", stage=self.config.prediction_layers
+        ):
+            return self.facet_distribution(mean)
+
     def _training_inputs(
         self,
         state,
@@ -128,7 +174,7 @@ class FacetedGenerator(nn.Module):
         self.core.routing_aux_loss(clear=True)
         # Predict from already processed history before inspecting any target.
         mean = self.core.predict_facets(state, control=control, effort=effort)
-        prior = self.facet_distribution(mean)
+        prior = self._prior_distribution(mean)
         sampled = prior.sample(generator)
         selected = (
             self.core.advance_raw(state, sampled, role_ids=roles)
@@ -193,6 +239,10 @@ class FacetedGenerator(nn.Module):
 
         readout = _TeacherReadout(self.core, self.decoder)
         frozen = {name: parameter.detach() for name, parameter in readout.named_parameters()}
+        shared_ids = {id(parameter) for parameter in self.core.shared_parameters()}
+        frozen_ids = {id(parameter) for parameter in readout.parameters()}
+        if not shared_ids.issubset(frozen_ids):
+            raise RuntimeError("Frozen R readout is missing shared expert-pool parameters")
         with self.core.discard_routing_losses():
             return functional_call(readout, frozen, (encoded_sample, plan))
 
@@ -406,7 +456,7 @@ class FacetedGenerator(nn.Module):
         roles = torch.tensor([role_id], device=state.device)
         control = encode_controls(self.core, [control_payload], encoder_grad=False)
         mean = self.core.predict_facets(state, control=control, effort=effort)
-        distribution = self.facet_distribution(mean)
+        distribution = self._prior_distribution(mean)
         raw = distribution.sample(generator)
         decoded = self.decode_facets(raw, spec=spec)
         next_state = self.core.advance_raw(state, raw, role_ids=roles)
@@ -469,7 +519,7 @@ class FacetedGenerator(nn.Module):
         roles = torch.tensor([tape.role_id], device=state.device)
         control = encode_controls(self.core, [tape.control_payload], encoder_grad=False)
         mean = self.core.predict_facets(state, control=control, effort=tape.effort)
-        distribution = self.facet_distribution(mean)
+        distribution = self._prior_distribution(mean)
         raw = torch.as_tensor(
             tape.facet_array().copy(), device=state.device, dtype=torch.float32
         ).reshape(1, *tape.facet_shape)

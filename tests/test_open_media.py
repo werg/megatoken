@@ -2112,7 +2112,10 @@ def test_an_edit_plan_is_written_before_the_result_it_describes(tmp_path, media)
     (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
     assert episode.stream == "edit_plan"
     plan = next(r for r in episode.records if r.policy_mask and not _is_media(r))
-    assert plan.payload.decode() == '[{"tool": "adjust", "temperature": 12}, {"tool": "export"}]'
+    assert json.loads(plan.payload) == [
+        {"tool": "adjust", "temperature": 12},
+        {"tool": "export"},
+    ]
     assert [r.policy_mask for r in episode.records] == [False, False, True, True]
     assert [d.kind for d in episode.dependencies] == ["edit"]
 

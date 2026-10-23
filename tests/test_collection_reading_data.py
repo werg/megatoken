@@ -99,4 +99,5 @@ def test_a_produced_root_trains_the_query_losses(producer, tmp_path):
     (metrics,), ledger = forward(model, batches[:1], config)
     assert ledger.seen["query_alignment"] == 1 == ledger.seen["retrieval_ranking"]
     assert metrics["retrieval_queries"] == 1
-    assert model.embedding_realizer.query.weight.grad.abs().sum() > 0
+    assert model.embedding_realizer.query.output_gain.grad is not None
+    assert model.embedding_realizer.query.output_gain.grad.abs() > 0

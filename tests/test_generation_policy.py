@@ -13,6 +13,7 @@ from megatoken.generation import (
     FieldSpec,
     SchemaSpec,
 )
+from megatoken.generation.embedding import EmbeddingSpec
 from megatoken.generation.feasibility import wire_witness_tokens
 from megatoken.generation.structure import ActionTape, Observation, TapeMismatch
 from megatoken.model import FacetedCore, ModelConfig
@@ -63,6 +64,7 @@ def action_map_parameters(model):
     """E, C and R: everything between the observations and a realized action."""
     core = model.core
     return [
+        *core.shared_parameters(),
         *core.encoder_parameters(),
         *core.central_parameters(),
         *model.decoder.parameters(),
@@ -81,7 +83,10 @@ def freeze_action_map(model):
 
 
 def predictor_parameters(model):
+    # Shared shape pools are reachable from both the encoder/readout and P;
+    # keep role-specific P assertions focused on P's private controller/head.
     excluded = {id(parameter) for parameter in action_map_parameters(model)}
+    excluded.update(id(parameter) for parameter in model.core.shared_parameters())
     return [parameter for parameter in model.core.parameters() if id(parameter) not in excluded]
 
 
@@ -158,6 +163,7 @@ def test_detached_facet_target_reconstruction_and_prior_have_distinct_gradients(
     result.losses["reconstruction"][0].backward(retain_graph=True)
     assert has_gradient(model.core.encoder_parameters())
     assert has_gradient(model.decoder.parameters())
+    assert has_gradient(model.core.shared_parameters())
     assert not has_gradient(model.facet_distribution.parameters())
     assert not has_gradient(predictor_parameters(model))
     model.zero_grad(set_to_none=True)
@@ -202,6 +208,34 @@ def test_one_gaussian_draw_and_no_stochastic_downstream_work(model):
     assert decoded.payload == again.payload == result.payload
     assert decoded.emitted_ids == again.emitted_ids == result.emitted_ids
     assert decoded.trace == again.trace == result.tape.trace
+
+
+def test_single_track_generator_routes_gaussian_scale_as_final_stage_p(model, monkeypatch):
+    calls = []
+    original = model.core.expert_pools.router_features
+
+    def record(context, *, track_ids=None, role="other", stage=0):
+        calls.append((role.lower(), stage, tuple(context.shape)))
+        return original(context, track_ids=track_ids, role=role, stage=stage)
+
+    monkeypatch.setattr(model.core.expert_pools, "router_features", record)
+    model.sample(model.core.initial_state(1), spec=ActionSpec(min_tokens=4, max_tokens=4))
+    assert ("p", model.config.prediction_layers, (1, model.config.facet_dim)) in calls
+
+
+def test_standalone_embedding_realizer_uses_an_r_routing_epoch(model, monkeypatch):
+    calls = []
+    original = model.core.expert_pools.router_features
+
+    def record(context, *, track_ids=None, role="other", stage=0):
+        calls.append((role.lower(), tuple(context.shape)))
+        return original(context, track_ids=track_ids, role=role, stage=stage)
+
+    monkeypatch.setattr(model.core.expert_pools, "router_features", record)
+    raw = torch.randn(2, model.config.n_facets, model.config.facet_dim)
+    spec = EmbeddingSpec("space", "query", model.embedding_realizer.dimension)
+    model.embedding_realizer(raw, spec)
+    assert ("r", (2, model.config.facet_dim)) in calls
 
 
 def test_generated_facets_commit_raw_without_encoding_decoded_bytes(model, monkeypatch):
@@ -378,7 +412,8 @@ def test_typed_identifiers_copies_and_placements_have_two_pass_counts(model):
     assert result.losses["placement"][1] == 2
     assert result.losses["lexical"][1] == result.losses["reconstruction"][1] == 3
     sum(loss / count for loss, count in result.losses.values() if count).backward()
-    assert model.decoder.binding_query.weight.grad.abs().sum() > 0
+    assert model.decoder.binding_query.router.weight.grad.abs().sum() > 0
+    assert model.decoder.binding_query._bank.weight.grad.abs().sum() > 0
     assert model.decoder.identifier_slots.weight.grad.abs().sum() > 0
     assert model.decoder.schema_codes.weight.grad.abs().sum() > 0  # downstream conditioning
 
@@ -513,6 +548,9 @@ def test_metrics_are_detached_and_report_both_decoder_passes(model):
 
 def test_served_export_contains_all_shared_owners_and_is_identical(model):
     served = FacetedGenerator(FacetedCore(model.config), model.codec, training_heads=False)
+    assert (
+        model.core.expert_pools.manifest()["pools"] == served.core.expert_pools.manifest()["pools"]
+    )
     weights = model.served_state_dict()
     assert set(weights) == {n for n in model.state_dict() if "hindsight_realizer" not in n}
     assert not any(
@@ -530,6 +568,44 @@ def test_served_export_contains_all_shared_owners_and_is_identical(model):
     assert original.tape == exported.tape
     with pytest.raises(RuntimeError, match="served model"):
         served.supervised_step(served.core.initial_state(1), target_bytes=b"x")
+
+
+def test_late_media_registration_binds_its_trainable_condition(model):
+    from torch import nn
+
+    from megatoken.model.expert_pools import RoutedLinear
+
+    class TrainableConditionRealizer(nn.Module):
+        name = "pocket"
+        modality = "audio"
+
+        def __init__(self, width):
+            super().__init__()
+            self.condition = nn.Sequential(nn.Linear(width, 5))
+
+    realizer = TrainableConditionRealizer(model.config.facet_dim)
+    model.media_realizers.register(realizer)
+
+    assert isinstance(realizer.condition[0], RoutedLinear)
+    assert any(
+        site["site"] == "media_realizers.packs.pocket.condition.0"
+        for site in model.core.expert_pools.manifest()["sites"]
+    )
+
+
+def test_frozen_readout_cache_refreshes_when_parameters_are_added(model):
+    from torch import nn
+
+    from megatoken.model.multitrack import MultiTrackGenerator
+
+    multi = MultiTrackGenerator.of(model)
+    readout = nn.Sequential(nn.Linear(3, 4))
+    first = multi._frozen_readout(readout)
+    readout.append(nn.Linear(4, 2))
+    refreshed = multi._frozen_readout(readout)
+
+    assert set(first) == {"0.weight", "0.bias"}
+    assert set(refreshed) == {"0.weight", "0.bias", "1.weight", "1.bias"}
 
 
 def test_noncanonical_teacher_ids_remain_actual_ce_targets():
@@ -603,6 +679,7 @@ def test_recurrent_mode_reconstructs_directly_with_frozen_readout_and_two_passes
     assert result.losses["facet_prediction"][1] == result.losses["encoder_alignment"][1] == 0
     result.losses["reconstruction"][0].backward(retain_graph=True)
     assert has_gradient(model.core.encoder_parameters())
+    assert has_gradient(model.core.shared_parameters())
     assert not has_gradient(predictor_parameters(model))
     assert not has_gradient(model.decoder.parameters())
     assert not has_gradient(model.facet_distribution.parameters())
@@ -814,7 +891,14 @@ def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model)
 
 def test_freezing_the_action_map_leaves_p_side_retrieval_trainable(model):
     freeze_action_map(model)
-    assert model.transducer.query_realizer.query.weight.requires_grad
+    # The query site's router is a core-owned, shape-shared selector. Check
+    # transducer-owned retrieval controls instead of that selector or the
+    # compatibility ``weight`` view into the global expert bank.
+    query_reader = model.transducer.query_realizer
+    query_site = query_reader.query
+    assert query_reader.norm.weight.requires_grad
+    assert query_reader.role_slot.requires_grad
+    assert query_site.output_gain.requires_grad
     assert model.transducer.bank.modulation.requires_grad
 
 

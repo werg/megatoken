@@ -202,7 +202,7 @@ def test_production_source_and_facet_geometry_and_invalid_native_inputs():
     assert encoder.source_features(torch.zeros((1, 9), dtype=torch.long)).features.shape == (
         1,
         2,
-        256,
+        512,
     )
     frontend = ByteFrontend(ModelConfig.tiny())
     with pytest.raises(TypeError, match="integer"):

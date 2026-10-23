@@ -26,6 +26,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from .config import METADATA_TRACK, RESERVED_TRACKS
 from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
 from .state import KVHistory
 
@@ -123,4 +124,19 @@ class IngestHeads(nn.Module):
         items, slots, width = final.shape
         own = torch.arange(items * slots, device=final.device) // slots
         visible = own[None] == torch.arange(items, device=final.device)[:, None]
-        return self.value(final.reshape(items * slots, width), visible), self.key(final)
+        # Keep each record's readout palette local to that item. Passing the
+        # per-event track IDs lets HindsightRealizer form one routing context
+        # for each item's C states instead of pooling unrelated records into a
+        # single batch-wide source context.
+        metadata_track = core.config.max_tracks + RESERVED_TRACKS.index(METADATA_TRACK)
+        event_track_ids = torch.full(
+            (items,), metadata_track, device=final.device, dtype=torch.long
+        )
+        return (
+            self.value(
+                final.reshape(items * slots, width),
+                visible,
+                event_track_ids=event_track_ids,
+            ),
+            self.key(final),
+        )

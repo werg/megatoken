@@ -185,7 +185,10 @@ class DeterministicDecoder(nn.Module):
         if not ids:
             return torch.zeros_like(reference)
         tokens = torch.tensor(ids, device=reference.device, dtype=torch.long)
-        return self.public_projection(self.vocabulary.embed(tokens).mean(0))
+        # Public descriptions are queried one at a time from an unbatched
+        # header vector. Keep a singleton leading axis while traversing routed
+        # projections so a live [1, adapters] scope remains well formed.
+        return self.public_projection(self.vocabulary.embed(tokens).mean(0, keepdim=True))[0]
 
     def _description(self, value, reference):
         text = json.dumps(asdict(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -197,8 +200,12 @@ class DeterministicDecoder(nn.Module):
         return self.header_start(raw.to(dtype).mean(1))
 
     def teacher_raw(self, core, context, plan: PreparedTargets):
-        """Vectorized independent examples; only the sparse CE positions are gathered."""
         context = core.prepare_realization(context) if isinstance(context, Tensor) else context
+        with core.expert_pools.routing_epoch_if_absent(context.facets.mean(1), role="R", stage=0):
+            return self._teacher_raw_impl(core, context, plan)
+
+    def _teacher_raw_impl(self, core, context, plan: PreparedTargets):
+        """Vectorized independent examples; only the sparse CE positions are gathered."""
         batch = len(plan.ids)
         header = self.condition(self.header(context), self.mode_codes, 0)
         zero = header.float().sum() * 0
@@ -228,11 +235,16 @@ class DeterministicDecoder(nn.Module):
         for capacity, members in groups.items():
             if len(members) == batch:
                 group_context, group_header = context, header
+                rows = self.realizer(core, group_context, capacity, group_header).flatten(0, 1)
             else:
                 member_index = torch.tensor(members, device=header.device, dtype=torch.long)
                 group_context = RealizationContext(context.facets.index_select(0, member_index))
                 group_header = header.index_select(0, member_index)
-            rows = self.realizer(core, group_context, capacity, group_header).flatten(0, 1)
+                # Each workspace group is a true batch subset. Keep the
+                # retrieval-conditioned router features, cached palettes, and
+                # adapter rows aligned to those examples while realizing it.
+                with core.expert_pools.routing_subset(member_index):
+                    rows = self.realizer(core, group_context, capacity, group_header).flatten(0, 1)
             positions = []
             for local, example in enumerate(members):
                 for position, (token, scored) in enumerate(
@@ -253,6 +265,11 @@ class DeterministicDecoder(nn.Module):
         return losses
 
     def forward(self, core, context, spec: ActionSpec, teacher: PreparedAction | None = None):
+        context = core.prepare_realization(context) if isinstance(context, Tensor) else context
+        with core.expert_pools.routing_epoch_if_absent(context.facets.mean(1), role="R", stage=0):
+            return self._forward_impl(core, context, spec, teacher)
+
+    def _forward_impl(self, core, context, spec: ActionSpec, teacher: PreparedAction | None = None):
         context = core.prepare_realization(context) if isinstance(context, Tensor) else context
         if context.facets.shape[0] != 1:
             raise ValueError("action realization takes one example; raw supervision is batched")

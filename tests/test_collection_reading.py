@@ -48,7 +48,8 @@ def test_an_annotated_window_trains_the_query_head_and_observes_what_it_retrieve
     assert ledger.seen["query_alignment"] == 1 and ledger.seen["retrieval_ranking"] == 1
     # The loss reaches the embedding head's query role, and only that role.
     head = model.embedding_realizer
-    assert head.query.weight.grad.abs().sum() > 0 and head.document.weight.grad is None
+    assert head.query.output_gain.grad is not None and head.query.output_gain.grad.abs() > 0
+    assert head.document.output_gain.grad is None
     # With the threshold open the lookup after the question (the second: the first follows
     # the metadata, before anything was asked) observed two passages, in the collection's order.
     (session,) = sessions

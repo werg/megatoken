@@ -101,21 +101,35 @@ def test_learning_rules_follow_the_owning_module_not_the_parameter_name():
     ):
         assert (rules[name].lr_multiplier, rules[name].weight_decay) == (0.5, 0.0), name
     # Dense linears keep the full rate and decay even when their name says
-    # "embedding", "vocabulary" or "ngram".
+    # "vocabulary" or "ngram". The n-gram projection is routed now, so its
+    # matrix rule belongs to the unique global pool parameter.
     for name in (
-        "embedding_realizer.query.weight",
-        "embedding_realizer.document.weight",
         "decoder.vocabulary.projection.weight",
-        "core.frontend.ngram_projection.weight",
         "core.frontend.ngram_mixture.weight",
     ):
         assert (rules[name].lr_multiplier, rules[name].weight_decay) == (1.0, 0.1), name
-    # The control encoder declares slow learning; vectors never decay.
-    assert (
-        rules["core.control_encoder.projection.weight"].lr_multiplier,
-        rules["core.control_encoder.projection.weight"].weight_decay,
-    ) == (0.5, 0.1)
-    assert rules["core.control_encoder.norm.weight"].weight_decay == 0.0
+    # Routed sites own scalar gains; their matrix rule belongs to the unique
+    # registry owner shared by all same-shape linear projections.
+    names = set(rules)
+    assert "embedding_realizer.query.output_gain" in names
+    assert "embedding_realizer.document.output_gain" in names
+    pool_parameter = model.core.frontend.ngram_projection._bank.weight
+    pool_name = next(
+        name for name, parameter in model.named_parameters() if id(parameter) == id(pool_parameter)
+    )
+    assert pool_name.startswith("core.expert_pools.pools.linear_")
+    assert (rules[pool_name].lr_multiplier, rules[pool_name].weight_decay) == (1.0, 0.1)
+    query_gain_rule = rules["embedding_realizer.query.output_gain"]
+    assert (query_gain_rule.lr_multiplier, query_gain_rule.weight_decay) == (1.0, 0.0)
+    # SeedControlEncoder declares slow learning. Its local routed gains and
+    # normalization stay at half rate, while the shared projection matrix
+    # above keeps the rule of its unique ShapePools owner.
+    for name in (
+        "core.control_encoder.projection.output_gain",
+        "core.control_encoder.output.output_gain",
+        "core.control_encoder.norm.weight",
+    ):
+        assert (rules[name].lr_multiplier, rules[name].weight_decay) == (0.5, 0.0), name
     assert rules["embedding_realizer.norm.weight"] == rules["embedding_realizer.norm.bias"]
     assert rules["embedding_realizer.norm.bias"].weight_decay == 0.0
 
@@ -197,6 +211,58 @@ def test_gradient_domains_require_disjoint_complete_ownership():
     ):
         with pytest.raises(ValueError, match="partition"):
             optimizer.set_gradient_domains(invalid)
+    optimizer.close()
+
+
+def test_shared_expert_pool_has_one_training_owner_and_its_own_clip_domain():
+    from types import SimpleNamespace
+
+    from megatoken.model.expert_pools import ShapePools
+
+    class TwoSites(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.first = torch.nn.Linear(3, 4)
+            self.second = torch.nn.Linear(3, 4)
+            self.expert_pools = ShapePools(
+                SimpleNamespace(
+                    facet_dim=4,
+                    projection_experts=3,
+                    p_experts=5,
+                    u_experts=3,
+                    adapter_experts=2,
+                    adapter_rank=2,
+                    adapter_topk=1,
+                    expert_backend="torch",
+                )
+            )
+            self.expert_pools.bind(self, "test")
+
+    model = TwoSites()
+    # Both sites refer to the same bank without registering it a second time.
+    assert model.first._bank is model.second._bank
+    assert model.first.router is model.second.router
+    pool_parameter = model.first._bank.weight
+    owners = [
+        name
+        for name, parameter in model.named_parameters(remove_duplicate=False)
+        if id(parameter) == id(pool_parameter)
+    ]
+    assert len(owners) == 1
+
+    optimizer = MasterAdamW(model, lr=0.01)
+    shared_names = [name for name in optimizer.masters if name.startswith("expert_pools.")]
+    rest_names = [name for name in optimizer.masters if name not in set(shared_names)]
+    optimizer.set_gradient_domains({"shared": shared_names, "model": rest_names})
+    values = torch.randn(2, 3)
+    loss = model.first(values).square().sum() + 2 * model.second(values).square().sum()
+    loss.backward()
+    metrics = optimizer.step(max_norm=0.1)
+    assert "gradient_norm_shared" in metrics
+    assert "gradient_norm_model" in metrics
+    assert any(
+        id(parameter) == id(pool_parameter) for parameter in optimizer.model_parameters.values()
+    )
     optimizer.close()
 
 

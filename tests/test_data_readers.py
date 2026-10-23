@@ -110,43 +110,35 @@ def test_local_parquet_row_groups_resume_rejections_and_byte_exact_preparation(
 
 
 def test_hf_reader_passes_pinned_identity_and_uses_real_local_streaming(
-    tmp_path, parquet_source, monkeypatch
+    parquet_source, monkeypatch
 ):
-    datasets = pytest.importorskip("datasets")
+    hub = pytest.importorskip("huggingface_hub")
     rows, source = parquet_source
-    load_dataset = datasets.load_dataset
     calls = []
 
-    def local_loader(**kwargs):
-        # Replace only Hub resolution; exercise datasets' actual Parquet iterator
-        # and our logical resume offset. No remote source or terms are consulted.
-        calls.append(kwargs)
-        return load_dataset(
-            "parquet",
-            data_files=kwargs["data_files"],
-            split=kwargs["split"],
-            streaming=kwargs["streaming"],
-            cache_dir=str(tmp_path / "datasets-cache"),
-        )
+    def local_open(_filesystem, path, mode="rb", **kwargs):
+        # Preserve the real pinned Hub address while replacing only remote I/O;
+        # `_hub_parquet_rows` still exercises the actual PyArrow row-group reader.
+        calls.append((path, mode, kwargs))
+        assert path == f"hf://datasets/local/fixture@{'a' * 40}/documents.parquet"
+        return open(source.files[0].path, mode)
 
-    monkeypatch.setattr(datasets, "load_dataset", local_loader)
+    monkeypatch.setattr(hub.HfFileSystem, "open", local_open)
     hf_source = replace(
         source,
         format="hf",
         uri="hf://datasets/local/fixture",
         revision="a" * 40,
         subset="fixture-subset",
+        files=(replace(source.files[0], path="documents.parquet"),),
     )
     assert list(iter_source_rows(hf_source, start_row=3)) == list(enumerate(rows[3:6], 3))
     assert calls == [
-        {
-            "path": "local/fixture",
-            "name": "fixture-subset",
-            "split": "train",
-            "revision": "a" * 40,
-            "streaming": True,
-            "data_files": {"train": [source.files[0].path]},
-        }
+        (
+            "hf://datasets/local/fixture@" + "a" * 40 + "/documents.parquet",
+            "rb",
+            {"block_size": 32 << 20},
+        )
     ]
 
 

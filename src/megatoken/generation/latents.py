@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 import torch
 from torch import Tensor, nn
-from torch.nn import functional as F
 
 
 @dataclass(frozen=True)
@@ -68,5 +67,10 @@ class FacetGaussian(nn.Module):
         # Casting a served model to BF16 must not reduce variance precision.
         with torch.autocast(device_type=mean.device.type, enabled=False):
             mean = mean.float()
-            raw = F.linear(mean, self.log_scale.weight.float(), self.log_scale.bias.float())
+            # ``log_scale`` may be a routed shared-pool projection. Call the
+            # module so its expert dispatch and gradients are preserved; run
+            # its input in the pool's storage dtype, then return to FP32 for
+            # the bounded scale calculation and all density math.
+            projection_dtype = self.log_scale.weight.dtype
+            raw = self.log_scale(mean.to(projection_dtype)).float()
             return DiagonalGaussian(mean, -4.0 + 5.0 * raw.sigmoid())

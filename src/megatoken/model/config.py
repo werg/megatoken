@@ -9,7 +9,7 @@ from typing import Any
 
 from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
-ARCHITECTURE_VERSION = 10
+ARCHITECTURE_VERSION = 11
 # Reserved system tracks. Track ``RESERVED_TRACKS[i]`` occupies index
 # ``max_tracks + i`` and never counts against the user-visible track registry.
 TRANSDUCER_QUERY_TRACK = "__transducer_query__"
@@ -27,14 +27,10 @@ class ModelConfig:
     n_facets: int = 32
     facet_dim: int = 512
     encoder_layers: int = 2
-    encoder_hidden: int = 1024
     central_layers: int = 4
-    central_hidden: int = 1024
     prediction_layers: int = 12
-    remix_hidden: int = 1024
     max_history_chunks: int = 1024
     max_tracks: int = 8
-    source_dim: int = 256
     # The one media input: pinned EmbeddingGemma2 hidden states (see
     # megatoken/teacher.py). Part of the geometry, so feature caches from a
     # different teacher can never resume into this model.
@@ -45,17 +41,14 @@ class ModelConfig:
     ngram_rows: int = 2_500_000
     exact_bigrams: bool = True
     ngram_orders: tuple[int, ...] = (1, 2, 3, 4, 8)
-    control_dim: int = 128
     codec_noise_std: float = 0.1
     prior_noise_std: float = 0.1
     p_experts: int = 64
-    p_hidden: int = 1536
-    p_always_hidden: int = 1024
     u_experts: int = 32
-    u_hidden: int = 1024
-    u_always_hidden: int = 512
+    projection_experts: int = 8
     eligible_experts: int = 8
     router_dim: int = 64
+    router_experts: int = 8
     routing_version: int = 3
     query_heads: int = 4
     kv_heads: int = 2
@@ -77,9 +70,8 @@ class ModelConfig:
     transducer_max_lookups: int = 256
     transducer_max_edges: int = 1_000_000
     transducer_byte_budget: int = 24_000_000_000
-    # The knowledge-routed adapter mixture (model/adapters.py): per owner of C, P
-    # and R, ``adapter_experts`` low-rank experts of rank ``adapter_rank``, of
-    # which each lookup's mixture picks ``adapter_topk``.
+    # Every shared expert matrix has its own low-rank adapter factors. E/C/P/R
+    # controllers select sparse mixtures from the latest causal lookup.
     adapter_experts: int = 8
     adapter_rank: int = 8
     adapter_topk: int = 2
@@ -87,7 +79,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: this model requires version 10; "
+                "Incompatible architecture version: this model requires version 11; "
                 "earlier checkpoints cannot be loaded as this architecture"
             )
         positive = (
@@ -108,10 +100,12 @@ class ModelConfig:
             "p_hidden",
             "p_always_hidden",
             "u_experts",
+            "projection_experts",
             "u_hidden",
             "u_always_hidden",
             "eligible_experts",
             "router_dim",
+            "router_experts",
             "remix_hidden",
             "max_history_chunks",
             "max_tracks",
@@ -157,6 +151,31 @@ class ModelConfig:
     def pair_dim(self) -> int:
         return 2 * self.facet_dim
 
+    # Shared shapes are architectural invariants, not independent hidden-width
+    # knobs. Every single-facet FFN uses D -> 2D -> D; pair FFNs use 2D -> 4D -> 2D.
+    @property
+    def source_dim(self) -> int:
+        return self.facet_dim
+
+    @property
+    def control_dim(self) -> int:
+        return self.facet_dim
+
+    @property
+    def encoder_hidden(self) -> int:
+        return 2 * self.facet_dim
+
+    central_hidden = encoder_hidden
+    remix_hidden = encoder_hidden
+    u_hidden = encoder_hidden
+    u_always_hidden = encoder_hidden
+
+    @property
+    def p_hidden(self) -> int:
+        return 2 * self.pair_dim
+
+    p_always_hidden = p_hidden
+
     @property
     def transducer_geometry(self):
         from megatoken.memory.transducer import TransducerGeometry
@@ -194,22 +213,15 @@ class ModelConfig:
             name="tiny",
             n_facets=4,
             facet_dim=32,
-            source_dim=32,
-            encoder_hidden=48,
-            central_hidden=48,
-            control_dim=16,
             byte_dim=4,
             ngram_dim=8,
             ngram_rows=2048,
             exact_bigrams=False,
             p_experts=8,
-            p_hidden=48,
-            p_always_hidden=24,
             u_experts=8,
-            u_hidden=48,
-            u_always_hidden=24,
+            projection_experts=4,
             router_dim=16,
-            remix_hidden=48,
+            router_experts=4,
             max_history_chunks=8,
             attention_head_dim=8,
             vocab_size=256,
@@ -233,9 +245,6 @@ class ModelConfig:
         values: dict[str, Any] = dict(
             name="32x256",
             facet_dim=256,
-            source_dim=128,
-            encoder_hidden=512,
-            central_hidden=512,
             attention_head_dim=64,
         )
         values.update(overrides)
@@ -245,7 +254,7 @@ class ModelConfig:
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=10; "
+                "Saved model configuration must explicitly declare architecture_version=11; "
                 "earlier checkpoints are intentionally unsupported"
             )
         unknown = set(values) - {field.name for field in fields(cls)}

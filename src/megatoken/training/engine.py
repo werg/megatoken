@@ -388,10 +388,57 @@ def train(
             optimizer.freeze(
                 [name for name, p in optimizer.model_parameters.items() if id(p) not in bridge]
             )
-        elif config.representation_training == "recurrent":
-            # Contextual codec auxiliaries use frozen C/R with E gradients only.
-            # Independent clipping prevents their norm scaling the main update.
-            optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
+        # Shape-harmonized expert banks are one global owner used by many
+        # routed sites. Keep their gradients in one clipping domain rather than
+        # letting a bank's contribution be multiplied by its number of uses.
+        # During media-bridge training those global owners remain frozen; only
+        # media-local gains, biases, norms and realizer conditions train.
+        shared_parameters = getattr(model.core, "shared_parameters", None)
+        shared_ids = (
+            {id(parameter) for parameter in shared_parameters()}
+            if shared_parameters is not None
+            else set()
+        )
+        encoder_ids = (
+            {id(parameter) for parameter in model.core.encoder_parameters()}
+            if config.representation_training == "recurrent" and config.trainable != "media_bridge"
+            else set()
+        ) - shared_ids
+        owned_ids = {id(parameter) for parameter in optimizer.model_parameters.values()}
+        # A module may expose shared/frozen tensors that have never been optimizer
+        # owners (for example inference-only buffers). Only optimizer-owned tensors
+        # belong in clipping partitions.
+        shared_ids &= owned_ids
+        encoder_ids &= owned_ids
+        if shared_ids or encoder_ids:
+            domains: dict[str, list[str]] = {}
+            if shared_ids:
+                shared_names = [
+                    name
+                    for name, parameter in optimizer.model_parameters.items()
+                    if id(parameter) in shared_ids
+                ]
+                if shared_names:
+                    domains["shared"] = shared_names
+            if encoder_ids:
+                encoder_names = [
+                    name
+                    for name, parameter in optimizer.model_parameters.items()
+                    if id(parameter) in encoder_ids
+                ]
+                if encoder_names:
+                    domains["encoder"] = encoder_names
+            excluded = shared_ids | encoder_ids
+            model_names = [
+                name
+                for name, parameter in optimizer.model_parameters.items()
+                if id(parameter) not in excluded
+            ]
+            if model_names:
+                domains["model"] = model_names
+            # `set_gradient_domains` requires a partition of optimizer owners.
+            # It also ensures the global pools are represented exactly once.
+            optimizer.set_gradient_domains(domains)
         windows_config = window_config(config)
         dataset = PreparedCorpus(config.datasets)
         if dataset.codec_fingerprint != codec.fingerprint:
@@ -690,7 +737,10 @@ def train(
             weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
             optimizer.zero_grad()
-            routers = balance_routers(model.core)
+            # Include core selectors and any routed sites owned by the
+            # training-only transducer heads; those sites still train the same
+            # globally shared expert pools.
+            routers = balance_routers(model)
             router_replay = RouterBalanceWindow()
             learning_rate = phase.learning_rate(
                 diloco.global_tokens if diloco is not None else consumed

@@ -208,9 +208,16 @@ def test_ingest_losses_distil_the_hindsight_value_and_contrast_the_keys():
     # Only the ingest heads learn from them: the hindsight head is the teacher, the query is a target.
     (losses["ingest_value"] + losses["ingest_key"]).backward()
     heads = model.transducer.ingest
-    assert heads.value.output.weight.grad is not None and heads.key.project.weight.grad is not None
-    assert model.transducer.hindsight_realizer.output.weight.grad is None
-    assert model.transducer.query_realizer.query.weight.grad is None
+    assert heads.value.output.router.weight.grad is not None
+    assert heads.value.output._bank.weight.grad is not None
+    assert heads.key.project.router.weight.grad is not None
+    assert heads.key.project._bank.weight.grad is not None
+    # Shared pool/head gradients from ingest are valid; the teacher and query
+    # sites' own affine terms must stay untouched by this distillation loss.
+    teacher = model.transducer.hindsight_realizer.output
+    query = model.transducer.query_realizer.query
+    assert teacher.output_gain.grad is None
+    assert query.output_gain.grad is None
 
 
 def test_only_lookups_actually_made_are_paired_and_one_item_has_nothing_to_contrast():

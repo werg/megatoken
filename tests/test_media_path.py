@@ -387,7 +387,10 @@ def test_gradient_reaches_the_single_input_projection():
     core.encode_media(features(12), extractor=PINNED_TEACHER).square().sum().backward()
     projection = core.media_encoder.projection.weight
     assert projection.shape == (core.config.source_dim, HIDDEN_WIDTH)
-    assert projection.grad is not None and projection.grad.abs().sum() > 0
+    assert core.media_encoder.projection.output_gain.grad is not None
+    assert core.media_encoder.projection.output_gain.grad.abs() > 0
+    shared = list(core.shared_parameters())
+    assert shared and any(p.grad is not None and p.grad.abs().sum() > 0 for p in shared)
     # The reduction and facet readout are the text path's own weights.
     assert any(p.grad is not None for p in core.frontend.parameters())
 
@@ -473,7 +476,8 @@ def test_anchor_loss_backpropagates_to_byte_e_and_the_media_projection():
     assert loss.ndim == 0 and torch.isfinite(loss) and loss > 0
     loss.backward()
     core = model.core
-    assert core.media_encoder.projection.weight.grad.abs().sum() > 0
+    assert core.media_encoder.projection.router.weight.grad.abs().sum() > 0
+    assert core.media_encoder.projection._bank.weight.grad.abs().sum() > 0
     byte_side = [p for p in core.frontend.parameters() if p.grad is not None]
     assert byte_side and any(p.grad.abs().sum() > 0 for p in byte_side)
     byte_table = [
@@ -537,7 +541,7 @@ def test_media_bridge_step_changes_only_the_bridge():
     optimizer.step()
     changed = {n for n, p in model.named_parameters() if not torch.equal(p, before[n])}
     assert changed and {id(p) for n, p in model.named_parameters() if n in changed} <= bridge
-    assert changed >= {"core.media_encoder.projection.weight"}
+    assert "core.media_encoder.projection.output_gain" in changed
     assert set(optimizer.masters) == initial_masters  # DiLoCo owner set is unchanged
     assert optimizer.frozen_names and optimizer.frozen_names.isdisjoint(changed)
 

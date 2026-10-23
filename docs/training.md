@@ -2,7 +2,7 @@
 
 # Training and operations
 
-> **Implementation boundary (architecture v10):** The stages described below
+> **Implementation boundary (architecture v11):** The stages described below
 > still support legacy one-event episodes. The grouped `MultiTrackGenerator`
 > also supports grouped text, audio, image and video bootstrap/recurrent
 > meridians. Media enters only as pinned EmbeddingGemma2 hidden states and leaves
@@ -23,12 +23,56 @@
 
 The recurrent input is a `[batch, 32, 512]` raw facet tensor, or `[batch, 32, 256]`
 in the smaller preset. E builds the same format through ordered byte/ngram processing,
-repeated halving, and two dense facet refinement blocks. Four independently owned
-central stages process every selected input, use three temporary KV read/write
-transitions, then publish only the final rotated KV entry. A
+repeated halving, and two facet-refinement blocks. Four central stages process every
+selected input and use three temporary KV read/write transitions before publishing
+only the final rotated KV entry. Block-local structure remains distinct; eligible
+projection and FFN matrices use globally shared shape pools across E/C/P/U/R. A
 non-residual remix and twelve sparse prediction stages produce the next Gaussian mean.
 The realizer reads canonical raw facets directly; only future P uses
 C's final features and historical KV. See [architecture.md](architecture.md) for the tensor graph.
+
+### Shared expert ownership
+
+Eligible learned projections, SwiGLU operations, and supported ungrouped
+`Conv1d` sites route through globally registered expert pools. A deterministic
+fold and track/role/stage codes create
+a compact bootstrap context; a shared bootstrap selector chooses one small
+router expert, which emits the routing feature. Each shared shape pool then
+selects its eligible expert palette once for the current routing epoch. Every
+compatible site reuses that cached palette, with a deterministic site-prefix
+phase distributing its rows across the palette. Learned selection happens
+once for the bootstrap and once per active shape pool per epoch, instead of at
+every individual projection. Pools group linear sites by padded input/output
+shape, SwiGLU sites by hidden width, and convolution taps by the equivalent
+linear input/output shape, so compatible sites share expert values and routing
+heads. Convolution bias is added once after tap accumulation. Sites retain
+local biases, while the pool is referenced without registering duplicate
+parameters under each site. Optimizer,
+checkpoint, and synchronous or DiLoCo synchronization therefore see every
+global pool parameter once. Retrieval-conditioned adapter factors are stored
+with shared expert values and follow the same one-owner rule.
+
+The trainer clips gradients from global pools in a separate `shared` domain.
+This keeps each pool's combined gradient in one independently clipped domain,
+regardless of how many sites use it. P/U selectors, role-local adapter
+controllers, and the rest of the model remain in the model domain; recurrent
+encoder reconstruction retains its own encoder domain. Router balance diagnostics
+report the shared bootstrap selector, one selector per active shape pool, and the
+explicit P/U and adapter controllers.
+Sites sharing a selector contribute to that selector's combined assignment
+counts instead of creating repeated copies of the same balance term.
+
+In the media-bridge stage, the shared expert pools, bootstrap router, all shared
+pool selector heads, and their adapters remain frozen while media-local encoding
+and projection gains, the
+central modality embedding, and realizer conditions train. The E-only recurrent
+encoder-reconstruction branch uses detached functional copies of R/U and the
+shared pools. It sends gradients through that fixed readout into E-produced
+facets without changing readout weights. Shared pools can still receive gradients
+from the ordinary prior path that consumes E output; those gradients are clipped
+once in the `shared` domain, while E-private gradients use the separate `encoder`
+domain. Other core owners do not receive gradients from the reconstruction branch.
+Main recurrent and replay objectives update shared pools under their normal scope.
 
 `TrainConfig.representation_mode` selects `bootstrap` or `recurrent`. The value `auto`
 resolves to bootstrap for B0 and recurrent for every other supervised phase. Production
@@ -296,12 +340,16 @@ arithmetic precision.
 
 Adam defaults are β₁=0.9, β₂=0.95, ε=1e-8, matrix weight decay 0.1, and clipping at 1.0
 per active gradient domain. Embeddings, lookups, norms, and biases do not decay.
-The adapter mixture's experts and controllers are ordinary dense parameters: they train
-jointly through the continuation loss, are owned by C, P or R (so pinning one of them pins
-its adapters), and enter the optimizer, DiLoCo fragments and the served bundle like any
-other owner. The media-bridge stage freezes them with everything outside the bridge. The
-three controllers' expert load joins P's and U's in the optimizer-step-global router
-balance (the pooled loss is the mean over all five routers).
+Adapter factors live beside each shared expert in the global pools. Four compact
+role controllers (E/C/P/R) emit adapter preferences from one shared router feature
+per lookup; their heads remain private to their role owners. The media-bridge stage
+freezes the global pools, shared bootstrap router, and all adapter factors, while
+training the bridge's local components. Optimizer-step-global balance covers the
+explicit P/U selectors, the four role controllers, the shared bootstrap selector,
+and one selector per active shape pool. Shared selectors are counted once even when
+many routed sites use them; their balance losses are summed as separate normalized
+terms, each normalized by that selector's own hard assignment counts and soft
+probabilities.
 Lookup/control owners use half the base learning rate. Repeated module calls share one
 parameter owner, one FP32 master, and one optimizer slot. Non-finite gradients abort
 before an update.
@@ -315,8 +363,11 @@ megatoken --json-output runs/recurrent-benchmark.json benchmark \
 ```
 
 The two production presets are `32x512` and `32x256`; both use all 32 facet slots.
-Run `inspect` for the current actual unique-owner count, including E, independent dense
-C, sparse P, and R. There are no private posterior or alignment heads. `inspect` performs a meta-device owner census without allocating full weight
+Run `inspect` for the current actual unique-owner count, including E-private
+frontend and block structure, the four C block sites, sparse P, R/U, and the
+globally shared expert pools. Shared pool values are counted once regardless of
+how many E/C/P/U/R sites use them. There are no private posterior or alignment
+heads. `inspect` performs a meta-device owner census without allocating full weight
 storage. Activations, gradients, optimizer state, and KV are separate from weight counts.
 
 Experts use a PyTorch reference or explicit Triton grouped kernels with row and weight
@@ -417,9 +468,13 @@ Export requires a completed bake. No donor model runs during training or serving
 
 ## Outcome RL
 
-Not implemented: the RL stage and its code were removed. The constraint any
-future latent-action RL must keep (freeze the whole conditional decoding map,
-E, C and R, while P's density changes) is recorded in
+Not implemented: the RL stage and its code were removed. Under the recorded
+future latent-action RL constraint, freeze the conditional decoding map and all
+shared expert matrix values and router/pool heads, because those shared values
+also serve E, C, P, U, and R. P-specific route-program parameters and other
+private distribution parameters may still change its density, but P cannot
+update shared projection or FFN matrices used by the frozen conditional map.
+The constraint is recorded in
 [decisions/0004-contextual-realization.md](decisions/0004-contextual-realization.md).
 
 ## Decisions before scaling
@@ -436,3 +491,4 @@ explicit dependency annotations, accounting, and restart contracts. They do not 
 source label into measured long-context coverage or automatically advance curricula.
 `WindowAudit` checks actual writer/reader windows and exposure. Use those measurements
 and fixed task outcomes to decide when to extend the next pilot.
+

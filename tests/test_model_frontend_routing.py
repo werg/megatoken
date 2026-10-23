@@ -57,6 +57,26 @@ def test_selected_palette_and_row_confidence_receive_task_gradients():
     assert (route.expert_ids[:, :, None] == route.eligible[:, None]).any(-1).all()
 
 
+def test_epoch_compile_reuses_one_shared_router_feature_for_all_stages():
+    class Provider:
+        router_dim = 8
+
+        def __init__(self):
+            self.calls = 0
+
+        def controller_features(self, context, **kwargs):
+            self.calls += 1
+            return context
+
+    provider = Provider()
+    router = EpochRouter(8, 8, 16, 4)
+    router.bind_feature_provider(provider, role="P")
+    program = router.compile(torch.randn(2, 8), tuple(range(12)), 16, epoch="test")
+    assert provider.calls == 1
+    assert len(program.routes) == 12
+    assert not any("context_projection" in name for name, _ in router.named_parameters())
+
+
 def test_routing_deterministic_replay_and_batch_membership_invariance():
     router = EpochRouter(8, 8, 16, 4)
     context = torch.randn(3, 8)
@@ -103,6 +123,22 @@ def test_empty_physical_record_is_a_role_boundary_not_a_fake_byte():
     prediction.square().mean().backward()
     assert all(torch.isfinite(p.grad).all() for p in core.parameters() if p.grad is not None)
     assert core.frontend.bytes.weight.grad.count_nonzero() == 0
+
+
+def test_shared_input_routes_preserve_empty_records_padding_and_batch_membership():
+    core = FacetedCore(ModelConfig.tiny()).eval()
+    lengths = torch.tensor([0, 1, 33, 65])
+    byte_ids = torch.randint(256, (4, 69))
+    tracks = torch.tensor([0, 1, 0, 1])
+    with torch.no_grad():
+        together = core.encode_chunk(byte_ids, lengths, track_ids=tracks)
+        assert torch.isfinite(together).all()
+        for index, length in enumerate(lengths.tolist()):
+            alone = core.encode_chunk(
+                byte_ids[index : index + 1, :length],
+                track_ids=tracks[index : index + 1],
+            )
+            torch.testing.assert_close(together[index : index + 1], alone, atol=2e-6, rtol=2e-6)
 
 
 def test_bake_updates_fp32_masters_and_removes_map_ownership():

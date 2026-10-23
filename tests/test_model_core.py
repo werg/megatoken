@@ -56,7 +56,7 @@ def test_versioned_geometry_and_explicit_width_presets():
     assert (large.encoder_layers, large.central_layers, large.prediction_layers) == (2, 4, 12)
     assert large.central_layers + large.prediction_layers == 16
     assert large.central_hidden == 1024
-    assert (large.p_experts, large.u_experts, large.source_dim) == (64, 32, 256)
+    assert (large.p_experts, large.u_experts, large.source_dim) == (64, 32, 512)
     assert (large.query_heads, large.kv_heads, large.attention_head_dim) == (4, 2, 128)
     assert large.max_history_chunks == 1024
     assert large.codec_noise_std == large.prior_noise_std == 0.1
@@ -104,11 +104,13 @@ def test_observation_processes_new_input_immediately_and_skips_initial_sentinel(
     assert state.final.shape == state.facets.shape
     assert core.dispatch_metrics()["p"]["routed_rows"].sum().item() == 0
     assert initial.history.slots == 0 and initial.final is None
-    projected = core.central.memory(
-        state.final,
-        temporal_positions=initial.records_seen,
-        slot_codes=core.central.slot_codes(),
-    )
+    context = state.final.mean(1, keepdim=True)
+    with core.expert_pools.routing_epoch(context, role="c", stage=core.config.central_layers):
+        projected = core.central.memory(
+            state.final,
+            temporal_positions=initial.records_seen,
+            slot_codes=core.central.slot_codes(),
+        )
     torch.testing.assert_close(state.history.keys, projected.keys, rtol=0, atol=0)
     torch.testing.assert_close(state.history.values, projected.values, rtol=0, atol=0)
 
@@ -156,7 +158,7 @@ def test_nonresidual_remix_precedes_twelve_residual_prediction_layers():
     assert not torch.equal(result, boundary[0][1])
     assert len(core.stages) == 12
     with torch.no_grad():
-        core.remix.channels.down.weight.zero_()
+        core.remix.channels._bank.down.zero_()
     assert core.remix(torch.randn_like(state.facets)).count_nonzero() == 0
 
 
@@ -235,7 +237,7 @@ def test_earlier_raw_and_cache_receive_future_prediction_gradients(checkpoint_st
     assert raw.grad.norm() > 0
     assert first.history.keys.grad.norm() > 0 and first.history.values.grad.norm() > 0
     assert core.frontend.bytes.weight.grad.norm() > 0
-    assert core.central.memory.key_value.weight.grad.norm() > 0
+    assert core.central.memory.key_value._bank.weight.grad.norm() > 0
 
 
 def test_same_observation_retains_different_earlier_context_in_central_features():
@@ -274,7 +276,7 @@ def test_detached_observation_encoder_preserves_central_and_live_recurrence_grad
     core.predict_facets(observed).square().mean().backward()
     assert raw.grad.norm() > 0
     assert all(parameter.grad is None for parameter in core.encoder_parameters())
-    assert core.central.layers[0].ffn.down.weight.grad.norm() > 0
+    assert core.central.layers[0].ffn._bank.down.grad.norm() > 0
 
 
 def test_detached_control_frontend_keeps_control_encoder_trainable():
@@ -295,7 +297,7 @@ def test_exact_predictor_exposure_and_checkpoint_recompute_accounting():
     assert core.dispatch_metrics(reset=True)["p"]["routed_rows"].sum().item() == 0
     prediction = core.predict_facets(state, effort=3)
     count = core.dispatch_metrics()["p"]["routed_rows"].sum().item()
-    assert count == 12 * core.config.n_facets * 3 // 2
+    assert count == 12 * core.config.n_facets * 3
     first_aux = core.routing_aux_loss(clear=False)
     (prediction.sum() + sum(first_aux)).backward()
     assert core.dispatch_metrics()["p"]["routed_rows"].sum().item() == count
@@ -346,6 +348,39 @@ def test_auxiliary_routing_isolation_preserves_outer_graph_after_nested_failure(
     sum(original).backward()
     assert core.p_router.palette_codes.grad.norm() > 0
     assert all(parameter.grad is None for parameter in core.u_router.parameters())
+
+
+def test_discard_routing_losses_suppresses_and_restores_shared_balance_recording():
+    from megatoken.training.router_balance import RouterBalanceWindow, balance_routers
+
+    core = FacetedCore(ModelConfig.tiny())
+    state = core.observe(torch.randint(256, (1, 23)), core.initial_state(1))
+    routers = balance_routers(core)
+    recorder = RouterBalanceWindow()
+    for router in routers.values():
+        router.balance_recorder = recorder
+
+    mean = core.predict_facets(state)
+    before = {
+        name: recorder.states[id(router)].counts.clone()
+        for name, router in routers.items()
+        if id(router) in recorder.states
+    }
+    assert "shape_bootstrap" in before
+    assert any(name.startswith("shape_pool_") for name in before)
+    assignments = recorder.assignments
+
+    with core.discard_routing_losses():
+        core.apply_u(mean, core.prepare_realization(mean), level=4)
+        # The auxiliary forward still routes through shared experts, but it must
+        # not enter the optimizer-step balance window.
+        assert recorder.assignments == assignments
+    assert recorder.assignments == assignments
+    for name, counts in before.items():
+        torch.testing.assert_close(recorder.states[id(routers[name])].counts, counts)
+
+    for router in routers.values():
+        router.balance_recorder = None
 
 
 def test_bounded_history_reset_duplicates_and_model_versions():
@@ -426,12 +461,32 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
         "central.modality_embedding.",
         "adapters.",
     )
+    media_only_pools = {
+        entry["pool"]
+        for entry in core.expert_pools.manifest()["sites"]
+        if str(entry["site"]).startswith("core.media_encoder.")
+    }
+    used_elsewhere = {
+        entry["pool"]
+        for entry in core.expert_pools.manifest()["sites"]
+        if not str(entry["site"]).startswith("core.media_encoder.")
+    }
+    inactive_media_pool_codes = {
+        "".join(character if character.isalnum() else "_" for character in pool) + "__codes"
+        for pool in media_only_pools - used_elsewhere
+    }
+    inactive_media_pool_prefixes = tuple(
+        f"expert_pools.pools.{pool}." for pool in media_only_pools - used_elsewhere
+    )
     assert [
         name
         for name, parameter in core.named_parameters()
         if parameter.grad is None
         and not name.startswith(conditional)
+        and "adapter_" not in name
         and not name.endswith("attention.same_track_bias")
+        and not any(name.endswith(f"pool_codes.{code}") for code in inactive_media_pool_codes)
+        and not any(name.startswith(prefix) for prefix in inactive_media_pool_prefixes)
     ] == []
     assert all(
         torch.isfinite(parameter.grad).all()
@@ -449,25 +504,27 @@ def test_owner_groups_are_disjoint_complete_and_allow_fixed_decoder_latent_rl():
         list(core.predictor_parameters()),
         list(core.realizer_parameters()),
         list(core.control_parameters()),
+        list(core.shared_parameters()),
     ]
     owners = [parameter for group in groups for parameter in group]
     assert len({id(parameter) for parameter in owners}) == len(owners)
     assert {id(parameter) for parameter in owners} == {
         id(parameter) for parameter in core.parameters()
     }
-    for group in (groups[0], groups[1], groups[3], groups[4]):
+    for group in (groups[0], groups[1], groups[3], groups[4], groups[5]):
         for parameter in group:
             parameter.requires_grad_(False)
     state = core.observe(torch.randint(256, (1, 51)), core.initial_state(1))
     core.predict_facets(state).square().mean().backward()
     assert all(
         parameter.grad is None
-        for group in (groups[0], groups[1], groups[3], groups[4])
+        for group in (groups[0], groups[1], groups[3], groups[4], groups[5])
         for parameter in group
     )
-    assert core.remix.channels.down.weight.grad.norm() > 0
-    assert core.stages[0].attention.query.weight.grad.norm() > 0
-    assert core.p_bank.gate_up.grad.norm() > 0
+    assert core.remix.norm.weight.grad.norm() > 0
+    assert core.p_router.palette_codes.grad.norm() > 0
+    assert core.p_router.row_codes.grad.norm() > 0
+    assert all(parameter.grad is None for parameter in groups[5])
 
 
 def test_real_owner_counts_shared_kv_and_expert_banks():
@@ -476,27 +533,27 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     audit = audit_parameters(core)
     assert audit["total_parameters"] == sum(parameter.numel() for parameter in core.parameters())
     assert (
-        sum(parameter.numel() for parameter in core.p_bank.parameters())
-        == 3 * config.p_experts * config.pair_dim * config.p_hidden
+        core.p_bank.gate_up.numel()
+        == core.p_bank.experts * 2 * core.p_bank.hidden * core.p_bank.dim
     )
-    assert len({id(stage.always.gate_up.weight) for stage in core.stages}) == 12
-    assert len({id(stage.attention.query.weight) for stage in core.stages}) == 12
+    assert core.p_bank.down.numel() == core.p_bank.experts * core.p_bank.dim * core.p_bank.hidden
+    assert core.p_bank.gate_up_adapter_up.numel() > 0
+    assert core.p_bank.down_adapter_up.numel() > 0
+    assert len({id(stage.always.router.weight) for stage in core.stages}) == 1
+    assert all(stage.always._bank is core.stages[0].always._bank for stage in core.stages)
+    assert len({id(stage.attention.query.router.weight) for stage in core.stages}) == 1
+    assert all(
+        stage.attention.query._bank is core.stages[0].attention.query._bank for stage in core.stages
+    )
     assert all(layer.kv is None for layer in core.central.layers)
     assert not hasattr(core.central, "history_pool")
-    assert (
-        sum(name == "central.memory.key_value.weight" for name, _ in core.named_parameters()) == 1
-    )
+    projectors = [core.central.memory, *core.central.temporary_memories]
+    assert len({id(projector.key_value._bank) for projector in projectors}) == 1
+    assert len({id(projector.key_value.router.weight) for projector in projectors}) == 1
     assert len(core.central.temporary_memories) == 3
-    assert (
-        sum(
-            name.startswith("central.temporary_memories.") and name.endswith(".key_value.weight")
-            for name, _ in core.named_parameters()
-        )
-        == 3
-    )
     assert core.central.slot_embedding.shape == (config.n_facets, config.facet_dim)
     assert all(core.central.layers[index].temporary_gate is not None for index in (1, 2, 3))
-    assert sum(name == "u_always.gate_up.weight" for name, _ in core.named_parameters()) == 1
+    assert core.u_always._bank is core.expert_pools.ffn_bank(config.facet_dim)
     assert not any("gdn" in name or "carry" in name for name, _ in core.named_parameters())
 
 

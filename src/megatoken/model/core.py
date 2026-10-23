@@ -20,6 +20,12 @@ from .adapters import AdapterBank, AdapterPlan
 from .attention import AttentionFeatures, AttentionRead, KVProjection, join_attention
 from .blocks import DenseFacetBlock
 from .config import ModelConfig
+from .expert_pools import (
+    ShapePools,
+    checkpoint_context_fn,
+    current_adapter_weights,
+    expert_scope,
+)
 from .experts import ExpertBank
 from .frontend import SeedControlEncoder
 from .ingestion import ChunkEncoder
@@ -35,8 +41,28 @@ P_HISTORY_READ_STAGES = (3, 6, 9, 12)
 MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "compressed_text": 4}
 
 
+def _byte_routing_summary(byte_ids: Tensor, lengths: Tensor | None) -> Tensor:
+    """Cheap input-only routing context, including a finite empty-record value."""
+    if byte_ids.ndim != 2:
+        raise ValueError("A physical record batch must have shape [batch,bytes]")
+    if byte_ids.dtype not in (torch.uint8, torch.int32, torch.int64):
+        raise TypeError("byte_ids must be integer native bytes")
+    if byte_ids.shape[0] < 1:
+        raise ValueError("A physical record batch must contain at least one record")
+    values = byte_ids.float()
+    if lengths is None:
+        return values.sum(-1, keepdim=True) / max(1, values.shape[1]) / 255.0
+    if lengths.dtype not in (torch.int32, torch.int64, torch.uint8):
+        raise TypeError("Record lengths must be integer byte counts")
+    if lengths.shape != (values.shape[0],):
+        raise ValueError("Every record length must be in [0, padded byte length]")
+    lengths = lengths.to(device=values.device, dtype=torch.long)
+    valid = torch.arange(values.shape[1], device=values.device)[None] < lengths[:, None]
+    return (values * valid).sum(-1, keepdim=True) / valid.sum(-1, keepdim=True).clamp_min(1) / 255.0
+
+
 class PairStage(nn.Module):
-    """A stage-private dense branch around one globally shared expert bank."""
+    """Local routes and residual gates over globally shared pair expert weights."""
 
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
@@ -68,7 +94,12 @@ class PairStage(nn.Module):
     ) -> Tensor:
         dim = facets.shape[-1]
         pairs = self.norm(torch.cat((facets[:, left], facets[:, right]), -1))
-        delta = bank(pairs, route.expert_ids, route.confidence) + self.always(pairs)
+        delta = bank(
+            pairs,
+            route.expert_ids,
+            route.confidence,
+            adapter_weights=current_adapter_weights(pairs),
+        ) + self.always(pairs)
         delta = delta * self.residual_gates[update_index].sigmoid()
         left_delta, right_delta = delta.split(dim, -1)
         contributions = torch.cat((left_delta, right_delta), dim=1)
@@ -99,16 +130,16 @@ class FacetRemix(nn.Module):
 
 
 class CentralProcessor(nn.Module):
-    """Dense causal C with three temporary KV writers and one final writer.
+    """Expert-routed causal C with temporary KV writers and one final writer.
 
-    No prospective control, random draw, sparse P expert, or decoder owner is
-    involved. Its derived features may be cached and reused until model weights
-    change. The raw input remains intact outside this module.
+    Routes depend on committed input only. Its derived features may be cached
+    until model weights change. The raw input remains intact outside this module.
     """
 
-    def __init__(self, config: ModelConfig) -> None:
+    def __init__(self, config: ModelConfig, pools: ShapePools) -> None:
         super().__init__()
         self.config = c = config
+        object.__setattr__(self, "_expert_pools", pools)
         # C1-C3 write intermediate KV read only by the next central block.
         # C4's separate projection alone owns the cross-record cached KV.
         self.temporary_memories = nn.ModuleList(
@@ -198,49 +229,72 @@ class CentralProcessor(nn.Module):
                 else self.memory
             )
             enabled = self.config.checkpoint_stages if checkpointing is None else checkpointing
-            source = facets
-            if enabled and self.training and torch.is_grad_enabled():
-                # Pin captured intermediates per layer for exact checkpoint replay.
-                facets = checkpoint(
-                    lambda value, block=layer, writer=projector, previous=temporary: block(
-                        value,
+            weights = (
+                None
+                if adapters is None
+                else adapters.weights[index].repeat_interleave(self.config.n_facets, dim=1)
+            )
+            routing_context = facets.reshape(
+                facets.shape[0], events, self.config.n_facets, self.config.facet_dim
+            ).mean(2)
+            with (
+                self._expert_pools.routing_epoch(
+                    routing_context,
+                    track_ids=track_ids,
+                    role="c",
+                    stage=index,
+                    adapter_weights=None if adapters is None else adapters.weights[index],
+                ),
+                expert_scope(weights),
+            ):
+                if enabled and self.training and torch.is_grad_enabled():
+                    # Pin the causal adapter scope as well as the intermediate KV.
+                    facets = checkpoint(
+                        lambda value, block=layer, writer=projector, previous=temporary: block(
+                            value,
+                            projected,
+                            projector=writer,
+                            temporary=previous,
+                            temporal_positions=positions,
+                            slot_codes=addresses,
+                            query_track_ids=live_tracks,
+                            query_key_mask=attention_mask,
+                        ),
+                        facets,
+                        use_reentrant=False,
+                        preserve_rng_state=False,
+                        context_fn=checkpoint_context_fn,
+                    )
+                else:
+                    facets = layer(
+                        facets,
                         projected,
-                        projector=writer,
-                        temporary=previous,
+                        projector=projector,
+                        temporary=temporary,
                         temporal_positions=positions,
                         slot_codes=addresses,
                         query_track_ids=live_tracks,
                         query_key_mask=attention_mask,
-                    ),
-                    facets,
-                    use_reentrant=False,
-                    preserve_rng_state=False,
-                )
-            else:
-                facets = layer(
-                    facets,
-                    projected,
-                    projector=projector,
-                    temporary=temporary,
-                    temporal_positions=positions,
-                    slot_codes=addresses,
-                    query_track_ids=live_tracks,
-                    query_key_mask=attention_mask,
-                )
-            if adapters is not None:
-                facets = facets + adapters.delta(source, index)
-            # Stage i publishes only a short-lived, position-rotated KV for i+1.
-            # Neither these projections nor their tensors enter KVHistory.
-            if index < len(self.temporary_memories):
-                temporary = projector(
-                    facets,
-                    temporal_positions=positions,
-                    slot_codes=addresses,
-                    track_ids=live_tracks,
-                )
+                    )
+                # Intermediate projections use the same committed adapter choice.
+                if index < len(self.temporary_memories):
+                    temporary = projector(
+                        facets,
+                        temporal_positions=positions,
+                        slot_codes=addresses,
+                        track_ids=live_tracks,
+                    )
         return facets
 
-    def write(self, final: Tensor, history: KVHistory, positions: Tensor) -> KVHistory:
+    def write(
+        self,
+        final: Tensor,
+        history: KVHistory,
+        positions: Tensor,
+        *,
+        adapters: AdapterPlan | None = None,
+        track_ids: Tensor | None = None,
+    ) -> KVHistory:
         """Append all final-stage facets; evict only complete oldest megatokens.
 
         Every retained record has exactly n_facets K/V slots for its lifetime.
@@ -253,11 +307,24 @@ class CentralProcessor(nn.Module):
         if final.shape[1] > c.max_history_chunks * c.n_facets:
             raise ValueError("One meridian exceeds the historical event capacity")
         events = final.shape[1] // c.n_facets
-        added = self.memory(
-            final,
-            temporal_positions=positions,
-            slot_codes=self.slot_codes().repeat(events, 1).to(final.dtype),
+        weights = (
+            None if adapters is None else adapters.weights[-1].repeat_interleave(c.n_facets, dim=1)
         )
+        with (
+            self._expert_pools.routing_epoch(
+                final.reshape(final.shape[0], events, c.n_facets, c.facet_dim).mean(2),
+                track_ids=track_ids,
+                role="c",
+                stage=c.central_layers,
+                adapter_weights=None if adapters is None else adapters.weights[-1],
+            ),
+            expert_scope(weights),
+        ):
+            added = self.memory(
+                final,
+                temporal_positions=positions,
+                slot_codes=self.slot_codes().repeat(events, 1).to(final.dtype),
+            )
         max_slots = c.max_history_chunks * c.n_facets
         keys = torch.cat((history.keys, added.keys), dim=2)[:, :, -max_slots:]
         values = torch.cat((history.values, added.values), dim=2)[:, :, -max_slots:]
@@ -286,6 +353,9 @@ class FacetedCore(nn.Module):
         self.config = config or ModelConfig()
         c = self.config
         self.model_version = 0
+        self.expert_pools = ShapePools(c)
+        self.expert_pools.ffn_bank(c.facet_dim)
+        self.expert_pools.ffn_bank(c.pair_dim)
         self.frontend = ChunkEncoder(c)
         self.media_encoder = MediaEncoder(c)
         self.control_encoder = SeedControlEncoder(c)
@@ -293,22 +363,22 @@ class FacetedCore(nn.Module):
         self.stage_codes = nn.Parameter(torch.empty(c.prediction_layers, c.facet_dim))
         nn.init.normal_(self.initial_facets, std=0.02)
         nn.init.normal_(self.stage_codes, std=0.02)
-        self.central = CentralProcessor(c)
-        self.adapters = AdapterBank(c)
+        self.central = CentralProcessor(c, self.expert_pools)
+        self.adapters = AdapterBank(c, feature_provider=self.expert_pools)
         self.effort_embedding = nn.Embedding(len(EFFORTS), c.facet_dim)
         nn.init.normal_(self.effort_embedding.weight, std=0.02)
         self.control_injection = nn.Linear(c.control_dim, c.facet_dim, bias=False)
         self.remix = FacetRemix(c)
-        self.p_bank = ExpertBank(c.p_experts, c.pair_dim, c.p_hidden, c.expert_backend, "p")
         self.stages = nn.ModuleList(PairStage(c) for _ in range(c.prediction_layers))
         self.p_router = EpochRouter(
             c.facet_dim, c.router_dim, c.p_experts, c.eligible_experts, version=c.routing_version
         )
-        self.u_bank = ExpertBank(c.u_experts, c.facet_dim, c.u_hidden, c.expert_backend, "u")
         self.u_always = SwiGLU(c.facet_dim, c.u_always_hidden)
         self.u_router = EpochRouter(
             c.facet_dim, c.router_dim, c.u_experts, c.eligible_experts, version=c.routing_version
         )
+        self.p_router.bind_feature_provider(self.expert_pools, role="P")
+        self.u_router.bind_feature_provider(self.expert_pools, role="U")
         self.u_norm = RMSNorm(c.facet_dim, c.norm_eps)
         self.u_gate = nn.Parameter(torch.tensor(-2.0))
         self.lexical_norm = RMSNorm(c.facet_dim, c.norm_eps)
@@ -316,11 +386,25 @@ class FacetedCore(nn.Module):
         for name, tensor in self._pair_topology().items():
             self.register_buffer(name, tensor, persistent=False)
         self._routing_losses: list[tuple[Tensor, Tensor]] = []
+        self.expert_pools.bind(self, "core", exclusions=("slots",))
+
+    @property
+    def p_bank(self) -> ExpertBank:
+        return self.expert_pools.ffn_bank(self.config.pair_dim)
+
+    @property
+    def u_bank(self) -> ExpertBank:
+        return self.expert_pools.ffn_bank(self.config.facet_dim)
+
+    def shared_parameters(self) -> Iterator[nn.Parameter]:
+        """The single owner of all expert matrices and per-expert adapter factors."""
+        yield from self.expert_pools.parameters()
 
     def encoder_parameters(self) -> Iterator[nn.Parameter]:
         """Only E owners; contextual C and P are independently owned."""
         yield from self.frontend.parameters()
         yield from self.media_encoder.parameters()
+        yield from self.adapters.owners["e"].parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
         """C, its KV projections and its adapters."""
@@ -335,7 +419,6 @@ class FacetedCore(nn.Module):
             self.control_injection,
             self.effort_embedding,
             self.remix,
-            self.p_bank,
             self.stages,
             self.p_router,
             self.adapters.owners["p"],
@@ -351,7 +434,7 @@ class FacetedCore(nn.Module):
         yield from self.adapters.owners["r"].parameters()
         yield self.u_gate
         yield self.lexical_gate
-        for module in (self.u_bank, self.u_always, self.u_router, self.u_norm, self.lexical_norm):
+        for module in (self.u_always, self.u_router, self.u_norm, self.lexical_norm):
             yield from module.parameters()
 
     def compile_kernels(self, mode: str = "default") -> None:
@@ -510,15 +593,27 @@ class FacetedCore(nn.Module):
             if value.shape != (state.batch_size,) or value.dtype != torch.long:
                 raise ValueError(f"State {name} must be one integer per batch row")
 
-    def encode_chunk(self, byte_ids: Tensor, lengths: Tensor | None = None) -> Tensor:
-        """History-, role-, and control-independent hierarchical E(bytes)."""
-        return self.frontend(byte_ids, lengths)
+    def encode_chunk(
+        self, byte_ids: Tensor, lengths: Tensor | None = None, *, track_ids: Tensor | None = None
+    ) -> Tensor:
+        """Encode bytes under one input- and track-conditioned initial route."""
+        summary = _byte_routing_summary(byte_ids, lengths)
+        weights = current_adapter_weights(summary)
+        with self.expert_pools.routing_epoch_if_absent(
+            summary, track_ids=track_ids, role="e", adapter_weights=weights
+        ):
+            return self.frontend(byte_ids, lengths)
 
     def encode_media(
-        self, features: Tensor, mask: Tensor | None = None, *, extractor: str
+        self,
+        features: Tensor,
+        mask: Tensor | None = None,
+        *,
+        extractor: str,
+        track_ids: Tensor | None = None,
     ) -> Tensor:
         """Pinned teacher hidden states [B, T, 512] -> raw facets, through the shared E."""
-        return self.media_encoder(self, features, mask, extractor=extractor)
+        return self.media_encoder(self, features, mask, extractor=extractor, track_ids=track_ids)
 
     def encode_control(
         self,
@@ -526,11 +621,17 @@ class FacetedCore(nn.Module):
         lengths: Tensor | None = None,
         *,
         encoder_grad: bool = True,
+        track_ids: Tensor | None = None,
     ) -> Tensor:
         """Keep the control head differentiable while optionally isolating shared E features."""
-        with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
-            source = self.frontend.source_features(byte_ids, lengths)
-        return self.control_encoder(source)
+        summary = _byte_routing_summary(byte_ids, lengths)
+        weights = current_adapter_weights(summary)
+        with self.expert_pools.routing_epoch_if_absent(
+            summary, track_ids=track_ids, role="p", adapter_weights=weights
+        ):
+            with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
+                source = self.frontend.source_features(byte_ids, lengths)
+            return self.control_encoder(source)
 
     def _roles(self, role_ids: Tensor | None, state: CoreState, default: str) -> Tensor:
         if role_ids is None:
@@ -633,17 +734,19 @@ class FacetedCore(nn.Module):
             or control.device != state.device
         ):
             raise ValueError("Causal control has the wrong shape or device")
-        facets = self.remix(final)
-        injection = self.control_injection(control.to(facets.dtype))
+        with self.expert_pools.routing_epoch(final.mean(1), role="p", stage=0):
+            facets = self.remix(final)
+            injection = self.control_injection(control.to(facets.dtype))
         injection = injection + self.effort_embedding.weight[EFFORTS.index(effort)]
         facets = facets + injection[:, None]
         stages = tuple(range(1, self.config.prediction_layers + 1))
-        program = self.p_router.compile(
-            facets.mean(1),
-            stages,
-            sum(self._row_counts(self.config.n_facets, effort)),
-            epoch="prediction",
-        )
+        with self.expert_pools.routing_epoch(facets.mean(1), role="p", stage=0):
+            program = self.p_router.compile(
+                facets.mean(1),
+                stages,
+                sum(self._row_counts(self.config.n_facets, effort)),
+                epoch="prediction",
+            )
         self._record_routing_loss(program.balance_loss, program.stabilization_loss)
         for stage in stages:
             facets = self._execute_pair_stage(
@@ -741,13 +844,14 @@ class FacetedCore(nn.Module):
         history: KVHistory,
         positions: Tensor,
     ) -> Tensor:
-        return self.run_pair_stage(
-            facets,
-            stage,
-            route,
-            effort,
-            lambda value: self._pair_stage(value, stage, route, effort, history, positions),
-        )
+        with self.expert_pools.routing_epoch(facets.mean(1), role="p", stage=stage):
+            return self.run_pair_stage(
+                facets,
+                stage,
+                route,
+                effort,
+                lambda value: self._pair_stage(value, stage, route, effort, history, positions),
+            )
 
     def run_pair_stage(
         self, facets: Tensor, stage: int, route: RowRoute, effort: int, compute
@@ -767,7 +871,13 @@ class FacetedCore(nn.Module):
             )
             start += count
         if self.config.checkpoint_stages and self.training and torch.is_grad_enabled():
-            return checkpoint(compute, facets, use_reentrant=False, preserve_rng_state=False)
+            return checkpoint(
+                compute,
+                facets,
+                use_reentrant=False,
+                preserve_rng_state=False,
+                context_fn=checkpoint_context_fn,
+            )
         return compute(facets)
 
     def _record_routing_loss(self, balance: Tensor, stabilization: Tensor) -> None:
@@ -779,6 +889,16 @@ class FacetedCore(nn.Module):
         self, rows: Tensor, context: RealizationContext, level: int, refinement: bool = False
     ) -> Tensor:
         """Shared output transform routed directly from raw facets."""
+        summary = context.route_context
+        weights = current_adapter_weights(summary)
+        with self.expert_pools.routing_epoch_if_absent(
+            summary, role="r", stage=level, adapter_weights=weights
+        ):
+            return self._apply_u(rows, context, level, refinement)
+
+    def _apply_u(
+        self, rows: Tensor, context: RealizationContext, level: int, refinement: bool = False
+    ) -> Tensor:
         if (
             rows.ndim != 3
             or rows.shape[0] != context.batch_size
@@ -803,15 +923,21 @@ class FacetedCore(nn.Module):
         )
         self._record_routing_loss(route.balance_loss, route.stabilization_loss)
         normalized = self.u_norm(rows)
-        delta = self.u_bank(normalized, route.expert_ids, route.confidence) + self.u_always(
-            normalized
-        )
+        delta = self.u_bank(
+            normalized,
+            route.expert_ids,
+            route.confidence,
+            adapter_weights=current_adapter_weights(normalized),
+        ) + self.u_always(normalized)
         return rows + self.u_gate.sigmoid() * delta
 
     def lexical_refine(self, rows: Tensor) -> Tensor:
-        """The final dense refinement aliases the same U always branch."""
+        """The final routed refinement reuses the shared single-facet pool."""
         rows = rows.to(self.u_always.gate_up.weight.dtype)
-        return rows + self.lexical_gate.sigmoid() * self.u_always(self.lexical_norm(rows))
+        summary = rows.mean(1)
+        weights = current_adapter_weights(summary)
+        with self.expert_pools.routing_epoch_if_absent(summary, role="r", adapter_weights=weights):
+            return rows + self.lexical_gate.sigmoid() * self.u_always(self.lexical_norm(rows))
 
     def dispatch_metrics(self, *, reset: bool = False) -> dict[str, dict[str, Tensor]]:
         return {"p": self.p_bank.metrics(reset=reset), "u": self.u_bank.metrics(reset=reset)}
@@ -843,7 +969,12 @@ class FacetedCore(nn.Module):
         previous = self._routing_losses
         self._routing_losses = []
         # Auxiliary branches also stay out of the global router-balance replay.
-        routers = (self.p_router, self.u_router, *self.adapters.owners.values())
+        routers = (
+            self.p_router,
+            self.u_router,
+            *self.adapters.owners.values(),
+            *self.expert_pools.routing_selectors().values(),
+        )
         recorders = [router.balance_recorder for router in routers]
         for router in routers:
             router.balance_recorder = None

@@ -239,7 +239,14 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
     original_step = MultiTrackGenerator.supervised_meridian
 
     def capture(self, state, **kwargs):
-        selected.append((kwargs["teacher_forced_action"], original_step(self, state, **kwargs)))
+        selected.append(
+            (
+                kwargs["teacher_forced_action"],
+                original_step(self, state, **kwargs),
+                state,
+                tuple(kwargs["tracks"]),
+            )
+        )
         return selected[-1][1]
 
     monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", capture)
@@ -255,10 +262,18 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
     )
     ledger.finish()
     assert len(selected) == 1 and selected[0][0]
+    from megatoken.model.expert_pools import expert_scope
+
+    before, names = selected[0][2:]
+    multi = MultiTrackGenerator(model)
+    track_ids, _ = multi.tracks._track_indices(before, names)
+    adapters = model.core.adapters.plan("e", before.adapters, track_ids)
     encoded = []
-    for data in (b"one", b"two"):
+    for index, data in enumerate((b"one", b"two")):
         ids, lengths = byte_tensor([data], torch.device("cpu"))
-        encoded.append(model.core.encode_chunk(ids, lengths).detach())
+        weights = None if adapters is None else adapters.weights[0, :, index]
+        with torch.no_grad(), expert_scope(weights):
+            encoded.append(model.core.encode_chunk(ids, lengths, track_ids=track_ids[:, index]))
     actual = torch.stack(encoded, dim=1)
     torch.testing.assert_close(selected[0][1].state.raw, actual, atol=1e-6, rtol=1e-6)
 

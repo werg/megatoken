@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import types
+from dataclasses import replace
 
 import pytest
 import torch
@@ -16,7 +17,13 @@ from megatoken.memory.transducer import TransducerBank, TransducerGeometry
 from megatoken.memory.transducer_growth import PROVISIONAL_BASE, TransducerGrowth
 from megatoken.memory.transducer_optimizer import BlockScaleDescent
 from megatoken.model.attention import AttentionFeatures, AttentionRead
-from megatoken.model.config import RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK, ModelConfig
+from megatoken.model.config import (
+    KNOWLEDGE_TRACK,
+    RESERVED_TRACKS,
+    TRANSDUCER_QUERY_TRACK,
+    ModelConfig,
+)
+from megatoken.model.expert_pools import expert_scope
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.model.transducer import OrdinaryEvents, metadata_payload
 from megatoken.training.transducer import (
@@ -107,6 +114,8 @@ def test_native_lookup_hindsight_and_parameter_ownership():
     names = [name for name, _ in model.named_parameters()]
     assert len(names) == len(set(names))
     assert not any(name.startswith(("transducer._core", "transducer.core")) for name in names)
+    coverage = model.core.expert_pools.manifest(model)["coverage"]
+    assert coverage["unconverted"] == ()
     multi = MultiTrackGenerator(model)
     state = multi.tracks.initial_state(1)
     state, agenda = native.begin(multi, state, metadata_payload({"task": "chat"}))
@@ -148,6 +157,110 @@ def test_native_lookup_hindsight_and_parameter_ownership():
     model.eval()
     with pytest.raises(RuntimeError, match="serving path"):
         native.hindsight_pass(events, [0], mode="full")
+
+
+def test_transducer_query_and_knowledge_use_prior_committed_adapter_scopes(monkeypatch):
+    model = tiny_model()
+    native = model.transducer
+    multi = MultiTrackGenerator(model)
+    state = multi.tracks.initial_state(1)
+    state, agenda = native.begin(multi, state, metadata_payload({"task": "adapter"}))
+    active = model.core.adapters.select(
+        torch.randn(model.config.transducer_geometry.value_dim), torch.ones(())
+    )
+    state = replace(state, adapters=active)
+
+    calls = []
+    original_plan = model.core.adapters.plan
+
+    def record(owner, mixture, track_ids):
+        calls.append((owner, mixture, track_ids.detach().clone()))
+        return original_plan(owner, mixture, track_ids)
+
+    monkeypatch.setattr(model.core.adapters, "plan", record)
+    committed, found = native.boundary(multi, state, agenda, training=True)
+    assert found is not None
+
+    query_id = model.config.max_tracks + RESERVED_TRACKS.index(TRANSDUCER_QUERY_TRACK)
+    knowledge_id = model.config.max_tracks + RESERVED_TRACKS.index(KNOWLEDGE_TRACK)
+    query_calls = [call for call in calls if int(call[2][0, 0]) == query_id]
+    knowledge_calls = [call for call in calls if int(call[2][0, 0]) == knowledge_id]
+    assert any(owner == "p" and mixture is active for owner, mixture, _ in query_calls)
+    assert any(owner == "r" and mixture is active for owner, mixture, _ in query_calls)
+    assert any(owner == "r" and mixture is active for owner, mixture, _ in knowledge_calls)
+    assert committed.adapters is not active
+
+
+def test_transducer_readout_adapter_factors_receive_gradients_from_prior_mix():
+    model = tiny_model()
+    native = model.transducer
+    multi = MultiTrackGenerator(model)
+    state = multi.tracks.initial_state(1)
+    state, agenda = native.begin(multi, state, metadata_payload({"task": "adapter-grad"}))
+    state = replace(
+        state,
+        adapters=model.core.adapters.select(
+            torch.randn(model.config.transducer_geometry.value_dim), torch.ones(())
+        ),
+    )
+    committed, found = native.boundary(multi, state, agenda, training=True)
+    assert found is not None
+    committed.final.square().sum().backward()
+    row_adapter = native.readout.row_adapter[1]
+    assert row_adapter._bank.adapter_up.grad is not None
+    assert torch.count_nonzero(row_adapter._bank.adapter_up.grad) > 0
+
+
+def test_hindsight_pass_clears_any_live_adapter_scope():
+    model = tiny_model()
+    native = model.transducer
+    width = model.config.facet_dim
+    events = OrdinaryEvents(
+        torch.randn(1, 3, model.config.n_facets, width),
+        torch.ones(1, 3, dtype=torch.long),
+        ("text",) * 3,
+        ("a", "b", "a"),
+        torch.tensor([[1, 1, 2]]),
+        torch.tensor([[0, 0, 1]]),
+    )
+    mixture = model.core.adapters.select(
+        torch.randn(model.config.transducer_geometry.value_dim), torch.ones(())
+    )
+    track_id = model.config.max_tracks + RESERVED_TRACKS.index(TRANSDUCER_QUERY_TRACK)
+    plan = model.core.adapters.plan("r", mixture, torch.tensor([[track_id]]))
+    assert plan is not None
+    weights = plan.weights[0, :, 0]
+    with expert_scope(weights):
+        scoped = native.hindsight_pass(events, [0, 1, None], mode="group-inverse").values
+    unscoped = native.hindsight_pass(events, [0, 1, None], mode="group-inverse").values
+    torch.testing.assert_close(scoped, unscoped)
+
+
+def test_hindsight_source_routing_uses_each_events_track(monkeypatch):
+    model = tiny_model()
+    native = model.transducer
+    width = model.config.facet_dim
+    events = OrdinaryEvents(
+        torch.randn(1, 3, model.config.n_facets, width),
+        torch.ones(1, 3, dtype=torch.long),
+        ("text",) * 3,
+        ("a", "b", "a"),
+        torch.tensor([[1, 1, 2]]),
+        torch.tensor([[0, 0, 1]]),
+    )
+    seen = []
+    original = model.core.expert_pools.router_features
+
+    def record(context, *, track_ids=None, role="other", stage=0):
+        if role == "r":
+            routed_tracks = track_ids.detach().clone() if track_ids is not None else None
+            seen.append((context.shape, routed_tracks))
+        return original(context, track_ids=track_ids, role=role, stage=stage)
+
+    monkeypatch.setattr(model.core.expert_pools, "router_features", record)
+    native.hindsight_pass(events, [0, 1, None], mode="group-inverse")
+    assert seen[0][0] == (3, width)
+    assert seen[0][1].tolist() == [0, 1, 0]
 
 
 def test_boundary_plan_starts_after_metadata_and_respects_real_boundaries_and_cap():

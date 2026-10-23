@@ -98,6 +98,7 @@ def test_direct_encoder_auxiliary_has_no_core_decoder_or_source_history_gradient
     result = model.supervised_step(first.state, plan=plan)
     result.losses["reconstruction"][0].backward()
     encoder_ids = {id(parameter) for parameter in model.core.encoder_parameters()}
+    shared_ids = {id(parameter) for parameter in model.core.shared_parameters()}
     assert any(
         parameter.grad is not None and parameter.grad.float().norm() > 0
         for parameter in model.core.encoder_parameters()
@@ -105,7 +106,7 @@ def test_direct_encoder_auxiliary_has_no_core_decoder_or_source_history_gradient
     assert all(
         parameter.grad is None
         for parameter in model.parameters()
-        if id(parameter) not in encoder_ids
+        if id(parameter) not in encoder_ids | shared_ids
     )
     assert first.state.facets.grad is first.state.history.values.grad is None
     assert flags == {name: parameter.requires_grad for name, parameter in model.named_parameters()}
@@ -121,7 +122,13 @@ def test_bootstrap_reconstruction_directly_trains_encoder_and_realizer():
     assert any(
         p.grad is not None and p.grad.abs().sum() > 0 for p in model.core.encoder_parameters()
     )
-    assert model.decoder.realizer.seed.weight.grad is not None
+    seed = model.decoder.realizer.seed
+    assert seed.output_gain.grad is not None
+    assert seed.output_gain.grad.abs().sum() > 0
+    assert seed.router.weight.grad is not None
+    assert seed.router.weight.grad.abs().sum() > 0
+    assert seed._bank.weight.grad is not None
+    assert seed._bank.weight.grad.abs().sum() > 0
     assert all(p.grad is None for p in model.core.central_parameters())
     assert all(p.grad is None for p in model.core.predictor_parameters())
 
@@ -145,6 +152,19 @@ def test_recurrent_e_reconstruction_never_evaluates_central():
         p.grad is not None and p.grad.abs().sum() > 0 for p in model.core.encoder_parameters()
     )
     assert all(p.grad is None for p in model.core.central_parameters())
+
+
+def test_functional_r_readout_freezes_shared_pools_but_keeps_input_gradient():
+    model = make_model()
+    plan = model.prepare_target(target_bytes=b"direct frozen R", representation_mode="recurrent")
+    values, lengths = byte_tensor(plan.payloads, "cpu")
+    encoded = model.core.encode_chunk(values, lengths).detach().requires_grad_(True)
+
+    losses = model.encoder_reconstruction_losses(encoded, plan)
+    losses["lexical"][0].backward()
+
+    assert encoded.grad is not None and encoded.grad.abs().sum() > 0
+    assert all(parameter.grad is None for parameter in model.core.shared_parameters())
 
 
 def test_encoder_auxiliary_does_not_contribute_to_main_router_objectives():
@@ -184,11 +204,12 @@ def test_native_alignment_uses_only_actual_matching_pairs_and_never_conditions_p
     assert paired.scored_positions == plain.scored_positions == 6
     result.losses["encoder_alignment"][0].backward()
     encoder_ids = {id(parameter) for parameter in model.core.encoder_parameters()}
+    shared_ids = {id(parameter) for parameter in model.core.shared_parameters()}
     assert any(parameter.grad is not None for parameter in model.core.encoder_parameters())
     assert all(
         parameter.grad is None
         for parameter in model.parameters()
-        if id(parameter) not in encoder_ids
+        if id(parameter) not in encoder_ids | shared_ids
     )
     for invalid in (
         replace(native, payloads=(b"wrong",)),

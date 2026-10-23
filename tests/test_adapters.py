@@ -16,6 +16,7 @@ from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model, parameter_report
 from megatoken.model.adapters import ADAPTER_DROPOUT, OWNERS
 from megatoken.model.config import ModelConfig
+from megatoken.model.expert_pools import expert_scope, iter_sites
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.model.transducer import metadata_payload, real_boundary
 from megatoken.training.diloco_protocol import plan_fragments
@@ -43,9 +44,27 @@ def memory_model(edges: int = 12, *, strength: float = 0.3):
             write_mass=torch.ones(edges),
             step=0,
         )
-    for owner in model.core.adapters.owners.values():
-        torch.nn.init.normal_(owner.up, std=strength)
+    # Adapter up-projections are zero-initialized in production so the newly
+    # installed model begins as the base expert model. Tests that need to see
+    # the correction explicitly make the shared pool factors nonzero.
+    for name, parameter in model.core.expert_pools.named_parameters():
+        if "adapter_up" in name:
+            torch.nn.init.normal_(parameter, std=strength)
     return model
+
+
+def test_adapter_controllers_share_one_compact_router_feature():
+    model = tiny_model()
+    core = model.core
+    value = torch.randn(core.config.transducer_value_rows * core.config.facet_dim)
+    before = core.expert_pools.router_evaluations
+    mixture = core.adapters.select(value, torch.tensor(0.75))
+    assert mixture.logits.shape == (1, len(OWNERS), core.config.adapter_experts)
+    assert core.expert_pools.router_evaluations == before + 1
+    assert all(
+        owner.router.in_features == core.config.router_dim
+        for owner in core.adapters.owners.values()
+    )
 
 
 def looked_up(model, *, training: bool = False):
@@ -61,6 +80,19 @@ def looked_up(model, *, training: bool = False):
 
 def observe(multi, state, track: str = "a", payload: bytes = b"hello"):
     return observe_text(multi.tracks, state, [payload], tracks=(track,))
+
+
+def adapted_realizer_site(model, multi, state):
+    """Exercise one actual R site with its retrieval-conditioned adapter plan."""
+    sites = list(iter_sites(model.decoder))
+    assert sites
+    _, site = sites[0]
+    track_ids, _ = multi.tracks._track_indices(state, ("a",))
+    plan = model.core.adapters.plan("r", state.adapters, track_ids)
+    weights = plan.weights[0, :, 0]
+    values = torch.randn(1, site.input_dim, device=state.raw.device)
+    with expert_scope(weights):
+        return site(values)
 
 
 def test_no_adapters_apply_without_a_lookup_or_when_it_found_nothing():
@@ -80,9 +112,13 @@ def test_no_adapters_apply_without_a_lookup_or_when_it_found_nothing():
         for track in (("a",), ("a", "b")):
             on = multi.tracks.predict_group(state, tracks=track)
             assert torch.equal(on, multi.tracks.predict_group(off, tracks=track))
-        raw = on_next.raw
-        ids, _ = multi.tracks._track_indices(on_next, ("a",))
-        assert torch.equal(model.core.adapters.realization(state.adapters, ids, raw), raw)
+        plain_site = list(iter_sites(model.decoder))[0][1]
+        values = torch.randn(1, plain_site.input_dim)
+        track_ids, _ = multi.tracks._track_indices(on_next, ("a",))
+        weights = model.core.adapters.plan("r", on_next.adapters, track_ids).weights[0, :, 0]
+        with expert_scope(weights):
+            applied = plain_site(values)
+        torch.testing.assert_close(applied, plain_site(values))
 
 
 def test_the_mixture_follows_each_lookup_and_persists_across_meridians_and_tracks():
@@ -171,35 +207,64 @@ def test_the_mixture_strength_is_what_the_lookup_found_and_dropout_is_seeded():
     assert all(strength(0.0, False, torch.Generator().manual_seed(7)) for _ in range(100))
 
 
-def test_gradients_reach_every_owners_experts_and_routers(monkeypatch):
+def test_gradients_reach_every_controller_and_shared_pool_adapter(monkeypatch):
     monkeypatch.setattr("megatoken.model.transducer.ADAPTER_DROPOUT", 0.0)
     model = memory_model(strength=0.05).train()
     multi, state, _, _ = looked_up(model, training=True)
     assert float(state.adapters.strength.detach()) > 0
     state = observe(multi, state)
     predicted = multi.tracks.predict_group(state, tracks=("a",))
-    ids, _ = multi.tracks._track_indices(state, ("a",))
-    realized = model.core.adapters.realization(state.adapters, ids, state.raw)
-    (state.final.sum() + predicted.square().sum() + realized.square().sum()).backward()
+    # A routed R site exercises the real expert-pool adapter path while keeping
+    # this test independent of sampled text validity and decode no-grad wrappers.
+    realized = adapted_realizer_site(model, multi, state)
+    (state.final.sum() + predicted.square().sum() + realized.float().sum()).backward()
     for name, owner in model.core.adapters.owners.items():
         for parameter_name, parameter in owner.named_parameters():
             assert parameter.grad is not None, (name, parameter_name)
             assert parameter.grad.abs().sum() > 0, (name, parameter_name)
+    adapter_factors = [
+        parameter
+        for name, parameter in model.core.expert_pools.named_parameters()
+        if "adapter_" in name and "adapter_up" in name
+    ]
+    assert adapter_factors and any(
+        parameter.grad is not None and parameter.grad.abs().sum() > 0
+        for parameter in adapter_factors
+    )
 
 
-def test_each_owner_adapts_its_own_sites_and_only_its_own():
-    # C's adapters change what C writes, not P's prediction from a fixed state, and so on.
+def test_c_p_and_r_controllers_route_only_their_role_sites():
+    # The controller stays role-local while the adapter factors are globally
+    # shared. Changing C/R preferences cannot alter a prediction from fixed
+    # state; changing P preferences can.
     with torch.no_grad():
         model = memory_model().eval()
         multi, state, _, _ = looked_up(model)
         state = observe(multi, state)
-        baseline = multi.tracks.predict_group(state, tracks=("a",))
-        for name in OWNERS:
+        for name in ("c", "p", "r"):
             owner = model.core.adapters.owners[name]
-            saved = owner.up.clone()
-            owner.up.zero_()
+            saved = {
+                "bias": owner.bias.clone(),
+                "router": owner.router.weight.clone(),
+                "track": owner.track_preference.weight.clone(),
+                "stage": owner.stage_preference.weight.clone(),
+                "topk": owner.topk,
+            }
+            owner.topk = 1
+            owner.router.weight.zero_()
+            owner.track_preference.weight.zero_()
+            owner.stage_preference.weight.zero_()
+            owner.bias.zero_()
+            owner.bias[0] = 10.0
+            baseline = multi.tracks.predict_group(state, tracks=("a",))
+            owner.bias[0] = -10.0
+            owner.bias[1] = 10.0
             changed = not torch.equal(baseline, multi.tracks.predict_group(state, tracks=("a",)))
-            owner.up.copy_(saved)
+            owner.bias.copy_(saved["bias"])
+            owner.router.weight.copy_(saved["router"])
+            owner.track_preference.weight.copy_(saved["track"])
+            owner.stage_preference.weight.copy_(saved["stage"])
+            owner.topk = saved["topk"]
             assert changed == (name == "p")
 
 
@@ -208,8 +273,13 @@ def test_global_router_balance_covers_the_adapter_routers(tmp_path):
     model = tiny_model()
     config = train_config(tmp_path, "recurrent")
     batch = grouped_batch(model, config)
-    routers = balance_routers(model.core)
-    assert {"p", "u", "adapter_c", "adapter_p", "adapter_r"} == routers.keys()
+    routers = balance_routers(model)
+    core_routers = {"p", "u", *(f"adapter_{name}" for name in OWNERS)}
+    assert core_routers <= routers.keys()
+    selector_names = [name for name in routers if name.startswith("shape_")]
+    assert "shape_bootstrap" in selector_names
+    assert any(name.startswith("shape_pool_") for name in selector_names)
+    assert len({id(routers[name]) for name in selector_names}) == len(selector_names)
     window = RouterBalanceWindow()
     for router in routers.values():
         router.balance_recorder = window
@@ -227,15 +297,24 @@ def test_global_router_balance_covers_the_adapter_routers(tmp_path):
     ledger.finish()
     model.zero_grad()
     diagnostics = window.backward(DistributedContext(), routers=routers, coefficient=1.0)
+    assert selector_names and all(
+        f"balance_{name}_assignments" in diagnostics for name in selector_names
+    )
+    assert sum(diagnostics[f"balance_{name}_assignments"] for name in selector_names) > 0
     topk = model.config.adapter_topk
     for name in OWNERS:
         count = diagnostics[f"balance_adapter_{name}_assignments"]
         assert count > 0 and count % topk == 0
         assert diagnostics[f"balance_adapter_{name}_loss"] > 0
         owner = model.core.adapters.owners[name]
-        # The balance reaches only the controller; the experts see the task loss alone.
+        # The balance reaches only the controller; shared adapter factors see
+        # task loss, but no balance-only gradient.
         assert owner.router.weight.grad.abs().sum() > 0
-        assert owner.down.grad is None and owner.up.grad is None
+    assert all(
+        parameter.grad is None
+        for name, parameter in model.core.expert_pools.named_parameters()
+        if "adapter_" in name
+    )
 
 
 def test_adapters_are_ordinary_parameters_of_every_owner_and_sync_path():
@@ -243,6 +322,7 @@ def test_adapters_are_ordinary_parameters_of_every_owner_and_sync_path():
     core = model.core
     adapters = {id(p): name for name, p in core.adapters.named_parameters()}
     for name, group in (
+        ("e", core.encoder_parameters()),
         ("c", core.central_parameters()),
         ("p", core.predictor_parameters()),
         ("r", core.realizer_parameters()),
@@ -251,8 +331,12 @@ def test_adapters_are_ordinary_parameters_of_every_owner_and_sync_path():
         assert owned <= {id(p) for p in group}
         others = set(adapters) - owned
         assert not others & {id(p) for p in group}
-    # Not part of the frozen media bridge, so every DiLoCo worker trains them alike.
+    # Controllers remain role-owned; pool factors are globally owned and are
+    # deliberately frozen by the media-bridge stage.
     assert not set(adapters) & {id(p) for p in model.media_bridge_parameters()}
+    assert {id(p) for p in core.shared_parameters()} & {
+        id(p) for p in model.media_bridge_parameters()
+    } == set()
     optimizer = MasterAdamW(model, 1e-3)
     try:
         names = {n for n in optimizer.masters if ".adapters." in n}
@@ -271,6 +355,15 @@ def test_adapters_are_ordinary_parameters_of_every_owner_and_sync_path():
                 if part.name in covered:
                     covered[part.name] += part.length
         assert covered == {n: optimizer.masters[n].numel() for n in names}
+        pool_names = {name for name in optimizer.masters if "expert_pools" in name}
+        factor_names = {name for name in pool_names if "adapter_" in name}
+        assert factor_names
+        shared_covered = dict.fromkeys(factor_names, 0)
+        for fragment in plan_fragments(optimizer.masters, target_bytes=1024):
+            for part in fragment.slices:
+                if part.name in shared_covered:
+                    shared_covered[part.name] += part.length
+        assert shared_covered == {name: optimizer.masters[name].numel() for name in factor_names}
     finally:
         optimizer.close()
     served = model.served_state_dict()
@@ -284,7 +377,12 @@ def test_adapter_size_is_part_of_the_architecture_identity():
     assert small.to_dict() != ModelConfig.tiny().to_dict()
     assert ModelConfig.from_dict(small.to_dict()) == small
     model = build_model(small, ByteCodec.byte_fallback())
-    owner = model.core.adapters.owners["c"]
-    assert tuple(owner.down.shape) == (4, 2, small.facet_dim)
+    pool = model.core.expert_pools.ffn_bank(small.facet_dim)
+    assert pool.adapter_experts == 4 and pool.adapter_rank == 2
+    assert tuple(pool.gate_up_adapter_down.shape[:3]) == (
+        pool.experts,
+        4,
+        2,
+    )
     with pytest.raises(ValueError, match="adapter_topk"):
         ModelConfig.tiny(adapter_experts=1)

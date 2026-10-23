@@ -71,7 +71,12 @@ class EpochRouter(nn.Module):
         self.max_eligible = min(max_eligible, experts)
         self.version = version
         self.norm = RMSNorm(input_dim)
-        self.context_projection = nn.Linear(input_dim, router_dim, bias=False)
+        # Bound by FacetedCore to its shared router expert registry. Keep a
+        # private projection only for standalone EpochRouter use in small unit
+        # tests and compatibility callers.
+        self._feature_provider = None
+        self._routing_role = "other"
+        self._context_projection = nn.Linear(input_dim, router_dim, bias=False)
         self.palette_codes = nn.Parameter(torch.empty(experts, router_dim))
         self.row_codes = nn.Parameter(torch.empty(experts, router_dim))
         nn.init.normal_(self.palette_codes, std=0.02)
@@ -80,10 +85,42 @@ class EpochRouter(nn.Module):
 
     def balance_probabilities(self, context: Tensor, stage: int) -> Tensor:
         """Replay only the full-bank palette soft probabilities; no dispatch."""
-        feature = self.context_projection(self.norm(context.detach())).float()
+        # Captures store the compact feature emitted by the shared router
+        # experts, so fairness replay never repeats or differentiates through
+        # that shared bootstrap computation.
+        feature = context.detach().float()
         descriptor = position_features(1, self.router_dim, feature.device, offset=stage)[0]
         logits = F.linear(feature + descriptor, self.palette_codes.float())
         return (logits / math.sqrt(self.router_dim)).softmax(-1)
+
+    @property
+    def context_projection(self):
+        """Compatibility view of the shared router bank's parameter dtype."""
+        provider = getattr(self, "_feature_provider", None)
+        if provider is not None:
+            return _ProjectionCompatibilityView(provider.router_bank.gate_up)
+        return self._context_projection
+
+    def bind_feature_provider(self, provider, *, role: str) -> None:
+        if role not in {"P", "U", "other"}:
+            raise ValueError("EpochRouter role must be P, U, or other")
+        if int(provider.router_dim) != self.router_dim:
+            raise ValueError("EpochRouter and shared router width disagree")
+        object.__setattr__(self, "_feature_provider", provider)
+        self._routing_role = role
+        self._context_projection = None
+        self.norm = None
+
+    def _features(self, context: Tensor) -> Tensor:
+        provider = self._feature_provider
+        if provider is not None:
+            role = "R" if self._routing_role == "U" else self._routing_role
+            return provider.controller_features(
+                context, role=role, stage=0, reuse_active=True
+            ).float()
+        if self._context_projection is None or self.norm is None:
+            raise RuntimeError("Standalone EpochRouter has no context projection")
+        return self._context_projection(self.norm(context)).float()
 
     def record_executed(self, route: RowRoute) -> None:
         if self.balance_recorder is not None:
@@ -99,8 +136,21 @@ class EpochRouter(nn.Module):
     ) -> RowRoute:
         if context.ndim != 2 or rows < 1:
             raise ValueError("Routing requires context[batch,dim] and a positive row count")
+        feature = self._features(context)
+        return self._route_feature(feature, stage, rows, eligible_limit=eligible_limit)
+
+    def _route_feature(
+        self,
+        feature: Tensor,
+        stage: int,
+        rows: int,
+        *,
+        eligible_limit: int | None = None,
+    ) -> RowRoute:
+        if feature.ndim != 2 or rows < 1:
+            raise ValueError("Routing features must be [batch,router_dim] and rows positive")
         eligible_count = min(self.max_eligible, eligible_limit or self.max_eligible, rows)
-        feature = self.context_projection(self.norm(context)).float()
+        base_feature = feature
         descriptor = position_features(1, self.router_dim, feature.device, offset=stage)[0]
         feature = feature + descriptor
         palette_logits = F.linear(feature, self.palette_codes.float()) / math.sqrt(self.router_dim)
@@ -141,7 +191,7 @@ class EpochRouter(nn.Module):
             palette_probability,
             balance,
             stabilization,
-            context.detach() if self.balance_recorder is not None else None,
+            base_feature.detach() if self.balance_recorder is not None else None,
             stage,
         )
 
@@ -155,5 +205,13 @@ class EpochRouter(nn.Module):
     ) -> RoutingProgram:
         if not stages or len(set(stages)) != len(stages):
             raise ValueError("A routing epoch needs distinct stages")
-        routes = tuple(self.route(context, stage, rows) for stage in stages)
+        feature = self._features(context)
+        routes = tuple(self._route_feature(feature, stage, rows) for stage in stages)
         return RoutingProgram(epoch, self.version, context, stages, routes)
+
+
+class _ProjectionCompatibilityView:
+    """Read-only `.weight` compatibility for callers that inspect dtype."""
+
+    def __init__(self, weight: Tensor):
+        self.weight = weight

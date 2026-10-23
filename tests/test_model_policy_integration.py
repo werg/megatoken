@@ -43,6 +43,7 @@ def test_bf16_conditional_tape_replay_with_frozen_central_writer_and_trainable_p
         model.embedding_realizer.parameters(),
         model.core.control_parameters(),
         model.core.realizer_parameters(),
+        model.core.shared_parameters(),
     ):
         for parameter in group:
             parameter.requires_grad_(False)
