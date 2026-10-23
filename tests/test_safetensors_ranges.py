@@ -99,6 +99,37 @@ def test_local_native_fp8_weights_and_e8m0_scales_keep_their_numeric_values(tmp_
     scale_reader.close()
 
 
+def test_local_reader_handles_a_hundred_gb_shard_without_whole_file_mapping(tmp_path, monkeypatch):
+    import safetensors
+
+    from megatoken.safetensors_ranges import LocalSafetensorsRowReader
+
+    # Sparse file: the declared tensor is large, while only two pages contain data.
+    rows = 100_000_000_000
+    header = json.dumps(
+        {"table": {"dtype": "U8", "shape": [rows, 1], "data_offsets": [0, rows]}}
+    ).encode()
+    header += b" " * (-len(header) % 8)
+    path = tmp_path / "large.safetensors"
+    with path.open("wb") as handle:
+        handle.write(struct.pack("<Q", len(header)) + header)
+        handle.write(b"\x07")
+        handle.seek(8 + len(header) + rows - 1)
+        handle.write(b"\x09")
+
+    def forbid_mapping(*args, **kwargs):
+        raise AssertionError("A local row reader must not map the whole shard")
+
+    monkeypatch.setattr(safetensors, "safe_open", forbid_mapping)
+    reader = LocalSafetensorsRowReader(str(path), "table")
+    try:
+        selected = reader.read_rows([0, rows - 1])
+        assert selected[0].item() == 7 and selected[rows - 1].item() == 9
+        assert reader.bytes_received == 2
+    finally:
+        reader.close()
+
+
 def test_safetensors_range_reader_rejects_invalid_shape_metadata():
     shard = make_shard()
     with pytest.raises(ValueError, match="invalid safetensors metadata"):

@@ -97,7 +97,7 @@ cloud CPU sandbox with the pinned data receipt, for example by running
 /work/out/engram --work /work/engram-preparation --model 32x512 --max-contexts 65536
 --seed 17`. Production preparation selects actual text contexts from the prepared training
 corpus, checks cloud disk capacity, then caches the required pinned native table shards in
-that sandbox and reads the selected rows through memory mapping. This avoids millions of
+that sandbox and reads selected rows through bounded local file reads. This avoids millions of
 small network requests. The two donors together require roughly 310 GB of cloud disk for
 these source shards; the extractor checks their actual pinned sizes plus reserve before
 downloading. `--source-mode ranges` instead retrieves only selected rows through bounded

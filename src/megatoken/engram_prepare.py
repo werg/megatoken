@@ -1,7 +1,7 @@
 """Prepare both selected native n-gram donors beside verified cloud training data.
 
 Production preparation caches the selected native table shards in the cloud
-and reads their selected rows through memory mapping. Bounded HTTP ranges are
+and reads their selected rows through bounded local file reads. HTTP ranges are
 available for small targeted checks. Both modes write self-contained assets.
 Run this module inside a preparation sandbox, never on the workstation.
 """

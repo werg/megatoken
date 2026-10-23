@@ -5,7 +5,7 @@ from __future__ import annotations
 import email.utils
 import json
 import logging
-import math
+import os
 import random
 import sqlite3
 import struct
@@ -136,11 +136,18 @@ class SafetensorsRangeReader:
             for name, value in self._headers.items()
             if name.casefold() != "authorization"
         }
+        try:
+            self._read_layout(tensor_name, max_header_bytes)
+        except BaseException:
+            self.close()
+            raise
+
+    def _read_layout(self, tensor_name: str, max_header_bytes: int) -> None:
         prefix = self._fetch(0, 7)
         if len(prefix) != 8:
             raise ValueError("Safetensors shard has a truncated header length")
         header_size = struct.unpack("<Q", prefix)[0]
-        if not 1 <= header_size <= max_header_bytes or 8 + header_size > file_size:
+        if not 1 <= header_size <= max_header_bytes or 8 + header_size > self.file_size:
             raise ValueError("Safetensors header length is invalid or exceeds the configured bound")
         raw_header = self._fetch(8, 8 + header_size - 1)
         if len(raw_header) != header_size:
@@ -164,7 +171,7 @@ class SafetensorsRangeReader:
             or any(type(offset) is not int for offset in offsets)
             or offsets[0] < 0
             or offsets[1] < offsets[0]
-            or 8 + header_size + offsets[1] > file_size
+            or 8 + header_size + offsets[1] > self.file_size
             or dtype not in self._DTYPES
             or self._DTYPES[dtype] is None
         ):
@@ -391,54 +398,55 @@ class SafetensorsRangeReader:
         return result
 
 
-class LocalSafetensorsRowReader:
-    """Read sparse tensor rows from a previously pinned local safetensors shard."""
+class LocalSafetensorsRowReader(SafetensorsRangeReader):
+    """Read selected local rows with bounded pread calls and no whole-file mapping.
 
-    _DTYPES = SafetensorsRangeReader._DTYPES
+    The preparation caller verifies the shard's size and SHA256 once. This
+    reader shares the ranged reader's bounded header and row validation, while
+    keeping virtual address usage independent of the source file's size.
+    """
 
     def __init__(self, path: str, tensor_name: str) -> None:
-        from safetensors import safe_open
-
         self.path = path
         self.tensor_name = tensor_name
-        self._handle = safe_open(path, framework="pt", device="cpu")
-        self._handle.__enter__()
+        self._fd = os.open(path, os.O_RDONLY)
+        self.file_size = os.fstat(self._fd).st_size
+        self.max_range_bytes = 8 << 20
+        self.max_gap_rows = 0
+        self.range_workers = 4
+        self._cache_path = None
+        self._client = None
+        self._stats_lock = threading.Lock()
+        self.requests = 0
+        self.bytes_received = 0
+        self._fetch = self._local_range
         try:
-            self._tensor = self._handle.get_slice(tensor_name)
-            self.dtype = self._tensor.get_dtype()
-            self.torch_dtype = self._DTYPES.get(self.dtype)
-            shape = tuple(self._tensor.get_shape())
-            if (
-                not shape
-                or any(type(dimension) is not int or dimension < 1 for dimension in shape)
-                or self.torch_dtype is None
-            ):
-                raise ValueError(f"Local tensor {tensor_name!r} has unsupported metadata")
-            self.shape = shape
-            row_elements = math.prod(shape[1:])
-            self.row_bytes = row_elements * torch.empty((), dtype=self.torch_dtype).element_size()
+            self._read_layout(tensor_name, 16 << 20)
         except BaseException:
             self.close()
             raise
-        self.requests = 0
-        self.bytes_received = 0
+        self.shape = self.layout.shape
+        # Local statistics describe selected-row I/O, excluding the small header.
+        self.requests = self.bytes_received = 0
 
-    def read_rows(self, rows: list[int] | tuple[int, ...]) -> dict[int, torch.Tensor]:
-        requested = sorted(set(rows))
-        if any(type(row) is not int or not 0 <= row < self.shape[0] for row in requested):
-            raise ValueError("Requested donor row is outside the tensor")
-        if not requested:
-            return {}
-        values = self._tensor[requested]
-        self.requests += 1
-        self.bytes_received += len(requested) * self.row_bytes
-        return {row: values[index].clone() for index, row in enumerate(requested)}
+    def _local_range(self, start: int, end: int) -> bytes:
+        size = end - start + 1
+        parts = []
+        read = 0
+        while read < size:
+            part = os.pread(self._fd, size - read, start + read)
+            if not part:
+                break
+            parts.append(part)
+            read += len(part)
+        with self._stats_lock:
+            self.requests += 1
+            self.bytes_received += read
+        return b"".join(parts)
 
     def close(self) -> None:
-        handle = getattr(self, "_handle", None)
-        if handle is not None:
-            self._handle = None
-            handle.__exit__(None, None, None)
-
-    def __del__(self):
-        self.close()
+        fd = getattr(self, "_fd", None)
+        if fd is not None:
+            self._fd = None
+            os.close(fd)
+        super().close()
