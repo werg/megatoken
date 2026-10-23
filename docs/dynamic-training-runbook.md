@@ -304,8 +304,8 @@ alternatives. No legacy objective or request mode remains. Imported tool calls
 must be normalized before preparing training data. Selected native actions always
 retain their complete explicit event-to-record bindings.
 
-The current model architecture and checkpoints are version 15, prepared episodes
-and datasets are version 6, and grouped recorded actions are version 18. Older
+The current model architecture and checkpoints are version 16, prepared episodes
+and datasets are version 6, and grouped recorded actions are version 19. Older
 artifacts are rejected. There are no schema migrations, inferred saved geometry,
 legacy data cursors, alternate old objectives, or dense-layer compatibility views
 for shared expert modules. Reprepare original sources, recollect native actions,
@@ -418,3 +418,47 @@ inputs fixed and requires the earlier prediction to be byte-exact. It also forbi
 executing the future-reading teaching pass during student tool training. A separate
 regression verifies that a populated frozen memory remains unchanged through the
 sparse update boundary.
+
+
+### Current integrated run and strict admission
+
+The current code rejects earlier internal models, prepared episodes, cursors and
+native actions. The older linear-transcript converter has been deleted, including
+its tests and its use in mixed-data acceptance. Rebuild from original sources;
+do not relabel a prepared root or fill in missing model or memory metadata.
+
+Multiple independently prepared roots can now be bound explicitly to the same
+training/restart/export/evaluation run. Their codec, preparation policy and teacher
+identities must agree. The helper rejects an empty held-out evaluation stream.
+For example, replacing every uppercase argument with an actual checked artifact:
+
+```bash
+python scripts/accept_streaming_translation.py \
+  --data SPEECH_ROOT --data EXECUTED_ROOT --data TEXT_AND_CODE_ROOT \
+  --data CONVERSATION_ROOT --data AUDIOVISUAL_ROOT \
+  --packs PINNED_COMPLETE_DONORS --teacher-writer PINNED_WRITER \
+  --model 32x256 --capacity 1024 --precision bf16 \
+  --microbatch-episodes 4 --gradient-checkpointing --expert-backend triton \
+  --root NEW_RUN_ROOT --phase B0 --steps 256 --audio-samples 192000 --visual-output
+```
+
+Teacher preparation writes a new, checked target collection for those exact roots
+and window settings. A fresh process releases the writer before allocating the
+student and media decoders. A later segment can reuse the exact value encoding
+with `--teacher-encoding-from`; changed teacher identity or dimensions are rejected.
+The original donor is an input, never an older student model being upgraded.
+
+The cloud execution receipts are `dynamic-integrated-cloud-deployment-02.json`
+under `/home/werg/megatoken-runs`. Required preparations remain explicit dependencies:
+web text/code, real speech, executed tool tasks, naturally overlapping meetings,
+recorded visual prefixes and paired translation. A failed or absent required
+preparation stops the sequence. The larger meeting command requests sixteen
+nonoverlapping annotated intervals from each of four original meetings, with
+disjoint speaker identities across training and evaluation. This is a requested
+supply size until its preparation report confirms admission.
+
+The current architecture/checkpoint version is 16; grouped actions use version 19
+and native memory uses identity v12. Prepared-data version 6 and unchanged donor
+assets retain their independent current identities. Quality, autonomous execution,
+all-cost neural timing benefits and human review remain required acceptance gates;
+launching this sequence does not establish them.
