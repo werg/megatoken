@@ -451,6 +451,11 @@ class SanaRealizer(Realizer):
     @torch.no_grad()
     def realize(self, raw: Tensor, spec, generator=None) -> Tensor:
         """Decoded RGB [B, frames, 3, H, W] through this pipeline's own VAE path."""
+        multiple, step = self._grid()
+        if spec.height % multiple or spec.width % multiple or (spec.frames - 1) % step:
+            raise ValueError(
+                f"Sana geometry needs sides a multiple of {multiple} and 1 + k*{step} frames"
+            )
         embeds, attention = self._prompt(raw)
         kwargs = dict(
             prompt_embeds=embeds,

@@ -23,7 +23,9 @@ class Transformer(nn.Module):
     def __init__(self, learned_sigma=False):
         super().__init__()
         self.projection = nn.Linear(1, 1)
-        self.config = SimpleNamespace(caption_channels=CAPTION, timestep_scale=TIMESTEP_SCALE)
+        self.config = SimpleNamespace(
+            caption_channels=CAPTION, timestep_scale=TIMESTEP_SCALE, patch_size=1
+        )
         self.learned_sigma = learned_sigma
         self.calls: list[dict] = []
 
@@ -82,6 +84,8 @@ class Vae(nn.Module):
         super().__init__()
         self.weight = nn.Parameter(torch.zeros(1))
         self.config = SimpleNamespace(scaling_factor=0.5, latent_channels=4)
+        self.spatial_compression_ratio = 2
+        self.temporal_compression_ratio = 4
         self.latents_mean = torch.tensor([0.1, 0.2, 0.3, 0.4])
         self.latents_std = torch.tensor([1.0, 2.0, 3.0, 4.0])
         self.seen = None
@@ -277,6 +281,17 @@ def test_realize_rejects_output_that_differs_from_the_requested_geometry():
     v = realizer("video", frames=8)  # a clip one frame short of the request
     with pytest.raises(ValueError, match="frame count"):
         v.realize(raw(), MediaOutputSpec("video", frames=9, height=32, width=32, fps_num=8))
+
+
+def test_realize_rejects_a_spec_off_the_pipeline_grid_before_generating():
+    r = realizer("video", frames=9)
+    for spec in (
+        MediaOutputSpec("video", frames=8, height=32, width=32, fps_num=8),
+        MediaOutputSpec("video", frames=9, height=33, width=32, fps_num=8),
+    ):
+        with pytest.raises(ValueError, match="Sana geometry"):
+            r.realize(raw(), spec)
+    assert r.pipe.calls == []
 
 
 def test_realize_rejects_a_decode_with_the_wrong_layout():
