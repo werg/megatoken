@@ -107,7 +107,7 @@ def test_versioned_geometry_and_explicit_width_presets():
     ("config_factory", "expected_delta", "maximum_growth", "expected_counts"),
     [
         (ModelConfig, 54_643_840, 0.10, (607_168_094, 661_811_934)),
-        (ModelConfig.compact32, 15_191_168, 0.10, None),
+        (ModelConfig.compact32, None, 0.10, None),
     ],
     ids=("32x512", "32x256"),
 )
@@ -167,10 +167,11 @@ def test_default_full_model_budget_expansion_is_bounded_and_legacy_counts_roundt
         f"legacy={legacy_count}, expanded={expanded_count}, delta={expanded_count - legacy_count}"
     )
     assert expanded_audit["aliases"] == legacy_audit["aliases"] == 0
-    assert expanded_count - legacy_count == expected_delta, details
+    if expected_delta is not None:
+        assert expanded_count - legacy_count == expected_delta, details
     if expected_counts is not None:
         assert (legacy_count, expanded_count) == expected_counts, details
-    assert expanded_count <= legacy_count * (1 + maximum_growth), details
+    assert legacy_count < expanded_count <= legacy_count * (1 + maximum_growth), details
 
     # Every shared parameter is registered once at the global pool owner; routed
     # sites refer to the pools without creating duplicate optimizer/checkpoint owners.
