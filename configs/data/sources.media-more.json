@@ -4339,6 +4339,731 @@
     "size_gb": 92.1
    },
    "caveat": "Overlaps FineVision, which holds most of these sets."
+  },
+  {
+   "source_id": "multiedit",
+   "repository": "inclusionAI/MultiEdit",
+   "revision": "0828fb64d34cc21c7f618e65c7382a4a2dcb83b0",
+   "reader": "linked",
+   "task": "image_edit_chain",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "apache-2.0 (card; the edits are GPT-4o and GPT-Image-1 outputs: OpenAI's terms apply)",
+    "license_url": "https://huggingface.co/datasets/inclusionAI/MultiEdit",
+    "notes": "MultiEdit: 106.5k hard instruction edits in six groups (objects, people, text in posters, interface screenshots, new viewpoints, 38 artistic styles). Read on 2026-10-23: each row of multiedit/train.jsonl names one original and one edited picture inside multiedit/train.tar.gz (fields original_images, generated_images, edit_prompt, source, id); the 1.1k-sample benchmark (multiedit/test.*) is not read."
+   },
+   "gated": true,
+   "include": [
+    "multiedit/train.jsonl"
+   ],
+   "columns": {
+    "images": "images",
+    "instruction": "texts",
+    "id": "id"
+   },
+   "options": {
+    "linked": {
+     "archives": [
+      "multiedit/train.tar.gz"
+     ],
+     "sequence": {
+      "images": [
+       "original_images",
+       "generated_images"
+      ],
+      "texts": [
+       "edit_prompt"
+      ]
+     }
+    },
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 106534,
+    "basis": "card: 106,534 training samples",
+    "shards": 1,
+    "size_gb": 44.7
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "sharegpt4o_image_questions",
+   "repository": "OpenGVLab/ShareGPT-4o",
+   "revision": "a69d5b4d2c5343146e27b46a22638d346f14f013",
+   "reader": "archive",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "mit (card; the answers are GPT-4o outputs: OpenAI's terms apply; video and image copyrights stay with their creators)",
+    "license_url": "https://huggingface.co/datasets/OpenGVLab/ShareGPT-4o",
+    "notes": "ShareGPT-4o image conversations: about 57k images, each with a question and a long GPT-4o answer."
+   },
+   "gated": true,
+   "include": [
+    "images.zip"
+   ],
+   "columns": {
+    "image": "member",
+    "turns": "conversations",
+    "id": "__key__"
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "table": {
+     "path": "image_conversations/gpt-4o.jsonl",
+     "key": "{image}",
+     "columns": [
+      "conversations"
+     ]
+    },
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 57421,
+    "basis": "images.zip members (57,421 jpg)",
+    "shards": 1,
+    "size_gb": 6.5,
+    "mean_turns": 1.0
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "sharegpt4o_video_captions",
+   "repository": "OpenGVLab/ShareGPT-4o",
+   "revision": "a69d5b4d2c5343146e27b46a22638d346f14f013",
+   "reader": "archive",
+   "task": "captioned_video",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "mit (card; the captions are GPT-4o outputs: OpenAI's terms apply; video copyrights belong to the original creators or platforms, academic research use only)",
+    "license_url": "https://huggingface.co/datasets/OpenGVLab/ShareGPT-4o",
+    "notes": "ShareGPT-4o video captions: about 2.2k videos (up to 1080p) each with a long GPT-4o description."
+   },
+   "gated": true,
+   "include": [
+    "videos.zip"
+   ],
+   "columns": {
+    "video": "member",
+    "caption": "conversations.1.value",
+    "id": "__key__"
+   },
+   "options": {
+    "table": {
+     "path": "video_conversations/gpt4o.jsonl",
+     "key": "{video}",
+     "columns": [
+      "conversations"
+     ]
+    },
+    "min_chars": 80,
+    "max_seconds": 8.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 2184,
+    "basis": "videos.zip members (2,184 mp4)",
+    "shards": 1,
+    "size_gb": 28.3
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "infinity_mm_stage1",
+   "repository": "BAAI/Infinity-MM",
+   "revision": "8eb1722824276ccaf7570cb8cc80ba766bee292a",
+   "reader": "webdataset",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-sa-4.0 (card; the answers come from GPT-4-class and open models, and the images from many upstream datasets whose own licences apply)",
+    "license_url": "https://huggingface.co/datasets/BAAI/Infinity-MM",
+    "notes": "Infinity-MM stage 1: 10M image-caption pairs (captions by an open VLM pipeline)."
+   },
+   "gated": true,
+   "include": [
+    "stage1/*/*.tar"
+   ],
+   "columns": {
+    "image": "jpg",
+    "turns": "json.conversations",
+    "id": [
+     "__shard__",
+     "__key__"
+    ]
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 10000000,
+    "basis": "card: 10M caption samples",
+    "shards": 1,
+    "size_gb": 6500.0,
+    "mean_turns": 1.0
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "infinity_mm_synthetic",
+   "repository": "BAAI/Infinity-MM",
+   "revision": "8eb1722824276ccaf7570cb8cc80ba766bee292a",
+   "reader": "webdataset",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-sa-4.0 (card; the answers come from GPT-4-class and open models, and the images from many upstream datasets whose own licences apply)",
+    "license_url": "https://huggingface.co/datasets/BAAI/Infinity-MM",
+    "notes": "Infinity-MM stage 4 synthetic data: 782k visual instruction conversations (multi-turn, some multi-question) that the publishers generated with open models."
+   },
+   "gated": true,
+   "include": [
+    "stage4/Synthesis_data_part1_640k/*.tar",
+    "stage4/Synthesis_data_part2_142k/*.tar"
+   ],
+   "columns": {
+    "image": "jpg",
+    "turns": "json.conversations",
+    "id": [
+     "__shard__",
+     "__key__"
+    ]
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 782000,
+    "basis": "folder names: 640k + 142k conversations",
+    "shards": 1,
+    "size_gb": 147.3,
+    "mean_turns": 3.0
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "infinity_mm_zh",
+   "repository": "BAAI/Infinity-MM",
+   "revision": "8eb1722824276ccaf7570cb8cc80ba766bee292a",
+   "reader": "webdataset",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-sa-4.0 (card; the answers come from GPT-4-class and open models, and the images from many upstream datasets whose own licences apply)",
+    "license_url": "https://huggingface.co/datasets/BAAI/Infinity-MM",
+    "notes": "Infinity-MM stage 4 Chinese data: visual instruction conversations translated into Chinese and filtered."
+   },
+   "gated": true,
+   "include": [
+    "stage4/zh_filtered_translated/*.tar"
+   ],
+   "columns": {
+    "image": "jpg",
+    "turns": "json.conversations",
+    "id": [
+     "__shard__",
+     "__key__"
+    ]
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 400000,
+    "basis": "estimate from the repository size (72.6 GB of tars); the card gives no count",
+    "shards": 1,
+    "size_gb": 72.6,
+    "mean_turns": 3.0
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "svit_detail",
+   "repository": "BAAI/SVIT",
+   "revision": "41cb03fbd4a93726d091914b8a9bfa076ff35583",
+   "reader": "archive",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-4.0 (card; must also follow OpenAI's terms of use because GPT-4 wrote the text, and the Visual Genome images keep their own licence)",
+    "license_url": "https://huggingface.co/datasets/BAAI/SVIT",
+    "notes": "SVIT detailed descriptions: one long GPT-4 description for each of 106k Visual Genome images."
+   },
+   "gated": true,
+   "include": [
+    "raw/images.zip",
+    "raw/images2.zip"
+   ],
+   "columns": {
+    "image": "member",
+    "turns": "conversations",
+    "id": "__key__"
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "table": {
+     "path": "format/llava-v1.5/SVIT.zip",
+     "key": "{image__name}",
+     "columns": [
+      "conversations"
+     ],
+     "merge": [
+      "conversations"
+     ],
+     "prefix": {
+      "id": "svit_detail_"
+     }
+    },
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 106274,
+    "basis": "distinct Visual Genome images in the two image archives (an upper bound for this kind)",
+    "shards": 2,
+    "size_gb": 15.2,
+    "mean_turns": 1.0
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "svit_conversation",
+   "repository": "BAAI/SVIT",
+   "revision": "41cb03fbd4a93726d091914b8a9bfa076ff35583",
+   "reader": "archive",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-4.0 (card; must also follow OpenAI's terms of use because GPT-4 wrote the text, and the Visual Genome images keep their own licence)",
+    "license_url": "https://huggingface.co/datasets/BAAI/SVIT",
+    "notes": "SVIT conversations: multi-turn GPT-4 question-and-answer chats about Visual Genome images, built from their annotations."
+   },
+   "gated": true,
+   "include": [
+    "raw/images.zip",
+    "raw/images2.zip"
+   ],
+   "columns": {
+    "image": "member",
+    "turns": "conversations",
+    "id": "__key__"
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "table": {
+     "path": "format/llava-v1.5/SVIT.zip",
+     "key": "{image__name}",
+     "columns": [
+      "conversations"
+     ],
+     "merge": [
+      "conversations"
+     ],
+     "prefix": {
+      "id": "svit_conversation_"
+     }
+    },
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 108076,
+    "basis": "distinct Visual Genome images in the two image archives (an upper bound for this kind)",
+    "shards": 2,
+    "size_gb": 15.2,
+    "mean_turns": 8.0
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "svit_complex",
+   "repository": "BAAI/SVIT",
+   "revision": "41cb03fbd4a93726d091914b8a9bfa076ff35583",
+   "reader": "archive",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-4.0 (card; must also follow OpenAI's terms of use because GPT-4 wrote the text, and the Visual Genome images keep their own licence)",
+    "license_url": "https://huggingface.co/datasets/BAAI/SVIT",
+    "notes": "SVIT complex reasoning: GPT-4 questions that need reasoning about a Visual Genome image, with answers."
+   },
+   "gated": true,
+   "include": [
+    "raw/images.zip",
+    "raw/images2.zip"
+   ],
+   "columns": {
+    "image": "member",
+    "turns": "conversations",
+    "id": "__key__"
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "table": {
+     "path": "format/llava-v1.5/SVIT.zip",
+     "key": "{image__name}",
+     "columns": [
+      "conversations"
+     ],
+     "merge": [
+      "conversations"
+     ],
+     "prefix": {
+      "id": "svit_complex_"
+     }
+    },
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 108076,
+    "basis": "distinct Visual Genome images in the two image archives (an upper bound for this kind)",
+    "shards": 2,
+    "size_gb": 15.2,
+    "mean_turns": 8.0
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "svit_referring",
+   "repository": "BAAI/SVIT",
+   "revision": "41cb03fbd4a93726d091914b8a9bfa076ff35583",
+   "reader": "archive",
+   "task": "image_questions",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-4.0 (card; must also follow OpenAI's terms of use because GPT-4 wrote the text, and the Visual Genome images keep their own licence)",
+    "license_url": "https://huggingface.co/datasets/BAAI/SVIT",
+    "notes": "SVIT referring questions: GPT-4 questions about named regions of a Visual Genome image, answers with bounding boxes."
+   },
+   "gated": true,
+   "include": [
+    "raw/images.zip",
+    "raw/images2.zip"
+   ],
+   "columns": {
+    "image": "member",
+    "turns": "conversations",
+    "id": "__key__"
+   },
+   "options": {
+    "format": "messages",
+    "max_turns": 8,
+    "table": {
+     "path": "format/llava-v1.5/SVIT.zip",
+     "key": "{image__name}",
+     "columns": [
+      "conversations"
+     ],
+     "merge": [
+      "conversations"
+     ],
+     "prefix": {
+      "id": "svit_referring_"
+     }
+    },
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 108076,
+    "basis": "distinct Visual Genome images in the two image archives (an upper bound for this kind)",
+    "shards": 2,
+    "size_gb": 15.2,
+    "mean_turns": 8.0
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "medtrinity_demo",
+   "repository": "UCSC-VLAA/MedTrinity-25M",
+   "revision": "89e5c684794e5c4cc1af9e8f1a7798af7c937dbf",
+   "reader": "parquet",
+   "task": "captioned_image",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "none on the card (the images come from about 30 public medical datasets, most CC BY, CC0 or CC BY-NC; see the card's table; the captions are machine-written)",
+    "license_url": "https://huggingface.co/datasets/UCSC-VLAA/MedTrinity-25M",
+    "notes": "MedTrinity-25M demo subset (the card's `25M_demo` config): about 161k medical images (ten imaging kinds) with multi-granular captions (lesion type, modality, regions, relations)."
+   },
+   "gated": true,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "image": "image",
+    "caption": "caption",
+    "id": "id"
+   },
+   "options": {
+    "min_chars": 80,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 161630,
+    "basis": "card: 161,630 examples in the 25M_demo config",
+    "shards": 10,
+    "size_gb": 8.3
+   },
+   "caveat": "Only the demo subset is read. The 18M-image `25M_accessible` shards (1.6 TB of tar.zst whose captions travel in a metadata file inside each archive) have no reader yet."
+  },
+  {
+   "source_id": "gigaspeech2_th",
+   "repository": "speechcolab/gigaspeech2",
+   "revision": "8dc0d0e502b7e6d5649a13cd4b677cf10c0b21e3",
+   "reader": "archive",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "apache-2.0 (card; the access terms limit use to non-commercial research and education, and the audio keeps its owners' copyright)",
+    "license_url": "https://huggingface.co/datasets/speechcolab/gigaspeech2",
+    "notes": "GigaSpeech 2 Thai: about 10,000 hours of web audio with machine transcripts that were refined by a second pass (the card's `refine` list). Only the training archives are read; dev and test are not."
+   },
+   "gated": true,
+   "include": [
+    "data/th/train/*.tar.gz"
+   ],
+   "columns": {
+    "audio": "member",
+    "text": "text",
+    "id": "__key__"
+   },
+   "options": {
+    "table": {
+     "path": "data/th/train_refined.tsv",
+     "names": [
+      "key",
+      "text"
+     ],
+     "key": "{key}.wav",
+     "columns": [
+      "text"
+     ]
+    },
+    "family_pattern": "^(\\d+-\\d+)-\\d+\\.wav$",
+    "max_seconds": 20.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 9904271,
+    "hours": 10000,
+    "basis": "rows of train_refined.tsv",
+    "shards": 193,
+    "size_gb": 1272.8
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "gigaspeech2_id",
+   "repository": "speechcolab/gigaspeech2",
+   "revision": "8dc0d0e502b7e6d5649a13cd4b677cf10c0b21e3",
+   "reader": "archive",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "apache-2.0 (card; the access terms limit use to non-commercial research and education, and the audio keeps its owners' copyright)",
+    "license_url": "https://huggingface.co/datasets/speechcolab/gigaspeech2",
+    "notes": "GigaSpeech 2 Indonesian: about 6,000 hours of web audio with machine transcripts that were refined by a second pass (the card's `refine` list). Only the training archives are read; dev and test are not."
+   },
+   "gated": true,
+   "include": [
+    "data/id/train/*.tar.gz"
+   ],
+   "columns": {
+    "audio": "member",
+    "text": "text",
+    "id": "__key__"
+   },
+   "options": {
+    "table": {
+     "path": "data/id/train_refined.tsv",
+     "names": [
+      "key",
+      "text"
+     ],
+     "key": "{key}.wav",
+     "columns": [
+      "text"
+     ]
+    },
+    "family_pattern": "^(\\d+-\\d+)-\\d+\\.wav$",
+    "max_seconds": 20.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 6127890,
+    "hours": 6000,
+    "basis": "rows of train_refined.tsv",
+    "shards": 592,
+    "size_gb": 979.1
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "gigaspeech2_vi",
+   "repository": "speechcolab/gigaspeech2",
+   "revision": "8dc0d0e502b7e6d5649a13cd4b677cf10c0b21e3",
+   "reader": "archive",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "apache-2.0 (card; the access terms limit use to non-commercial research and education, and the audio keeps its owners' copyright)",
+    "license_url": "https://huggingface.co/datasets/speechcolab/gigaspeech2",
+    "notes": "GigaSpeech 2 Vietnamese: about 6,000 hours of web audio with machine transcripts that were refined by a second pass (the card's `refine` list). Only the training archives are read; dev and test are not."
+   },
+   "gated": true,
+   "include": [
+    "data/vi/train/*.tar.gz"
+   ],
+   "columns": {
+    "audio": "member",
+    "text": "text",
+    "id": "__key__"
+   },
+   "options": {
+    "table": {
+     "path": "data/vi/train_refined.tsv",
+     "names": [
+      "key",
+      "text"
+     ],
+     "key": "{key}.wav",
+     "columns": [
+      "text"
+     ]
+    },
+    "family_pattern": "^(\\d+-\\d+)-\\d+\\.wav$",
+    "max_seconds": 20.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 4996365,
+    "hours": 6000,
+    "basis": "rows of train_refined.tsv",
+    "shards": 240,
+    "size_gb": 824.4
+   },
+   "caveat": ""
+  },
+  {
+   "source_id": "wenetspeech4tts",
+   "repository": "Wenetspeech4TTS/WenetSpeech4TTS",
+   "revision": "5e3ea1bdeb573401ef876cfb6cdd31d198c104fc",
+   "reader": "webdataset",
+   "task": "transcription",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-4.0 (card; the access terms limit use to non-commercial research and education, and the audio keeps its owners' copyright)",
+    "license_url": "https://huggingface.co/datasets/Wenetspeech4TTS/WenetSpeech4TTS",
+    "notes": "WenetSpeech4TTS: Mandarin speech cut from WenetSpeech with refined segment boundaries and transcripts, split by audio quality (DNSMOS P.808 score). The Premium, Standard and Basic parts (score 3.6 or more; 7,226 hours) are read; the Rest part (score below 3.6; 5,574 hours of poorer audio) is not."
+   },
+   "gated": true,
+   "include": [
+    "Premium/WenetSpeech4TTS_Premium_*.tar.gz",
+    "Standard/WenetSpeech4TTS_Standard_*.tar.gz",
+    "Basic/WenetSpeech4TTS_Basic_*.tar.gz"
+   ],
+   "columns": {
+    "audio": "audio",
+    "text": "text",
+    "id": "__key__"
+   },
+   "options": {
+    "spool": true,
+    "transform": "wenetspeech4tts",
+    "family_pattern": "^(.+)_S\\d+(?:-S\\d+)?$",
+    "max_seconds": 20.0,
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled"
+   },
+   "inventory": {
+    "items": 3932473,
+    "hours": 7226,
+    "basis": "lines of filelists/Basic_filelist.lst (it lists the Premium, Standard and Basic segments together)",
+    "shards": 71,
+    "size_gb": 619.4
+   },
+   "caveat": ""
   }
  ]
 }

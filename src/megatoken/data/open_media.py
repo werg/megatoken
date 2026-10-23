@@ -33,6 +33,7 @@ import io
 import json
 import re
 import shlex
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -1184,7 +1185,18 @@ def _jarvis_plan(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any] |
 
 # Rows whose layout is the publisher's own are reshaped (``options.transform``) into the columns a
 # task reads; a row a transform cannot reshape is skipped.
+def _wenetspeech4tts(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """A WenetSpeech4TTS segment: ``wavs/<id>.wav`` and ``txts/<id>.txt`` (first line ``<id>``,
+    a tab and the transcript; second line the segment's time span)."""
+    first = str(row.get("txt", "")).split("\n", 1)[0]
+    _, tab, text = first.partition("\t")
+    if not tab or not text.strip() or "wav" not in row:
+        return None
+    return {"audio": row["wav"], "text": text.strip()}
+
+
 ROW_TRANSFORMS: dict[str, Callable[[OpenSource, Mapping[str, Any]], dict[str, Any] | None]] = {
+    "wenetspeech4tts": _wenetspeech4tts,
     "pico_session": _pico_session,
     "pico_preference": _pico_preference,
     "pico_edit": _pico_edit,
@@ -1208,14 +1220,49 @@ def _sample(group: Mapping[str, bytes]) -> dict[str, Any]:
     return sample
 
 
+def _spooled_samples(
+    handle: BinaryIO, shard: str, scratch: Path | None
+) -> Iterator[dict[str, Any]]:
+    """The samples of one tar whose members of a sample are far apart: members are written to
+    ``scratch`` while the archive streams, then each sample (the files sharing a name before
+    the first dot, whatever their folder) is read back and its files deleted."""
+    if scratch is not None:
+        scratch.mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="spool-", dir=scratch))
+    try:
+        parts: dict[str, dict[str, Path]] = {}
+        with tarfile.open(fileobj=handle, mode="r|*") as tar:
+            for number, member in enumerate(tar):
+                if not member.isfile():
+                    continue
+                stem, _, extension = PurePosixPath(member.name).name.partition(".")
+                path = root / str(number)
+                with tar.extractfile(member) as source_file, path.open("wb") as target:
+                    shutil.copyfileobj(source_file, target)
+                parts.setdefault(stem, {})[extension] = path
+        for stem, files in parts.items():
+            sample = _sample({extension: path.read_bytes() for extension, path in files.items()})
+            for path in files.values():
+                path.unlink()
+            yield {"__key__": stem, "__shard__": shard, **sample}
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def webdataset_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
     """Samples of consecutive tar members sharing a key; fields are named by file extension.
 
     ``__key__`` is the sample's name and ``__shard__`` the tar it came from: publishers restart
     their numbering in every tar, so an ID made of both (``columns.id`` may list several fields)
-    is unique across the source.
+    is unique across the source. ``options.spool`` is for archives that list all their audio
+    first and all its transcripts after (``wavs/a.wav`` ... ``txts/a.txt``): each archive is
+    written to scratch disk as it streams, and its files are then paired by name.
     """
     for shard in shards.names():
+        if source.options.get("spool"):
+            with shards.open(shard) as handle:
+                yield from _spooled_samples(handle, shard, shards.cache)
+            continue
         with shards.open(shard) as handle, tarfile.open(fileobj=handle, mode="r|*") as tar:
             key: str | None = None
             group: dict[str, bytes] = {}
@@ -1262,17 +1309,49 @@ def _table_rows(handle: BinaryIO, path: str, names: Sequence[str] | None) -> Ite
             for batch in parquet.ParquetFile(handle).iter_batches(batch_size=1024)
             for row in batch.to_pylist()
         )
+    if path.endswith(".zip"):
+        # A table that the publisher zipped: the archive's one file.
+        archive = zipfile.ZipFile(handle)
+        (member,) = [info for info in archive.infolist() if not info.is_dir()]
+        return _table_rows(archive.open(member), member.filename, names)
     text = io.TextIOWrapper(handle, encoding="utf-8", newline="")
+    if path.endswith(".tsv"):
+        return csv.DictReader(text, fieldnames=names, delimiter="\t", quoting=csv.QUOTE_NONE)
     if not path.endswith((".json", ".jsonl")):
         return csv.DictReader(text, fieldnames=names)
     first = text.read(1)
     while first.isspace():
         first = text.read(1)
-    rest = first + text.read()
     if first == "[":
-        return json.loads(rest)
+        return _json_array(text)
+    rest = first + text.read()
     # JSON lines end at "\n" only; str.splitlines would also cut inside a string at U+2028.
     return (json.loads(line) for line in rest.split("\n") if line.strip())
+
+
+def _json_array(text: io.TextIOBase, chunk: int = 1 << 22) -> Iterator[Any]:
+    """The items of a JSON array whose "[" has been read, decoded one at a time (a table of a
+    million rows is never held twice in memory)."""
+    decoder = json.JSONDecoder()
+    buffer, position, ended = "", 0, False
+    while True:
+        while position < len(buffer) and buffer[position] in " \t\r\n,":
+            position += 1
+        if position >= len(buffer) and not ended:
+            more = text.read(chunk)
+            buffer, position, ended = more, 0, not more
+            continue
+        if position >= len(buffer) or buffer[position] == "]":
+            return
+        try:
+            item, position = decoder.raw_decode(buffer, position)
+        except json.JSONDecodeError:
+            more = text.read(chunk)
+            if not more:
+                raise
+            buffer, position = buffer[position:] + more, 0  # an item runs past the buffer
+            continue
+        yield item
 
 
 def _table(shards: Shards, spec: Mapping[str, Any], wanted: Iterable[str]) -> dict[str, dict]:
@@ -1281,13 +1360,20 @@ def _table(shards: Shards, spec: Mapping[str, Any], wanted: Iterable[str]) -> di
 
     ``path`` may name several files. Rows sharing a key replace one another, except that the
     fields listed in ``merge`` (lists) are joined in file order: one video asked about in many
-    rows keeps all its conversations.
+    rows keeps all its conversations. ``prefix`` (field -> text) keeps only the rows whose field
+    starts with the text: one table of several kinds of row (ids ``svit_detail_12``) is read as
+    one kind at a time.
     """
     rows: dict[str, dict] = {}
     wanted = list(wanted)
+    prefixes = spec.get("prefix", {})
     for path in [spec["path"]] if isinstance(spec["path"], str) else spec["path"]:
         with shards.open(path) as handle:
             for row in _table_rows(handle, path, spec.get("names")):
+                if any(
+                    not str(row.get(field, "")).startswith(text) for field, text in prefixes.items()
+                ):
+                    continue
                 for name in spec.get("ints", ()):
                     row[name] = int(row[name])
                 key = spec["key"].format_map(_Derived(row))

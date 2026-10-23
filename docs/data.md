@@ -1901,7 +1901,7 @@ evidence needed to choose production acquisition and training scale.
 ## Scaling the media streams
 
 The open-licence pilot above draws a few thousand clips per media stream from six datasets. This
-section records the scale-up: 160 pinned public media datasets (116 of them added
+section records the scale-up: 174 pinned public media datasets (130 of them added
 in a second pass that put image and video editing first), a reader for each kind of file layout,
 pilot jobs that build a slice of every source, and full-volume runs that build all of it across
 many sandboxes. Licence, size and layout facts were read from the Hub on 2026-10-22 and 23 (a card
@@ -1912,9 +1912,9 @@ what it leaves open.
 ### How a source is described and read
 
 Four manifests list the sources: `configs/data/sources.media.json` (the first forty-four, some
-corrected), `sources.media-more.json` (100 more, all open), `sources.media-more-gated.json`
-(3 that need a click on the Hub first; the gated sources that were already known stay
-in the first file) and `sources.media-agentic.json` (13 that teach judging and planning
+corrected), `sources.media-more.json` (115 more: 100 open ones and 15 that needed a click on the Hub,
+which the account has now made), `sources.media-more-gated.json` (the 2 that still need a
+click; the gated sources that were already known stay in the first file) and `sources.media-agentic.json` (13 that teach judging and planning
 edits, three of them published on a web site rather than the Hub: see "Agentic editing").
 `open_media.load_sources()` reads all four. Each entry holds
 
@@ -1992,6 +1992,12 @@ from scores, a vote, a winner or a column), `transform` (reshape a publisher's o
 `strip`, the `sequence` of images and texts of a row), `whole_only` and `fps` (video questions
 about whole videos at a given frame rate), `table.per_archive`, `table.merge`, `format`
 (`pairs`, `messages`, `parallel` or `choices` for a conversation) and `keep` filters.
+Three more were added for the gated repositories opened on 2026-10-23: a table may be a `.zip`
+holding one file or a header-less `.tsv` (`table.names` names its columns), a JSON array is
+decoded one row at a time instead of being loaded whole, `table.prefix` keeps only the rows
+whose field starts with a text (one table of several kinds of row, read one kind at a time),
+and `spool` (WebDataset) writes an archive to scratch disk and pairs its files by name, for
+tars that list all their audio before the transcripts.
 
 A translation whose target is only text was not expressible before: the concordance compiler
 emits the same `speech_translation` view without the translated speech when a source has none.
@@ -2311,6 +2317,7 @@ first accept the publisher's terms.
 | `swiss_ai_smithsonian` (`swiss-ai/smithsonian`) | Smithsonian collection objects at high resolution with catalogue-grounded descriptions. | CC0 / public domain (agency collections; the card) | 41.8k items; 414 GB | Full-resolution images are cut to 1024 px. |
 | `swiss_ai_nasa` (`swiss-ai/nasa`) | NASA images with descriptions. | CC0 / public domain (agency collections; the card) | 37k items; 230 GB | Full-resolution images are cut to 1024 px. |
 | `megalith_10m` (`drawthingsai/megalith-10m`) | Megalith-10M: 9.1M openly licensed Flickr photographs (no captions are read). | CC0 (the photographers' dedication; the photos are Flickr images under open licences) | 9.1M items; 1,863 GB | Images only: image identity episodes, no captions (the long captions live in a separate repository). |
+| `medtrinity_demo` (`UCSC-VLAA/MedTrinity-25M`) (gated) | MedTrinity-25M demo subset (the card's `25M_demo` config): 161,630 medical images (ten imaging kinds) with multi-granular captions (lesion type, modality, regions of interest, relations). | none on the card (the images come from about 30 public medical datasets, most CC BY, CC0 or CC BY-NC; the card lists each; the captions are machine-written) | 162k items; 8.3 GB | The 18M-image `25M_accessible` shards (1.6 TB of `.tar.zst`, captions in a metadata file inside each archive) are not read: they need a zstd tar reader and a join that holds the images until the metadata arrives. |
 
 #### Questions about images (image_description)
 
@@ -2318,6 +2325,14 @@ first accept the publisher's terms.
 | --- | --- | --- | --- | --- |
 | `finevision` (`HuggingFaceM4/FineVision`) | FineVision: 24M visual conversations over 17.3M images from about 200 public sources (documents, charts, tables, OCR, diagrams, general VQA, captions, GUI, maths), de-duplicated and rated by a judge model; rows with a relevance or image-correspondence rating below 3 are dropped, rows with several images and the text-only subsets are skipped. | mixed (each of the 185 sub-datasets keeps its own licence; the prompts are CC-BY-4.0; some subsets hold GPT-4V, Gemini or Claude outputs and non-commercial sets) | 14M items; 4,637 GB | Subsumes the Cauldron, LLaVA-OneVision-Data, Cambrian, CoSyn, Docmatix, ALLaVA, LVIS-Instruct4V and ShareGPT4V sets, which are therefore not listed separately. Several large subsets hold multi-page documents and are mostly skipped. |
 | `llava_next_data` (`lmms-lab/LLaVA-NeXT-Data`) | LLaVA-NeXT instruction data: 779k visual conversations (captions, VQA, OCR, charts). | mixed (LLaVA-NeXT release: ShareGPT4V, VQA and OCR sets with their own licences; GPT-4V outputs inside) | 779k items; 92 GB | Overlaps FineVision, which holds most of these sets. |
+| `sharegpt4o_image_questions` (`OpenGVLab/ShareGPT-4o`) (gated) | ShareGPT-4o image conversations: 57k images, each with a question and a long GPT-4o answer. The repository's other parts (about 4.8 TB of audio-pretraining zips of GigaSpeech, LibriSpeech, WenetSpeech and others, and the audio benchmark folder) are not read. | mit (card; the answers are GPT-4o outputs: OpenAI's terms apply; image and video copyrights stay with their creators) | 57.4k items; 6.5 GB | Read from `images.zip` joined to `image_conversations/gpt-4o.jsonl` (a zip the archive reader opens by random access). |
+| `infinity_mm_stage1` (`BAAI/Infinity-MM`) (gated) | Infinity-MM stage 1: 10M image-caption pairs, each a request to describe the image and a long caption from the publishers' pipeline. | cc-by-sa-4.0 (card; the images come from many upstream datasets whose own licences apply) | 10M items; 6,500 GB | WebDataset tars of `N.jpg` and `N.json`. The card says 10M samples. |
+| `infinity_mm_synthetic` (`BAAI/Infinity-MM`) (gated) | Infinity-MM stage 4 synthetic data (two parts, 640k and 142k conversations): visual instruction conversations the publishers generated with open models. | cc-by-sa-4.0 (card) | 782k items; 147 GB | |
+| `infinity_mm_zh` (`BAAI/Infinity-MM`) (gated) | Infinity-MM stage 4 Chinese data: visual instruction conversations translated into Chinese and filtered (many ask for bounding boxes). | cc-by-sa-4.0 (card) | about 400k items; 73 GB | The item count is an estimate from the size; the card gives none. |
+| `svit_detail` (`BAAI/SVIT`) (gated) | SVIT detailed descriptions: one long GPT-4 description of each of 106k Visual Genome images. | cc-by-4.0 (card; also OpenAI's terms; Visual Genome keeps its licence) | 106k items; 15 GB | The four SVIT sources read the same 3.0M-row LLaVA-format table (`format/llava-v1.5/SVIT.zip`, a zipped JSON array decoded one row at a time) and the same two image zips, each keeping the rows of one kind (`options.table.prefix`); an image's rows of that kind merge into one conversation of at most 8 turns. The same picture therefore appears once in each of the four. |
+| `svit_conversation` (`BAAI/SVIT`) (gated) | SVIT conversations: multi-turn GPT-4 question-and-answer chats about Visual Genome images, built from the annotations. | cc-by-4.0 (card; as above) | 318k conversations over up to 108k images | |
+| `svit_complex` (`BAAI/SVIT`) (gated) | SVIT complex reasoning: GPT-4 questions that need reasoning about a Visual Genome image, with answers. | cc-by-4.0 (card; as above) | 1.56M conversations over up to 108k images | |
+| `svit_referring` (`BAAI/SVIT`) (gated) | SVIT referring questions: GPT-4 questions about named regions of a Visual Genome image; answers give bounding boxes. | cc-by-4.0 (card; as above) | 1.01M conversations over up to 108k images | |
 
 #### Instructed image edits and edit sessions (image_edit)
 
@@ -2351,7 +2366,7 @@ first accept the publisher's terms.
 | `imgedit_version_backtracking` (`sysuyy/ImgEdit`) | ImgEdit multi-turn, version backtracking: 42,023 sessions of two chained edits (edits where the third request withdraws the second and redoes the first). | apache-2.0 (card; the source photos are web images whose licences the card does not address) | 42k items; 560 GB | Each session has a third edit that starts again from the first result, not the second; it is left out so every edit applies to the one before. The tar is one 10 GiB-piece archive per subset; edits are machine-written from detections. |
 | `taesiri_image_editing_request` (`taesiri/ImageEditingRequestV1`) | 3.9k real photo-editing requests, each with the original photo, a person's edited version and the request as written (typos kept). | none on the card (requests and images from an online photo-editing request forum: the posters keep their rights) | 3.06k items; 0.3 GB |  |
 | `editworld_reasoning` (`tyfeld/editworld-reasoning`) | EditWorld reasoning: 7.7k edits whose request is a question about the world ("what appears when the clock strikes midnight?"), with the edited picture. | none on the card | 7.74k items; 1.3 GB | The long reasoning text of each row (output_text) is not read. |
-| `multiedit` (`inclusionAI/MultiEdit`) (gated) | MultiEdit: 106.5k hard instruction edits in six groups (objects, people, text in posters, interface screenshots, new viewpoints, 38 artistic styles). | apache-2.0 (card; the edits are GPT-4o and GPT-Image-1 outputs: OpenAI's terms apply) | 107k items; 45 GB | Gated (accept the terms at the repository). The table's file names and fields come from the card, not from a read of the files. |
+| `multiedit` (`inclusionAI/MultiEdit`) (gated) | MultiEdit: 106.5k hard instruction edits in six groups (objects, people, text in posters, interface screenshots, new viewpoints, 38 artistic styles). | apache-2.0 (card; the edits are GPT-4o and GPT-Image-1 outputs: OpenAI's terms apply) | 107k items; 45 GB | Read on 2026-10-23 from the first archive: each row of `multiedit/train.jsonl` names an original and an edited picture inside `multiedit/train.tar.gz` (one 44 GB stream, so every shard reads it and keeps its share). The 1.1k-sample benchmark (`multiedit/test.*`) is not read. |
 | `pico_banana_multi_turn` (`https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb`) | Pico-Banana-400K multi-turn sessions: 2-6 successive edits of one photo, each applied to the previous result, with the request of every turn; fetched from the publisher's web site. | cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0) | 77.2k items; 540 GB | Read from the publisher's CDN (originals from Open Images' copies). A session loses its later turns after a missing picture. |
 | `pico_banana_single` (`https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb`) | Pico-Banana-400K single edits: 35 kinds of edit of a photo with a request written by a model; fetched from the publisher's web site. | cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0) | 258k items; 379 GB | Read from the publisher's CDN (originals from Open Images' copies). |
 
@@ -2420,6 +2435,10 @@ first accept the publisher's terms.
 | `emilia_yodas` (`TTS-AGI/emilia-yodas`) | The YODAS half of Emilia (English, German, French, Japanese, Korean, Chinese): 114,000 hours of in-the-wild speech, read from an ungated mirror of the gated Emilia repository. | cc-by-4.0 (card of Emilia-YODAS; YouTube videos under Creative Commons) | 41M items; 114k h; 2,136 GB | Transcripts are Whisper-pipeline output, not human. A third-party mirror: file names and sizes match the gated original. |
 | `spgispeech` (`kensho/spgispeech`) (gated) | SPGISpeech: 5,000 hours of company earnings calls with fully formatted (cased, punctuated, numerals) transcripts. | Kensho non-commercial research agreement (the card's 'other' licence) | 1.93M items; 5k h; 557 GB | Gated: accept the terms at the repository. Columns come from the card, not from a read of the files. |
 | `ksponspeech` (`jp1924/KsponSpeech`) (gated) | KsponSpeech: 969 hours of Korean spontaneous conversation. | none on the card (AI Hub terms: research use, Korean residents) | 620k items; 969 h; 48 GB | Gated: accept the terms at the repository. Columns come from the card, not from a read of the files. |
+| `gigaspeech2_th` (`speechcolab/gigaspeech2`) (gated) | GigaSpeech 2 Thai: 10,000 hours of web audio (podcasts, videos) with machine transcripts refined by a second pass (the card's `refine` list, 9.9M segments). | apache-2.0 (card; the access terms limit use to non-commercial research and education, and the audio keeps its owners' copyright) | 9.90M items; 10,000 h; 1,273 GB | Only the training archives (`data/th/train/*.tar.gz`, wavs) and `train_refined.tsv` are read; dev and test are the benchmark and are left out. The table is read whole (about 1.5 GB), so a sandbox needs a few GB of memory for it. |
+| `gigaspeech2_id` (`speechcolab/gigaspeech2`) (gated) | GigaSpeech 2 Indonesian: 6,000 hours, refined list of 6.1M segments. | as above | 6.13M items; 6,000 h; 979 GB | As above. |
+| `gigaspeech2_vi` (`speechcolab/gigaspeech2`) (gated) | GigaSpeech 2 Vietnamese: 6,000 hours, refined list of 5.0M segments. | as above | 5.00M items; 6,000 h; 824 GB | As above. |
+| `wenetspeech4tts` (`Wenetspeech4TTS/WenetSpeech4TTS`) (gated) | WenetSpeech4TTS: Mandarin speech cut from WenetSpeech with refined segment boundaries and transcripts, graded by audio quality (DNSMOS P.808). The Premium, Standard and Basic parts (score 3.6 or more; 7,226 hours) are read; the Rest part (score below 3.6; 5,574 hours of poorer audio) is not. | cc-by-4.0 (card; non-commercial research and education terms; the audio keeps its owners' copyright) | 3.93M items; 7,226 h; 619 GB | Each archive lists its wavs first and its transcripts (`txts/<id>.txt`, an id, a tab and the text) afterwards, so the reader writes an archive (about 8.5 GB) to scratch disk and pairs the files by name (`options.spool`). Overlaps `wenetspeech`, its source, with better boundaries. |
 
 #### Sounds and music (audio_identity, audio_description)
 
@@ -2447,6 +2466,7 @@ first accept the publisher's terms.
 | --- | --- | --- | --- | --- |
 | `rekadaily_processed` (`RekaAI/RekaDaily-10k-processed`) | First-person household and workplace clips (nine subsets) with sound and a model-written dense caption. | Apache-2.0 | 4.5M items; 5.4k h; 74,218 GB | First-person recordings of paid collectors; clips contain ambient audio and possibly incidental speech. |
 | `finevideo` (`HuggingFaceFV/finevideo`) (gated) | 43,751 YouTube videos with sound and rich scene/activity annotations; clips are cut at the annotated activities. | cc (per-video Creative Commons; see the card) | 131k items; 3.42k h; 673 GB | Gated: the Hub account must accept the terms (removal requests must be honoured). Annotations are Gemini and GPT output, not human. Layout is taken from the card; not sampled. |
+| `sharegpt4o_video_captions` (`OpenGVLab/ShareGPT-4o`) (gated) | ShareGPT-4o video captions: 2,184 videos (up to 1080p, 4-28 MB each) with a long GPT-4o description. | mit (card; GPT-4o outputs: OpenAI's terms apply; video copyrights belong to the original creators or platforms, academic research use only) | 2.18k items; 28 GB | Read from `videos.zip` joined to `video_conversations/gpt4o.jsonl`; the clips are cut to 8 s. |
 | `vggsound` (`Loie/VGGSound`) | 200k ten-second YouTube clips with sound, labelled by the sound class (for example "dog barking"). | cc-by-4.0 | 199k items; 550 h; 338 GB | Captions are the class label only. The copyright remains with the original uploaders. |
 | `openvid_1m` (`Dev-Jahn/OpenVid-1M-wds`) | All 1,019,957 OpenVid-1M clips (silent, 2-30 s; Pexels, Panda-70M, CelebV-HQ) with their LLaVA-written captions, repackaged as tar shards. | cc-by-4.0 (card; the videos keep the terms of Panda-70M, ChronoMagic, CelebV-HQ and Pexels) | 1.02M items; 2k h; 7,535 GB | Silent clips: video description and video identity only. Replaces the earlier read of nkp37/OpenVid-1M's zip parts, which skipped the split parts and the HD folder. |
 | `insvie` (`wyh6666/InsViE`) | One million instructed video edits (Pexels clips edited by generative models). | cc-by-4.0 | 1M items; 394 GB | Edits are model-generated; clips have no sound. |
@@ -2490,7 +2510,7 @@ exactly one pilot job and that the gated sources are in the gated job only.
 | Job (`configs/cloud/<name>.json`) | Prepared root | Sources and clip counts |
 | --- | --- | --- |
 | `prepare-media-edits` | `media-edits` | magicbrush 4,500, ultraedit 10,000, hq_edit 4,000, instructpix2pix 10,000, omniedit 4,000, anyedit 6,000, sharegpt4o_image_edit 1,500, ultraedit_region 2,000, pipe 2,000, bytemorph_demo 2,000, nhr_edit 2,000, nhr_edit_part2 2,000, gpt_edit_simpler 2,000, editreward_data 2,000, flux_kontext_ipa 2,000, maskedit_10k 2,000, escher_aurora_kubric 2,000, escher_aurora_ag 2,000, escher_human_edit 2,000, escher_vismin 2,000, x2edit 2,000, seed_data_edit_multi_turn 1,500, seed_data_edit_real 1,500, taesiri_image_editing_request 2,000, editworld_reasoning 2,000, imgedit_content_memory 1,500, imgedit_content_understanding 1,500, imgedit_version_backtracking 1,500, editreward_judging 1,500, editscore_judging 1,500, pico_banana_preference 1,500, pico_banana_multi_turn 1,500, pico_banana_single 2,000, escher_human_edit_plan 1,500, escher_vismin_plan 1,500, escher_aurora_kubric_plan 1,500, escher_aurora_ag_plan 1,500, escher_ss2_plan 1,500, escher_magicbrush_plan 1,500, editworld_reasoning_plan 1,500, jarvisart_plan 1,500 |
-| `prepare-media-gated` | `media-gated` | gigaspeech 10,000, emilia 10,000, finevideo 6,000, multiedit 1,500, spgispeech 2,000, ksponspeech 2,000 |
+| `prepare-media-gated` | `media-gated` | gigaspeech 10,000, emilia 10,000, finevideo 6,000, multiedit 1,500, spgispeech 2,000, ksponspeech 2,000, sharegpt4o_image_questions 2,000, sharegpt4o_video_captions 600, infinity_mm_stage1 4,000, infinity_mm_synthetic 2,000, infinity_mm_zh 2,000, svit_detail 1,500, svit_conversation 1,500, svit_complex 1,500, svit_referring 1,500, medtrinity_demo 2,000, gigaspeech2_th 2,000, gigaspeech2_id 2,000, gigaspeech2_vi 2,000, wenetspeech4tts 2,000 |
 | `prepare-media-images` | `media-images` | docci 2,000, scienceqa_images 5,000, llava_recap_cc3m 15,000, llava_recap_558k 8,000, llava_recap_118k 8,000, blip3o_long_caption 15,000, text_to_image_2m 15,000, commoncatalog_cc_by 8,000, coco_captions 8,000, recap_coco_30k 8,000, textcaps 8,000, flickr30k 8,000, densefusion_1m 8,000, videoufo_frames 2,000, pixelprose 2,000, pd12m 2,000, recap_datacomp_12m 2,000, cc12m_recaptioned 2,000, wit_base 2,000, met_openaccess 2,000, roco_radiology 2,000, scimmir 2,000, wikiart_recaption 2,000, pmc_oa 2,000, sharegpt4o_image_t2i 2,000, finevision 3,000, pixmo_cap_images 2,000, art_museums_pd_440k 2,000, swiss_ai_smithsonian 2,000, swiss_ai_nasa 2,000, megalith_10m 2,000, llava_next_data 3,000 |
 | `prepare-media-sound` | `media-sound` | audioset 20,000, audiocaps 10,000, clotho 3,839, song_describer 746, wavcaps_10s_16k 1,500, musicbench 1,500, freesound_laion_640k 1,500, jamendomaxcaps 1,500, fma_large_clips 1,500, mtg_jamendo 1,500, fsd50k 1,500, esc50 1,500, urbansound8k 1,500, nsynth 1,500, birdset_xeno_canto 1,500 |
 | `prepare-media-speech` | `media-speech` | librispeech_asr 15,000, libritts_r 8,000, mls_english 15,000, mls_multilingual 10,000, peoples_speech 8,000, voxpopuli 8,000, common_voice_17 8,000, yodas_granary_en 8,000, yodas_granary_ast 15,000, covost2 8,000, fleurs 4,000, hifi_tts 4,000, expresso 2,000, lj_speech 3,000, yodas_granary_asr_nonen 2,000, yodas_granary_ast_more 2,000, peoples_speech_dirty 2,000, peoples_speech_sharealike 2,000, libriheavy 2,000, wenetspeech 2,000, fleurs_asr 2,000, ami_ihm 2,000, earnings22 2,000, tedlium3 2,000, parlaspeech_hr 2,000, parlaspeech_rs 2,000, parlaspeech_cz 2,000, parlaspeech_pl 2,000, mediaspeech 2,000, mtedx 2,000, cml_tts 2,000, globe_v3 2,000, magpie_speech_orpheus 2,000, primewords_zh 2,000, covost2_en_to_x 2,000, emilia_yodas 2,000 |
@@ -2528,7 +2548,7 @@ video edits now exceed what the stage plan asks for.
 | Run (`configs/cloud/<name>.json`) | Sources | GPU sandboxes | Shards | Estimated GPU hours per shard | Ingest hours per sandbox | Sandbox-hours billed | Repository TB | Prepared TB (est.) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `prepare-full-media-edits` | 41 | 48 | 96 | 5.5-5.5 | 16 | 1,209 | 20.7 | 24.9 |
-| `prepare-full-media-gated` | 6 | 24 | 48 | 7.3-7.3 | 20 | 705 | 5.1 | 24.0 |
+| `prepare-full-media-gated` | 20 | 48 | 96 | 7.2-7.2 | 20 | 1,410 | 15.6 | 24.0 + 10.5 (est.) |
 | `prepare-full-media-images` | 32 | 128 | 256 | 7.5-7.5 | 22 | 3,977 | 66.2 | 100.0 |
 | `prepare-full-media-sound` | 15 | 4 | 8 | 4.1-4.1 | 12 | 93 | 5.2 | 2.9 |
 | `prepare-full-media-speech` | 36 | 96 | 192 | 6.2-6.2 | 18 | 2,601 | 31.5 | 94.5 |
@@ -2555,6 +2575,13 @@ bigger than compressed media), and estimated GPU hours.
 "Before" is the manifest before this work (44 sources; MagicBrush counted as single edits). Hours
 for speech are the sources' own; images and video are counted by image or clip.
 
+The table predates the 14 sources opened on 2026-10-23 (the repositories the account gained
+access to). They add 25.0M speech clips (Thai, Indonesian and Vietnamese GigaSpeech 2 and
+Mandarin WenetSpeech4TTS: 29,226 hours, 3.7 TB), 11.7M visual conversations over images
+(Infinity-MM, SVIT, ShareGPT-4o: 6.8 TB), 162k captioned medical images and 2.2k captioned
+videos; about 340 estimated GPU hours, which is why the `gated` run now has 48 sandboxes
+(`scripts/media_volume.py summary` gives the full recount).
+
 Things to know before launching:
 
 - **The estimates are not measured.** GPU seconds per clip are assumptions (above). A first run
@@ -2572,47 +2599,55 @@ Things to know before launching:
   `megatoken.hub.install()` (wait out 429 and 503), as all scripts here do. File reads are range
   requests of 32 MiB; reading 223 TB makes millions of them, so the account's download
   limit, not the GPUs, may set the pace.
-- **Gated.** A source the account cannot read (the three marked 403 below) stops the sandbox
+- **Gated.** A source the account cannot read (the two marked 403 below) stops the sandbox
   that holds it at its first file. Accept their terms first, or take them out of the `gated` run's
   `media_sources`; relaunching after a failure redoes only the failed sandboxes.
 
 ### Gated repositories that need a click on the Hub
 
 The sources below ask for the publisher's terms to be accepted on the Hub. With the token in
-`~/.cache/huggingface/token` (account `gabrielpickard`), a data file of each was probed on
-2026-10-23: the last column says whether the account can already read it. Where it cannot (HTTP
-403), click "Agree" on the dataset page before the `gated` run starts; those three were wired
-from their dataset cards and have not been read by the reader (see the sample checks).
+`~/.cache/huggingface/token` (account `gabrielpickard`), the first bytes of a data file of each
+were requested on 2026-10-23: the last column says whether the account can read it. A request
+for a repository's README, licence or file list is answered even when the terms are not
+accepted, so it proves nothing; only a data file does. Where the answer is HTTP 403, click
+"Agree" on the dataset page before the `gated` run starts.
 
 | Source | Hub page | Account access on 2026-10-23 | What it is |
 | --- | --- | --- | --- |
 | `gigaspeech` | https://huggingface.co/datasets/speechcolab/gigaspeech | can read it | 10,000 hours of audiobooks, podcasts and YouTube with transcripts. |
 | `emilia` | https://huggingface.co/datasets/amphion/Emilia-Dataset | can read it | Emilia, the original half of the Emilia-Large corpus (English, German, French, Chinese, Japanese, Korean); its YODAS half is read from an ungated mirror (emilia_yodas). |
 | `finevideo` | https://huggingface.co/datasets/HuggingFaceFV/finevideo | can read it | 43,751 YouTube videos with sound and rich scene/activity annotations; clips are cut at the annotated activities. |
-| `multiedit` | https://huggingface.co/datasets/inclusionAI/MultiEdit | 403: click Agree on the page first | MultiEdit: 106.5k hard instruction edits in six groups (objects, people, text in posters, interface screenshots, new viewpoints, 38 artistic styles). |
+| `multiedit` | https://huggingface.co/datasets/inclusionAI/MultiEdit | can read it (read and checked on 2026-10-23) | MultiEdit: 106.5k hard instruction edits in six groups (objects, people, text in posters, interface screenshots, new viewpoints, 38 artistic styles). |
+| `sharegpt4o_image_questions`, `sharegpt4o_video_captions` | https://huggingface.co/datasets/OpenGVLab/ShareGPT-4o | can read it (read and checked) | 57k image conversations and 2.2k video descriptions written by GPT-4o. |
+| `infinity_mm_stage1`, `infinity_mm_synthetic`, `infinity_mm_zh` | https://huggingface.co/datasets/BAAI/Infinity-MM | can read it (read and checked) | Three parts of Infinity-MM, the 10.5 TB multimodal instruction set. |
+| `svit_detail`, `svit_conversation`, `svit_complex`, `svit_referring` | https://huggingface.co/datasets/BAAI/SVIT | can read it (read and checked) | Four kinds of GPT-4 conversation about 108k Visual Genome images. |
+| `medtrinity_demo` | https://huggingface.co/datasets/UCSC-VLAA/MedTrinity-25M | can read it (read and checked) | 162k medical images with multi-granular captions (the demo subset). |
+| `gigaspeech2_th`, `gigaspeech2_id`, `gigaspeech2_vi` | https://huggingface.co/datasets/speechcolab/gigaspeech2 | can read it (read and checked) | GigaSpeech 2: Thai, Indonesian and Vietnamese web speech (22,000 refined hours). |
+| `wenetspeech4tts` | https://huggingface.co/datasets/Wenetspeech4TTS/WenetSpeech4TTS | can read it (read and checked) | Mandarin speech graded by audio quality (7,226 hours read). |
 | `spgispeech` | https://huggingface.co/datasets/kensho/spgispeech | 403: click Agree on the page first | SPGISpeech: 5,000 hours of company earnings calls with fully formatted (cased, punctuated, numerals) transcripts. |
 | `ksponspeech` | https://huggingface.co/datasets/jp1924/KsponSpeech | 403: click Agree on the page first | KsponSpeech: 969 hours of Korean spontaneous conversation. |
 
+Readable but not wired:
 
-Gated but not wired, because their layouts could not be read without access (the Hub URL is where
-to click "Agree"; after that the layout can be checked and the source added):
-`https://huggingface.co/datasets/OpenGVLab/ShareGPT-4o` (4.9 TB: image captions and questions,
-GPT-4o labelled), `https://huggingface.co/datasets/BAAI/Infinity-MM` (10.5 TB, about 40 million
-image-text pairs in four stages), `https://huggingface.co/datasets/BAAI/SVIT` (16.9 GB, 4.2
-million instructions on Visual Genome images),
-`https://huggingface.co/datasets/UCSC-VLAA/MedTrinity-25M` (1.66 TB, 25 million medical images
-with multigranular annotations),
-`https://huggingface.co/datasets/kensho/SPGISpeech2.0` (388 GB, long earnings-call snippets with
-speaker tags), `https://huggingface.co/datasets/speechcolab/gigaspeech2` (3.1 TB, Thai,
-Indonesian and Vietnamese), `https://huggingface.co/datasets/ai4bharat/NPTEL` (121 GB, Indian
-lecture speech with translations),
-`https://huggingface.co/datasets/Wenetspeech4TTS/WenetSpeech4TTS` (969 GB, Mandarin TTS-quality
-speech), `https://huggingface.co/datasets/peter-sushko/realedit_images` (141 GB of the RealEdit
-photo-editing requests' images; the table of requests is open at `peter-sushko/RealEdit`),
-`https://huggingface.co/datasets/otoearth/otoSpeech-full-duplex-280h` and
-`otoSpeech-full-duplex-turn-104h` (two-speaker conversations) and
-`https://huggingface.co/datasets/sarulab-speech/J-CHAT` (Japanese podcasts; the repository holds
-only URL lists).
+- `https://huggingface.co/datasets/peter-sushko/realedit_images` (141 GB, the pictures of the
+  RealEdit photo-editing requests; the table of requests is open at `peter-sushko/RealEdit`).
+  The ten archives are sorted by picture name over the whole set, and an original photo (named
+  by its Reddit post, `3v1cvp.jpg`) and its edits (named by comment, `cxjhczp_1.jpg`) are in
+  different archives, so a pair can only be formed by reading all 141 GB in one pass. The
+  sharded reader reads each archive alone, so no source is wired.
+- `https://huggingface.co/datasets/BAAI/Infinity-MM` stages 2 and 3 and most of stage 4: the
+  stage 2 text part has no pictures; the rest (Cambrian, LLaVA-OneVision, Docmatix, ALLaVA,
+  LVIS-Instruct4V, ShareGPT4V, DenseFusion, MathV360K, DocStruct4M and others) is part of
+  `HuggingFaceM4/FineVision`, which is already read; `Infinity_Preference` is preference pairs
+  that the question reader cannot use.
+- `https://huggingface.co/datasets/UCSC-VLAA/MedTrinity-25M` `25M_accessible` (see above).
+
+Gated and still refused (HTTP 403 on a data file on 2026-10-23, so not read; their entries are
+unchanged and carry the page to click): `kensho/SPGISpeech2.0` (388 GB, long earnings-call
+snippets with speaker tags), `ai4bharat/NPTEL` (121 GB, Indian lecture speech with
+translations), `otoearth/otoSpeech-full-duplex-280h` and `otoSpeech-full-duplex-turn-104h`
+(two-speaker conversations) and `sarulab-speech/J-CHAT` (Japanese podcasts; the repository
+holds only URL lists). Not wired for lack of a layout to read.
 
 ### What the stage plan implies, and the gap
 
@@ -2899,9 +2934,19 @@ more (`recap_coco_30k`, `fleurs`) were not sampled for the reasons given in thei
 | `swiss_ai_nasa` | parquet | read: 2 clips from a sample, episodes image_creation 2, image_description 2, image_identity 2 |
 | `megalith_10m` | webdataset | read: 3 clips from a sample, episodes image_identity 3 |
 | `llava_next_data` | parquet | read: 2 clips from a sample, episodes image_description 2, image_identity 2 |
-| `multiedit` | linked | NOT READ: gated (HTTP 403 for this account on 2026-10-23); the layout was written from the dataset card. Needs Agree on the Hub, then a sample check. |
-| `spgispeech` | parquet | NOT READ: gated (HTTP 403 for this account on 2026-10-23); the layout was written from the dataset card. Needs Agree on the Hub, then a sample check. |
-| `ksponspeech` | parquet | NOT READ: gated (HTTP 403 for this account on 2026-10-23); the layout was written from the dataset card. Needs Agree on the Hub, then a sample check. |
+| `sharegpt4o_image_questions` | archive | read 2026-10-23: 3 clips from `images.zip` joined to the jsonl, pictures decoded, one question and a long answer each; episodes image_description and image_identity |
+| `sharegpt4o_video_captions` | archive | read 2026-10-23: 2 clips from `videos.zip`, cut to 8 s, with their long captions; episodes video_description and video_identity |
+| `infinity_mm_stage1` | webdataset | read 2026-10-23: 3 clips from the first tar of the first folder, pictures decoded; episodes image_description and image_identity |
+| `infinity_mm_synthetic` | webdataset | read 2026-10-23: the first tar of each part gave 3 clips (up to 9 turns before the 8-turn cut) |
+| `infinity_mm_zh` | webdataset | read 2026-10-23: 3 clips with up to 17 turns before the cut, Chinese text |
+| `svit_detail` | archive | read 2026-10-23: the 3-million-row table decoded in 3.4 minutes, then 3 clips from `raw/images2.zip`, pictures decoded; the other three kinds use the same table with another prefix |
+| `medtrinity_demo` | parquet | read 2026-10-23: 3 clips from the first file (brain CT), 512 px, captions of several hundred characters; episodes image_description, image_creation and image_identity |
+| `gigaspeech2_vi` | archive | read 2026-10-23: 3 clips from `data/vi/train/0.tar.gz` with their refined transcripts (16 kHz wav, 2-7 s) |
+| `wenetspeech4tts` | webdataset | read 2026-10-23: one whole archive (`Premium_9`, 8.5 GB) was written to scratch and paired, 3 clips with their Mandarin transcripts (3.5-9.9 s); the spooling took 38 minutes on the shared link |
+| `gigaspeech2_th`, `gigaspeech2_id` | archive | read 2026-10-23: 3 clips each from `data/th/train/1.tar.gz` and `data/id/train/1.tar.gz` |
+| `multiedit` | linked | read: 3 clips from the head of the archive (2026-10-23), pictures decoded (1024 and 682 px), episodes image_edit 3 |
+| `spgispeech` | parquet | NOT READ: gated (HTTP 403 for this account on 2026-10-23, re-checked); the layout was written from the dataset card. Needs Agree on the Hub, then a sample check. |
+| `ksponspeech` | parquet | NOT READ: gated (HTTP 403 for this account on 2026-10-23, re-checked); the layout was written from the dataset card. Needs Agree on the Hub, then a sample check. |
 | `editreward_judging` | parquet | read: 3 clips from a sample, episodes edit_judging 3 |
 | `editscore_judging` | parquet | read: 3 clips from a sample, episodes edit_judging 3 |
 | `pico_banana_preference` | table | read: 8 clips from a sample, episodes edit_judging 8; fetched 87 pictures (99 MB) over the network, 0 of 25 rows with a dead link |
@@ -3491,6 +3536,8 @@ sessions it was made from. `openswe-trajectories` is in
 
 ### Sources that need a click on the Hub
 
+Re-checked on 2026-10-23: the first bytes of a data file of every repository below were requested again with the project token and each still answered HTTP 403, so none could be read and none was moved out of the gated manifest. (A request for a repository's README or licence file is answered even before the terms are accepted, so it is no test.)
+
 `configs/data/sources.agentic-more-gated.json` has 23 sources over 9 repositories whose data
 files return HTTP 403 for the project token. Each is pinned and recorded like the open ones.
 Open each page while signed in and press the agree button, then add the manifest to a
@@ -3910,6 +3957,8 @@ miroverse-v01-sft (8.3 GB) and nexus-agents-toolcalling (6.2 GB).
 
 ### Sources that need a click on the Hub
 
+Re-checked on 2026-10-23: the first bytes of a data file of every repository below were requested again with the project token and each still answered HTTP 403, so none could be read and none was moved out of the gated manifest. (A request for a repository's README or licence file is answered even before the terms are accepted, so it is no test.)
+
 `sources.agentic-chat-gated.json` holds five sources. The account could not read them, so each
 reader was chosen from the publisher's description and has not been run on real rows. Open each
 page while signed in and press Agree:
@@ -4259,6 +4308,8 @@ manifest, and check the stream, scored records, provenance, verdict and the row 
   `the-acorn-ai/textarena-player-game-traces` (cumulative history that needs a custom parser).
 
 ### Gated repositories
+
+Re-checked on 2026-10-23: the first bytes of a data file of every repository below were requested again with the project token and each still answered HTTP 403, so none could be read and none was moved out of the gated manifest. (A request for a repository's README or licence file is answered even before the terms are accepted, so it is no test.)
 
 Nothing in `sources.later-stages.json` needs a click: every entry was read with this
 account's token. Four gated repositories were checked (data file metadata, HTTP 403 on each) and
