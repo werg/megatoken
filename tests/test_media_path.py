@@ -733,17 +733,15 @@ def test_startup_media_requirements_follow_outputs_and_active_autoencode_inputs(
     )
     # A media observation has no output modality. Only decoded generated
     # media targets are included in the prepared summary.
-    assert required_media_modalities(
-        dataset, (), autoencode_items=0
-    ) == ()
+    assert required_media_modalities(dataset, (), autoencode_items=0) == ()
     # Creation and edit tasks score generated media; audiovisual creation needs
     # both decoders, while encode-and-reconstruct also samples present media.
-    assert required_media_modalities(
-        dataset, ("audio", "video", "image"), autoencode_items=0
-    ) == ("audio", "image", "video")
-    assert required_media_modalities(
-        dataset, (), autoencode_items=16
-    ) == ("audio", "image")
+    assert required_media_modalities(dataset, ("audio", "video", "image"), autoencode_items=0) == (
+        "audio",
+        "image",
+        "video",
+    )
+    assert required_media_modalities(dataset, (), autoencode_items=16) == ("audio", "image")
 
 
 def test_startup_media_requirements_report_missing_realizer_modalities():
