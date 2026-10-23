@@ -309,9 +309,7 @@ def edits_table() -> str:
     return "\n".join(lines)
 
 
-def gap_table(
-    only: set[str] | None = None, sources: dict[str, OpenSource] | None = None
-) -> str:
+def gap_table(only: set[str] | None = None, sources: dict[str, OpenSource] | None = None) -> str:
     mixture = stage_recipe("P1").mixture
     streams = sorted(
         name

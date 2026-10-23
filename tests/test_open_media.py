@@ -1778,6 +1778,59 @@ def test_linked_rows_lose_a_leading_folder_and_a_shard_reads_only_its_archives(t
     assert record["texts"] == ["edit 2"] and len(record["images"]) == 2
 
 
+def test_linked_rows_may_share_an_image_or_name_it_twice_and_a_repeated_member_is_ignored(
+    tmp_path, media
+):
+    source = make_source(
+        "shared",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "id"},
+        include=("table.json",),
+        options={
+            "linked": {
+                "archives": ["up/*.tar"],
+                "sequence": {"images": ["source_image", "target_image"], "texts": ["instruction"]},
+            }
+        },
+    )
+    folder = _local(tmp_path, "shared")
+    (folder / "up").mkdir()
+    (folder / "table.json").write_text(
+        json.dumps(
+            [
+                {"id": "a", "source_image": "s.png", "target_image": "a.png", "instruction": "x"},
+                {"id": "b", "source_image": "s.png", "target_image": "b.png", "instruction": "y"},
+                {"id": "c", "source_image": "s.png", "target_image": "s.png", "instruction": "z"},
+            ]
+        )
+    )
+    _tar(folder / "up" / "0.tar", {"d1/s.png": _image(1), "a.png": _image(2), "b.png": _image(3)})
+    _tar(folder / "up" / "1.tar", {"d2/s.png": _image(4)})
+    from megatoken.data.open_media import linked_records
+
+    records = list(linked_records(source, Shards(source, tmp_path / "inputs")))
+    assert sorted(record["id"] for record in records) == ["a", "b", "c"]
+    assert all(len(record["images"]) == 2 for record in records)
+
+
+def test_a_message_list_ends_at_the_first_turn_that_does_not_alternate(tmp_path):
+    from megatoken.data.open_media import conversation
+
+    source = make_source(
+        "chat", "audio_questions", options={"format": "messages"}, columns={"turns": "turns"}
+    )
+    messages = [
+        {"role": "user", "content": "one?"},
+        {"role": "assistant", "content": "first"},
+        {"role": "assistant", "content": "stray"},
+        {"role": "assistant", "content": "stray too"},
+        {"role": "user", "content": "two?"},
+        {"role": "assistant", "content": "second"},
+    ]
+    assert conversation(source, {"turns": messages}) == [("one?", "first")]
+
+
 def test_a_transcription_source_can_also_be_read_aloud_from_its_transcripts(tmp_path, media):
     source = make_source(
         "asr",

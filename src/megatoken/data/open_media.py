@@ -37,6 +37,7 @@ import zipfile
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
+from itertools import takewhile
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Protocol
 
@@ -1046,6 +1047,17 @@ def _path_key(path: str) -> str:
     return PurePosixPath(str(path).lower().replace("\\", "/")).as_posix().lstrip("./")
 
 
+def _archive_streams(shards: Shards, names: Sequence[str], multipart: bool) -> Iterator[BinaryIO]:
+    """The archives one after another, each open only while it is read (or all as one stream)."""
+    with ExitStack() as stack:
+        if multipart:
+            yield Concatenated([stack.enter_context(shards.open(name)) for name in names])
+            return
+        for name in names:
+            with shards.open(name) as handle:
+                yield handle
+
+
 def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
     """Table rows joined with the images they name, read from archives in one pass.
 
@@ -1061,7 +1073,8 @@ def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any
     (the archive keeps a row's images apart); a row whose image is never found is skipped.
     """
     spec = source.options["linked"]
-    wanted: dict[str, tuple[int, int]] = {}
+    # An image path may be named by several rows, or twice by one: each use is a target.
+    wanted: dict[str, list[tuple[int, int]]] = {}
     rows: dict[int, dict[str, Any]] = {}
     strip = re.compile(spec["strip"]) if "strip" in spec else None
     for table in shards.names(source.include):
@@ -1082,35 +1095,33 @@ def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any
                     "texts": _numbered(row, spec["sequence"].get("texts", ())),
                 }
                 for position, path in enumerate(paths):
-                    wanted[_path_key(path)] = (number, position)
+                    wanted.setdefault(_path_key(path), []).append((number, position))
     # A shard of a source with many archives reads its own (``files``); a table row whose
     # images are in the others never completes and is dropped.
     names = list(shards.files) if shards.files is not None else shards.names(spec["archives"])
     pending_limit = spec.get("pending", 4096)
     partial: dict[int, None] = {}  # rows with some image read, oldest first
     waiting = 0  # images read for rows that are not complete
-    with ExitStack() as stack:
-        handles = [stack.enter_context(shards.open(name)) for name in names]
-        streams = [Concatenated(handles)] if spec.get("multipart") else handles
-        for stream in streams:
-            with tarfile.open(fileobj=stream, mode="r|*") as tar:
-                for member in tar:
-                    if not member.isfile():
-                        continue
-                    parts = _path_key(member.name).split("/")
-                    target = next(
-                        (
-                            wanted[key]
-                            for key in ("/".join(parts[start:]) for start in range(len(parts)))
-                            if key in wanted
-                        ),
-                        None,
-                    )
-                    if target is None:
-                        continue
-                    number, position = target
-                    entry = rows[number]
-                    entry["found"][position] = tar.extractfile(member).read()
+    for stream in _archive_streams(shards, names, bool(spec.get("multipart"))):
+        with tarfile.open(fileobj=stream, mode="r|*") as tar:
+            for member in tar:
+                if not member.isfile():
+                    continue
+                parts = _path_key(member.name).split("/")
+                targets = next(
+                    (
+                        wanted[key]
+                        for key in ("/".join(parts[start:]) for start in range(len(parts)))
+                        if key in wanted
+                    ),
+                    (),
+                )
+                data = tar.extractfile(member).read() if targets else b""
+                for number, position in targets:
+                    entry = rows.get(number)
+                    if entry is None or position in entry["found"]:
+                        continue  # the row is complete, or this image is already read
+                    entry["found"][position] = data
                     if len(entry["found"]) == len(entry["paths"]):
                         record = {
                             "__key__": entry["row"].get("id") or str(number),
@@ -1579,8 +1590,10 @@ def conversation(source: OpenSource, record: Mapping[str, Any]) -> list[tuple[st
             messages = messages[1:]
         pairs = [
             (text(a), text(b))
-            for a, b in zip(messages[0::2], messages[1::2], strict=False)
-            if role(a) in _USER_ROLES and role(b) in _ASSISTANT_ROLES
+            for a, b in takewhile(
+                lambda pair: role(pair[0]) in _USER_ROLES and role(pair[1]) in _ASSISTANT_ROLES,
+                zip(messages[0::2], messages[1::2], strict=False),
+            )
         ]
     else:
         raise ValueError(f"{source.source_id}: unknown conversation format {layout!r}")
