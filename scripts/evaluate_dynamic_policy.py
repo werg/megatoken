@@ -30,6 +30,7 @@ from megatoken.tool_schema import parse_tool_action
 
 
 def attempt(model, *, index, profile, serial, decisions, timeout, seed):
+    started = time.perf_counter()
     dependent = profile == "dependent_reads"
     delay = 0.04 if profile == "independent_slow_reads" else 0.01 if dependent else 0.0
     overhead = 0.001 if profile == "independent_slow_reads" else 0.01 if dependent else 0.02
@@ -168,7 +169,6 @@ def attempt(model, *, index, profile, serial, decisions, timeout, seed):
         max_selections=decisions,
         runner=ConcurrentToolRunner(max_workers=1 if serial else 2),
     )
-    started = time.perf_counter()
     first_useful = None
     error = None
     try:
@@ -219,6 +219,7 @@ def attempt(model, *, index, profile, serial, decisions, timeout, seed):
         and dependency_respected
     )
     return {
+        "format": "autonomous-delegation-attempt/v2",
         "profile": profile,
         "original_family": stable_id(SOURCE_VERSION, str(index)),
         "serial_ablation": serial,
@@ -228,6 +229,8 @@ def attempt(model, *, index, profile, serial, decisions, timeout, seed):
         "required_reads_executed": required <= read_paths,
         "dependency_respected": dependency_respected,
         "elapsed_seconds": elapsed,
+        "timing_clock": "wall_perf_counter",
+        "timing_scope": "environment setup, observation ingestion, neural decisions, rendering, tool execution and cleanup; resident model loading and independent verification excluded",
         "first_tool_result_seconds": first_useful,
         "selected_groups": executor.selections,
         "external_calls": calls,
@@ -287,7 +290,7 @@ def main():
     write_json(
         args.root / "report.json",
         {
-            "format": "autonomous-delegation-evaluation/v1",
+            "format": "autonomous-delegation-evaluation/v2",
             "served_manifest_sha256": sha256_file(args.bundle / "manifest.json"),
             "attempts": len(results),
             "successes": sum(r["task_success"] for r in results),
