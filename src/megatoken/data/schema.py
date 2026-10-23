@@ -25,7 +25,7 @@ from .chunking import ChunkingConfig, segment_bytes
 from .media_assets import MEDIA_RECORD_TYPE
 from .token_offsets import token_edges
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 Role = Literal["system", "user", "assistant", "tool", "document", "environment"]
 Provenance = Literal["natural", "teacher", "student", "executed", "simulated", "unknown"]
 Outcome = Literal["success", "failure", "unknown", "incomplete"]

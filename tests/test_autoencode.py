@@ -98,8 +98,8 @@ def test_encode_and_reconstruct_trains_the_encoder_side_only(tmp_path):
     document = model.embedding_realizer.document
     assert document.output_gain.grad is not None
     assert document.output_gain.grad.abs().sum() > 0
-    assert document.router.weight.grad is not None
-    assert document.router.weight.grad.abs().sum() > 0
+    assert document.selector.codes.grad is not None
+    assert document.selector.codes.grad.abs().sum() > 0
     assert document._bank.weight.grad is not None
     assert document._bank.weight.grad.abs().sum() > 0
     for name in ("pocket", "sana", "sana_video"):

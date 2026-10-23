@@ -6,7 +6,7 @@ import base64
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from functools import cache, cached_property, lru_cache
 from typing import Any
 
@@ -310,7 +310,7 @@ def _json_bytes(value: Any) -> bytes:
     ).encode()
 
 
-TAPE_VERSION = "fmt-canonical-facets-v8"
+TAPE_VERSION = "fmt-canonical-facets-v9"
 
 
 @dataclass(frozen=True)
@@ -335,7 +335,7 @@ class ActionTape:
     codec_fingerprint: str
     spec_fingerprint: str
     facet_shape: tuple[int, int]
-    facets: tuple[float, ...] | bytes
+    facets: bytes
     effort: int
     role_id: int
     payload: bytes
@@ -352,10 +352,8 @@ class ActionTape:
             raise ValueError("legacy action tapes cannot be replayed by the canonical-facet policy")
         for name in ("facet_shape", "emitted_ids", "trace"):
             object.__setattr__(self, name, tuple(getattr(self, name)))
-        if isinstance(self.facets, (bytes, bytearray)):
-            object.__setattr__(self, "facets", bytes(self.facets))
-        else:
-            object.__setattr__(self, "facets", tuple(self.facets))
+        if not isinstance(self.facets, bytes):
+            raise ValueError("Action tapes require packed FP32 facet bytes")
         object.__setattr__(self, "payload", bytes(self.payload))
         if not isinstance(self.control_payload, bytes):
             raise TypeError("control_payload must contain exact immutable bytes")
@@ -363,19 +361,13 @@ class ActionTape:
             raise ValueError("facet_shape must contain a positive facet count and width")
         import numpy as np
 
-        if isinstance(self.facets, bytes):
-            if len(self.facets) != 4 * math.prod(self.facet_shape):
-                raise ValueError(
-                    "tape does not contain its complete raw facet tensor (packed FP32 length)"
-                )
-            values = np.frombuffer(self.facets, dtype="<f4")
-            if not bool(np.isfinite(values).all()):
-                raise ValueError("raw facet actions must be finite")
-        else:
-            if len(self.facets) != math.prod(self.facet_shape):
-                raise ValueError("tape does not contain its complete raw facet tensor")
-            if not all(math.isfinite(value) for value in self.facets):
-                raise ValueError("raw facet actions must be finite")
+        if len(self.facets) != 4 * math.prod(self.facet_shape):
+            raise ValueError(
+                "tape does not contain its complete raw facet tensor (packed FP32 length)"
+            )
+        values = np.frombuffer(self.facets, dtype="<f4")
+        if not bool(np.isfinite(values).all()):
+            raise ValueError("raw facet actions must be finite")
         if not math.isfinite(self.behavior_log_prob):
             raise ValueError("behavior Gaussian density must be finite")
         if not 0 <= self.role_id < len(ROLE_TO_ID):
@@ -385,9 +377,7 @@ class ActionTape:
         """Raw FP32 array without allocating thousands of Python float objects."""
         import numpy as np
 
-        if isinstance(self.facets, bytes):
-            return np.frombuffer(self.facets, dtype="<f4")
-        return np.asarray(self.facets, dtype=np.float32)
+        return np.frombuffer(self.facets, dtype="<f4")
 
     @property
     def latent_dimensions(self) -> int:
@@ -408,13 +398,17 @@ class ActionTape:
             raise ValueError("action tape must be a JSON object")
         if value.get("version") != TAPE_VERSION:
             raise ValueError("legacy action tape version is incompatible with raw-facet replay")
+        expected = {field.name for field in fields(cls)}
+        if set(value) != expected:
+            raise ValueError(
+                f"Action tape fields differ: missing={sorted(expected - set(value))}, unknown={sorted(set(value) - expected)}"
+            )
         if "control_payload" not in value:
             raise ValueError("action tapes require their exact control_payload bytes")
-        value["trace"] = tuple(Decision(**decision) for decision in value.get("trace", ()))
+        value["trace"] = tuple(Decision(**decision) for decision in value["trace"])
         value["payload"] = _parse_bytes(value["payload"], "payload")
         value["control_payload"] = _parse_bytes(value["control_payload"], "control_payload")
-        if isinstance(value.get("facets"), dict):
-            value["facets"] = _parse_bytes(value["facets"], "facets")
+        value["facets"] = _parse_bytes(value["facets"], "facets")
         return cls(**value)
 
 

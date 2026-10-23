@@ -73,7 +73,7 @@ class EpochRouter(nn.Module):
         self.norm = RMSNorm(input_dim)
         # Bound by FacetedCore to its shared router expert registry. Keep a
         # private projection only for standalone EpochRouter use in small unit
-        # tests and compatibility callers.
+        # standalone routing experiments.
         self._feature_provider = None
         self._routing_role = "other"
         self._context_projection = nn.Linear(input_dim, router_dim, bias=False)
@@ -94,12 +94,11 @@ class EpochRouter(nn.Module):
         return (logits / math.sqrt(self.router_dim)).softmax(-1)
 
     @property
-    def context_projection(self):
-        """Compatibility view of the shared router bank's parameter dtype."""
-        provider = getattr(self, "_feature_provider", None)
+    def parameter_dtype(self):
+        provider = self._feature_provider
         if provider is not None:
-            return _ProjectionCompatibilityView(provider.router_bank.gate_up)
-        return self._context_projection
+            return provider.router_bank.gate_up.dtype
+        return self._context_projection.weight.dtype
 
     def bind_feature_provider(self, provider, *, role: str) -> None:
         if role not in {"P", "U", "other"}:
@@ -208,10 +207,3 @@ class EpochRouter(nn.Module):
         feature = self._features(context)
         routes = tuple(self._route_feature(feature, stage, rows) for stage in stages)
         return RoutingProgram(epoch, self.version, context, stages, routes)
-
-
-class _ProjectionCompatibilityView:
-    """Read-only `.weight` compatibility for callers that inspect dtype."""
-
-    def __init__(self, weight: Tensor):
-        self.weight = weight

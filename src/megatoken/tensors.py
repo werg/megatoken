@@ -36,3 +36,9 @@ def byte_tensor(payloads: Sequence[bytes], device: torch.device | str) -> tuple[
 def is_host(tensor: Tensor) -> bool:
     """Whether inspecting this tensor's values costs no device synchronization."""
     return tensor.device.type == "cpu"
+
+
+def parameter_dtype(module: torch.nn.Module) -> torch.dtype:
+    """Storage dtype from the real parameter owner of a native module."""
+    dtype = getattr(module, "parameter_dtype", None)
+    return next(module.parameters()).dtype if dtype is None else dtype

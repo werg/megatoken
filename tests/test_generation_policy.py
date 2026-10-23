@@ -412,7 +412,7 @@ def test_typed_identifiers_copies_and_placements_have_two_pass_counts(model):
     assert result.losses["placement"][1] == 2
     assert result.losses["lexical"][1] == result.losses["reconstruction"][1] == 3
     sum(loss / count for loss, count in result.losses.values() if count).backward()
-    assert model.decoder.binding_query.router.weight.grad.abs().sum() > 0
+    assert model.decoder.binding_query.selector.codes.grad.abs().sum() > 0
     assert model.decoder.binding_query._bank.weight.grad.abs().sum() > 0
     assert model.decoder.identifier_slots.weight.grad.abs().sum() > 0
     assert model.decoder.schema_codes.weight.grad.abs().sum() > 0  # downstream conditioning
@@ -800,7 +800,7 @@ def test_fixed_facets_have_identical_decoder_output_under_different_causal_contr
     "bad",
     [None, "plain text", [], {}, {"$bytes": 1}, {"$bytes": "AA==", "extra": 1}, {"$bytes": "AB=="}],
 )
-def test_v4_tape_control_payload_requires_an_exact_serialized_byte_field(model, bad):
+def test_tape_control_payload_requires_an_exact_serialized_byte_field(model, bad):
     result = model.sample(
         model.core.initial_state(1),
         spec=ActionSpec(max_tokens=0),
@@ -861,7 +861,7 @@ def test_public_required_json_argument_has_constructible_wire_witness(model):
     assert witness == len(model.codec.encode(b'{"name":"read","arguments":{"path":""}}'))
 
 
-def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model):
+def test_packed_fp32_tape_is_byte_exact_and_rejects_float_list_tapes(model):
     result = model.sample(
         model.core.initial_state(1),
         spec=ActionSpec(max_tokens=0),
@@ -875,19 +875,8 @@ def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model)
     assert restored == tape
     legacy = json.loads(tape.to_json())
     legacy["facets"] = tape.facet_array().tolist()
-    decoded = ActionTape.from_json(json.dumps(legacy))
-    assert isinstance(decoded.facets, tuple)
-    assert decoded.facet_array().tobytes() == tape.facets
-    torch.testing.assert_close(
-        model.score_tape(
-            model.core.initial_state(1),
-            decoded,
-            spec=ActionSpec(max_tokens=0),
-        ).log_prob,
-        result.log_prob,
-        rtol=0,
-        atol=1e-5,
-    )
+    with pytest.raises(ValueError, match="base64 byte representation"):
+        ActionTape.from_json(json.dumps(legacy))
 
 
 def test_freezing_the_action_map_leaves_p_side_retrieval_trainable(model):

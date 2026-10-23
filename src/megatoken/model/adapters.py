@@ -15,6 +15,8 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from megatoken.tensors import parameter_dtype
+
 from .config import ModelConfig
 
 OWNERS = ("e", "c", "p", "r")
@@ -94,7 +96,7 @@ class OwnerAdapters(nn.Module):
             0
             if description is None
             else self.semantic_preference(
-                description.to(self.semantic_preference.weight.dtype)
+                description.to(parameter_dtype(self.semantic_preference))
             ).float()
         )
         return semantic + purpose + self.stage_preference.weight[site].float() + self.bias.float()

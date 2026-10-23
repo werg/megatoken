@@ -122,7 +122,6 @@ class TrainConfig:
     compile_mode: str = "default"
     expert_backend: str = "auto"
     representation_mode: str = "auto"
-    format_supervision_version: int = 2
     # Optimizer-step accumulation target for a stage metered in G (events).
     accumulate_events: int = 32
     # Locked pack manifest (omni/loader.py): the Pocket/Sana/Sana-Video realizers
@@ -183,8 +182,6 @@ class TrainConfig:
             raise ValueError("effort must be one of 1, 2, 3, 6")
         if self.expert_backend not in {"auto", "torch", "triton"}:
             raise ValueError("expert_backend must be auto, torch, or triton")
-        if self.format_supervision_version not in {1, 2}:
-            raise ValueError("format_supervision_version must be 1 or 2")
         if self.representation_mode not in {"auto", "bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be auto, bootstrap, or recurrent")
         if self.trainable not in {"all", "media_bridge", "latent_policy"}:

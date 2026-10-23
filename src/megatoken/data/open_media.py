@@ -215,20 +215,26 @@ class CachingPreparer:
     def audio_interval(self, path, *, start_sample, end_sample, channel, target=True):
         key = (self._digest(path), start_sample, end_sample, channel, target)
         if key not in self._intervals:
-            return self._remember(self._intervals, key, self.inner.audio_interval(
-                path,
-                start_sample=start_sample,
-                end_sample=end_sample,
-                channel=channel,
-                target=target,
-            ))
+            return self._remember(
+                self._intervals,
+                key,
+                self.inner.audio_interval(
+                    path,
+                    start_sample=start_sample,
+                    end_sample=end_sample,
+                    channel=channel,
+                    target=target,
+                ),
+            )
         self._intervals.move_to_end(key)
         return self._intervals[key]
 
     def media(self, modality: str, path: str | Path, *, target: bool = True) -> MediaRecord:
         key = (modality, self._digest(path), target)
         if key not in self._records:
-            return self._remember(self._records, key, self.inner.media(modality, path, target=target))
+            return self._remember(
+                self._records, key, self.inner.media(modality, path, target=target)
+            )
         self._records.move_to_end(key)
         return self._records[key]
 
@@ -2971,13 +2977,18 @@ def read_fleurs(
         wanted = {f"{split}/{row[1]}": f"{language}-{row[1]}" for row, _ in pairs}
         files = _extract(shards, archive(language), wanted, out)
         for row, en in pairs:
+            # Each yielded clip owns a disposable hardlink. The English source
+            # is shared across languages and must survive earlier clip cleanup.
+            target_path = out / f"{language}-target-{_sha(en[1])}.wav"
+            target_path.unlink(missing_ok=True)
+            target_path.hardlink_to(english_files[f"{split}/{en[1]}"])
             yield {
                 "id": row[0],
                 "language": language,
                 "family": f"{source.source_id}:{row[0]}",
                 "source_audio": files[f"{split}/{row[1]}"],
                 "source_text": row[2],
-                "target_audio": english_files[f"{split}/{en[1]}"],
+                "target_audio": target_path,
                 "target_text": en[2],
             }
 

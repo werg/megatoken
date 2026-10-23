@@ -187,9 +187,9 @@ def test_grouped_multimodal_bootstrap_has_trainable_gradients():
     _backward(training)
     realizer = model.media_realizers.resident("image")
     # The teacher-feature projection, the realizer condition and the shared core all learn.
-    assert core.media_encoder.projection.router.weight.grad.abs().sum() > 0
+    assert core.media_encoder.projection.selector.codes.grad.abs().sum() > 0
     assert core.media_encoder.projection._bank.weight.grad.abs().sum() > 0
-    assert realizer.condition.project.router.weight.grad.abs().sum() > 0
+    assert realizer.condition.project.selector.codes.grad.abs().sum() > 0
     assert realizer.condition.project._bank.weight.grad.abs().sum() > 0
     assert core.central.layers[0].ffn._bank.gate_up.grad is not None
     # The frozen donor never receives gradients.
@@ -222,11 +222,11 @@ def test_text_and_media_realize_raw_without_extra_meridian_c_pass():
     assert len(calls) == 1  # Teacher-forced next state only, not R or reconstruction.
     torch.testing.assert_close(calls[0], result.state.raw.flatten(1, 2), rtol=0, atol=0)
     _backward(result)
-    assert core.media_encoder.projection.router.weight.grad.abs().sum() > 0
+    assert core.media_encoder.projection.selector.codes.grad.abs().sum() > 0
     assert core.media_encoder.projection._bank.weight.grad.abs().sum() > 0
     for modality in ("audio", "image"):
         condition = model.media_realizers.resident(modality).condition
-        assert condition.project.router.weight.grad.abs().sum() > 0
+        assert condition.project.selector.codes.grad.abs().sum() > 0
         assert condition.project._bank.weight.grad.abs().sum() > 0
 
 

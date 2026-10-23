@@ -298,18 +298,20 @@ safety. Merely renaming a track or changing physical chunk cuts does not manufac
 a new contract. All forty paired-translation views are retained in the third
 preparation above, with no quarantined rows or discarded duplicates.
 
-Two further training/serving mismatches were found while investigating failed tool
-use. Tool targets had forced tool mode during training, so they did not teach the
-choice between ordinary text and a tool call. Imported alternate tool envelopes
-also shifted canonical tools' positions relative to serving. New supervised runs
-use `format_supervision_version: 2`: both text and tool targets learn the public
-format choice, and every canonical tool retains its serving index before alternate
-envelopes. Legal choices depend only on preceding public information. Saved native
-policy draws retain their original probability contract. Version 1 remains an
-explicit legacy objective; an ordinary checkpoint restart cannot silently change
-it to version 2. Six focused tests verify the actual cross-entropy, nonzero choice
-gradients, exact denominator counts, impossible wire exclusion, checkpoint
-compatibility and canonical tool positions.
+The current training uses the same explicit public requests as serving, and
+teaches both ordinary-text and canonical tool choices against their actual legal
+alternatives. No legacy objective or request mode remains. Imported tool calls
+must be normalized before preparing training data. Selected native actions always
+retain their complete explicit event-to-record bindings.
+
+The current model architecture and checkpoints are version 14, prepared episodes
+and datasets are version 6, and grouped recorded actions are version 17. Older
+artifacts are rejected. There are no schema migrations, inferred saved geometry,
+legacy data cursors, alternate old objectives, or dense-layer compatibility views
+for shared expert modules. Reprepare original sources, recollect native actions,
+rebuild model-bound retrieval data, and train new weights. Ordinary exact restart
+continues to require the unchanged current contract and saved objective.
+
 
 The bounded learned scheduling experiment is reproducible with:
 
@@ -374,3 +376,21 @@ correction, and leaves `whole_plan_complete` and `production_quality_established
 false. Passing software tests, prepared task views, decoded buffers and finished
 optimizer runs must not turn either flag true without the remaining generated
 behavior and quality evidence.
+
+
+### Strict current-contract work
+
+The local experiments listed above are historical diagnostics, not evidence that
+older artifacts can be loaded by current code. New acceptance runs must start with
+new preparation and current weights. Original recordings and unchanged donor assets
+remain reusable only after their own exact identity checks. The repository does not
+support backward compatibility, migration switches, or guessed missing artifact
+metadata. Tests explicitly reject old model configurations, prepared episodes,
+data cursors, action encodings, and native selections without member bindings.
+
+Request construction no longer adds a training-only position number or inferred
+inventory of inputs. Track purposes and causal context are already part of the
+model state; only explicitly available instructions, settings and evidence requests
+become request controls. The ordinary serving and collection interfaces construct
+those same bytes. Shared expert projections expose their actual parameter owners;
+they do not imitate a removed dense-layer interface.

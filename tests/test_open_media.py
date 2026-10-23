@@ -2624,3 +2624,33 @@ def test_a_flickr_original_is_fetched_from_open_images_when_it_holds_a_copy(
     assert pico_site.hits["/oi/train/abc123.jpg"] == 1  # one copy, kept by content hash
     assert pico_site.hits["/farm8/orig.jpg"] == 0 and pico_site.hits["/gone/orig.jpg"] == 0
     _open_images_index.cache_clear()
+
+
+def test_fleurs_shared_english_recording_survives_discard_of_an_earlier_language(tmp_path):
+    from megatoken.data.open_media import discard, read_fleurs
+
+    table = b"1\tclip.wav\tA shared sentence.\tshared sentence\t15\t1600\tfemale\n"
+    payload = b"publisher recording bytes"
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w:gz") as archive:
+        member = tarfile.TarInfo("train/clip.wav")
+        member.size = len(payload)
+        archive.addfile(member, io.BytesIO(payload))
+
+    class Shards:
+        def open(self, name):
+            return io.BytesIO(table if name.endswith(".tsv") else stream.getvalue())
+
+    source = dataclasses.replace(
+        load_sources()["fleurs"], options={"languages": ["fr_fr", "de_de"]}
+    )
+    clips = read_fleurs(source, Shards(), tmp_path, 2)
+    first = next(clips)
+    first_target = first["target_audio"]
+    assert first_target.read_bytes() == payload
+    discard(first)  # The actual preparation consumer owns and deletes this clip.
+    assert not first_target.exists()
+    second = next(clips)
+    assert second["target_audio"] != first_target
+    assert second["target_audio"].read_bytes() == payload
+    discard(second)

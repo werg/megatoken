@@ -32,6 +32,8 @@ from weakref import WeakKeyDictionary
 import torch
 from torch import Tensor, nn
 
+from megatoken.tensors import parameter_dtype
+
 _PIPELINE_LOCKS = WeakKeyDictionary()
 _PIPELINE_LOCKS_OWNER = Lock()
 
@@ -92,8 +94,8 @@ class FacetCondition(nn.Module):
             raise ValueError("Realizer condition must be one complete raw facet block")
         if not raw.is_floating_point() or not bool(torch.isfinite(raw).all()):
             raise ValueError("Raw facets must be finite floating point")
-        weight = self.project.weight
-        return self.project(self.norm(raw.to(weight.dtype))) + self.slot.to(weight.dtype)
+        dtype = parameter_dtype(self.project)
+        return self.project(self.norm(raw.to(dtype))) + self.slot.to(dtype)
 
 
 class Realizer(nn.Module):

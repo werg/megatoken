@@ -648,9 +648,9 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     assert core.p_bank.down.numel() == core.p_bank.experts * core.p_bank.dim * core.p_bank.hidden
     assert core.p_bank.gate_up_adapter_up.numel() > 0
     assert core.p_bank.down_adapter_up.numel() > 0
-    assert len({id(stage.always.router.weight) for stage in core.stages}) == 1
+    assert len({id(stage.always.selector.codes) for stage in core.stages}) == 1
     assert all(stage.always._bank is core.stages[0].always._bank for stage in core.stages)
-    assert len({id(stage.attention.query.router.weight) for stage in core.stages}) == 1
+    assert len({id(stage.attention.query.selector.codes) for stage in core.stages}) == 1
     assert all(
         stage.attention.query._bank is core.stages[0].attention.query._bank for stage in core.stages
     )
@@ -658,7 +658,7 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     assert not hasattr(core.central, "history_pool")
     projectors = [core.central.memory, *core.central.temporary_memories]
     assert len({id(projector.key_value._bank) for projector in projectors}) == 1
-    assert len({id(projector.key_value.router.weight) for projector in projectors}) == 1
+    assert len({id(projector.key_value.selector.codes) for projector in projectors}) == 1
     assert len(core.central.temporary_memories) == 3
     assert core.central.slot_embedding.shape == (config.n_facets, config.facet_dim)
     assert all(core.central.layers[index].temporary_gate is not None for index in (1, 2, 3))

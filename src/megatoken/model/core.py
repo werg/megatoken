@@ -15,6 +15,7 @@ from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
 
 from megatoken.contracts import ROLE_TO_ID
+from megatoken.tensors import parameter_dtype
 
 from .adapters import AdapterBank, AdapterPlan
 from .attention import AttentionFeatures, AttentionRead, KVProjection, join_attention
@@ -936,10 +937,10 @@ class FacetedCore(nn.Module):
             raise ValueError("Growth level and number of rows must be positive")
         if refinement:
             return self.lexical_refine(rows)
-        rows = rows.to(self.u_always.gate_up.weight.dtype)
+        rows = rows.to(parameter_dtype(self.u_always))
         eligible = min(self.config.eligible_experts, 4 if rows.shape[1] < 64 else 8, rows.shape[1])
         route = self.u_router.route(
-            context.route_context.to(self.u_router.context_projection.weight.dtype),
+            context.route_context.to(parameter_dtype(self.u_router)),
             level,
             rows.shape[1],
             eligible_limit=eligible,
@@ -960,7 +961,7 @@ class FacetedCore(nn.Module):
 
     def lexical_refine(self, rows: Tensor) -> Tensor:
         """The final routed refinement reuses the shared single-facet pool."""
-        rows = rows.to(self.u_always.gate_up.weight.dtype)
+        rows = rows.to(parameter_dtype(self.u_always))
         summary = rows.mean(1)
         weights = current_adapter_weights(summary)
         with self.expert_pools.routing_epoch_if_absent(summary, role="r", adapter_weights=weights):

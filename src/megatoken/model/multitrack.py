@@ -17,7 +17,7 @@ import hashlib
 import json
 import math
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -47,7 +47,7 @@ from .state import KVHistory, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v16"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v17"
 
 
 @dataclass(frozen=True)
@@ -854,6 +854,12 @@ class GroupActionTape:
             raise ValueError("Unknown grouped rendering state")
         if self.version != GROUP_TAPE_VERSION:
             raise ValueError("Incompatible grouped tape version")
+        if (
+            type(self.meridian_id) is not int
+            or self.meridian_id < 0
+            or type(self.effort) is not int
+        ):
+            raise ValueError("Grouped tape positions and effort require exact integers")
         n, f, d = self.facet_shape
         if n < 1 or f < 1 or d < 1 or len(self.raw_f32) != n * f * d * 4:
             raise ValueError("Tape must contain every complete raw FP32 event")
@@ -962,13 +968,15 @@ class GroupActionTape:
         value = strict_json_loads(serialized)
         if value.get("version") != GROUP_TAPE_VERSION:
             raise ValueError("Unknown grouped tape version")
+        if set(value) != {field.name for field in fields(cls)}:
+            raise ValueError("Grouped tapes require exactly the current saved fields")
 
         def decode(b):
             return base64.b64decode(b, validate=True)
 
         return cls(
             version=value["version"],
-            meridian_id=int(value["meridian_id"]),
+            meridian_id=value["meridian_id"],
             tracks=tuple(value["tracks"]),
             event_ids=tuple(value["event_ids"]),
             render_status=value["render_status"],
@@ -987,7 +995,7 @@ class GroupActionTape:
             facet_shape=tuple(value["facet_shape"]),
             raw_f32=decode(value["raw_f32"]),
             behavior_log_prob=float(value["behavior_log_prob"]),
-            effort=int(value["effort"]),
+            effort=value["effort"],
             event_log_probs=tuple(map(float, value["event_log_probs"])),
             renderer_seeds=tuple(value["renderer_seeds"]),
             pack_fingerprints=tuple(value["pack_fingerprints"]),

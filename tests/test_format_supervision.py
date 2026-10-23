@@ -8,7 +8,6 @@ import torch
 from megatoken.generation import ActionSpec, ByteCodec, FacetedGenerator, FieldSpec, SchemaSpec
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.training.config import TrainConfig
-from megatoken.training.engine import _resume_compatible
 
 
 @pytest.fixture
@@ -77,14 +76,10 @@ def test_impossible_tool_wire_is_not_a_competing_format(model):
         )
 
 
-def test_old_checkpoint_cannot_silently_change_training_objective():
+def test_removed_training_objective_selector_is_rejected():
     config = TrainConfig(purpose="diagnostic", max_steps=1)
-    old = asdict(config)
-    old.pop("format_supervision_version")
-    with pytest.raises(ValueError, match="format_supervision_version"):
-        _resume_compatible(old, config, False)
-    _resume_compatible(old, replace(config, format_supervision_version=1), False)
-    _resume_compatible(old, config, True)
+    with pytest.raises(ValueError, match="Unknown training settings"):
+        TrainConfig.from_dict({**asdict(config), "format_supervision_version": 1})
 
 
 def test_imported_envelopes_preserve_serving_tool_indices_for_both_target_kinds(model):
@@ -105,9 +100,7 @@ def test_imported_envelopes_preserve_serving_tool_indices_for_both_target_kinds(
     )
     item = SimpleNamespace(episode=SimpleNamespace(tools_json=tools, records=[]))
     native = SimpleNamespace(paired_tape=lambda _: None)
-    config = SimpleNamespace(
-        generated_capacity=128, representation_training="bootstrap", format_supervision_version=2
-    )
+    config = SimpleNamespace(generated_capacity=128, representation_training="bootstrap")
     expected = compile_tool_spec(tools, 128).schemas
     for payload, action_id in [
         (b'{"name":"second","arguments":{}}', "action"),

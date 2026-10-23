@@ -28,6 +28,8 @@ from typing import Any
 import torch
 from torch import Tensor, nn
 
+from megatoken.tensors import parameter_dtype
+
 from .transducer_packing import (
     FP4Rows,
     FP8Rows,
@@ -870,7 +872,7 @@ class TransducerBank(EdgeStore, nn.Module):
         """Where a metadata prefix places a search, or an ingested item: the one metadata map."""
         return unit(
             self.base_location.float()
-            + nn.functional.linear(metadata.float(), self.metadata_location.weight.float())
+            + self.metadata_location(metadata.to(parameter_dtype(self.metadata_location))).float()
         )
 
     def refresh(self, agenda: SearchAgenda) -> None:

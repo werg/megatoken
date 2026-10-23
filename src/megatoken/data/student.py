@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from megatoken.contracts import CONVERSATION_PROFILE_VERSION, MAIN_TRACK, ROLE_TO_ID
+from megatoken.controls import build_control_payload
 
 from .collection import TeacherCall, TeacherEvent, TeacherRequest, TeacherResponse
 from .schema import canonical_json
@@ -99,7 +100,6 @@ class ModelTeacher:
     def respond(self, request: TeacherRequest) -> TeacherResponse:
         import torch
 
-        from megatoken.controls import build_control_payload
         from megatoken.generation.structure import ActionSpec
         from megatoken.model.multitrack import ObservedEvent
         from megatoken.tool_schema import compile_tool_spec, parse_tool_action, recent_copy_sources
@@ -247,7 +247,6 @@ class ModelTeacher:
     def _respond_group(self, request: TeacherRequest) -> TeacherResponse:
         import torch
 
-        from megatoken.controls import build_control_payload
         from megatoken.generation.structure import ActionSpec
         from megatoken.multitrack_service import _output
         from megatoken.tool_schema import parse_tool_action
@@ -255,7 +254,13 @@ class ModelTeacher:
         outputs = tuple(request.outputs)
         specs, controls, options = [], [], []
         for output in outputs:
-            spec, control = _output(output, self._capacity, self._session.history)
+            spec, control = _output(
+                output,
+                self._capacity,
+                self._session.history,
+                control_seed=request.control_seed,
+                tools_json_default=request.tools_json,
+            )
             choices = tuple(
                 _output({**output, **option}, self._capacity, self._session.history)[0]
                 for option in output.get("options", ())
@@ -268,10 +273,7 @@ class ModelTeacher:
                     "Grouped media collection requires a real teacher/codec preparer before selection"
                 )
             specs.append(spec)
-            controls.append(
-                build_control_payload(seed=request.control_seed, tools_json=request.tools_json)
-                + control
-            )
+            controls.append(control)
             options.append(choices)
         seed = int.from_bytes(
             hashlib.sha256(f"{self.seed}:{request.request_id}".encode()).digest()[:8], "big"

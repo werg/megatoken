@@ -74,7 +74,7 @@ def test_routed_linear_preserves_shape_and_routes_gradients():
     assert y.shape == (2, 4, 5)
     y.square().sum().backward()
     site = module[0]
-    assert site.router.weight.grad is not None
+    assert site.selector.codes.grad is not None
     assert site._bank.weight.grad is not None
 
 
@@ -214,7 +214,7 @@ def test_site_exposes_replayable_balance_route():
     module(torch.randn(2, 3, 4))
     assert len(recorder.routes) == 1
     router, route = recorder.routes[0]
-    assert router is site.router
+    assert router is site.selector
     assert route.expert_ids.shape == (2, 3)
     probabilities = site.balance_probabilities(route.router_context, route.router_stage)
     assert probabilities.shape == (2, site.experts)
@@ -353,7 +353,7 @@ def test_late_pool_and_site_binding_follow_existing_device_and_dtype():
     module = nn.Sequential(nn.Linear(4, 4))
     pools.bind(module, "late")
     assert next(pools.pools.parameters()).dtype == torch.float64
-    assert module[0].router.weight.dtype == torch.float64
+    assert module[0].selector.codes.dtype == torch.float64
     assert module[0].bias.dtype == torch.float64
 
 

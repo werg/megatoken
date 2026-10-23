@@ -43,8 +43,8 @@ def zero_facets(model):
     return np.zeros(model.latent_dimensions, dtype="<f4").tobytes()
 
 
-def annotation_entry(cursor, tape):
-    return {"record_cursor": cursor, "tape": json.loads(tape.to_json())}
+def annotation_entry(cursor, tape, record_id=None):
+    return {"record_cursor": cursor, "record_ids": [record_id], "tape": json.loads(tape.to_json())}
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ def collected(model):
     entries = [
         annotation_entry(1, tapes.invalid),
         annotation_entry(1, tapes.empty),
-        annotation_entry(1, tapes.action),
+        annotation_entry(1, tapes.action, "action"),
         annotation_entry(3, tapes.trailing),
     ]
     episode = Episode(
@@ -198,7 +198,7 @@ def test_target_native_tape_is_excluded_but_earlier_zero_record_events_recur(mod
     # A different target tensor in metadata cannot affect its preceding prefix.
     changed = replace(collected.tapes.action, raw_f32=zero_facets(model))
     entries = [*collected.entries]
-    entries[2] = annotation_entry(1, changed)
+    entries[2] = annotation_entry(1, changed, "action")
     episode = replace(
         collected.episode,
         supervision=Supervision(annotations_json=canonical_json({"native_action_tapes": entries})),
@@ -360,7 +360,7 @@ def integration_episodes(model, collected):
     """A scored native target and a later teacher target with a native prefix."""
     entries = [*collected.entries]
     future = replace(collected.tapes.action, raw_f32=zero_facets(model))
-    entries[2] = annotation_entry(1, future)
+    entries[2] = annotation_entry(1, future, "action")
     target = replace(
         collected.episode,
         episode_id="scored-native-target",
@@ -517,8 +517,8 @@ def test_fixed_native_replay_retains_central_gradients_and_ignores_prospective_c
             annotations_json=canonical_json(
                 {
                     "native_action_tapes": [
-                        annotation_entry(1, as_group(first.tape, model.codec)),
-                        annotation_entry(2, as_group(second.tape, model.codec)),
+                        annotation_entry(1, as_group(first.tape, model.codec), "native-1"),
+                        annotation_entry(2, as_group(second.tape, model.codec), "native-2"),
                     ]
                 }
             )

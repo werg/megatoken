@@ -389,8 +389,8 @@ def test_gradient_reaches_the_single_input_projection():
     model = tiny_model()
     core = model.core
     core.encode_media(features(12), extractor=PINNED_TEACHER).square().sum().backward()
-    projection = core.media_encoder.projection.weight
-    assert projection.shape == (core.config.source_dim, HIDDEN_WIDTH)
+    projection = core.media_encoder.projection
+    assert (projection.output_dim, projection.input_dim) == (core.config.source_dim, HIDDEN_WIDTH)
     assert core.media_encoder.projection.output_gain.grad is not None
     assert core.media_encoder.projection.output_gain.grad.abs() > 0
     shared = list(core.shared_parameters())
@@ -480,7 +480,7 @@ def test_anchor_loss_backpropagates_to_byte_e_and_the_media_projection():
     assert loss.ndim == 0 and torch.isfinite(loss) and loss > 0
     loss.backward()
     core = model.core
-    assert core.media_encoder.projection.router.weight.grad.abs().sum() > 0
+    assert core.media_encoder.projection.selector.codes.grad.abs().sum() > 0
     assert core.media_encoder.projection._bank.weight.grad.abs().sum() > 0
     byte_side = [p for p in core.frontend.parameters() if p.grad is not None]
     assert byte_side and any(p.grad.abs().sum() > 0 for p in byte_side)

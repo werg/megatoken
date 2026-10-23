@@ -157,8 +157,7 @@ def test_prepared_media_summary_tracks_scored_outputs_for_custom_stream(tmp_path
         assert dataset.scored_media_modalities(("custom_generated_media",)) == {"image"}
         assert dataset.scored_media_modalities(("custom_observation_only",)) == set()
 
-    # Old prepared roots derive the answer from checked episode records and
-    # cache it without editing the immutable manifest or shards.
+    # A required summary cannot be synthesized from an older manifest.
     manifest_path = root / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest.pop("scored_media_counts")
@@ -166,7 +165,8 @@ def test_prepared_media_summary_tracks_scored_outputs_for_custom_stream(tmp_path
     manifest["fingerprint"] = content_hash(manifest)
     write_json(manifest_path, manifest)
     with PreparedDataset(root) as dataset:
-        assert dataset.scored_media_modalities(("custom_generated_media",)) == {"image"}
+        with pytest.raises(ValueError, match="summary is required"):
+            dataset.scored_media_modalities(("custom_generated_media",))
 
 
 def test_media_reference_counts_its_input_size_not_text_and_corruption_fails(tmp_path):
@@ -227,7 +227,7 @@ def test_mixed_media_meridian_gradients_and_loss_counts(tmp_path, mode):
     assert model.core.frontend.facet_queries.grad is not None
     if mode == "bootstrap":
         projection = model.core.media_encoder.projection
-        assert projection.router.weight.grad is not None
+        assert projection.selector.codes.grad is not None
         assert projection._bank.weight.grad is not None
     counters = batch_counters([batch])
     assert counters.G == len(episode.records)

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor, nn
 
+from megatoken.tensors import parameter_dtype
+
 
 @dataclass(frozen=True)
 class DiagonalGaussian:
@@ -71,6 +73,6 @@ class FacetGaussian(nn.Module):
             # module so its expert dispatch and gradients are preserved; run
             # its input in the pool's storage dtype, then return to FP32 for
             # the bounded scale calculation and all density math.
-            projection_dtype = self.log_scale.weight.dtype
+            projection_dtype = parameter_dtype(self.log_scale)
             raw = self.log_scale(mean.to(projection_dtype)).float()
             return DiagonalGaussian(mean, -4.0 + 5.0 * raw.sigmoid())

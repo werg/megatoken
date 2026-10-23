@@ -65,8 +65,8 @@ class NativeHistory:
     A group may produce several text/media records, or no physical output. Its
     complete selection is replayed once; member views are only supervision.
     Explicit record_ids prevent missing, failed or cancelled peers from being
-    inferred from text counts. Legacy singleton entries retain their exact
-    record-cursor interpretation within the current tape format.
+    inferred from text counts. Every group explicitly binds all selected members,
+    including members that have no physical output.
     """
 
     record_count: int
@@ -115,24 +115,11 @@ class NativeHistory:
                             "Verified outcome lacks complete committed serving context"
                         )
                     credits.setdefault(cursor, []).append((tape, credit))
-                bindings = entry.get("record_ids")
-                if bindings is None:
-                    if len(tape.tracks) != 1:
-                        raise ValueError(
-                            "A multi-event tape requires explicit record_ids; a single-event cursor cannot identify its members"
-                        )
-                    owns = (
-                        tape.render_status == "rendered"
-                        and tape.valid[0]
-                        and bool(tape.payloads[0])
+                if "record_ids" not in entry:
+                    raise ValueError(
+                        "Native selections require explicit record_ids for every member; re-collect"
                     )
-                    bindings = [
-                        episode.records[cursor].record_id
-                        if owns and cursor < record_count
-                        else None
-                    ]
-                    if owns and cursor == record_count:
-                        raise ValueError("valid nonempty native output has no physical record")
+                bindings = entry["record_ids"]
                 if not isinstance(bindings, (list, tuple)) or len(bindings) != len(tape.tracks):
                     raise ValueError("Native record bindings must cover every selected member")
                 bound = []

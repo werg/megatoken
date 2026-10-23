@@ -241,7 +241,7 @@ def test_shared_expert_pool_has_one_training_owner_and_its_own_clip_domain():
     model = TwoSites()
     # Both sites refer to the same bank without registering it a second time.
     assert model.first._bank is model.second._bank
-    assert model.first.router is model.second.router
+    assert model.first.selector is model.second.selector
     pool_parameter = model.first._bank.weight
     owners = [
         name
