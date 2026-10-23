@@ -449,9 +449,9 @@ which emits the stage plan's own stream names.
 Every source keeps `terms.approved: false`: recording approval is the maintainer's
 decision, so the job's text steps stop with "Source terms are unapproved" until it is
 done. To approve, set `approved: true` with `reviewed_by` and `reviewed_at` for each
-`source_id` in `sources.open.json` (17: `fineweb-edu-10bt`, `stackv2-edu-0000/0020/0040/0060/0080`,
+`source_id` in `sources.open.json` (14: `fineweb-edu-10bt`, `stackv2-edu-0000/0020/0040/0060/0080`,
 `cosmopedia-web_samples_v2/stanford/stories`, `openmathinstruct2-1m`, `openthoughts-114k`,
-`oasst-top1`, `smoltalk-new`, `opencodeinstruct`, `open-swe-v12`, `agent-trove`, `terminal-corpus`)
+`oasst-top1`, `smoltalk-new`, `opencodeinstruct`)
 and for `fineweb-edu-text` in `sources.open-mb.json`.
 
 ### Media sources (`data/open_media.py`, `SOURCES`)
@@ -653,48 +653,11 @@ episodes in the verified streams still protects them.
 
 ### Sources by stream
 
-First-run caps count rows read from the start of the pinned data (before filters), so
-filtered sources carry larger caps: roughly 17% of Nebius SWE-agent rows, 48% of ReBench
-rows, 43% of each SWE-smith variant, 8% of SWE-Gym rows and 70% of Orchard rows pass
-their filters. "Unique tokens" is for the whole filtered source, not the cap.
-
-#### executed_trajectories
-
-| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
-| --- | --- | --- | --- | --- |
-| `open-swe-traces` | `nvidia/Open-SWE-Traces` (v1.2) | cc-by-4.0 | 800 | 3B |
-| `agent-trove-terminus2` | `open-thoughts/AgentTrove` | apache-2.0 | 3,000 | 20B |
-| `nemotron-terminal-easy` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_easy) | cc-by-4.0 | 1,000 | 350M |
-| `nemotron-terminal-medium` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_medium) | cc-by-4.0 | 1,500 | 1.2B |
-| `nemotron-terminal-mixed` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_mixed) | cc-by-4.0 | 500 | 30M |
-| `nemotron-swe-v3` | `nvidia/Nemotron-SFT-SWE-v3` | cc-by-4.0 | 800 | 12B |
-| `nemotron-swe-v2-openhands` | `nvidia/Nemotron-SFT-SWE-v2` | cc-by-4.0 | 500 | 3.2B |
-| `nemotron-swe-v35-opencode` | `nvidia/Nemotron-SFT-SWE-v3.5` | cc-by-4.0 | 500 | 250M |
-| `nemotron-swe-v1-r2e` | `nvidia/Nemotron-SWE-v1` | cc-by-4.0 | 500 | 3B |
-| `swe-hero` | `nvidia/SWE-Hero-openhands-trajectories` | cc-by-4.0 | 500 | 2.5B |
-| `swe-smith-mini` | `Kwai-Klear/SWE-smith-mini_swe_agent_plus-trajectories-66k` | mit | 500 | 1.3B |
-| `r2egym-sft` | `R2E-Gym/R2EGym-SFT-Trajectories` | none on the card | 800 | 60M |
-| `swe-dev` | `zai-org/SWE-Dev-train` | none on the card | 500 | 250M |
-| `codeact-instruct` | `xingyaoww/code-act` | apache-2.0 | 3,000 | 10M |
-
-#### mixed_quality_episodes
-
-| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
-| --- | --- | --- | --- | --- |
-| `swe-zero-openhands` | `nvidia/SWE-Zero-openhands-trajectories` | cc-by-4.0 | 500 | 12B |
-
-#### verified_trajectories
-
-| Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
-| --- | --- | --- | --- | --- |
-| `orchard-swe-verified` | `microsoft/Orchard` (swe) | mit | 1,400 | 7B |
-| `coderforge-reward1` | `togethercomputer/CoderForge-Preview` (trajectories) | per row (Apache-2.0 in the sampled rows); none on the card | 1,000 | 9B |
-| `rebench-openhands` | `nebius/SWE-rebench-openhands-trajectories` | cc-by-4.0 | 2,000 | 3.2B |
-| `swe-agent-nebius` | `nebius/SWE-agent-trajectories` | cc-by-4.0 | 6,000 | 250M |
-| `swe-smith-tool` | `SWE-bench/SWE-smith-trajectories` (tool) | mit | 1,200 | 500M |
-| `swe-smith-xml` | `SWE-bench/SWE-smith-trajectories` (xml) | mit | 1,200 | 500M |
-| `swe-smith-ticks` | `SWE-bench/SWE-smith-trajectories` (ticks) | mit | 1,200 | 450M |
-| `swegym-sampled` | `SWE-Gym/OpenHands-Sampled-Trajectories` | none on the card | 6,055 | 20M |
+The agent-trajectory sources that execute code in a sandbox (software-engineering and
+terminal rollouts, code-action traces) moved to their own manifest,
+`configs/data/sources.agentic-coding.json`, with no row caps; see "Agentic coding sources"
+below. What stays here are the chat, reasoning, tool-use and environment (web, game, database)
+sources, whose first-run caps count rows read from the start of the pinned data.
 
 #### tool_use
 
@@ -899,13 +862,10 @@ CoderForge and APIGen-MT is rejected by the segmenter ("Parser diagnostic is out
 original source"); it is raised by the chunking step after the adapter has accepted the
 row, and has not been investigated.
 
-The earlier pilot entries for `open-swe-v12`, `agent-trove` and `terminal-corpus` in
-`sources.open.json` are left as they were. They lose many rows because they set neither
-`allow_pending_final_action` (traces that end on a call with no result) nor positional
-call IDs. The new manifest re-pins `open-swe-traces` and AgentTrove at the same revisions
-with those options. The pilot's `terminal-corpus` entry reads the `dataset_adapters`
-files, which the streaming reader cannot decode (see above), so the new manifest reads the
-skill-based configurations instead. Do not prepare both manifests for the same stream.
+The earlier pilot entries for `open-swe-v12`, `agent-trove` and `terminal-corpus` that were
+in `sources.open.json` are removed: they lost most rows because they set neither
+`allow_pending_final_action` (traces that end on a call with no result) nor positional call
+IDs, and the coding manifest reads the same data completely.
 
 ### What was checked
 
@@ -976,6 +936,508 @@ them; local Parquet skips completed row groups. Hub resume counts logical rows
 sequentially and reads preceding rows again, avoiding format-dependent Arrow
 `skip` behavior. This implementation has
 not been benchmarked on a multi-hundred-billion-token acquisition run.
+
+## Agentic coding sources
+
+`configs/data/sources.agentic-coding.json` holds every public agentic coding set found so far
+that the readers can convert: 354 sources over 301 Hub repositories, each read in
+full (no row cap). A set counts when a coding agent (or a developer working with one) acted in a
+real or sandboxed environment and the tool output came back from that environment: bug-fix
+rollouts in the OpenHands, SWE-agent, mini-SWE-agent, Claude Code, Codex, OpenCode and pi
+harnesses, terminal-agent traces, data-science notebook agents, and raw session logs. Nothing
+here was generated for this project. Every licence is accepted and recorded exactly as the
+publisher states it on the dataset card; 206 sources state none, and each is approved with
+`reviewed_by: Gabriel Pickard`, `reviewed_at: 2026-10-22` like the rest.
+
+The sources moved here from `sources.agentic.json` and `sources.agentic-more.json` (30 and 18
+entries), so no source is prepared by two manifests. Those two manifests keep their smoke-run row
+caps; this one has none. `sources.agentic-coding-gated.json` lists the one set that needs a click
+on the Hub (below).
+
+### Volume
+
+Rows are what the Hub reports for the configuration and split each source reads, before the
+source's own row filter; for the raw session logs a row is one session file. Text is the stored
+size of the files read times the usual expansion (3 for Parquet, 4 for compressed JSON, 1 for
+plain JSON), so it is an upper estimate. "Before" is the cap each source had in the older
+manifests (rows read, and text at the manifest's per-stream average row size); "new" means the
+source did not exist there.
+
+| | Sources | Rows | Stored on the Hub (GB) | Text (GB, estimated) |
+| --- | ---: | ---: | ---: | ---: |
+| Before (coding sources in the older manifests, with their caps) | 46 | 84,155 | n/a | 8.9 |
+| After (this manifest, all rows) | 354 | 25,972,598 | 767 | 1,654 |
+
+By stream: 304 `executed_trajectories`, 36 `verified_trajectories`, 8 `mixed_quality_episodes`, 4 `verified_successful_multiturn`, 1 `environment_trajectories`, 1 `synthetic_code_dialogue`. Of the 354:
+about 142 are terminal-agent trace sets (AgentTrove and the many DCAgent sets, Nemotron
+Terminal, TerminalTraj, LiteCoder), 45 are raw session logs of Claude Code, Codex, pi
+and OpenCode (SWE-chat, which holds 16,010 real developer sessions, is read as four sources, one per
+harness), and the rest are software-engineering rollouts. 117 of them are DCAgent trace sets.
+Many sets hold failed runs as well as passing ones. The failures are kept as readable context
+with no training target (zero scored positions, `min_scored_positions: 0`) where the publisher
+labels outcomes per row, and a passing-only selection goes to `verified_trajectories` through a
+row filter on the recorded verdict, so the same files are listed twice (an `-unresolved` or
+`-fail` source beside the verified one); the second pass over a file costs only reading.
+
+### Outcome labels
+
+| Stream | What its sources record | Count |
+| --- | --- | ---: |
+| `verified_trajectories` | the publisher's own passing tests (a row filter keeps only passing rows) | 36 |
+| `executed_trajectories` | real tool output, outcome unknown, curated, or a mix; runs with a recorded failure are kept unmasked | 304 |
+| `mixed_quality_episodes` | executed but unvetted (execution-free SWE-ZERO rollouts, CodeScout localisation) | 8 |
+| `verified_successful_multiturn` | a second reading of four verified sets, for the supervision stream that wants successful multi-turn runs | 4 |
+| others | AgentBank environment trajectories, one code-dialogue set | 2 |
+
+A curated release (no per-row verdict, `assume_outcome: success`) is never marked as verified.
+The four `s-verified-*` sources re-read the data of a verified source in another stream; the
+deduplication step compares transcripts, not streams, so when both are prepared together the
+second copy is counted as a duplicate of the first.
+
+### Readers added
+
+The adapters that were missing for these layouts are in `data/adapters.py` and
+`data/sessions.py`: Claude Code, Codex, pi and OpenCode session logs (one file is one row,
+read with the `whole_files` option), Responses-API item lists, step records, normalised event
+lists, Harbor rollouts with tagged observations, calls held in a `parts` list, code-action
+traces with `<code>` or fenced blocks, and several text conventions (`<function=...>` replies
+with one or several calls). Tests are in `tests/test_agentic_coding_rows.py`. Linking changes:
+a call ID reused after its result is a new call; one result may close a whole batch of calls
+(a terminal screen, or one reply for parallel calls); a result naming no known call answers the
+only open one; a trajectory, chat or tool-use dialogue may end on a call; a blank follow-up user
+turn is skipped, while a blank task still rejects the row. A row filter `nonempty` drops rows
+whose conversation is empty. Source reading changed in two ways: a listed Hub file is read by
+the builder of its own format (so a dataset card that declares other columns cannot break the
+cast), and `explode` turns a row that holds several runs into one row per run.
+
+### Left out, on purpose
+
+- **Evaluation-set tasks.** Terminal-Bench runs, the SWE-bench Verified trajectory sets
+  (CoderForge's 32B evaluation run, the two tarsur385 sets), SWE-bench Multilingual and
+  SWE-Bench Pro runs (JetBrains SWE-TaskFlow, Intelligent-Internet), the JetBrains
+  test-minus-verified set, HumanEval and MBPP rows of AgentBank, and the DABench set. Training on
+  their solutions would contaminate those evaluations.
+- **Programs, not agents.** `arpandeepk/swe-cleanroom-trajs`, `swe-zero-grounded-full` and
+  `swe-zero-free-v2` were written by a program that fills templates (the observations are real, the
+  reasoning is not).
+- **Copies.** `ricdomolm/nanoswe-trajs-v0` holds the very files of `nanoswe/nanoswe-trajs-260812`;
+  a re-export of SWE-chat (`neulab/adp-v2` swe-chat); one claude-code-glm53 set listed twice;
+  DCAgent re-uploads and a mix of other DCAgent sets; sources the later-stage manifest already reads
+  for its own stream (the OpenCode question-tool splits, Scale-SWE-Distilled, SWE-Lego real data,
+  Code-Feedback), which stay there.
+- **Not coding.** UltraData's General, Search and Tool-Use agents, Toolathlon, and the zake7749 and
+  nex tool-calling sets belong to the chat and tool-use manifests.
+
+### Needs a click on the Hub
+
+`sources.agentic-coding-gated.json` holds `GAIR/OpenSWE` (about 13,000 trajectories, a 4.9 GB
+file; the project token gets HTTP 403). Open
+<https://huggingface.co/datasets/GAIR/OpenSWE>, sign in and press the agree button, then build its
+listing (`scripts/shard_sources.py ... --listing`) and prepare it like the others. Nothing else
+here is gated: `GAIR/daVinci-Dev` is a gated set whose terms the project account has accepted.
+
+### Layouts still without a reader
+
+Terminal-Corpus `dataset_adapters` (2 GB row groups), Multi-SWE-bench and Moatless zip archives,
+CooperBench's OpenHands event lists, EnvBench LangChain logs, openhands-feedback event lists,
+sailplane `.traj` files, AlexCuadron's O1 runs, the Nemotron-Cascade agentless split, 75 million
+relational rows of `risenlab/agentlogs`, token-id layouts (`open-athena` `*-opencode-traces`),
+about 2 percent of AgentTrove replies that call a `bash_command` tool, 2.5 percent of
+Nemotron-SFT-SWE-v3 rows in a mixed harness, Cursor raw sessions and a trace index
+(`melissapan`). None of them can be read today.
+
+### Real-row check
+
+Every source was read through the real reader (Hub streaming, its pinned revision and file
+list) for its first 40 rows (150 to 400 for sources with a row filter, so that some pass it), and
+those rows were prepared with the real codec and the agentic review policy. The 117 DCAgent sets
+were instead sampled at spread positions of each file (12 to 42 rows), and a handful of them were
+also read through the real reader. In all, 20,374 rows from all 354 sources: 13,593 became
+episodes, 5,923 were dropped by the source's own row filter, 431 were duplicates or held for
+parser review, and 427 were rejected, which is 3.0 percent of the rows that passed the filter.
+Per-source results are in the last column of the table below ("ok" = became an episode;
+"rejected" = the adapter or the quality gate refused the row; "filtered" = the source's own
+filter dropped it). 277 sources lose under 5 percent; the other 77 are mostly raw logs of
+people's sessions and chat-only dialogues (no tool call, too few scored turns, or longer than the
+262,144-token episode limit, which are skipped and counted, not errors), the OpenCode splits
+(plain answers without a tool call), and DCAgent sets whose trials stop before running a command.
+Several filtered sources showed no passing row in their first 150 rows (their files are ordered by
+outcome); their filters were checked on spread samples instead.
+
+### Per-source table
+
+| Source id | Dataset (config) | Stream | Licence on the card | Rows | Text (GB) | Before (rows cap; GB) | Real-sample result |
+| --- | --- | --- | --- | ---: | ---: | --- | --- |
+| `aaaaliou-pi-mono` | `aaaaliou/pi-mono` | executed_trajectories | other | 145* | 0.1 | new | 36 ok, 4 rejected |
+| `termgrade-trajectories-fail` | `ai-and/termgrade-trajectories` (trajectories_messages) | executed_trajectories | apache-2.0 | 36.1k | 2.1 | new | 13 ok, 1 rejected, 26 filtered |
+| `termgrade-trajectories-pass` | `ai-and/termgrade-trajectories` (trajectories_messages) | verified_trajectories | apache-2.0 | 36.1k | 2.1 | new | 19 ok, 1 rejected, 20 filtered |
+| `akseljoonas-codeagent-traces` | `akseljoonas/codeagent-traces` | executed_trajectories | not stated on the dataset card | 7.0k | 0.1 | new | 40 ok |
+| `glm-5-2-pi-agent` | `AletheiaResearch/GLM-5.2-Agent` | executed_trajectories | not stated on the dataset card | 319* | 0.1 | new | 38 ok, 2 rejected |
+| `codex-gpt-5-3-spark` | `AletheiaResearch/GPT-5.3-Codex-Spark-Codex` | executed_trajectories | not stated on the dataset card | 200* | 0.1 | new | 38 ok, 2 rejected |
+| `codex-gpt-5-5` | `AletheiaResearch/GPT-5.5-Codex` | executed_trajectories | not stated on the dataset card | 317* | 0.7 | new | 38 ok, 2 rejected |
+| `multi-swe-smith-rust-glm46` | `AlienKevin/Multi-SWE-smith-Rust-GLM-4.6-trajectories` (default) | verified_trajectories | not stated on the dataset card | 142 | 0.0 | new | 142 ok |
+| `swe-smith-rs-gemini3flash` | `AlienKevin/SWE-smith-rs-gemini-3-flash-trajectories` | verified_trajectories | mit | 1.4k | 0.1 | new | 119 ok, 31 filtered |
+| `swe-smith-rs-glm46` | `AlienKevin/SWE-smith-rs-glm-4.6-trajectories` | executed_trajectories | not stated on the dataset card | 369 | 0.0 | new | 40 ok |
+| `swe-smith-rs-gpt5mini` | `AlienKevin/SWE-smith-rs-gpt-5-mini-trajectories` | verified_trajectories | mit | 4.0k | 0.2 | new | 127 ok, 23 filtered |
+| `swe-smith-rs-minimax-m25` | `AlienKevin/SWE-smith-rs-minimax-m2.5-trajectories` | verified_trajectories | mit | 5.3k | 0.2 | new | 0 ok, 150 filtered |
+| `swe-zero-12m-trajectories` | `AlienKevin/SWE-ZERO-12M-trajectories` (default) | executed_trajectories | apache-2.0 | 12.29M | 107.9 | new | 0 ok, 400 filtered |
+| `swe-zero-1k-trajectories` | `AlienKevin/SWE-ZERO-1k-trajectories` (default) | executed_trajectories | apache-2.0 | 1.0k | 0.0 | new | 29 ok, 121 filtered |
+| `swe-zero-1k-32k-trajectories` | `AlienKevin/SWE-ZERO-1k-trajectories-32k` (default) | executed_trajectories | apache-2.0 | 1.0k | 0.0 | new | 79 ok, 71 filtered |
+| `claude-fable-5-cc-alinciocan` | `AlinCiocan/fable-5-claude-code-traces` | executed_trajectories | cc-by-4.0 | 18* | 0.1 | new | 17 ok, 1 rejected |
+| `sera-4.5a-django-t1` | `allenai/Sera-4.5A-Django-T1` | executed_trajectories | odc-by | 17.1k | 7.5 | new | 40 ok |
+| `sera-4.5a-django-t2` | `allenai/Sera-4.5A-Django-T2` | executed_trajectories | odc-by | 21.6k | 5.4 | new | 39 ok, 1 held/duplicate |
+| `sera-4.5a-full-t1` | `allenai/Sera-4.5A-Full-T1` | executed_trajectories | odc-by | 16.6k | 23.2 | new | 40 ok |
+| `sera-4.5a-full-t2` | `allenai/Sera-4.5A-Full-T2` | executed_trajectories | odc-by | 21.3k | 16.6 | new | 40 ok |
+| `sera-4.5a-lite-t1` | `allenai/Sera-4.5A-Lite-T1` | executed_trajectories | odc-by | 16.6k | 11.8 | new | 40 ok |
+| `sera-4.5a-lite-t2` | `allenai/Sera-4.5A-Lite-T2` | executed_trajectories | odc-by | 21.8k | 9.0 | new | 39 ok, 1 held/duplicate |
+| `sera-4.5a-sphinx-t1` | `allenai/Sera-4.5A-Sphinx-T1` | executed_trajectories | odc-by | 17.7k | 7.4 | new | 40 ok |
+| `sera-4.5a-sphinx-t2` | `allenai/Sera-4.5A-Sphinx-T2` | executed_trajectories | odc-by | 12.7k | 3.0 | new | 40 ok |
+| `sera-4.5a-sympy-t1` | `allenai/Sera-4.5A-Sympy-T1` | executed_trajectories | odc-by | 20.0k | 7.3 | new | 40 ok |
+| `sera-4.5a-sympy-t2` | `allenai/Sera-4.5A-Sympy-T2` | executed_trajectories | odc-by | 25.4k | 5.2 | new | 40 ok |
+| `sera-4.6-lite-t1` | `allenai/Sera-4.6-Lite-T1` | executed_trajectories | odc-by | 23.4k | 8.4 | new | 39 ok, 1 held/duplicate |
+| `sera-lite-t2-glm46` | `allenai/Sera-4.6-Lite-T2` | executed_trajectories | odc-by | 21.3k | 9.8 | 1.5k; 0.18 | 39 ok, 1 rejected |
+| `tmax-sft-qwen36-success` | `allenai/tmax-sft` (skill_tax_20260505_2.2k_combined_balanced_thinking_only_success) | executed_trajectories | odc-by | 5.8k | 0.1 | 3.0k; 0.37 | 40 ok |
+| `tmax-sft-big-ntc-adapters` | `allenai/tmax-sft-big` | executed_trajectories | odc-by | 327.3k | 4.7 | 3.0k; 0.37 | 149 ok, 1 held/duplicate |
+| `claude-fable-5-cc-armand0e` | `armand0e/claude-fable-5-claude-code` | executed_trajectories | mit | 55* | 0.1 | new | 36 ok, 2 rejected, 2 held/duplicate |
+| `kimi-k26-codex-agent` | `armand0e/kimi-k2.6-agent` | executed_trajectories | not stated on the dataset card | 14* | 0.0 | new | 12 ok, 2 rejected |
+| `kimi-k26-cc-traces` | `armand0e/kimi-k2.6-claude-code-traces` | executed_trajectories | not stated on the dataset card | 36* | 0.0 | new | 34 ok, 2 rejected |
+| `minimax-m27-pi-agent` | `armand0e/minimax-m2.7-agent` | executed_trajectories | not stated on the dataset card | 21* | 0.0 | new | 19 ok, 2 rejected |
+| `minimax-m3-cc-traces` | `armand0e/minimax-m3-claude-code-traces` | executed_trajectories | not stated on the dataset card | 31* | 0.0 | new | 30 ok, 1 rejected |
+| `qwen37-max-pi-traces` | `armand0e/qwen3.7-max-pi-traces` | executed_trajectories | not stated on the dataset card | 47* | 0.0 | new | 39 ok, 1 rejected |
+| `denovoswe-filtered` | `AweAI-Team/DeNovoSWE-Trajectory-Filtered` | verified_trajectories | cc-by-4.0 | 11.7k | 4.6 | 4.5k; 0.55 | 67 ok, 83 filtered |
+| `denovoswe-trajectory-raw` | `AweAI-Team/DeNovoSWE-Trajectory-Raw` | executed_trajectories | cc-by-4.0 | 34.0k | 24.7 | new | 40 ok |
+| `scale-swe-v4pro-41k` | `AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k` | verified_trajectories | cc-by-4.0 | 41.1k | 6.4 | 2.0k; 0.25 | 150 ok |
+| `pi-mono-sessions-badlogic` | `badlogicgames/pi-mono` | executed_trajectories | other | 626* | 0.2 | new | 33 ok, 6 rejected, 1 held/duplicate |
+| `codex-assistant-rollouts-basedlsg` | `basedlsg/codex-assistant-rollouts` | executed_trajectories | not stated on the dataset card | 27* | 0.8 | new | 14 ok, 13 rejected |
+| `codex-traces-becks723` | `Becks723/codex-traces` | executed_trajectories | not stated on the dataset card | 131* | 0.2 | new | 31 ok, 9 rejected |
+| `kaggle-notebooks-intent` | `bigcomputer/kaggle-notebooks-intent-conversations` | executed_trajectories | not stated on the dataset card | 503.4k | 81.7 | new | 38 ok, 2 held/duplicate |
+| `ptbr-text2sql-agent` | `Boakpe/pt-br-agentic-text-to-sql-distilled-trajectories` | executed_trajectories | apache-2.0 | 7.4k | 0.3 | new | 40 ok |
+| `championswimmer-pi-coding-sessions` | `championswimmer/pi-coding-sessions` | executed_trajectories | mit | 27* | 0.0 | new | 26 ok, 1 rejected |
+| `mimo-cc-traces-1k` | `choucsan/mimo-claude-code-traces-1k` | executed_trajectories | mit | 1.0k* | 0.0 | new | 39 ok, 1 rejected |
+| `cooperbench-qwen9b-coop-cc` | `CooperBench/qwen9b-coop-claude-code` | executed_trajectories | mit | 736* | 0.4 | new | 40 ok |
+| `cooperbench-qwen9b-solo-cc` | `CooperBench/qwen9b-solo-claude-code` | executed_trajectories | mit | 368* | 0.2 | new | 40 ok |
+| `wisp-cc-sessions` | `crispwisp/wisp-claude-code-sessions` | executed_trajectories | mit | 61* | 0.0 | new | 40 ok |
+| `dacorvo-hf-hub-session-opencode` | `dacorvo/hf-hub-session-opencode-traces` | executed_trajectories | apache-2.0 | 196* | 0.0 | new | 39 ok, 1 rejected |
+| `dacorvo-hf-hub-session-pi` | `dacorvo/hf-hub-session-pi-traces` | executed_trajectories | apache-2.0 | 210* | 0.0 | new | 32 ok, 8 rejected |
+| `opencode-transformers-sessions` | `dacorvo/transformers-coding-session-opencode-traces` | executed_trajectories | apache-2.0 | 209* | 0.0 | new | 36 ok, 4 rejected |
+| `dacorvo-transformers-session-pi` | `dacorvo/transformers-coding-session-pi-traces` | executed_trajectories | apache-2.0 | 177* | 0.0 | new | 27 ok, 13 rejected |
+| `dcagent-all-puzzles-5k-sandboxes-10k` | `DCAgent/All_Puzzles_5k-sandboxes_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.5k | 0.1 | new | 147 ok, 3 rejected |
+| `dcagent-bash-textbook-tasks` | `DCAgent/bash_textbook_tasks_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.4k | 1.2 | new | 27 ok, 15 filtered |
+| `dcagent-t2-dcagent-code-contests-sandboxes-traces-terminus-2` | `DCAgent/code-contests-sandboxes-traces-terminus-2` | executed_trajectories | not stated on the dataset card | 10.0k | 0.2 | new | 12 ok |
+| `dcagent-code-contests-sandboxes-with-tests-10k` | `DCAgent/code-contests-sandboxes-with-tests_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.0k | 1.1 | new | 39 ok, 3 filtered |
+| `dcagent-codeforces-sandboxes-1-10k` | `DCAgent/codeforces-sandboxes-1_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 6.7k | 0.8 | new | 33 ok, 6 rejected, 3 filtered |
+| `dcagent-t2-dcagent-exp-gfi-staqc-random-filtered-10k-glm-4-7-traces-locetash` | `DCAgent/exp-gfi-staqc-random-filtered-10K_glm_4.7_traces_locetash` | executed_trajectories | not stated on the dataset card | 9.8k | 0.2 | new | 12 ok |
+| `dcagent-exp-psu-swesmith-31k` | `DCAgent/exp-psu-swesmith-31K_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 31.6k | 2.4 | new | 39 ok, 3 filtered |
+| `dcagent-t2-dcagent-exp-swd-swesmith-wo-docker-glm-4-7-traces-locetash` | `DCAgent/exp-swd-swesmith-wo-docker_glm_4.7_traces_locetash` | executed_trajectories | not stated on the dataset card | 10.0k | 0.6 | new | 9 ok, 3 filtered |
+| `dcagent-t2-dcagent-exp-syh-r2egym-swesmith-mixed-glm-4-7-traces-locetash` | `DCAgent/exp-syh-r2egym-swesmith-mixed_glm_4.7_traces_locetash` | executed_trajectories | not stated on the dataset card | 8.8k | 0.6 | new | 6 ok, 6 filtered |
+| `dcagent-t2-dcagent-exp-uns-r2egym-2-1x-glm-4-7-traces-locetash` | `DCAgent/exp-uns-r2egym-2_1x_glm_4.7_traces_locetash` | executed_trajectories | not stated on the dataset card | 8.4k | 0.7 | new | 3 ok, 9 filtered |
+| `dcagent-t2-dcagent-exp-uns-r2egym-33-6x-glm-4-7-traces-locetash` | `DCAgent/exp-uns-r2egym-33_6x_glm_4.7_traces_locetash` | executed_trajectories | not stated on the dataset card | 5.5k | 0.5 | new | 8 ok, 1 rejected, 3 filtered |
+| `dcagent-exp-flat25-baseline-10k` | `DCAgent/exp_flat25_baseline_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 0.5 | new | 34 ok, 3 rejected, 3 filtered |
+| `dcagent-exp-flat25-pseudocode-10k` | `DCAgent/exp_flat25_pseudocode_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 1.2 | new | 32 ok, 4 rejected, 6 filtered |
+| `dcagent-exp-flat25-speed-bonus-10k` | `DCAgent/exp_flat25_speed_bonus_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 1.4 | new | 36 ok, 2 rejected, 4 filtered |
+| `dcagent-exp-flat25-stackoverflow-10k` | `DCAgent/exp_flat25_stackoverflow_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 1.4 | new | 32 ok, 7 rejected, 3 filtered |
+| `dcagent-exp-rle-2skill-10k` | `DCAgent/exp_rle_2skill_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 1.4 | new | 30 ok, 3 rejected, 9 filtered |
+| `dcagent-exp-rle-adversarial-10k` | `DCAgent/exp_rle_adversarial_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.4 | new | 40 ok, 2 rejected |
+| `dcagent-exp-rle-curated-10k` | `DCAgent/exp_rle_curated_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.4 | new | 34 ok, 2 rejected, 6 filtered |
+| `dcagent-exp-rle-detailed-10k` | `DCAgent/exp_rle_detailed_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.8k | 0.6 | new | 141 ok, 9 rejected |
+| `dcagent-exp-rle-error-report-10k` | `DCAgent/exp_rle_error_report_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.4 | new | 36 ok, 6 filtered |
+| `dcagent-exp-rle-expert-10k` | `DCAgent/exp_rle_expert_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 0.4 | new | 41 ok, 1 rejected |
+| `dcagent-exp-rle-github-issue-10k` | `DCAgent/exp_rle_github_issue_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.4 | new | 35 ok, 1 rejected, 6 filtered |
+| `dcagent-exp-rle-heavy-padding-10k` | `DCAgent/exp_rle_heavy_padding_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 0.5 | new | 31 ok, 2 rejected, 9 filtered |
+| `dcagent-exp-rle-minimal-instructions-10k` | `DCAgent/exp_rle_minimal_instructions_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.2 | new | 35 ok, 1 rejected, 6 filtered |
+| `dcagent-exp-rle-moderate-padding-10k` | `DCAgent/exp_rle_moderate_padding_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 0.5 | new | 32 ok, 4 rejected, 6 filtered |
+| `dcagent-exp-rle-partial-ambiguity-10k` | `DCAgent/exp_rle_partial_ambiguity_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 1.3 | new | 37 ok, 2 rejected, 3 filtered |
+| `dcagent-exp-rle-proportional-10k` | `DCAgent/exp_rle_proportional_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.4 | new | 40 ok, 2 rejected |
+| `dcagent-exp-rpt-bigcodebench-10k` | `DCAgent/exp_rpt_bigcodebench_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 6.2k | 0.4 | new | 12 ok |
+| `dcagent-exp-rpt-bugsinpy-mf-large-10k` | `DCAgent/exp_rpt_bugsinpy-mf-large_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.2k | 0.5 | new | 38 ok, 4 rejected |
+| `dcagent-exp-rpt-codeelo-v2-10k` | `DCAgent/exp_rpt_codeelo-v2_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.4k | 0.5 | new | 31 ok, 2 rejected, 9 filtered |
+| `dcagent-exp-rpt-defects4j-v3-10k` | `DCAgent/exp_rpt_defects4j-v3_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 1.6 | new | 36 ok, 6 filtered |
+| `dcagent-exp-rpt-e2egit-10k` | `DCAgent/exp_rpt_e2egit_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 0.4 | new | 12 ok |
+| `dcagent-exp-rpt-ghactions` | `DCAgent/exp_rpt_ghactions_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 7.0k | 0.8 | new | 17 ok, 1 rejected, 24 filtered |
+| `dcagent-t2-dcagent-exp-rpt-issue-10k-glm-4-6-traces-jupiter` | `DCAgent/exp_rpt_issue_10k_glm_4.6_traces_jupiter` | executed_trajectories | not stated on the dataset card | 2.5k | 0.8 | new | 0 ok, 9 filtered, 3 held/duplicate |
+| `dcagent-exp-rpt-methods2test` | `DCAgent/exp_rpt_methods2test_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.7k | 0.9 | new | 36 ok, 6 rejected |
+| `dcagent-exp-rpt-nemotron-bash-withtests-gpt5mini` | `DCAgent/exp_rpt_nemotron-bash-withtests-gpt5mini_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.2k | 1.4 | new | 12 ok |
+| `dcagent-exp-rpt-nemotron-bash-withtests` | `DCAgent/exp_rpt_nemotron-bash-withtests_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.0k | 1.1 | new | 149 ok, 1 rejected |
+| `dcagent-exp-rpt-nemotron-csharp-10k` | `DCAgent/exp_rpt_nemotron-csharp_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.3k | 1.6 | new | 9 ok, 3 filtered |
+| `dcagent-exp-rpt-nemotron-junit-10k` | `DCAgent/exp_rpt_nemotron-junit_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 0.4 | new | 12 ok |
+| `dcagent-exp-rpt-nemotron-ruby-10k` | `DCAgent/exp_rpt_nemotron-ruby_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.1 | new | 12 ok |
+| `dcagent-exp-rpt-nemotron-rust-10k` | `DCAgent/exp_rpt_nemotron-rust_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.2 | new | 34 ok, 8 filtered |
+| `dcagent-exp-rpt-pymethods2test-v3-10k` | `DCAgent/exp_rpt_pymethods2test-v3_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 7.2k | 0.7 | new | 9 ok, 3 filtered |
+| `dcagent-exp-rpt-quixbugs-python-10k` | `DCAgent/exp_rpt_quixbugs-python_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 0.9 | new | 35 ok, 7 filtered |
+| `dcagent-exp-rpt-softwareheritage-10k` | `DCAgent/exp_rpt_softwareheritage_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.1k | 1.5 | new | 9 ok, 3 filtered |
+| `dcagent-exp-rpt-stack-bash-withtests-gpt5mini` | `DCAgent/exp_rpt_stack-bash-withtests-gpt5mini_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.7k | 2.0 | new | 9 ok, 3 filtered |
+| `dcagent-exp-rpt-stack-dockerfile` | `DCAgent/exp_rpt_stack-dockerfile_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.4k | 0.8 | new | 12 ok |
+| `dcagent-exp-rpt-stack-go-v3-test-10k` | `DCAgent/exp_rpt_stack-go-v3-test_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.7k | 2.0 | new | 23 ok, 1 rejected, 16 filtered |
+| `dcagent-exp-rpt-stack-php-large-10k` | `DCAgent/exp_rpt_stack-php-large_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 2.0 | new | 12 ok |
+| `dcagent-exp-rpt-stack-pytest-gpt5mini` | `DCAgent/exp_rpt_stack-pytest-gpt5mini_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 6.8k | 1.3 | new | 27 ok, 3 rejected, 12 filtered |
+| `dcagent-exp-rpt-stack-pytest-synthetic-gpt5nano` | `DCAgent/exp_rpt_stack-pytest-synthetic-gpt5nano_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 1.4 | new | 38 ok, 1 rejected, 3 filtered |
+| `dcagent-exp-rpt-stack-pytest-withtests` | `DCAgent/exp_rpt_stack-pytest-withtests_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 3.6 | new | 26 ok, 1 rejected, 15 filtered |
+| `dcagent-exp-rpt-stack-selfdoc-gpt5mini` | `DCAgent/exp_rpt_stack-selfdoc-gpt5mini_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 7.4k | 3.5 | new | 19 ok, 2 rejected, 21 filtered |
+| `dcagent-exp-rpt-stack-selfdoc-10k` | `DCAgent/exp_rpt_stack-selfdoc_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.8k | 2.6 | new | 21 ok, 3 rejected, 18 filtered |
+| `dcagent-exp-rpt-unitsyn-python` | `DCAgent/exp_rpt_unitsyn-python_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 5.8k | 0.6 | new | 12 ok |
+| `dcagent-freelancer-projects-sandboxes` | `DCAgent/freelancer-projects-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 0.5 | new | 148 ok, 2 rejected |
+| `dcagent-glaive-code-assistant-sandboxes` | `DCAgent/glaive-code-assistant-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 0.6 | new | 35 ok, 1 rejected, 6 filtered |
+| `dcagent-t2-dcagent-glm46-bash-textbook-traces` | `DCAgent/glm46-bash-textbook-traces` | executed_trajectories | not stated on the dataset card | 6.6k | 0.2 | new | 12 ok |
+| `dcagent-t2-dcagent-kimi-2-5-exp-gfi-staqc-embedding-mean-filtered-10k-maxeps-32k` | `DCAgent/Kimi-2.5-exp-gfi-staqc-embedding-mean-filtered-10K-maxeps-32k` | executed_trajectories | not stated on the dataset card | 8.4k | 0.6 | new | 9 ok, 3 filtered |
+| `dcagent-t2-dcagent-kimi-2-5-exp-gfi-swesmith-random-filtered-10k-maxeps-32k` | `DCAgent/Kimi-2.5-exp-gfi-swesmith-random-filtered-10K-maxeps-32k` | executed_trajectories | not stated on the dataset card | 3.3k | 0.6 | new | 6 ok, 6 filtered |
+| `dcagent-kimi25-swe-rebench` | `DCAgent/Kimi-2.5-swe_rebench_patched-maxeps-32k` | executed_trajectories | not stated on the dataset card | 12.4k | 0.7 | new | 44 ok, 1 rejected, 105 filtered |
+| `dcagent-t2-dcagent-kimi-2-6-exp-gfi-swesmith-random-filtered-10k-maxeps-32k` | `DCAgent/Kimi-2.6-exp-gfi-swesmith-random-filtered-10K-maxeps-32k` | executed_trajectories | not stated on the dataset card | 2.0k | 0.4 | new | 6 ok, 6 filtered |
+| `dcagent-magicoder-evol-instruct-110k-sandboxes-1-10k` | `DCAgent/Magicoder-Evol-Instruct-110K-sandboxes-1_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.5k | 0.3 | new | 27 ok, 15 filtered |
+| `dcagent-nemo-prism-math-sandboxes` | `DCAgent/nemo-prism-math-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 8.8k | 0.4 | new | 39 ok, 3 rejected |
+| `dcagent-neulab-agenttuning-alfworld-sandboxes` | `DCAgent/neulab-agenttuning-alfworld-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.9 | new | 35 ok, 1 rejected, 6 filtered |
+| `dcagent-neulab-agenttuning-db-sandboxes` | `DCAgent/neulab-agenttuning-db-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.5 | new | 12 ok |
+| `dcagent-neulab-agenttuning-kg-sandboxes` | `DCAgent/neulab-agenttuning-kg-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.7 | new | 33 ok, 9 filtered |
+| `dcagent-neulab-agenttuning-os-sandboxes` | `DCAgent/neulab-agenttuning-os-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 0.3 | new | 12 ok |
+| `dcagent-neulab-agenttuning-webshop-sandboxes` | `DCAgent/neulab-agenttuning-webshop-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.1k | 2.2 | new | 31 ok, 9 filtered |
+| `dcagent-neulab-code-feedback-sandboxes` | `DCAgent/neulab-code-feedback-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 0.7 | new | 35 ok, 5 rejected |
+| `dcagent-neulab-codeactinstruct-sandboxes` | `DCAgent/neulab-codeactinstruct-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.8 | new | 9 ok, 3 filtered |
+| `dcagent-neulab-go-browse-wa-sandboxes` | `DCAgent/neulab-go-browse-wa-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.5 | new | 33 ok, 9 filtered |
+| `dcagent-neulab-mind2web-sandboxes` | `DCAgent/neulab-mind2web-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.6 | new | 38 ok, 4 filtered |
+| `dcagent-nebius-swe-agent-gpt5nano-terminus2` | `DCAgent/neulab-nebius-swe-agent-trajectories-sandboxes-traces-terminus-2` | mixed_quality_episodes | not stated on the dataset card | 12.0k | 0.3 | new | 40 ok |
+| `dcagent-neulab-nebius-swe-agent-trajectories-sandboxes` | `DCAgent/neulab-nebius-swe-agent-trajectories-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 12.4k | 2.3 | new | 35 ok, 7 rejected |
+| `dcagent-t2-dcagent-neulab-nnetnav-wa-sandboxes-traces-terminus-2` | `DCAgent/neulab-nnetnav-wa-sandboxes-traces-terminus-2` | executed_trajectories | not stated on the dataset card | 6.0k | 0.2 | new | 12 ok |
+| `dcagent-t2-dcagent-neulab-openhands-sandboxes-traces-terminus-2` | `DCAgent/neulab-openhands-sandboxes-traces-terminus-2` | executed_trajectories | not stated on the dataset card | 7.3k | 0.2 | new | 12 ok |
+| `dcagent-neulab-orca-agentinstruct-sandboxes` | `DCAgent/neulab-orca-agentinstruct-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.3 | new | 35 ok, 5 filtered |
+| `dcagent-neulab-swe-gym-openhands-sampled-trajectories-sandboxes` | `DCAgent/neulab-swe-gym-openhands-sampled-trajectories-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 2.1 | new | 3 ok, 9 filtered |
+| `dcagent-nl2bash-10k` | `DCAgent/nl2bash_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 7.6k | 0.1 | new | 12 ok |
+| `dcagent-qasper-sandboxes` | `DCAgent/qasper-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.6k | 2.1 | new | 5 ok, 1 rejected, 6 filtered |
+| `dcagent-r2egym-sandboxes-10k` | `DCAgent/r2egym_sandboxes_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 0.7 | new | 12 ok |
+| `dcagent-r2egym-sandboxes` | `DCAgent/r2egym_sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 1.2k | 1.7 | new | 3 ok, 9 filtered |
+| `dcagent-selfinstruct-naive-sandboxes-2-10k` | `DCAgent/selfinstruct-naive-sandboxes-2_10k_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.9k | 0.7 | new | 6 ok, 6 filtered |
+| `dcagent-stackexchange-overflow-sandboxes-skywork-response` | `DCAgent/stackexchange-overflow-sandboxes-skywork-response_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.5k | 0.6 | new | 12 ok |
+| `dcagent-stackexchange-superuser-sandboxes` | `DCAgent/stackexchange-superuser-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 0.7 | new | 6 ok, 6 filtered |
+| `dcagent-t2-dcagent-stackexchange-tezos-sandboxes-glm-4-6-traces-jupiter` | `DCAgent/stackexchange-tezos-sandboxes_glm_4.6_traces_jupiter` | executed_trajectories | not stated on the dataset card | 2.5k | 0.8 | new | 11 ok, 1 rejected |
+| `dcagent-stackexchange-tor-sandboxes` | `DCAgent/stackexchange-tor-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 1.0 | new | 3 ok, 9 filtered |
+| `dcagent-swesmith-sandboxes-with-tests` | `DCAgent/swesmith-sandboxes-with_tests_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.1k | 0.7 | new | 12 ok |
+| `dcagent-tulu3-sft-personas-math-sandboxes` | `DCAgent/tulu3-sft-personas-math-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 10.0k | 0.2 | new | 12 ok |
+| `dcagent-wizardlm-orca-sandboxes` | `DCAgent/wizardlm-orca-sandboxes_glm_4.7_traces_jupiter` | executed_trajectories | not stated on the dataset card | 9.4k | 0.5 | new | 11 ok, 1 rejected |
+| `freelancer-projects-100k-traces` | `DCAgent2/freelancer-projects-100k-traces` (default) | executed_trajectories | not stated on the dataset card | 97.0k | 3.7 | new | 40 ok |
+| `dcagent-t2-dcagent2-glm-4-6-combined-traces` | `DCAgent2/GLM-4.6-combined-traces` | executed_trajectories | not stated on the dataset card | 14.7k | 0.3 | new | 40 ok |
+| `dcagent-t2-dcagent2-glm-4-7-inferredbugs-sandboxes-maxeps-131k` | `DCAgent2/GLM-4.7-inferredbugs-sandboxes-maxeps-131k` | executed_trajectories | not stated on the dataset card | 10.0k | 0.6 | new | 12 ok |
+| `dcagent-t2-dcagent2-glm-4-7-ling-coder-sft-sandboxes-1-maxeps-131k` | `DCAgent2/GLM-4.7-ling-coder-sft-sandboxes-1-maxeps-131k` | executed_trajectories | not stated on the dataset card | 9.8k | 0.2 | new | 12 ok |
+| `dcagent-t2-dcagent2-glm-4-7-neulab-bash-textbook-tasks-maxeps-131k` | `DCAgent2/GLM-4.7-neulab-bash_textbook_tasks-maxeps-131k` | executed_trajectories | not stated on the dataset card | 8.7k | 0.3 | new | 11 ok, 1 rejected |
+| `dcagent-t2-dcagent2-glm-4-7-stackexchange-overflow-sandboxes-maxeps-131k` | `DCAgent2/GLM-4.7-stackexchange-overflow-sandboxes-maxeps-131k` | executed_trajectories | not stated on the dataset card | 10.0k | 0.2 | new | 10 ok, 2 rejected |
+| `dcagent-t2-dcagent2-glm-4-7-stackexchange-tezos-sandboxes-maxeps-131k` | `DCAgent2/GLM-4.7-stackexchange-tezos-sandboxes-maxeps-131k` | executed_trajectories | not stated on the dataset card | 10.0k | 0.3 | new | 12 ok |
+| `dcagent2-glm47-swe-rebench` | `DCAgent2/GLM-4.7-swe_rebench-sandboxes-maxeps-131k-jup_chunk0` | executed_trajectories | not stated on the dataset card | 1.2k | 0.1 | new | 0 ok, 150 filtered |
+| `dcagent-t2-dcagent2-glm-4-7-swesmith-sandboxes-with-tests-oracle-verified-120s-maxeps-131k` | `DCAgent2/GLM-4.7-swesmith-sandboxes-with_tests-oracle_verified_120s-maxeps-131k` | executed_trajectories | not stated on the dataset card | 9.4k | 0.7 | new | 12 ok |
+| `dcagent-t2-dcagent2-glm46-ling-coder-sft-sandboxes-1-maxeps-131k` | `DCAgent2/glm46-ling-coder-sft-sandboxes-1-maxeps-131k` | executed_trajectories | not stated on the dataset card | 10.0k | 0.3 | new | 12 ok |
+| `dcagent-t2-dcagent2-glm46-neulab-mind2web-sandboxes-maxeps-131k` | `DCAgent2/glm46-neulab-mind2web-sandboxes-maxeps-131k` | executed_trajectories | not stated on the dataset card | 9.8k | 0.4 | new | 12 ok |
+| `dcagent-t2-dcagent2-gpt-oss-120b-code-contests-maxeps-131k` | `DCAgent2/GPT-OSS-120B-Code-Contests-maxeps-131k` | executed_trajectories | not stated on the dataset card | 9.0k | 0.3 | new | 11 ok, 1 rejected |
+| `dcagent-t2-dcagent2-kimi-2-5-inferredbugs-sandboxes-maxeps-32k` | `DCAgent2/Kimi-2.5-inferredbugs-sandboxes-maxeps-32k` | executed_trajectories | not stated on the dataset card | 18.8k | 1.0 | new | 10 ok, 2 rejected |
+| `cc-traces-pt-br` | `DedeProGames/claude-code-traces-pt-br` | executed_trajectories | not stated on the dataset card | 12* | 0.2 | new | 8 ok, 4 rejected |
+| `codex-traces-pt-br` | `DedeProGames/codex-traces-pt-br` | executed_trajectories | not stated on the dataset card | 359* | 0.5 | new | 27 ok, 13 rejected |
+| `menvdata-swe-trajectory` | `ernie-research/MEnvData-SWE-Trajectory` | executed_trajectories | apache-2.0 | 3.9k | 1.0 | new | 40 ok |
+| `fineenvs-data-agent-sft` | `FineEnvs/data-agent-sft` | executed_trajectories | mit | 4.7k | 0.1 | new | 40 ok |
+| `harbor-rollouts-claude-code` | `FineEnvs/qwen38-27b-harbor-rollouts` (claude-code) | verified_trajectories | not stated on the dataset card | 781 | 0.3 | new | 150 ok |
+| `harbor-rollouts-codex` | `FineEnvs/qwen38-27b-harbor-rollouts` (codex) | verified_trajectories | not stated on the dataset card | 797 | 0.2 | new | 150 ok |
+| `harbor-rollouts-mini-swe-agent` | `FineEnvs/qwen38-27b-harbor-rollouts` (mini-swe-agent) | verified_trajectories | not stated on the dataset card | 810 | 0.1 | new | 150 ok |
+| `harbor-rollouts-opencode` | `FineEnvs/qwen38-27b-harbor-rollouts` (opencode) | verified_trajectories | not stated on the dataset card | 801 | 0.2 | new | 143 ok, 7 held/duplicate |
+| `focustiki-sft-coding-agent-traces-test` | `focustiki/sft-coding-agent-traces` (test) | executed_trajectories | mit | 663 | 0.1 | new | 31 ok, 9 rejected |
+| `focustiki-sft-coding-agent-traces-train` | `focustiki/sft-coding-agent-traces` | executed_trajectories | mit | 6.0k | 0.6 | new | 36 ok, 4 rejected |
+| `davinci-dev-env-native` | `GAIR/daVinci-Dev` | verified_trajectories | other | 72.7k | 15.6 | new | 23 ok, 127 filtered |
+| `drkernel-coldstart-8k` | `hkust-nlp/drkernel-coldstart-8k` | environment_trajectories | mit | 8.9k | 0.5 | new | 40 ok |
+| `swe-rebench-july-2026-trajectories` | `ibragim-bad/swe_rebench_07_2026_trajectories` | executed_trajectories | other | 9.4k | 1.9 | new | 40 ok |
+| `council-of-chuckles-codex` | `jdsouza/council-of-chuckles-codex-traces` | executed_trajectories | not stated on the dataset card | 10* | 0.0 | new | 6 ok, 4 rejected |
+| `jetbrains-swesmith-random-subset` | `JetBrains-Research/agent-trajectories-swesmith-random-subset` | verified_trajectories | mit | 1.5k | 0.1 | new | 68 ok, 82 filtered |
+| `jetbrains-swe-traj-complete` | `JetBrains-Research/swe-traj-complete` (default) | executed_trajectories | not stated on the dataset card | 269 | 0.0 | new | 40 ok |
+| `swerebench-openhands-minimax-m25-corrected` | `JierunChen/swerebench-filtered-openhands-minimax-m2_5-corrected-completions` | executed_trajectories | not stated on the dataset card | 2.2k* | 0.7 | new | 40 ok |
+| `julien-c-pi-sessions` | `julien-c/pi-sessions` | executed_trajectories | cc-by-4.0 | 17* | 0.0 | new | 11 ok, 6 held/duplicate |
+| `synthtraces-pi` | `julien-c/synthtraces` | executed_trajectories | mit | 2.9k* | 0.3 | new | 29 ok, 11 rejected |
+| `jupyter-agent-thinking` | `jupyter-agent/jupyter-agent-dataset` (thinking) | executed_trajectories | apache-2.0 | 5.5k | 107.6 | 2.6k; 0.32 | 84 ok, 66 filtered |
+| `jwei-swe-smith-go-qwen35` | `JWei05/swe_smith_go_qwen3.5_35b_trajs_1629_no_p2p` | executed_trajectories | not stated on the dataset card | 1.6k | 1.0 | new | 29 ok, 11 filtered |
+| `jwei-swe-smith-java-qwen35` | `JWei05/swe_smith_java_qwen3.5_35b_trajs_4369` | executed_trajectories | not stated on the dataset card | 5.0k | 4.7 | new | 40 ok |
+| `jwei-swe-smith-js-qwen35` | `JWei05/swe_smith_js_qwen3.5_35b_trajs_4358` | executed_trajectories | not stated on the dataset card | 5.0k | 3.3 | new | 35 ok, 5 filtered |
+| `jwei-swe-smith-py-qwen35` | `JWei05/swe_smith_py_qwen3.5_35b_trajs_3934_no_p2p` | executed_trajectories | not stated on the dataset card | 3.9k | 3.7 | new | 40 ok |
+| `jwei-swe-smith-rs-qwen35` | `JWei05/swe_smith_rs_qwen3.5_35b_trajs_2477` | executed_trajectories | not stated on the dataset card | 5.0k | 1.3 | new | 40 ok |
+| `swe-smith-mini` | `Kwai-Klear/SWE-smith-mini_swe_agent_plus-trajectories-66k` | executed_trajectories | mit | 66.0k | 4.7 | 500; 0.06 | 40 ok |
+| `legoflow-swe-glm52-opencode` | `Lego-X/LegoFlow-SWE` | verified_trajectories | not stated on the dataset card | n/a | 2.0 | new | 0 ok, 150 filtered |
+| `legoflow-swe-glm52-openhands-sdk` | `Lego-X/LegoFlow-SWE` | verified_trajectories | not stated on the dataset card | n/a | 2.5 | new | 0 ok, 150 filtered |
+| `swe-lego-synthetic-resolved` | `Lego-X/SWE-Lego-Synthetic-Data` (default) | verified_trajectories | apache-2.0 | 9.1k | 1.4 | new | 150 ok |
+| `swe-review-traj` | `Lego-X/SWE-Review-Traj` (default) | executed_trajectories | apache-2.0 | 8.9k | 1.8 | new | 40 ok |
+| `terminal-lego-traj-8k-4teachers` | `Lego-X/Terminal-Lego-Traj-8k` | executed_trajectories | none stated | 33.2k | 0.8 | 3.0k; 0.37 | 40 ok |
+| `lego-x-terminal-lego-traj-deepseek-v3-2-15k` | `Lego-X/Terminal-Lego-Traj-Deepseek-V3-2-15k` | executed_trajectories | not stated on the dataset reposit~ | 14.8k | 0.5 | new | 40 ok |
+| `ml-intern-sessions` | `lewtun/ml-intern-sessions` | executed_trajectories | other | 575* | 0.0 | new | 10 ok, 30 rejected |
+| `claude-code-glm53-swesmith-compact-full-train` | `liangzhidanta/claude-code-glm53-swesmith-compact-trajectories` | executed_trajectories | other | n/a | 0.0 | new | 150 ok |
+| `claude-code-glm53-swesmith-compact-full-validation` | `liangzhidanta/claude-code-glm53-swesmith-compact-trajectories` | executed_trajectories | other | n/a | 0.0 | new | 16 ok |
+| `claude-code-glm53-swesmith-trajectories` | `liangzhidanta/claude-code-glm53-swesmith-trajectories` | verified_trajectories | other | 1.0k | 0.1 | new | 150 ok |
+| `litecoder-sft-terminal-preview` | `Lite-Coder/LiteCoder-SFT-Terminal-preview` | executed_trajectories | mit | 940 | 0.1 | new | 40 ok |
+| `litecoder-terminal-sft` | `Lite-Coder/LiteCoder-Terminal-SFT` | executed_trajectories | mit | 11.3k | 1.2 | new | 40 ok |
+| `litecoder-terminal-world-model-sft` | `Lite-Coder/LiteCoder-Terminal-World-Model-SFT` | executed_trajectories | not stated on the dataset reposit~ | 7.1k | 0.5 | new | 40 ok |
+| `swe-star` | `LogicStar/SWE-Star` | verified_trajectories | not stated on the dataset card | 244.0k | 101.5 | new | 61 ok, 89 filtered |
+| `terminaltraj-20k` | `m-a-p/TerminalTraj` | executed_trajectories | not stated on the card | 20.0k | 0.5 | 2.0k; 0.25 | 39 ok, 1 rejected |
+| `real-pi-sessions-maxdevv` | `MaxDevv/real-pi-coding-agent-traces-sessions` | executed_trajectories | other | 249* | 0.2 | new | 36 ok, 3 rejected, 1 held/duplicate |
+| `orchard-swe-unresolved` | `microsoft/Orchard` (swe) | executed_trajectories | mit | 107.2k | 29.1 | new | 0 ok, 150 filtered |
+| `orchard-swe-verified` | `microsoft/Orchard` (swe) | verified_trajectories | mit | 107.2k | 29.1 | 1.4k; 0.17 | 150 ok |
+| `s-verified-orchard` | `microsoft/Orchard` (swe) | verified_successful_multiturn | mit | 107.2k | 29.1 | 700; 0.09 | 0 ok, 150 held/duplicate |
+| `dcagent-t2-mlfoundations-dev-magicoder-evol-instruct-110k-sandboxes-traces-terminus-2` | `mlfoundations-dev/magicoder-evol-instruct-110k-sandboxes-traces-terminus-2` | executed_trajectories | not stated on the dataset card | 10.0k | 0.2 | new | 12 ok |
+| `dcagent-t2-mlfoundations-dev-stackexchange-superuser-sandboxes-traces-terminus-2` | `mlfoundations-dev/stackexchange-superuser-sandboxes-traces-terminus-2` | executed_trajectories | not stated on the dataset card | 10.0k | 0.2 | new | 12 ok |
+| `dcagent-t2-mlfoundations-dev-stackexchange-unix-sandboxes-traces-terminus-2` | `mlfoundations-dev/stackexchange-unix-sandboxes-traces-terminus-2` | executed_trajectories | not stated on the dataset card | 10.0k | 0.3 | new | 12 ok |
+| `mlf-swesmith-plain-docker-gpt5nano-terminus2` | `mlfoundations-dev/swesmith_with_plain_docker-sandboxes-traces-terminus-2` | mixed_quality_episodes | not stated on the dataset card | 10.0k | 0.5 | new | 40 ok |
+| `dcagent-t2-mlfoundations-dev-wizardlm-orca-evol-instruct-110k-sandboxes-traces-terminus-2` | `mlfoundations-dev/wizardlm_orca-evol-instruct-110k-sandboxes-traces-terminus-2` | executed_trajectories | not stated on the dataset card | 10.0k | 0.1 | new | 12 ok |
+| `nanoswe-260812-swe-smith-extra-short` | `nanoswe/nanoswe-trajs-260812` | verified_trajectories | mit | 1.58M | 51.7 | new | 0 ok, 150 filtered |
+| `nanoswe-260812-unverified` | `nanoswe/nanoswe-trajs-260812` | mixed_quality_episodes | mit | 1.58M | 51.7 | new | 0 ok, 150 filtered |
+| `nanoswe-261002-verified` | `nanoswe/nanoswe-trajs-261002` | verified_trajectories | mit | 1.38M | 46.6 | new | 65 ok, 85 filtered |
+| `nanoswe-swesmith-qwen36-35b` | `nanoswe/swesmith-qwen3.6-35b-a3b` | verified_trajectories | not stated on the dataset card | 101.9k | 4.4 | new | 105 ok, 45 filtered |
+| `swe-agent-nebius` | `nebius/SWE-agent-trajectories` | verified_trajectories | cc-by-4.0 | 80.0k | 3.3 | 6.0k; 0.74 | 17 ok, 133 filtered |
+| `swe-agent-nebius-unresolved` | `nebius/SWE-agent-trajectories` | executed_trajectories | cc-by-4.0 | 80.0k | 3.3 | new | 133 ok, 17 filtered |
+| `rebench-openhands` | `nebius/SWE-rebench-openhands-trajectories` | verified_trajectories | cc-by-4.0 | 67.1k | 6.2 | 2.0k; 0.25 | 77 ok, 73 filtered |
+| `rebench-openhands-unresolved` | `nebius/SWE-rebench-openhands-trajectories` | executed_trajectories | cc-by-4.0 | 67.1k | 6.2 | new | 73 ok, 77 filtered |
+| `s-verified-rebench` | `nebius/SWE-rebench-openhands-trajectories` | verified_successful_multiturn | cc-by-4.0 | 67.1k | 6.2 | 1.0k; 0.12 | 0 ok, 73 filtered, 77 held/duplicate |
+| `adp-mini-coder` | `neulab/agent-data-collection` | executed_trajectories | not stated on the dataset card | 87.7k | 5.3 | 1.0k; 0.12 | 40 ok |
+| `adp-openhands-feedback` | `neulab/agent-data-collection` | executed_trajectories | mit | 226 | 0.0 | 200; 0.03 | 33 ok, 4 rejected, 3 held/duplicate |
+| `adp-swe-play` | `neulab/agent-data-collection` | executed_trajectories | not stated on the dataset card | 630 | 0.2 | 500; 0.06 | 40 ok |
+| `nex-agent-sft-agentic-code` | `nex-agi/agent-sft` | executed_trajectories | odc-by | 24.8k | 4.0 | new | 40 ok |
+| `claude-code-merged-traces` | `nlile/misc-merged-claude-code-traces-v1` | executed_trajectories | not stated on the dataset card | 32.1k | 3.5 | new | 13 ok, 6 rejected, 16 filtered, 5 held/duplicate |
+| `share-codex-sessions` | `nmuendler/share-codex` | executed_trajectories | cc-by-4.0 | 4.0k | 0.6 | new | 100 ok, 1 rejected, 49 filtered |
+| `nemotron-cascade2-swe` | `nvidia/Nemotron-Cascade-2-SFT-Data` (swe) | executed_trajectories | other | 22.0k | 36.3 | new | 40 ok |
+| `nemotron-opencode-agent-skills` | `nvidia/Nemotron-SFT-OpenCode-v1` | executed_trajectories | cc-by-4.0 | 67.0k | 6.3 | new | 33 ok, 7 rejected |
+| `nemotron-opencode-bash-only-tool` | `nvidia/Nemotron-SFT-OpenCode-v1` | executed_trajectories | cc-by-4.0 | 97.0k | 6.9 | new | 37 ok, 3 rejected |
+| `nemotron-opencode-bash-only-tool-skills` | `nvidia/Nemotron-SFT-OpenCode-v1` | executed_trajectories | cc-by-4.0 | 96.0k | 5.6 | new | 27 ok, 13 rejected |
+| `nemotron-opencode-general` | `nvidia/Nemotron-SFT-OpenCode-v1` | executed_trajectories | cc-by-4.0 | 90.0k | 5.5 | new | 28 ok, 12 rejected |
+| `nemotron-swe-v2-openhands` | `nvidia/Nemotron-SFT-SWE-v2` | executed_trajectories | cc-by-4.0 | 46.3k | 11.4 | 500; 0.06 | 40 ok |
+| `nemotron-swe-v3` | `nvidia/Nemotron-SFT-SWE-v3` | executed_trajectories | cc-by-4.0 | 238.0k | 35.0 | 800; 0.10 | 40 ok |
+| `nemotron-swe-v35-opencode` | `nvidia/Nemotron-SFT-SWE-v3.5` | executed_trajectories | cc-by-4.0 | 5.1k | 1.1 | 500; 0.06 | 40 ok |
+| `nemotron-swe-v1-r2e` | `nvidia/Nemotron-SWE-v1` | executed_trajectories | cc-by-4.0 | 51.0k | 11.1 | 500; 0.06 | 40 ok |
+| `nemotron-terminal-easy` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_easy) | executed_trajectories | cc-by-4.0 | 44.8k | 2.4 | 1.0k; 0.12 | 40 ok |
+| `nemotron-terminal-medium` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_medium) | executed_trajectories | cc-by-4.0 | 89.3k | 6.8 | 1.5k; 0.18 | 40 ok |
+| `nemotron-terminal-mixed` | `nvidia/Nemotron-Terminal-Corpus` (skill_based_mixed) | executed_trajectories | cc-by-4.0 | 5.7k | 0.3 | 500; 0.06 | 39 ok, 1 rejected |
+| `open-swe-v10-openhands` | `nvidia/Open-SWE-Traces` (v1.0) | executed_trajectories | cc-by-4.0 | 84.1k | 22.6 | new | 40 ok |
+| `open-swe-v10-sweagent` | `nvidia/Open-SWE-Traces` (v1.0) | executed_trajectories | cc-by-4.0 | 67.2k | 16.5 | new | 39 ok, 1 held/duplicate |
+| `open-swe-v11-minisweagent` | `nvidia/Open-SWE-Traces` (v1.1) | executed_trajectories | cc-by-4.0 | 95.3k | 12.0 | new | 40 ok |
+| `open-swe-v11-openhands` | `nvidia/Open-SWE-Traces` (v1.1) | executed_trajectories | cc-by-4.0 | 90.7k | 21.3 | new | 40 ok |
+| `open-swe-v11-sweagent` | `nvidia/Open-SWE-Traces` (v1.1) | executed_trajectories | cc-by-4.0 | 77.3k | 18.9 | new | 40 ok |
+| `open-swe-v12-minisweagent` | `nvidia/Open-SWE-Traces` (v1.2) | executed_trajectories | cc-by-4.0 | n/a | 32.1 | new | 40 ok |
+| `open-swe-v12-openhands` | `nvidia/Open-SWE-Traces` (v1.2) | executed_trajectories | cc-by-4.0 | n/a | 10.6 | new | 40 ok |
+| `open-swe-v12-sweagent` | `nvidia/Open-SWE-Traces` (v1.2) | executed_trajectories | cc-by-4.0 | n/a | 19.4 | new | 40 ok |
+| `open-swe-v20-minisweagent` | `nvidia/Open-SWE-Traces` (v2.0) | executed_trajectories | cc-by-4.0 | 36.6k | 11.0 | new | 40 ok |
+| `open-swe-v20-openhands` | `nvidia/Open-SWE-Traces` (v2.0) | executed_trajectories | cc-by-4.0 | 26.0k | 9.9 | new | 40 ok |
+| `open-swe-v20-sweagent` | `nvidia/Open-SWE-Traces` (v2.0) | executed_trajectories | cc-by-4.0 | 34.7k | 11.5 | new | 40 ok |
+| `swe-hero` | `nvidia/SWE-Hero-openhands-trajectories` | executed_trajectories | cc-by-4.0 | 34.3k | 7.2 | 500; 0.06 | 40 ok |
+| `swe-zero-openhands` | `nvidia/SWE-Zero-openhands-trajectories` | mixed_quality_episodes | cc-by-4.0 | 318.1k | 36.6 | 500; 0.06 | 40 ok |
+| `oa-code-contests-noblock-opencode` | `open-athena/code-contests-noblock-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 4.6k | 0.4 | new | 38 ok, 2 rejected |
+| `oa-rle-adversarial-opencode` | `open-athena/exp_rle_adversarial-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 4.1k | 0.4 | new | 40 ok |
+| `oa-crosscodeeval-csharp-v4-opencode` | `open-athena/exp_rpt_crosscodeeval-csharp-v4-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 1.8k | 0.1 | new | 40 ok |
+| `oa-crosscodeeval-java-opencode` | `open-athena/exp_rpt_crosscodeeval-java-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 1.9k | 0.1 | new | 40 ok |
+| `oa-curriculum-easy-opencode` | `open-athena/exp_rpt_curriculum-easy-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 466 | 0.0 | new | 40 ok |
+| `oa-curriculum-hard-opencode` | `open-athena/exp_rpt_curriculum-hard-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 22 | 0.0 | new | 22 ok |
+| `oa-curriculum-medium-opencode` | `open-athena/exp_rpt_curriculum-medium-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 451 | 0.0 | new | 39 ok, 1 rejected |
+| `oa-e2egit-large-opencode` | `open-athena/exp_rpt_e2egit-large-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 4.1k | 0.2 | new | 40 ok |
+| `oa-e2egit-v2-opencode` | `open-athena/exp_rpt_e2egit-v2-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 475 | 0.0 | new | 40 ok |
+| `oa-ghactions-v3-opencode` | `open-athena/exp_rpt_ghactions-v3-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 7.4k | 0.4 | new | 39 ok, 1 rejected |
+| `oa-issue-opencode` | `open-athena/exp_rpt_issue-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 279 | 0.0 | new | 35 ok, 5 rejected |
+| `oa-methods2test-large-v3-opencode` | `open-athena/exp_rpt_methods2test-large-v3-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 108 | 0.0 | new | 40 ok |
+| `oa-multifile-opencode` | `open-athena/exp_rpt_multifile-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 99 | 0.0 | new | 40 ok |
+| `oa-nemotron-junit-opencode` | `open-athena/exp_rpt_nemotron-junit-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 339 | 0.0 | new | 40 ok |
+| `oa-pr-opencode` | `open-athena/exp_rpt_pr-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 3.8k | 0.4 | new | 33 ok, 7 rejected |
+| `oa-pymethods2test-large-opencode` | `open-athena/exp_rpt_pymethods2test-large-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 4.8k | 0.2 | new | 40 ok |
+| `oa-pymethods2test-v3-opencode` | `open-athena/exp_rpt_pymethods2test-v3-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 482 | 0.0 | new | 40 ok |
+| `oa-stack-junit-v6-opencode` | `open-athena/exp_rpt_stack-junit-v6-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 660 | 0.1 | new | 38 ok, 2 rejected |
+| `oa-stack-pytest-large-opencode` | `open-athena/exp_rpt_stack-pytest-large-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 1.3k | 0.1 | new | 40 ok |
+| `oa-stack-pytest-v2-opencode` | `open-athena/exp_rpt_stack-pytest-v2-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 472 | 0.0 | new | 39 ok, 1 rejected |
+| `oa-unitsyn-python-large-opencode` | `open-athena/exp_rpt_unitsyn-python-large-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 2.2k | 0.1 | new | 40 ok |
+| `oa-unitsyn-python-v3-opencode` | `open-athena/exp_rpt_unitsyn-python-v3-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 130 | 0.0 | new | 40 ok |
+| `dcagent-t2-open-athena-glm-4-6-freelancer-32eps-131k` | `open-athena/GLM-4.6-freelancer-32eps-131k` | executed_trajectories | not stated on the dataset card | 7.6k | 0.4 | new | 12 ok |
+| `dcagent-t2-open-athena-glm-4-6-inferredbugs-32ep-65k-reasoning` | `open-athena/GLM-4.6-inferredbugs-32ep-65k-reasoning` | executed_trajectories | not stated on the dataset card | 8.2k | 0.3 | new | 12 ok |
+| `dcagent-t2-open-athena-glm-4-6-stackexchange-overflow-sandboxes-32eps-65k-reasoning` | `open-athena/GLM-4.6-stackexchange-overflow-sandboxes-32eps-65k-reasoning` | executed_trajectories | not stated on the dataset card | 9.4k | 0.3 | new | 11 ok, 1 rejected |
+| `dcagent-t2-open-athena-glm-4-6-swesmith-32ep-131k-nosumm` | `open-athena/GLM-4.6-swesmith-32ep-131k-nosumm` | executed_trajectories | not stated on the dataset card | 6.0k | 0.4 | new | 40 ok |
+| `glm53-swesmith-attempts` | `open-athena/GLM-5.3-tmax-swesmith-k8-traces-2026.10` (attempts) | verified_trajectories | other | 35.0k | 4.4 | new | 53 ok, 97 filtered |
+| `glm53-tmax-attempts` | `open-athena/GLM-5.3-tmax-swesmith-k8-traces-2026.10` (attempts) | executed_trajectories | other | 35.0k | 4.4 | new | 0 ok, 150 filtered |
+| `glm53-swesmith-relay` | `open-athena/GLM-5.3-tmax-swesmith-k8-traces-2026.10` (relay) | verified_trajectories | other | 11.0k | 1.5 | new | 46 ok, 104 filtered |
+| `glm53-tmax-relay` | `open-athena/GLM-5.3-tmax-swesmith-k8-traces-2026.10` (relay) | executed_trajectories | other | 11.0k | 1.5 | new | 0 ok, 150 filtered |
+| `dcagent-t2-open-athena-glm46-code-feedback-maxeps-131k` | `open-athena/glm46-code-feedback-maxeps-131k` | executed_trajectories | not stated on the dataset card | 9.8k | 0.4 | new | 12 ok |
+| `oa-glm52-swe-rebench-oracle` | `open-athena/glm52-datagen-r11-52-swe-rebench-oracle-traces` | executed_trajectories | not stated on the dataset card | 1.9k | 0.4 | new | 47 ok, 103 filtered |
+| `oa-glm52-openswe-oracle` | `open-athena/glm52-datagen-r11-61-openswe-oracle-traces` | executed_trajectories | not stated on the dataset card | 592 | 0.1 | new | 53 ok, 97 filtered |
+| `oa-inferredbugs-sandboxes-verifier-opencode` | `open-athena/inferredbugs-sandboxes-verifier-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 5.6k | 0.7 | new | 38 ok, 2 rejected |
+| `dcagent-t2-open-athena-kimi-2-5-swesmith-sandboxes-with-tests-oracle-verified-120s-maxeps-32k` | `open-athena/Kimi-2.5-swesmith-sandboxes-with_tests-oracle_verified_120s-maxeps-32k` | executed_trajectories | not stated on the dataset card | 9.4k | 0.5 | new | 12 ok |
+| `dcagent-t2-open-athena-kimi-k2t-bash-textbook-tasks-maxeps-32k` | `open-athena/Kimi-K2T-bash_textbook_tasks-maxeps-32k` | executed_trajectories | not stated on the dataset card | 7.2k | 0.2 | new | 12 ok |
+| `dcagent-t2-open-athena-kimi-k2t-neulab-agenttuning-kg-sandboxes-maxeps-32k-neulab-agenttuning-kg-sandboxes` | `open-athena/Kimi-K2T-neulab-agenttuning-kg-sandboxes-maxeps-32k_neulab-agenttuning-kg-sandboxes` | executed_trajectories | not stated on the dataset card | 8.0k | 0.2 | new | 12 ok |
+| `dcagent-t2-open-athena-kimi-k2t-neulab-agenttuning-mind2web-sandboxes-maxeps-32k-neulab-agenttuning-db-sandbox` | `open-athena/Kimi-K2T-neulab-agenttuning-mind2web-sandboxes-maxeps-32k_neulab-agenttuning-db-sandboxes` | executed_trajectories | not stated on the dataset card | 15.8k | 0.2 | new | 12 ok |
+| `dcagent-t2-open-athena-kimi-k2t-neulab-agenttuning-webshop-sandboxes-maxeps-32k` | `open-athena/Kimi-K2T-neulab-agenttuning-webshop-sandboxes-maxeps-32k` | executed_trajectories | not stated on the dataset card | 5.7k | 0.2 | new | 12 ok |
+| `oa-mix-h4-binary-easy-opencode` | `open-athena/mix_h4_binary_easy-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 2.0k | 0.1 | new | 40 ok |
+| `oa-nemotron-code-oracle-filtered-opencode` | `open-athena/nemotron-code-oracle-filtered-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 5.4k | 0.4 | new | 39 ok, 1 rejected |
+| `oa-nl2bash-tasks-cleaned-oracle-opencode` | `open-athena/nl2bash-tasks-cleaned-oracle-qwen3.5-122b-131k-opencode-sft-serveparity` | executed_trajectories | not stated on the dataset card | 633 | 0.0 | new | 40 ok |
+| `oa-swegym-minimax-m27` | `open-athena/swegym-tasks-patched-validated-v5-minimax-m27-131k-traces` | executed_trajectories | not stated on the dataset card | 2.2k | 0.6 | new | 24 ok, 126 filtered |
+| `oa-swesmith-oracle-minimax-m27` | `open-athena/swesmith-oracle-filtered-minimax-m27-131k-traces` | executed_trajectories | not stated on the dataset card | 12.9k | 3.4 | new | 0 ok, 150 filtered |
+| `oa-swesmith-oracle-qwen35-32k` | `open-athena/swesmith-oracle-filtered-qwen3.5-122b-32k-traces` | executed_trajectories | not stated on the dataset card | 864 | 0.2 | new | 0 ok, 150 filtered |
+| `agent-trove-terminus2` | `open-thoughts/AgentTrove` | executed_trajectories | apache-2.0 | 1.70M | 58.7 | 3.0k; 0.37 | 150 ok |
+| `otagent-sft-100k` | `open-thoughts/OpenThoughts-Agent-SFT-100K` | executed_trajectories | apache-2.0 | 94.3k | 5.2 | 4.0k; 0.49 | 93 ok, 57 filtered |
+| `otagent-sft-coldstart-9k` | `open-thoughts/OpenThoughts-Agent-SFT-ColdStartForRL-10K` | executed_trajectories | apache-2.0 | 9.4k | 0.7 | 4.0k; 0.49 | 137 ok, 13 filtered |
+| `openthoughts-agent-v1-sft` | `open-thoughts/OpenThoughts-Agent-v1-SFT` | executed_trajectories | apache-2.0 | 15.2k | 0.3 | new | 40 ok |
+| `ultradata-agent-code` | `openbmb/UltraData-SFT-Agent-2609` | executed_trajectories | apache-2.0 | 22.8k | 14.9 | 1.0k; 0.12 | 40 ok |
+| `codescout-training-rollouts-14b` | `OpenHands/CodeScout_Training_Rollouts` (CodeScout_14B) | mixed_quality_episodes | not stated on the dataset card | 39.0k | 1.2 | new | 40 ok |
+| `codescout-training-rollouts-4b` | `OpenHands/CodeScout_Training_Rollouts` (CodeScout_4B) | mixed_quality_episodes | not stated on the dataset card | 15.8k | 0.7 | new | 40 ok |
+| `dcagent-t2-penfever-stackexchange-tezos-sandboxes-kimi-2-5-smaxeps-32k` | `penfever/stackexchange-tezos-sandboxes__Kimi-2.5-smaxeps-32k` | executed_trajectories | not stated on the dataset card | 8.6k | 0.3 | new | 12 ok |
+| `afm-codeagent-sft` | `PersonalAILab/AFM-CodeAgent-SFT-Dataset` | executed_trajectories | apache-2.0 | 59.9k | 0.6 | new | 40 ok |
+| `mlevolve-cc-kaggle` | `Pran-Ker/mlevolve-cc-kaggle` | executed_trajectories | mit | 25* | 0.0 | new | 18 ok, 5 rejected, 2 held/duplicate |
+| `r2e-sonnet-github-issue-traj` | `r2e-edits/sonnet_github_issue_traj` | executed_trajectories | not stated on the dataset card | 404 | 0.0 | new | 40 ok |
+| `r2egym-sft` | `R2E-Gym/R2EGym-SFT-Trajectories` | executed_trajectories | not stated on the dataset card | 3.2k | 0.2 | 800; 0.10 | 40 ok |
+| `combust-labs-pi-mono-docker` | `rgruchalski/combust-labs_pi-mono-docker` | executed_trajectories | apache-2.0 | 26* | 0.0 | new | 25 ok, 1 rejected |
+| `combust-labs-pi-mono-http-proxy` | `rgruchalski/combust-labs_pi-mono-http-proxy` | executed_trajectories | apache-2.0 | 24* | 0.0 | new | 24 ok |
+| `mini-coder-trajs-400k` | `ricdomolm/mini-coder-trajs-400k` (default) | verified_trajectories | mit | 396.5k | 28.2 | new | 51 ok, 349 filtered |
+| `code-datascience-instruct-analysis` | `RUC-DataLab/DataScience-Instruct-500K` | synthetic_code_dialogue | mit | 26.2k | 0.4 | 3.0k; 0.03 | 40 ok |
+| `swe-chat-claude` | `SALT-NLP/SWE-chat` | executed_trajectories | odc-by | 12.1k* | 25.1 | new | 39 ok, 1 rejected |
+| `swe-chat-codex` | `SALT-NLP/SWE-chat` | executed_trajectories | odc-by | 2.1k* | 4.5 | new | 31 ok, 9 rejected |
+| `swe-chat-opencode` | `SALT-NLP/SWE-chat` | executed_trajectories | odc-by | 1.5k* | 1.3 | new | 40 ok |
+| `swe-chat-pi` | `SALT-NLP/SWE-chat` | executed_trajectories | odc-by | 377* | 1.6 | new | 30 ok, 10 rejected |
+| `si2ca-discovered-strategy` | `Self-Improving-Coding-Agents/SI2CA-Training-Trajectories` (discovered_strategy) | verified_trajectories | cc-by-4.0 | 10.8k | 1.7 | new | 110 ok, 40 filtered |
+| `si2ca-full-self-judgement` | `Self-Improving-Coding-Agents/SI2CA-Training-Trajectories` (full_self_judgement) | verified_trajectories | cc-by-4.0 | 10.8k | 2.7 | new | 109 ok, 41 filtered |
+| `si2ca-standard` | `Self-Improving-Coding-Agents/SI2CA-Training-Trajectories` (standard) | verified_trajectories | cc-by-4.0 | 10.8k | 0.7 | new | 105 ok, 45 filtered |
+| `smolagents-codeagent-original` | `smolagents/codeagent-traces` (original) | executed_trajectories | not stated on the dataset card | 48.7k | 1.0 | new | 40 ok |
+| `agentbank-apps` | `Solaris99/AgentBank` (apps) | mixed_quality_episodes | apache-2.0 | 4.4k | 0.0 | 5.0k; 0.04 | 40 ok |
+| `agentbank-intercode-bash` | `Solaris99/AgentBank` (intercode_bash) | executed_trajectories | apache-2.0 | 200 | 0.0 | 500; 0.00 | 40 ok |
+| `agentbank-intercode-sql` | `Solaris99/AgentBank` (intercode_sql) | executed_trajectories | apache-2.0 | 4.5k | 0.0 | 3.0k; 0.03 | 40 ok |
+| `fable5-claude-code-sessions` | `suayptalha/fable-5-claude-code` | executed_trajectories | not stated on the dataset card | 63 | 0.0 | new | 36 ok, 3 rejected, 1 held/duplicate |
+| `swe-smith-ticks` | `SWE-bench/SWE-smith-trajectories` (default) | verified_trajectories | mit | 25.8k | 3.1 | 1.2k; 0.15 | 9 ok, 141 filtered |
+| `swe-smith-ticks-unresolved` | `SWE-bench/SWE-smith-trajectories` (default) | executed_trajectories | mit | 25.8k | 3.1 | new | 141 ok, 9 filtered |
+| `s-verified-swe-smith` | `SWE-bench/SWE-smith-trajectories` (default) | verified_successful_multiturn | mit | 24.1k | 3.2 | 1.0k; 0.12 | 107 ok, 43 filtered |
+| `swe-smith-tool` | `SWE-bench/SWE-smith-trajectories` (default) | verified_trajectories | mit | 24.1k | 3.2 | 1.2k; 0.15 | 0 ok, 43 filtered, 107 held/duplicate |
+| `swe-smith-tool-unresolved` | `SWE-bench/SWE-smith-trajectories` (default) | executed_trajectories | mit | 24.1k | 3.2 | new | 39 ok, 107 filtered, 4 held/duplicate |
+| `swe-smith-xml` | `SWE-bench/SWE-smith-trajectories` (default) | verified_trajectories | mit | 26.1k | 3.2 | 1.2k; 0.15 | 75 ok, 75 filtered |
+| `swe-smith-xml-unresolved` | `SWE-bench/SWE-smith-trajectories` (default) | executed_trajectories | mit | 26.1k | 3.2 | new | 75 ok, 75 filtered |
+| `deepswe-kimi-k2-trajectories` | `SWE-Factory/DeepSWE-Agent-Kimi-K2-Trajectories-2.8K` | executed_trajectories | mit | 2.8k | 0.2 | new | 40 ok |
+| `deepswe-kimi-k2-rejection-sampling` | `SWE-Factory/DeepSWE-Agent-Kimi-K2-Trajectories-Rejection-Sampling` | executed_trajectories | mit | 729 | 0.1 | new | 27 ok, 13 held/duplicate |
+| `swegym-sampled` | `SWE-Gym/OpenHands-Sampled-Trajectories` (train.raw) | verified_trajectories | not stated on the dataset card | 6.1k | 0.9 | 6.1k; 0.74 | 12 ok, 138 filtered |
+| `swegym-sampled-unresolved` | `SWE-Gym/OpenHands-Sampled-Trajectories` (train.raw) | executed_trajectories | not stated on the dataset card | 6.1k | 0.9 | new | 138 ok, 12 filtered |
+| `swegym-sft-trajectories` | `SWE-Gym/OpenHands-SFT-Trajectories` (default) | executed_trajectories | mit | 491 | 0.0 | new | 40 ok |
+| `deepseek-v4-pro-pi-agent` | `TeichAI/DeepSeek-v4-Pro-Agent` | executed_trajectories | not stated on the dataset card | 4.0k* | 0.3 | new | 35 ok, 5 rejected |
+| `fable5-cursor-sessions` | `TeichAI/Fable-5-Cursor-Traces` | executed_trajectories | apache-2.0 | 244 | 0.1 | new | 40 ok |
+| `teichai-hunter-alpha-coding-agent` | `TeichAI/Hunter-Alpha-Coding-Agent-SFT` | executed_trajectories | not stated on the dataset card | 1.2k | 0.2 | new | 40 ok |
+| `sera-kimik3-django-sweagent-raw-t1` | `thientrangngv/SERA-KimiK3-Django-SWEAgent-Raw-T1` | mixed_quality_episodes | odc-by | 300 | 0.1 | new | 40 ok |
+| `pi-extensions-sessions` | `thomasmustier/pi-extensions-sessions` | executed_trajectories | mit | 132* | 0.1 | new | 27 ok, 12 rejected, 1 held/duplicate |
+| `pi-for-excel-sessions` | `thomasmustier/pi-for-excel-sessions` | executed_trajectories | mit | 215* | 0.4 | new | 27 ok, 13 rejected |
+| `pi-mono-sessions-thomasmustier` | `thomasmustier/pi-mono-sessions` | executed_trajectories | mit | 150* | 0.1 | new | 16 ok, 23 rejected, 1 held/duplicate |
+| `pi-nes-sessions` | `thomasmustier/pi-nes-sessions` | executed_trajectories | mit | 12* | 0.0 | new | 10 ok, 2 rejected |
+| `pi-session-hud-sessions` | `thomasmustier/pi-session-hud-sessions` | executed_trajectories | mit | 10* | 0.0 | new | 10 ok |
+| `swe-next-sft` | `TIGER-Lab/SWE-Next-SFT-Trajectories` | executed_trajectories | mit | 3.7k | 0.2 | 2.0k; 0.25 | 40 ok |
+| `swe-qa-pro-sft` | `TIGER-Lab/SWE-QA-Pro-SFT-Trajectories` | executed_trajectories | mit | 1.0k | 0.1 | 1.0k; 0.01 | 40 ok |
+| `coderforge-r2e-gym-failed` | `togethercomputer/CoderForge-Preview` (trajectories) | executed_trajectories | not stated on the dataset card | 33.0k | 5.5 | new | 31 ok, 119 filtered |
+| `coderforge-swe-rebench-failed` | `togethercomputer/CoderForge-Preview` (trajectories) | executed_trajectories | not stated on the dataset card | 77.2k | 14.4 | new | 62 ok, 88 filtered |
+| `coderforge-swe-smith-failed` | `togethercomputer/CoderForge-Preview` (trajectories) | executed_trajectories | not stated on the dataset card | 148.0k | 24.0 | new | 25 ok, 125 filtered |
+| `coderforge-reward1` | `togethercomputer/CoderForge-Preview` (trajectories) | verified_trajectories | not stated on the dataset card | 155.1k | 24.5 | 1.0k; 0.12 | 40 ok |
+| `s-verified-coderforge` | `togethercomputer/CoderForge-Preview` (trajectories) | verified_successful_multiturn | per row | 155.1k | 24.5 | 500; 0.06 | 0 ok, 40 held/duplicate |
+| `trace-commons-claude-code` | `trace-commons/agent-traces` | executed_trajectories | cc-by-4.0 | 28* | 0.1 | new | 25 ok, 3 rejected |
+| `ukisai-qwen38-terminus2` | `ukisai/Qwen3.8-27B-multi-turn-agent-sft` (default) | executed_trajectories | apache-2.0 | 15.2k | 0.4 | new | 40 ok |
+| `glm51-pi-swe-rebench-v2-successful` | `whitecircle/swe-rebench-v2-glm-5.1-pi-agent-successful-traces` (default) | executed_trajectories | not stated on the dataset card | 7.8k | 0.9 | new | 40 ok |
+| `codeact-instruct` | `xingyaoww/code-act` | executed_trajectories | apache-2.0 | 7.1k | 0.0 | 3.0k; 0.37 | 38 ok, 2 rejected |
+| `cc-bench-trajectories` | `zai-org/CC-Bench-trajectories` | executed_trajectories | mit | 260 | 0.1 | new | 40 ok |
+| `swe-dev-rft` | `zai-org/SWE-Dev-train` (rft) | verified_trajectories | not stated on the dataset card | 2.3k | 0.1 | new | 150 ok |
+| `swe-dev` | `zai-org/SWE-Dev-train` (sft) | executed_trajectories | not stated on the dataset card | 17.9k | 0.9 | 500; 0.06 | 40 ok |
+| **Total** | 354 sources | | | 25.97M | 1654 | | |
+
+### Running it
+
+`configs/cloud/prepare-full-agentic-coding.json` (20 sandboxes x 14 shards = 280
+shards; it launches nothing by itself) reads the manifest with `files.agentic-coding.json`, the
+file list at the pinned revisions. The plan reads 767 GB once, plus the re-reads that the
+split of single-file sources by row stripes needs: about 2.5 TB in total, because one huge JSONL
+file (a 24 GB file in a stripe plan of 20 shards) is read by every shard that keeps a stripe of
+it. Larger shards would shrink that but raise the work per sandbox; this choice finishes the
+estimated work in about four hours of ingest per sandbox. Shard cost uses the pass rates in
+`data/sharding.py` for the big filtered sources.
+
+For a smoke run, `configs/cloud/prepare-agentic-coding-mix.json` (one sandbox, nothing launches by
+itself) plans the same manifest with `scripts/shard_sources.py --cap` (`CODING_ROW_CAP`, 300 by
+default) into `CODING_SHARDS` (16) pieces, so the sources need no caps of their own.
 
 ## Preparing at full volume
 
@@ -1097,11 +1559,12 @@ gives per sandbox: trajectories 7.6 MB/s, documents 6.4, chat 5.7, tool use 5.3,
 
 | config | rows (millions) | text (GB) | CPU-hours | sandbox-hours |
 |---|---:|---:|---:|---:|
-| agentic | 20.0 | 400 | 225 | 17 |
+| agentic (as first measured, before its coding sources moved out) | 20.0 | 400 | 225 | 17 |
+| agentic-coding (see "Agentic coding sources"; text is the upper estimate) | 26.0 | 1,654 | 920 | 70 |
 | open | 36.1 | 190 | 128 | 9 |
 | v13 | 15.9 | 471 | 240 | 18 |
 | agentic-gated | 10.5 | 24 | 16 | 1 |
-| all | 82.5 | 1,084 | 610 | 45 |
+| all (the rows above except agentic-coding, as first measured) | 82.5 | 1,084 | 610 | 45 |
 
 So the current configs need about 45 sandbox-hours of ingest work in total (the "all" row
 counts a source once even when two configs use it), which 16 sandboxes do in under three
@@ -1115,8 +1578,9 @@ every ingest sandbox is billed while it waits. For `prepare-full-agentic` (16 sa
 about 20 million rows) that is roughly 16 x 2 = 32 idle sandbox-hours on top of 17 of work.
 Run a second manifest's ingest while the first reconciles to use that time.
 
-Run files exist for `sources.agentic.json` (16 sandboxes, 448 shards) and `sources.open.json`
-(8 sandboxes, 224 shards). The v13 and gated manifests list sources that need an accepted
+Run files exist for `sources.agentic.json` (16 sandboxes, 448 shards), `sources.open.json`
+(8 sandboxes, 224 shards) and `sources.agentic-coding.json` (20 sandboxes, 280 shards; the
+agentic row above still counts the coding sources that moved out of it). The v13 and gated manifests list sources that need an accepted
 click-through on the Hub: build their listings with a token that has access
 (`scripts/shard_sources.py ... --listing`), then copy a run file.
 
@@ -2349,9 +2813,9 @@ original half, its YODAS half coming from an ungated mirror.
 The first agentic manifest (`sources.agentic.json`, above) leaves the chat, reasoning and
 tool-use streams far below what the stage plan asks for. This section adds a second sweep:
 417 further open sources and 23 sources that need a click on the Hub. Coverage of coding
-agents, terminal agents and code-execution traces is a separate piece of work; a few
-such sources that were added before that split are listed under "Coding sources kept" and are
-not extended here.
+agents, terminal agents and code-execution traces is a separate piece of work: 18 coding sources
+of this sweep moved to `sources.agentic-coding.json` ("Agentic coding sources" below), which
+leaves 399 here. The ones that stay are listed under "Coding sources kept".
 
 ### How the sweep was done
 
@@ -2371,7 +2835,7 @@ not extended here.
 5. Each source has a size estimate (rows, bytes divided by four as tokens) written in its
    `notes`, and a first-run row cap in `max_rows`.
 
-The manifests are `configs/data/sources.agentic-more.json` (417 sources over 250 repositories)
+The manifests are `configs/data/sources.agentic-more.json` (399 sources over 238 repositories after the coding sources moved out)
 and `configs/data/sources.agentic-more-gated.json` (23 sources over 9 repositories). Source ids
 do not clash with any earlier manifest. The cloud job that prepares the open manifest is
 `configs/cloud/prepare-agentic-more.json`.
@@ -2795,7 +3259,7 @@ Per-stream source tables, generated from the manifest:
 | `smoltalk2-tulu-3-sft-personas-instruction-following-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | odc-by-1.0 | 3,000 | 14M |
 | `hermes-json-mode` | `interstellarninja/hermes-function-calling-v1` | apache-2.0 | 8,000 | 2.0M |
 
-#### tool_use (open, 23 sources, 7.2B)
+#### tool_use (open, 22 sources, 7.1B)
 
 | Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
 | --- | --- | --- | --- | --- |
@@ -2806,7 +3270,6 @@ Per-stream source tables, generated from the manifest:
 | `smoltalk2-hermes-function-calling-v1-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | apache-2.0 | 3,000 | 11M |
 | `smoltalk2-xlam-traces-no-think` | `HuggingFaceTB/smoltalk2` (SFT) | cc-by-4.0 | 3,000 | 29M |
 | `ultradata-agent-tool-use` | `openbmb/UltraData-SFT-Agent-2609` (Tool-Use) | apache-2.0 | 3,000 | 170M |
-| `swe-qa-pro-sft` | `TIGER-Lab/SWE-QA-Pro-SFT-Trajectories` | mit | 1,000 | 16M |
 | `synth-apigen-v0.1` | `argilla/Synth-APIGen-v0.1` | apache-2.0 | 14,000 | 8.0M |
 | `synth-apigen-qwen-exec` | `plaguss/synth-apigen-qwen-exec` | not stated on the card | 15,000 | 3.0M |
 | `synth-apigen-llama-exec` | `plaguss/synth-apigen-llama-exec` | not stated on the card | 9,500 | 7.0M |
@@ -2843,40 +3306,24 @@ Per-stream source tables, generated from the manifest:
 | `agent-eto-scienceworld` | `agent-eto/eto-sft-trajectory` | apache-2.0 | 1,482 | 3.5M |
 | `agent-eto-alfworld` | `agent-eto/eto-sft-trajectory` | apache-2.0 | 3,118 | 4.5M |
 
-#### executed_trajectories (open, 20 sources, 27.6B)
+#### executed_trajectories (open, 6 sources, 18.6B)
 
 | Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
 | --- | --- | --- | --- | --- |
 | `arc-agi-large-reasoning-tools` | `nvidia/Nemotron-SFT-ARC-AGI-v1` (large_reasoning_and_tools) | cc-by-4.0 | 1,000 | 1.0B |
 | `ultradata-agent-search` | `openbmb/UltraData-SFT-Agent-2609` (Search-Agent) | apache-2.0 | 2,000 | 390M |
-| `ultradata-agent-code` | `openbmb/UltraData-SFT-Agent-2609` (Code-Agent) | apache-2.0 | 1,000 | 3.7B |
 | `ultradata-agent-general` | `openbmb/UltraData-SFT-Agent-2609` (General-Agent) | apache-2.0 | 1,000 | 8.5B |
-| `swe-next-sft` | `TIGER-Lab/SWE-Next-SFT-Trajectories` | mit | 2,000 | 50M |
 | `scale-swe-distilled` | `AweAI-Team/Scale-SWE-Distilled` | cc-by-4.0 | 2,000 | 3.5B |
-| `terminaltraj-20k` | `m-a-p/TerminalTraj` | not stated on the card | 2,000 | 135M |
-| `sera-lite-t2-glm46` | `allenai/Sera-4.6-Lite-T2` | odc-by | 1,500 | 1.1B |
-| `tmax-sft-qwen36-success` | `allenai/tmax-sft` (skill_tax_20260505_2.2k_combined_balanced_thinking_only_success) | odc-by | 3,000 | 19M |
-| `otagent-sft-100k` | `open-thoughts/OpenThoughts-Agent-SFT-100K` | apache-2.0 | 4,000 | 910M |
-| `otagent-sft-coldstart-9k` | `open-thoughts/OpenThoughts-Agent-SFT-ColdStartForRL-10K` | apache-2.0 | 4,000 | 187M |
-| `terminal-lego-traj-8k-4teachers` | `Lego-X/Terminal-Lego-Traj-8k` | none stated | 3,000 | 210M |
-| `tmax-sft-big-ntc-adapters` | `allenai/tmax-sft-big` | odc-by | 3,000 | 1.0B |
 | `toolmind-web-trajectories` | `Nanbeige/ToolMind-Web-QA` | apache-2.0 | 500 | 390M |
-| `adp-openhands-feedback` | `neulab/agent-data-collection` | mit | 200 | 4.0M |
-| `adp-swe-play` | `neulab/agent-data-collection` | see swe-play-trajectories/LICENSE  | 500 | 35M |
-| `adp-mini-coder` | `neulab/agent-data-collection` | see mini-coder/LICENSE in the repo | 1,000 | 1.0B |
 | `adp2-openresearcher` | `neulab/adp-v2` | mit | 800 | 4.8B |
-| `adp2-swe-chat` | `neulab/adp-v2` | odc-by | 500 | 550M |
-| `jupyter-agent-thinking` | `jupyter-agent/jupyter-agent-dataset` | apache-2.0 | 2,600 | 115M |
 
-#### verified_trajectories (open, 3 sources, 2.2B)
+#### verified_trajectories (open, 1 sources, 231M)
 
 | Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
 | --- | --- | --- | --- | --- |
-| `scale-swe-v4pro-41k` | `AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k` | cc-by-4.0 | 2,000 | 1.5B |
-| `denovoswe-filtered` | `AweAI-Team/DeNovoSWE-Trajectory-Filtered` | cc-by-4.0 | 4,500 | 500M |
 | `swe-lego-real-resolved` | `PrimeIntellect/SWE-Lego-Real-Data-Verified` | apache-2.0 | 500 | 231M |
 
-#### synthetic_code_dialogue (open, 28 sources, 22.6B)
+#### synthetic_code_dialogue (open, 27 sources, 22.4B)
 
 | Source id | Dataset | Licence on the card | First-run cap (rows) | Unique tokens |
 | --- | --- | --- | --- | --- |
@@ -2904,24 +3351,20 @@ Per-stream source tables, generated from the manifest:
 | `code-react-ui-instructions` | `cfahlgren1/react-code-instructions` | mit | 8,000 | 100M |
 | `code-nextcoder-edits` | `microsoft/NextCoderDataset` | mit | 8,000 | 650M |
 | `code-kodcode-sft-4o` | `KodCode/KodCode-V1-SFT-4o` (default) | cc-by-nc-4.0 | 8,000 | 180M |
-| `code-datascience-instruct-analysis` | `RUC-DataLab/DataScience-Instruct-500K` | mit | 3,000 | 130M |
 | `nemotron-sft-competitive-programming-v2-exercism` | `nvidia/Nemotron-SFT-Competitive-Programming-v2` (default) | cc-by-4.0 | 3,000 | 172M |
 | `opencodegeneticinstruct-mixtral` | `nvidia/OpenCodeGeneticInstruct` (mixtral-8x22b-instruct) | cc-by-4.0 | 3,000 | 8.6B |
 | `opencodegeneticinstruct-qwen25` | `nvidia/OpenCodeGeneticInstruct` (qwen2.5-32b-instruct) | cc-by-4.0 | 3,000 | 6.2B |
 
 ### Coding sources kept
 
-These sources are coding-agent, terminal-agent or code-execution data, added before that
-work moved to its own owner. They stay in the manifest but are not extended here:
-`swe-next-sft`, `swe-qa-pro-sft`, `scale-swe-v4pro-41k`, `denovoswe-filtered`,
-`scale-swe-distilled`, `sera-lite-t2-glm46`, `tmax-sft-qwen36-success`,
-`tmax-sft-big-ntc-adapters`, `otagent-sft-100k`, `otagent-sft-coldstart-9k` (both partly overlap
-AgentTrove), `swe-lego-real-resolved`, `terminal-lego-traj-8k-4teachers`, `terminaltraj-20k`,
-`adp-swe-play`, `adp-mini-coder`, `adp-openhands-feedback`, `adp2-swe-chat`,
-`jupyter-agent-thinking`, `code-code-feedback`, `code-datascience-instruct-analysis`,
-`math-numinamath-tir`, `ultradata-agent-code`, `ultradata-agent-general`,
-`ultradata-agent-search`, and the 28 code-instruction sources in `synthetic_code_dialogue`.
-`davinci-dev-env-native` and `openswe-trajectories` were looked at and left to that work.
+These sources are code data that stays in this manifest: the 28 code-instruction sources in
+`synthetic_code_dialogue`, `code-code-feedback`, `scale-swe-distilled` and `swe-lego-real-resolved`
+(the later-stage manifest reads both for its own streams), `math-numinamath-tir`, and UltraData's
+`ultradata-agent-general` and `ultradata-agent-search`. The coding-agent, terminal-agent and
+code-execution sources of this sweep, and `davinci-dev-env-native`, moved to
+`sources.agentic-coding.json`; `adp2-swe-chat` was dropped there in favour of the raw SWE-chat
+sessions it was made from. `openswe-trajectories` is listed in
+`sources.agentic-coding-gated.json`.
 
 ### Sources that need a click on the Hub
 

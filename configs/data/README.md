@@ -60,7 +60,15 @@ source needs a token that has accepted its terms). The runs that use them are
 (`python -m megatoken.cloud_prepare plan|launch`); see "Preparing at full volume" in
 [`docs/data.md`](../../docs/data.md).
 
-`sources.agentic-more.json` (417 more chat, reasoning, tool-use and agent sources) and
+`sources.agentic-coding.json` holds the agentic coding data (software-engineering, terminal,
+code-execution and coding-assistant session logs) with no row caps, and
+`sources.agentic-coding-gated.json` the coding sets that need a click on the Hub.
+`files.agentic-coding.json` is its file listing and `configs/cloud/prepare-full-agentic-coding.json`
+the full-volume run (20 sandboxes, 280 shards; `prepare-agentic-coding-mix.json` is its capped smoke run). These sources moved out of `sources.agentic.json`
+and `sources.agentic-more.json`, so no source is read by two manifests. See "Agentic coding
+sources" in [`docs/data.md`](../../docs/data.md).
+
+`sources.agentic-more.json` (399 more chat, reasoning, tool-use and agent sources) and
 `sources.agentic-more-gated.json` (23 that need a click on the Hub) come from a second sweep
 of public sets. The cloud job `configs/cloud/prepare-agentic-more.json` prepares the first,
 scaled with `AGENTIC_MORE_ROW_SCALE`. See "More chat, reasoning and agent data" in

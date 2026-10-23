@@ -433,7 +433,7 @@ coverage, and ambiguous chat ownership are quarantined automatically.
 | Unclosed fence/literal/markup or unmatched delimiter | Accept incomplete content |
 | `low_syntax_coverage` | Queue for repair; ERROR regions cover at least 60% of source bytes |
 | Native worker failure, invalid evidence/injection, ICU failure | Queue for repair |
-| Any `*_budget` or `*_budget_exhausted` diagnostic | Queue for repair |
+| Any `*_budget` or `*_budget_exhausted` diagnostic | Queue for repair (`depth_budget_exhausted` only while `review_depth_limit` is true; `parser-review.agentic.json` sets it false, because shell inside JSON inside quoted terminal screens runs past the recursion limit and stays one flat region) |
 | Ambiguous or unrecognized chat ownership | Queue for repair |
 
 The review policy is separate from segmentation and source quality. It supports
