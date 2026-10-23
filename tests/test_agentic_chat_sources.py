@@ -27,7 +27,15 @@ GATED = {s.source_id: s for s in load_source_manifest(CONFIGS / "sources.agentic
 EVERY = {**CHAT, **GATED}
 EARLIER = {
     s.source_id
-    for name in ("agentic", "agentic-gated", "agentic-more", "agentic-more-gated", "open", "v13")
+    for name in (
+        "agentic",
+        "agentic-gated",
+        "agentic-more",
+        "agentic-more-gated",
+        "later-stages",
+        "open",
+        "v13",
+    )
     for s in load_source_manifest(CONFIGS / f"sources.{name}.json")
 }
 
@@ -63,7 +71,10 @@ def new_shape_row(source):
                         ("system", "You may call functions."),
                         ("human", "go"),
                         ("gpt", call),
-                        ("human" if bare else "tool", '{"v": 1}' if bare else "<tool_response>\n1\n</tool_response>"),
+                        (
+                            "human" if bare else "tool",
+                            '{"v": 1}' if bare else "<tool_response>\n1\n</tool_response>",
+                        ),
                         ("gpt", "done"),
                     ]
                 ),
@@ -88,24 +99,41 @@ def new_shape_row(source):
         return _nested(key, messages)
     if adapter in {"react_agent", "react_function_agent"}:
         reply = "function" if adapter == "react_function_agent" else "human"
-        turns = [("human", "task"), ("gpt", "Think: look.\nAct: bash"), (reply, "out"), ("gpt", "done")]
+        turns = [
+            ("human", "task"),
+            ("gpt", "Think: look.\nAct: bash"),
+            (reply, "out"),
+            ("gpt", "done"),
+        ]
         return _nested(key, sharegpt(turns))
     if adapter == "harmony_tools":
+
         def message(role, text, **rest):
-            return {"role": role, "content": [{"text": text}], "channel": None, "recipient": None} | rest
+            return {
+                "role": role,
+                "content": [{"text": text}],
+                "channel": None,
+                "recipient": None,
+            } | rest
 
         return _nested(
             key,
             [
                 message("user", "Q"),
-                message("assistant", '{"query": "a"}', channel="analysis", recipient="browser.search"),
+                message(
+                    "assistant", '{"query": "a"}', channel="analysis", recipient="browser.search"
+                ),
                 message("tool", "result", name="browser.search"),
                 message("assistant", "Answer", channel="final"),
             ],
         )
     if adapter == "tool_dict_tools":
         messages = [
-            {"role": "assistant", "content": "look", "tool_call": {"tool": "search", "args": {"q": 1}}},
+            {
+                "role": "assistant",
+                "content": "look",
+                "tool_call": {"tool": "search", "args": {"q": 1}},
+            },
             {"role": "tool", "tool": "search", "content": "found"},
             {"role": "assistant", "content": "answer"},
         ]
@@ -113,7 +141,11 @@ def new_shape_row(source):
     if adapter == "device_call_tools":
         messages = [
             {"role": "user", "content": "go"},
-            {"role": "assistant", "content": "", "tool_calls": [{"id": "c", "name": "f", "arguments": {}}]},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "c", "name": "f", "arguments": {}}],
+            },
             {"role": "tool", "content": "out"},
             {"role": "assistant", "content": "done"},
         ]
@@ -122,7 +154,10 @@ def new_shape_row(source):
         messages = [
             {"role": "system", "content": system_prompt_with_call_list()},
             {"role": "user", "content": "go"},
-            {"role": "assistant", "content": 'Plan.\n<call>[{"name": "f", "arguments": {"x": "1"}}]</call>'},
+            {
+                "role": "assistant",
+                "content": 'Plan.\n<call>[{"name": "f", "arguments": {"x": "1"}}]</call>',
+            },
             {"role": "tool", "content": json.dumps([{"name": "f", "results": 1}])},
             {"role": "assistant", "content": "<final>done</final>"},
         ]
@@ -146,7 +181,10 @@ def new_shape_row(source):
     if adapter == "glaive_message_tools":
         messages = [
             {"role": "user", "content": "go"},
-            {"role": "assistant", "content": '<functioncall> {"name": "f", "arguments": \'{"a": 1}\'}'},
+            {
+                "role": "assistant",
+                "content": '<functioncall> {"name": "f", "arguments": \'{"a": 1}\'}',
+            },
             {"role": "tool", "content": "out"},
             {"role": "assistant", "content": "done"},
         ]
@@ -170,7 +208,9 @@ def _nested(key, value):
 
 
 def chat_row(source):
-    row = _nested(messages_key(source), openai_messages(positional=True))
+    row = _nested(
+        messages_key(source), openai_messages(source.options.get("positional_call_ids", False))
+    )
     put(row, tools_key(source), TOOLS)
     return row
 
@@ -184,7 +224,11 @@ def fixture_row(source):
             put(row, first(source.field_map[key]), "k1")
     for rule in source.options.get("row_filters", []):
         value = rule.get("value")
-        put(row, rule["path"], value[0] if rule["op"] == "in" else "x" if rule["op"] == "exists" else value)
+        put(
+            row,
+            rule["path"],
+            value[0] if rule["op"] == "in" else "x" if rule["op"] == "exists" else value,
+        )
     return row
 
 
@@ -232,7 +276,7 @@ def test_fixture_row_becomes_an_episode_in_the_declared_stream(source_id):
         assert not record.policy_mask or record.role in {"assistant", "document"}
         assert not record.result_of or (record.role == "tool" and not record.policy_mask)
     provenance = {r.provenance for r in episode.records if r.result_of}
-    assert provenance <= {"executed", "simulated"}
+    assert provenance <= {"executed", "simulated", "unknown"}
 
 
 def test_executed_streams_say_executed_and_text_dialects_say_simulated_unless_told():

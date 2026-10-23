@@ -483,6 +483,20 @@
    18586007
   ]
  ],
+ "aman-rlvr": [
+  [
+   "hf://datasets/AmanPriyanshu/tool-reasoning-sft-RESEARCH-rlvr-env-retrieval-source@e6f949fd0081e727942acc01da27eb0a697eba75/nvdocs.parquet",
+   400415172
+  ],
+  [
+   "hf://datasets/AmanPriyanshu/tool-reasoning-sft-RESEARCH-rlvr-env-retrieval-source@e6f949fd0081e727942acc01da27eb0a697eba75/search-js.parquet",
+   284838128
+  ],
+  [
+   "hf://datasets/AmanPriyanshu/tool-reasoning-sft-RESEARCH-rlvr-env-retrieval-source@e6f949fd0081e727942acc01da27eb0a697eba75/search-py.parquet",
+   216761559
+  ]
+ ],
  "amap-mcp-tc130": [
   [
    "hf://datasets/TC130/amap_mcp@8cdc2547e48d21972a701b70b6655dc6c3c91e86/amap_answer_full.jsonl",
@@ -915,6 +929,12 @@
    398816
   ]
  ],
+ "dp-ja": [
+  [
+   "hf://datasets/DataPilot/Function-Calling-Japanese-Dataset@34e5d18e5c186de075b622a3b0ffc6ba03f8ed73/cleaned_function_calling_ja.jsonl",
+   20840932
+  ]
+ ],
  "ds4-agentic-dialogue-planning": [
   [
    "hf://datasets/r0b0tlab/deepseek-v4-pro-0813-agentic@2f075a280078b485be3e07b7fbf1413b88f6411a/sft_openai/train-00000-of-00001.parquet",
@@ -951,6 +971,12 @@
    8122700
   ]
  ],
+ "giux78-ita": [
+  [
+   "hf://datasets/giux78/functioncalling-ita@201ed4c0dc33bfadc925cd1e5d9cdb1812fb9414/data/train-00000-of-00001.parquet",
+   89302942
+  ]
+ ],
  "glaive-v2-ja-nappa": [
   [
    "hf://datasets/nappa0326/glaive-function-calling-v2-sharegpt-japanese@11cc062a79694b743b9dfe94a0c580b245c69a36/data/train-00000-of-00002-6f3344faa23e9b0a_translated.parquet",
@@ -975,6 +1001,12 @@
   [
    "hf://datasets/korotkov/glaive-function-calling-v2-ru-parsed@88aa76a43b99e237e95283526e794016862826d4/glaive-function-calling-v2-parsed-ru-test.json",
    100805998
+  ]
+ ],
+ "heegyu-glaive-ko": [
+  [
+   "hf://datasets/heegyu/glaive-function-calling-v2-ko@c8b54e70bfbdd2fd6be037557e6feaf1abf14f5d/train.json",
+   62466071
   ]
  ],
  "hermes-agent-traces-glm": [
@@ -1271,6 +1303,28 @@
    6168992995
   ]
  ],
+ "oddadmix-ar": [
+  [
+   "hf://datasets/oddadmix/tool-calling-ar-augmented@e5dc81bb182f277a4805c9838f58238a507efc52/data/train-00000-of-00005.parquet",
+   113014417
+  ],
+  [
+   "hf://datasets/oddadmix/tool-calling-ar-augmented@e5dc81bb182f277a4805c9838f58238a507efc52/data/train-00001-of-00005.parquet",
+   111707888
+  ],
+  [
+   "hf://datasets/oddadmix/tool-calling-ar-augmented@e5dc81bb182f277a4805c9838f58238a507efc52/data/train-00002-of-00005.parquet",
+   112200137
+  ],
+  [
+   "hf://datasets/oddadmix/tool-calling-ar-augmented@e5dc81bb182f277a4805c9838f58238a507efc52/data/train-00003-of-00005.parquet",
+   112215712
+  ],
+  [
+   "hf://datasets/oddadmix/tool-calling-ar-augmented@e5dc81bb182f277a4805c9838f58238a507efc52/data/train-00004-of-00005.parquet",
+   112224768
+  ]
+ ],
  "openresearcher": [
   [
    "hf://datasets/OpenResearcher/OpenResearcher-Dataset@1edca18c5d7c9c105762da4f3c5c2b83855b3c6e/seed_42/train-00000-of-00003.parquet",
@@ -1497,6 +1551,12 @@
   [
    "hf://datasets/rl-rag/webshaper-gpt-oss-120b-260222@0fb8834225273a72b2d73bb2c6317176ea123c7e/data/train-00000-of-00001.parquet",
    125728195
+  ]
+ ],
+ "rlrag2-oss-high-drtulu-v5": [
+  [
+   "hf://datasets/rl-rag-2/oss-high-drtulu-v5-0422-8rollouts@094a65ed6d7699a47742f20ef0e36386557205ff/trajectories.jsonl",
+   6406693438
   ]
  ],
  "s1-deepresearch-15k": [
@@ -1779,6 +1839,18 @@
    7286402
   ]
  ],
+ "tau2-airline-code-agents": [
+  [
+   "hf://datasets/snorkelai/Tau2-Bench-Airline-With-Code-Agents@81702cbf1e8161c8cfac732578898a73e23813fe/data/train-00000-of-00001.parquet",
+   4452463
+  ]
+ ],
+ "tau2-airline-verified-code-agents": [
+  [
+   "hf://datasets/snorkelai/Tau2-Bench-Verified-Airline-With-Code-Agents@23e3afcdd9492e9e6cc240c124be07665a8d211b/data/train-00000-of-00001.parquet",
+   6511475
+  ]
+ ],
  "tau2-bench-trajectories": [
   [
    "hf://datasets/AgentSuite/tau2-bench-trajectories@07264f1d253a618fc20966670eddc44246212916/DeepSeek-R1-0528.jsonl",
@@ -1965,6 +2037,20 @@
   [
    "hf://datasets/twinkle-ai/tw-function-call-reasoning-10k@53910fd73cb6695a0990ee8c79cc29ea6f3b0a84/data/train-00000-of-00001.parquet",
    24870378
+  ]
+ ],
+ "vi-locutusque": [
+  [
+   "hf://datasets/5CD-AI/Vietnamese-Locutusque-function-calling-chatml-gg-translated@20cd9fdbb266809cdbf7bac5b947de7db28a6f32/train_json_function_trans_vi.parquet",
+   236199018
+  ],
+  [
+   "hf://datasets/5CD-AI/Vietnamese-Locutusque-function-calling-chatml-gg-translated@20cd9fdbb266809cdbf7bac5b947de7db28a6f32/train_vi.parquet",
+   71329878
+  ],
+  [
+   "hf://datasets/5CD-AI/Vietnamese-Locutusque-function-calling-chatml-gg-translated@20cd9fdbb266809cdbf7bac5b947de7db28a6f32/train_vi_full.parquet",
+   226744107
   ]
  ],
  "zai-deepdive-trajectories": [
