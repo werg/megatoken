@@ -148,6 +148,7 @@ class TrainConfig:
     use_stage_mixture: bool = False
     use_effort_mixture: bool = False
     engram_import: str | None = None
+    engram_imports: list[str] | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.decoupled, dict):
@@ -161,6 +162,14 @@ class TrainConfig:
             )
         if self.inner_optimizer not in {"adamw", "muon"}:
             raise ValueError("inner_optimizer must be adamw or muon")
+        if self.engram_import is not None and self.engram_imports:
+            raise ValueError("Use engram_import for one asset or engram_imports for several")
+        if self.engram_imports is not None and (
+            not isinstance(self.engram_imports, list)
+            or not self.engram_imports
+            or not all(isinstance(path, str) and path for path in self.engram_imports)
+        ):
+            raise ValueError("engram_imports must be a nonempty ordered list of asset paths")
         if self.phase not in PHASES:
             raise ValueError(f"phase must be one of {tuple(PHASES)}")
         if self.precision not in {"bf16", "fp32"}:
@@ -234,19 +243,20 @@ class TrainConfig:
         return "bootstrap" if self.phase == "B0" else "recurrent"
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> TrainConfig:
+    def from_dict(cls, value: dict[str, Any], *, expand_data: bool = True) -> TrainConfig:
         unknown = set(value) - {f.name for f in fields(cls)}
         if unknown:
             raise ValueError(f"Unknown training settings: {sorted(unknown)}")
         merged = dict(value)
-        if "datasets" in merged:
+        if expand_data and "datasets" in merged:
             merged["datasets"] = expand_datasets(merged["datasets"])
         if "loss_weights" in merged:
             merged["loss_weights"] = {**DEFAULT_LOSS_WEIGHTS, **merged["loss_weights"]}
         return cls(**merged)
 
     @classmethod
-    def load(cls, path: str | Path, **overrides: Any) -> TrainConfig:
+    def load(cls, path: str | Path, *, expand_data: bool = True, **overrides: Any) -> TrainConfig:
         return cls.from_dict(
-            {**read_mapping(path), **{k: v for k, v in overrides.items() if v is not None}}
+            {**read_mapping(path), **{k: v for k, v in overrides.items() if v is not None}},
+            expand_data=expand_data,
         )

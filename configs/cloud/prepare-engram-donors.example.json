@@ -1,0 +1,18 @@
+{
+  "schema": "megatoken.cloud-job/1",
+  "id": "prepare-engram-donors",
+  "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+  "resources": {"cpu": "16", "memory": "64Gi", "gpu": 0},
+  "lifetime_hours": 6,
+  "pip": ["huggingface-hub>=1,<2", "tokenizers>=0.21,<1", "safetensors>=0.5,<1", "pyarrow>=18,<24", "cryptography>=43,<51", "zstandard>=0.23,<1"],
+  "inputs": [],
+  "outputs": ["out/engram"],
+  "command": [
+    "python", "-m", "megatoken.engram_prepare",
+    "--pin", "/work/in/data-pin.json",
+    "--output", "/work/out/engram",
+    "--model", "32x512",
+    "--max-contexts", "65536",
+    "--seed", "17"
+  ]
+}

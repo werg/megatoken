@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from megatoken.data import DedupConfig, DedupStore, Episode, Lineage, PhysicalRecord
+from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.media_assets import TensorAssetStore
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec
 from megatoken.data.storage import export_prepared
@@ -79,7 +80,13 @@ def make_episode(index: int, *, turns: int = 1) -> Episode:
     )
 
 
-def prepare_dataset(root: Path, episodes: list[Episode], *, heldout: bool = False) -> Path:
+def prepare_dataset(
+    root: Path,
+    episodes: list[Episode],
+    *,
+    heldout: bool = False,
+    chunking: ChunkingConfig | None = None,
+) -> Path:
     """Prepared byte-codec episodes, entirely in the train or the validation split."""
     codec = ByteCodec.byte_fallback()
     store = DedupStore(
@@ -97,17 +104,24 @@ def prepare_dataset(root: Path, episodes: list[Episode], *, heldout: bool = Fals
             codec=codec,
             source_receipts=[],
             pipeline_fingerprint="training-e2e-v1",
+            chunking=chunking,
         )
     finally:
         store.close()
     return root / "data"
 
 
-def tiny_train_config(root: Path, *, episodes: int = 4, **overrides) -> TrainConfig:
+def tiny_train_config(
+    root: Path,
+    *,
+    episodes: int = 4,
+    prepared_chunking: ChunkingConfig | None = None,
+    **overrides,
+) -> TrainConfig:
     """A valid tiny CPU TrainConfig; ``root`` receives the prepared data and the run."""
     root = Path(root)
     items = [make_episode(i) for i in range(episodes)]
-    dataset = prepare_dataset(root, items)
+    dataset = prepare_dataset(root, items, chunking=prepared_chunking)
     values = dict(
         phase="B0",
         datasets=[str(dataset)],

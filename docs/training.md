@@ -445,26 +445,35 @@ cursor state. It does not promise bitwise equality across different CUDA builds,
 precision, or world sizes. Raw taped FP32 facet coordinates are preserved exactly;
 derived floating-point context and density comparisons use explicit numerical tolerances.
 
-## Optional native-table import and bake
+## Donor memory imports and bake
 
-Cold start needs no external weights. For an explicitly selected local donor embedding,
-the offline extractor aggregates fixed 128D projected descriptors for exact native byte
-keys. It reads tensors in chunks and records the seed, donor/tensor/codec hashes, coverage,
-and support. Support counts distinct vocabulary tokens, not inferred corpus frequency.
-Only exact unigrams/bigrams receive imports; longer orders remain native hashed features.
+Cold start needs no external weights. The ordinary input-token embedding is an optional
+baseline: it maps donor token vectors to exact byte unigram/bigram rows. For either pinned
+baseline profile, run the extraction where the full indexed donor shard is already stored;
+the extractor verifies its repository revision and shard checksum. This baseline does not
+import DeepSeek Engram or Qwen PLE memory.
 
 ```bash
-megatoken engram extract --embedding-file /path/to/selected-embeddings.safetensors \
-  --tensor-name model.embed_tokens.weight --donor-codec /path/to/raw-donor-tokenizer.json \
-  --output artifacts/engram --model 32x512
-megatoken engram bake --checkpoint runs/p1/checkpoints \
-  --codec artifacts/codec --output runs/baked
+megatoken engram extract --donor-profile deepseek-v4.1-flash-1017 \
+  --donor-root /path/to/pinned-donor-snapshot --output artifacts/deepseek-baseline
+megatoken engram extract --donor-profile qwen3.8-flash-next \
+  --donor-root /path/to/pinned-donor-snapshot --output artifacts/qwen-baseline
 ```
 
-Set `engram_import` for the initial run. The temporary map is installed or restored before
-optimizer owner enumeration. Baking folds its contribution into the native table, rebases
-only affected FP32 masters, clears affected row moments, and removes temporary owners.
-Export requires a completed bake. No donor model runs during training or serving.
+The required production import uses the native hashed context tables from both donors.
+The cloud preparation recipe selects real text contexts from a verified prepared corpus,
+reads only the addressed donor rows by HTTP range, and writes one independent asset map per
+donor. Use [the DiLoCo preparation workflow](diloco-coreweave.md#run-a-phase) and its
+[training example](../configs/train/diloco-engram-import.example.yaml). The source row IDs
+are never copied into Megatoken's byte hash space; each donor is hashed and projected with
+its own reference mapping.
+
+Set `engram_import` for one map or ordered `engram_imports` for multiple independent maps.
+Temporary maps are installed or restored before optimizer owner enumeration. Baking folds
+the imported contributions into the native table, rebases affected FP32 masters, clears
+affected row moments, and removes temporary owners. DiLoCo exports must be baked before
+creating a served bundle or using the export as the next phase seed. No donor model runs
+during training or serving.
 
 ## Outcome RL
 

@@ -501,6 +501,7 @@ def store(
     only: Sequence[str] | None = None,
     piece_bytes: int = PIECE_BYTES,
     segment: int = SEGMENT_BYTES,
+    metadata: Mapping[str, Any] | None = None,
     workers: int = 4,
     log: Callable[[str], None] = print,
 ) -> dict[str, Any]:
@@ -598,6 +599,8 @@ def store(
         ],
         "pieces": sealed,
     }
+    if metadata is not None:
+        manifest["metadata"] = metadata
     body = canonical_json(manifest)
     body += b" " * (-len(body) % MANIFEST_GRAIN)
     manifest_name = manifest_file(keys, run, part)

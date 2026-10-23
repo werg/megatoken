@@ -82,6 +82,37 @@ def training_identity(config: Any) -> str:
         "text_anchor_weight",
     )
     identity: dict[str, Any] = {name: getattr(config, name) for name in fields}
+    import json
+    from pathlib import Path
+
+    assets = (
+        [config.engram_import]
+        if getattr(config, "engram_import", None)
+        else list(getattr(config, "engram_imports", None) or [])
+    )
+    identity["engram_import_assets"] = [
+        {
+            key: json.loads((Path(path) / "engram.json").read_text()).get(key)
+            for key in (
+                "algorithm",
+                "descriptor_sha256",
+                "donor_sha256",
+                "donor_codec_fingerprint",
+                "donor_tensor",
+                "donor_shape",
+                "donor_profile",
+                "donor_metadata",
+                "donor_license_sha256",
+                "donor_native_memory",
+                "donor_native_mapping_sha256",
+                "native_table_shards",
+                "corpus_fingerprint",
+                "max_contexts",
+                "seed",
+            )
+        }
+        for path in assets
+    ]
     # Pinned inputs are identified by content, not by per-sandbox paths.
     from megatoken.io import sha256_file
 

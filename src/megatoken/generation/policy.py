@@ -596,7 +596,7 @@ class FacetedGenerator(nn.Module):
 
         The hindsight head only trains the bank's values and is not served.
         """
-        if self.core.frontend.ngrams.import_map is not None:
+        if self.core.frontend.ngrams.has_import:
             raise RuntimeError("bake the engram adapter before served export")
         return {
             name: value

@@ -90,6 +90,30 @@ file (`megatoken.cloud-diloco/1`, JSON):
 }
 ```
 
+The checked-in import example selects native context tables from both
+DeepSeek-V4.1-Flash-1017 and Qwen3.8-Flash-Next. Prepare their small training assets in a
+cloud CPU sandbox with the pinned data receipt, for example by running
+`python -m megatoken.engram_prepare --pin /work/in/data-pin.json --output
+/work/out/engram --work /work/engram-preparation --model 32x512 --max-contexts 65536
+--seed 17`. This downloads only the pinned tokenizer, model configuration, tensor index
+and license files. It selects actual text contexts from the prepared training corpus and
+uses bounded HTTP byte ranges to query only the corresponding rows in each donor's
+large native table. The transfer is approximate because the two models hash token contexts
+while Megatoken hashes byte contexts; donor row numbers are never copied directly. The
+context limit and seed are recorded in each asset. Use
+[`configs/train/diloco-engram-import.example.yaml`](../configs/train/diloco-engram-import.example.yaml)
+The output contains one directory per donor, including a copy of its license. Collect
+only those small descriptor files, then deliver each directory's `engram.json`,
+`descriptors.npz` and `DONOR-LICENSE` to both coordinator and learners using verified
+`assets.inputs` entries. Set the example's two `engram_imports` paths to those sandbox
+locations. Deliver the matching media pack lock and referenced assets under
+`/work/assets/packs/`, as the example requires for its media datasets. The donor table
+shards stay in cloud storage and are never copied to the workstation. The preparation
+report records the pinned dataset revision, model revisions, selected context count and
+range bytes read. After the phase, bake its DiLoCo export before creating a served bundle;
+baking keeps the global FP32 masters needed to seed the next phase while removing the
+temporary maps and all donor dependencies.
+
 - `config` is a normal `TrainConfig` file in the repo with a `decoupled` block.
   Its `coordinator_url` is filled in inside each sandbox
   (`python -m megatoken.cloud_diloco derive`), and `decoupled.workers` **must
@@ -183,7 +207,10 @@ HTTPS gateway is HTTP/2 and lowercases header names.
   an encrypted folder; see "Keeping the prepared data" in [data.md](data.md)). `launch` first
   checks that the stored copy still verifies and rebuilds it from the pinned sources if it does
   not; each learner then restores it, verified (and the encrypted part decrypted), into `/work/data/prepared` before training, so the training config's
-  `datasets` can say `/work/data/prepared/*`. The cache key and Hub token reach the learners
+  `datasets` can say `/work/data/prepared/*`. The coordinator gets only the verified compact
+  root identities and chunking policy from the pin, so it does not download the training corpus
+  to calculate them. Older pins without that summary remain readable, but cached DiLoCo launch
+  reports that the summary must be backfilled from verified prepared roots. The cache key and Hub token reach the learners
   as secrets (`--cache-key FILE`, `--hf-token FILE` on `launch`; defaults
   `~/.config/megatoken/cache.key` and `~/.cache/huggingface/token`).
 
