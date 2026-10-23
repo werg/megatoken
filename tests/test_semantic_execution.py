@@ -386,6 +386,7 @@ def test_wrong_external_request_codec_or_shape_is_rejected():
             adapt_semantic_execution(candidate, allow_local=True)
 
 
+
 def test_current_tracer_extensions_are_preserved_as_exact_native_records():
     """Accept bounded v2 extensions without promoting local candidates."""
     candidate = fixture()
@@ -398,40 +399,77 @@ def test_current_tracer_extensions_are_preserved_as_exact_native_records():
         fields.update(extra)
         row["record"] = line(kind or original_kind, fields)
 
-    rewrite(0, {
-        "staticRegExps": [
-            {"name": "pattern", "identity": "r1", "pattern": "a+", "flags": "g"}
-        ],
-        "randomSeed": 42,
-    })
-    rewrite(2, {"rest": {
-        "name": "values", "value": ["ref", "rest1"],
-        "allocation": {
-            "identity": "rest1", "kind": "array", "shapeVersion": 0,
-            "properties": [{"key": "length", "value": ["num", 0], "version": 0}],
+    rewrite(
+        0,
+        {
+            "staticRegExps": [{"name": "pattern", "identity": "r1", "pattern": "a+", "flags": "g"}],
+            "randomSeed": 42,
         },
-    }})
-    rewrite(3, {
-        "allocations": [{
-            "identity": "child1", "kind": "object", "shapeVersion": 0, "properties": [],
-        }],
-    }, kind="call")
-    rewrite(4, {
-        "copies": [
-            {"from": {"env": "env1", "key": "x", "version": 0},
-             "to": {"env": "env2", "key": "x", "version": 0}},
-            {"from": {"env": "env1", "key": "y", "version": 1},
-             "to": {"env": "env2", "key": "y", "version": 1}},
-        ],
-    }, kind="carry")
+    )
+    rewrite(
+        2,
+        {
+            "rest": {
+                "name": "values",
+                "value": ["ref", "rest1"],
+                "allocation": {
+                    "identity": "rest1",
+                    "kind": "array",
+                    "shapeVersion": 0,
+                    "properties": [{"key": "length", "value": ["num", 0], "version": 0}],
+                },
+            }
+        },
+    )
+    rewrite(
+        3,
+        {
+            "allocations": [
+                {
+                    "identity": "child1",
+                    "kind": "object",
+                    "shapeVersion": 0,
+                    "properties": [],
+                }
+            ],
+        },
+        kind="call",
+    )
+    rewrite(
+        4,
+        {
+            "copies": [
+                {
+                    "from": {"env": "env1", "key": "x", "version": 0},
+                    "to": {"env": "env2", "key": "x", "version": 0},
+                },
+                {
+                    "from": {"env": "env1", "key": "y", "version": 1},
+                    "to": {"env": "env2", "key": "y", "version": 1},
+                },
+            ],
+        },
+        kind="carry",
+    )
     body = json.loads(groups[4]["events"][0]["record"].split(" ", 1)[1])
     body.pop("test")
     body.pop("path")
     groups[4]["events"][0]["record"] = line("carry", body)
-    rewrite(5, {"writes": [{
-        "kind": "property", "object": "child1", "key": "x",
-        "present": True, "version": 1, "value": ["num", 4],
-    }]})
+    rewrite(
+        5,
+        {
+            "writes": [
+                {
+                    "kind": "property",
+                    "object": "child1",
+                    "key": "x",
+                    "present": True,
+                    "version": 1,
+                    "value": ["num", 4],
+                }
+            ]
+        },
+    )
     episode, receipt = adapt_semantic_execution(candidate, allow_local=True)
     expected = [g["events"][0]["record"].encode("utf-8") for g in groups]
     assert [record.payload for record in episode.records] == expected
@@ -446,10 +484,19 @@ def test_current_tracer_extensions_are_preserved_as_exact_native_records():
         (0, {"randomSeed": -1}, "code"),
         (0, {"randomSeed": True}, "code"),
         (0, {"staticRegExps": [{"pattern": "x", "leak": "oracle"}]}, "code"),
-        (2, {"rest": {"name": "values", "value": ["ref", "r1"],
-                     "oracle": "hidden"}}, "enter"),
-        (4, {"copies": [{"from": {"env": "a", "key": "x", "version": -1},
-                         "to": {"env": "b", "key": "x", "version": 0}}]}, "carry"),
+        (2, {"rest": {"name": "values", "value": ["ref", "r1"], "oracle": "hidden"}}, "enter"),
+        (
+            4,
+            {
+                "copies": [
+                    {
+                        "from": {"env": "a", "key": "x", "version": -1},
+                        "to": {"env": "b", "key": "x", "version": 0},
+                    }
+                ]
+            },
+            "carry",
+        ),
     ],
 )
 def test_current_tracer_extensions_fail_closed_when_malformed(index, fields, kind):
