@@ -148,6 +148,13 @@ class FacetedGenerator(nn.Module):
         if plan.mode not in {"bootstrap", "recurrent"}:
             raise ValueError("representation_mode must be bootstrap or recurrent")
 
+    def _prior_distribution(self, mean: Tensor):
+        """Run the Gaussian scale head under the same coarse P context as prediction."""
+        with self.core.expert_pools.routing_epoch_if_absent(
+            mean.mean(1), role="p", stage=self.config.prediction_layers
+        ):
+            return self.facet_distribution(mean)
+
     def _training_inputs(
         self,
         state,
@@ -167,7 +174,7 @@ class FacetedGenerator(nn.Module):
         self.core.routing_aux_loss(clear=True)
         # Predict from already processed history before inspecting any target.
         mean = self.core.predict_facets(state, control=control, effort=effort)
-        prior = self.facet_distribution(mean)
+        prior = self._prior_distribution(mean)
         sampled = prior.sample(generator)
         selected = (
             self.core.advance_raw(state, sampled, role_ids=roles)
@@ -449,7 +456,7 @@ class FacetedGenerator(nn.Module):
         roles = torch.tensor([role_id], device=state.device)
         control = encode_controls(self.core, [control_payload], encoder_grad=False)
         mean = self.core.predict_facets(state, control=control, effort=effort)
-        distribution = self.facet_distribution(mean)
+        distribution = self._prior_distribution(mean)
         raw = distribution.sample(generator)
         decoded = self.decode_facets(raw, spec=spec)
         next_state = self.core.advance_raw(state, raw, role_ids=roles)
@@ -512,7 +519,7 @@ class FacetedGenerator(nn.Module):
         roles = torch.tensor([tape.role_id], device=state.device)
         control = encode_controls(self.core, [tape.control_payload], encoder_grad=False)
         mean = self.core.predict_facets(state, control=control, effort=tape.effort)
-        distribution = self.facet_distribution(mean)
+        distribution = self._prior_distribution(mean)
         raw = torch.as_tensor(
             tape.facet_array().copy(), device=state.device, dtype=torch.float32
         ).reshape(1, *tape.facet_shape)
@@ -596,4 +603,3 @@ class FacetedGenerator(nn.Module):
             for name, value in self.state_dict().items()
             if not name.startswith(TRAINING_ONLY_PREFIX)
         }
-

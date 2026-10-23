@@ -59,7 +59,9 @@ def _adapter_delta(
     slots = flat_rows.shape[0] * count
     flat_slot = row_index * count + slot_index
     weighted_output = output * selected_weight[:, None].to(output.dtype)
-    scattered = output.new_zeros((slots, output.shape[-1])).index_copy(0, flat_slot, weighted_output)
+    scattered = output.new_zeros((slots, output.shape[-1])).index_copy(
+        0, flat_slot, weighted_output
+    )
     mixed = scattered.view(flat_rows.shape[0], count, -1).sum(1)
     return mixed.reshape(*rows.shape[:-1], output.shape[-1])
 
@@ -68,9 +70,15 @@ class _RouteAccounting(nn.Module):
     """Shared transparent dispatch counters for linear expert banks."""
 
     def _init_accounting(self, experts: int) -> None:
-        self.register_buffer("routed_rows", torch.zeros(experts, dtype=torch.long), persistent=False)
-        self.register_buffer("learning_rows", torch.zeros(experts, dtype=torch.long), persistent=False)
-        self.register_buffer("eligible_counts", torch.zeros(experts, dtype=torch.long), persistent=False)
+        self.register_buffer(
+            "routed_rows", torch.zeros(experts, dtype=torch.long), persistent=False
+        )
+        self.register_buffer(
+            "learning_rows", torch.zeros(experts, dtype=torch.long), persistent=False
+        )
+        self.register_buffer(
+            "eligible_counts", torch.zeros(experts, dtype=torch.long), persistent=False
+        )
         self.register_buffer("padded_rows", torch.zeros((), dtype=torch.long), persistent=False)
         self.register_buffer("dispatches", torch.zeros((), dtype=torch.long), persistent=False)
 
@@ -99,7 +107,13 @@ class _RouteAccounting(nn.Module):
     def metrics(self, *, reset: bool = False) -> dict[str, Tensor]:
         result = {
             name: getattr(self, name).detach().clone()
-            for name in ("routed_rows", "learning_rows", "eligible_counts", "padded_rows", "dispatches")
+            for name in (
+                "routed_rows",
+                "learning_rows",
+                "eligible_counts",
+                "padded_rows",
+                "dispatches",
+            )
         }
         if reset:
             for name in result:
@@ -136,11 +150,15 @@ class ExpertBank(_RouteAccounting):
         self.gate_up_adapter_down = nn.Parameter(
             torch.randn(experts, adapter_experts, adapter_rank, dim) / math.sqrt(dim)
         )
-        self.gate_up_adapter_up = nn.Parameter(torch.zeros(experts, adapter_experts, 2 * hidden, adapter_rank))
+        self.gate_up_adapter_up = nn.Parameter(
+            torch.zeros(experts, adapter_experts, 2 * hidden, adapter_rank)
+        )
         self.down_adapter_down = nn.Parameter(
             torch.randn(experts, adapter_experts, adapter_rank, hidden) / math.sqrt(hidden)
         )
-        self.down_adapter_up = nn.Parameter(torch.zeros(experts, adapter_experts, dim, adapter_rank))
+        self.down_adapter_up = nn.Parameter(
+            torch.zeros(experts, adapter_experts, dim, adapter_rank)
+        )
         self._init_accounting(experts)
 
     def forward(
@@ -155,19 +173,28 @@ class ExpertBank(_RouteAccounting):
         if rows.shape[-1] != self.dim:
             raise ValueError("Expert input dimension mismatch")
         if adapter_weights is not None and adapter_weights.shape != (
-            *rows.shape[:-1], self.adapter_experts
+            *rows.shape[:-1],
+            self.adapter_experts,
         ):
             raise ValueError("Adapter weights must match row dimensions and adapter count")
         original_shape = rows.shape
         x = rows.reshape(-1, self.dim)
         ids = expert_ids.reshape(-1)
-        weights = None if adapter_weights is None else adapter_weights.reshape(-1, self.adapter_experts)
+        weights = (
+            None if adapter_weights is None else adapter_weights.reshape(-1, self.adapter_experts)
+        )
         with torch.profiler.record_function(f"fmt::experts/{self.family}"):
             gate_up = grouped_linear(x, self.gate_up, ids, self.backend)
             gate_up_delta = _adapter_delta(
-                x, ids, weights, self.gate_up_adapter_down, self.gate_up_adapter_up,
-                experts=self.experts, adapter_experts=self.adapter_experts,
-                adapter_topk=self.adapter_topk, backend=self.backend,
+                x,
+                ids,
+                weights,
+                self.gate_up_adapter_down,
+                self.gate_up_adapter_up,
+                experts=self.experts,
+                adapter_experts=self.adapter_experts,
+                adapter_topk=self.adapter_topk,
+                backend=self.backend,
             )
             if gate_up_delta is not None:
                 gate_up = gate_up + gate_up_delta.reshape_as(gate_up)
@@ -175,9 +202,15 @@ class ExpertBank(_RouteAccounting):
             hidden = F.silu(gate) * up
             output = grouped_linear(hidden, self.down, ids, self.backend)
             down_delta = _adapter_delta(
-                hidden, ids, weights, self.down_adapter_down, self.down_adapter_up,
-                experts=self.experts, adapter_experts=self.adapter_experts,
-                adapter_topk=self.adapter_topk, backend=self.backend,
+                hidden,
+                ids,
+                weights,
+                self.down_adapter_down,
+                self.down_adapter_up,
+                experts=self.experts,
+                adapter_experts=self.adapter_experts,
+                adapter_topk=self.adapter_topk,
+                backend=self.backend,
             )
             if down_delta is not None:
                 output = output + down_delta.reshape_as(output)
@@ -213,7 +246,9 @@ class LinearExpertBank(_RouteAccounting):
         self.adapter_down = nn.Parameter(
             torch.randn(experts, adapter_experts, adapter_rank, dim) / math.sqrt(dim)
         )
-        self.adapter_up = nn.Parameter(torch.zeros(experts, adapter_experts, output_dim, adapter_rank))
+        self.adapter_up = nn.Parameter(
+            torch.zeros(experts, adapter_experts, output_dim, adapter_rank)
+        )
         self._init_accounting(experts)
 
     def forward(
@@ -228,19 +263,28 @@ class LinearExpertBank(_RouteAccounting):
         if rows.shape[-1] != self.dim:
             raise ValueError("Expert input dimension mismatch")
         if adapter_weights is not None and adapter_weights.shape != (
-            *rows.shape[:-1], self.adapter_experts
+            *rows.shape[:-1],
+            self.adapter_experts,
         ):
             raise ValueError("Adapter weights must match row dimensions and adapter count")
         original_shape = rows.shape
         x = rows.reshape(-1, self.dim)
         ids = expert_ids.reshape(-1)
-        weights = None if adapter_weights is None else adapter_weights.reshape(-1, self.adapter_experts)
+        weights = (
+            None if adapter_weights is None else adapter_weights.reshape(-1, self.adapter_experts)
+        )
         with torch.profiler.record_function(f"fmt::experts/{self.family}"):
             output = grouped_linear(x, self.weight, ids, self.backend)
             delta = _adapter_delta(
-                x, ids, weights, self.adapter_down, self.adapter_up,
-                experts=self.experts, adapter_experts=self.adapter_experts,
-                adapter_topk=self.adapter_topk, backend=self.backend,
+                x,
+                ids,
+                weights,
+                self.adapter_down,
+                self.adapter_up,
+                experts=self.experts,
+                adapter_experts=self.adapter_experts,
+                adapter_topk=self.adapter_topk,
+                backend=self.backend,
             )
             if delta is not None:
                 output = output + delta.reshape_as(output)

@@ -95,7 +95,9 @@ class PairStage(nn.Module):
         dim = facets.shape[-1]
         pairs = self.norm(torch.cat((facets[:, left], facets[:, right]), -1))
         delta = bank(
-            pairs, route.expert_ids, route.confidence,
+            pairs,
+            route.expert_ids,
+            route.confidence,
             adapter_weights=current_adapter_weights(pairs),
         ) + self.always(pairs)
         delta = delta * self.residual_gates[update_index].sigmoid()
@@ -227,19 +229,24 @@ class CentralProcessor(nn.Module):
                 else self.memory
             )
             enabled = self.config.checkpoint_stages if checkpointing is None else checkpointing
-            weights = None if adapters is None else adapters.weights[index].repeat_interleave(
-                self.config.n_facets, dim=1
+            weights = (
+                None
+                if adapters is None
+                else adapters.weights[index].repeat_interleave(self.config.n_facets, dim=1)
             )
             routing_context = facets.reshape(
                 facets.shape[0], events, self.config.n_facets, self.config.facet_dim
             ).mean(2)
-            with self._expert_pools.routing_epoch(
-                routing_context,
-                track_ids=track_ids,
-                role="c",
-                stage=index,
-                adapter_weights=None if adapters is None else adapters.weights[index],
-            ), expert_scope(weights):
+            with (
+                self._expert_pools.routing_epoch(
+                    routing_context,
+                    track_ids=track_ids,
+                    role="c",
+                    stage=index,
+                    adapter_weights=None if adapters is None else adapters.weights[index],
+                ),
+                expert_scope(weights),
+            ):
                 if enabled and self.training and torch.is_grad_enabled():
                     # Pin the causal adapter scope as well as the intermediate KV.
                     facets = checkpoint(
@@ -280,8 +287,13 @@ class CentralProcessor(nn.Module):
         return facets
 
     def write(
-        self, final: Tensor, history: KVHistory, positions: Tensor,
-        *, adapters: AdapterPlan | None = None, track_ids: Tensor | None = None,
+        self,
+        final: Tensor,
+        history: KVHistory,
+        positions: Tensor,
+        *,
+        adapters: AdapterPlan | None = None,
+        track_ids: Tensor | None = None,
     ) -> KVHistory:
         """Append all final-stage facets; evict only complete oldest megatokens.
 
@@ -295,16 +307,19 @@ class CentralProcessor(nn.Module):
         if final.shape[1] > c.max_history_chunks * c.n_facets:
             raise ValueError("One meridian exceeds the historical event capacity")
         events = final.shape[1] // c.n_facets
-        weights = None if adapters is None else adapters.weights[-1].repeat_interleave(
-            c.n_facets, dim=1
+        weights = (
+            None if adapters is None else adapters.weights[-1].repeat_interleave(c.n_facets, dim=1)
         )
-        with self._expert_pools.routing_epoch(
-            final.reshape(final.shape[0], events, c.n_facets, c.facet_dim).mean(2),
-            track_ids=track_ids,
-            role="c",
-            stage=c.central_layers,
-            adapter_weights=None if adapters is None else adapters.weights[-1],
-        ), expert_scope(weights):
+        with (
+            self._expert_pools.routing_epoch(
+                final.reshape(final.shape[0], events, c.n_facets, c.facet_dim).mean(2),
+                track_ids=track_ids,
+                role="c",
+                stage=c.central_layers,
+                adapter_weights=None if adapters is None else adapters.weights[-1],
+            ),
+            expert_scope(weights),
+        ):
             added = self.memory(
                 final,
                 temporal_positions=positions,
@@ -590,13 +605,15 @@ class FacetedCore(nn.Module):
             return self.frontend(byte_ids, lengths)
 
     def encode_media(
-        self, features: Tensor, mask: Tensor | None = None, *, extractor: str,
+        self,
+        features: Tensor,
+        mask: Tensor | None = None,
+        *,
+        extractor: str,
         track_ids: Tensor | None = None,
     ) -> Tensor:
         """Pinned teacher hidden states [B, T, 512] -> raw facets, through the shared E."""
-        return self.media_encoder(
-            self, features, mask, extractor=extractor, track_ids=track_ids
-        )
+        return self.media_encoder(self, features, mask, extractor=extractor, track_ids=track_ids)
 
     def encode_control(
         self,
@@ -855,7 +872,10 @@ class FacetedCore(nn.Module):
             start += count
         if self.config.checkpoint_stages and self.training and torch.is_grad_enabled():
             return checkpoint(
-                compute, facets, use_reentrant=False, preserve_rng_state=False,
+                compute,
+                facets,
+                use_reentrant=False,
+                preserve_rng_state=False,
                 context_fn=checkpoint_context_fn,
             )
         return compute(facets)
@@ -904,7 +924,9 @@ class FacetedCore(nn.Module):
         self._record_routing_loss(route.balance_loss, route.stabilization_loss)
         normalized = self.u_norm(rows)
         delta = self.u_bank(
-            normalized, route.expert_ids, route.confidence,
+            normalized,
+            route.expert_ids,
+            route.confidence,
             adapter_weights=current_adapter_weights(normalized),
         ) + self.u_always(normalized)
         return rows + self.u_gate.sigmoid() * delta
@@ -914,9 +936,7 @@ class FacetedCore(nn.Module):
         rows = rows.to(self.u_always.gate_up.weight.dtype)
         summary = rows.mean(1)
         weights = current_adapter_weights(summary)
-        with self.expert_pools.routing_epoch_if_absent(
-            summary, role="r", adapter_weights=weights
-        ):
+        with self.expert_pools.routing_epoch_if_absent(summary, role="r", adapter_weights=weights):
             return rows + self.lexical_gate.sigmoid() * self.u_always(self.lexical_norm(rows))
 
     def dispatch_metrics(self, *, reset: bool = False) -> dict[str, dict[str, Tensor]]:
@@ -950,7 +970,9 @@ class FacetedCore(nn.Module):
         self._routing_losses = []
         # Auxiliary branches also stay out of the global router-balance replay.
         routers = (
-            self.p_router, self.u_router, *self.adapters.owners.values(),
+            self.p_router,
+            self.u_router,
+            *self.adapters.owners.values(),
             *self.expert_pools.routing_selectors().values(),
         )
         recorders = [router.balance_recorder for router in routers]
@@ -1011,4 +1033,3 @@ class FacetedCore(nn.Module):
             role_ids=torch.where(rows, ROLE_IDS["document"], state.role_ids),
             episode_ids=torch.where(rows, ids, state.episode_ids),
         )
-

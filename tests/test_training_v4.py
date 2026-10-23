@@ -63,8 +63,35 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
         assert batch.counts["facet_prediction"] == 0  # No E-to-forecast pull.
         optimizer = MasterAdamW(model, lr=0.01)
         optimizers.append(optimizer)
-        optimizer.isolate_gradient_parameters("encoder", model.core.encoder_parameters())
-        encoder_ids = {id(parameter) for parameter in model.core.encoder_parameters()}
+        shared_ids = {id(parameter) for parameter in model.core.shared_parameters()}
+        encoder_ids = {
+            id(parameter)
+            for parameter in model.core.encoder_parameters()
+            if id(parameter) not in shared_ids
+        }
+        model_ids = {
+            id(parameter)
+            for parameter in optimizer.model_parameters.values()
+            if id(parameter) not in shared_ids | encoder_ids
+        }
+        domains = {
+            "encoder": [
+                name
+                for name, parameter in optimizer.model_parameters.items()
+                if id(parameter) in encoder_ids
+            ],
+            "shared": [
+                name
+                for name, parameter in optimizer.model_parameters.items()
+                if id(parameter) in shared_ids
+            ],
+            "model": [
+                name
+                for name, parameter in optimizer.model_parameters.items()
+                if id(parameter) in model_ids
+            ],
+        }
+        optimizer.set_gradient_domains(domains)
         torch.manual_seed(639)
         ledger = LossLedger(batch.counts, batch.counts, config.loss_weights)
         forward_meridian_batch(
@@ -81,13 +108,16 @@ def test_direct_encoder_auxiliary_cannot_change_main_gradients_or_clipped_update
             {
                 name: None if parameter.grad is None else parameter.grad.clone()
                 for name, parameter in model.named_parameters()
-                if id(parameter) not in encoder_ids
+                if id(parameter) in model_ids
             }
         )
         reports.append(optimizer.step(max_norm=0.01))
     try:
         assert reports[0]["gradient_norm_model"] == reports[1]["gradient_norm_model"]
         assert reports[1]["gradient_norm_encoder"] > 100 * reports[0]["gradient_norm_encoder"]
+        # E's auxiliary path uses the global expert matrices too. Those owners
+        # get their own clipping domain, while P/C/R private owners stay exact.
+        assert reports[1]["gradient_norm_shared"] > 100 * reports[0]["gradient_norm_shared"]
         for name, gradient in gradients[0].items():
             if gradient is None:
                 assert gradients[1][name] is None
@@ -113,4 +143,3 @@ def test_canonical_presets_and_legacy_architecture_rejection():
     assert load_model_config("32x256").name == "32x256"
     with pytest.raises(ValueError, match="architecture_version=11"):
         ModelConfig.from_dict({**ModelConfig.tiny().to_dict(), "architecture_version": 3})
-

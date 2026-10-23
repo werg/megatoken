@@ -122,7 +122,13 @@ def test_bootstrap_reconstruction_directly_trains_encoder_and_realizer():
     assert any(
         p.grad is not None and p.grad.abs().sum() > 0 for p in model.core.encoder_parameters()
     )
-    assert model.decoder.realizer.seed.weight.grad is not None
+    seed = model.decoder.realizer.seed
+    assert seed.output_gain.grad is not None
+    assert seed.output_gain.grad.abs().sum() > 0
+    assert seed.router.weight.grad is not None
+    assert seed.router.weight.grad.abs().sum() > 0
+    assert seed._bank.weight.grad is not None
+    assert seed._bank.weight.grad.abs().sum() > 0
     assert all(p.grad is None for p in model.core.central_parameters())
     assert all(p.grad is None for p in model.core.predictor_parameters())
 
@@ -198,11 +204,12 @@ def test_native_alignment_uses_only_actual_matching_pairs_and_never_conditions_p
     assert paired.scored_positions == plain.scored_positions == 6
     result.losses["encoder_alignment"][0].backward()
     encoder_ids = {id(parameter) for parameter in model.core.encoder_parameters()}
+    shared_ids = {id(parameter) for parameter in model.core.shared_parameters()}
     assert any(parameter.grad is not None for parameter in model.core.encoder_parameters())
     assert all(
         parameter.grad is None
         for parameter in model.parameters()
-        if id(parameter) not in encoder_ids
+        if id(parameter) not in encoder_ids | shared_ids
     )
     for invalid in (
         replace(native, payloads=(b"wrong",)),
@@ -214,4 +221,3 @@ def test_native_alignment_uses_only_actual_matching_pairs_and_never_conditions_p
             model.prepare_target(
                 sample.emitted_ids, representation_mode="recurrent", native_tapes=[invalid]
             )
-

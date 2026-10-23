@@ -14,6 +14,7 @@ from megatoken.generation import (
     SchemaSpec,
 )
 from megatoken.generation.feasibility import wire_witness_tokens
+from megatoken.generation.embedding import EmbeddingSpec
 from megatoken.generation.structure import ActionTape, Observation, TapeMismatch
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.tensors import byte_tensor
@@ -81,7 +82,10 @@ def freeze_action_map(model):
 
 
 def predictor_parameters(model):
+    # Shared shape pools are reachable from both the encoder/readout and P;
+    # keep role-specific P assertions focused on P's private controller/head.
     excluded = {id(parameter) for parameter in action_map_parameters(model)}
+    excluded.update(id(parameter) for parameter in model.core.shared_parameters())
     return [parameter for parameter in model.core.parameters() if id(parameter) not in excluded]
 
 
@@ -158,6 +162,7 @@ def test_detached_facet_target_reconstruction_and_prior_have_distinct_gradients(
     result.losses["reconstruction"][0].backward(retain_graph=True)
     assert has_gradient(model.core.encoder_parameters())
     assert has_gradient(model.decoder.parameters())
+    assert has_gradient(model.core.shared_parameters())
     assert not has_gradient(model.facet_distribution.parameters())
     assert not has_gradient(predictor_parameters(model))
     model.zero_grad(set_to_none=True)
@@ -202,6 +207,34 @@ def test_one_gaussian_draw_and_no_stochastic_downstream_work(model):
     assert decoded.payload == again.payload == result.payload
     assert decoded.emitted_ids == again.emitted_ids == result.emitted_ids
     assert decoded.trace == again.trace == result.tape.trace
+
+
+def test_single_track_generator_routes_gaussian_scale_as_final_stage_p(model, monkeypatch):
+    calls = []
+    original = model.core.expert_pools.router_features
+
+    def record(context, *, track_ids=None, role="other", stage=0):
+        calls.append((role.lower(), stage, tuple(context.shape)))
+        return original(context, track_ids=track_ids, role=role, stage=stage)
+
+    monkeypatch.setattr(model.core.expert_pools, "router_features", record)
+    model.sample(model.core.initial_state(1), spec=ActionSpec(min_tokens=4, max_tokens=4))
+    assert ("p", model.config.prediction_layers, (1, model.config.facet_dim)) in calls
+
+
+def test_standalone_embedding_realizer_uses_an_r_routing_epoch(model, monkeypatch):
+    calls = []
+    original = model.core.expert_pools.router_features
+
+    def record(context, *, track_ids=None, role="other", stage=0):
+        calls.append((role.lower(), tuple(context.shape)))
+        return original(context, track_ids=track_ids, role=role, stage=stage)
+
+    monkeypatch.setattr(model.core.expert_pools, "router_features", record)
+    raw = torch.randn(2, model.config.n_facets, model.config.facet_dim)
+    spec = EmbeddingSpec("space", "query", model.embedding_realizer.dimension)
+    model.embedding_realizer(raw, spec)
+    assert ("r", (2, model.config.facet_dim)) in calls
 
 
 def test_generated_facets_commit_raw_without_encoding_decoded_bytes(model, monkeypatch):
@@ -514,7 +547,9 @@ def test_metrics_are_detached_and_report_both_decoder_passes(model):
 
 def test_served_export_contains_all_shared_owners_and_is_identical(model):
     served = FacetedGenerator(FacetedCore(model.config), model.codec, training_heads=False)
-    assert model.core.expert_pools.manifest()["pools"] == served.core.expert_pools.manifest()["pools"]
+    assert (
+        model.core.expert_pools.manifest()["pools"] == served.core.expert_pools.manifest()["pools"]
+    )
     weights = model.served_state_dict()
     assert set(weights) == {n for n in model.state_dict() if "hindsight_realizer" not in n}
     assert not any(
@@ -643,6 +678,7 @@ def test_recurrent_mode_reconstructs_directly_with_frozen_readout_and_two_passes
     assert result.losses["facet_prediction"][1] == result.losses["encoder_alignment"][1] == 0
     result.losses["reconstruction"][0].backward(retain_graph=True)
     assert has_gradient(model.core.encoder_parameters())
+    assert has_gradient(model.core.shared_parameters())
     assert not has_gradient(predictor_parameters(model))
     assert not has_gradient(model.decoder.parameters())
     assert not has_gradient(model.facet_distribution.parameters())
@@ -926,4 +962,3 @@ def test_a_typed_action_is_sized_by_its_values_not_its_wire_syntax(model):
         teacher=plan,
     )
     assert decoded.capacity == plan.capacity
-

@@ -401,8 +401,7 @@ def train(
         )
         encoder_ids = (
             {id(parameter) for parameter in model.core.encoder_parameters()}
-            if config.representation_training == "recurrent"
-            and config.trainable != "media_bridge"
+            if config.representation_training == "recurrent" and config.trainable != "media_bridge"
             else set()
         ) - shared_ids
         owned_ids = {id(parameter) for parameter in optimizer.model_parameters.values()}
@@ -990,4 +989,3 @@ def train(
             dataset.close()
         close_mounted()
         context.close()
-

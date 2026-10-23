@@ -259,9 +259,7 @@ def test_c_p_and_r_controllers_route_only_their_role_sites():
             baseline = multi.tracks.predict_group(state, tracks=("a",))
             owner.bias[0] = -10.0
             owner.bias[1] = 10.0
-            changed = not torch.equal(
-                baseline, multi.tracks.predict_group(state, tracks=("a",))
-            )
+            changed = not torch.equal(baseline, multi.tracks.predict_group(state, tracks=("a",)))
             owner.bias.copy_(saved["bias"])
             owner.router.weight.copy_(saved["router"])
             owner.track_preference.weight.copy_(saved["track"])
@@ -365,9 +363,7 @@ def test_adapters_are_ordinary_parameters_of_every_owner_and_sync_path():
             for part in fragment.slices:
                 if part.name in shared_covered:
                     shared_covered[part.name] += part.length
-        assert shared_covered == {
-            name: optimizer.masters[name].numel() for name in factor_names
-        }
+        assert shared_covered == {name: optimizer.masters[name].numel() for name in factor_names}
     finally:
         optimizer.close()
     served = model.served_state_dict()
@@ -390,4 +386,3 @@ def test_adapter_size_is_part_of_the_architecture_identity():
     )
     with pytest.raises(ValueError, match="adapter_topk"):
         ModelConfig.tiny(adapter_experts=1)
-

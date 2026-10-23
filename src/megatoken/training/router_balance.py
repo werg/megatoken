@@ -152,4 +152,3 @@ class RouterBalanceWindow:
 
     def clear(self):
         self.states.clear()
-

@@ -134,4 +134,3 @@ def test_the_service_adds_files_to_both_and_opens_a_session_on_both(tmp_path):
     assert not by_id[3]["ok"] and "collection name, a base name" in by_id[3]["error"]
     assert not by_id[4]["ok"] and "outside the knowledge base root" in by_id[4]["error"]
     assert by_id[5]["ok"] and by_id[5]["retrieved"]
-

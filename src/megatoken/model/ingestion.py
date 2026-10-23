@@ -71,8 +71,10 @@ class PairReduction(nn.Module):
         windows = F.pad(value, (0, 0, 0, padding)).reshape(-1, self.window_size, dim)
         window_mask = F.pad(output_mask, (0, padding)).reshape(-1, self.window_size)
         weights = current_adapter_weights(features[:, :1])
-        window_weights = None if weights is None else weights[:, 0].repeat_interleave(
-            windows.shape[0] // batch, dim=0
+        window_weights = (
+            None
+            if weights is None
+            else weights[:, 0].repeat_interleave(windows.shape[0] // batch, dim=0)
         )
         # Window flattening is explicit so a neighboring session's mixture can
         # never be mistaken for another window in this session.
@@ -175,4 +177,3 @@ class ChunkEncoder(ByteFrontend):
                 return self._finish(facets)
             level += 1
             features, mask = self.reduction(features, mask, level=level)
-

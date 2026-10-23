@@ -90,6 +90,7 @@ def checkpoint_context_fn():
             active_plan.router_features,
             active_plan.adapter_weights,
             active_plan.stage,
+            context_shape=active_plan.context_shape,
         )
         clone.palette_cache.update(palette_snapshot or {})
         return clone
@@ -510,12 +511,13 @@ class RoutedGRUCell(_RoutedSite):
 
 
 class _RoutingPlan:
-    def __init__(self, pools, features, router_features, weights, stage):
+    def __init__(self, pools, features, router_features, weights, stage, *, context_shape=None):
         self.pools = pools
         self.features = features
         self.router_features = router_features
         self.adapter_weights = weights
         self.stage = stage
+        self.context_shape = tuple(context_shape or (router_features.shape[0],))
         self.palette_cache: dict[str, tuple[Tensor, Tensor, Tensor]] = {}
 
 
@@ -525,6 +527,7 @@ class ShapePools(nn.Module):
     def __init__(self, config):
         super().__init__()
         from .experts import ExpertBank, LinearExpertBank
+        from .config import RESERVED_TRACKS
 
         self.config = config
         self.facet_dim = config.facet_dim
@@ -555,8 +558,10 @@ class ShapePools(nn.Module):
         )
         self.router_bootstrap_codes = nn.Parameter(torch.empty(self.router_experts, self.router_dim))
         nn.init.normal_(self.router_bootstrap_codes, std=0.02)
+        self.max_tracks = int(getattr(config, "max_tracks", 8))
+        self.reserved_track_count = len(RESERVED_TRACKS)
         self.router_track_embedding = nn.Embedding(
-            int(getattr(config, "max_tracks", 8)) + 1 + 3 + 1, self.router_dim
+            self.max_tracks + self.reserved_track_count + 1, self.router_dim
         )
         self.router_role_embedding = nn.Embedding(5, self.router_dim)
         self.router_stage_embedding = nn.Embedding(64, self.router_dim)
@@ -668,7 +673,7 @@ class ShapePools(nn.Module):
             tracks = track_ids.to(device=context.device, dtype=torch.long)
             if tracks.shape != context.shape[:-1]:
                 raise ValueError("track_ids must match routing context leading dimensions")
-            unknown_track = self.router_track_embedding.num_embeddings - 1
+            unknown_track = self.max_tracks + self.reserved_track_count
             valid_tracks = torch.all((tracks >= -1) & (tracks < unknown_track))
             if tracks.device.type == "meta":
                 pass
@@ -711,8 +716,11 @@ class ShapePools(nn.Module):
         """Fold lookup context, then run the shared router expert bank once.
 
         Adapter controllers can compute this once for a lookup and fan the
-        returned small feature to their four inexpensive role selectors. The
-        router bank is dispatched with no adapter mixture, so it cannot recurse.
+        returned small feature to their four inexpensive role selectors. An
+        explicit ``adapter_weights=None`` keeps that controller lookup
+        unadapted and prevents recursion; ordinary routing epochs inherit the
+        active committed mixture so the shared router bank adapts with other
+        learned projections.
         """
         active = _CURRENT_ROUTING_PLAN.get()
         if reuse_active and active is not None and active.pools is self:
@@ -784,7 +792,14 @@ class ShapePools(nn.Module):
         )
         if adapter_weights is _INHERIT_ADAPTER:
             adapter_weights = _CURRENT_ADAPTER_WEIGHTS.get()
-        plan = _RoutingPlan(self, flat, router_output, adapter_weights, stage)
+        plan = _RoutingPlan(
+            self,
+            flat,
+            router_output,
+            adapter_weights,
+            stage,
+            context_shape=tuple(features.shape[:-1]),
+        )
         token = _CURRENT_ROUTING_PLAN.set(plan)
         try:
             with expert_scope(adapter_weights):
@@ -800,6 +815,59 @@ class ShapePools(nn.Module):
             return
         with self.routing_epoch(context, **kwargs) as plan:
             yield plan
+
+    @contextmanager
+    def routing_subset(self, indices: Tensor | list[int] | tuple[int, ...]):
+        """Temporarily run a subset of active context rows with cached routing.
+
+        ``indices`` address flattened rows of the active epoch context. This
+        supports sequential per-example decode/workspace calls without
+        recomputing the shared router or losing each example's cached palette.
+        Within the context, routed activations must have a first leading axis
+        equal to the number of selected indices.
+        """
+        active = _CURRENT_ROUTING_PLAN.get()
+        if active is None or active.pools is not self:
+            raise RuntimeError("routing_subset requires an active routing epoch from this ShapePools")
+        index = torch.as_tensor(indices, device=active.router_features.device, dtype=torch.long)
+        if index.ndim != 1 or index.numel() == 0:
+            raise ValueError("routing_subset indices must be a non-empty one-dimensional selection")
+        total = active.router_features.shape[0]
+        valid = torch.all((index >= 0) & (index < total))
+        if index.device.type == "meta":
+            pass
+        elif index.device.type == "cuda" and hasattr(torch, "_assert_async"):
+            torch._assert_async(valid, "routing_subset index exceeds active context rows")
+        elif not bool(valid):
+            raise IndexError("routing_subset index exceeds active context rows")
+
+        context_shape = active.context_shape
+        if math.prod(context_shape) != total:
+            raise RuntimeError("Active routing context geometry is inconsistent")
+        weights = active.adapter_weights
+        if weights is not None:
+            expanded = _adapter_rows(weights, context_shape, active.router_features.device)
+            weights = expanded.reshape(total, self.adapter_experts).index_select(0, index)
+        subset = _RoutingPlan(
+            self,
+            active.features.index_select(0, index),
+            active.router_features.index_select(0, index),
+            weights,
+            active.stage,
+            context_shape=(index.numel(),),
+        )
+        for name, (palette, probabilities, features) in active.palette_cache.items():
+            subset.palette_cache[name] = (
+                palette.index_select(0, index),
+                probabilities.index_select(0, index),
+                features.index_select(0, index),
+            )
+        route_token = _CURRENT_ROUTING_PLAN.set(subset)
+        try:
+            with expert_scope(weights):
+                yield subset
+        finally:
+            _CURRENT_ROUTING_PLAN.reset(route_token)
 
     def _route_rows(self, plan, pool_name: str, phase: int, rows: Tensor):
         leading = tuple(rows.shape[:-1])

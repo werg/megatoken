@@ -430,4 +430,3 @@ def test_the_producer_builds_documents_and_media_episodes_with_declared_items(tm
     assert speech.records[0].payload.endswith(b"one two three four five")
     assert photo.records[1].payload == b"A red door. It is old."
     assert [r["document"] for r in declared_items(photo)] == [""]
-

@@ -35,6 +35,9 @@ def test_expert_bank_adapters_are_specific_to_base_expert():
         bank.gate_up_adapter_down[0, 0, 0, 0] = 1
         bank.gate_up_adapter_up[0, 0, 0, 0] = 1
         bank.gate_up_adapter_up[0, 0, 4, 0] = 1
+        # Let only base expert 0's SwiGLU hidden unit reach the output so its
+        # gate/up correction is observable after the down projection.
+        bank.down[0, 0, 0] = 1
     rows = torch.tensor([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
     ids = torch.tensor([0, 1])
     weights = torch.tensor([[1.0, 0.0], [1.0, 0.0]])
@@ -73,9 +76,7 @@ def test_expert_bank_gradients_reach_both_matrix_adapters_and_mixture():
 
 def test_linear_expert_bank_batched_mixtures_and_all_experts_addressable():
     torch.manual_seed(7)
-    bank = LinearExpertBank(
-        4, 3, 6, adapter_experts=5, adapter_rank=2, adapter_topk=2
-    )
+    bank = LinearExpertBank(4, 3, 6, adapter_experts=5, adapter_rank=2, adapter_topk=2)
     with torch.no_grad():
         bank.adapter_up.fill_(0.02)
     rows = torch.randn(2, 4, 3)

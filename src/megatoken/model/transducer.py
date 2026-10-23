@@ -89,7 +89,7 @@ def event_attention_mask(*, groups: Tensor, mode: str) -> Tensor:
 
 
 class WideKnowledgeReadout(nn.Module):
-    """Mix wide values first; route 64 rows through C's shared U; gather 32 facets."""
+    """Mix wide values, route rows through the core's shared U bank, then gather facets."""
 
     def __init__(self, core: FacetedCore, bank: TransducerBank) -> None:
         super().__init__()
@@ -189,9 +189,11 @@ class HindsightRealizer(nn.Module):
             if states.shape[0] % event_track_ids.numel():
                 raise ValueError("Hindsight source rows must divide evenly across events")
             facets_per_event = states.shape[0] // event_track_ids.numel()
-            state_context = states.float().reshape(
-                event_track_ids.numel(), facets_per_event, self.width
-            ).mean(1)
+            state_context = (
+                states.float()
+                .reshape(event_track_ids.numel(), facets_per_event, self.width)
+                .mean(1)
+            )
             source_tracks = event_track_ids.to(device=states.device, dtype=torch.long)
         # Route each event's source states together, keyed by its stable track;
         # route each hindsight query's output rows separately below.
@@ -209,9 +211,7 @@ class HindsightRealizer(nn.Module):
         logits = logits[None].masked_fill(~allowed[:, None], float("-inf"))
         read = torch.softmax(logits, dim=-1).to(dtype) @ values  # [lookups, rows, width]
         output_rows = read + self.queries[None]
-        with pools.routing_epoch(
-            output_rows.float().mean(1), role="other", adapter_weights=None
-        ):
+        with pools.routing_epoch(output_rows.float().mean(1), role="other", adapter_weights=None):
             raw = self.output(self.output_norm(output_rows)).float()
         raw = raw.reshape(visible.shape[0], self.value_dim)
         return straight_through(raw, pack_fp4(raw.detach()).decode(self.value_dim))
@@ -356,9 +356,12 @@ class NativeTransducer(nn.Module):
         weights = self._event_adapter_weights("e", state, METADATA_TRACK)
         track = self.core.config.max_tracks + RESERVED_TRACKS.index(METADATA_TRACK)
         track_ids = torch.full((state.batch_size,), track, device=state.device, dtype=torch.long)
-        with self.core.expert_pools.routing_epoch(
-            pooled[None], track_ids=track_ids, role="e", adapter_weights=weights
-        ), expert_scope(weights):
+        with (
+            self.core.expert_pools.routing_epoch(
+                pooled[None], track_ids=track_ids, role="e", adapter_weights=weights
+            ),
+            expert_scope(weights),
+        ):
             return self.prefix_head(pooled[None])[0].float()
 
     def _event_adapter_weights(
@@ -368,9 +371,7 @@ class NativeTransducer(nn.Module):
         if state.adapters is None:
             return None
         track_id = self.core.config.max_tracks + RESERVED_TRACKS.index(track)
-        ids = torch.full(
-            (state.batch_size, 1), track_id, device=state.device, dtype=torch.long
-        )
+        ids = torch.full((state.batch_size, 1), track_id, device=state.device, dtype=torch.long)
         plan = self.core.adapters.plan(owner, state.adapters, ids)
         return None if plan is None else plan.weights[0, :, 0]
 
@@ -400,9 +401,12 @@ class NativeTransducer(nn.Module):
             device=device,
             dtype=torch.long,
         )
-        with self.core.expert_pools.routing_epoch(
-            raws.mean(1), track_ids=ingest_tracks, role="r", adapter_weights=None
-        ), expert_scope(None):
+        with (
+            self.core.expert_pools.routing_epoch(
+                raws.mean(1), track_ids=ingest_tracks, role="r", adapter_weights=None
+            ),
+            expert_scope(None),
+        ):
             values, keys = self.ingest(self.core, raws, [item.modality for item in items])
         destinations = self.bank.content_location(values)
         starts: dict[bytes, Tensor] = {}
@@ -486,24 +490,30 @@ class NativeTransducer(nn.Module):
         if training:
             prior_plan = self.core.adapters.plan("p", state.adapters, query_tracks)
             prior_weights = None if prior_plan is None else prior_plan.weights[0, :, 0]
-            with self.core.expert_pools.routing_epoch(
-                mean[:, 0].mean(1),
-                track_ids=query_tracks[:, 0],
-                role="p",
-                stage=self.core.config.prediction_layers,
-                adapter_weights=prior_weights,
-            ), expert_scope(prior_weights):
+            with (
+                self.core.expert_pools.routing_epoch(
+                    mean[:, 0].mean(1),
+                    track_ids=query_tracks[:, 0],
+                    role="p",
+                    stage=self.core.config.prediction_layers,
+                    adapter_weights=prior_weights,
+                ),
+                expert_scope(prior_weights),
+            ):
                 selected = multi.generator.facet_distribution(mean).sample()
         else:
             selected = mean
         query_plan = self.core.adapters.plan("r", state.adapters, query_tracks)
         query_weights = None if query_plan is None else query_plan.weights[0, :, 0]
-        with self.core.expert_pools.routing_epoch(
-            selected[:, 0].mean(1),
-            track_ids=query_tracks[:, 0],
-            role="r",
-            adapter_weights=query_weights,
-        ), expert_scope(query_weights):
+        with (
+            self.core.expert_pools.routing_epoch(
+                selected[:, 0].mean(1),
+                track_ids=query_tracks[:, 0],
+                role="r",
+                adapter_weights=query_weights,
+            ),
+            expert_scope(query_weights),
+        ):
             query = self.query_realizer(
                 selected[:, 0], EmbeddingSpec(QUERY_SPACE, "query", self.bank.geometry.query_dim)
             )[0]
@@ -527,12 +537,15 @@ class NativeTransducer(nn.Module):
         knowledge_tracks = torch.full(
             (state.batch_size,), knowledge_track, device=state.device, dtype=torch.long
         )
-        with self.core.expert_pools.routing_epoch(
-            query[None] if query.ndim == 1 else query,
-            track_ids=knowledge_tracks,
-            role="r",
-            adapter_weights=readout_weights,
-        ), expert_scope(readout_weights):
+        with (
+            self.core.expert_pools.routing_epoch(
+                query[None] if query.ndim == 1 else query,
+                track_ids=knowledge_tracks,
+                role="r",
+                adapter_weights=readout_weights,
+            ),
+            expert_scope(readout_weights),
+        ):
             block = self.readout(found.value, query, found.landing, core=self.core)
         # From the knowledge event on, every meridian runs under this lookup's mixture.
         queried = replace(
@@ -565,4 +578,3 @@ class NativeTransducer(nn.Module):
         if read is not None:
             sources.commit(read[1])
         return committed, found
-

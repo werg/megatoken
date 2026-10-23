@@ -269,4 +269,3 @@ class ModelConfig:
         """JSON-canonical (sequences as lists), so a dict that went through a JSON
         manifest compares equal to a freshly built one."""
         return json.loads(json.dumps(asdict(self)))
-

@@ -71,11 +71,14 @@ def test_three_temporary_writes_are_read_once_and_never_enter_cache(checkpointin
     state = core.advance_raw(initial, raw)
     assert reads == [[4], [4, 4], [4, 4], [4, 4]]
     assert state.history.slots == core.config.n_facets
-    final = core.central.memory(
-        state.final,
-        temporal_positions=initial.records_seen,
-        slot_codes=core.central.slot_codes(),
-    )
+    with core.expert_pools.routing_epoch(
+        state.final.mean(1), role="c", stage=core.config.central_layers
+    ):
+        final = core.central.memory(
+            state.final,
+            temporal_positions=initial.records_seen,
+            slot_codes=core.central.slot_codes(),
+        )
     torch.testing.assert_close(state.history.keys, final.keys, rtol=0, atol=0)
     torch.testing.assert_close(state.history.values, final.values, rtol=0, atol=0)
 
@@ -201,4 +204,3 @@ def test_same_track_attention_bias_respects_identity_not_track_number():
     with torch.no_grad():
         attention.same_track_bias.zero_()
     assert not torch.allclose(result, attention.read(query, features, query_track_ids=queries))
-

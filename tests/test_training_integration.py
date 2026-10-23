@@ -135,4 +135,3 @@ def test_router_balance_recorders_are_released_when_a_forward_fails(training_con
     assert model.core.u_router.balance_recorder is None
     assert all(owner.balance_recorder is None for owner in model.core.adapters.owners.values())
     assert all(site.balance_recorder is None for _, site in iter_sites(model))
-

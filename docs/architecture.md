@@ -98,6 +98,11 @@ block; one final KV projector alone owns persistent history and P's live keys.
 Each C/P block retains its own query/output reader. Intermediate KV is never
 added to the cache.
 
+Supported ungrouped `Conv1d` sites unfold kernel taps into the matching linear
+input/output pool, then sum the routed tap results with fan-in scaling and add
+the convolution bias once. They keep channel-first input/output geometry while
+sharing the pool weights with compatible linear sites.
+
 P's explicit row router compiles routes for all twelve residual stages from one
 compact prediction context feature; the stage code differentiates the decisions
 without repeating the wide context projection. U makes its expansion decisions
@@ -191,6 +196,11 @@ the multitrack state, so every meridian on every track runs under it until the
 next lookup replaces it; before the first lookup there is none, and a lookup
 that found only the sink has strength exactly zero. Serving sessions carry it in
 their state, so a speculative branch inherits it and a rejected one cannot leak it.
+
+The lookup-time bootstrap has no active mixture, so the router feature used to
+choose a new adapter mixture cannot recursively depend on that choice. Ordinary
+router-bank dispatches inside model routing epochs inherit the current mixture
+and can use the router bank's own adapter factors.
 
 At a routed site, the controller's preference selects adapter factors belonging
 to the chosen base expert and adds their low-rank update to the expert result.
@@ -303,10 +313,12 @@ projection, and R**, including core-owned U transforms. P, its remix, controls,
 and Gaussian scale remain trainable. The `encoder_parameters`,
 `central_parameters`, `predictor_parameters`, and `realizer_parameters` interfaces
 expose disjoint private owners without duplicate registration; global expert pools
-are listed separately and frozen with the complete map. Shared pools used by an
-encoder reconstruction auxiliary receive gradients once under the shared owner,
-while E-private gradients are clipped in their encoder domain. This keeps shared
-pool gradients from being duplicated across sites or folded into the E-private norm.
+are listed separately and frozen with the complete map. The recurrent encoder
+reconstruction readout uses detached functional copies of R/U and the shared pools,
+so its gradient flows into E-produced facets without changing the readout weights.
+Shared pools can still receive gradients from the ordinary prior path that consumes
+E output; those gradients are clipped once under the shared owner, separate from
+E-private gradients.
 
 ## Public controls and replay
 
@@ -338,14 +350,14 @@ See [generation.md](generation.md) for tape and decoder details.
 | --- | ---: | ---: |
 | Raw facets | `32 x 512` | `32 x 256` |
 | Coordinates per prediction | 16,384 | 8,192 |
-| Source width | 256 | 128 |
+| Source / control width | 512 | 256 |
 | E/C dense hidden width | 1,024 | 512 |
 | Attention queries | `4 x 128 = 512` | `4 x 64 = 256` |
 | Keys, separately values | `2 x 128 = 256` | `2 x 64 = 128` |
 | Concatenated P row width | 1,024 | 512 |
-| P experts / hidden width | `64 / 1536` | `64 / 1536` |
-| Stage-private P dense hidden width | 1,024 | 1,024 |
-| U experts / hidden width | `32 / 1024` | `32 / 1024` |
+| P experts / pair FFN hidden width | `64 / 2048` | `64 / 1024` |
+| U experts / facet FFN hidden width | `32 / 1024` | `32 / 512` |
+| Other linear-pool / router experts / router width | `8 / 8 / 64` | `8 / 8 / 64` |
 | Historical slots per retained input, at every age | 32 | 32 |
 | Maximum cached chunks | 1,024 | 1,024 |
 | Maximum BF16 projected KV per episode | 32 MiB | 16 MiB |
@@ -366,13 +378,6 @@ At production width, every full-resolution record uses 32,768 bytes of
 uses **16 MiB**. Eviction drops whole oldest records; no age-dependent
 representation changes occur. These bounds exclude raw facets, central
 activations, masks, decoder workspaces, and training graphs.
-
-Counting a multiply and add as two FLOPs, one selected P row uses
-`6 x (2D) x (1536 + 1024)` matrix FLOPs. Full effort evaluates 96 pair rows per P
-stage, or 1,152 over twelve stages: **18.119 GFLOPs** at width 512, half that at
-width 256. This scoped count excludes C, E, attention, routing, padding, output
-realization, nonlinearities, and backward. Parameter and FLOP arithmetic is not
-an end-to-end throughput measurement.
 
 At the 32,768-slot full-history bound, eight C/P reads with 32 queries
 and combined query width 512 require up to approximately **17.18 GFLOPs**

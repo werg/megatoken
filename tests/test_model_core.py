@@ -56,7 +56,7 @@ def test_versioned_geometry_and_explicit_width_presets():
     assert (large.encoder_layers, large.central_layers, large.prediction_layers) == (2, 4, 12)
     assert large.central_layers + large.prediction_layers == 16
     assert large.central_hidden == 1024
-    assert (large.p_experts, large.u_experts, large.source_dim) == (64, 32, 256)
+    assert (large.p_experts, large.u_experts, large.source_dim) == (64, 32, 512)
     assert (large.query_heads, large.kv_heads, large.attention_head_dim) == (4, 2, 128)
     assert large.max_history_chunks == 1024
     assert large.codec_noise_std == large.prior_noise_std == 0.1
@@ -104,11 +104,15 @@ def test_observation_processes_new_input_immediately_and_skips_initial_sentinel(
     assert state.final.shape == state.facets.shape
     assert core.dispatch_metrics()["p"]["routed_rows"].sum().item() == 0
     assert initial.history.slots == 0 and initial.final is None
-    projected = core.central.memory(
-        state.final,
-        temporal_positions=initial.records_seen,
-        slot_codes=core.central.slot_codes(),
-    )
+    context = state.final.reshape(1, 1, core.config.n_facets, core.config.facet_dim).mean(2)
+    with core.expert_pools.routing_epoch(
+        context, role="c", stage=core.config.central_layers
+    ):
+        projected = core.central.memory(
+            state.final,
+            temporal_positions=initial.records_seen,
+            slot_codes=core.central.slot_codes(),
+        )
     torch.testing.assert_close(state.history.keys, projected.keys, rtol=0, atol=0)
     torch.testing.assert_close(state.history.values, projected.values, rtol=0, atol=0)
 
@@ -156,7 +160,7 @@ def test_nonresidual_remix_precedes_twelve_residual_prediction_layers():
     assert not torch.equal(result, boundary[0][1])
     assert len(core.stages) == 12
     with torch.no_grad():
-        core.remix.channels.down.weight.zero_()
+        core.remix.channels.output_gain.zero_()
     assert core.remix(torch.randn_like(state.facets)).count_nonzero() == 0
 
 
@@ -295,7 +299,7 @@ def test_exact_predictor_exposure_and_checkpoint_recompute_accounting():
     assert core.dispatch_metrics(reset=True)["p"]["routed_rows"].sum().item() == 0
     prediction = core.predict_facets(state, effort=3)
     count = core.dispatch_metrics()["p"]["routed_rows"].sum().item()
-    assert count == 12 * core.config.n_facets * 3 // 2
+    assert count == 12 * core.config.n_facets * 3
     first_aux = core.routing_aux_loss(clear=False)
     (prediction.sum() + sum(first_aux)).backward()
     assert core.dispatch_metrics()["p"]["routed_rows"].sum().item() == count
@@ -346,6 +350,39 @@ def test_auxiliary_routing_isolation_preserves_outer_graph_after_nested_failure(
     sum(original).backward()
     assert core.p_router.palette_codes.grad.norm() > 0
     assert all(parameter.grad is None for parameter in core.u_router.parameters())
+
+
+def test_discard_routing_losses_suppresses_and_restores_shared_balance_recording():
+    from megatoken.training.router_balance import RouterBalanceWindow, balance_routers
+
+    core = FacetedCore(ModelConfig.tiny())
+    state = core.observe(torch.randint(256, (1, 23)), core.initial_state(1))
+    routers = balance_routers(core)
+    recorder = RouterBalanceWindow()
+    for router in routers.values():
+        router.balance_recorder = recorder
+
+    mean = core.predict_facets(state)
+    before = {
+        name: recorder.states[id(router)].counts.clone()
+        for name, router in routers.items()
+        if id(router) in recorder.states
+    }
+    assert "shape_bootstrap" in before
+    assert any(name.startswith("shape_pool_") for name in before)
+    assignments = recorder.assignments
+
+    with core.discard_routing_losses():
+        core.apply_u(mean, core.prepare_realization(mean), level=4)
+        # The auxiliary forward still routes through shared experts, but it must
+        # not enter the optimizer-step balance window.
+        assert recorder.assignments == assignments
+    assert recorder.assignments == assignments
+    for name, counts in before.items():
+        torch.testing.assert_close(recorder.states[id(routers[name])].counts, counts)
+
+    for router in routers.values():
+        router.balance_recorder = None
 
 
 def test_bounded_history_reset_duplicates_and_model_versions():
@@ -486,7 +523,7 @@ def test_owner_groups_are_disjoint_complete_and_allow_fixed_decoder_latent_rl():
         for group in (groups[0], groups[1], groups[3], groups[4], groups[5])
         for parameter in group
     )
-    assert core.remix.channels.norm.weight.grad.norm() > 0
+    assert core.remix.norm.weight.grad.norm() > 0
     assert core.p_router.palette_codes.grad.norm() > 0
     assert core.p_router.row_codes.grad.norm() > 0
     assert all(parameter.grad is None for parameter in groups[5])
@@ -497,7 +534,10 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     core = FacetedCore(config)
     audit = audit_parameters(core)
     assert audit["total_parameters"] == sum(parameter.numel() for parameter in core.parameters())
-    assert core.p_bank.gate_up.numel() == core.p_bank.experts * 2 * core.p_bank.hidden * core.p_bank.dim
+    assert (
+        core.p_bank.gate_up.numel()
+        == core.p_bank.experts * 2 * core.p_bank.hidden * core.p_bank.dim
+    )
     assert core.p_bank.down.numel() == core.p_bank.experts * core.p_bank.dim * core.p_bank.hidden
     assert core.p_bank.gate_up_adapter_up.numel() > 0
     assert core.p_bank.down_adapter_up.numel() > 0
@@ -505,8 +545,7 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     assert all(stage.always._bank is core.stages[0].always._bank for stage in core.stages)
     assert len({id(stage.attention.query.router.weight) for stage in core.stages}) == 1
     assert all(
-        stage.attention.query._bank is core.stages[0].attention.query._bank
-        for stage in core.stages
+        stage.attention.query._bank is core.stages[0].attention.query._bank for stage in core.stages
     )
     assert all(layer.kv is None for layer in core.central.layers)
     assert not hasattr(core.central, "history_pool")
@@ -636,4 +675,3 @@ def test_old_archive_settings_cannot_silently_change_full_slot_geometry():
     for removed in ("history_slots", "recent_history_chunks", "archived_slots_per_chunk"):
         with pytest.raises(ValueError, match="Unknown model configuration fields"):
             ModelConfig.from_dict({**config, removed: 2})
-

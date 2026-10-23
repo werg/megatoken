@@ -103,13 +103,18 @@ def test_learning_rules_follow_the_owning_module_not_the_parameter_name():
     # Dense linears keep the full rate and decay even when their name says
     # "embedding", "vocabulary" or "ngram".
     for name in (
-        "embedding_realizer.query.weight",
-        "embedding_realizer.document.weight",
         "decoder.vocabulary.projection.weight",
         "core.frontend.ngram_projection.weight",
         "core.frontend.ngram_mixture.weight",
     ):
         assert (rules[name].lr_multiplier, rules[name].weight_decay) == (1.0, 0.1), name
+    # Routed query/document sites own their gains; matrices are pooled by
+    # shape, so the optimizer rule belongs to the unique registry owner.
+    names = set(rules)
+    assert "embedding_realizer.query.output_gain" in names
+    assert "embedding_realizer.document.output_gain" in names
+    assert any(name.startswith("core.expert_pools.linear_") for name in names)
+    assert rules["embedding_realizer.query.output_gain"].lr_multiplier == 1.0
     # The control encoder declares slow learning; vectors never decay.
     assert (
         rules["core.control_encoder.projection.weight"].lr_multiplier,
@@ -238,9 +243,7 @@ def test_shared_expert_pool_has_one_training_owner_and_its_own_clip_domain():
 
     optimizer = MasterAdamW(model, lr=0.01)
     shared_names = [name for name in optimizer.masters if name.startswith("expert_pools.")]
-    rest_names = [
-        name for name in optimizer.masters if name not in set(shared_names)
-    ]
+    rest_names = [name for name in optimizer.masters if name not in set(shared_names)]
     optimizer.set_gradient_domains({"shared": shared_names, "model": rest_names})
     values = torch.randn(2, 3)
     loss = model.first(values).square().sum() + 2 * model.second(values).square().sum()
@@ -248,7 +251,7 @@ def test_shared_expert_pool_has_one_training_owner_and_its_own_clip_domain():
     metrics = optimizer.step(max_norm=0.1)
     assert "gradient_norm_shared" in metrics
     assert "gradient_norm_model" in metrics
-    assert pool_parameter in optimizer.model_parameters.values()
+    assert any(id(parameter) == id(pool_parameter) for parameter in optimizer.model_parameters.values())
     optimizer.close()
 
 
@@ -289,4 +292,3 @@ def test_configuration_rejects_unknown_or_invalid_fields():
         TrainConfig.from_dict({"leaning_rate": 0.01})
     with pytest.raises(ValueError, match="Unknown.*repair_fraction"):
         TrainConfig.from_dict({"repair_fraction": 0.4})
-

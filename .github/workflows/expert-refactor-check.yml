@@ -42,7 +42,16 @@ jobs:
           print('FORMAT_PATCH_END')
           PY
       - name: Test the reference implementation
-        run: python -m pytest -q --junitxml=validation/expert-tests.xml
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          cases = Path('.github/workflows/expert-refactor-cases.txt').read_text().splitlines()
+          subprocess.run([sys.executable, '-m', 'pytest', '-v', '--durations=20',
+                          '-o', 'faulthandler_timeout=120',
+                          '--junitxml=validation/expert-tests.xml', *cases], check=True)
+          PY
       - name: Report shapes and routing work
         if: always()
         run: |

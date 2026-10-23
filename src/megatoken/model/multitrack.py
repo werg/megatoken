@@ -370,7 +370,9 @@ class MultiTrackCore:
                         if event.payload.device != state.device:
                             raise ValueError("Media event must be on the model device")
                         encoded = self.core.encode_media(
-                            event.payload, event.valid_mask, extractor=event.extractor,
+                            event.payload,
+                            event.valid_mask,
+                            extractor=event.extractor,
                             track_ids=track_ids[:, index],
                         )
                 raws.append(encoded)
@@ -445,7 +447,9 @@ class MultiTrackCore:
             facets = facets + self.core.central.modality_embedding(modality_ids)[:, :, None]
             if control is not None:
                 with expert_scope(first_weights):
-                    facets = facets + self.core.control_injection(control.to(facets.dtype))[:, :, None]
+                    facets = (
+                        facets + self.core.control_injection(control.to(facets.dtype))[:, :, None]
+                    )
             # Track names are request descriptors, independent of physical order.
             if events > 1:
                 track_bytes = [b"<track>\n" + name.encode("utf-8") for name in tracks]
@@ -536,7 +540,9 @@ class MultiTrackCore:
             )
         joined = joined + wrapper.attention_gate.sigmoid() * mixed
         with expert_scope(None if weights is None else weights.flatten(0, 1)):
-            individual = core.pair_updates(joined.reshape(batch * events, f, d), stage, route, effort)
+            individual = core.pair_updates(
+                joined.reshape(batch * events, f, d), stage, route, effort
+            )
         individual = individual.reshape(batch, events, f, d)
         return individual
 
@@ -716,7 +722,9 @@ class _GroupedTeacherReadout(nn.Module):
         if raw.ndim != 4 or raw.shape[1] != len(plans):
             raise ValueError("Realization needs one canonical facet block per target")
         zero = raw.float().sum() * 0
-        adapter_plan = self.core.adapters.plan("r", mixture, track_ids) if mixture is not None else None
+        adapter_plan = (
+            self.core.adapters.plan("r", mixture, track_ids) if mixture is not None else None
+        )
         names = (*DECODER_LOSSES, "audio", "visual")
         sums = {name: zero for name in names}
         counts = {name: 0 for name in names}
@@ -774,9 +782,9 @@ class MultiTrackGenerator:
     def __init__(self, generator: FacetedGenerator) -> None:
         self.generator = generator
         self.tracks = MultiTrackCore(generator.core)
-        self._frozen: tuple[
-            int, tuple[tuple[str, int, tuple[int, ...]], ...], dict[str, Tensor]
-        ] | None = None
+        self._frozen: (
+            tuple[int, tuple[tuple[str, int, tuple[int, ...]], ...], dict[str, Tensor]] | None
+        ) = None
 
     def _frozen_readout(self, readout: nn.Module) -> dict[str, Tensor]:
         """Detached views of every readout parameter, built once per model version.
@@ -832,10 +840,16 @@ class MultiTrackGenerator:
         ids, _ = self.tracks._track_indices(state, tracks)
         plan = self.generator.core.adapters.plan("p", state.adapters, ids)
         weights = None if plan is None else plan.weights[-1]
-        with self.generator.core.expert_pools.routing_epoch(
-            mean.mean(2), track_ids=ids, role="p",
-            stage=self.generator.config.prediction_layers, adapter_weights=weights,
-        ), expert_scope(weights):
+        with (
+            self.generator.core.expert_pools.routing_epoch(
+                mean.mean(2),
+                track_ids=ids,
+                role="p",
+                stage=self.generator.config.prediction_layers,
+                adapter_weights=weights,
+            ),
+            expert_scope(weights),
+        ):
             return self.generator.facet_distribution(mean)
 
     @staticmethod
@@ -951,7 +965,13 @@ class MultiTrackGenerator:
                         context, spec, generator=materializer
                     )
                     native = (
-                        tensor[0].detach().float().contiguous().cpu().numpy().astype("<f4", copy=False)
+                        tensor[0]
+                        .detach()
+                        .float()
+                        .contiguous()
+                        .cpu()
+                        .numpy()
+                        .astype("<f4", copy=False)
                     )
                     # Large media is a digest-bound output, not a multi-MB tape field.
                     payloads.append(
@@ -1057,7 +1077,9 @@ class MultiTrackGenerator:
                         plan.source, extractor=plan.extractor, track_ids=track_ids[:, index]
                     )
                 else:
-                    payload = plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
+                    payload = (
+                        plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
+                    )
                     values, lengths = byte_tensor([payload], state.device)
                     current = core.encode_chunk(values, lengths, track_ids=track_ids[:, index])
             encoded.append(current)
@@ -1428,4 +1450,3 @@ class MultiTrackGenerator:
             raise ValueError("Grouped realization replay mismatch")
         core.routing_aux_loss(clear=True)
         return GroupGeneration(committed, tape, density, media)
-

@@ -74,4 +74,3 @@ class FacetGaussian(nn.Module):
             projection_dtype = self.log_scale.weight.dtype
             raw = self.log_scale(mean.to(projection_dtype)).float()
             return DiagonalGaussian(mean, -4.0 + 5.0 * raw.sigmoid())
-

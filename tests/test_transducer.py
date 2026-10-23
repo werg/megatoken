@@ -807,4 +807,3 @@ def test_the_annotated_lookup_is_the_one_after_the_first_finished_user_message()
     # and a window without a finished question has none to annotate.
     assert planned([answer, asked])[1] is None
     assert planned([system, answer])[1] is None
-

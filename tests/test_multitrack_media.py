@@ -371,4 +371,3 @@ def test_media_feature_mask_and_pin_validation():
     with pytest.raises(ValueError, match="512"):
         core.encode_media(source[..., :-1], extractor=PINNED_TEACHER)
     assert core.media_encoder.extractor == PINNED_TEACHER == core.config.media_extractor
-

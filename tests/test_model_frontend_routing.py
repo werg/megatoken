@@ -125,6 +125,22 @@ def test_empty_physical_record_is_a_role_boundary_not_a_fake_byte():
     assert core.frontend.bytes.weight.grad.count_nonzero() == 0
 
 
+def test_shared_input_routes_preserve_empty_records_padding_and_batch_membership():
+    core = FacetedCore(ModelConfig.tiny()).eval()
+    lengths = torch.tensor([0, 1, 33, 65])
+    byte_ids = torch.randint(256, (4, 69))
+    tracks = torch.tensor([0, 1, 0, 1])
+    with torch.no_grad():
+        together = core.encode_chunk(byte_ids, lengths, track_ids=tracks)
+        assert torch.isfinite(together).all()
+        for index, length in enumerate(lengths.tolist()):
+            alone = core.encode_chunk(
+                byte_ids[index:index + 1, :length],
+                track_ids=tracks[index:index + 1],
+            )
+            torch.testing.assert_close(together[index:index + 1], alone, atol=2e-6, rtol=2e-6)
+
+
 def test_bake_updates_fp32_masters_and_removes_map_ownership():
     from megatoken.training.optimizer import MasterAdamW
 

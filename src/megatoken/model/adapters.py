@@ -56,6 +56,7 @@ class AdapterPlan:
     owner: OwnerAdapters
     weights: Tensor  # [sites, batch, events, experts]; zero off the chosen experts
 
+
 class OwnerAdapters(nn.Module):
     """One execution role's controller for shared experts' adapter factors."""
 
@@ -102,6 +103,7 @@ class OwnerAdapters(nn.Module):
     def record_executed(self, route: AdapterRoute) -> None:
         if self.balance_recorder is not None:
             self.balance_recorder.capture(self, route)
+
 
 class AdapterBank(nn.Module):
     """The four causal routing controllers; factors live only in shared pools."""
@@ -154,9 +156,7 @@ class AdapterBank(nn.Module):
             features = provider.controller_features(
                 value.reshape(1, -1), role="other", stage=0, adapter_weights=None
             )
-        logits = torch.stack(
-            [self.owners[name].semantic(features).squeeze(0) for name in OWNERS]
-        )
+        logits = torch.stack([self.owners[name].semantic(features).squeeze(0) for name in OWNERS])
         context = features.detach() if self.recording and torch.is_grad_enabled() else None
         return AdapterMixture(logits[None], strength.float().reshape(1), context)
 
@@ -196,4 +196,3 @@ class AdapterBank(nn.Module):
                 owner.record_executed(
                     AdapterRoute(chosen[site, :, event], mixture.context, site * tracks + track)
                 )
-

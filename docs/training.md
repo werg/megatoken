@@ -32,8 +32,9 @@ C's final features and historical KV. See [architecture.md](architecture.md) for
 
 ### Shared expert ownership
 
-Eligible learned projections and SwiGLU operations route through globally
-registered expert pools. A deterministic fold and track/role/stage codes create
+Eligible learned projections, SwiGLU operations, and supported ungrouped
+`Conv1d` sites route through globally registered expert pools. A deterministic
+fold and track/role/stage codes create
 a compact bootstrap context; a shared bootstrap selector chooses one small
 router expert, which emits the routing feature. Each shared shape pool then
 selects its eligible expert palette once for the current routing epoch. Every
@@ -41,30 +42,35 @@ compatible site reuses that cached palette, with a deterministic site-prefix
 phase distributing its rows across the palette. Learned selection happens
 once for the bootstrap and once per active shape pool per epoch, instead of at
 every individual projection. Pools group linear sites by padded input/output
-shape and SwiGLU sites by hidden width, so compatible sites share expert values
-and routing heads. Sites retain local biases, while the pool is referenced
-without registering duplicate parameters under each site. Optimizer,
+shape, SwiGLU sites by hidden width, and convolution taps by the equivalent
+linear input/output shape, so compatible sites share expert values and routing
+heads. Convolution bias is added once after tap accumulation. Sites retain
+local biases, while the pool is referenced without registering duplicate
+parameters under each site. Optimizer,
 checkpoint, and synchronous or DiLoCo synchronization therefore see every
 global pool parameter once. Retrieval-conditioned adapter factors are stored
 with shared expert values and follow the same one-owner rule.
 
 The trainer clips gradients from global pools in a separate `shared` domain.
-This prevents one pool's norm from being counted once for every site that uses
-it. P/U selectors, role-local adapter controllers, and the rest of the model
-remain in the model domain; recurrent encoder reconstruction retains its own
-encoder domain. Router balance diagnostics report the shared bootstrap selector,
-one selector per active shape pool, and the explicit P/U and adapter controllers.
+This keeps each pool's combined gradient in one independently clipped domain,
+regardless of how many sites use it. P/U selectors, role-local adapter
+controllers, and the rest of the model remain in the model domain; recurrent
+encoder reconstruction retains its own encoder domain. Router balance diagnostics
+report the shared bootstrap selector, one selector per active shape pool, and the
+explicit P/U and adapter controllers.
 Sites sharing a selector contribute to that selector's combined assignment
 counts instead of creating repeated copies of the same balance term.
 
 In the media-bridge stage, the shared expert pools, bootstrap router, and their
-adapters remain frozen while media-local encoding, site-specific gains, and
-realizer conditions train. The E-only recurrent reconstruction objective updates
-E-private parameters and any shared pools used by its routed readout. Those pool
-gradients are clipped once in the `shared` domain; E-private gradients use the
-separate `encoder` domain. Other core owners do not receive gradients from that
-auxiliary. Main recurrent and replay objectives update shared pools under their
-normal training scope.
+adapters remain frozen while media-local encoding and projection gains, the
+central modality embedding, and realizer conditions train. The E-only recurrent
+encoder-reconstruction branch uses detached functional copies of R/U and the
+shared pools. It sends gradients through that fixed readout into E-produced
+facets without changing readout weights. Shared pools can still receive gradients
+from the ordinary prior path that consumes E output; those gradients are clipped
+once in the `shared` domain, while E-private gradients use the separate `encoder`
+domain. Other core owners do not receive gradients from the reconstruction branch.
+Main recurrent and replay objectives update shared pools under their normal scope.
 
 `TrainConfig.representation_mode` selects `bootstrap` or `recurrent`. The value `auto`
 resolves to bootstrap for B0 and recurrent for every other supervised phase. Production
@@ -340,7 +346,8 @@ training the bridge's local components. Optimizer-step-global balance covers the
 explicit P/U selectors, the four role controllers, the shared bootstrap selector,
 and one selector per active shape pool. Shared selectors are counted once even when
 many routed sites use them; their balance losses are summed as separate normalized
-terms rather than averaged as if there were only five routers.
+terms, each normalized by that selector's own hard assignment counts and soft
+probabilities.
 Lookup/control owners use half the base learning rate. Repeated module calls share one
 parameter owner, one FP32 master, and one optimizer slot. Non-finite gradients abort
 before an update.

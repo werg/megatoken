@@ -206,9 +206,7 @@ class EpochRouter(nn.Module):
         if not stages or len(set(stages)) != len(stages):
             raise ValueError("A routing epoch needs distinct stages")
         feature = self._features(context)
-        routes = tuple(
-            self._route_feature(feature, stage, rows) for stage in stages
-        )
+        routes = tuple(self._route_feature(feature, stage, rows) for stage in stages)
         return RoutingProgram(epoch, self.version, context, stages, routes)
 
 

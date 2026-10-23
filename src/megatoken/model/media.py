@@ -152,7 +152,12 @@ class MediaEncoder(nn.Module):
         self.ffn = SwiGLU(config.facet_dim, 2 * config.facet_dim)
 
     def forward(
-        self, core, features: Tensor, mask: Tensor | None = None, *, extractor: str,
+        self,
+        core,
+        features: Tensor,
+        mask: Tensor | None = None,
+        *,
+        extractor: str,
         track_ids: Tensor | None = None,
     ) -> Tensor:
         if extractor != self.extractor:

@@ -139,9 +139,9 @@ def test_scope_expands_per_event_rows_and_rejects_cross_session_shapes():
 
 
 def test_explicit_scope_flatten_helper_matches_flattened_events():
-    weights = torch.rand(2, 3, 4)
+    weights = torch.rand(2, 3, 2)
     flattened = flatten_expert_scope(weights)
-    assert flattened.shape == (6, 4)
+    assert flattened.shape == (6, 2)
     module = nn.Sequential(nn.Linear(4, 4, bias=False))
     pools = ShapePools(config())
     pools.bind(module, "flat")
@@ -240,7 +240,7 @@ def test_conv1d_kernel_taps_share_linear_pool_and_one_palette():
     # length and channel-first output shape.
     x = torch.randn(2, 4, 7, requires_grad=True)
     pools.metrics(reset=True)
-    with pools.routing_epoch(x.transpose(1, 2), role="e"):
+    with pools.routing_epoch(x.transpose(1, 2).mean(dim=1), role="e"):
         y = model.conv(torch.nn.functional.pad(x, (2, 0)))
         z = model.projection(torch.randn(2, 5, 4))
     assert y.shape == (2, 8, 7)
@@ -260,6 +260,36 @@ def test_conv1d_covers_stride_dilation_and_explicit_padding_geometry():
     pools = ShapePools(config())
     pools.bind(module, "conv_geometry")
     assert module[0](torch.randn(2, 4, 9)).shape == (2, 8, 4)
+
+
+def test_routing_subset_reuses_per_example_palette_and_adapter_scope():
+    module = nn.Sequential(nn.Linear(4, 4, bias=False))
+    pools = ShapePools(config())
+    pools.bind(module, "subset")
+    with torch.no_grad():
+        module[0]._bank.adapter_up.fill_(0.01)
+    context = torch.randn(3, 4)
+    rows = torch.randn(3, 5, 4)
+    weights = torch.tensor(
+        [[1.0, 0.0], [0.0, 1.0], [0.25, 0.75]],
+        requires_grad=True,
+    )
+    with expert_scope(weights):
+        with pools.routing_epoch(context, role="R"):
+            batched = module(rows)
+            palette_evaluations = pools.palette_evaluations
+            pieces = []
+            for index in range(rows.shape[0]):
+                with pools.routing_subset([index]):
+                    assert current_adapter_weights(rows[index : index + 1]).shape == (1, 5, 2)
+                    pieces.append(module(rows[index : index + 1]))
+            sequential = torch.cat(pieces, dim=0)
+            assert pools.router_evaluations == 1
+            assert pools.palette_evaluations == palette_evaluations == 1
+            assert current_adapter_weights(rows).shape == (3, 5, 2)
+    torch.testing.assert_close(sequential, batched, rtol=0, atol=0)
+    sequential.sum().backward()
+    assert weights.grad is not None and weights.grad.abs().sum() > 0
 
 
 def test_grouped_conv1d_fails_explicitly_instead_of_leaving_dense_weights():
@@ -302,7 +332,9 @@ def test_checkpoint_replay_clones_route_palette_snapshot_without_counter_replay(
             assert replay is not plan
             assert replay.palette_cache.keys() == plan.palette_cache.keys()
             replay_output = module(rows)
-            assert torch.equal(replay.palette_cache[next(iter(replay.palette_cache))][0], assignments)
+            assert torch.equal(
+                replay.palette_cache[next(iter(replay.palette_cache))][0], assignments
+            )
             assert _EXPERT_REPLAY.get()
         assert torch.equal(first, replay_output)
         assert (pools.router_evaluations, pools.palette_evaluations, pools.expert_rows) == before
@@ -337,10 +369,15 @@ def test_shared_hierarchical_routing_computes_once_and_caches_per_pool():
     )
     x.sum().backward()
     assert pools.router_bank.gate_up.grad is not None
-    assert pools.pool_codes[next(key for key in pools.pool_codes if "linear_4_4" in key)].grad is not None
+    assert (
+        pools.pool_codes[next(key for key in pools.pool_codes if "linear_4_4" in key)].grad
+        is not None
+    )
 
 
 def test_router_fold_is_track_aware_and_controller_uses_shared_experts():
+    from megatoken.model.config import RESERVED_TRACKS
+
     pools = ShapePools(config())
     context = torch.ones(2, 64)
     first = pools.router_features(context, track_ids=torch.tensor([0, 1]), role="R")
@@ -349,6 +386,14 @@ def test_router_fold_is_track_aware_and_controller_uses_shared_experts():
     assert not torch.allclose(first, second)
     unknown = pools.router_features(context, track_ids=torch.tensor([-1, -1]), role="R")
     assert unknown.shape == first.shape
+    last_reserved = config().max_tracks + len(RESERVED_TRACKS) - 1
+    assert pools.router_features(
+        context, track_ids=torch.tensor([last_reserved, 0]), role="R"
+    ).shape == first.shape
+    with pytest.raises(ValueError, match="track_ids exceed"):
+        pools.router_features(
+            context, track_ids=torch.tensor([last_reserved + 1, 0]), role="R"
+        )
     with pytest.raises(ValueError, match="track_ids exceed"):
         pools.router_features(context, track_ids=torch.tensor([0, 99]), role="R")
     output = pools.controller_features(context, track_ids=torch.tensor([0, 1]), role="R")
@@ -360,7 +405,9 @@ def test_standalone_rank_two_calls_keep_one_context_per_batch_and_adapt_router()
     module = nn.Sequential(nn.Linear(4, 4, bias=False))
     pools = ShapePools(config())
     pools.bind(module, "standalone")
-    recorder = type("Recorder", (), {"capture": lambda self, selector, route: setattr(self, "route", route)})()
+    recorder = type(
+        "Recorder", (), {"capture": lambda self, selector, route: setattr(self, "route", route)}
+    )()
     module[0].balance_recorder = recorder
     weights = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
     rows = torch.randn(2, 4, requires_grad=True)

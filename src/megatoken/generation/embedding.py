@@ -44,6 +44,15 @@ class EmbeddingRealizer(nn.Module):
     def forward(self, raw: Tensor, spec: EmbeddingSpec) -> Tensor:
         if raw.ndim != 3 or raw.shape[1:] != (self.facets, self.width):
             raise ValueError("Embedding R must consume one complete native raw-facet block")
+        pools = getattr(self.address, "_registry", None)
+        if pools is None:
+            return self._forward_impl(raw, spec)
+        with pools.routing_epoch_if_absent(raw.float().mean(1), role="r"):
+            return self._forward_impl(raw, spec)
+
+    def _forward_impl(self, raw: Tensor, spec: EmbeddingSpec) -> Tensor:
+        if raw.ndim != 3 or raw.shape[1:] != (self.facets, self.width):
+            raise ValueError("Embedding R must consume one complete native raw-facet block")
         if spec.dimension != self.dimension:
             raise ValueError("Embedding dimension and pinned semantic space disagree")
         # No C, state.final, teacher or source-token alignment is accessed.
