@@ -104,10 +104,8 @@ def test_observation_processes_new_input_immediately_and_skips_initial_sentinel(
     assert state.final.shape == state.facets.shape
     assert core.dispatch_metrics()["p"]["routed_rows"].sum().item() == 0
     assert initial.history.slots == 0 and initial.final is None
-    context = state.final.reshape(1, 1, core.config.n_facets, core.config.facet_dim).mean(2)
-    with core.expert_pools.routing_epoch(
-        context, role="c", stage=core.config.central_layers
-    ):
+    context = state.final.mean(1, keepdim=True)
+    with core.expert_pools.routing_epoch(context, role="c", stage=core.config.central_layers):
         projected = core.central.memory(
             state.final,
             temporal_positions=initial.records_seen,
@@ -160,7 +158,7 @@ def test_nonresidual_remix_precedes_twelve_residual_prediction_layers():
     assert not torch.equal(result, boundary[0][1])
     assert len(core.stages) == 12
     with torch.no_grad():
-        core.remix.channels.output_gain.zero_()
+        core.remix.channels._bank.down.zero_()
     assert core.remix(torch.randn_like(state.facets)).count_nonzero() == 0
 
 

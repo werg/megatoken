@@ -26,8 +26,8 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
 from .config import METADATA_TRACK, RESERVED_TRACKS
+from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
 from .state import KVHistory
 
 KEY_QUERIES = 4  # attention-pooling queries of the key realizer

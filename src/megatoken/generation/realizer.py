@@ -63,9 +63,7 @@ class ParallelRealizer(nn.Module):
         # routing epoch. Keep direct realizer use (debugging and small training
         # utilities) valid while ensuring every routed site in this call shares
         # one context and palette.
-        with core.expert_pools.routing_epoch_if_absent(
-            context.facets.mean(1), role="R", stage=0
-        ):
+        with core.expert_pools.routing_epoch_if_absent(context.facets.mean(1), role="R", stage=0):
             return self._forward_impl(core, context, capacity, conditioning)
 
     def _forward_impl(self, core, context, capacity: int, conditioning: Tensor) -> Tensor:

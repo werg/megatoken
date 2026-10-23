@@ -135,10 +135,10 @@ def test_shared_input_routes_preserve_empty_records_padding_and_batch_membership
         assert torch.isfinite(together).all()
         for index, length in enumerate(lengths.tolist()):
             alone = core.encode_chunk(
-                byte_ids[index:index + 1, :length],
-                track_ids=tracks[index:index + 1],
+                byte_ids[index : index + 1, :length],
+                track_ids=tracks[index : index + 1],
             )
-            torch.testing.assert_close(together[index:index + 1], alone, atol=2e-6, rtol=2e-6)
+            torch.testing.assert_close(together[index : index + 1], alone, atol=2e-6, rtol=2e-6)
 
 
 def test_bake_updates_fp32_masters_and_removes_map_ownership():

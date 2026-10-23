@@ -13,8 +13,8 @@ from megatoken.generation import (
     FieldSpec,
     SchemaSpec,
 )
-from megatoken.generation.feasibility import wire_witness_tokens
 from megatoken.generation.embedding import EmbeddingSpec
+from megatoken.generation.feasibility import wire_witness_tokens
 from megatoken.generation.structure import ActionTape, Observation, TapeMismatch
 from megatoken.model import FacetedCore, ModelConfig
 from megatoken.tensors import byte_tensor
@@ -890,7 +890,14 @@ def test_packed_fp32_tape_is_byte_exact_and_accepts_legacy_v4_float_lists(model)
 
 def test_freezing_the_action_map_leaves_p_side_retrieval_trainable(model):
     freeze_action_map(model)
-    assert model.transducer.query_realizer.query.weight.requires_grad
+    # The query site's router is a core-owned, shape-shared selector. Check
+    # transducer-owned retrieval controls instead of that selector or the
+    # compatibility ``weight`` view into the global expert bank.
+    query_reader = model.transducer.query_realizer
+    query_site = query_reader.query
+    assert query_reader.norm.weight.requires_grad
+    assert query_reader.role_slot.requires_grad
+    assert query_site.output_gain.requires_grad
     assert model.transducer.bank.modulation.requires_grad
 
 

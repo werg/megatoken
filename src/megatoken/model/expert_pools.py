@@ -8,16 +8,16 @@ uses a cached eligible palette with a deterministic site phase.
 
 from __future__ import annotations
 
-import math
 import hashlib
+import math
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
-from typing import Iterator, NamedTuple
+from typing import NamedTuple
 
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
-
 
 _CURRENT_ADAPTER_WEIGHTS: ContextVar[Tensor | None] = ContextVar(
     "megatoken_expert_adapter_weights", default=None
@@ -158,7 +158,9 @@ def _fallback_context(rows: Tensor, adapter_weights: Tensor | None = None) -> Te
     if adapter_weights is not None:
         scope = tuple(adapter_weights.shape[:-1])
         if len(scope) > len(leading) or leading[: len(scope)] != scope:
-            raise ValueError(f"Expert scope prefix {scope} does not align with routed rows {leading}")
+            raise ValueError(
+                f"Expert scope prefix {scope} does not align with routed rows {leading}"
+            )
         reduce_from = len(scope)
     else:
         reduce_from = 1
@@ -177,7 +179,7 @@ class _ExecutedSiteRoute(NamedTuple):
 class _Selector:
     """Balance-training facade over a pool-owned selector parameter set."""
 
-    def __init__(self, pools: "ShapePools", name: str, experts: int, kind: str):
+    def __init__(self, pools: ShapePools, name: str, experts: int, kind: str):
         self.pools, self.name, self.experts, self.kind = pools, name, experts, kind
         self.balance_recorder = None
 
@@ -196,7 +198,7 @@ class _Selector:
 
 
 class _RoutedSite(nn.Module):
-    def _init_site(self, registry: "ShapePools", pool_name: str, prefix: str) -> None:
+    def _init_site(self, registry: ShapePools, pool_name: str, prefix: str) -> None:
         object.__setattr__(self, "_registry", registry)
         self._pool_name = pool_name
         self._site_prefix = prefix
@@ -234,7 +236,9 @@ class _RoutedSite(nn.Module):
     def record_executed(self, route) -> None:
         self._selector.record_executed(route)
 
-    def _route(self, rows: Tensor, *, phase: int | None = None) -> tuple[Tensor, Tensor, Tensor | None]:
+    def _route(
+        self, rows: Tensor, *, phase: int | None = None
+    ) -> tuple[Tensor, Tensor, Tensor | None]:
         plan = _CURRENT_ROUTING_PLAN.get()
         if plan is None or plan.pools is not self._registry:
             # Standalone module calls get a deterministic one-call context.
@@ -244,7 +248,9 @@ class _RoutedSite(nn.Module):
         ids, confidence, features = self._registry._route_rows(
             plan, self._pool_name, self._site_phase if phase is None else phase, rows
         )
-        adapters = _adapter_rows(_CURRENT_ADAPTER_WEIGHTS.get(), tuple(rows.shape[:-1]), rows.device)
+        adapters = _adapter_rows(
+            _CURRENT_ADAPTER_WEIGHTS.get(), tuple(rows.shape[:-1]), rows.device
+        )
         return ids, confidence, adapters
 
 
@@ -255,7 +261,7 @@ class RoutedLinear(_RoutedSite):
         self,
         input_dim: int,
         output_dim: int,
-        registry: "ShapePools",
+        registry: ShapePools,
         pool_name: str,
         prefix: str,
         *,
@@ -308,7 +314,7 @@ class RoutedConv1d(_RoutedSite):
         input_dim: int,
         output_dim: int,
         kernel_size: int,
-        registry: "ShapePools",
+        registry: ShapePools,
         pool_name: str,
         prefix: str,
         *,
@@ -320,7 +326,9 @@ class RoutedConv1d(_RoutedSite):
     ):
         super().__init__()
         if padding_mode != "zeros":
-            raise NotImplementedError(f"RoutedConv1d only supports zero padding, got {padding_mode!r}")
+            raise NotImplementedError(
+                f"RoutedConv1d only supports zero padding, got {padding_mode!r}"
+            )
         if isinstance(padding, str) and padding not in {"same", "valid"}:
             raise ValueError(f"unsupported Conv1d padding: {padding!r}")
         self.input_dim, self.output_dim = input_dim, output_dim
@@ -369,7 +377,9 @@ class RoutedConv1d(_RoutedSite):
 
     def forward(self, x: Tensor) -> Tensor:
         if x.ndim != 3:
-            raise ValueError(f"RoutedConv1d expects [batch, channels, length], got {tuple(x.shape)}")
+            raise ValueError(
+                f"RoutedConv1d expects [batch, channels, length], got {tuple(x.shape)}"
+            )
         if x.shape[1] != self.input_dim:
             raise ValueError(f"RoutedConv1d expected {self.input_dim} channels, got {x.shape[1]}")
         sequence = x.transpose(1, 2)
@@ -396,7 +406,7 @@ class RoutedConv1d(_RoutedSite):
             tap_output = self._bank(padded, ids, confidence, adapter_weights=adapters)
             tap_output = tap_output[..., : self.output_dim]
             result = tap_output if result is None else result + tap_output
-        result = result * (self.kernel_size ** -0.5)
+        result = result * (self.kernel_size**-0.5)
         if self.bias is not None:
             result = result + self.bias.to(result.dtype)
         return result.transpose(1, 2)
@@ -405,7 +415,7 @@ class RoutedConv1d(_RoutedSite):
 class RoutedSwiGLU(_RoutedSite):
     """A SwiGLU-shaped site routed through a shared expert FFN pool."""
 
-    def __init__(self, dim: int, registry: "ShapePools", pool_name: str, prefix: str):
+    def __init__(self, dim: int, registry: ShapePools, pool_name: str, prefix: str):
         super().__init__()
         self.dim = dim
         self._init_site(registry, pool_name, prefix)
@@ -443,7 +453,7 @@ class RoutedGRUCell(_RoutedSite):
         self,
         input_size: int,
         hidden_size: int,
-        registry: "ShapePools",
+        registry: ShapePools,
         input_pool_name: str,
         hidden_pool_name: str,
         prefix: str,
@@ -526,8 +536,8 @@ class ShapePools(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        from .experts import ExpertBank, LinearExpertBank
         from .config import RESERVED_TRACKS
+        from .experts import ExpertBank, LinearExpertBank
 
         self.config = config
         self.facet_dim = config.facet_dim
@@ -543,7 +553,6 @@ class ShapePools(nn.Module):
         self._site_manifest: list[dict[str, object]] = []
         self._exclusions: list[dict[str, str]] = []
         self.pools = nn.ModuleDict()
-        from .experts import ExpertBank, LinearExpertBank
         self._ExpertBank, self._LinearExpertBank = ExpertBank, LinearExpertBank
         self.register_buffer("_pool_anchor", torch.empty(0), persistent=False)
         self.router_bank = self._ExpertBank(
@@ -556,7 +565,9 @@ class ShapePools(nn.Module):
             adapter_rank=self.adapter_rank,
             adapter_topk=config.adapter_topk,
         )
-        self.router_bootstrap_codes = nn.Parameter(torch.empty(self.router_experts, self.router_dim))
+        self.router_bootstrap_codes = nn.Parameter(
+            torch.empty(self.router_experts, self.router_dim)
+        )
         nn.init.normal_(self.router_bootstrap_codes, std=0.02)
         self.max_tracks = int(getattr(config, "max_tracks", 8))
         self.reserved_track_count = len(RESERVED_TRACKS)
@@ -646,7 +657,11 @@ class ShapePools(nn.Module):
         """Return one bootstrap selector and one selector per shared shape pool."""
         return {
             "shape_bootstrap": self.bootstrap_selector,
-            **{f"shape_pool_{name}": selector for name, selector in self._selectors.items() if name != "bootstrap"},
+            **{
+                f"shape_pool_{name}": selector
+                for name, selector in self._selectors.items()
+                if name != "bootstrap"
+            },
         }
 
     def router_features(
@@ -745,7 +760,9 @@ class ShapePools(nn.Module):
             flat,
             ids,
             0.75 + 0.25 * confidence,
-            adapter_weights=None if adapter_rows is None else adapter_rows.reshape(-1, self.adapter_experts),
+            adapter_weights=None
+            if adapter_rows is None
+            else adapter_rows.reshape(-1, self.adapter_experts),
         )
         if not _EXPERT_REPLAY.get():
             self.router_evaluations += 1
@@ -764,7 +781,9 @@ class ShapePools(nn.Module):
             if stage != 0:
                 raise ValueError("Bootstrap selector replay only supports stage 0")
             feature = context.to(self.router_bootstrap_codes.dtype)
-            return (feature.float() @ self.router_bootstrap_codes.float().T / math.sqrt(self.router_dim)).softmax(-1)
+            return (
+                feature.float() @ self.router_bootstrap_codes.float().T / math.sqrt(self.router_dim)
+            ).softmax(-1)
         if stage != 0:
             raise ValueError("Pool selector replay only supports stage 0")
         codes = self.pool_codes[_module_key(selector.name, "codes")]
@@ -828,7 +847,9 @@ class ShapePools(nn.Module):
         """
         active = _CURRENT_ROUTING_PLAN.get()
         if active is None or active.pools is not self:
-            raise RuntimeError("routing_subset requires an active routing epoch from this ShapePools")
+            raise RuntimeError(
+                "routing_subset requires an active routing epoch from this ShapePools"
+            )
         index = torch.as_tensor(indices, device=active.router_features.device, dtype=torch.long)
         if index.ndim != 1 or index.numel() == 0:
             raise ValueError("routing_subset indices must be a non-empty one-dimensional selection")
@@ -892,8 +913,13 @@ class ShapePools(nn.Module):
         ids = palette[:, slots].reshape(-1)
         selected_prob = probabilities.gather(-1, ids.reshape(contexts, per_context))
         confidence = 0.75 + 0.25 * selected_prob
-        if self.selector_for_pool(pool_name).balance_recorder is not None and not _EXPERT_REPLAY.get():
-            route = _ExecutedSiteRoute(ids.detach().reshape(contexts, per_context), features.detach(), 0)
+        if (
+            self.selector_for_pool(pool_name).balance_recorder is not None
+            and not _EXPERT_REPLAY.get()
+        ):
+            route = _ExecutedSiteRoute(
+                ids.detach().reshape(contexts, per_context), features.detach(), 0
+            )
             self.selector_for_pool(pool_name).record_executed(route)
         if not _EXPERT_REPLAY.get():
             self.expert_rows += flat.shape[0]
@@ -940,9 +966,7 @@ class ShapePools(nn.Module):
             bank = self._swiglu_bank(dim)
             pool_name = self._pool_name(bank)
             replacement = RoutedSwiGLU(dim, self, pool_name, path)
-            replacement = replacement.to(
-                device=bank.gate_up.device, dtype=bank.gate_up.dtype
-            )
+            replacement = replacement.to(device=bank.gate_up.device, dtype=bank.gate_up.dtype)
             setattr(parent, name, replacement)
             kind = "swiglu"
             shape = [dim, child.gate_up.out_features // 2]
@@ -1104,16 +1128,21 @@ class ShapePools(nn.Module):
         from .layers import SwiGLU
 
         excluded_roots = {row["site"] for row in self._exclusions}
-        routed_roots = {name for name, child in module.named_modules() if isinstance(child, _RoutedSite)}
+        routed_roots = {
+            name for name, child in module.named_modules() if isinstance(child, _RoutedSite)
+        }
         frozen_roots = {
             name
             for name, child in module.named_modules()
-            if name and (parameters := tuple(child.parameters()))
+            if name
+            and (parameters := tuple(child.parameters()))
             and all(not parameter.requires_grad for parameter in parameters)
         }
         unconverted = []
         for name, child in module.named_modules():
-            if isinstance(child, (RoutedLinear, RoutedConv1d, RoutedSwiGLU, RoutedGRUCell, _RoutedSite)):
+            if isinstance(
+                child, (RoutedLinear, RoutedConv1d, RoutedSwiGLU, RoutedGRUCell, _RoutedSite)
+            ):
                 continue
             if any(name == root or name.startswith(root + ".") for root in excluded_roots):
                 continue
@@ -1122,9 +1151,7 @@ class ShapePools(nn.Module):
             if any(name == root or name.startswith(root + ".") for root in frozen_roots):
                 continue
             if isinstance(child, (nn.Linear, nn.Conv1d, nn.GRUCell, SwiGLU)):
-                unconverted.append(
-                    {"site": name, "kind": type(child).__name__}
-                )
+                unconverted.append({"site": name, "kind": type(child).__name__})
         return {
             "routed": len(tuple(iter_sites(module))),
             "unconverted": tuple(unconverted),
@@ -1175,9 +1202,7 @@ class ShapePools(nn.Module):
             "palette_evaluations": self.palette_evaluations,
             "expert_rows": self.expert_rows,
             "router_bank": self.router_bank.metrics(reset=reset),
-            "shape_pools": {
-                name: bank.metrics(reset=reset) for name, bank in self.pools.items()
-            },
+            "shape_pools": {name: bank.metrics(reset=reset) for name, bank in self.pools.items()},
         }
         if reset:
             self.router_evaluations = 0

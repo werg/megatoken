@@ -266,8 +266,10 @@ def test_every_member_of_a_meridian_has_the_same_rope_time():
     )
     track_ids, _ = multi._track_indices(first, first.frontier_tracks)
     with core.expert_pools.routing_epoch(
-        first.final.mean(2), track_ids=track_ids,
-        role="c", stage=core.config.central_layers,
+        first.final.mean(2),
+        track_ids=track_ids,
+        role="c",
+        stage=core.config.central_layers,
     ):
         expected = core.central.memory(
             first.final.flatten(1, 2),
@@ -280,8 +282,10 @@ def test_every_member_of_a_meridian_has_the_same_rope_time():
     )
     track_ids, _ = multi._track_indices(second, second.frontier_tracks)
     with core.expert_pools.routing_epoch(
-        second.final.mean(2), track_ids=track_ids,
-        role="c", stage=core.config.central_layers,
+        second.final.mean(2),
+        track_ids=track_ids,
+        role="c",
+        stage=core.config.central_layers,
     ):
         expected_next = core.central.memory(
             second.final.flatten(1, 2),

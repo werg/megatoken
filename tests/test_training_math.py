@@ -101,26 +101,35 @@ def test_learning_rules_follow_the_owning_module_not_the_parameter_name():
     ):
         assert (rules[name].lr_multiplier, rules[name].weight_decay) == (0.5, 0.0), name
     # Dense linears keep the full rate and decay even when their name says
-    # "embedding", "vocabulary" or "ngram".
+    # "vocabulary" or "ngram". The n-gram projection is routed now, so its
+    # matrix rule belongs to the unique global pool parameter.
     for name in (
         "decoder.vocabulary.projection.weight",
-        "core.frontend.ngram_projection.weight",
         "core.frontend.ngram_mixture.weight",
     ):
         assert (rules[name].lr_multiplier, rules[name].weight_decay) == (1.0, 0.1), name
-    # Routed query/document sites own their gains; matrices are pooled by
-    # shape, so the optimizer rule belongs to the unique registry owner.
+    # Routed sites own scalar gains; their matrix rule belongs to the unique
+    # registry owner shared by all same-shape linear projections.
     names = set(rules)
     assert "embedding_realizer.query.output_gain" in names
     assert "embedding_realizer.document.output_gain" in names
-    assert any(name.startswith("core.expert_pools.linear_") for name in names)
-    assert rules["embedding_realizer.query.output_gain"].lr_multiplier == 1.0
-    # The control encoder declares slow learning; vectors never decay.
-    assert (
-        rules["core.control_encoder.projection.weight"].lr_multiplier,
-        rules["core.control_encoder.projection.weight"].weight_decay,
-    ) == (0.5, 0.1)
-    assert rules["core.control_encoder.norm.weight"].weight_decay == 0.0
+    pool_parameter = model.core.frontend.ngram_projection._bank.weight
+    pool_name = next(
+        name for name, parameter in model.named_parameters() if id(parameter) == id(pool_parameter)
+    )
+    assert pool_name.startswith("core.expert_pools.pools.linear_")
+    assert (rules[pool_name].lr_multiplier, rules[pool_name].weight_decay) == (1.0, 0.1)
+    query_gain_rule = rules["embedding_realizer.query.output_gain"]
+    assert (query_gain_rule.lr_multiplier, query_gain_rule.weight_decay) == (1.0, 0.0)
+    # SeedControlEncoder declares slow learning. Its local routed gains and
+    # normalization stay at half rate, while the shared projection matrix
+    # above keeps the rule of its unique ShapePools owner.
+    for name in (
+        "core.control_encoder.projection.output_gain",
+        "core.control_encoder.output.output_gain",
+        "core.control_encoder.norm.weight",
+    ):
+        assert (rules[name].lr_multiplier, rules[name].weight_decay) == (0.5, 0.0), name
     assert rules["embedding_realizer.norm.weight"] == rules["embedding_realizer.norm.bias"]
     assert rules["embedding_realizer.norm.bias"].weight_decay == 0.0
 
@@ -251,7 +260,9 @@ def test_shared_expert_pool_has_one_training_owner_and_its_own_clip_domain():
     metrics = optimizer.step(max_norm=0.1)
     assert "gradient_norm_shared" in metrics
     assert "gradient_norm_model" in metrics
-    assert any(id(parameter) == id(pool_parameter) for parameter in optimizer.model_parameters.values())
+    assert any(
+        id(parameter) == id(pool_parameter) for parameter in optimizer.model_parameters.values()
+    )
     optimizer.close()
 
 

@@ -239,10 +239,14 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
     original_step = MultiTrackGenerator.supervised_meridian
 
     def capture(self, state, **kwargs):
-        selected.append((
-            kwargs["teacher_forced_action"], original_step(self, state, **kwargs),
-            state, tuple(kwargs["tracks"]),
-        ))
+        selected.append(
+            (
+                kwargs["teacher_forced_action"],
+                original_step(self, state, **kwargs),
+                state,
+                tuple(kwargs["tracks"]),
+            )
+        )
         return selected[-1][1]
 
     monkeypatch.setattr(MultiTrackGenerator, "supervised_meridian", capture)
@@ -269,9 +273,7 @@ def test_executed_tool_result_uses_teacher_consistent_group_continuation(monkeyp
         ids, lengths = byte_tensor([data], torch.device("cpu"))
         weights = None if adapters is None else adapters.weights[0, :, index]
         with torch.no_grad(), expert_scope(weights):
-            encoded.append(model.core.encode_chunk(
-                ids, lengths, track_ids=track_ids[:, index]
-            ))
+            encoded.append(model.core.encode_chunk(ids, lengths, track_ids=track_ids[:, index]))
     actual = torch.stack(encoded, dim=1)
     torch.testing.assert_close(selected[0][1].state.raw, actual, atol=1e-6, rtol=1e-6)
 

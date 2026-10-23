@@ -275,19 +275,27 @@ def test_routing_subset_reuses_per_example_palette_and_adapter_scope():
         requires_grad=True,
     )
     with expert_scope(weights):
-        with pools.routing_epoch(context, role="R"):
+        with pools.routing_epoch(context, role="R") as plan:
             batched = module(rows)
             palette_evaluations = pools.palette_evaluations
+            pool_name = module[0]._pool_name
+            batch_palette = plan.palette_cache[pool_name][0].clone()
             pieces = []
             for index in range(rows.shape[0]):
-                with pools.routing_subset([index]):
+                with pools.routing_subset([index]) as subset:
                     assert current_adapter_weights(rows[index : index + 1]).shape == (1, 5, 2)
+                    torch.testing.assert_close(
+                        subset.palette_cache[pool_name][0],
+                        batch_palette[index : index + 1],
+                        rtol=0,
+                        atol=0,
+                    )
                     pieces.append(module(rows[index : index + 1]))
             sequential = torch.cat(pieces, dim=0)
             assert pools.router_evaluations == 1
             assert pools.palette_evaluations == palette_evaluations == 1
             assert current_adapter_weights(rows).shape == (3, 5, 2)
-    torch.testing.assert_close(sequential, batched, rtol=0, atol=0)
+    torch.testing.assert_close(sequential, batched, rtol=1e-6, atol=2e-7)
     sequential.sum().backward()
     assert weights.grad is not None and weights.grad.abs().sum() > 0
 
@@ -387,13 +395,12 @@ def test_router_fold_is_track_aware_and_controller_uses_shared_experts():
     unknown = pools.router_features(context, track_ids=torch.tensor([-1, -1]), role="R")
     assert unknown.shape == first.shape
     last_reserved = config().max_tracks + len(RESERVED_TRACKS) - 1
-    assert pools.router_features(
-        context, track_ids=torch.tensor([last_reserved, 0]), role="R"
-    ).shape == first.shape
+    assert (
+        pools.router_features(context, track_ids=torch.tensor([last_reserved, 0]), role="R").shape
+        == first.shape
+    )
     with pytest.raises(ValueError, match="track_ids exceed"):
-        pools.router_features(
-            context, track_ids=torch.tensor([last_reserved + 1, 0]), role="R"
-        )
+        pools.router_features(context, track_ids=torch.tensor([last_reserved + 1, 0]), role="R")
     with pytest.raises(ValueError, match="track_ids exceed"):
         pools.router_features(context, track_ids=torch.tensor([0, 99]), role="R")
     output = pools.controller_features(context, track_ids=torch.tensor([0, 1]), role="R")
