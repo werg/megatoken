@@ -30,6 +30,13 @@ the failed sandboxes: the earlier waves stay up, holding the data the redo needs
 every root is finished (or ``stop`` is run). Sandboxes of waves 1 and 2 wait idle for the
 next wave, so the reconcile and finish hours in the run file are billed for all of them.
 
+With a ``"cache": {"owner": "<Hub account>"}`` block, each finish sandbox also seals its roots
+(AES-256-GCM, key from ``megatoken cache keygen``, delivered to finish sandboxes only, as a
+secret) and uploads them to public dataset repos named by opaque hashes
+(``megatoken.cache``). The launcher then records a *pin* (repo names and commit hashes, no
+secret) and stops every sandbox: the roots outlive them. ``ensure`` is how a training run gets
+its data: if the pin's repos still verify it says "fetch", otherwise it rebuilds the data.
+
 A run with ``"kind": "media"`` prepares the media sources (``data/media_sharding.py``) the same
 way on GPU sandboxes: ingest runs ``scripts/prepare_open_media.py --shard-spec`` (the teacher
 and the codec encode every clip, so each ingest sandbox has a GPU), reconcile is unchanged,
@@ -41,6 +48,7 @@ sandbox the address of its shards' verdicts and runs ``finish`` there; the sandb
 
   python -m megatoken.cloud_prepare plan RUN.json [--dest DIR]  write and validate every job
   python -m megatoken.cloud_prepare launch RUN.json [--repo .] [--hf-token FILE]
+  python -m megatoken.cloud_prepare ensure RUN.json [--pin FILE]  fetch-or-rebuild decision
   python -m megatoken.cloud_prepare status RUN_ID
   python -m megatoken.cloud_prepare stop RUN_ID
 """
@@ -60,7 +68,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from megatoken import cloud
+from megatoken import cache, cloud
 
 SCHEMA = "megatoken.cloud-prepare/1"
 PORT = 8080
@@ -83,6 +91,9 @@ FINISH_STATUS = f"{cloud.WORK}/.cloud/finish-status"
 FINISH_INPUTS = f"{cloud.WORK}/.cloud/finish-inputs.json"
 FINISH_LOG = f"{cloud.WORK}/.cloud/finish.log"
 START_THREADS = 8  # sandboxes created at once
+CACHE_WORK = f"{cloud.WORK}/scratch/cache"  # sealed pieces waiting for upload
+CACHE_OUT = "out/cache"  # the finish sandbox's receipt (repo names and commits only)
+CACHE_RECEIPT = f"{CACHE_OUT}/receipt.json"
 
 
 def is_media(spec: Mapping[str, Any]) -> bool:
@@ -123,6 +134,17 @@ def validate(spec: dict[str, Any]) -> dict[str, Any]:
             raise cloud.CloudError("Media preparation encodes on a GPU: resources.gpu must be 1")
     elif spec["resources"].get("gpu"):
         raise cloud.CloudError("Preparation is CPU-only; drop the gpu")
+    if "cache" in spec:
+        stored = spec["cache"]
+        if media:
+            raise cloud.CloudError("Media assets are not cached: their sources stream from the Hub")
+        if not isinstance(stored, dict) or set(stored) - {"owner", "piece_bytes", "repo_bytes"}:
+            raise cloud.CloudError("cache is {owner, piece_bytes?, repo_bytes?}")
+        if not isinstance(stored.get("owner"), str) or not stored["owner"]:
+            raise cloud.CloudError("cache.owner is the Hub account that owns the repos")
+        for key in ("piece_bytes", "repo_bytes"):
+            if key in stored and (type(stored[key]) is not int or stored[key] < 1):
+                raise cloud.CloudError(f"cache.{key} must be a positive integer")
     if set(spec["hours"]) != {"ingest", "reconcile", "finish"}:
         raise cloud.CloudError("hours is {ingest, reconcile, finish}")
     if not all(0 < float(hours) for hours in spec["hours"].values()):
@@ -252,9 +274,28 @@ def finish_job(
             _HF_TOKEN,
             f"megatoken codec --output {CODEC}",
             f"python -m megatoken.cloud_prepare finish --run {spec_path} --sandbox {sandbox}",
+            *_cache_lines(spec, sandbox),
         ),
-        outputs=[PREPARED, "out/logs"],
+        outputs=[PREPARED, "out/logs", *([CACHE_OUT] if spec.get("cache") else [])],
+        **({"pip": [*spec.get("pip", []), *cache.PIP]} if spec.get("cache") else {}),
     )
+
+
+def _cache_lines(spec: Mapping[str, Any], sandbox: int) -> list[str]:
+    """After finishing: seal this sandbox's roots and upload them. The key is read from the
+    sandbox's secret file by the program itself, so it is on no command line."""
+    stored = spec.get("cache")
+    if not stored:
+        return []
+    command = (
+        f"python -m megatoken.cache store --run-id {spec['id']} --part {sandbox} "
+        f"--owner {stored['owner']} --source {cloud.WORK}/{PREPARED} --work {CACHE_WORK} "
+        f"--receipt {cloud.WORK}/{CACHE_RECEIPT}"
+    )
+    for key, flag in (("piece_bytes", "--piece-bytes"), ("repo_bytes", "--repo-bytes")):
+        if key in stored:
+            command += f" {flag} {stored[key]}"
+    return [command, f"rm -rf {CACHE_WORK}"]
 
 
 def peer_inputs(
@@ -719,12 +760,20 @@ def _finish_in_place(
 
 
 def launch(
-    path: Path, repo: Path, *, hf_token: Path | None = None, poll: float = 300
+    path: Path,
+    repo: Path,
+    *,
+    hf_token: Path | None = None,
+    cache_key: Path | None = None,
+    poll: float = 300,
 ) -> dict[str, Any]:
     """Run the three waves to the end, or resume a recorded run; returns the run record.
 
-    The sandboxes serving the finished roots keep running (training fetches from them);
-    ``stop`` releases them. Waves 1 and 2 are stopped once every root is finished.
+    Without a ``cache`` block the sandboxes serving the finished roots keep running (training
+    fetches from them); ``stop`` releases them. Waves 1 and 2 are stopped once every root is
+    finished. With one, the finish sandboxes also upload their roots, encrypted (the key goes
+    to them alone, as a secret); once every upload is verified the pin is saved and every
+    sandbox is stopped.
     """
     spec = validate(json.loads(path.read_text()))
     spec_path = str(path.resolve().relative_to(repo.resolve()))
@@ -741,7 +790,13 @@ def launch(
         if _run_path(spec["id"]).exists()
         else {"id": spec["id"], "urls": {}, "waves": {wave: {} for wave in WAVES}}
     )
+    if run.get("finished"):
+        return run
     secrets = {"hf-token": token}
+    # Only the finish wave seals data: no other sandbox ever holds the cache key.
+    finish_secrets = dict(secrets)
+    if spec.get("cache"):
+        finish_secrets[cache.SECRET_NAME] = cache.read_key_file(cache_key).hex().encode()
     with tempfile.TemporaryDirectory() as temporary:
         archive = Path(temporary) / "code.tar.gz"
         snapshot = (archive, cloud.code_snapshot(repo, archive))
@@ -783,17 +838,76 @@ def launch(
                         ),
                         spec_path,
                     )
-            _wave(run, "finish", finish, repo, secrets, snapshot, poll)
+            _wave(run, "finish", finish, repo, finish_secrets, snapshot, poll)
+        if spec.get("cache"):
+            run["cache_pin"] = str(_save_pin(spec, waves["finish"]))
     # A media run's ingest sandboxes hold (and serve) the finished roots: only reconcile goes.
+    # A cached run's roots are safe in the Hub repos, so its finish sandboxes go too.
     cloud.stop_all(
         [
             *([] if is_media(spec) else waves["ingest"].values()),
             *waves["reconcile"].values(),
+            *(waves["finish"].values() if spec.get("cache") else []),
         ],
         "every root is finished",
     )
+    run["finished"] = True
+    _save(run)
     cloud.record({"event": "prepare_finished", "run": spec["id"]})
     return run
+
+
+def cache_pin_path(run_id: str) -> Path:
+    """Where the launcher keeps a run's pin (copy it into the repo to share it)."""
+    return RUNS / f"{run_id}.cache-pin.json"
+
+
+def _save_pin(spec: Mapping[str, Any], finish: Mapping[str, str]) -> Path:
+    """Gather each finish sandbox's receipt and write the run's pin. Only now is the data
+    durable: a missing receipt means that sandbox's upload did not complete."""
+    receipts = []
+    for key in sorted(finish, key=int):
+        raw = cloud._attach(finish[key]).read_file(f"{cloud.WORK}/{CACHE_RECEIPT}").result()
+        receipts.append(json.loads(raw))
+    pin = cache.make_pin(spec["id"], receipts)
+    target = cache_pin_path(spec["id"])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(pin, indent=1))
+    return target
+
+
+def ensure(
+    path: Path,
+    repo: Path,
+    *,
+    pin: Path | None = None,
+    hf_token: Path | None = None,
+    cache_key: Path | None = None,
+    api: Any = None,
+    poll: float = 300,
+) -> dict[str, Any]:
+    """Have the run's prepared data stored and verified, rebuilding it if it is not.
+
+    The rule: the pin (``pin``, else the one the last build recorded) is checked against the
+    Hub without downloading the data; if every repo, commit, manifest and piece verifies the
+    answer is ``stored`` and training fetches it (``megatoken.cache fetch``). If there is no pin,
+    the key no longer opens the manifests, or anything is missing or altered, the data is
+    prepared again from the pinned sources (``launch``), which stores and pins it afresh.
+    """
+    spec = validate(json.loads(path.read_text()))
+    if not spec.get("cache"):
+        raise cloud.CloudError(f"{path} has no cache block: nothing is stored to fetch or rebuild")
+    keys = cache.load_keys(cache_key)
+    pin_path = Path(pin) if pin else cache_pin_path(spec["id"])
+    with tempfile.TemporaryDirectory() as scratch:
+        decision = cache.decide(pin_path, keys, api or cache._api(), Path(scratch) / "verify")
+    if decision.mode == "stored":
+        return {"mode": "stored", "pin": str(pin_path), "reason": decision.reason}
+    record = _run_path(spec["id"])
+    if record.exists():  # the old build is spent: start a fresh one rather than resume it
+        record.rename(record.with_name(f"{record.stem}.superseded-{int(time.time())}.json"))
+    run = launch(path, repo, hf_token=hf_token, cache_key=cache_key, poll=poll)
+    return {"mode": "rebuilt", "pin": run["cache_pin"], "reason": decision.reason}
 
 
 def _keep_logs(
@@ -891,6 +1005,13 @@ def main(argv: list[str] | None = None) -> int:
     item.add_argument("run", type=Path)
     item.add_argument("--repo", type=Path, default=Path.cwd())
     item.add_argument("--hf-token", type=Path, help="default ~/.cache/huggingface/token")
+    item.add_argument("--cache-key", type=Path, help=f"default {cache.KEY_FILE}")
+    item = commands.add_parser("ensure", help="fetch-or-rebuild: have the run's data stored")
+    item.add_argument("run", type=Path)
+    item.add_argument("--repo", type=Path, default=Path.cwd())
+    item.add_argument("--pin", type=Path, help="default: the pin the last build recorded")
+    item.add_argument("--hf-token", type=Path, help="default ~/.cache/huggingface/token")
+    item.add_argument("--cache-key", type=Path, help=f"default {cache.KEY_FILE}")
     for name in ("status", "stop"):
         commands.add_parser(name).add_argument("run_id")
     args = parser.parse_args(argv)
@@ -905,7 +1026,11 @@ def main(argv: list[str] | None = None) -> int:
             for path in write_jobs(json.loads(args.run.read_text()), str(args.run), args.dest)
         ]
     elif args.command == "launch":
-        result = launch(args.run, args.repo, hf_token=args.hf_token)
+        result = launch(args.run, args.repo, hf_token=args.hf_token, cache_key=args.cache_key)
+    elif args.command == "ensure":
+        result = ensure(
+            args.run, args.repo, pin=args.pin, hf_token=args.hf_token, cache_key=args.cache_key
+        )
     elif args.command == "status":
         result = status(args.run_id)
     else:

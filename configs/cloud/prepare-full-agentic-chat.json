@@ -24,6 +24,9 @@
  "hours": {
   "ingest": 4,
   "reconcile": 4,
-  "finish": 2
+  "finish": 4
+ },
+ "cache": {
+  "owner": "gabrielpickard"
  }
 }

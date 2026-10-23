@@ -1501,7 +1501,9 @@ waves of sandboxes, each started only when the one before has published its file
 3. **finish**: one fresh machine per group of shards fetches that group's
    `preparation.sqlite` files from its ingest machine and its verdicts, and writes
    `out/prepared/<shard>`. These machines serve `out/prepared` to training like any job
-   with `serve_outputs`.
+   with `serve_outputs`. With a `cache` block in the run file they also seal the roots and
+   upload them to the Hub, after which every sandbox is stopped (see "Keeping the prepared
+   data" below).
 
 `launch` is resumable. If a shard fails twice, its machine's log is kept under
 `~/.local/state/megatoken/cloud/prepare/<id>.logs`, that one machine is stopped, and running
@@ -1590,6 +1592,130 @@ file from the Hub shares one connection among the 14 processes.
 Public media (images, speech, sound, video and edits) is prepared the same way with `"kind": "media"`
 run files on GPU sandboxes (`configs/cloud/prepare-full-media-*.json`); see "Cloud jobs and
 full-volume runs" under "Scaling the media streams" below.
+
+### Keeping the prepared data: an encrypted copy on the Hub
+
+Sandboxes disappear within hours and there is no durable cloud disk or bucket, so a finished
+build would be lost with them. A run file with a `cache` block (`"cache": {"owner":
+"gabrielpickard"}`; the four text run files `prepare-full-agentic`, `-open`, `-agentic-chat` and
+`-agentic-coding` have one) makes every finishing sandbox seal its finished roots and upload
+them to public Hugging Face dataset repos under that account. Every source is stored the same
+way, with no licence split: the copies are encrypted, so what is public is unreadable bytes.
+Code: `src/megatoken/cache.py`; tests: `tests/test_cache.py` (real encryption against a fake
+Hub, no network).
+
+**What is stored.** Each root's files (the shard files, `index.sqlite`, `manifest.json` and the
+reports) but not the working databases (`preparation.sqlite`, `digest.sqlite`), which training
+never reads. A finishing sandbox's files are laid end to end and cut into pieces of exactly
+1 GiB of plaintext (the last piece is padded with zeros), so the pieces are all the same size.
+Each piece is encrypted with AES-256-GCM, 4 MiB at a time, so a multi-GB piece is never held in
+memory. A piece's segments carry their position and the last one is marked, so reordering,
+cutting off or swapping a piece for another file's is detected. The manifest (file paths,
+offsets, the sha256 of every plaintext file and of every encrypted piece) is encrypted the same
+way and padded to a multiple of 1 MiB. File names are `HMAC(key, logical name)` and repo names
+are the same kind of hash (24 hex characters), so nothing in a name says what it holds. The only
+plaintext in a repo is a `README.md`: "Encrypted cache of preprocessed machine-learning training
+data for the megatoken project". There is no source list, no licence and no per-source size.
+Pieces are not tied to sources, so a source's size is not visible.
+
+**What stays visible.** That the account holds these repos, their number and the number of
+equal-sized pieces in each (so each finishing sandbox's total to within 1 GiB) and when they
+were committed. Identical content sealed twice gives identical bytes (the salt is a hash of the
+content, which is what lets a rebuilt sandbox repeat an upload the Hub already holds), so
+equality of two pieces under one key would show; different content never shares a key stream.
+
+**The key.** One random 256-bit key, in a local file only:
+
+```bash
+megatoken cache keygen          # writes ~/.config/megatoken/cache.key (mode 600, 64 hex characters)
+```
+
+`keygen` refuses to overwrite an existing key: replacing it would make everything stored
+under the old one unreadable. The file is refused if other users can read it. Override the
+location with `$MEGATOKEN_CACHE_KEY_FILE` or `--cache-key FILE` on the launchers. The key
+reaches a sandbox only as a secret file (`$MEGATOKEN_CW_SECRETS/cache-key`, like `hf-token`),
+and only in the sandboxes that need it: the finishing sandboxes of a build, and the learners of
+a training run. It is never in a job file, on a command line, in a log, in a commit or in the
+repos. Back it up somewhere other than this machine (a password manager): the stored data
+is only useful with it. The other credential is the Hub token already used for preparation,
+`~/.cache/huggingface/token`, which must be a **write** token for uploading (reading the
+public repos needs none, but sandboxes send it anyway).
+
+**Storing.** `launch` runs as before, and then each finishing sandbox runs
+`python -m megatoken.cache store` on its roots: seal, upload with `upload_large_folder` (the
+429 and 503 retries of `megatoken/hub.py` apply), then check by listing the repo that every
+file is there at its exact size and ciphertext sha256 (the Hub records the hash of large
+files; a small file is downloaded and hashed). The sandbox's receipt carries only repo names
+and commit hashes. When every receipt is in, the launcher writes the **pin**,
+`~/.local/state/megatoken/cloud/prepare/<run id>.cache-pin.json` (repo names and commit hashes,
+no secret; it may be committed), and stops every sandbox, the finishing ones too: the roots no
+longer need them. Resuming is cheap: sealed pieces are kept in the sandbox until stored, the
+upload skips what the Hub holds, and a redone sandbox seals identical bytes. The finishing
+sandbox needs free disk for one more copy of its roots while sealing (up to the per-sandbox
+figure below), and `hours.finish` of these run files is 4 to cover sealing and upload.
+
+**How a training run gets its data (the decision).** `python -m megatoken.cloud_prepare ensure
+RUN.json` (also run by `cloud_diloco launch` when the data is `{"cache": {"run": "RUN.json"}}`):
+
+| situation | answer |
+|---|---|
+| a pin exists and every pinned repo and commit still holds its manifest and every piece at its recorded hash (checked without downloading the data) | **stored**: learners fetch it |
+| no pin has been recorded | **rebuild** |
+| a repo, commit or piece is missing or altered, or the key no longer opens the manifests | **rebuild** |
+| the Hub cannot be reached | error, no guess (a rebuild needs the Hub too) |
+
+A rebuild is `launch` from the pinned sources (the old run record is set aside), which stores and
+pins the result again. Learners then run `python -m megatoken.cache fetch --pin PIN --dest
+/work/data/prepared`: each piece's ciphertext hash is checked before it is opened, each file's
+plaintext hash (from the decrypted manifest) before it gets its name, and a rerun skips files that
+are already there and verified. Any mismatch stops the learner, since training on altered data
+must not start; run `ensure` again to rebuild. A training config can list `/work/data/prepared/*`
+among its `datasets`; a pattern stands for every directory it matches and matching nothing is an
+error. By hand: `megatoken cache verify --pin FILE`, `megatoken cache fetch --pin FILE --dest DIR
+[--part N]`.
+
+**If the key is lost.** The stored copy is unreadable; delete the repos and run `ensure`: with no
+way to verify it, nothing is fetched and the data is rebuilt (the sources are pinned, so the
+rebuild is the same data). Make a new key first (the old file must be moved away by hand). **If
+the key leaks**, every copy ever stored under it is readable by whoever has it, and public
+repos cannot be un-published once copied, so treat what was stored as exposed from then on.
+**To rotate** (do it if the key might have leaked, and delete the old repos right away):
+`megatoken cache keygen --path NEW.key`; with the old key (`MEGATOKEN_CACHE_KEY_FILE=OLD.key`)
+run `megatoken cache fetch --pin OLD.pin --dest /scratch/plain`; with the new one run
+`python -m megatoken.cache store --run-id RUN --part 0 --owner ACCOUNT --source /scratch/plain
+--work /scratch/seal --receipt r.json`, then `python -m megatoken.cache pin r.json --run-id RUN
+--output NEW.pin`; then delete the old repos on the Hub (their names are in the old pin). The new
+key gives new repo names, so the two sets never collide.
+
+**Limits assumed.** Pieces are 1 GiB and a repo holds at most 250 GiB (`cache.piece_bytes` and
+`cache.repo_bytes` in the run file change them), under the Hub's guidance of about 300 GB per
+public repo; a finishing sandbox's repos are its own, so there is no cross-sandbox coordination.
+Not checked against the live service: that the free account may hold this much public data
+(about 52 repos and 1 to 2 TB for the four text runs), the Hub's repo-creation and commit rate
+limits, and its upload speed from the sandboxes. The first real run should be a one-sandbox
+pilot.
+
+**Sizes.** From the file listings (`configs/data/files.*.json`) at the pinned revisions: stored
+bytes are the source files as the Hub holds them; text is that expanded to row text (parquet
+x3, gzip and zstd x4, the sharding plan's factors, minus rows a source's filter drops), an upper
+bound on what is sealed since deduplication and rejects only remove. Prepared roots also hold an
+index, so allow a few percent more; the encrypted size is the text plus under 0.5 percent and up
+to 1 GiB of padding per sandbox.
+
+| run file | sources | sandboxes (= parts) | stored source bytes | sealed text, at most | per sandbox, at most |
+|---|---:|---:|---:|---:|---:|
+| `prepare-full-agentic` | 63 | 16 | 143 GiB | 274 GiB | 17 GiB |
+| `prepare-full-open` | 14 | 8 | 85 GiB | 259 GiB | 32 GiB |
+| `prepare-full-agentic-chat` | 169 | 8 | 95 GiB | 150 GiB | 19 GiB |
+| `prepare-full-agentic-coding` | 358 | 20 | 723 GiB | 1,180 GiB | 59 GiB |
+| all four | 604 | 52 | 1,046 GiB | 1,863 GiB | |
+
+Each part fits in one repo, so a full set is about 52 repos. Pulling a run into a training
+sandbox moves its sealed bytes once; at 100 MB/s that is about 3 minutes per 17 GiB part, so
+a learner that fetches only its share is quick and one that fetches everything (1.9 TB) needs
+about 5 hours at that rate (the speed of the Hub from the sandboxes is not measured), and
+needs that much local disk. `cloud_diloco` restores every part into each learner; pass
+`--part` to `megatoken cache fetch` yourself to restore a share.
 
 ## Causal windows and long-context credit
 

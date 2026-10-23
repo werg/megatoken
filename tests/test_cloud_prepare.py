@@ -8,8 +8,9 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from cache_support import FakeHub
 
-from megatoken import cloud, cloud_prepare
+from megatoken import cache, cloud, cloud_prepare
 from megatoken.data import (
     Episode,
     Lineage,
@@ -217,6 +218,26 @@ def test_ingest_reconcile_and_finish_on_one_machine_remove_cross_shard_duplicate
     roots = [work / "out/prepared" / f"{shard:05d}" for shard in range(2)]
     with PreparedCorpus(roots, split=None) as corpus:
         assert len(corpus) == 13  # 20 documents; seven are copies of another
+    # The roots outlive the sandboxes: sealed, uploaded, and fetched back into a fresh directory.
+    key, hub = cache.Keys(bytes(range(32))), FakeHub()
+    receipt = cache.store(
+        keys=key,
+        api=hub,
+        owner="o",
+        run="unit-prep",
+        part=0,
+        source=work / "out/prepared",
+        work=tmp_path / "sealing",
+        piece_bytes=1 << 16,
+        segment=1 << 12,
+        log=lambda _: None,
+    )
+    restored = tmp_path / "restored"
+    pin = cache.make_pin("unit-prep", [receipt])
+    cache.fetch(keys=key, api=hub, pin=pin, dest=restored, log=lambda _: None)
+    assert not list(restored.rglob("preparation.sqlite"))  # the working store is not kept
+    with PreparedCorpus(sorted(restored.iterdir()), split=None) as corpus:
+        assert len(corpus) == 13
 
 
 def test_the_launcher_refuses_a_run_whose_shards_are_not_pinned(tmp_path):
@@ -297,6 +318,10 @@ class Fleet:
 
         class Sandbox:
             def read_file(self, path):
+                if path.endswith("receipt.json"):  # a finish sandbox's upload receipt
+                    part = int(sandbox_id.rsplit("-", 1)[1])
+                    repos = [{"repo": f"owner/r{part}", "revision": "c" * 40, "volume": 0}]
+                    return Result(json.dumps({"part": part, "repos": repos}).encode())
                 return Result(json.dumps({"files": fleet.files(sandbox_id)}).encode())
 
             def exec(self, argv):
@@ -309,7 +334,7 @@ class Fleet:
         return []
 
 
-def fleet_env(tmp_path, monkeypatch):
+def fleet_env(tmp_path, monkeypatch, **run_overrides):
     repo = tmp_path / "repo"
     (repo / "configs").mkdir(parents=True)
     sources = [
@@ -339,6 +364,7 @@ def fleet_env(tmp_path, monkeypatch):
         sandboxes=2,
         shards_per_sandbox=2,
         processes=2,
+        **run_overrides,
     )
     (repo / "configs/run.json").write_text(json.dumps(spec))
     token = tmp_path / "token"
@@ -410,9 +436,125 @@ def test_a_failed_finish_is_redone_alone_from_the_waves_before_it(tmp_path, monk
 
 def test_a_run_resumes_only_from_the_commit_it_started_at(tmp_path, monkeypatch):
     repo, token, fleet = fleet_env(tmp_path, monkeypatch)
-    cloud_prepare.launch(repo / "configs/run.json", repo, hf_token=token, poll=0)
+    fleet.failing = {"unit-prep-finish-1"}
+    with pytest.raises(cloud.CloudError, match="finish failed in"):
+        cloud_prepare.launch(repo / "configs/run.json", repo, hf_token=token, poll=0)
     monkeypatch.setattr(
         cloud, "code_snapshot", lambda repo, archive: {"commit": "c2", "sha256": "0"}
     )
     with pytest.raises(cloud.CloudError, match="resume from there"):
         cloud_prepare.launch(repo / "configs/run.json", repo, hf_token=token, poll=0)
+
+
+# ---- the encrypted cache -------------------------------------------------------------------
+
+
+def test_a_cached_runs_finish_jobs_seal_and_upload_and_no_other_job_does(tmp_path):
+    spec = cloud_prepare.validate(run_spec(cache={"owner": "someone", "piece_bytes": 1 << 28}))
+    jobs = {
+        path.stem: json.loads(path.read_text())
+        for path in cloud_prepare.write_jobs(spec, "configs/cloud/unit-prep.json", tmp_path)
+    }
+    for name, job in jobs.items():
+        cloud.validate(job)
+        assert ("cache store" in json.dumps(job)) == name.startswith("finish")
+    command = jobs["finish-1"]["command"][2]
+    assert "--part 1" in command and "--owner someone" in command
+    assert "--piece-bytes 268435456" in command and "--repo-bytes" not in command
+    # The key is read from the sandbox's secret file by the program: it is on no command line.
+    assert "KEY" not in command
+    assert "out/cache" in jobs["finish-1"]["outputs"]
+    assert "cryptography>=43,<51" in jobs["finish-1"]["pip"]
+    assert "out/cache" not in jobs["ingest-1"]["outputs"]
+    # The sealed pieces are removed from the sandbox's disk once they are safely uploaded.
+    assert command.index("cache store") < command.index("rm -rf")
+
+
+def test_runs_without_a_cache_block_are_unchanged():
+    spec = cloud_prepare.validate(run_spec())
+    finish = cloud_prepare.finish_job(spec, 0, [], "x.json")
+    assert "cache" not in json.dumps(finish) and finish["outputs"] == ["out/prepared", "out/logs"]
+
+
+@pytest.mark.parametrize(
+    "block",
+    [{}, {"owner": ""}, {"owner": "a", "extra": 1}, {"owner": "a", "piece_bytes": 0}, "x"],
+)
+def test_a_malformed_cache_block_is_rejected(block):
+    with pytest.raises(cloud.CloudError):
+        cloud_prepare.validate(run_spec(cache=block))
+
+
+def test_media_runs_are_not_cached():
+    media = run_spec(kind="media", media_sources="all", cache={"owner": "a"})
+    media["resources"] = {"cpu": "16", "memory": "32Gi", "gpu": 1}
+    with pytest.raises(cloud.CloudError, match="not cached"):
+        cloud_prepare.validate(media)
+
+
+def make_key(tmp_path):
+    path = cache.keygen(tmp_path / "keys" / "cache.key")
+    return path, path.read_text().strip()
+
+
+def test_launch_gives_the_key_to_the_finish_wave_alone_and_pins_the_result(tmp_path, monkeypatch):
+    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"owner": "owner"})
+    key_file, key = make_key(tmp_path)
+    run = cloud_prepare.launch(
+        repo / "configs/run.json", repo, hf_token=token, cache_key=key_file, poll=0
+    )
+    for name, job in fleet.jobs.items():
+        assert key not in json.dumps(job) and "hf_secret" not in json.dumps(job)
+        wanted = ["cache-key", "hf-token"] if "finish" in name else ["hf-token"]
+        assert fleet.secrets[name] == wanted, name
+    pin = cache.load_pin(Path(run["cache_pin"]))
+    assert pin["run"] == "unit-prep" and [p["part"] for p in pin["parts"]] == [0, 1]
+    assert pin["parts"][1]["repos"] == [{"repo": "owner/r1", "revision": "c" * 40}]
+    assert key not in Path(run["cache_pin"]).read_text()
+    # The data is safe in the repos, so every sandbox, the finish ones too, is released.
+    assert len(fleet.stopped) == 5 and set(fleet.stopped) == set(fleet.jobs)
+    again = cloud_prepare.launch(repo / "configs/run.json", repo, hf_token=token, poll=0)
+    assert again["finished"] and len(fleet.stopped) == 5  # nothing is redone
+
+
+def test_a_cached_run_needs_its_key_before_it_starts_anything(tmp_path, monkeypatch):
+    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"owner": "owner"})
+    with pytest.raises(cache.CacheError, match="No cache key"):
+        cloud_prepare.launch(
+            repo / "configs/run.json", repo, hf_token=token, cache_key=tmp_path / "none", poll=0
+        )
+    assert fleet.jobs == {}
+
+
+def test_ensure_fetches_when_the_stored_copy_verifies_and_rebuilds_otherwise(tmp_path, monkeypatch):
+    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"owner": "owner"})
+    key_file, _ = make_key(tmp_path)
+    monkeypatch.setattr(cache, "_api", lambda: object())
+    answers = iter(
+        [
+            cache.Decision("stored", "verifies"),
+            cache.Decision("rebuild", "no pin has been recorded for this run"),
+            cache.Decision("rebuild", "the stored copy does not verify: a piece is missing"),
+        ]
+    )
+    monkeypatch.setattr(cache, "decide", lambda *args: next(answers))
+    run = repo / "configs/run.json"
+
+    def ensure():
+        return cloud_prepare.ensure(run, repo, hf_token=token, cache_key=key_file, poll=0)
+
+    assert ensure()["mode"] == "stored" and fleet.jobs == {}  # nothing was prepared again
+    rebuilt = ensure()
+    assert rebuilt["mode"] == "rebuilt" and "no pin" in rebuilt["reason"]
+    assert Path(rebuilt["pin"]).is_file() and len(fleet.jobs) == 5
+    # A later "rebuild" supersedes the finished record and runs everything again.
+    fleet.jobs.clear()
+    again = ensure()
+    assert again["mode"] == "rebuilt" and len(fleet.jobs) == 5
+    assert list((tmp_path / "state").glob("unit-prep.superseded-*.json"))
+
+
+def test_ensure_refuses_a_run_that_stores_nothing(tmp_path, monkeypatch):
+    repo, token, _ = fleet_env(tmp_path, monkeypatch)
+    with pytest.raises(cloud.CloudError, match="no cache block"):
+        cloud_prepare.ensure(repo / "configs/run.json", repo)

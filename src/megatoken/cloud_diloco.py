@@ -13,7 +13,14 @@ and both roles' resources:
 
 Data is built once in the cloud: ``data.peer`` is a finished ``megatoken.cloud``
 job with ``serve_outputs``, whose outputs every sandbox fetches over HTTPS at
-datacenter speed (``data.inputs`` may instead list ordinary job inputs). The
+datacenter speed (``data.inputs`` may instead list ordinary job inputs).
+``data.cache`` names a ``megatoken.cloud-prepare/1`` run file with a ``cache`` block
+(``{"cache": {"run": "configs/cloud/prepare-full-agentic.json"}}``): the launcher first runs
+``cloud_prepare ensure``, which checks the encrypted copy on the Hub and, if it is missing or
+does not verify, rebuilds the data from the pinned sources. Each learner then downloads,
+verifies and decrypts the pinned copy into ``/work/data/prepared`` before training (the
+training config's ``datasets`` may say ``/work/data/prepared/*``); the cache key and Hub
+token reach learners as secrets only. The
 coordinator serves ``megatoken diloco serve`` on a share-token HTTPS endpoint;
 learners reach it with the share token and a fresh DiLoCo bearer token, both
 delivered as secret files. ``finish`` waits for every learner, stops the
@@ -38,7 +45,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from megatoken import cloud
+from megatoken import cache, cloud, cloud_prepare
 
 SCHEMA = "megatoken.cloud-diloco/1"
 PORT = 8080
@@ -46,6 +53,8 @@ COORDINATOR_ROOT = f"{cloud.WORK}/coordinator"
 EXPORT = "out/export"
 RUN_CONFIG = f"{cloud.WORK}/run/train.json"
 URL_FILE = "run/coordinator-url"  # an input: the URL exists only once the coordinator does
+PIN_FILE = "in/cache-pin.json"  # an input: the pin of the stored data
+DATA_DIR = f"{cloud.WORK}/data/prepared"  # where a learner restores the stored roots
 RUNS = cloud.STATE / "diloco"
 # The coordinator outlives its learners, so it can still export when the last one ends.
 COORDINATOR_EXTRA_HOURS = 2
@@ -64,8 +73,16 @@ def validate(spec: dict[str, Any]) -> dict[str, Any]:
             f"lifetime_hours must be in (0, {720 - COORDINATOR_EXTRA_HOURS}]: "
             f"the coordinator lives {COORDINATOR_EXTRA_HOURS} h longer than the learners"
         )
-    if set(spec["data"]) not in ({"peer", "prefixes"}, {"inputs"}):
-        raise cloud.CloudError("data is {peer, prefixes} or {inputs}")
+    if set(spec["data"]) not in ({"peer", "prefixes"}, {"inputs"}, {"cache"}):
+        raise cloud.CloudError("data is {peer, prefixes}, {inputs} or {cache}")
+    if "cache" in spec["data"]:
+        stored = spec["data"]["cache"]
+        if (
+            not isinstance(stored, dict)
+            or not isinstance(stored.get("run"), str)
+            or set(stored) - {"run", "pin"}
+        ):
+            raise cloud.CloudError("data.cache is {run: a cloud-prepare run file, pin?: a file}")
     if not spec.get("learners", {}).get("resources", {}).get("gpu"):
         raise cloud.CloudError("Learners train on one GPU each")
     return spec
@@ -75,6 +92,8 @@ def data_inputs(data: dict[str, Any]) -> list[dict[str, Any]]:
     """Every pinned data file, as ordinary job inputs (a peer's are fetched from it)."""
     if "inputs" in data:
         return list(data["inputs"])
+    if "cache" in data:
+        return []  # learners restore the stored data themselves, from the Hub
     peer = cloud._attach(data["peer"])
     if peer.exec(["test", "-f", f"{cloud.WORK}/.cloud/outputs-ready"]).result().returncode:
         raise cloud.CloudError(f"{data['peer']} has not finished its outputs")
@@ -134,13 +153,23 @@ def coordinator_job(spec: dict[str, Any], inputs: list[dict[str, Any]]) -> dict[
     }
 
 
+def _restore(spec: dict[str, Any]) -> list[str]:
+    """A learner's first step when the data is stored: fetch, verify and decrypt the pin."""
+    if "cache" not in spec["data"]:
+        return []
+    return [
+        'export HF_TOKEN="$(cat "$MEGATOKEN_CW_SECRETS/hf-token")"',
+        f"python -m megatoken.cache fetch --pin {cloud.WORK}/{PIN_FILE} --dest {DATA_DIR}",
+    ]
+
+
 def learner_job(spec: dict[str, Any], inputs: list[dict[str, Any]], worker: int) -> dict[str, Any]:
     return {
         "id": f"{spec['id']}-learner-{worker}",
         "image": spec["image"],
         "resources": spec["learners"]["resources"],
         "lifetime_hours": spec["lifetime_hours"],
-        "pip": spec.get("pip", []),
+        "pip": [*spec.get("pip", []), *(cache.PIP if "cache" in spec["data"] else [])],
         "inputs": inputs,
         "env": {
             "MEGATOKEN_RUN_CONFIG": spec["config"],
@@ -149,6 +178,7 @@ def learner_job(spec: dict[str, Any], inputs: list[dict[str, Any]], worker: int)
         "command": _shell(
             _TOKEN,
             'export MEGATOKEN_DILOCO_GATEWAY_TOKEN="$(cat "$MEGATOKEN_CW_SECRETS/gateway-token")"',
+            *_restore(spec),
             _derive(spec["workers"]),
             f"megatoken train --config {RUN_CONFIG} --output {cloud.WORK}/out/learner",
         ),
@@ -176,11 +206,36 @@ def _keep_secret(path: Path, value: str) -> None:
         file.write(value)
 
 
-def launch(path: Path, repo: Path, *, ready_timeout: float = 3 * 3600) -> dict[str, Any]:
+def launch(
+    path: Path,
+    repo: Path,
+    *,
+    ready_timeout: float = 3 * 3600,
+    hf_token: Path | None = None,
+    cache_key: Path | None = None,
+) -> dict[str, Any]:
     spec = validate(json.loads(path.read_text()))
     if _run_path(spec["id"]).exists():
         raise cloud.CloudError(f"Run {spec['id']} exists; finish it or choose a new id")
     inputs = data_inputs(spec["data"])
+    learner_secrets: dict[str, bytes] = {}
+    pin = b""
+    if "cache" in spec["data"]:
+        stored = spec["data"]["cache"]
+        # Data stored and verified, or rebuilt first (which can take hours, before any GPU bills).
+        found = cloud_prepare.ensure(
+            repo / stored["run"],
+            repo,
+            pin=Path(stored["pin"]).expanduser() if "pin" in stored else None,
+            hf_token=hf_token,
+            cache_key=cache_key,
+        )
+        print(json.dumps({"data": found}), file=sys.stderr)
+        pin = Path(found["pin"]).read_bytes()
+        learner_secrets = {
+            "hf-token": (hf_token or Path.home() / ".cache/huggingface/token").read_bytes().strip(),
+            cache.SECRET_NAME: cache.read_key_file(cache_key).hex().encode(),
+        }
     token = secrets.token_urlsafe(48)
     _keep_secret(cloud.SECRETS / f"diloco-{spec['id']}.token", token)
     run: dict[str, Any] = {"id": spec["id"], "workers": spec["workers"], "learners": []}
@@ -221,8 +276,15 @@ def launch(path: Path, repo: Path, *, ready_timeout: float = 3 * 3600) -> dict[s
                 learner, _ = cloud.start(
                     learner_job(spec, inputs, worker),
                     repo,
-                    secrets={"diloco-token": token.encode(), "gateway-token": gateway.encode()},
-                    files=lambda sandbox: {URL_FILE: entry["url"].encode()},
+                    secrets={
+                        "diloco-token": token.encode(),
+                        "gateway-token": gateway.encode(),
+                        **learner_secrets,
+                    },
+                    files=lambda sandbox: {
+                        URL_FILE: entry["url"].encode(),
+                        **({PIN_FILE: pin} if pin else {}),
+                    },
                     snapshot=snapshot,
                 )
                 started.append(learner["sandbox_id"])
@@ -295,6 +357,8 @@ def main(argv: list[str] | None = None) -> int:
     item = commands.add_parser("launch")
     item.add_argument("run", type=Path)
     item.add_argument("--repo", type=Path, default=Path.cwd())
+    item.add_argument("--hf-token", type=Path, help="default ~/.cache/huggingface/token")
+    item.add_argument("--cache-key", type=Path, help=f"default {cache.KEY_FILE}")
     item = commands.add_parser("finish")
     item.add_argument("run_id")
     item.add_argument("--dest", type=Path, required=True)
@@ -314,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     # BaseException handler), not leave them billing.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     if args.command == "launch":
-        result: Any = launch(args.run, args.repo)
+        result: Any = launch(args.run, args.repo, hf_token=args.hf_token, cache_key=args.cache_key)
     elif args.command == "finish":
         result = finish(args.run_id, args.dest)
     else:
