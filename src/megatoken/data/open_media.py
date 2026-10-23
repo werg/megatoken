@@ -33,7 +33,9 @@ import json
 import re
 import subprocess
 import tarfile
+import tempfile
 import zipfile
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
@@ -47,9 +49,12 @@ from .concordance import (
     TaskView,
     compile_task,
     edit_chain_view,
+    edit_judging_view,
+    edit_plan_view,
     question_chain_view,
     standard_views,
 )
+from .fetch import FETCH_STATS, Fetcher, download, fetched_records
 from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
 from .schema import Episode, Lineage, Meridian, PhysicalRecord, TrackEvent, TrackSpec
 from .sources import TermsReview
@@ -163,6 +168,8 @@ STREAMS = frozenset(
         "speech_edit",
         "av_creation",
         "av_edit",
+        "edit_judging",
+        "edit_plan",
     )
 )
 
@@ -553,6 +560,107 @@ def chain_episodes(
     )
 
 
+def judging_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any], *, tier: str | None = None
+) -> list[Episode]:
+    """The original, the request and several candidate edits are shown; the verdict is written.
+
+    ``clip["candidates"]`` are the candidate images in the order shown, ``clip["verdict"]`` the
+    judgement (scores and which candidate is best, or a critique).
+    """
+    original = _media(
+        media, _sha(clip["id"], "original"), "original_image", "image", clip["original"]
+    )
+    candidates = [
+        _media(
+            media,
+            _sha(clip["id"], "candidate", str(number)),
+            f"candidate_image_{number}",
+            "image",
+            path,
+            parent_id=original.artifact_id,
+            version="v1",
+            provenance=_provenance(source, "media"),
+        )
+        for number, path in enumerate(clip["candidates"], 1)
+    ]
+    request = _text(
+        source, _sha(clip["id"], "request"), "image_edit_instruction", clip["instruction"]
+    )
+    verdict = _text(source, _sha(clip["id"], "verdict"), "edit_verdict", clip["verdict"])
+    view = edit_judging_view(
+        view_id=f"edit-judging-{len(candidates)}",
+        original=original.artifact_id,
+        instruction=request.artifact_id,
+        candidates=[candidate.artifact_id for candidate in candidates],
+        verdict=verdict.artifact_id,
+    )
+    return compile_bundle(
+        source,
+        f"{source.source_id}:edit-judging:{clip['id']}",
+        clip["family"],
+        [original, request, *candidates, verdict],
+        preprocessing=f"{source.source_id}-edit-judging-v1",
+        tier=tier,
+        views=(view,),
+    )
+
+
+def plan_episodes(
+    media: Preparer,
+    source: OpenSource,
+    kind: str,
+    clip: Mapping[str, Any],
+    *,
+    provenance: str,
+    tier: str | None = None,
+) -> list[Episode]:
+    """The original and the request are shown; the model writes a plan (or tool call) and then
+    renders the edit it describes. ``clip["frames"]`` is the original followed by each step's
+    result and ``clip["plans"]`` each step's plan text; ``kind`` is ``image`` or ``av``."""
+    modality = {"image": "image", "av": "video"}[kind]
+    frames, plans = clip["frames"], clip["plans"]
+    if len(frames) != len(plans) + 1 or not plans:
+        raise ValueError("An edit plan needs one plan per edited version")
+    key = clip["id"]
+    original = _media(media, _sha(key, "frame", "0"), f"original_{kind}", modality, frames[0])
+    request = _text(source, _sha(key, "request"), f"{kind}_edit_instruction", clip["instruction"])
+    artifacts = [original, request]
+    steps = []
+    previous = original.artifact_id
+    for turn, (frame, plan) in enumerate(zip(frames[1:], plans, strict=True), 1):
+        written = _text(source, _sha(key, "plan", str(turn)), f"{kind}_edit_plan_{turn}", plan)
+        result = _media(
+            media,
+            _sha(key, "frame", str(turn)),
+            f"edited_{kind}_{turn}",
+            modality,
+            frame,
+            parent_id=previous,
+            version=f"v{turn}",
+            provenance=provenance,
+        )
+        artifacts += [written, result]
+        steps.append((written.artifact_id, result.artifact_id))
+        previous = result.artifact_id
+    view = edit_plan_view(
+        family="edit_plan",
+        view_id=f"edit-plan-{kind}-{len(steps)}",
+        original=original.artifact_id,
+        instruction=request.artifact_id,
+        steps=steps,
+    )
+    return compile_bundle(
+        source,
+        f"{source.source_id}:{kind}-edit-plan:{key}",
+        clip["family"],
+        artifacts,
+        preprocessing=f"{source.source_id}-{kind}-edit-plan-v1",
+        tier=tier,
+        views=(view,),
+    )
+
+
 DESCRIPTION_FAMILY = {
     "image": "image_description",
     "audio": "audio_description",
@@ -703,6 +811,11 @@ def av_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]) ->
 # --- files: local directory or the pinned Hub revision --------------------------------------
 
 
+def is_web(source: OpenSource) -> bool:
+    """Whether the source is a published site (``repository`` is its base URL), not a Hub dataset."""
+    return source.repository.startswith(("https://", "http://"))
+
+
 class Shards:
     """The files one source's reader may open.
 
@@ -719,8 +832,10 @@ class Shards:
         files: Sequence[str] | None = None,
         stripe: tuple[int, int] | None = None,
         sizes: Mapping[str, int] | None = None,
+        cache: Path | None = None,
     ):
         self.source = source
+        self.cache = cache
         self.shard_slice = shard_slice
         self.files = files
         self.stripe = stripe
@@ -748,6 +863,9 @@ class Shards:
         """
         if self.files is not None and patterns is None:
             return list(self.files)[self.shard_slice[0] :: self.shard_slice[1]]
+        if is_web(self.source) and self.local is None:
+            # A published site has no file listing: ``include`` names its files.
+            return list(patterns or self.source.include)[self.shard_slice[0] :: self.shard_slice[1]]
         found: list[str] = []
         for pattern in patterns or self.source.include:
             if self.local is not None:
@@ -766,6 +884,16 @@ class Shards:
     def open(self, name: str) -> Iterator[BinaryIO]:
         if self.local is not None:
             with (self.local / name).open("rb") as handle:
+                yield handle
+        elif is_web(self.source):
+            # Whole file, fetched once with resume and checked against the pinned digest.
+            root = self.cache or Path(tempfile.gettempdir()) / "megatoken-web-cache"
+            path = download(
+                f"{self.source.repository.rstrip('/')}/{name}",
+                root / self.source.source_id / name,
+                sha256=self.source.options.get("pins", {}).get(name),
+            )
+            with path.open("rb") as handle:
                 yield handle
         else:
             # A file of a committed listing is opened with its known size: no Hub API call
@@ -847,6 +975,17 @@ def _top_level(source: OpenSource) -> list[str]:
         *source.options.get("session", {}).values(),
         *source.options.get("choose", {}).get("candidates", ()),
         *source.options.get("choose", {}).get("scores", ()),
+        *(
+            column
+            for columns in source.options.get("judge", {}).get("scores", {}).values()
+            for column in columns
+        ),
+        *source.options.get("judge", {}).get("overall", ()),
+        *(
+            [source.options["judge"]["reason"]]
+            if "reason" in source.options.get("judge", {})
+            else []
+        ),
     ]
     names = {
         part.split(".")[0] for spec in specs for part in ([spec] if isinstance(spec, str) else spec)
@@ -870,6 +1009,85 @@ def parquet_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, An
                     record["__key__"] = f"{name.removesuffix('.parquet')}:{row}"
                     row += 1
                     yield record
+
+
+def _url(base: str, path: str, strip: str = "") -> str:
+    """A published file's URL: an absolute link as it is, a relative path under ``base``."""
+    if path.startswith(("https://", "http://")):
+        return path
+    return base.rstrip("/") + "/" + path.removeprefix(strip)
+
+
+def _pico_session(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Pico-Banana multi-turn row -> original, each turn's result in order, each turn's request.
+
+    ``files`` lists ``edit_turn1`` ... ``edit_turn(n-1)``, ``final_image`` (the n-th result) and
+    ``original_input_image``; every turn edits the one before it (turn 1 edits the original)."""
+    base, files = source.options["base"], {item["id"]: item["url"] for item in row["files"]}
+    turns = sorted(
+        (name for name in files if name.startswith("edit_turn")), key=lambda n: int(n[9:])
+    )
+    results = [*turns, "final_image"]
+    prompts = row["metadata_edit_turn_prompts"]
+    if "original_input_image" not in files or len(results) != len(prompts):
+        return None
+    first = files[results[0]].rsplit("/", 1)[-1]
+    return {
+        "original": _url(base, files["original_input_image"]),
+        "edited": [_url(base, files[name]) for name in results],
+        "instruction": list(prompts),
+        "id": first.rpartition("_turn")[0] or first,
+    }
+
+
+def _pico_preference(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any]:
+    """Pico-Banana preference row -> the original and its candidates, the chosen edit first
+    (the rejected edits are listed under another folder name)."""
+    base = source.options["base"]
+    return {
+        "original": _url(base, row["open_image_input_url"]),
+        "candidates": [
+            _url(base, row["output_image"]),
+            *(_url(base, path, "nano-banana-300k/") for path in row["rejected_images"]),
+        ],
+        "instruction": row["text"],
+        "id": row["output_image"],
+    }
+
+
+def _pico_edit(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any]:
+    base = source.options["base"]
+    return {
+        "original": _url(base, row["open_image_input_url"]),
+        "edited": _url(base, row["output_image"]),
+        "instruction": row["text"],
+        "id": row["output_image"],
+    }
+
+
+# Table rows whose layout is the publisher's own are reshaped into the columns a task reads.
+ROW_TRANSFORMS: dict[str, Callable[[OpenSource, Mapping[str, Any]], dict[str, Any] | None]] = {
+    "pico_session": _pico_session,
+    "pico_preference": _pico_preference,
+    "pico_edit": _pico_edit,
+}
+
+
+def table_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
+    """Rows of table files (parquet, csv, JSON array or JSON lines), for datasets that name their
+    pictures by URL (``options.fetch``) instead of holding them. ``options.transform`` names a
+    reshaping of each row (``ROW_TRANSFORMS``); a row it cannot reshape is skipped."""
+    transform = (
+        ROW_TRANSFORMS[source.options["transform"]] if "transform" in source.options else None
+    )
+    for name in shards.names():
+        with shards.open(name) as handle:
+            for number, row in enumerate(_table_rows(handle, name, None)):
+                if transform is not None:
+                    row = transform(source, row)
+                    if row is None:
+                        continue
+                yield {**row, "__key__": f"{name}:{number}"}
 
 
 _TEXT_EXTENSIONS = frozenset(("txt", "cls", "caption"))
@@ -1905,6 +2123,15 @@ def _list_label(source: OpenSource, record: Mapping[str, Any], role: str) -> lis
     return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
+def _original_and_edits(source: OpenSource, record: Mapping[str, Any]) -> list[Any]:
+    """The first version (None if it is missing: the edits then have nothing to follow) and
+    each result."""
+    original = _label(source, record, "original")
+    if isinstance(original, (list, tuple)):
+        original = original[0] if original else None
+    return [original, *_list_label(source, record, "edited")]
+
+
 def _chain_inputs(
     source: OpenSource, record: Mapping[str, Any]
 ) -> tuple[list[bytes], list[str]] | None:
@@ -1919,12 +2146,7 @@ def _chain_inputs(
     if "images" in source.columns:
         versions = [blob(item) for item in _list_label(source, record, "images")]
     else:
-        versions = [
-            blob(item)
-            for item in (
-                _list_label(source, record, "original")[:1] + _list_label(source, record, "edited")
-            )
-        ]
+        versions = [blob(item) for item in _original_and_edits(source, record)]
     instructions = [
         _text_value(source, item) for item in _list_label(source, record, "instruction")
     ]
@@ -1993,6 +2215,183 @@ def video_chain_clips(
             path.unlink(missing_ok=True)
     return [
         {"id": clip_id, "family": family, "frames": paths, "instructions": inputs[1][: kept - 1]}
+    ]
+
+
+def _plan_text(source: OpenSource, value: Any) -> str | None:
+    """A plan or tool call as text: written text as it is, a structure (tool calls, settings) as
+    compact JSON."""
+    if isinstance(value, (Mapping, list, tuple)):
+        value = _without_nulls(value)
+        value = json.dumps(value, ensure_ascii=False, separators=(", ", ": ")) if value else None
+    return _text_value(source, value)
+
+
+def _without_nulls(value: Any) -> Any:
+    """A structure without the null fields that a table's common schema adds to every row."""
+    if isinstance(value, Mapping):
+        return {k: _without_nulls(v) for k, v in value.items() if v is not None}
+    if isinstance(value, (list, tuple)):
+        return [_without_nulls(item) for item in value]
+    return value
+
+
+def _plan_inputs(
+    source: OpenSource, record: Mapping[str, Any]
+) -> tuple[list[bytes], str, list[str]] | None:
+    """The versions (original, then each result), the request and each step's plan of one record.
+
+    ``plan`` is one step's plan (a list is the tool calls of that one step) unless
+    ``options.plan_per_step``, where each item is the plan of one result in ``edited``."""
+    if not _accepts(source, record):
+        return None
+    instruction = _text_label(source, record, "instruction")
+    value = _label(source, record, "plan")
+    items = (
+        list(value) if source.options.get("plan_per_step") and isinstance(value, list) else [value]
+    )
+    plans = [_plan_text(source, item) for item in items]
+    versions = [blob(item) for item in _original_and_edits(source, record)]
+    steps = min(len(versions) - 1, len(plans), source.options.get("max_steps", 8))
+    usable = 0
+    while usable < steps and versions[usable + 1] and plans[usable]:
+        usable += 1
+    if instruction is None or usable < 1 or not versions[0]:
+        return None
+    return versions[: usable + 1], instruction, plans[:usable]
+
+
+def image_plan_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """An image edit with the plan (or tool call) written before its result."""
+    inputs = _plan_inputs(source, record)
+    if inputs is None:
+        return []
+    clip_id, family = _identity(source, record)
+    paths = write_image_chain(
+        inputs[0], out, _stem(clip_id), max_side=source.options.get("max_side", MAX_SIDE)
+    )
+    if paths is None:
+        return []
+    return [
+        {
+            "id": clip_id,
+            "family": family,
+            "frames": paths,
+            "instruction": inputs[1],
+            "plans": inputs[2][: len(paths) - 1],
+        }
+    ]
+
+
+def _verdict(source: OpenSource, record: Mapping[str, Any], order: Sequence[int]) -> str | None:
+    """The judgement of the candidates shown in ``order`` (indexes into the source's candidates).
+
+    ``columns.verdict`` is a judgement written out by the publisher. Otherwise the text is built
+    from ``options.judge``: ``scores`` (aspect -> one score column per candidate, with ``outof``
+    the scale's top), ``overall`` (one column per candidate, the winner's basis; else the scores
+    are added) or ``winner`` (the index of the best candidate in the source's list, when the
+    publisher lists the preferred edit first), and ``reason`` (a column of text).
+    """
+    written = _text_label(source, record, "verdict")
+    judge = source.options.get("judge", {})
+    if written is not None:
+        return written
+    letters = [chr(65 + position) for position in range(len(order))]
+    lines = []
+    totals: list[float] = []
+    scores = {
+        aspect: [field_of(record, column) for column in columns]
+        for aspect, columns in judge.get("scores", {}).items()
+    }
+    overall = [field_of(record, column) for column in judge.get("overall", ())]
+    for values in [*scores.values(), overall]:
+        if any(not isinstance(value, (int, float)) for value in values):
+            return None
+    if scores or overall:
+        outof = f" of {judge['outof']}" if "outof" in judge else ""
+        for position, index in enumerate(order):
+            parts = [
+                f"{aspect} {_number(values[index])}{outof}" for aspect, values in scores.items()
+            ]
+            if overall and scores:
+                parts.append(f"overall {_number(overall[index])}{outof}")
+            lines.append(
+                f"Candidate {letters[position]}: "
+                + (", ".join(parts) if parts else f"overall {_number(overall[index])}{outof}")
+                + "."
+            )
+        basis = overall or [sum(values[i] for values in scores.values()) for i in range(len(order))]
+        totals = [basis[index] for index in order]
+        best = max(totals)
+        winners = [letters[position] for position, total in enumerate(totals) if total == best]
+        if len(winners) == len(order):
+            lines.append("Verdict: the candidates are equally good.")
+        elif len(winners) == 1:
+            lines.append(f"Verdict: Candidate {winners[0]} is the better edit.")
+        else:
+            lines.append(f"Verdict: Candidates {' and '.join(winners)} are the best edits.")
+    elif "winner" in judge:
+        winner = letters[list(order).index(judge["winner"])]
+        lines.append(
+            f"Verdict: Candidate {winner} is the better edit."
+            if len(order) == 2
+            else f"Verdict: Candidate {winner} is the best edit; the others are worse."
+        )
+    else:
+        return None
+    reason = _text_value(source, field_of(record, judge["reason"])) if "reason" in judge else None
+    if reason:
+        lines.append(reason)
+    return "\n".join(lines)
+
+
+def _number(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:.1f}"
+
+
+def edit_judging_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """An original, a request and two or more candidate edits with the verdict on them.
+
+    The candidates are shown in a fixed pseudo-random order (by clip id), so the best one is
+    not always first."""
+    if not _accepts(source, record):
+        return []
+    instruction = _text_label(source, record, "instruction")
+    spec = source.columns["candidates"]
+    values = (
+        [locate(record, name) for name in spec]
+        if isinstance(spec, (list, tuple))
+        else _list_label(source, record, "candidates")
+    )
+    images = [blob(_label(source, record, "original")), *(blob(item) for item in values)]
+    if instruction is None or len(images) < 3 or any(image is None for image in images):
+        return []
+    clip_id, family = _identity(source, record)
+    order = sorted(range(len(values)), key=lambda index: _sha(clip_id, "order", str(index)))
+    verdict = _verdict(source, record, order)
+    if verdict is None:
+        return []
+    paths = write_image_chain(
+        [images[0], *(images[1 + index] for index in order)],
+        out,
+        _stem(clip_id),
+        max_side=source.options.get("max_side", MAX_SIDE),
+    )
+    if paths is None or len(paths) != len(images):
+        return []
+    return [
+        {
+            "id": clip_id,
+            "family": family,
+            "original": paths[0],
+            "candidates": paths[1:],
+            "instruction": instruction,
+            "verdict": verdict,
+        }
     ]
 
 
@@ -2129,6 +2528,20 @@ TASKS = {
             media, source, "image", clip, provenance=_provenance(source, "media")
         ),
         image_chain_clips,
+    ),
+    "edit_judging": Task(
+        frozenset({"edit_judging"}),
+        lambda media, source, clip, reference: judging_episodes(
+            media, source, clip, tier=source.options.get("tier")
+        ),
+        edit_judging_clips,
+    ),
+    "image_edit_plan": Task(
+        frozenset({"edit_plan"}),
+        lambda media, source, clip, reference: plan_episodes(
+            media, source, "image", clip, provenance=_provenance(source, "media")
+        ),
+        image_plan_clips,
     ),
     "sound": Task(frozenset({"audio_identity"}), _plain(sound_episodes), sound_clips),
     "av_caption": Task(
@@ -2291,6 +2704,7 @@ CONTAINERS: dict[str, Callable[[OpenSource, Shards], Iterator[dict[str, Any]]]] 
     "webdataset": webdataset_records,
     "archive": archive_records,
     "linked": linked_records,
+    "table": table_records,
 }
 CLIP_READERS: dict[str, Callable[[OpenSource, Shards, Path, int], Iterator[dict[str, Any]]]] = {
     "fleurs": read_fleurs,
@@ -2348,6 +2762,18 @@ def _materialized(source: OpenSource, shards: Shards, out: Path) -> Iterator[dic
         # Every n-th record of all the files: the share of a source too big to divide by file.
         index, count = shards.stripe
         records = (record for number, record in enumerate(records) if number % count == index)
+    if "fetch" in source.options:
+        # The table names its pictures by URL: this sandbox downloads them (see ``fetch.py``),
+        # only for the rows it keeps, and counts every dead link.
+        fetch = source.options["fetch"]
+        fetcher = Fetcher(
+            out.parent / ".fetch-cache",
+            stats=FETCH_STATS.setdefault(source.source_id, Counter()),
+            **fetch.get("limits", {}),
+        )
+        records = fetched_records(
+            records, fetch["fields"], fetcher, workers=fetch.get("workers", 8)
+        )
     for record in records:
         if unique:
             key = field_of(record, unique)
@@ -2424,7 +2850,7 @@ def source_episodes(
     """Every episode of ``count`` clips of one approved source (``files``, ``stripe`` and
     their stored ``sizes``: the part of it that one shard of ``data/media_sharding.py`` reads)."""
     source.terms.require_approval()
-    shards = Shards(source, inputs, shard_slice, files, stripe, sizes)
+    shards = Shards(source, inputs, shard_slice, files, stripe, sizes, cache=work / ".web-cache")
     out = work / source.source_id
     yield from build_episodes(
         media,

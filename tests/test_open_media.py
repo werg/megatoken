@@ -1963,3 +1963,319 @@ def test_samples_numbered_afresh_in_every_tar_get_distinct_ids(tmp_path, media):
     clips = list(read_clips(source, Shards(source, tmp_path / "inputs"), tmp_path / "out", 5))
     assert [clip["id"] for clip in clips] == ["0.tar-000000000", "1.tar-000000000"]
     assert len({clip["family"] for clip in clips}) == 2
+
+
+def _judging_source(**extra):
+    return make_source(
+        "judge",
+        "edit_judging",
+        columns={
+            "original": "source",
+            "instruction": "instruction",
+            "candidates": ["left", "right"],
+            "id": "key",
+        },
+        include=("*.parquet",),
+        options={
+            "judge": {
+                "scores": {
+                    "instruction following": ["left_follow", "right_follow"],
+                    "visual quality": ["left_quality", "right_quality"],
+                },
+                "outof": 4,
+            },
+            **extra,
+        },
+    )
+
+
+def _judging_table(tmp_path, **columns):
+    rows = {
+        "key": ["a", "b"],
+        "source": [{"bytes": _image(1), "path": ""}] * 2,
+        "left": [{"bytes": _image(2), "path": ""}] * 2,
+        "right": [{"bytes": _image(3), "path": ""}] * 2,
+        "instruction": ["add snow", "make it night"],
+        "left_follow": [1, 3],
+        "right_follow": [4, 3],
+        "left_quality": [2, 3],
+        "right_quality": [3, 3],
+    }
+    parquet.write_table(pa.table({**rows, **columns}), _local(tmp_path, "judge") / "0.parquet")
+
+
+def _is_media(record) -> bool:
+    return record.media_type.endswith("media-reference+json")
+
+
+def test_edit_judging_shows_the_original_and_candidates_and_supervises_the_verdict(tmp_path, media):
+    _judging_table(tmp_path)
+    episodes = _run(media, _judging_source(), tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"edit_judging": 2}
+    for episode in episodes:
+        assert [r.policy_mask for r in episode.records].count(True) == 1
+        assert not _is_media(episode.records[-1]) and episode.records[-1].policy_mask
+        # The original and both candidates come before the verdict, none of them supervised.
+        assert sum(_is_media(r) for r in episode.records) == 3
+        assert not any(r.policy_mask for r in episode.records if _is_media(r))
+    verdicts = {e.records[-1].payload.decode() for e in episodes}
+    assert any("Verdict: the candidates are equally good." in v for v in verdicts)
+    best = next(v for v in verdicts if "better edit" in v)
+    assert "instruction following 1 of 4" in best and "instruction following 4 of 4" in best
+    assert best.count("Candidate") == 3
+
+
+def test_edit_judging_keeps_the_best_candidate_in_either_position(tmp_path, media):
+    rows = {
+        "key": [f"k{n}" for n in range(24)],
+        "source": [{"bytes": _image(1), "path": ""}] * 24,
+        "left": [{"bytes": _image(2), "path": ""}] * 24,
+        "right": [{"bytes": _image(3), "path": ""}] * 24,
+        "instruction": ["add snow"] * 24,
+    }
+    source = make_source(
+        "pref",
+        "edit_judging",
+        columns={
+            "original": "source",
+            "instruction": "instruction",
+            "candidates": ["left", "right"],
+            "id": "key",
+        },
+        include=("*.parquet",),
+        options={"judge": {"winner": 0}},
+    )
+    parquet.write_table(pa.table(rows), _local(tmp_path, "pref") / "0.parquet")
+    texts = {
+        e.records[-1].payload.decode()
+        for e in _run(media, source, tmp_path, count=30, inputs=tmp_path / "inputs")
+    }
+    assert texts == {
+        "Verdict: Candidate A is the better edit.",
+        "Verdict: Candidate B is the better edit.",
+    }
+
+
+def test_an_edit_plan_is_written_before_the_result_it_describes(tmp_path, media):
+    source = make_source(
+        "plan",
+        "image_edit_plan",
+        columns={
+            "original": "source",
+            "edited": "result",
+            "instruction": "request",
+            "plan": "tool_calls",
+            "id": "key",
+        },
+        include=("*.parquet",),
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "key": ["p"],
+                "source": [{"bytes": _image(1), "path": ""}],
+                "result": [{"bytes": _image(2), "path": ""}],
+                "request": ["make it warmer"],
+                "tool_calls": [[{"tool": "adjust", "temperature": 12}, {"tool": "export"}]],
+            }
+        ),
+        _local(tmp_path, "plan") / "0.parquet",
+    )
+    (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert episode.stream == "edit_plan"
+    plan = next(r for r in episode.records if r.policy_mask and not _is_media(r))
+    assert plan.payload.decode() == '[{"tool": "adjust", "temperature": 12}, {"tool": "export"}]'
+    assert [r.policy_mask for r in episode.records] == [False, False, True, True]
+    assert [d.kind for d in episode.dependencies] == ["edit"]
+
+
+# --- sources published as URLs (Pico-Banana's layout: tables and pictures on a web site) -------
+
+
+@pytest.fixture
+def pico_site():
+    from web_support import Site
+
+    pictures = {
+        f"/images/{name}.png": _image(number)
+        for number, name in enumerate(
+            [
+                "multi-turn/101_attemptB_turn1",
+                "multi-turn/101_attemptB_turn2",
+                "multi-turn/101_attemptB_turn3",
+                "positive-edit/kf12os_retry2",
+                "rejected-edit/14",
+                "rejected-edit/kf12os_retry1",
+                "positive-edit/1",
+            ],
+            1,
+        )
+    }
+    pictures["/farm8/orig.jpg"] = _image(9, fmt="JPEG")
+    pictures["/farm6/orig.jpg"] = _image(8, fmt="JPEG")
+    site = Site(pictures)
+    base = site.url
+    multi = {
+        "files": [
+            {"id": "edit_turn1", "url": "images/multi-turn/101_attemptB_turn1.png"},
+            {"id": "edit_turn2", "url": "images/multi-turn/101_attemptB_turn2.png"},
+            {"id": "final_image", "url": "images/multi-turn/101_attemptB_turn3.png"},
+            {"id": "original_input_image", "url": f"{base}/farm8/orig.jpg"},
+        ],
+        "metadata_edit_turn_prompts": [
+            "Warm golden tone",
+            "Zoom in on the car",
+            "Comic book style",
+        ],
+    }
+    broken = {
+        **multi,
+        "files": [
+            *multi["files"][:3],
+            {"id": "original_input_image", "url": f"{base}/gone/orig.jpg"},
+        ],
+    }
+    preference = {
+        "output_image": "images/positive-edit/kf12os_retry2.png",
+        "rejected_images": [
+            "nano-banana-300k/images/rejected-edit/14.png",
+            "nano-banana-300k/images/rejected-edit/kf12os_retry1.png",
+        ],
+        "text": "Make the shirt look looser and billowed.",
+        "edit_type": "Change the size/shape/orientation of an object",
+        "open_image_input_url": f"{base}/farm6/orig.jpg",
+        "summarized_text": "Billow the shirt.",
+    }
+    single = {
+        "open_image_input_url": f"{base}/farm8/orig.jpg",
+        "text": "Remove the red flag.",
+        "output_image": "images/positive-edit/1.png",
+        "edit_type": "Remove an existing object",
+        "summarized_text": "Flag removed.",
+    }
+    for name, rows in (("multi", [multi, broken]), ("pref", [preference]), ("sft", [single])):
+        site.files[f"/jsonl/{name}.jsonl"] = (
+            "\n".join(json.dumps(r) for r in rows) + "\n"
+        ).encode()
+    yield site
+    site.close()
+
+
+def _web_source(site, name, task, transform, columns, **options):
+    digest = hashlib.sha256(site.files[f"/jsonl/{name}.jsonl"]).hexdigest()
+    return OpenSource(
+        source_id=f"web_{name}",
+        repository=site.url,
+        revision="web-2026-10-23",
+        reader="table",
+        task=task,
+        terms=TermsReview(True, "CC-BY-NC-ND-4.0", "https://example.org", "Reviewer", "2026-10-22"),
+        include=(f"jsonl/{name}.jsonl",),
+        columns=columns,
+        options={
+            "base": site.url,
+            "transform": transform,
+            "pins": {f"jsonl/{name}.jsonl": digest},
+            **options,
+        },
+    )
+
+
+def test_pico_multi_turn_sessions_are_fetched_and_a_dead_original_is_counted(
+    tmp_path, media, pico_site
+):
+    from megatoken.data.fetch import FETCH_STATS
+
+    source = _web_source(
+        pico_site,
+        "multi",
+        "image_edit_chain",
+        "pico_session",
+        {
+            "original": "original",
+            "edited": "edited",
+            "instruction": "instruction",
+            "id": "id",
+            "family": "original",
+        },
+        fetch={"fields": ["original", "edited.*"], "workers": 2},
+    )
+    episodes = _run(media, source, tmp_path)
+    assert len(episodes) == 1, [(e.stream, len(e.records)) for e in episodes]
+    (episode,) = episodes  # the session whose original photo is gone is skipped
+    assert episode.stream == "image_edit"
+    assert [r.policy_mask for r in episode.records].count(True) == 3
+    assert [d.kind for d in episode.dependencies] == ["edit", "edit", "edit"]
+    stats = FETCH_STATS["web_multi"]
+    assert stats["dead"] == 1 and stats["http_404"] == 1 and stats["rows"] == 2
+    assert stats["rows_with_dead_links"] == 1 and stats["fetched"] >= 4
+    # The table was downloaded once, checked against its pin, and every picture asked for once.
+    assert pico_site.hits["/jsonl/multi.jsonl"] >= 1
+    assert pico_site.hits["/farm8/orig.jpg"] == 1
+
+
+def test_pico_preference_rows_become_judging_episodes_with_the_chosen_edit_among_the_candidates(
+    tmp_path, media, pico_site
+):
+    source = _web_source(
+        pico_site,
+        "pref",
+        "edit_judging",
+        "pico_preference",
+        {
+            "original": "original",
+            "instruction": "instruction",
+            "candidates": "candidates",
+            "id": "id",
+            "family": "original",
+        },
+        fetch={"fields": ["original", "candidates.*"]},
+        judge={"winner": 0},
+    )
+    (episode,) = _run(media, source, tmp_path)
+    assert episode.stream == "edit_judging"
+    # The original and three candidates (one chosen, two rejected) are shown; the verdict follows.
+    assert sum(r.media_type.endswith("media-reference+json") for r in episode.records) == 4
+    verdict = episode.records[-1].payload.decode()
+    assert re.fullmatch(
+        r"Verdict: Candidate [A-C] is the best edit; the others are worse\.", verdict
+    )
+    # The rejected edits' relative paths lose their folder prefix when fetched.
+    assert pico_site.hits["/images/rejected-edit/14.png"] == 1
+
+
+def test_pico_single_edits_use_the_published_instruction(tmp_path, media, pico_site):
+    source = _web_source(
+        pico_site,
+        "sft",
+        "image_edit",
+        "pico_edit",
+        {"original": "original", "edited": "edited", "instruction": "instruction", "id": "id"},
+        fetch={"fields": ["original", "edited"]},
+    )
+    (episode,) = _run(media, source, tmp_path)
+    assert episode.stream == "image_edit"
+    assert episode.records[1].payload == b"Remove the red flag."
+
+
+def test_a_table_cut_short_by_the_server_is_resumed_and_a_wrong_pin_is_refused(tmp_path, pico_site):
+    from web_support import Site
+
+    from megatoken.data.fetch import download
+
+    body = pico_site.files["/jsonl/multi.jsonl"] * 40
+    site = Site({"/t.jsonl": body}, cut=("/t.jsonl",))
+    try:
+        digest = hashlib.sha256(body).hexdigest()
+        path = download(
+            f"{site.url}/t.jsonl", tmp_path / "t.jsonl", sha256=digest, sleep=lambda s: None
+        )
+        assert (
+            path.read_bytes() == body and site.hits["/t.jsonl"] >= 3
+        )  # HEAD, the cut GET, a resume
+        again = download(f"{site.url}/t.jsonl", tmp_path / "t.jsonl", sha256=digest)
+        assert again == path
+        with pytest.raises(OSError, match="pinned"):
+            download(f"{site.url}/t.jsonl", tmp_path / "other.jsonl", sha256="0" * 64)
+    finally:
+        site.close()

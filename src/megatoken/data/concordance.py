@@ -61,6 +61,8 @@ TASK_FAMILIES = frozenset(
         "image_edit",
         "speech_edit",
         "av_edit",
+        "edit_judging",
+        "edit_plan",
         "cross_track_evidence",
     }
 )
@@ -984,6 +986,103 @@ def edit_chain_view(
             )
         )
         relations += [
+            Relation("edit_of", edited, previous),
+            Relation("preserves", edited, previous, preserves_json),
+        ]
+        previous = edited
+    return TaskView(view_id, family, tuple(groups), tuple(relations))
+
+
+def edit_judging_view(
+    *,
+    view_id: str,
+    original: str,
+    instruction: str,
+    candidates: Sequence[str],
+    verdict: str,
+) -> TaskView:
+    """Judging candidate edits: the model is shown the original, the request and two or more
+    candidate results (all observed, none generated) and writes the verdict (which is best, with
+    the scores or critique that justify it). The verdict names every candidate it covers."""
+    if len(candidates) < 2:
+        raise ValueError("Judging needs at least two candidate edits")
+    groups = [
+        group(
+            observed(
+                original, "original", "Observe this exact media version as the edit baseline."
+            ),
+            observed(instruction, "instruction", "Read the edit request that is being judged."),
+            *(
+                observed(candidate, f"candidate_{number}", f"Inspect candidate {chr(64 + number)}.")
+                for number, candidate in enumerate(candidates, 1)
+            ),
+        ),
+        group(
+            generated(
+                verdict,
+                "verdict",
+                "Judge how well each candidate carries out the request and which is best.",
+                reference_artifact_ids=(original, *candidates),
+            )
+        ),
+    ]
+    relations = [Relation("describes", verdict, candidate) for candidate in candidates]
+    return TaskView(view_id, "edit_judging", tuple(groups), tuple(relations))
+
+
+def edit_plan_view(
+    *,
+    family: str,
+    view_id: str,
+    original: str,
+    instruction: str,
+    steps: Sequence[tuple[str, str]],
+    preserves_json: str = "{}",
+) -> TaskView:
+    """Editing by planning: the model is shown the original and the request, writes a plan or
+    tool call, then renders the edited version the plan produces; further steps (a trajectory)
+    plan again from the latest result.
+
+    ``steps`` is each step's ``(plan, edited)`` artifact IDs; the plan text is supervised before
+    its result and every result names the previous one as its exact parent.
+    """
+    if family != "edit_plan" or not steps:
+        raise ValueError("An edit plan needs the edit_plan family and at least one step")
+    groups = [
+        group(
+            observed(
+                original, "original", "Observe this exact media version as the edit baseline."
+            ),
+            observed(instruction, "instruction", "Read the verified edit request."),
+        )
+    ]
+    relations: list[Relation] = []
+    previous = original
+    for turn, (plan, edited) in enumerate(steps, 1):
+        groups.append(
+            group(
+                generated(
+                    plan,
+                    "plan",
+                    "Write the plan or tool call that carries out the request on the latest result.",
+                    revision=turn,
+                    reference_artifact_ids=(previous,),
+                )
+            )
+        )
+        groups.append(
+            group(
+                generated(
+                    edited,
+                    "edited_media",
+                    "Render the edit exactly as the plan describes, preserving unaffected content.",
+                    revision=turn,
+                    reference_artifact_ids=(previous, plan),
+                )
+            )
+        )
+        relations += [
+            Relation("describes", plan, edited),
             Relation("edit_of", edited, previous),
             Relation("preserves", edited, previous, preserves_json),
         ]
