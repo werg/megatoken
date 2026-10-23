@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import csv
 import dataclasses
+import functools
 import glob
 import hashlib
 import io
@@ -1030,6 +1031,44 @@ def _url(base: str, path: str, strip: str = "") -> str:
     return base.rstrip("/") + "/" + path.removeprefix(strip)
 
 
+@functools.lru_cache(maxsize=2)
+def _open_images_index(url: str, sha256: str | None) -> dict[str, str]:
+    """Open Images' table of its pictures' original Flickr file names -> image ids.
+
+    The table (a large CSV) is fetched once per machine into the temporary directory."""
+    path = download(
+        url,
+        Path(tempfile.gettempdir())
+        / "megatoken-web-cache"
+        / "open-images"
+        / PurePosixPath(url).name,
+        sha256=sha256,
+    )
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.reader(handle)
+        header = next(reader)
+        image_id, original = header.index("ImageID"), header.index("OriginalURL")
+        return {
+            row[original].rsplit("/", 1)[-1].split("?")[0]: row[image_id]
+            for row in reader
+            if len(row) > max(image_id, original)
+        }
+
+
+def _original_url(source: OpenSource, url: str) -> str:
+    """Where to fetch a photo that was published as a Flickr link: Open Images keeps its own copy
+    of most of them (``options.originals``: its table, its pin, and the copies' URL pattern), which
+    is online when the Flickr photo is gone and is not rate limited like Flickr; a photo it does
+    not hold stays a Flickr link."""
+    spec = source.options.get("originals")
+    if not spec:
+        return url
+    image_id = _open_images_index(spec["index"], spec.get("pin")).get(
+        url.rsplit("/", 1)[-1].split("?")[0]
+    )
+    return spec["url"].format(id=image_id) if image_id else url
+
+
 def _pico_session(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any] | None:
     """Pico-Banana multi-turn row -> original, each turn's result in order, each turn's request.
 
@@ -1045,7 +1084,7 @@ def _pico_session(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any] 
         return None
     first = files[results[0]].rsplit("/", 1)[-1]
     return {
-        "original": _url(base, files["original_input_image"]),
+        "original": _original_url(source, _url(base, files["original_input_image"])),
         "edited": [_url(base, files[name]) for name in results],
         "instruction": list(prompts),
         "id": first.rpartition("_turn")[0] or first,
@@ -1057,7 +1096,7 @@ def _pico_preference(source: OpenSource, row: Mapping[str, Any]) -> dict[str, An
     (the rejected edits are listed under another folder name)."""
     base = source.options["base"]
     return {
-        "original": _url(base, row["open_image_input_url"]),
+        "original": _original_url(source, _url(base, row["open_image_input_url"])),
         "candidates": [
             _url(base, row["output_image"]),
             *(_url(base, path, "nano-banana-300k/") for path in row["rejected_images"]),
@@ -1070,7 +1109,7 @@ def _pico_preference(source: OpenSource, row: Mapping[str, Any]) -> dict[str, An
 def _pico_edit(source: OpenSource, row: Mapping[str, Any]) -> dict[str, Any]:
     base = source.options["base"]
     return {
-        "original": _url(base, row["open_image_input_url"]),
+        "original": _original_url(source, _url(base, row["open_image_input_url"])),
         "edited": _url(base, row["output_image"]),
         "instruction": row["text"],
         "id": row["output_image"],

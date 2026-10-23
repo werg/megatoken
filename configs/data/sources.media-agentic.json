@@ -127,7 +127,7 @@
     "reviewed_at": "2026-10-23",
     "license": "cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0)",
     "license_url": "https://github.com/apple-aiml-research/pico-banana-400k",
-    "notes": "Pico-Banana-400K preference rows: one accepted edit and one to three rejected edits of a photo, with the (model-written) request; the pictures are fetched from the publisher's web site and the original photos from Flickr."
+    "notes": "Pico-Banana-400K preference rows: one accepted edit and one to three rejected edits of a photo, with the (model-written) request; the pictures are fetched from the publisher's web site and the original photos from Open Images' copies of them."
    },
    "gated": false,
    "include": [
@@ -145,6 +145,11 @@
      "media": "teacher"
     },
     "tier": "model-generated",
+    "originals": {
+     "index": "https://storage.googleapis.com/openimages/2018_04/train/train-images-boxable-with-rotation.csv",
+     "pin": "05f3d68dbbb03728d1a37e51479f4f35c062b871e1a6cae8c4cefbe0e0c80ed0",
+     "url": "https://open-images-dataset.s3.amazonaws.com/train/{id}.jpg"
+    },
     "base": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
     "transform": "pico_preference",
     "pins": {
@@ -170,11 +175,11 @@
    },
    "inventory": {
     "items": 56473,
-    "basis": "published row count; about 13% of rows lose their Flickr original (measured on 60 links)",
+    "basis": "published row count",
     "size_gb": 130.0,
     "candidates": 2.32
    },
-   "caveat": "The rows are read from the publisher's CDN, not the Hub. The accepted edit passed a model judge; there is no numeric score. About 1 in 8 original photos is no longer online."
+   "caveat": "The rows are read from the publisher's CDN, not the Hub, and the original photos from Open Images' copies. The accepted edit passed a model judge; there is no numeric score."
   },
   {
    "source_id": "pico_banana_multi_turn",
@@ -206,6 +211,11 @@
      "media": "teacher"
     },
     "tier": "model-generated",
+    "originals": {
+     "index": "https://storage.googleapis.com/openimages/2018_04/train/train-images-boxable-with-rotation.csv",
+     "pin": "05f3d68dbbb03728d1a37e51479f4f35c062b871e1a6cae8c4cefbe0e0c80ed0",
+     "url": "https://open-images-dataset.s3.amazonaws.com/train/{id}.jpg"
+    },
     "base": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
     "transform": "pico_session",
     "unique": "id",
@@ -233,7 +243,7 @@
     "size_gb": 540.0,
     "turns": 306513
    },
-   "caveat": "Read from the publisher's CDN. A session whose Flickr original is gone is skipped (about 13%); a session loses its turns after a missing picture."
+   "caveat": "Read from the publisher's CDN (originals from Open Images' copies). A session loses its later turns after a missing picture."
   },
   {
    "source_id": "pico_banana_single",
@@ -265,6 +275,11 @@
      "media": "teacher"
     },
     "tier": "model-generated",
+    "originals": {
+     "index": "https://storage.googleapis.com/openimages/2018_04/train/train-images-boxable-with-rotation.csv",
+     "pin": "05f3d68dbbb03728d1a37e51479f4f35c062b871e1a6cae8c4cefbe0e0c80ed0",
+     "url": "https://open-images-dataset.s3.amazonaws.com/train/{id}.jpg"
+    },
     "base": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
     "transform": "pico_edit",
     "unique": "id",
@@ -290,7 +305,7 @@
     "basis": "published rows (257,730; two repeat an output)",
     "size_gb": 379.0
    },
-   "caveat": "Read from the publisher's CDN. Rows whose Flickr original is gone (about 13%) are skipped."
+   "caveat": "Read from the publisher's CDN (originals from Open Images' copies)."
   },
   {
    "source_id": "escher_human_edit_plan",

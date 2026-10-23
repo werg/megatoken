@@ -2483,3 +2483,44 @@ def test_a_judge_conversation_about_one_edit_becomes_pointwise_judging(tmp_path,
     assert "<image>" not in texts[0] and "Editing instruction: Make it snow" in texts[0]
     assert texts[-1] == reply and episode.records[-1].policy_mask
     assert sum(_is_media(r) for r in episode.records) == 2  # the original and the one candidate
+
+
+def test_a_flickr_original_is_fetched_from_open_images_when_it_holds_a_copy(
+    tmp_path, media, pico_site
+):
+    from megatoken.data.open_media import _open_images_index
+
+    _open_images_index.cache_clear()
+    csv_text = (
+        "ImageID,Subset,OriginalURL,OriginalLandingURL\n"
+        f"abc123,train,https://farm3.staticflickr.com/5310/orig.jpg?zz=1,https://flickr.example/1\n"
+        "def456,train,https://c1.staticflickr.com/1/67/other.jpg,https://flickr.example/2\n"
+    )
+    pico_site.files["/oi/index.csv"] = csv_text.encode()
+    pico_site.files["/oi/train/abc123.jpg"] = _image(7, fmt="JPEG")
+    source = _web_source(
+        pico_site,
+        "multi",
+        "image_edit_chain",
+        "pico_session",
+        {
+            "original": "original",
+            "edited": "edited",
+            "instruction": "instruction",
+            "id": "id",
+            "family": "original",
+        },
+        fetch={"fields": ["original", "edited.*"], "workers": 2},
+        originals={
+            "index": f"{pico_site.url}/oi/index.csv",
+            "pin": hashlib.sha256(csv_text.encode()).hexdigest(),
+            "url": f"{pico_site.url}/oi/train/{{id}}.jpg",
+        },
+    )
+    # The table's first original is …/farm8/orig.jpg, whose file name Open Images lists; the
+    # second row's (…/gone/orig.jpg) has the same name, so both come from Open Images.
+    episodes = _run(media, source, tmp_path)
+    assert len(episodes) == 2
+    assert pico_site.hits["/oi/train/abc123.jpg"] == 1  # one copy, kept by content hash
+    assert pico_site.hits["/farm8/orig.jpg"] == 0 and pico_site.hits["/gone/orig.jpg"] == 0
+    _open_images_index.cache_clear()
