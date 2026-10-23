@@ -101,7 +101,11 @@ def test_future_tool_label_cannot_change_the_prior_prediction(tmp_path, monkeypa
         (batch,) = prepare_batches(
             model, [EpisodeWindow(episode, window, TEXT_ONLY_ASSETS)], config
         )
-        trainer = TransducerTrainer(model.transducer)
+        from types import SimpleNamespace
+
+        trainer = TransducerTrainer(
+            model.transducer, teacher_targets=SimpleNamespace(load=forbidden)
+        )
         captured.clear()
         torch.manual_seed(19)
         metrics = forward_meridian_batch(
