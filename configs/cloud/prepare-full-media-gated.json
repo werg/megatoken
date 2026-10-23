@@ -44,6 +44,7 @@
   "gigaspeech": 40,
   "emilia": 40,
   "spgispeech": 40,
-  "ksponspeech": 40
+  "ksponspeech": 40,
+  "finevideo": 40
  }
 }

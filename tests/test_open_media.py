@@ -956,12 +956,9 @@ def test_procedural_edits_follow_the_first_clips_of_speech_sources(tmp_path, med
         _local(tmp_path, "asr") / "0.parquet",
     )
     episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs", procedural=2)
-    assert _streams(episodes) == {
-        "transcription": 3,
-        "audio_identity": 3,
-        "speech_edit": 2,
-        "edit_plan": 2,
-    }
+    streams = _streams(episodes)
+    assert streams.pop("edit_plan", 0) <= 2  # only a sample of speech edits also give a plan
+    assert streams == {"transcription": 3, "audio_identity": 3, "speech_edit": 2}
     assert not list((tmp_path / "work").rglob("*.edited.*"))
 
 

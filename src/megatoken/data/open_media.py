@@ -2473,6 +2473,7 @@ def edit_judging_clips(
     ]
 
 
+SPEECH_PLAN_EVERY = 8  # one speech edit in eight also gives a plan episode
 SPEECH_EDITS = (
     ("Make the speech 6 decibels louder.", ("-af", "volume=6dB,alimiter=limit=0.97")),
     ("Speak 25 percent faster without changing the pitch.", ("-af", "atempo=1.25")),
@@ -2976,20 +2977,19 @@ def build_episodes(
                 yield from edit_episodes(
                     media, source, kind, edit, provenance="executed", tier="procedural"
                 )
-            yield from plan_episodes(
-                media,
-                source,
-                kind,
-                {
+            # Speech edits are as many as the speech edit stream asks for; their plans (a filter
+            # command) are only a sample, so that the plan stream is not mostly audio.
+            if kind != "speech" or int(_sha(clip["id"], "plan"), 16) % SPEECH_PLAN_EVERY == 0:
+                plan = {
                     "id": edit["id"],
                     "family": edit["family"],
                     "frames": [edit["original"], edit["edited"]],
                     "plans": [edit["plan"]],
                     "instruction": edit["instruction"],
-                },
-                provenance="executed",
-                tier="procedural",
-            )
+                }
+                yield from plan_episodes(
+                    media, source, kind, plan, provenance="executed", tier="procedural"
+                )
             edit["edited"].unlink()
         if task.reference:
             # The next clip of this family hears this one as its voice sample.
