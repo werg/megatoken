@@ -11,7 +11,6 @@
     "trainable": "all",
     "scored_decisions": 4,
     "effort": 6,
-    "format_supervision_version": 2,
     "grad_clip": 1.0,
     "weight_decay": 0.1,
     "text_anchor_weight": 0.1

@@ -1,4 +1,4 @@
-"""Deterministic streaming cursors and compatibility batching of episode windows."""
+"""Deterministic streaming cursors for atomic causal episode windows."""
 
 from __future__ import annotations
 
@@ -143,18 +143,6 @@ class WindowStream:
                 "packing_contract": "meridian-atomic-context-windows-v4",
             }
         )
-        # v3 already used the same atomic packing and cursor positions. The v4
-        # label accompanies model context-window controls, whose values are
-        # restored from checkpoint geometry rather than this data cursor.
-        # Do not accept pre-atomic cursor contracts or relax any input identity.
-        self.compatible_v3_fingerprint = content_hash(
-            {
-                "dataset": dataset.identity,
-                "scope": dataset.scope,
-                "window": asdict(config),
-                "packing_contract": "meridian-atomic-decisions-tail-v3",
-            }
-        )
 
     def _episode_index(self) -> int:
         size = len(self.dataset)
@@ -225,7 +213,7 @@ class WindowStream:
 
     def state_dict(self) -> dict[str, Any]:
         return {
-            "version": 2,
+            "version": 3,
             "seed": self.seed,
             "rank": self.rank,
             "world_size": self.world_size,
@@ -245,16 +233,20 @@ class WindowStream:
     def _validate_state_dict(self, value: dict[str, Any]) -> tuple[int, int, int, int]:
         if not isinstance(value, dict):
             raise ValueError("Invalid data cursor; expected an object")
-        sampled = value.get("sampled_source_windows", {})
+        if "sampled_source_windows" not in value or "sampled_history_complete" not in value:
+            raise ValueError(
+                "Missing required sampled source history; restart from a current checkpoint"
+            )
+        sampled = value["sampled_source_windows"]
         if not isinstance(sampled, dict) or any(
             not isinstance(key, str) or not key or type(count) is not int or count < 0
             for key, count in sampled.items()
         ):
             raise ValueError("Invalid sampled source window counts")
-        if type(value.get("sampled_history_complete", False)) is not bool:
+        if type(value["sampled_history_complete"]) is not bool:
             raise ValueError("Invalid sampled source history flag")
         for key, expected in (
-            ("version", 2),
+            ("version", 3),
             ("seed", self.seed),
             ("rank", self.rank),
             ("world_size", self.world_size),
@@ -262,8 +254,6 @@ class WindowStream:
             ("codec_fingerprint", self.codec.fingerprint),
         ):
             actual = value.get(key)
-            if key == "dataset_fingerprint" and actual == self.compatible_v3_fingerprint:
-                continue
             if actual != expected or isinstance(expected, int) and type(actual) is not int:
                 raise ValueError(
                     f"Data cursor mismatch for {key}; exact resume requires the same inputs/topology"
@@ -287,8 +277,8 @@ class WindowStream:
         self.epoch, self.block_start, self.slot, self.block_length = self._validate_state_dict(
             value
         )
-        self.sampled_source_windows = dict(value.get("sampled_source_windows", {}))
-        self.sampled_history_complete = value.get("sampled_history_complete", False)
+        self.sampled_source_windows = dict(value["sampled_source_windows"])
+        self.sampled_history_complete = value["sampled_history_complete"]
         self.local_length = 0
         self._episode = self._assets = self._plan = None
         self._opened = False
@@ -438,7 +428,7 @@ class MixtureWindowStream:
 
     def state_dict(self) -> dict[str, Any]:
         return {
-            "version": 2,
+            "version": 3,
             "kind": "mixture",
             **({"independent": True} if self.independent else {}),
             "mixture": dict(self.mixture),
@@ -451,7 +441,7 @@ class MixtureWindowStream:
         if (
             not isinstance(value, dict)
             or type(value.get("version")) is not int
-            or value.get("version") != 2
+            or value.get("version") != 3
             or value.get("kind") != "mixture"
             or (value.get("independent", False) is True) != self.independent
             or value.get("mixture") != self.mixture

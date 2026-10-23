@@ -14,7 +14,7 @@ import os
 import tempfile
 import time
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -189,6 +189,9 @@ class TransducerHost(CanonicalBank):
 
     def checkpoint_state(self) -> dict:
         state = super().checkpoint_state()
+        from .transducer import HindsightSchedule
+
+        state["schedule"] = asdict(HindsightSchedule())
         if self.supervision is not None:
             state["supervision"] = self.supervision
         return state
@@ -377,7 +380,7 @@ class RankRounds:
         if context.is_primary:
             self.canonical = CanonicalBank(
                 trainer.bank.geometry,
-                evidence_from=trainer.schedule.warmup_steps,
+                evidence_from=trainer.schedule.evidence_steps,
                 frozen=not trainer.bank_trainable,
             )
             self.canonical.bank.load_snapshot(trainer.bank.state_snapshot())
@@ -421,6 +424,7 @@ class RankRounds:
         return {
             **self.canonical.checkpoint_state(),
             "sequences": self.trainer.sequences,
+            "schedule": asdict(self.trainer.schedule),
             "supervision": self.trainer.supervision_identity(),
             "rounds": self.sync.state_dict(),
         }

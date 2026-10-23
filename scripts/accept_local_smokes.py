@@ -23,7 +23,6 @@ from training_fixture import make_episode, tiny_train_config
 from megatoken.contracts import MAIN_TRACK, ROLE_TO_ID
 from megatoken.data import DedupConfig, DedupStore, Episode, Lineage, PhysicalRecord
 from megatoken.data.chunking import ChunkingConfig
-from megatoken.data.legacy_linear import convert_linear_episode
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import sequential_meridians
 from megatoken.data.storage import PreparedDataset, export_prepared
@@ -159,7 +158,7 @@ def mixed(args):
     episodes = [make_episode(778)]
     with args.korean.open() as rows:
         for line in rows:
-            episode = convert_linear_episode(json.loads(line))
+            episode = Episode.from_dict(json.loads(line))
             if any(len(record.payload) > 512 for record in episode.records):
                 continue
             if len(episodes) == 1 and not episode.actions:

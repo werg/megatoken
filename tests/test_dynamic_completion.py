@@ -334,7 +334,9 @@ def test_executed_lifecycle_source_announces_purpose_after_creation_and_keeps_la
     for action in reads.values():
         event = events[action.record_ids[0]]
         assert announced[event.track_id] < positions[event.record_id]
-        assert b"Read" in resolve_event_control(episode, event)
+        purpose = next(r.purpose for r in episode.track_revisions if r.track_id == event.track_id)
+        assert purpose.startswith("Read")
+        assert b"available_input_tracks" not in resolve_event_control(episode, event)
     with pytest.raises(ValueError, match="public announcement"):
         replace(
             episode,

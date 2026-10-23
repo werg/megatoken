@@ -15,6 +15,7 @@ from torch.nn import functional as F
 from megatoken.contracts import DECODER_LOSSES
 from megatoken.model.layers import position_features
 from megatoken.model.state import RealizationContext
+from megatoken.tensors import parameter_dtype
 
 from .distributions import TiedVocabulary
 from .feasibility import wire_overhead_tokens, wire_witness_tokens
@@ -196,7 +197,7 @@ class DeterministicDecoder(nn.Module):
 
     def header(self, context) -> Tensor:
         raw = context if isinstance(context, Tensor) else context.facets
-        dtype = self.header_start.weight.dtype
+        dtype = parameter_dtype(self.header_start)
         return self.header_start(raw.to(dtype).mean(1))
 
     def teacher_raw(self, core, context, plan: PreparedTargets):

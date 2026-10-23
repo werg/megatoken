@@ -58,7 +58,7 @@ import numpy as np
 import torch
 
 from megatoken.contracts import CONVERSATION_PROFILE_VERSION, MAIN_TRACK, ROLE_TO_ID
-from megatoken.controls import build_control_payload
+from megatoken.controls import build_control_payload, build_request_control
 from megatoken.generation.structure import ActionSpec
 from megatoken.io import strict_json_loads
 from megatoken.model.media import MediaOutputSpec
@@ -175,24 +175,39 @@ def _control_text(value: Mapping[str, object], name: str) -> bytes:
 
 
 def _output(
-    value: Mapping[str, object], max_capacity: int, history: list[bytes]
+    value: Mapping[str, object],
+    max_capacity: int,
+    history: list[bytes],
+    *,
+    control_seed: bytes = b"",
+    tools_json_default: str = "[]",
 ) -> tuple[ActionSpec | MediaOutputSpec, bytes]:
     """One requested output: what it may be, and the causal control bytes it is drawn under.
 
     ``history`` is the text the session holds, the public sources a tool call may copy from.
     """
     tools_json = _tools_json(value)
-    structured = {"control_seed", "control_reference", "reference_origin"} & value.keys()
+    structured = {
+        "control_seed",
+        "control_reference",
+        "reference_origin",
+        "instruction",
+        "settings",
+    } & value.keys()
     if "control_b64" in value and structured:
         raise ValueError("provide control_b64 or control_seed/control_reference, not both")
     if "control_b64" in value:
-        control = _bytes(value["control_b64"])
+        control = build_control_payload(seed=control_seed, tools_json=tools_json_default) + _bytes(
+            value["control_b64"]
+        )
     else:
-        control = build_control_payload(
-            seed=_control_text(value, "control_seed"),
+        control = build_request_control(
+            seed=control_seed + _control_text(value, "control_seed"),
+            instruction=value.get("instruction", ""),
+            settings_json=value.get("settings", {}),
             reference=_control_text(value, "control_reference"),
             reference_origin=value.get("reference_origin"),
-            tools_json="[]" if tools_json is None else tools_json,
+            tools_json=tools_json_default if tools_json is None else tools_json,
             reference_event_ids=value.get("reference_event_ids", ()),
         )
     modality = value.get("modality", "text")

@@ -11,7 +11,7 @@ from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
 from .context import DEFAULT_CROSS_EVENTS, DEFAULT_LOCAL_EVENTS
 
-ARCHITECTURE_VERSION = 13
+ARCHITECTURE_VERSION = 16
 # Reserved system track addresses; they share the session equality registry.
 TRANSDUCER_QUERY_TRACK = "__transducer_query__"
 KNOWLEDGE_TRACK = "__transducer_knowledge__"
@@ -277,14 +277,10 @@ class ModelConfig:
         unknown = set(values) - {field.name for field in fields(cls)}
         if unknown:
             raise ValueError(f"Unknown model configuration fields: {sorted(unknown)}")
+        missing = {field.name for field in fields(cls)} - set(values)
+        if missing:
+            raise ValueError(f"Saved model configuration lacks required fields: {sorted(missing)}")
         values = dict(values)
-        if ("context_local_events" in values) != ("context_cross_events" in values):
-            raise ValueError("Saved context configuration must declare both window sizes")
-        # Existing compatible weights keep their original shared-window behavior.
-        # New configurations record asymmetric windows explicitly.
-        if "context_local_events" not in values and "context_cross_events" not in values:
-            values["context_local_events"] = values.get("max_history_chunks", 1024)
-            values["context_cross_events"] = values.get("max_history_chunks", 1024)
         if "ngram_orders" in values:
             values["ngram_orders"] = tuple(values["ngram_orders"])
         return cls(**values)

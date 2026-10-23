@@ -65,20 +65,11 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
     codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
     if codec.fingerprint != manifest["codec_fingerprint"]:
         raise ValueError("Export codec differs from the coordinator")
-    chunking_identity = manifest.get("chunking_identity")
-    if chunking_identity is None:
-        # A legacy/local coordinator may still have its corpus mounted. Derive
-        # the policy from those manifests; never claim an invented default.
-        from megatoken.data import PreparedCorpus
-
-        with PreparedCorpus(config.datasets) as prepared:
-            if manifest.get("dataset_fingerprint") and (
-                prepared.identity != manifest["dataset_fingerprint"]
-            ):
-                raise ValueError("Export corpus differs from the coordinator's dataset")
-            chunking_identity = prepared.chunking
-    else:
-        chunking_identity = ChunkingConfig.from_identity(chunking_identity, codec).identity(codec)
+    if "chunking_identity" not in manifest:
+        raise ValueError("Coordinator snapshot lacks its required chunking identity")
+    chunking_identity = ChunkingConfig.from_identity(manifest["chunking_identity"], codec).identity(
+        codec
+    )
 
     host = TransducerHost(
         root,

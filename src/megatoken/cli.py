@@ -295,7 +295,7 @@ def _diloco_initialize(args):
         token_budget=config.schedule.budget,
         transducer={
             "geometry": dict(vars(model_config.transducer_geometry)),
-            "evidence_from": HindsightSchedule().warmup_steps,
+            "evidence_from": HindsightSchedule().evidence_steps,
             "supervision": supervision,
             "frozen": config.trainable != "all",
         },

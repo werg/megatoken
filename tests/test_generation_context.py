@@ -125,8 +125,8 @@ def test_bootstrap_reconstruction_directly_trains_encoder_and_realizer():
     seed = model.decoder.realizer.seed
     assert seed.output_gain.grad is not None
     assert seed.output_gain.grad.abs().sum() > 0
-    assert seed.router.weight.grad is not None
-    assert seed.router.weight.grad.abs().sum() > 0
+    assert seed.selector.codes.grad is not None
+    assert seed.selector.codes.grad.abs().sum() > 0
     assert seed._bank.weight.grad is not None
     assert seed._bank.weight.grad.abs().sum() > 0
     assert all(p.grad is None for p in model.core.central_parameters())

@@ -107,7 +107,7 @@ def test_diloco_http_carries_transducer_rounds(tmp_path, monkeypatch, single_thr
         token_budget=config.schedule.budget,
         transducer={
             "geometry": dict(vars(model_config.transducer_geometry)),
-            "evidence_from": HindsightSchedule().warmup_steps,
+            "evidence_from": HindsightSchedule().evidence_steps,
         },
         transducer_state={"bank": model.transducer.bank.state_snapshot()},
     )

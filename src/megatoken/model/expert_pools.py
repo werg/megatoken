@@ -19,6 +19,8 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from megatoken.tensors import parameter_dtype
+
 _CURRENT_ADAPTER_WEIGHTS: ContextVar[Tensor | None] = ContextVar(
     "megatoken_expert_adapter_weights", default=None
 )
@@ -185,7 +187,7 @@ class _Selector:
             self.balance_recorder.capture(self, route)
 
     @property
-    def weight(self) -> Tensor:
+    def codes(self) -> Tensor:
         if self.kind == "bootstrap":
             return self.pools.router_bootstrap_codes
         return self.pools.pool_codes[_module_key(self.name, "codes")]
@@ -206,11 +208,18 @@ class _RoutedSite(nn.Module):
     def _selector(self) -> _Selector:
         return self._registry.selector_for_pool(self._pool_name)
 
-    # Compatibility for existing diagnostics; these are non-owning facades,
-    # and no per-site selector weights are registered.
     @property
-    def router(self):
+    def selector(self):
         return self._selector
+
+    @property
+    def bank(self):
+        """The actual shared owner; no representative per-site fake weights."""
+        return self._bank
+
+    @property
+    def parameter_dtype(self):
+        return next(self._bank.parameters()).dtype
 
     @property
     def experts(self) -> int:
@@ -278,11 +287,6 @@ class RoutedLinear(_RoutedSite):
     @property
     def out_features(self) -> int:
         return self.output_dim
-
-    @property
-    def weight(self) -> Tensor:
-        """Representative compatibility view; forward always uses the pool."""
-        return self._bank.weight[0, : self.output_dim, : self.input_dim]
 
     def forward(self, x: Tensor) -> Tensor:
         padded = F.pad(x, (0, self._bank.dim - self.input_dim))
@@ -414,30 +418,11 @@ class RoutedSwiGLU(_RoutedSite):
         self.dim = dim
         self._init_site(registry, pool_name, prefix)
 
-    @property
-    def gate_up(self) -> nn.Module:
-        return _WeightView(self._bank, "gate_up")
-
-    @property
-    def down(self) -> nn.Module:
-        return _WeightView(self._bank, "down")
-
     def forward(self, x: Tensor) -> Tensor:
         padded = F.pad(x, (0, self._bank.dim - self.dim))
         expert_ids, confidence, adapters = self._route(x)
         result = self._bank(padded, expert_ids, confidence, adapter_weights=adapters)
         return result[..., : self.dim]
-
-
-class _WeightView:
-    """Read-only first-expert compatibility view for old dtype/shape probes."""
-
-    def __init__(self, bank: nn.Module, name: str):
-        self.bank, self.name = bank, name
-
-    @property
-    def weight(self) -> Tensor:
-        return getattr(self.bank, self.name)[0]
 
 
 class RoutedGRUCell(_RoutedSite):
@@ -683,7 +668,7 @@ class ShapePools(nn.Module):
             ):
                 raise ValueError("Track semantics must match routing context leading dimensions")
             semantic = self.router_semantic_projection(
-                track_semantics.to(self.router_semantic_projection.weight.dtype)
+                track_semantics.to(parameter_dtype(self.router_semantic_projection))
             )
         role = role.lower()
         roles = {"e": 0, "c": 1, "p": 2, "r": 3, "other": 4}

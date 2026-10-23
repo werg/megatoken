@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from megatoken.model import FacetedCore
 
 
-CONTROL_SCHEMA_VERSION = 1
+CONTROL_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +154,20 @@ def build_control_payload(
             raise ValueError("Event references require distinct nonempty addresses")
         payload += b"\n<event_references>\n" + json.dumps(ids, separators=(",", ":")).encode()
     return payload
+
+
+def build_request_control(*, instruction: str = "", **kwargs) -> bytes:
+    """Public output instructions use the same frame in training and serving.
+
+    Track purposes, roles, history positions and available-input inventories are
+    already part of the causal model state. Do not invent training-only request
+    metadata for them. Only explicit public instructions add a request override.
+    """
+    if not isinstance(instruction, str):
+        raise TypeError("Output instruction must be a string")
+    return build_control_payload(
+        track_override={"instruction": instruction} if instruction else None, **kwargs
+    )
 
 
 def separate_event_references(payload: bytes) -> tuple[bytes, tuple[str, ...]]:
@@ -329,68 +343,31 @@ _DEFAULT_EVENT_INSTRUCTIONS = {
 
 
 def resolve_event_control(episode: object, event: object) -> bytes:
-    """Resolve exact event-time control bytes, never supervision metadata.
+    """Only explicit public request information; byte-identical to serving.
 
-    Precedence: episode seed -> track default -> current event request.
-    The reference IDs designate *already committed* events in shared KV, not
-    hash-string substitutes for extracted voice/image features.
+    Track purpose and revision are already in the shared causal state. History
+    indices and inferred input inventories are not extra request instructions.
     """
     tracks = {track.track_id: track for track in episode.tracks}
     if event.track_id not in tracks:
         raise ValueError("Missing event track descriptor")
-    track = tracks[event.track_id]
-    descriptions = {name: t.description for name, t in tracks.items()}
-    revisions = {}
-    for revision in getattr(episode, "track_revisions", ()):
-        revisions.setdefault(revision.record_id, []).append(revision)
-    available = {}
-    reference_descriptions = {}
-    seen = set()
-    for meridian in episode.meridians:
-        if meridian.meridian_id >= event.meridian_id:
-            break
-        for prior in meridian.events:
-            seen.add(prior.record_id)
-            reference_descriptions[prior.record_id] = {
-                "role": prior.role,
-                "modality": prior.modality,
-                "instruction": prior.instruction or descriptions[prior.track_id],
-                "revision": prior.request_revision,
-            }
-            if prior.role != "assistant":
-                available[prior.track_id] = {
-                    "modality": prior.modality,
-                    "instruction": prior.instruction
-                    or descriptions[prior.track_id]
-                    or _DEFAULT_EVENT_INSTRUCTIONS.get(prior.modality, ""),
-                    "revision": prior.request_revision,
-                }
-        for prior in meridian.events:
-            for revision in revisions.get(prior.record_id, ()):
-                descriptions[revision.track_id] = revision.purpose
+    seen = {
+        prior.record_id
+        for meridian in episode.meridians
+        if meridian.meridian_id < event.meridian_id
+        for prior in meridian.events
+    }
     if any(ref not in seen for ref in event.reference_event_ids):
         raise ValueError("Cannot condition an event on a future reference")
-    settings = strict_json_loads(track.settings_json)
+    settings = strict_json_loads(tracks[event.track_id].settings_json)
     settings.update(strict_json_loads(event.settings_json))
-    instruction = (
-        event.instruction
-        or descriptions[event.track_id]
-        or _DEFAULT_EVENT_INSTRUCTIONS[event.modality]
-    )
-    override = {
-        "instruction": instruction,
-        "revision": event.request_revision,
-        "meridian_id": event.meridian_id,
-        "settings": settings,
-        "references": [reference_descriptions[ref] for ref in event.reference_event_ids],
-        "available_input_tracks": list(available.values()),
-    }
-    return build_control_payload(
+    return build_request_control(
         seed=episode.control_seed,
         reference=episode.control_reference,
         reference_origin=episode.reference_origin,
         tools_json=episode.tools_json,
-        track_override=override,
+        instruction=event.instruction,
+        settings_json=settings,
         reference_event_ids=event.reference_event_ids,
     )
 

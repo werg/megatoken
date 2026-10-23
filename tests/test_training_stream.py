@@ -136,12 +136,20 @@ def test_actual_source_sampling_is_restartable_and_excludes_padding(prepared):
         restarted.load_state_dict(cursor)
         assert item_identity(original.next()) == item_identity(restarted.next())
         assert restarted.state_dict() == original.state_dict()
-        original.load_state_dict(cursor)
-        restarted.load_state_dict(
-            {**cursor, "dataset_fingerprint": restarted.compatible_v3_fingerprint}
+        from dataclasses import asdict
+
+        from megatoken.io import content_hash
+
+        obsolete = content_hash(
+            {
+                "dataset": restarted.dataset.identity,
+                "scope": restarted.dataset.scope,
+                "window": asdict(WINDOWS),
+                "packing_contract": "meridian-atomic-decisions-tail-v3",
+            }
         )
-        assert item_identity(original.next()) == item_identity(restarted.next())
-        assert restarted.state_dict() == original.state_dict()
+        with pytest.raises(ValueError, match="dataset_fingerprint"):
+            restarted.load_state_dict({**cursor, "dataset_fingerprint": obsolete})
         with pytest.raises(ValueError, match="dataset_fingerprint"):
             restarted.load_state_dict(
                 {**cursor, "dataset_fingerprint": "unrelated-dataset-or-packing"}
@@ -154,8 +162,8 @@ def test_actual_source_sampling_is_restartable_and_excludes_padding(prepared):
         legacy = dict(cursor)
         legacy.pop("sampled_source_windows")
         legacy.pop("sampled_history_complete")
-        restarted.load_state_dict(legacy)
-        assert not source_sampling_report([restarted.state_dict()])["complete_history"]
+        with pytest.raises(ValueError, match="Missing required sampled source history"):
+            restarted.load_state_dict(legacy)
     finally:
         original.close()
         restarted.close()

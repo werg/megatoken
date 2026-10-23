@@ -9,6 +9,8 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from megatoken.tensors import parameter_dtype
+
 
 @dataclass(frozen=True)
 class EmbeddingSpec:
@@ -58,7 +60,7 @@ class EmbeddingRealizer(nn.Module):
         # No C, state.final, teacher or source-token alignment is accessed.
         role = 0 if spec.role == "query" else 1
         # Compute in the module's own dtype (bf16 models keep bf16 parameters).
-        dtype = self.address.weight.dtype
+        dtype = parameter_dtype(self.address)
         facets = self.norm(raw.to(dtype) + self.facet_codes[None].to(dtype))
         slot = self.role_slot[role].to(dtype)
         score = (self.address(facets) * slot[None, None]).sum(-1) / math.sqrt(self.width)

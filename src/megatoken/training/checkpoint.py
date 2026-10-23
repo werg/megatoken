@@ -16,7 +16,7 @@ import torch
 
 from megatoken.io import fsync_directory, sha256_file, write_json
 
-FORMAT_VERSION = 13
+FORMAT_VERSION = 16
 
 
 def _pointer(root: Path) -> dict[str, Any] | None:

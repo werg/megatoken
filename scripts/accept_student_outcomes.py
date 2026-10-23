@@ -138,9 +138,15 @@ def main():
     )
     write_json(args.root / "train-config.json", asdict(config))
     first = train(config, resume=str(actor_checkpoint), phase_transition=True)
+    if first["termination"] == "requested":
+        write_json(args.root / "interrupted.json", first)
+        raise SystemExit(130)
     gc.collect()
     checkpoint = args.root / "training/checkpoints/latest.json"
     restarted = train(replace(config, max_steps=2), resume=str(checkpoint))
+    if restarted["termination"] == "requested":
+        write_json(args.root / "interrupted.json", restarted)
+        raise SystemExit(130)
     exported = export_served(checkpoint, args.root / "served", codec_path=config.codec)
     write_json(
         args.root / "acceptance.json",

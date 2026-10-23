@@ -631,7 +631,7 @@ def prepared_corpus_metadata(pin: Mapping[str, Any]) -> dict[str, Any]:
     value = pin.get("prepared_corpus")
     if not isinstance(value, Mapping):
         raise PublishError(
-            "The data pin lacks prepared-corpus metadata; backfill it from verified prepared roots"
+            "The data pin lacks required prepared-corpus metadata; rebuild and republish the pin"
         )
     roots = value.get("roots")
     if not isinstance(roots, list) or not roots:

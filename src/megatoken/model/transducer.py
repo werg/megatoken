@@ -24,6 +24,7 @@ from megatoken.generation.embedding import EmbeddingRealizer, EmbeddingSpec
 from megatoken.memory.transducer import Lookup, Mounted, SearchAgenda, TransducerBank
 from megatoken.memory.transducer_packing import pack_fp4, straight_through
 from megatoken.retrieval.session import SourceSession
+from megatoken.tensors import parameter_dtype
 
 from .adapters import ADAPTER_DROPOUT, AdapterMixture
 from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK
@@ -348,7 +349,7 @@ class NativeTransducer(nn.Module):
 
     def _prefix(self, state: MultiTrackState) -> Tensor:
         """The query-width vector a committed metadata event maps to under E."""
-        pooled = state.final[0, 0].mean(dim=0).to(self.prefix_head.weight.dtype)
+        pooled = state.final[0, 0].mean(dim=0).to(parameter_dtype(self.prefix_head))
         weights = self._event_adapter_weights("e", state, METADATA_TRACK)
         track = state.track_registry.index(METADATA_TRACK)
         track_ids = torch.full((state.batch_size,), track, device=state.device, dtype=torch.long)

@@ -298,18 +298,20 @@ safety. Merely renaming a track or changing physical chunk cuts does not manufac
 a new contract. All forty paired-translation views are retained in the third
 preparation above, with no quarantined rows or discarded duplicates.
 
-Two further training/serving mismatches were found while investigating failed tool
-use. Tool targets had forced tool mode during training, so they did not teach the
-choice between ordinary text and a tool call. Imported alternate tool envelopes
-also shifted canonical tools' positions relative to serving. New supervised runs
-use `format_supervision_version: 2`: both text and tool targets learn the public
-format choice, and every canonical tool retains its serving index before alternate
-envelopes. Legal choices depend only on preceding public information. Saved native
-policy draws retain their original probability contract. Version 1 remains an
-explicit legacy objective; an ordinary checkpoint restart cannot silently change
-it to version 2. Six focused tests verify the actual cross-entropy, nonzero choice
-gradients, exact denominator counts, impossible wire exclusion, checkpoint
-compatibility and canonical tool positions.
+The current training uses the same explicit public requests as serving, and
+teaches both ordinary-text and canonical tool choices against their actual legal
+alternatives. No legacy objective or request mode remains. Imported tool calls
+must be normalized before preparing training data. Selected native actions always
+retain their complete explicit event-to-record bindings.
+
+The current model architecture and checkpoints are version 16, prepared episodes
+and datasets are version 6, and grouped recorded actions are version 19. Older
+artifacts are rejected. There are no schema migrations, inferred saved geometry,
+legacy data cursors, alternate old objectives, or dense-layer compatibility views
+for shared expert modules. Reprepare original sources, recollect native actions,
+rebuild model-bound retrieval data, and train new weights. Ordinary exact restart
+continues to require the unchanged current contract and saved objective.
+
 
 The bounded learned scheduling experiment is reproducible with:
 
@@ -374,3 +376,89 @@ correction, and leaves `whole_plan_complete` and `production_quality_established
 false. Passing software tests, prepared task views, decoded buffers and finished
 optimizer runs must not turn either flag true without the remaining generated
 behavior and quality evidence.
+
+
+### Strict current-contract work
+
+The local experiments listed above are historical diagnostics, not evidence that
+older artifacts can be loaded by current code. New acceptance runs must start with
+new preparation and current weights. Original recordings and unchanged donor assets
+remain reusable only after their own exact identity checks. The repository does not
+support backward compatibility, migration switches, or guessed missing artifact
+metadata. Tests explicitly reject old model configurations, prepared episodes,
+data cursors, action encodings, and native selections without member bindings.
+
+Request construction no longer adds a training-only position number or inferred
+inventory of inputs. Track purposes and causal context are already part of the
+model state; only explicitly available instructions, settings and evidence requests
+become request controls. The ordinary serving and collection interfaces construct
+those same bytes. Shared expert projections expose their actual parameter owners;
+they do not imitate a removed dense-layer interface.
+
+
+### Causal student learning from the first update
+
+The earlier all-teacher warmup made short diagnostic runs depend entirely on
+look-ahead information that serving never receives. It has been removed. Ordinary
+student training reads only the causal bank and available inputs from its first
+window. Tool/lifecycle training and recorded student actions never receive
+look-ahead teacher values. Other supervised data can explicitly enable auxiliary
+teacher windows: one in eight, independently counted as `teacher_assisted_windows`.
+They must not be reported as `causal_student_windows` or as generated student quality.
+
+Policy-only optimization also freezes the sparse memory contents, its writes and
+its growth, in addition to dense encoder/renderer parameters. Exact checkpoint
+restart requires the saved current memory-teaching schedule. Current model and
+checkpoint version 16, grouped action version 19 and native bank identity v12
+reject the superseded model-bound artifacts. Unchanged prepared-data version 6
+and independently pinned donor/source assets retain their own current identities.
+
+The counterfactual regression changes a later tool answer while keeping public
+inputs fixed and requires the earlier prediction to be byte-exact. It also forbids
+executing the future-reading teaching pass during student tool training. A separate
+regression verifies that a populated frozen memory remains unchanged through the
+sparse update boundary.
+
+
+### Current integrated run and strict admission
+
+The current code rejects earlier internal models, prepared episodes, cursors and
+native actions. The older linear-transcript converter has been deleted, including
+its tests and its use in mixed-data acceptance. Rebuild from original sources;
+do not relabel a prepared root or fill in missing model or memory metadata.
+
+Multiple independently prepared roots can now be bound explicitly to the same
+training/restart/export/evaluation run. Their codec, preparation policy and teacher
+identities must agree. The helper rejects an empty held-out evaluation stream.
+For example, replacing every uppercase argument with an actual checked artifact:
+
+```bash
+python scripts/accept_streaming_translation.py \
+  --data SPEECH_ROOT --data EXECUTED_ROOT --data TEXT_AND_CODE_ROOT \
+  --data CONVERSATION_ROOT --data AUDIOVISUAL_ROOT \
+  --packs PINNED_COMPLETE_DONORS --teacher-writer PINNED_WRITER \
+  --model 32x256 --capacity 1024 --precision bf16 \
+  --microbatch-episodes 4 --gradient-checkpointing --expert-backend triton \
+  --root NEW_RUN_ROOT --phase B0 --steps 256 --audio-samples 192000 --visual-output
+```
+
+Teacher preparation writes a new, checked target collection for those exact roots
+and window settings. A fresh process releases the writer before allocating the
+student and media decoders. A later segment can reuse the exact value encoding
+with `--teacher-encoding-from`; changed teacher identity or dimensions are rejected.
+The original donor is an input, never an older student model being upgraded.
+
+The cloud execution receipts are `dynamic-integrated-cloud-deployment-02.json`
+under `/home/werg/megatoken-runs`. Required preparations remain explicit dependencies:
+web text/code, real speech, executed tool tasks, naturally overlapping meetings,
+recorded visual prefixes and paired translation. A failed or absent required
+preparation stops the sequence. The larger meeting command requests sixteen
+nonoverlapping annotated intervals from each of four original meetings, with
+disjoint speaker identities across training and evaluation. This is a requested
+supply size until its preparation report confirms admission.
+
+The current architecture/checkpoint version is 16; grouped actions use version 19
+and native memory uses identity v12. Prepared-data version 6 and unchanged donor
+assets retain their independent current identities. Quality, autonomous execution,
+all-cost neural timing benefits and human review remain required acceptance gates;
+launching this sequence does not establish them.

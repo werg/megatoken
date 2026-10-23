@@ -268,7 +268,6 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "deterministic",
             "gradient_checkpointing",
             "representation_mode",
-            "format_supervision_version",
             "router_balance_mode",
             "trainable",
             "text_anchors",
@@ -277,8 +276,7 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "hindsight_distill_weight",
         )
     for key in critical:
-        default = 1 if key == "format_supervision_version" else None
-        if old.get(key, default) != current.get(key):
+        if key not in old or old[key] != current[key]:
             raise ValueError(
                 f"Resume configuration changed {key}; use an explicit phase transition "
                 "only when the architecture/codec are unchanged"
@@ -1115,6 +1113,11 @@ def train(
             "phase": phase.name,
             "phase_consumed": consumed,
             "complete": consumed >= phase.budget or (diloco is not None and diloco.finished),
+            "termination": "requested"
+            if stop_requested
+            else "budget"
+            if consumed >= phase.budget
+            else "step_limit",
             "checkpoint": last_checkpoint,
             "counters": asdict(counters),
         }

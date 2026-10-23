@@ -14,6 +14,7 @@ import torch
 from torch import Tensor, nn
 
 from megatoken.teacher import HIDDEN_WIDTH
+from megatoken.tensors import parameter_dtype
 
 from .attention import AttentionBranch
 from .config import ModelConfig
@@ -189,7 +190,7 @@ class MediaEncoder(nn.Module):
             role="e",
             adapter_weights=weights,
         ):
-            projected = self.norm(self.projection(features.to(self.projection.weight.dtype)))
+            projected = self.norm(self.projection(features.to(parameter_dtype(self.projection))))
             projected = projected.masked_fill(~mask[..., None], 0)
             # One read of every teacher token by 32 learned queries, then E's
             # shared facet refinement.

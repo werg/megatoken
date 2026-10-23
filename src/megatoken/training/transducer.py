@@ -12,7 +12,7 @@ Serving uses BoundaryScheduler for the same boundary rule.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import torch
 from torch import Tensor
@@ -84,21 +84,15 @@ class BoundaryScheduler:
 
 @dataclass(frozen=True)
 class HindsightSchedule:
-    """Anneal the prepared teacher overlay into ordinary bank retrieval."""
+    """Explicit auxiliary teacher windows; causal student windows begin immediately."""
 
-    warmup_steps: int = 16384
-    overlay_steps: int = 65536
+    evidence_steps: int = 16384
     hindsight_only_every: int = 8
 
     def overlay(self, step: int, sequence: int) -> float:
-        """Weight of h_t in the value and the landing: 1 in warm-up, annealed,
-        then 1 for hindsight-only sequences and 0 for bank-only ones."""
+        """Only one explicitly selected teacher window in eight; no all-teacher warmup."""
         if step < 0 or sequence < 0:
             raise ValueError("Training step and sequence counters must be nonnegative")
-        if step < self.warmup_steps:
-            return 1.0
-        if step < self.warmup_steps + self.overlay_steps:
-            return 1 - (step - self.warmup_steps) / self.overlay_steps
         return 1.0 if sequence % self.hindsight_only_every == 0 else 0.0
 
 
@@ -217,6 +211,7 @@ class TransducerTrainer:
         generator: torch.Generator | None = None,
         mounted: tuple[Mounted, ...] | None = None,
         sources: SourceSession | None = None,
+        teacher_supervision: bool = False,
         memory_eligible: bool | None = None,
     ) -> TransducerSequence:
         """Plan one training window (or a bank-only evaluation window when not training).
@@ -253,7 +248,7 @@ class TransducerTrainer:
             lookups,
             step,
             alpha=self.schedule.overlay(step, sequence)
-            if self.teacher_targets is not None
+            if teacher_supervision and self.teacher_targets is not None
             else 0.0,
             generator=generator,
             mounted=mounted,
@@ -265,8 +260,8 @@ class TransducerTrainer:
     def after_backward(self, step: int) -> dict[str, int]:
         """Hindsight writes, structural evidence and write-out candidates of the window."""
         if not self.bank_trainable:
-            self.records.clear()
-            self.candidates.clear()
+            if self.records or self.candidates:
+                raise RuntimeError("Frozen memory cannot accumulate sparse writes")
             return {"transducer_observed": 0, "transducer_writes": 0}
         g = self.bank.geometry
         writeout_stage = self.teacher_targets is not None
@@ -345,7 +340,7 @@ class TransducerTrainer:
             "transducer_edges": self.bank.edge_count,
         }
         if evolve and step % LOCAL_STEPS == 0:
-            evolution = self.growth.evolve(step, evidence_from=self.schedule.warmup_steps)
+            evolution = self.growth.evolve(step, evidence_from=self.schedule.evidence_steps)
             # No coordinator consumes round increments here; drop them.
             self.growth.begin_round()
             self.growth.discard_round()
@@ -361,7 +356,7 @@ class TransducerTrainer:
             self.bank_trainable
             and not self.bank.learned_values
             and step % SWITCH_EVERY == 0
-            and step >= schedule.warmup_steps + schedule.overlay_steps
+            and step >= schedule.evidence_steps
         )
 
     def record_validation(self, step: int, bank_only_loss: float) -> bool:
@@ -376,6 +371,7 @@ class TransducerTrainer:
         if self.records or self.candidates:
             raise RuntimeError("Only a complete forward/backward/step window is checkpointable")
         return {
+            "schedule": asdict(self.schedule),
             "bank": self.bank.state_snapshot(),
             "optimizer": self.optimizer.state_dict(),
             "growth": self.growth.state_dict(),
@@ -400,14 +396,20 @@ class TransducerTrainer:
         }
 
     def validate_supervision(self, state, *, allow_target_transition=False):
-        prior = state.get("supervision", {})
+        if state.get("schedule") != asdict(self.schedule):
+            raise ValueError("Memory training requires the exact current schedule")
+        if "supervision" not in state:
+            raise ValueError("Memory training requires explicit supervision identity")
+        prior = state["supervision"]
         current = self.supervision_identity()
-        if prior.get("teacher") != current["teacher"]:
+        if not isinstance(prior, dict) or prior.keys() != current.keys():
+            raise ValueError("Memory training requires complete current supervision fields")
+        if prior["teacher"] != current["teacher"]:
             if state["bank"]["rows"]["ids"].numel():
                 raise ValueError(
                     "Checkpoint teacher value identity changed; explicit handover required"
                 )
-        if not allow_target_transition and prior.get("targets") != current["targets"] and prior:
+        if not allow_target_transition and prior["targets"] != current["targets"]:
             raise ValueError("Checkpoint teacher target identity changed during resume")
 
     def load_state_dict(self, state: dict, *, allow_target_transition=False) -> None:
@@ -583,7 +585,7 @@ class TransducerSequence:
         if t == self.question and self.sources is not None:
             self.question_search = self.sources.last
         self.agenda.truncate_credit(CREDIT_GROUPS)
-        if differentiable:
+        if differentiable and self.trainer.bank_trainable:
             for tensor in (lookup.value, lookup.bank_value, lookup.bank_landing_raw):
                 if tensor.requires_grad:
                     tensor.retain_grad()

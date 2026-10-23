@@ -69,7 +69,7 @@ def test_standard_asr_compiles_with_causal_distinct_request(tmp_path):
     assert p0 != p1
     assert b"secret expected transcript" not in p1
     assert b"Transcribe exactly" in p1
-    assert b"Listen to the available source speech" in p1
+    assert b"Listen to the available source speech" not in p1
     assert b"source_speech" not in p1  # opaque address is not an instruction
     assert all(
         "secret expected transcript" not in x for x in (p0.decode("utf-8"), p1.decode("utf-8"))
@@ -306,7 +306,7 @@ def test_image_creation_target_enters_existing_grouped_loss_ledger(tmp_path):
     )
     ledger.finish()
     project = model.media_realizers.packs["sana"].condition.project
-    assert project.router.weight.grad is not None
+    assert project.selector.codes.grad is not None
     assert project._bank.weight.grad is not None
 
 

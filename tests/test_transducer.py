@@ -280,8 +280,8 @@ def test_boundary_plan_starts_after_metadata_and_respects_real_boundaries_and_ca
 
 def test_hindsight_schedule():
     schedule = HindsightSchedule()
-    assert schedule.overlay(100, 3) == 1.0
-    assert schedule.overlay(16384 + 32768, 3) == pytest.approx(0.5)
+    assert schedule.overlay(0, 3) == 0.0
+    assert schedule.overlay(16384 + 32768, 3) == 0.0
     after = 16384 + 65536
     assert schedule.overlay(after, 8) == 1.0 and schedule.overlay(after, 9) == 0.0
 
@@ -290,7 +290,7 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
     model = tiny_model()
     trainer = TransducerTrainer(
         model.transducer,
-        schedule=HindsightSchedule(warmup_steps=4, overlay_steps=4),
+        schedule=HindsightSchedule(evidence_steps=4),
     )
     from types import SimpleNamespace
 
@@ -309,7 +309,9 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
         return observe_text(multi.tracks, state, [payloads[index]], tracks=("x",)).raw
 
     for step in (1, 2):
-        sequence = trainer.sequence(meridians, step=step, generator=torch.Generator())
+        sequence = trainer.sequence(
+            meridians, step=step, generator=torch.Generator(), teacher_supervision=True
+        )
         values = torch.randn(sequence.planned, model.transducer.bank.geometry.value_dim)
         sink = torch.zeros(sequence.planned, dtype=torch.bool)
         sequence.stored = HindsightValues(values, sink)
@@ -329,7 +331,9 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
         if step == 1:
             assert usable and metrics["transducer_writeouts"] == usable
     assert trainer.bank.edge_count > 0
-    restored = TransducerTrainer(tiny_model().transducer, teacher_targets=trainer.teacher_targets)
+    restored = TransducerTrainer(
+        tiny_model().transducer, schedule=trainer.schedule, teacher_targets=trainer.teacher_targets
+    )
     restored.load_state_dict(trainer.state_dict())
     assert restored.bank.edge_ids().tolist() == trainer.bank.edge_ids().tolist()
 

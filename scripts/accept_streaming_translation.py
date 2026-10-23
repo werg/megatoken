@@ -15,11 +15,22 @@ from megatoken.io import write_json
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--data", type=Path, required=True)
+    p.add_argument("--data", type=Path, action="append", required=True)
     p.add_argument("--packs", type=Path)
     p.add_argument("--evaluation-stream", default="streaming_translation")
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--steps", type=int, default=256)
+    p.add_argument("--model", choices=["tiny", "32x256", "32x512"], default="tiny")
+    p.add_argument("--precision", choices=["fp32", "bf16"], default="fp32")
+    p.add_argument("--capacity", type=int, default=512)
+    teacher = p.add_mutually_exclusive_group()
+    teacher.add_argument("--hindsight-targets", type=Path)
+    teacher.add_argument("--teacher-writer", type=Path)
+    p.add_argument("--teacher-encoding-from", type=Path)
+    p.add_argument("--text-anchors", type=Path)
+    p.add_argument("--microbatch-episodes", type=int, default=1)
+    p.add_argument("--evaluation-episodes", type=int, default=4)
+    p.add_argument("--gradient-checkpointing", action="store_true")
     p.add_argument("--phase", choices=["B0", "P1", "MB"], default="B0")
     p.add_argument("--budget", type=int)
     p.add_argument("--resume", type=Path)
@@ -31,26 +42,36 @@ def main():
         help="Declare image/video outputs at 256x192, nine video frames, 8 fps and four decoder steps",
     )
     p.add_argument("--device", default="cuda")
-    p.add_argument("--_stage", default="train", choices=["train", "restart", "export", "evaluate"])
+    p.add_argument(
+        "--_stage", default="train", choices=["train", "optimize", "restart", "export", "evaluate"]
+    )
     args = p.parse_args()
+    if min(args.steps, args.microbatch_episodes, args.evaluation_episodes) < 1:
+        p.error("Training steps, batch size and evaluation count must be positive")
+    if args.capacity < 512:
+        p.error("Capacity must accommodate the declared 512-token generation bound")
+    if args.teacher_encoding_from is not None and args.teacher_writer is None:
+        p.error("Reusing an exact teacher encoding requires --teacher-writer")
     from megatoken.training.config import TrainConfig
 
     config = TrainConfig(
         purpose="diagnostic",
-        model="tiny",
+        model=args.model,
         phase=args.phase,
         trainable="media_bridge" if args.phase == "MB" else "all",
         budget=args.budget,
-        datasets=[str(args.data)],
+        datasets=[str(path) for path in args.data],
         output=str(args.root / "training"),
         codec="byte",
         allow_byte_codec=True,
         device=args.device,
-        precision="fp32",
+        precision=args.precision,
         packs=None if args.packs is None else str(args.packs),
-        model_overrides={"max_capacity": 512},
+        model_overrides={"max_capacity": args.capacity, "vocab_size": 256},
+        hindsight_targets=None if args.hindsight_targets is None else str(args.hindsight_targets),
+        text_anchors=None if args.text_anchors is None else str(args.text_anchors),
         max_steps=args.steps,
-        microbatch_episodes=1,
+        microbatch_episodes=args.microbatch_episodes,
         max_accumulation_windows=1,
         accumulate_scored=1,
         accumulate_ingested=4096,
@@ -59,7 +80,7 @@ def main():
         max_record_bytes=8192,
         generated_capacity=512,
         effort=1,
-        gradient_checkpointing=False,
+        gradient_checkpointing=args.gradient_checkpointing,
         expert_backend=args.expert_backend,
         checkpoint_every=32,
         use_stage_mixture=False,
@@ -76,27 +97,44 @@ def main():
 
     if args._stage == "train":
         args.root.mkdir(parents=True, exist_ok=False)
+        if args.teacher_writer is not None:
+            from megatoken.data.hindsight_corpus import prepare_corpus
+            from megatoken.data.hindsight_prepare import LocalWriter
+
+            write_json(args.root / "requested-config.json", asdict(config))
+            prepare_corpus(
+                config,
+                args.root / "teacher-targets",
+                LocalWriter(args.teacher_writer, device=args.device),
+                encoding_from=args.teacher_encoding_from,
+            )
+            config = TrainConfig.load(args.root / "teacher-targets/train.json")
         write_json(args.root / "train-config.json", asdict(config))
+        # Release the frozen target writer in a fresh process before allocating
+        # trainable weights, optimizer buffers and the real media decoders.
+        next_stage("optimize")
+    config = TrainConfig.load(args.root / "train-config.json")
+    if args._stage == "optimize":
         from megatoken.training.engine import train
 
-        write_json(
-            args.root / "training.json",
-            train(
-                config,
-                resume=None if args.resume is None else str(args.resume),
-                phase_transition=args.resume is not None,
-            ),
+        result = train(
+            config,
+            resume=None if args.resume is None else str(args.resume),
+            phase_transition=args.resume is not None,
         )
+        write_json(args.root / "training.json", result)
+        if result["termination"] == "requested":
+            raise SystemExit(130)
         next_stage("restart")
     # Stage transitions use the recipe recorded before the first update. Later
     # helper defaults must not silently alter an already running experiment.
-    config = TrainConfig.load(args.root / "train-config.json")
     if args._stage == "restart":
         from megatoken.training.engine import train
 
-        write_json(
-            args.root / "restart.json", train(replace(config, max_steps=2), resume=str(checkpoint))
-        )
+        result = train(replace(config, max_steps=2), resume=str(checkpoint))
+        write_json(args.root / "restart.json", result)
+        if result["termination"] == "requested":
+            raise SystemExit(130)
         next_stage("export")
     if args._stage == "export":
         from megatoken.served import export_served
@@ -108,7 +146,7 @@ def main():
         next_stage("evaluate")
     import torch
 
-    from megatoken.data.storage import PreparedDataset
+    from megatoken.data.storage import PreparedCorpus
     from megatoken.generation.structure import ActionSpec
     from megatoken.model.media import MediaOutputSpec
     from megatoken.omni.quality import DecodedQualityArchive
@@ -127,7 +165,9 @@ def main():
             "text_normalization": "lowercase whitespace tokenization for WER; exact UTF-8 bytes archived",
         },
     )
-    with PreparedDataset(args.data, split="validation", stream=args.evaluation_stream) as data:
+    with PreparedCorpus(config.datasets, split="validation", stream=args.evaluation_stream) as data:
+        if not len(data):
+            raise ValueError("The selected held-out stream contains no prepared episodes")
         output_specs = {"text": ActionSpec(max_tokens=config.generated_capacity)}
         if args.audio_samples is not None:
             output_specs["audio"] = MediaOutputSpec(
@@ -143,7 +183,7 @@ def main():
             data,
             config,
             torch.device(args.device),
-            episodes=4,
+            episodes=args.evaluation_episodes,
             decoded_evaluator=archive,
             output_specs=output_specs,
         )

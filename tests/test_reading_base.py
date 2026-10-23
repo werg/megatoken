@@ -218,9 +218,9 @@ def test_ingest_losses_distil_the_hindsight_value_and_contrast_the_keys():
     # Only the ingest heads learn from them: the hindsight head is the teacher, the query is a target.
     (losses["ingest_value"] + losses["ingest_key"]).backward()
     heads = model.transducer.ingest
-    assert heads.value.output.router.weight.grad is not None
+    assert heads.value.output.selector.codes.grad is not None
     assert heads.value.output._bank.weight.grad is not None
-    assert heads.key.project.router.weight.grad is not None
+    assert heads.key.project.selector.codes.grad is not None
     assert heads.key.project._bank.weight.grad is not None
     # Shared pool/head gradients from ingest are valid; the teacher and query
     # sites' own affine terms must stay untouched by this distillation loss.
@@ -317,6 +317,7 @@ def test_a_window_that_mounts_a_base_learns_nothing_into_the_trained_bank(tmp_pa
     assert all(ids.numel() == 0 for ids, _ in submitted.deltas.values())
     assert submitted.write_ids.numel() == 0 and not submitted.deltas.get("value")
     assert set(trainer.state_dict()) == {
+        "schedule",
         "bank",
         "optimizer",
         "growth",

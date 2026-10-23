@@ -320,7 +320,10 @@ def _evaluate_served_runtime(
                     specs=specs,
                     controls=(
                         tuple(
-                            resolve_event_control(episode, event_by_id[record.record_id])
+                            resolve_event_control(
+                                episode,
+                                event_by_id[record.record_id],
+                            )
                             for _, record in group
                         )
                         if all(hasattr(track, "track_id") for track in episode.tracks)

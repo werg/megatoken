@@ -12,6 +12,7 @@ from typing import Any
 import torch
 from safetensors.torch import load_file, save_file
 
+from megatoken.controls import CONTROL_SCHEMA_VERSION
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.io import fsync_directory, sha256_file, write_json
 from megatoken.lifecycle import LIFECYCLE_VERSION
@@ -77,6 +78,7 @@ def export_served(
                 os.fsync(handle.fileno())
         manifest = {
             "format_version": ARCHITECTURE_VERSION,
+            "control_schema_version": CONTROL_SCHEMA_VERSION,
             "model_sha256": sha256_file(temporary / "model.safetensors"),
             "transducer_sha256": sha256_file(temporary / "transducer.pt"),
             "config_sha256": sha256_file(temporary / "model_config.json"),
@@ -149,6 +151,8 @@ class ServedBundle:
             or manifest.get("event_addressing") != "independent_peer_events"
         ):
             raise ValueError("Served bundle has incompatible lifecycle or event addressing")
+        if manifest.get("control_schema_version") != CONTROL_SCHEMA_VERSION:
+            raise ValueError("Served bundle requires the current public request contract")
         if manifest.get("tape_version") != GROUP_TAPE_VERSION:
             raise ValueError("Served tape protocol differs from the current control-aware policy")
         if manifest.get("precision") not in {"fp32", "bf16"}:

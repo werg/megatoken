@@ -26,7 +26,7 @@ from .media_assets import MEDIA, MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStor
 from .schema import Codec, Episode
 from .supply import SupplyCensus
 
-DATASET_VERSION = 5
+DATASET_VERSION = 6
 
 
 def _scored_media_outputs(episode: Episode) -> dict[str, int]:
@@ -381,17 +381,14 @@ class PreparedDataset:
         return self.manifest["feature_counts"].get(f"split:{split}|modality:{modality}", 0)
 
     def scored_media_modalities(self, streams: Sequence[str]) -> set[str]:
-        """Media decoder modalities used by selected scored outputs.
-
-        The compact summary lives in the root's verified manifest.
-        """
+        """Read the mandatory checked summary; never reconstruct older roots."""
         if self.split is None:
             raise ValueError("Scored media outputs require a selected data split")
-        selected = set(streams)
         summary = self.manifest.get("scored_media_counts")
         if not isinstance(summary, dict):
-            raise ValueError("Prepared scored-media summary is malformed")
+            raise ValueError("Prepared scored-media summary is required; reprepare the source")
         result = set()
+        selected = set(streams)
         for key, count in summary.items():
             try:
                 split, remainder = key.split("|", 1)
@@ -421,7 +418,15 @@ class PreparedDataset:
 
     def feature_extractors(self) -> set[str]:
         """Teachers that produced this root's feature tensors (one item per split and modality)."""
-        return set(self.manifest["feature_extractors"])
+        if "feature_extractors" in self.manifest:
+            return set(self.manifest["feature_extractors"])
+        extractors = set()
+        for scope in self.manifest["feature_counts"]:
+            row = self.connection.execute(
+                "SELECT descriptor FROM features WHERE scope=? AND position=0", (scope,)
+            ).fetchone()
+            extractors.add(MediaRecord.from_bytes(bytes(row["descriptor"])).source.extractor)
+        return extractors
 
     def index_entry(self, index: int) -> dict[str, Any]:
         if index < 0:

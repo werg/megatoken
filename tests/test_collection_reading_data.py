@@ -96,8 +96,20 @@ def test_a_produced_root_trains_the_query_losses(producer, tmp_path):
     model.train()
     _, batches = reading_batches(model, root, config)
     assert all(b.counts["query_alignment"] == 1 for b in batches)
-    (metrics,), ledger = forward(model, batches[:1], config)
+    query_outputs = []
+
+    def capture(_module, _inputs, output):
+        output.retain_grad()
+        query_outputs.append(output)
+
+    hook = model.embedding_realizer.query.register_forward_hook(capture)
+    try:
+        (metrics,), ledger = forward(model, batches[:1], config)
+    finally:
+        hook.remove()
     assert ledger.seen["query_alignment"] == 1 == ledger.seen["retrieval_ranking"]
     assert metrics["retrieval_queries"] == 1
     assert model.embedding_realizer.query.output_gain.grad is not None
-    assert model.embedding_realizer.query.output_gain.grad.abs() > 0
+    # Cosine agreement is invariant to a positive scalar gain. Check the actual
+    # query vectors rather than requiring their scale to receive a gradient.
+    assert any(output.grad is not None and output.grad.abs().sum() > 0 for output in query_outputs)

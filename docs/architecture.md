@@ -1,6 +1,6 @@
-# Architecture v13: shared expert pools and multi-track causal KV
+# Architecture v16: shared expert pools and multi-track causal KV
 
-**The single-event path below is one special case of the multi-track core (architecture v13).**
+**The single-event path below is one special case of the multi-track core (architecture v16).**
 Multiple tracks are integrated as one atomic meridian with a shared full-resolution
 KV history and joint central processing. For the grouped contract, see the
 [multi-track plan](multi-track-plan.md) and
@@ -11,8 +11,8 @@ realizers out) are specified in [media.md](media.md).
 The following sections document the single-event mechanics and retained v6 design
 choices inside the **current implementation**. Where an example speaks about one
 megatoken or one selected input, grouped meridians operate on several such
-complete blocks in the same central pass. The legacy single-event path remains
-supported; multimedia quality and grouped recurrent training are not yet established.
+complete blocks in the same central pass. A single-event group uses the same current multi-track contract; multimedia
+quality remains unestablished.
 
 **E and P share 32 raw facets; R decodes those facets directly.**
 For future predictions, C separately processes each selected input against
@@ -22,14 +22,13 @@ C does not participate in the current output realization.
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version **13** (`ARCHITECTURE_VERSION`) defines the currently supported
-core and grouped state. The one tape that serving, collection and training exchange is
-`GroupActionTape` (`fmt-multitrack-facets-v15`); a single-track draw is a group of one event.
-The decoder-level single-event tape `fmt-canonical-facets-v8` is only the output of the
-single-track diagnostic sampler. Checkpoints require v13 weights and the
-locked pack manifest's fingerprint; dataset schema version 5 is required.
-The legacy CLI names `recurrent32` and `compact32` still select the corresponding
-fresh-construction geometry, not old checkpoint semantics.
+Architecture version **16** defines the supported core and grouped state.
+Serving, collection and training exchange the same grouped action tape
+(`fmt-multitrack-facets-v19`); a single-track draw is a group containing one event.
+The decoder diagnostic sampler uses `fmt-canonical-facets-v10`. Checkpoints require
+version 16 weights, the current native bank identity and the exact pinned donor
+manifest. Prepared datasets require schema version 6. Older artifacts and former
+preset aliases are rejected; rebuild from original sources after a contract change.
 
 Track handles are unbounded session-local equality labels. They do not index learned
 routing parameters. Encoded purposes and event instructions condition expert routing;

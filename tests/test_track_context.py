@@ -232,13 +232,12 @@ def test_archived_system_text_is_reread_as_evidence_without_changing_policy():
         runtime.close()
 
 
-def test_existing_model_configurations_keep_their_shared_window_behavior():
+def test_saved_model_geometry_requires_explicit_context_windows():
     values = ModelConfig.tiny(max_history_chunks=32).to_dict()
     values.pop("context_local_events")
     values.pop("context_cross_events")
-    loaded = ModelConfig.from_dict(values)
-    assert (loaded.context_local_events, loaded.context_cross_events) == (32, 32)
-    assert ModelConfig.from_dict(loaded.to_dict()) == loaded
+    with pytest.raises(ValueError, match="required fields"):
+        ModelConfig.from_dict(values)
 
 
 def test_context_archive_is_bounded_and_separate_between_sessions():

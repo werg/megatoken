@@ -167,24 +167,22 @@ def _target_plan(
         spec = compile_tool_spec(
             item.episode.tools_json,
             config.generated_capacity,
-            wire_formats=("canonical", "openai", "anthropic"),
         )
-        if getattr(config, "format_supervision_version", 1) >= 2 and tape is None:
-            # Serving's canonical-only choices must retain these same indices.
-            # Extra imported wire envelopes follow the complete canonical prefix.
-            order = {"canonical": 0, "openai": 1, "anthropic": 2}
-            spec = dataclasses.replace(
-                spec,
-                allow_text=True,
-                schemas=tuple(
-                    sorted(spec.schemas, key=lambda schema: order[schema.name.rsplit(":", 1)[1]])
-                ),
-            )
+        if tape is None:
+            spec = dataclasses.replace(spec, allow_text=True)
         # Only records preceding the *whole meridian* can be public copies.
         earlier = [record.payload for record in item.episode.records[:beginning]]
         spec = dataclasses.replace(spec, copy_sources=recent_copy_sources(earlier))
+    if spec is not None and record.action_id and record.part_count != 1:
+        raise ValueError(
+            "Tool targets must be complete canonical actions; normalize and reprepare the source"
+        )
     if spec is not None and record.action_id and record.part_count == 1:
         schema_index = matching_schema(spec, record.payload)
+        if schema_index is None:
+            raise ValueError(
+                "Tool target is outside the canonical public schemas; normalize and reprepare the source"
+            )
         if schema_index is not None:
             bindings = supervised_bindings(spec, schema_index, record.payload)
             for layout in range(len(spec.schemas[schema_index].orders)):
@@ -206,13 +204,7 @@ def _target_plan(
                         if tape is not None
                         else candidate
                     )
-    mode_spec = (
-        spec
-        if spec is not None
-        and getattr(config, "format_supervision_version", 1) >= 2
-        and tape is None
-        else None
-    )
+    mode_spec = spec if tape is None else None
     return model.prepare_target(
         [entry.token_ids],
         free_mask=[entry.free_mask],
@@ -589,18 +581,27 @@ def _transducer_sequence(
     sources = None
     if batch.retrieval is not None:
         sources = mount(batch.retrieval, store.root, model.config.media_extractor)
+    teacher_supervision = (
+        batch.windows[0].episode.tools_json == "[]" and not batch.native_history.has_events
+    )
     sequence = trainer.sequence(
         meridians,
         step=model_version,
         generator=torch.Generator().manual_seed(seed),
         mounted=mounted,
         sources=sources,
+        teacher_supervision=teacher_supervision,
         memory_eligible=(
             batch.windows[0].episode.stream not in {"base_reading", "collection_reading"}
             and (trainer.teacher_targets is not None or mounted is None)
         ),
     )
-    if trainer.native.training and trainer.teacher_targets is not None and trainer.bank_trainable:
+    if (
+        teacher_supervision
+        and trainer.native.training
+        and trainer.teacher_targets is not None
+        and trainer.bank_trainable
+    ):
         from megatoken.model.transducer import HindsightValues
 
         item = batch.windows[0]
@@ -727,6 +728,7 @@ def forward_meridian_batch(
     sequence = _transducer_sequence(
         model, batch, transducer, store, device, model_version, seed, mounted
     )
+    metrics["teacher_assisted_windows" if sequence.alpha else "causal_student_windows"] = 1
     teaching = None
     if differentiate and model.training and transducer.navigation_weight > 0:
         from megatoken.training.structure import StructuralTeaching
@@ -866,7 +868,10 @@ def forward_meridian_batch(
             )
             full_controls = (
                 tuple(
-                    resolve_event_control(episode, event_by_record[rec.record.record_id])
+                    resolve_event_control(
+                        episode,
+                        event_by_record[rec.record.record_id],
+                    )
                     for rec in step.records
                 )
                 if native_group is None

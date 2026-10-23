@@ -115,6 +115,19 @@ class DedupStore:
         self.config = config
         self.connection = sqlite3.connect(self.path)
         self.connection.row_factory = sqlite3.Row
+        has_tables = self.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1"
+        ).fetchone()
+        if has_tables:
+            try:
+                version = self.connection.execute(
+                    "SELECT value FROM meta WHERE key='format_version'"
+                ).fetchone()
+                if version is None or version[0] != "2":
+                    raise ValueError("Unsupported dedup database; reprepare original sources")
+            except BaseException:
+                self.connection.close()
+                raise
         self.connection.execute("PRAGMA journal_mode=WAL")
         self.connection.execute("PRAGMA synchronous=FULL")
         self.connection.executescript("""
@@ -148,6 +161,7 @@ class DedupStore:
         current = canonical_json(asdict(config))
         if prior is not None and prior != current:
             raise ValueError("Dedup/split configuration changed; use a new preparation directory")
+        self.set_meta("format_version", 2)
         self.set_meta("dedup_config", current)
         self.connection.commit()
 
@@ -494,7 +508,7 @@ class DedupStore:
                 "CREATE TABLE digest.benchmarks AS SELECT * FROM main.benchmarks"
             )
             self.connection.execute(
-                "CREATE TABLE digest.meta AS SELECT * FROM main.meta WHERE key='dedup_config'"
+                "CREATE TABLE digest.meta AS SELECT * FROM main.meta WHERE key IN ('dedup_config', 'format_version')"
             )
             count = self.connection.execute("SELECT COUNT(*) FROM digest.episodes").fetchone()[0]
             self.connection.commit()
@@ -758,6 +772,9 @@ def reconcile(digests: Sequence[str | Path], output: str | Path) -> dict[str, An
     configs = set()
     for path in paths:
         with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True)) as digest:
+            version = digest.execute("SELECT value FROM meta WHERE key='format_version'").fetchone()
+            if version is None or version[0] != "2":
+                raise ValueError("Unsupported shard digest; reprepare the source")
             configs.add(
                 digest.execute("SELECT value FROM meta WHERE key='dedup_config'").fetchone()[0]
             )

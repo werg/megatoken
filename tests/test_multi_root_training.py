@@ -496,7 +496,7 @@ def test_diloco_worker_evaluates_and_trains_from_several_roots(tmp_path, monkeyp
         token_budget=config.schedule.budget,
         transducer={
             "geometry": dict(vars(model_config.transducer_geometry)),
-            "evidence_from": HindsightSchedule().warmup_steps,
+            "evidence_from": HindsightSchedule().evidence_steps,
         },
     )
     server = multiprocessing.get_context("spawn").Process(

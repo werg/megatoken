@@ -32,27 +32,10 @@ The full source snapshots identify the actual code used rather than attributing
 that correction to these new files.
 
 The mixed run uncovered that the earlier Korean correction corpus used episode
-format 3 while current training requires format 5. The explicit converter
-`python -m megatoken.data.legacy_linear` upgrades only automatically grouped linear
-transcripts, preserving records, tool actions, original provenance, and family
-links. It refuses native action tapes, simultaneous groups, and custom track
-controls rather than inventing their meaning.
-
-The entire Korean addendum was converted into `korean-current/`: all 15,129
-originally emitted episodes were retained. Input SHA256:
-`932ab4f77611e3add72f3d62932ab42fc8b22823841d71f1a014a329d28dfee8`.
-Output SHA256:
-`27243ef09c340d6ffbf78a44b080c871a8e67ec2ad8b5f9ca91618583e4d23c6`.
-The final mixed run used this converted corpus. It remains a separate addendum;
-this check does not merge it into the main prepared-data publication.
-
-The converter also accepts `--prepared-input OLD_ROOT --codec ORIGINAL_CODEC
---output NEW_ROOT`. It verifies the original manifest, index, shards, and indexed
-record checksums; copies checked media tensors; retains resolved families and
-train/evaluation splits; then publishes a fresh prepared dataset. Tests prove a
-held-out example stays out of training and source files remain unchanged. An old
-cloud build needs this explicit conversion after it finishes before current
-training can consume it. No existing data pin or immutable root was relabeled.
+format 3. Current preparation requires version 6 and rejects this older corpus.
+The previously added converter has been removed: old prepared material must be
+regenerated from its original recordings or source rows. The earlier mixed-run
+results are historical diagnostics and do not validate current artifacts.
 
 ## Reproduction
 

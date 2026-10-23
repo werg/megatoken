@@ -156,7 +156,11 @@ def test_a_student_tape_is_a_valid_native_annotation_of_its_episode(bundle):
         codec_fingerprint=CODEC.fingerprint,
         provenance="student",
     )
-    entry = {"record_cursor": 1, "tape": json.loads(response.native_tape_json)}
+    entry = {
+        "record_cursor": 1,
+        "record_ids": ["answer"],
+        "tape": json.loads(response.native_tape_json),
+    }
     episode = Episode(
         "student-episode",
         (PROMPT, answer),
@@ -210,5 +214,5 @@ def test_only_single_event_group_tapes_are_native_history(bundle):
             )
         ),
     )
-    with pytest.raises(ValueError, match="single-event"):
+    with pytest.raises(ValueError, match="record_ids"):
         NativeHistory.from_episode(episode, bundle.model)

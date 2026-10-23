@@ -130,4 +130,10 @@ def training_contract_hash(episode):
 
 
 def equivalence_key(variant):
-    return variant.split(":variant:", 1)[0] if variant.startswith("causal:") else "legacy"
+    if (
+        not isinstance(variant, str)
+        or not variant.startswith("causal:")
+        or ":variant:" not in variant
+    ):
+        raise ValueError("Missing current causal training identity; reprepare the source")
+    return variant.split(":variant:", 1)[0]

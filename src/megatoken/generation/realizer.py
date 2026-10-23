@@ -10,6 +10,7 @@ from torch.nn import functional as F
 
 from megatoken.model.attention import AttentionBranch
 from megatoken.model.layers import RMSNorm, position_features
+from megatoken.tensors import parameter_dtype
 
 
 class ParallelRealizer(nn.Module):
@@ -69,7 +70,7 @@ class ParallelRealizer(nn.Module):
     def _forward_impl(self, core, context, capacity: int, conditioning: Tensor) -> Tensor:
         if not 1 <= capacity <= core.config.max_capacity:
             raise ValueError("realization workspace exceeds the configured output limit")
-        raw = context.facets.to(self.seed.weight.dtype)
+        raw = context.facets.to(parameter_dtype(self.seed))
         if raw.shape[1] != self.seed_count:
             raise ValueError("realization requires every configured raw facet slot")
         rows = self.seed(raw) + self.seed_codes[None] + conditioning[:, None]
