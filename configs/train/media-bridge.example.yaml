@@ -1,44 +1,23 @@
-# Media bridge stage (MB in src/megatoken/data/stages.json), between the codec
-# bootstrap (B0) and base pretraining (P1). Start a new coordinator from B0's
-# export -- a new coordinator is the DiLoCo phase transition:
-#   megatoken diloco export --config <B0 config> --root <B0 root> --output X
-#   megatoken diloco init --config THIS --root <new root> --resume X/latest.json
-# The stage plan sets the data mix (text 0.40, audio/image/video identity 0.20
-# each) and requires trainable: media_bridge, which freezes everything but the
-# media input projection, the modality embedding and the realizer conditions,
-# identically on all workers. Prepare media with scripts/prepare_media.py,
-# identity episodes (plus the "text" stream via --text-episodes) with
-# scripts/prepare_media_identity.py, and text anchors with
-# scripts/prepare_media.py --anchors. Replace every PIN_*.
+# Training methods are defined by the shared curriculum; bind artifacts and compute here.
 phase: MB
 model: 32x512
 codec: PIN_TRAINED_BYTE_CODEC
-# The text root and the media-identity root(s); each holds its own media tensors.
 datasets:
-  - PIN_PREPARED_TEXT_ROOT
-  - PIN_PREPARED_MEDIA_IDENTITY_ROOT
+- PIN_PREPARED_TEXT_ROOT
+- PIN_PREPARED_MEDIA_IDENTITY_ROOT
 output: /work/runs/media-bridge
 device: cuda
 precision: bf16
-representation_mode: recurrent
 gradient_checkpointing: true
-# MB is metered in physical megatoken events (G), 4M by default.
-budget: 100000
 accumulate_events: 32
 microbatch_episodes: 1
 max_accumulation_windows: 128
 max_window_records: 16
 max_record_bytes: 16384
-scored_decisions: 4
 generated_capacity: 512
-eval_every: 100
 eval_windows: 16
 packs: PIN_PACK_ROOT/lock.json
-use_stage_mixture: true
-trainable: media_bridge
 text_anchors: PIN_TEXT_ANCHORS_JSONL
-text_anchor_weight: 0.1
-inner_optimizer: muon
 decoupled:
   run_id: PIN_MEDIA_BRIDGE_RUN_ID
   coordinator_url: https://PIN_COORDINATOR
@@ -48,3 +27,6 @@ decoupled:
   timeout_seconds: 120
   max_offline_steps: 512
   wire_dtype: bf16
+hindsight_targets: /work/data/hindsight
+navigation_examples: 8
+navigation_negatives: 32

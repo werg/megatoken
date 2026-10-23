@@ -38,6 +38,7 @@ def main():
     if min(args.steps, args.audio_samples, args.sample_rate) < 1:
         raise ValueError("Update and audio bounds must be positive")
     config = TrainConfig(
+        purpose="diagnostic",
         model="tiny",
         phase="B0",
         datasets=[str(args.data)],

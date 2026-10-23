@@ -31,6 +31,7 @@ def main():
         raise FileExistsError("Acceptance requires a fresh output root")
     args.root.mkdir(parents=True)
     config = TrainConfig(
+        purpose="diagnostic",
         phase="P1",
         model="tiny",
         datasets=[str(args.data)],

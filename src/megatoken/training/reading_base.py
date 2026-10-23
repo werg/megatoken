@@ -22,6 +22,7 @@ from collections import OrderedDict
 from typing import Any
 
 from megatoken.data.knowledge import declared_items, declared_knowledge, episode_metadata
+from megatoken.data.relations import local_relations
 from megatoken.kb import add_items
 from megatoken.memory.knowledge import KnowledgeBase
 from megatoken.memory.transducer import Mounted
@@ -68,6 +69,13 @@ class ReadingBase:
             bank.geometry, {}, name=episode.episode_id, writable=True, device=bank.device
         )
         items = declared_knowledge(episode, assets, episode_metadata(episode))
-        add_items(base, multi.generator, multi, items)
+        names = {item.source for item in items}
+        links = [
+            (f"{episode.episode_id}:{row['left']}", f"{episode.episode_id}:{row['right']}")
+            for row in local_relations(episode)
+        ]
+        # Only declared references enter normal search. Future episode targets stay out.
+        links = [(a, b) for a, b in links if a in names and b in names]
+        add_items(base, multi.generator, multi, items, relations=links)
         base.writable = False  # fixed from here on
         return base

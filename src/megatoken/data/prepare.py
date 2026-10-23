@@ -26,6 +26,7 @@ from .dedup import DedupConfig, DedupStore
 from .lineage import LineageJoin
 from .media_assets import TensorAssetStore
 from .quality import RowFilterReject, validate_row_filters
+from .relations import EXTRACTOR as NAVIGATION_EXTRACTOR
 from .review import ParserReviewPolicy, ParserReviewQueue, source_quality, validate_prepared_episode
 from .schema import SCHEMA_VERSION, Codec, canonical_json, encode_episode
 from .sources import SourceSpec, iter_source_rows, load_source_manifest
@@ -133,6 +134,7 @@ def prepare_sources(
                 "teacher": PINNED_TEACHER,
             },
             "schema_version": SCHEMA_VERSION,
+            "navigation_extractor": NAVIGATION_EXTRACTOR,
         }
     )
     if (root / "manifest.json").exists():
@@ -334,6 +336,9 @@ def _ingest_row(
             error=str(error),
         )
         return "parser_review", detail
+    from .relations import with_local_relations
+
+    episode = with_local_relations(episode)
     # A rejected low-quality variant still contributes its known ancestor links
     # before any train/eval split.
     store.register_episode_lineage(episode)

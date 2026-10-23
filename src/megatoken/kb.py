@@ -122,7 +122,13 @@ def _groups(items: Sequence[KnowledgeItem], batch: int) -> list[list[KnowledgeIt
 
 @torch.no_grad()
 def add_items(
-    base: KnowledgeBase, model: Any, multi: Any, items: Sequence[KnowledgeItem], *, batch: int = 16
+    base: KnowledgeBase,
+    model: Any,
+    multi: Any,
+    items: Sequence[KnowledgeItem],
+    *,
+    batch: int = 16,
+    relations: Sequence[tuple[str, str]] = (),
 ) -> list[int]:
     """Read each item alone and append its entry to ``base``; the new edge IDs.
 
@@ -137,11 +143,19 @@ def add_items(
     for group in _groups(items, batch):
         written = []
         for item in group:
-            source = item.record.source
-            if source.extractor != model.config.media_extractor:
-                raise ValueError("Item features come from a different teacher than this model's")
-            features = torch.from_numpy(item.assets.load(source)).to(device)[None]
-            raw = model.core.encode_media(features, extractor=source.extractor)[0]
+            if isinstance(item.record, bytes):
+                ids = model.codec.encode(item.record)
+                if not ids or len(ids) > model.config.max_capacity:
+                    raise ValueError("Raw knowledge item must fit one nonempty model chunk")
+                raw = model.core.encode_chunk(torch.tensor([ids], device=device))[0]
+            else:
+                source = item.record.source
+                if source.extractor != model.config.media_extractor:
+                    raise ValueError(
+                        "Item features come from a different teacher than this model's"
+                    )
+                features = torch.from_numpy(item.assets.load(source)).to(device)[None]
+                raw = model.core.encode_media(features, extractor=source.extractor)[0]
             written.append(
                 IngestItem(
                     raw,
@@ -156,14 +170,29 @@ def add_items(
         labels.extend(item.source for item in group)
     if not staged:
         return []
+    fields = {
+        name: torch.cat([getattr(rows, name) for rows in staged])
+        for name in ("departure", "key", "value", "destination")
+    }
+    if relations:
+        if len(set(labels)) != len(labels):
+            raise ValueError("Navigation reference items require unique source labels")
+        index = {name: i for i, name in enumerate(labels)}
+        links = list(dict.fromkeys(relations))
+        if len(links) > 64:
+            raise ValueError("Reference navigation links exceed the per-base bound of 64")
+        if any(a not in index or b not in index for a, b in links):
+            raise ValueError("Reference graph has a dangling endpoint")
+        source = [index[a] for a, _ in links]
+        target = [index[b] for _, b in links]
+        # Keep metadata entry edges as well: a graph without roots must remain reachable.
+        for name in fields:
+            extra = fields["destination"][source] if name == "departure" else fields[name][target]
+            fields[name] = torch.cat((fields[name], extra))
+        labels.extend(f"{a}->{b}" for a, b in links)
     # Finish model work before taking the lock, then publish every group together.
     with base.lock:
-        return base.add(
-            **{name: torch.cat([getattr(rows, name) for rows in staged])
-               for name in ("departure", "key", "value", "destination")},
-            sources=labels,
-        ).tolist()
-
+        return base.add(**fields, sources=labels).tolist()
 
 
 def corpus_items(

@@ -71,6 +71,7 @@ def _model():
 def test_served_evaluation_uses_session_lookups_for_prompt_and_generation(tmp_path):
     _collection(tmp_path / "sources")
     config = TrainConfig(
+        purpose="diagnostic",
         phase="D",
         precision="fp32",
         device="cpu",
@@ -161,6 +162,7 @@ def test_evaluate_dataset_override_expands_new_glob_before_old_checkpoint_paths(
     local_root = tmp_path / "local-prepared-a"
     local_root.mkdir()
     saved = TrainConfig(
+        purpose="diagnostic",
         phase="D",
         precision="fp32",
         device="cpu",
