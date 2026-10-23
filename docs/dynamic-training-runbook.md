@@ -495,3 +495,31 @@ baseline. It therefore fails its declared learning threshold. It began recurrent
 training with an untrained, fixed text reader. Fresh cost-choice runs now train
 that reader and the prediction/rendering paths together using bootstrap training;
 only their completed generated evaluations can establish an improvement.
+
+
+### Preserve progress before the cloud machine ends
+
+Run `scripts/collect_dynamic_progress.py` from a separately authenticated local
+process while the experiment is still running. It captures committed current
+prepared roots, exact teacher targets, exported models, the newest complete
+checkpoint, reports and bounded log tails. It never marks outputs collected or
+stops the machine. For example:
+
+```bash
+python scripts/collect_dynamic_progress.py --sandbox SANDBOX_ID \
+  --remote-root /work/out/dynamic-integrated-v16 \
+  --output /home/werg/megatoken-runs/dynamic-progress-backup
+```
+
+The collector checks the checkpoint members against their committed checksums and
+pins them before the trainer prunes older checkpoints. Local content-addressed
+copies avoid downloading unchanged bytes repeatedly. Each capture retains an
+immutable path-to-checksum receipt; captures with errors do not replace the latest
+successful receipt. A local disk reserve stops collection before it fills the
+machine. Collected bytes retain their original contracts: this supplies no schema
+conversion or missing-field reconstruction.
+
+A direct CPU-only quota probe requesting one CPU core and one GiB RAM was rejected
+with the same account/plan message as the GPU probes, while the account listed no
+active machines. This points toward account credits or a spending/plan limit;
+the service did not expose a more specific quota identifier or remaining balance.
