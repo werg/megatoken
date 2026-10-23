@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import glob
 import os
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -12,6 +13,26 @@ from megatoken.contracts import DEFAULT_LOSS_WEIGHTS
 from megatoken.data.recipes import stage_recipe
 from megatoken.io import read_mapping
 from megatoken.training.schedule import PHASES, Phase
+
+
+def expand_datasets(entries: Any) -> Any:
+    """Prepared roots, with a ``*`` pattern standing for every directory it matches (sorted).
+
+    A fetched run is hundreds of roots (``/work/data/prepared/*``); a pattern that matches
+    nothing is an error, since training on no data should never start quietly.
+    """
+    if not isinstance(entries, list):
+        return entries
+    expanded: list[Any] = []
+    for entry in entries:
+        if isinstance(entry, str) and any(mark in entry for mark in "*?["):
+            matches = sorted(match for match in glob.glob(entry) if Path(match).is_dir())
+            if not matches:
+                raise ValueError(f"datasets entry {entry!r} matches no prepared root")
+            expanded.extend(matches)
+        else:
+            expanded.append(entry)
+    return expanded
 
 
 @dataclass(frozen=True)
@@ -218,6 +239,8 @@ class TrainConfig:
         if unknown:
             raise ValueError(f"Unknown training settings: {sorted(unknown)}")
         merged = dict(value)
+        if "datasets" in merged:
+            merged["datasets"] = expand_datasets(merged["datasets"])
         if "loss_weights" in merged:
             merged["loss_weights"] = {**DEFAULT_LOSS_WEIGHTS, **merged["loss_weights"]}
         return cls(**merged)

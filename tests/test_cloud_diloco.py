@@ -162,6 +162,67 @@ def test_start_delivers_generated_files_secrets_and_peer_share_tokens(tmp_path, 
         assert value not in json.dumps(spec) and value not in records
 
 
+CACHED = {"cache": {"run": "configs/cloud/prepare-full-agentic.json"}}
+
+
+def test_stored_data_is_restored_by_learners_before_they_train():
+    spec = cloud_diloco.validate(_spec(data=CACHED))
+    assert cloud_diloco.data_inputs(spec["data"]) == []
+    learner = cloud.validate({"schema": cloud.SCHEMA, **cloud_diloco.learner_job(spec, [], 0)})
+    coordinator = cloud_diloco.coordinator_job(spec, [])
+    command = learner["command"][2]
+    assert (
+        "megatoken.cache fetch --pin /work/in/cache-pin.json --dest /work/data/prepared" in command
+    )
+    assert command.index("cache fetch") < command.index("cloud_diloco derive")
+    assert "cryptography>=43,<51" in learner["pip"] and "cache" not in coordinator["command"][2]
+    assert "cache" not in json.dumps(
+        cloud_diloco.learner_job(cloud_diloco.validate(_spec()), [], 0)
+    )
+    for bad in ({"cache": {}}, {"cache": "x"}, {"cache": {"run": "a", "other": 1}}):
+        with pytest.raises(cloud.CloudError):
+            cloud_diloco.validate(_spec(data=bad))
+
+
+def test_launch_ensures_the_data_then_gives_the_key_to_learners_only(tmp_path, monkeypatch):
+    from megatoken import cache, cloud_prepare
+
+    repo, run = _launch_env(tmp_path, monkeypatch)
+    run.write_text(json.dumps(_spec(data=CACHED)))
+    key_file = cache.keygen(tmp_path / "keys" / "cache.key")
+    token = tmp_path / "token"
+    token.write_text("hf_secret\n")
+    pin = tmp_path / "pin.json"
+    pin.write_text('{"pin": true}')
+    asked = []
+    monkeypatch.setattr(
+        cloud_prepare,
+        "ensure",
+        lambda path, repo_, **kwargs: (
+            asked.append((path, kwargs)) or {"mode": "stored", "pin": str(pin)}
+        ),
+    )
+    started = []
+
+    def start(job, repo_, *, secrets=None, files=None, snapshot=None):
+        started.append((job, sorted(secrets), files(object()) if files else {}))
+        return {"sandbox_id": job["id"], "url": "https://c", "commit": "x"}, None
+
+    monkeypatch.setattr(cloud, "start", start)
+    monkeypatch.setattr(cloud_diloco, "_status", lambda *args: {})
+    monkeypatch.setattr(cloud, "service_url", lambda sandbox: "https://c")
+    _stoppable(monkeypatch)
+    cloud_diloco.launch(run, repo, hf_token=token, cache_key=key_file)
+    assert asked[0][0] == repo / "configs/cloud/prepare-full-agentic.json"
+    (coordinator, c_secrets, c_files), *learners = started
+    assert c_secrets == ["diloco-token"] and "in/cache-pin.json" not in c_files
+    assert len(learners) == 2
+    for job, secrets, files in learners:
+        assert secrets == ["cache-key", "diloco-token", "gateway-token", "hf-token"]
+        assert files["in/cache-pin.json"] == b'{"pin": true}'
+        assert key_file.read_text().strip() not in json.dumps(job)
+
+
 def test_the_coordinator_outlives_the_learners():
     spec = cloud_diloco.validate(_spec(lifetime_hours=4))
     inputs = spec["data"]["inputs"]

@@ -529,3 +529,16 @@ def test_diloco_worker_evaluates_and_trains_from_several_roots(tmp_path, monkeyp
     ]
     (evaluation,) = [e for e in events if e["event"] == "evaluation"]
     assert evaluation["streams"]["all"]["windows"] == 2
+
+
+def test_a_dataset_pattern_stands_for_every_root_it_matches(tmp_path):
+    from megatoken.training.config import TrainConfig
+
+    for name in ("00002", "00000", "00001"):
+        (tmp_path / "prepared" / name).mkdir(parents=True)
+    (tmp_path / "prepared" / "stray.json").write_text("{}")  # a file is not a root
+    config = TrainConfig.from_dict({"datasets": [str(tmp_path / "prepared" / "0*"), "plain/root"]})
+    roots = [str(tmp_path / "prepared" / name) for name in ("00000", "00001", "00002")]
+    assert config.datasets == [*roots, "plain/root"]
+    with pytest.raises(ValueError, match="matches no prepared root"):
+        TrainConfig.from_dict({"datasets": [str(tmp_path / "missing" / "*")]})

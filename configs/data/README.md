@@ -98,3 +98,9 @@ runs `configs/cloud/prepare-full-media-*.json` build all of them across GPU sand
 (`python -m megatoken.cloud_prepare plan|launch`; `scripts/media_volume.py` computes sizes, costs
 and the gap to the stage plan). See "Scaling the media streams" in
 [`docs/data.md`](../../docs/data.md).
+
+The four text run files (`prepare-full-agentic`, `-open`, `-agentic-chat`, `-agentic-coding`)
+carry a `cache` block: their finished roots are encrypted and stored on public Hub dataset
+repos (key from `megatoken cache keygen`, kept only in a local file), and a training run
+restores them or, if the stored copy does not verify, rebuilds them. See "Keeping the prepared
+data: an encrypted copy on the Hub" in [`docs/data.md`](../../docs/data.md).

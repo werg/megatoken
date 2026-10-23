@@ -29,6 +29,14 @@ def _codec(args):
     return fetch_codec(args.output, local_tokenizer=args.local_tokenizer)
 
 
+def _cache(args):
+    from megatoken.cache import main as cache_main
+
+    code = cache_main(args.rest)  # prints its own result
+    if code:
+        raise SystemExit(code)
+
+
 def _inspect(args):
     import torch
 
@@ -484,6 +492,13 @@ def parser() -> argparse.ArgumentParser:
         help="Use a previously downloaded copy; the pinned hash is still required",
     )
     item.set_defaults(func=_codec)
+    item = commands.add_parser(
+        "cache",
+        help="The encrypted cache of prepared data: keygen, fetch, verify (see docs/data.md)",
+        add_help=False,
+    )
+    item.add_argument("rest", nargs=argparse.REMAINDER)
+    item.set_defaults(func=_cache)
     item = commands.add_parser(
         "inspect", help="Audit actual parameter owners without allocating model storage"
     )
