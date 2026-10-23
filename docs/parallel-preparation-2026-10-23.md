@@ -23,8 +23,8 @@ recomputes each against its own sources and settings.
 Independent detached recovery monitors live in
 `/home/werg/megatoken-runs/cloud/recovery/`:
 
-- Chat: PID 3772602, `controller-chat-state.json`, `controller-chat.log`.
-- Coding pilot: PID 3773018, `controller-coding-pilot-state.json`,
+- Chat: PID 4075592, `controller-chat-state.json`, `controller-chat.log`.
+- Coding pilot: PID 4076229, `controller-coding-pilot-state.json`,
   `controller-coding-pilot.log`.
 
 Check `controller-pids.json` and live command lines for newer PIDs before signalling.
@@ -106,3 +106,21 @@ Substantial unrelated model/data-schema changes are active in the shared worktre
 Do not stage, revert, or include them in these commits. Cloud launches above use exact
 committed archives. Merge remote changes in an isolated worktree if needed to publish
 these fixes without disturbing the concurrent edits.
+
+## Verified update at 13:28 UTC
+
+The Korean correction completed and was collected with an independently verified
+checksum: 15,170 input rows, 15,129 emitted episodes, 41 rejected rows (24 English
+adaptation and 17 Korean adaptation schema errors). Every emitted episode retains
+its system context and links to its English family. The local JSONL is
+198,945,524 bytes, SHA256
+`932ab4f77611e3add72f3d62932ab42fc8b22823841d71f1a014a329d28dfee8`.
+It is stored in the external quality-review `korean-correction-corpus/` directory;
+the compressed archive is 34,409,950 bytes. The atomic collection marker now has
+`verified: true`; this collection dependency is satisfied. It still needs inclusion
+in global family dedup before becoming part of the main data pin.
+
+GPU request `ef290158-a13f-440c-8b66-809cafa39879` was accepted at 13:14:11 UTC.
+At 13:26:41 UTC it remained in startup, without evidence that the workload ran;
+this is not yet GPU validation. The controller owns its 15-minute startup timeout
+and cleanup. See external `gpu-readiness/startup-wait.json` and subsequent logs.
