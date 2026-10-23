@@ -56,8 +56,15 @@ nine results. Four focused tests pass. The full correction expects 15,170 source
 rows; inspect the generated receipt and checksum before import. Builder-emitted
 rows can exceed native-import accepted rows because the normal scored-target quality
 check still applies. This addendum is not part of the main data pin until a global
-family-dedup preparation explicitly includes it. Current execution status and cloud
-location are recorded in `korean-correction-source-plan.json` outside the repo.
+family-dedup preparation explicitly includes it. The full correction is now running at low priority on existing chat sandbox
+`bd5d3655-8d06-44e5-a487-6b53b27ba811`, remote PID 9364. Output is
+`/work/korean-correction-out`; log and exit marker are
+`/work/.cloud/korean-correction.log` and `.exit`. A separate collector must compress
+and retrieve the addendum, then verify its JSONL hash and counts. Chat controller
+release is gated on the local quality-review `korean-correction-collected.json`
+record having `verified: true`, to prevent collection from stopping this machine
+before the separate addendum is safe. Current execution status and collection
+details are recorded in `korean-correction-source-plan.json` outside the repo.
 
 ## Production donor extraction
 
