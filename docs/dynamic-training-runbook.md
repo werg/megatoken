@@ -462,3 +462,36 @@ and native memory uses identity v12. Prepared-data version 6 and unchanged donor
 assets retain their independent current identities. Quality, autonomous execution,
 all-cost neural timing benefits and human review remain required acceptance gates;
 launching this sequence does not establish them.
+
+
+### Cloud interruption and retained evidence
+
+The original cloud machine was stopped at 2026-10-23 19:54:16 UTC. Its service
+reports a requested stop, and it has no retained filesystem snapshot or volume.
+Starting the same identifier does not recover its stopped filesystem. The new
+speech, text/code, visual and conversation preparations on that machine were not
+collected before the stop; do not count them as retained current training supply.
+Pinned originals and unchanged donor assets can be reacquired, with exact checks.
+
+Replacement requests, including a smaller CPU allocation with the GPU and required
+memory preserved, were rejected with a quota error. The connected Hugging Face
+account also rejected a GPU job with HTTP 402. No cloud training is currently
+claimed active on the strength of the earlier launch receipts. Local bounded GPU
+experiments remain separate and retain their source and result directories.
+
+The reproducible combined driver is `scripts/run_dynamic_training.py`. It prepares
+all declared domains, runs foundation, media-alignment and joint optimization in
+fresh processes, checks restart/export, and attempts autonomous tools, actual
+student outcomes, paired translation, independent decoded checks and a recorded
+interruption scenario. Every failed independent check remains in the report;
+finishing that computation explicitly does not assert production or human quality.
+Its writer is supplied with an exact declared SHA256, and absence or mismatch
+stops admission to training. This is the current execution path for the wider
+experiment once cloud quota is restored.
+
+The previous tiny cost-choice experiment still chose the serial procedure in all
+twelve held-out attempts: eight correct choices, equal to the constant serial
+baseline. It therefore fails its declared learning threshold. It began recurrent
+training with an untrained, fixed text reader. Fresh cost-choice runs now train
+that reader and the prediction/rendering paths together using bootstrap training;
+only their completed generated evaluations can establish an improvement.
