@@ -43,7 +43,7 @@ def test_every_size_round_trips_to_the_size_cipher_size_predicts(size):
     blob = seal_bytes(data, keys())
     assert open_all(blob, keys()) == data
     assert len(blob) == cache.cipher_size(size, SEGMENT)
-    if size:
+    if size >= 16:  # A shorter run of plaintext turns up in random ciphertext by chance.
         assert data[:64] not in blob
 
 
