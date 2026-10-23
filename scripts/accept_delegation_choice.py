@@ -359,6 +359,63 @@ def evaluate(bundle_path, data_path, output):
     }
 
 
+def prepare_codec_views(data_path, output):
+    """Teach the text codec to retain public observations, with original family splits."""
+    from megatoken.io import content_hash
+
+    codec = ByteCodec.byte_fallback()
+    with DedupStore(output / "dedup.sqlite", DedupConfig(min_near_words=1_000_000)) as store:
+        sources = []
+        for split in ("train", "validation"):
+            with PreparedDataset(data_path, split=split) as data:
+                sources.append(data.manifest["fingerprint"])
+                for source in data.iter_episodes():
+                    observations = [r for r in source.records if r.role == "environment"]
+                    if len(observations) != 1:
+                        raise ValueError(
+                            "The cost experiment requires one actual public observation"
+                        )
+                    payload = observations[0].payload
+                    if not 0 < len(codec.encode(payload)) <= 512:
+                        raise ValueError(
+                            "The public copy target exceeds the declared codec capacity"
+                        )
+                    sample = sequential_meridians(
+                        Episode(
+                            "public-copy:" + source.episode_id,
+                            (
+                                PhysicalRecord("input", "user", payload),
+                                PhysicalRecord("copy", "assistant", payload, policy_mask=True),
+                            ),
+                            replace(
+                                source.lineage,
+                                source_id="public-observation-copy",
+                                revision="v1",
+                                frozen_split=split,
+                            ),
+                            stream="bootstrap",
+                            control_seed=b"Reproduce the supplied text exactly.",
+                        )
+                    )
+                    store.add(sample, codec)
+        store.freeze()
+        export_prepared(
+            store,
+            output,
+            codec=codec,
+            pipeline_fingerprint=content_hash(
+                {"view": "public-observation-copy/v1", "sources": sources}
+            ),
+            source_receipts=[
+                {
+                    "origin": "authored_public_copy",
+                    "sources": sources,
+                    "scope": "exact reconstruction of available input; no selected procedure labels",
+                }
+            ],
+        )
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--root", type=Path, required=True)
@@ -397,6 +454,7 @@ def main():
     if args._stage == "prepare":
         args.root.mkdir(parents=True, exist_ok=False)
         prepare(args.root / "data", families=args.families)
+        prepare_codec_views(args.root / "data", args.root / "codec-data")
         with PreparedDataset(args.root / "data", split="validation") as heldout:
             if not len(heldout):
                 raise ValueError("Prepare held-out original families before training")
@@ -440,6 +498,7 @@ def main():
             budget=2000000,
             max_steps=args.foundation_steps,
             output=str(args.root / "foundation"),
+            datasets=[str(args.root / "data"), str(args.root / "codec-data")],
         )
         write_json(args.root / "foundation-config.json", asdict(foundation))
         result = train(foundation)
