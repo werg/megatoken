@@ -162,3 +162,33 @@ and was stopped; replacement `988dd7d8-b445-4a53-93b8-2095d50551c1` was accepted
 Recovery monitor PIDs changed once more after the safety checks were finalized:
 chat 4109862, coding pilot 4110870. Prefer the current external
 `recovery/controller-pids.json` over any historical PID in this document.
+
+## GPU result and retry, 15:31 UTC
+
+At 15:23 UTC, chat preparation contained 4,988,553 candidate episodes before global
+deduplication. Four chat machines had reached outputs-ready. The recovered worker's
+original exit code remains 1 pending the final audited reconciliation; all its
+source portions are complete. Coding repair continues independently.
+
+The first running GPU check used an RTX PRO 6000 Blackwell Server Edition with
+101,975,851,008 bytes GPU memory. Real download of 2,152,819,114 bytes took about
+3.25 seconds; BF16 math, runtime checks, and the first optimizer/checkpoint step
+passed. Resume failed: dynamically reconstructed additional donor buffers were
+on CPU while their learned map and model were on CUDA. The failed job was collected
+and stopped; its evidence is preserved in external
+`gpu-readiness/attempt-before-device-fix/`.
+
+`_NGramImport` now initializes its buffers on the learned map's device, preserving
+FP32 frozen descriptors. A new restore regression reproduces the failure with the
+meta device without needing a GPU, checks CPU value parity/gradients, and offers
+explicit opt-in CUDA coverage. Focused frontend/native import checks: 16 passed,
+one optional CUDA case skipped. The readiness wrapper also now requests exactly
+one resumed update: its update limit applies per invocation, so the expected
+checkpoint step is 2, not 3.
+
+A new detached GPU retry controller is running (current PID in external
+`gpu-readiness/process.json`) with exact isolated snapshot `61533b1`, containing
+only the donor-placement and resume-limit fixes on the prior GPU snapshot line.
+It now uses both newly completed production donor assets. Original failure reports
+are preserved; the corrected GPU training/resume/export/serving result is pending.
+Do not remove `gpu-readiness/device-fix-code/` while this controller is active.
