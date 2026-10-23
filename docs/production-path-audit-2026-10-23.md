@@ -1,22 +1,22 @@
 # Production-path audit — 2026-10-23
 
-## Status update while fixes are in progress
+## Final status after the donor-path repair
 
-This report preserves the production-path findings from the initial audit and distinguishes them from the current working-tree repairs. The audit was performed against the earlier code state; repository changes are now underway in shared files, so the exact behavior must be rechecked after those changes are validated. The cached-coordinator startup gap is a current repair item, not a future recommendation. A separate donor comparison and extraction implementation is documented in `docs/donor-comparison-2026-10-23.md`; that work is distinct from the media and serving findings below. No cloud run was started by this audit.
+This report preserves the initial production-path audit and distinguishes completed repairs from remaining findings. Detailed traces below describe the earlier code state; their old line numbers are evidence locations for that audit, not current source coordinates. The donor comparison and import workflow are documented in [the donor report](donor-comparison-2026-10-23.md). Read-only audit reproductions were followed by separate implementation tests and live cloud checks, summarized here.
 
-### Current repair work (not yet treated as shipped)
+### Completed repairs
 
-- Cached data inputs are being made available for coordinator initialization without sending cache credentials into the coordinator. The earlier launch route omitted the prepared roots from coordinator input; the finding remains open until the updated launcher and initializer pass their checks.
-- The model export path is being repaired to preserve full native table state, identify it in the export metadata, and bake imported donor maps out before the served bundle is produced. This includes the donor extraction route described separately. Verify actual export and served loading after the owner changes land; this audit does not independently prove those in-progress edits.
+- Cached coordinator initialization now receives a small verified corpus identity without dataset mounts or cache credentials. Tests exercise the actual launcher delivery and initialization with nonexistent data mounts. The existing live storage trial was backfilled and read back with all 19 original files unchanged.
+- Imported donor contributions survive regular training and DiLoCo export, are folded into the served table with exact BF16 lookup parity, and seed the next phase without donor assets. Tests include updates to both learned donor maps, untouched FP32 residuals, media packs, nondefault chunking and source-asset removal. Both selected donors' actual native memories also passed a live cloud extraction check.
 
 ### Remaining production findings from the audited code state
 
-- **Media pack startup validation:** the checked-in P1 media mixture and feature autoencoder can select donor-dependent outputs without a pack manifest. Fix validation against the actual selected loss/autoencoding/generation paths; text-only and feature-observation-to-text runs should continue to work without media generators.
+- **Media pack startup validation:** the generic P1 example can select donor-dependent outputs without a pack manifest. The new production donor recipe includes its required pack path, but general validation still needs to check the actual selected loss/autoencoding/generation paths; text-only and feature-observation-to-text runs should continue to work without media generators.
 - **Generation evaluation memory parity:** final generated-sample evaluation and inference benchmarks call the core sampler and omit session retrieval. Add a separately labeled session-runtime measurement; retain the core-only diagnostic if useful.
 - **Fixed effort and context defaults:** the example explicitly disables sampled effort and sets a fixed effort/history bound. This is an operational default, not a broken feature; any desired progressive context or effort schedule still needs explicit configuration and implementation.
 - **Knowledge-base model identity:** bases correctly reject reuse with different weights. This is deliberate; add a clear rebuild workflow rather than relaxing the version check.
 
-The detailed evidence below describes the audited pre-repair code state. Treat “current behavior” there as a trace of that revision, not as a claim that uncommitted repair work has already passed.
+The detailed evidence below describes the audited pre-repair code state. Treat “current behavior” there as a trace of that revision; completed repairs are listed above.
 
 ## Scope and method
 
@@ -28,9 +28,9 @@ Second, a tiny direct `model.sample(...)` completed without a session or agenda.
 
 ## Ranked findings
 
-### 1. Cached DiLoCo runs cannot initialize their coordinator from the current launcher route
+### 1. Cached DiLoCo coordinator startup gap — fixed
 
-**Confidence: high. Consequence: a cache-backed cloud DiLoCo run fails before learner training begins. Status: being fixed as part of the current cloud-route repair; this is not an unresolved recommendation.**
+**Confidence: high. Former consequence: a cache-backed cloud DiLoCo run failed before learner training began. Status: fixed and covered by launcher/initializer checks.**
 
 Expected capability: the launcher's `data.cache` option restores verified prepared roots to learners and allows the coordinator to initialize the same training identity before those learners start.
 
@@ -38,7 +38,7 @@ Current behavior: `data_inputs()` deliberately returns no ordinary files for cac
 
 The checked-in tests encode the gap: `test_stored_data_is_restored_by_learners_before_they_train` asserts the cache has no data inputs and that the coordinator command contains no cache work (`tests/test_cloud_diloco.py:182-199`); the launch test confirms only the coordinator token/file is delivered to the coordinator and the pin plus cache secrets go to learners (`:202-239`). I ran those two focused tests; both passed, confirming the current launcher behavior (not a successful cached coordinator initialization).
 
-**Status:** root has assigned this as a prerequisite in the current cloud-route repair, and it is being fixed there. It should not be carried as a future follow-up after that repair lands.
+**Status:** fixed by pin-bound compact corpus metadata, delivered to the coordinator and checked against selected root names, codec, chunking and feature teachers. This is not a future follow-up.
 
 Evidence locations: `src/megatoken/cloud_diloco.py:98-104,135-159,163-192,231-285`; `src/megatoken/cli.py:111-112,164-166`; `tests/test_cloud_diloco.py:182-239`.
 

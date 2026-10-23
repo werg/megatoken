@@ -87,7 +87,38 @@ class NativeDonorAddressor:
             return self._deepseek_address(ids, layer_id)
         return self._qwen_address(ids, layer_id)
 
-    def _deepseek_address(self, ids: tuple[int, ...], layer_id: int | None) -> tuple[NativeRowRef, ...]:
+    def lookup_key(self, context_ids: tuple[int, ...] | list[int], order: int) -> tuple[int, ...]:
+        """Return the exact ordered donor IDs hashed for one n-gram order."""
+        ids = tuple(int(token_id) for token_id in context_ids)
+        if not ids or any(
+            token_id < 0 or token_id >= self.profile.vocabulary.vocab_size for token_id in ids
+        ):
+            raise ValueError("Native donor context contains no valid token sequence")
+        if not 2 <= order <= self.max_context_tokens:
+            raise ValueError("Native lookup order is outside the donor's n-gram range")
+        if self.native_memory == "engram":
+            args = self._config["text_config"]
+            compressed = self._deepseek_compressed_ids
+            pad = compressed[int(args["engram_pad_token_id"])]
+            tokens = [
+                compressed[token_id] for token_id in reversed(ids[-self.max_context_tokens :])
+            ]
+            tokens.extend([pad] * (self.max_context_tokens - len(tokens)))
+            return tuple(tokens[:order])
+
+        args = self._config["text_config"]
+        eos = int(args["eos_token_id"])
+        prior = list(ids[:-1])
+        if eos in prior:
+            last_eos = len(prior) - 1 - prior[::-1].index(eos)
+            prior = prior[last_eos + 1 :]
+        tokens = [ids[-1], *reversed(prior[-(self.max_context_tokens - 1) :])]
+        tokens.extend([eos] * (self.max_context_tokens - len(tokens)))
+        return tuple(tokens[:order])
+
+    def _deepseek_address(
+        self, ids: tuple[int, ...], layer_id: int | None
+    ) -> tuple[NativeRowRef, ...]:
         args = self._config["text_config"]
         layers = tuple(int(value) for value in args["engram_layer_ids"])
         if layer_id is not None and layer_id not in layers:
@@ -107,13 +138,17 @@ class NativeDonorAddressor:
             table_rows = int(args["engram_num_embeddings"][layer_pos])
             primes = _deepseek_primes(args, layers)
             offsets = _deepseek_offsets(primes)
-            multipliers = _deepseek_multipliers(current_layer, max_ngram, self._deepseek_compressed_vocab_size)
+            multipliers = _deepseek_multipliers(
+                current_layer, max_ngram, self._deepseek_compressed_vocab_size
+            )
             table = f"layers.{current_layer}.engram.embed.weight"
             scale = f"layers.{current_layer}.engram.embed.scale"
             weight_shard = self._index.get(table)
             scale_shard = self._index.get(scale)
             if weight_shard is None or scale_shard != weight_shard:
-                raise ValueError(f"Pinned DeepSeek index is missing the Engram table pair for layer {current_layer}")
+                raise ValueError(
+                    f"Pinned DeepSeek index is missing the Engram table pair for layer {current_layer}"
+                )
             expected_shard = DEEPSEEK_NATIVE_SHARDS.get(weight_shard)
             if expected_shard is None:
                 raise ValueError(f"DeepSeek native table shard {weight_shard} is not pinned")
@@ -131,7 +166,9 @@ class NativeDonorAddressor:
                             layer_id=current_layer,
                             order=order,
                             head=head,
-                            component_index=layer_pos * (max_ngram - 1) * int(args["engram_n_heads"])
+                            component_index=layer_pos
+                            * (max_ngram - 1)
+                            * int(args["engram_n_heads"])
                             + (order - 2) * int(args["engram_n_heads"])
                             + head,
                             global_row=row,
@@ -170,11 +207,11 @@ class NativeDonorAddressor:
         recent.extend([eos] * (ngram_size - len(recent)))
         heads_per = int(args["heads_per_ngram"])
         head_count = (ngram_size - 1) * heads_per
-        prime_sizes, offsets = _qwen_head_layout(
-            int(args["ngram_vocab_size_base"]), head_count, 0
-        )
+        prime_sizes, offsets = _qwen_head_layout(int(args["ngram_vocab_size_base"]), head_count, 0)
         multipliers = _qwen_multipliers(
-            int(args["vocab_size"]), ngram_size, 0,
+            int(args["vocab_size"]),
+            ngram_size,
+            0,
             int(args.get("seed", 1234)),
         )
         total_rows = sum(prime_sizes)
@@ -229,12 +266,16 @@ def load_native_donor(name: str, donor_root: str | Path) -> NativeDonorAddressor
             raise ValueError("DeepSeek Engram table dimensions do not match the pinned profile")
         compressed_ids, compressed_size = _deepseek_compressed_token_ids(root / "tokenizer.json")
         if compressed_size != int(args["engram_compressed_vocab_size"]):
-            raise ValueError("DeepSeek compressed tokenizer size differs from the native table profile")
+            raise ValueError(
+                "DeepSeek compressed tokenizer size differs from the native table profile"
+            )
         map_digest = hashlib.sha256(
             b"".join(token_id.to_bytes(4, "little") for token_id in compressed_ids)
         ).hexdigest()
         if map_digest != DEEPSEEK_COMPRESSED_MAP_SHA256:
-            raise ValueError("DeepSeek compressed token map differs from the pinned official reference")
+            raise ValueError(
+                "DeepSeek compressed token map differs from the pinned official reference"
+            )
         _deepseek_primes(args, tuple(args["engram_layer_ids"]))
         return NativeDonorAddressor(
             asset,
@@ -255,7 +296,9 @@ def load_native_donor(name: str, donor_root: str | Path) -> NativeDonorAddressor
             (int(args["ngram_size"]) - 1) * int(args["heads_per_ngram"]),
             0,
         )
-        if (sum(primes) + int(args["split_ngram_parts"]) - 1) // int(args["split_ngram_parts"]) != 2_500_012:
+        if (sum(primes) + int(args["split_ngram_parts"]) - 1) // int(
+            args["split_ngram_parts"]
+        ) != 2_500_012:
             raise ValueError("Qwen PLE checkpoint shard row size differs from the pinned profile")
         return NativeDonorAddressor(
             asset,
@@ -292,7 +335,9 @@ def _deepseek_compressed_token_ids(tokenizer_json: Path) -> tuple[list[int], int
         if "\ufffd" in text:
             key = backend.id_to_token(token_id)
             if key is None:
-                raise ValueError(f"DeepSeek tokenizer has no spelling for byte-fallback row {token_id}")
+                raise ValueError(
+                    f"DeepSeek tokenizer has no spelling for byte-fallback row {token_id}"
+                )
         else:
             normalized = normalizer.normalize_str(text)
             key = normalized if normalized else text
@@ -305,7 +350,9 @@ def _deepseek_compressed_token_ids(tokenizer_json: Path) -> tuple[list[int], int
 
 
 @cache
-def _deepseek_multipliers(layer_id: int, max_ngram_size: int, compressed_vocab_size: int) -> tuple[int, ...]:
+def _deepseek_multipliers(
+    layer_id: int, max_ngram_size: int, compressed_vocab_size: int
+) -> tuple[int, ...]:
     max_long = np.iinfo(np.int64).max
     multiplier_bound = max(1, (max_long // compressed_vocab_size) // 2)
     generator = np.random.default_rng(10007 * layer_id)
@@ -313,7 +360,9 @@ def _deepseek_multipliers(layer_id: int, max_ngram_size: int, compressed_vocab_s
     return tuple(int(value * 2 + 1) for value in values)
 
 
-def _deepseek_primes(args: dict, layer_ids: tuple[int, ...]) -> tuple[tuple[tuple[int, ...], ...], ...]:
+def _deepseek_primes(
+    args: dict, layer_ids: tuple[int, ...]
+) -> tuple[tuple[tuple[int, ...], ...], ...]:
     return _deepseek_primes_cached(
         int(args["engram_max_ngram_size"]),
         int(args["engram_n_heads"]),
@@ -346,7 +395,9 @@ def _deepseek_primes_cached(
 
 
 @cache
-def _deepseek_offsets(primes: tuple[tuple[tuple[int, ...], ...], ...]) -> tuple[tuple[int, ...], ...]:
+def _deepseek_offsets(
+    primes: tuple[tuple[tuple[int, ...], ...], ...],
+) -> tuple[tuple[int, ...], ...]:
     result = []
     for layer in primes:
         offsets = []
@@ -360,8 +411,13 @@ def _deepseek_offsets(primes: tuple[tuple[tuple[int, ...], ...], ...]) -> tuple[
 
 
 @cache
-def _qwen_head_layout(base: int, head_count: int, layer_index: int) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    sizes = tuple(_nth_prime_after(base - 1, layer_index * head_count + head + 1) for head in range(head_count))
+def _qwen_head_layout(
+    base: int, head_count: int, layer_index: int
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    sizes = tuple(
+        _nth_prime_after(base - 1, layer_index * head_count + head + 1)
+        for head in range(head_count)
+    )
     offsets = []
     current = 0
     for size in sizes:
@@ -371,7 +427,9 @@ def _qwen_head_layout(base: int, head_count: int, layer_index: int) -> tuple[tup
 
 
 @cache
-def _qwen_multipliers(vocab_size: int, ngram_size: int, layer_index: int, seed: int) -> tuple[int, ...]:
+def _qwen_multipliers(
+    vocab_size: int, ngram_size: int, layer_index: int, seed: int
+) -> tuple[int, ...]:
     max_long = (1 << 63) - 1
     half_bound = max(1, (max_long // max(vocab_size, 1)) // 2)
     base_seed = seed + 10007 * layer_index
@@ -434,37 +492,136 @@ DEEPSEEK_NATIVE_SHARDS: dict[str, tuple[str, int]] = {
 }
 
 QWEN_NATIVE_SHARDS: dict[str, tuple[str, int]] = {
-    "model-00005-of-00131.safetensors": ("54fdc7adf431d6b94d9292fc8bd7938d906b0cffe0997d76ac1a176413aa80f2", 3_355_888_504),
-    "model-00006-of-00131.safetensors": ("8277a48e1fd7ab7ff7f0282befcc6eb4e09ab2e0780c00af6685e198faba233e", 3_200_016_032),
-    "model-00007-of-00131.safetensors": ("0fba369354e45b43efbe2773d63b7cb20caedb56ff9ed80e076bbcdaf560666a", 3_200_016_032),
-    "model-00008-of-00131.safetensors": ("024f59b6f2cb27ab79a4267cff9603c398ef1a7ef9ba76009fd34a0a84a9455e", 3_200_016_032),
-    "model-00009-of-00131.safetensors": ("23fbef154f7f68e5b6f555492832c78822a827554757797daf91de48df06b496", 3_200_016_032),
-    "model-00010-of-00131.safetensors": ("b3a303529a190c6661870d5abebf0ac18d36922a1da8db737d19f55bd1031fe8", 3_200_016_032),
-    "model-00011-of-00131.safetensors": ("d1215943b48481febb33a1129c96613dec5f364613a2cc3ba1e27c23be0ca78a", 3_200_016_032),
-    "model-00012-of-00131.safetensors": ("f63d649ea84867ec75884dace5ea4d8c723a6560463674a6ee0ce621b4b9dbc1", 3_200_016_032),
-    "model-00013-of-00131.safetensors": ("5e0f0fb335f4c19a0158f60294e5b5c30bdfc344b003633c9c42e5e638a6808e", 3_200_016_032),
-    "model-00014-of-00131.safetensors": ("5ee73bd21c73b2610d2a30924f7acd24e63b1ca29e0a1f1c87f0f6a9648e347a", 3_200_016_032),
-    "model-00015-of-00131.safetensors": ("b35421bf21724db705a38ee9f779de07f9f1711be964049942960c5e3dddb1c2", 3_200_016_032),
-    "model-00016-of-00131.safetensors": ("73c4b1bd1f3752d70f0161ec8c8a7701f0538e1ae722daf16a905e04a666e69f", 3_200_016_032),
-    "model-00017-of-00131.safetensors": ("ee60c1269974cc797bad8bfc9a0fac72437b323ceafcb225cef6980ecffce1b3", 3_200_016_032),
-    "model-00018-of-00131.safetensors": ("72cf3696aa1af4611b2da2b013868f3724082362899d9dce3e9fec908d441fc2", 3_200_016_032),
-    "model-00019-of-00131.safetensors": ("bdad649be407bd8033a4abd6a24bf434ed6a173807892d18cc1c9771031bfd0c", 3_200_016_032),
-    "model-00020-of-00131.safetensors": ("2258dad55787922f1d4429aea528495511f58447baa9b4f1b7f92f58ba7110b0", 3_200_016_032),
-    "model-00021-of-00131.safetensors": ("775952ac572fa4ff7e5e316ecb60483d4dd96f4369d6a7a403fa31d7f9d1a6d0", 3_200_016_032),
-    "model-00022-of-00131.safetensors": ("7d205070bb898c59d23bc379652607911f39e219627028a29d82e8e8fecab7c0", 3_200_016_032),
-    "model-00023-of-00131.safetensors": ("598d4f772853233b88911fdb1a49f8865e3c732e93b17aea44b65f455e69e9dc", 3_200_016_032),
-    "model-00024-of-00131.safetensors": ("09e534942e7d4eb31803b347e14dd70090f16f85c89b0ad766bdace135806f12", 3_200_016_032),
-    "model-00025-of-00131.safetensors": ("482d18f0e515c23c6933593d0cce289770600c6fa539168bd304e2169cc8a2be", 3_200_016_032),
-    "model-00026-of-00131.safetensors": ("ac479fe29ed3e03b7c3523974371d68dace22b7744ff9236f9429cdbb9241da0", 3_200_016_032),
-    "model-00027-of-00131.safetensors": ("4981d4e636723dbb063f04854e4362c1fe341d9ba80b5bb4231bb0d5ee8ab266", 3_200_016_032),
-    "model-00028-of-00131.safetensors": ("1b45a957b1f3572d325b0795f549fb772c160bd5c5167f94a347b96e3c7b978d", 3_200_016_032),
-    "model-00029-of-00131.safetensors": ("40d2f2291ff4800373087cd00f1f95c3bd69331c32f39cfdd5d43516764b03ec", 3_200_016_032),
-    "model-00030-of-00131.safetensors": ("893a9b59e412a3242252274770efe0794ce8b216b2b3907b6854b7eaa6ddd334", 3_200_016_032),
-    "model-00031-of-00131.safetensors": ("9b6bf01d60f21bed295b9b1d43501593b4ce7ece28aaf75618b4fb58039c0d04", 3_200_016_040),
-    "model-00032-of-00131.safetensors": ("7453fcb5872160888730439ac71a5279d348686d68c6ba2d62ff12461443dc69", 3_200_016_040),
-    "model-00033-of-00131.safetensors": ("5b2f577ce40932031c4749f9177dab2119ff118f9f9b9df3d0d5e57c8e41d128", 3_200_016_040),
-    "model-00034-of-00131.safetensors": ("35b5522668652e8cc7d8eacb0d45c59eb9ed9786e9102a9b71503f746f50da64", 3_200_016_040),
-    "model-00035-of-00131.safetensors": ("4fe611218d36ff7c06e4c24f7252215fdddc879ac3de2b1d569727ed31f82db1", 3_200_016_040),
-    "model-00036-of-00131.safetensors": ("237789c0cef556ef22c9f1ca99b7baf71b33a56b70c5828380e1008e02510649", 3_200_016_040),
-    "model-00037-of-00131.safetensors": ("73b53c94d23589bdfde55b20538a515525f22fd37c7cdf24e85738ed771218e1", 1_742_347_160),
+    "model-00005-of-00131.safetensors": (
+        "54fdc7adf431d6b94d9292fc8bd7938d906b0cffe0997d76ac1a176413aa80f2",
+        3_355_888_504,
+    ),
+    "model-00006-of-00131.safetensors": (
+        "8277a48e1fd7ab7ff7f0282befcc6eb4e09ab2e0780c00af6685e198faba233e",
+        3_200_016_032,
+    ),
+    "model-00007-of-00131.safetensors": (
+        "0fba369354e45b43efbe2773d63b7cb20caedb56ff9ed80e076bbcdaf560666a",
+        3_200_016_032,
+    ),
+    "model-00008-of-00131.safetensors": (
+        "024f59b6f2cb27ab79a4267cff9603c398ef1a7ef9ba76009fd34a0a84a9455e",
+        3_200_016_032,
+    ),
+    "model-00009-of-00131.safetensors": (
+        "23fbef154f7f68e5b6f555492832c78822a827554757797daf91de48df06b496",
+        3_200_016_032,
+    ),
+    "model-00010-of-00131.safetensors": (
+        "b3a303529a190c6661870d5abebf0ac18d36922a1da8db737d19f55bd1031fe8",
+        3_200_016_032,
+    ),
+    "model-00011-of-00131.safetensors": (
+        "d1215943b48481febb33a1129c96613dec5f364613a2cc3ba1e27c23be0ca78a",
+        3_200_016_032,
+    ),
+    "model-00012-of-00131.safetensors": (
+        "f63d649ea84867ec75884dace5ea4d8c723a6560463674a6ee0ce621b4b9dbc1",
+        3_200_016_032,
+    ),
+    "model-00013-of-00131.safetensors": (
+        "5e0f0fb335f4c19a0158f60294e5b5c30bdfc344b003633c9c42e5e638a6808e",
+        3_200_016_032,
+    ),
+    "model-00014-of-00131.safetensors": (
+        "5ee73bd21c73b2610d2a30924f7acd24e63b1ca29e0a1f1c87f0f6a9648e347a",
+        3_200_016_032,
+    ),
+    "model-00015-of-00131.safetensors": (
+        "b35421bf21724db705a38ee9f779de07f9f1711be964049942960c5e3dddb1c2",
+        3_200_016_032,
+    ),
+    "model-00016-of-00131.safetensors": (
+        "73c4b1bd1f3752d70f0161ec8c8a7701f0538e1ae722daf16a905e04a666e69f",
+        3_200_016_032,
+    ),
+    "model-00017-of-00131.safetensors": (
+        "ee60c1269974cc797bad8bfc9a0fac72437b323ceafcb225cef6980ecffce1b3",
+        3_200_016_032,
+    ),
+    "model-00018-of-00131.safetensors": (
+        "72cf3696aa1af4611b2da2b013868f3724082362899d9dce3e9fec908d441fc2",
+        3_200_016_032,
+    ),
+    "model-00019-of-00131.safetensors": (
+        "bdad649be407bd8033a4abd6a24bf434ed6a173807892d18cc1c9771031bfd0c",
+        3_200_016_032,
+    ),
+    "model-00020-of-00131.safetensors": (
+        "2258dad55787922f1d4429aea528495511f58447baa9b4f1b7f92f58ba7110b0",
+        3_200_016_032,
+    ),
+    "model-00021-of-00131.safetensors": (
+        "775952ac572fa4ff7e5e316ecb60483d4dd96f4369d6a7a403fa31d7f9d1a6d0",
+        3_200_016_032,
+    ),
+    "model-00022-of-00131.safetensors": (
+        "7d205070bb898c59d23bc379652607911f39e219627028a29d82e8e8fecab7c0",
+        3_200_016_032,
+    ),
+    "model-00023-of-00131.safetensors": (
+        "598d4f772853233b88911fdb1a49f8865e3c732e93b17aea44b65f455e69e9dc",
+        3_200_016_032,
+    ),
+    "model-00024-of-00131.safetensors": (
+        "09e534942e7d4eb31803b347e14dd70090f16f85c89b0ad766bdace135806f12",
+        3_200_016_032,
+    ),
+    "model-00025-of-00131.safetensors": (
+        "482d18f0e515c23c6933593d0cce289770600c6fa539168bd304e2169cc8a2be",
+        3_200_016_032,
+    ),
+    "model-00026-of-00131.safetensors": (
+        "ac479fe29ed3e03b7c3523974371d68dace22b7744ff9236f9429cdbb9241da0",
+        3_200_016_032,
+    ),
+    "model-00027-of-00131.safetensors": (
+        "4981d4e636723dbb063f04854e4362c1fe341d9ba80b5bb4231bb0d5ee8ab266",
+        3_200_016_032,
+    ),
+    "model-00028-of-00131.safetensors": (
+        "1b45a957b1f3572d325b0795f549fb772c160bd5c5167f94a347b96e3c7b978d",
+        3_200_016_032,
+    ),
+    "model-00029-of-00131.safetensors": (
+        "40d2f2291ff4800373087cd00f1f95c3bd69331c32f39cfdd5d43516764b03ec",
+        3_200_016_032,
+    ),
+    "model-00030-of-00131.safetensors": (
+        "893a9b59e412a3242252274770efe0794ce8b216b2b3907b6854b7eaa6ddd334",
+        3_200_016_032,
+    ),
+    "model-00031-of-00131.safetensors": (
+        "9b6bf01d60f21bed295b9b1d43501593b4ce7ece28aaf75618b4fb58039c0d04",
+        3_200_016_040,
+    ),
+    "model-00032-of-00131.safetensors": (
+        "7453fcb5872160888730439ac71a5279d348686d68c6ba2d62ff12461443dc69",
+        3_200_016_040,
+    ),
+    "model-00033-of-00131.safetensors": (
+        "5b2f577ce40932031c4749f9177dab2119ff118f9f9b9df3d0d5e57c8e41d128",
+        3_200_016_040,
+    ),
+    "model-00034-of-00131.safetensors": (
+        "35b5522668652e8cc7d8eacb0d45c59eb9ed9786e9102a9b71503f746f50da64",
+        3_200_016_040,
+    ),
+    "model-00035-of-00131.safetensors": (
+        "4fe611218d36ff7c06e4c24f7252215fdddc879ac3de2b1d569727ed31f82db1",
+        3_200_016_040,
+    ),
+    "model-00036-of-00131.safetensors": (
+        "237789c0cef556ef22c9f1ca99b7baf71b33a56b70c5828380e1008e02510649",
+        3_200_016_040,
+    ),
+    "model-00037-of-00131.safetensors": (
+        "73b53c94d23589bdfde55b20538a515525f22fd37c7cdf24e85738ed771218e1",
+        1_742_347_160,
+    ),
 }

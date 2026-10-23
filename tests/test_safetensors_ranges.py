@@ -81,6 +81,24 @@ def test_local_safetensors_reader_selects_rows_without_loading_entire_table(tmp_
     reader.close()
 
 
+def test_local_native_fp8_weights_and_e8m0_scales_keep_their_numeric_values(tmp_path):
+    from safetensors.torch import save_file
+
+    from megatoken.safetensors_ranges import LocalSafetensorsRowReader
+
+    path = tmp_path / "native-fp8.safetensors"
+    weights = torch.tensor([[1.0, 2.0], [3.0, 4.0]]).to(torch.float8_e4m3fn)
+    scales = torch.tensor([[127, 128], [129, 130]], dtype=torch.uint8).view(torch.float8_e8m0fnu)
+    save_file({"weight": weights, "scale": scales}, str(path))
+    weight_reader = LocalSafetensorsRowReader(str(path), "weight")
+    scale_reader = LocalSafetensorsRowReader(str(path), "scale")
+    assert weight_reader.read_rows([1])[1].float().tolist() == [3.0, 4.0]
+    assert scale_reader.read_rows([0])[0].float().tolist() == [1.0, 2.0]
+    assert scale_reader.read_rows([1])[1].float().tolist() == [4.0, 8.0]
+    weight_reader.close()
+    scale_reader.close()
+
+
 def test_safetensors_range_reader_rejects_invalid_shape_metadata():
     shard = make_shard()
     with pytest.raises(ValueError, match="invalid safetensors metadata"):

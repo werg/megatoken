@@ -202,12 +202,18 @@ def extract_native_engram(
         for refs, (context_ids, suffix) in zip(
             batch_refs, selected[start : start + len(batch_refs)], strict=True
         ):
-            context_digest = hashlib.sha256(
-                b"".join(int(token).to_bytes(4, "little") for token in context_ids)
-            ).digest()
             components: list[torch.Tensor] = []
+            context_digests: dict[int, bytes] = {}
             for ref in refs:
                 donor_key = (ref.component_index, ref.global_row)
+                context_digest = context_digests.get(ref.order)
+                if context_digest is None:
+                    lookup_key = addressor.lookup_key(context_ids, ref.order)
+                    context_digest = hashlib.sha256(
+                        b"native-lookup-key-v1\0"
+                        + b"".join(int(token).to_bytes(4, "little") for token in lookup_key)
+                    ).digest()
+                    context_digests[ref.order] = context_digest
                 prior = donor_row_contexts.get(donor_key)
                 if prior is None:
                     donor_row_contexts[donor_key] = (context_digest, False)

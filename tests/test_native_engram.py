@@ -44,6 +44,7 @@ def test_native_extraction_uses_real_context_and_emits_hashed_asset(
         native_memory="engram",
         compressed_token_map_sha256=None,
         address=lambda context: refs,
+        lookup_key=lambda context, order: tuple(reversed(context[-order:])),
     )
     monkeypatch.setattr(native_engram, "_load_addressor", lambda *_: addressor)
     monkeypatch.setattr(native_engram, "_verify_remote_shards", lambda *args: None)
