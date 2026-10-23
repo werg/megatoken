@@ -1,4 +1,4 @@
-"""Opt-in, bounded conversation memory; model work is staged before publication."""
+"""Bounded scoped conversation memory; model work is staged before publication."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from megatoken.model.transducer import OrdinaryEvents
 
 @dataclass(frozen=True)
 class WritePolicy:
-    """Uncalibrated defaults: callers explicitly opt into either writing rule."""
+    """Retrospective writing is the scoped default; surprise requires explicit opt-in."""
 
     retrospective: bool = True
     surprise: bool = False
@@ -31,6 +31,13 @@ class WritePolicy:
     surprise_multiplier: float = 1.2
 
     def __post_init__(self):
+        if any(
+            type(value) is not int
+            for value in (self.lag, self.max_events, self.max_writes, self.autosave_every)
+        ):
+            raise ValueError("Write budgets and lag must be integers")
+        if type(self.retrospective) is not bool or type(self.surprise) is not bool:
+            raise ValueError("Writing rules must be booleans")
         if (
             self.lag < 0
             or min(self.max_events, self.max_writes, self.autosave_every) < 1
@@ -181,7 +188,7 @@ class ConversationWrites:
                     return False
         return True
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def commit(self, session, native, multi, ordinary=None, lookup=None, scores=(), *, flush=False):
         """Called under the session lock, strictly after the lookup commits.
 
@@ -257,6 +264,8 @@ class ConversationWrites:
                         if mount.base is base:
                             ids, weights = lookup.base_edges.get(mount.name, ([], []))
                             for edge, weight in zip(ids, weights, strict=True):
+                                if int(edge) not in base:
+                                    continue
                                 base.use_counts[int(edge)] = base.use_counts.get(
                                     int(edge), 0
                                 ) + float(weight)

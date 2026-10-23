@@ -136,30 +136,40 @@ def test_the_service_adds_files_to_both_and_opens_a_session_on_both(tmp_path):
     assert by_id[5]["ok"] and by_id[5]["retrieved"]
 
 
-
 def test_private_writes_with_collection_and_failure_restore_sources(tmp_path, monkeypatch):
     import pytest
 
     from megatoken.model.transducer import HindsightValues
     from megatoken.serving_writes import WritePolicy
 
-    runtime = _runtime(tmp_path)
+    runtime = _runtime(tmp_path, FakePreparer(tmp_path / "scratch"))
     memory = runtime.memory
     base = memory.create_overlay("private", "alice", tmp_path / "private.kb")
+
     def values(events, reads):
-        return HindsightValues(torch.ones(len(reads), memory.bank.geometry.value_dim),
-                               torch.zeros(len(reads), dtype=torch.bool))
+        return HindsightValues(
+            torch.ones(len(reads), memory.bank.geometry.value_dim),
+            torch.zeros(len(reads), dtype=torch.bool),
+        )
+
     monkeypatch.setattr(memory.native, "retrospective_values", values)
-    session = runtime.open(overlay="private", scope="alice", max_sources=1,
-                           write_policy=WritePolicy(lag=0))
+    session = runtime.open(
+        overlay="private", scope="alice", max_sources=1, write_policy=WritePolicy(lag=0)
+    )
     runtime.observe(session, _tool())
     sources = session.memory.sources
-    before = (list(sources.log), {n: set(v) for n, v in sources.observed.items()},
-              sources.last, dict(sources.search_snapshots))
+    before = (
+        list(sources.log),
+        {n: set(v) for n, v in sources.observed.items()},
+        sources.last,
+        dict(sources.search_snapshots),
+    )
     state = session.state
     add_edges = base.add_edges
+
     def fail(**kwargs):
         raise RuntimeError("write failed")
+
     monkeypatch.setattr(base, "add_edges", fail)
     with pytest.raises(RuntimeError, match="write failed"):
         runtime.observe(session, _tool())

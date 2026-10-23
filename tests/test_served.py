@@ -694,3 +694,37 @@ def test_bundle_requires_the_pack_manifest_it_was_trained_with(bundle, tmp_path)
     lock.write_text("{}")
     with pytest.raises(ValueError, match="pack manifest the bundle was trained with"):
         ServedBundle(directory, packs=lock, device="cpu")
+
+
+def test_cli_serves_exported_model_and_persists_private_memory_on_eof(bundle, tmp_path, monkeypatch):
+    import io
+    import sys
+    from types import SimpleNamespace
+
+    from megatoken import cli
+    from megatoken.kb import model_identity
+    from megatoken.memory.knowledge import KnowledgeBase
+
+    original, directory, _ = bundle
+    output = io.StringIO()
+    root = tmp_path / "private"
+    root.mkdir()
+
+    def requests():
+        yield json.dumps(dict(op="open", scope="alice",
+                              write_policy={"lag": 4}, effort=1)) + "\n"
+        opened = json.loads(output.getvalue().splitlines()[-1])
+        assert opened["ok"] and opened["memory_writes"] and opened["overlay"]
+        for text in ("fact", "result"):
+            yield json.dumps(dict(op="observe_text", session=opened["session"],
+                                  track="main", text=text, effort=1)) + "\n"
+
+    monkeypatch.setattr(sys, "stdin", requests())
+    monkeypatch.setattr(sys, "stdout", output)
+    cli._serve(SimpleNamespace(model=str(directory), packs=None, device="cpu", compile=False,
+                              collection=[], kb_root=str(root), max_sessions=2))
+    responses = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert len(responses) == 3 and all(row["ok"] for row in responses)
+    saved = KnowledgeBase.load(next((root / "scopes").glob("*.kb")), geometry=original.transducer.bank.geometry,
+                               identity=model_identity(original))
+    assert saved.scope == "alice" and saved.edge_count > 0

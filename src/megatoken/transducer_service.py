@@ -1,6 +1,6 @@
 """Serving sessions for the v10 transducer: one agenda per session, native C history.
 
-Opt-in overlays remember completed conversation evidence without retraining. A
+Scoped overlays remember completed conversation evidence without retraining. A
 query/knowledge pair is one cancellable transaction: on timeout or
 cancellation neither the agenda nor the native state changes. Only ordinary
 meridians (observed or generated) schedule lookups, and the roles of a
@@ -12,6 +12,7 @@ session as it was. Every call on a session is serialized by that session's lock.
 from __future__ import annotations
 
 import copy
+import hashlib
 import threading
 import time
 import uuid
@@ -76,6 +77,7 @@ class TransducerInferenceEngine:
         *,
         collections: Mapping[str, str | Path] | None = None,
         preparer: Callable[[], FilePreparer] | None = None,
+        memory_root: str | Path | None = None,
     ) -> None:
         """``preparer`` (called once, when first needed) prepares files to add."""
         model = multi.generator.eval()
@@ -86,6 +88,8 @@ class TransducerInferenceEngine:
         self.multi = multi
         self.bases: dict[str, KnowledgeBase] = {}
         self.sessions: dict[str, TransducerSession] = {}
+        self.memory_root = None if memory_root is None else Path(memory_root).resolve()
+        self._scope_lock = threading.RLock()
         self._preparer_factory = preparer
         self._preparer: FilePreparer | None = None
         self._identity: dict[str, Any] | None = None
@@ -125,6 +129,52 @@ class TransducerInferenceEngine:
         return self._register(
             name, open_base(path, self.multi.generator, identity=self.identity, writable=writable)
         )
+
+    @torch.inference_mode(False)
+    def scope_overlay(self, scope: str) -> str:
+        """Reuse, reopen or create the persistent private store for an authenticated scope."""
+        with self._scope_lock:
+            for name, base in self.bases.items():
+                if base.writable and base.scope == scope:
+                    return name
+            # An unmounted base may still be used by an active session. Reuse its
+            # lock and rows instead of opening a second independent disk writer.
+            for session in self.sessions.values():
+                if session.writes is not None and session.writes.scope == scope:
+                    base = session.writes.base
+                    if base.name in self.bases:
+                        raise ValueError("The scope's active memory name is already occupied")
+                    self.bases[base.name] = base
+                    return base.name
+            if self.memory_root is None:
+                raise ValueError(
+                    "Scoped memory needs a persistent memory_root (serve with --kb-root), "
+                    "or an existing writable scope store; set memory_writes=False to disable"
+                )
+            digest = hashlib.sha256(scope.encode("utf-8")).hexdigest()
+            name = f"scope-{digest}"
+            path = (self.memory_root / "scopes" / f"{digest}.kb").resolve()
+            if not path.is_relative_to(self.memory_root):
+                raise ValueError("Scope memory path lies outside the memory root")
+            if path.exists():
+                base = open_base(path, self.multi.generator, identity=self.identity, writable=True)
+                if base.scope != scope:
+                    raise ValueError("Stored memory belongs to a different scope")
+                base.name = name
+                self._register(name, base)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                count = min(2048, self.bank.geometry.max_edges)
+                self.create_overlay(
+                    name,
+                    scope,
+                    path,
+                    max_edges=count,
+                    byte_budget=min(
+                        self.bank.geometry.byte_budget, count * self.bank.geometry.row_bytes
+                    ),
+                )
+            return name
 
     def create_base(self, name: str) -> KnowledgeBase:
         """A new empty base that files can be added to while serving."""
@@ -204,6 +254,7 @@ class TransducerInferenceEngine:
         overlay: str | None = None,
         scope: str | None = None,
         write_policy: WritePolicy | None = None,
+        memory_writes: bool = True,
     ) -> TransducerSession:
         """Commit the metadata prefix, then the first lookup, before any answer.
 
@@ -212,6 +263,19 @@ class TransducerInferenceEngine:
         (default: every mounted one) and observes up to ``max_sources`` items per
         lookup above ``threshold`` (default: each collection's own).
         """
+        if scope is not None and (not isinstance(scope, str) or not scope):
+            raise ValueError("Scope must be a nonempty string")
+        if type(memory_writes) is not bool:
+            raise ValueError("memory_writes must be a boolean")
+        if overlay is None and scope is not None and memory_writes:
+            # Validate explicit mounts before creating any persistent state.
+            for name in bases or {}:
+                mounted = self.bases.get(name)
+                if mounted is None:
+                    raise ValueError(f"No open knowledge base named {name!r}")
+                if mounted.scope is not None and mounted.scope != scope:
+                    raise ValueError("Private bases can only mount in their own scope")
+            overlay = self.scope_overlay(scope)
         if overlay is not None:
             base = self.bases.get(overlay)
             if base is None or not base.writable or not scope or base.scope != scope:
@@ -242,7 +306,7 @@ class TransducerInferenceEngine:
             else None
         )
         session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self), sources)
-        if overlay is not None:
+        if overlay is not None and memory_writes:
             session.writes = ConversationWrites(
                 scope, base, metadata_payload(metadata), write_policy or WritePolicy()
             )
@@ -481,6 +545,11 @@ class TransducerInferenceEngine:
         if not reviewed:
             raise ValueError("Promotion requires explicit review")
         source, target = self.bases[name], self.bases[destination]
+        ids = [int(edge) for edge in ids]
+        if len(set(ids)) != len(ids):
+            raise ValueError("Promote needs distinct edge IDs")
+        if not ids:
+            return []
         if source is target or not target.writable or target.scope is not None:
             raise ValueError("Promote into a separate writable shared base")
         from megatoken.memory.knowledge import check_identity
@@ -488,6 +557,9 @@ class TransducerInferenceEngine:
         check_identity(source.identity, target.identity)
         with source.lock:
             rows = source.table.state(list(ids))
+            original_ids = rows["ids"].tolist()
+            provenance = {e: copy.deepcopy(source.provenance.get(e, {})) for e in original_ids}
+            labels = {e: source.sources[e] for e in original_ids if e in source.sources}
         # Copy packed columns exactly; assign fresh IDs in the destination.
         with target.transaction():
             if len(ids) > target.edge_room:
@@ -496,6 +568,14 @@ class TransducerInferenceEngine:
             rows["ids"] = added
             target.table.upsert(rows)
             target.table.next_id += len(ids)
+            for old, new in zip(original_ids, added.tolist(), strict=True):
+                target.provenance[new] = {
+                    **provenance[old],
+                    "promoted_from": name,
+                    "promoted_edge": old,
+                }
+                if old in labels:
+                    target.sources[new] = labels[old]
             target._changed()
             if target.path is not None:
                 target.save(target.path)

@@ -1,6 +1,6 @@
 # Plan: writing to the memory bank while serving
 
-**Status:** implemented as an opt-in serving feature; trained-model calibration remains open.
+**Status:** implemented; retrospective writes default on for scoped sessions. Trained-model calibration remains open.
 **Date:** 23 October 2026.
 **Decision wanted by the owners:** the model learns from conversations while it serves. This
 document says how to get a first working version with the least change to the existing code,
@@ -187,14 +187,35 @@ These are issues the code review found that matter here.
 
 ## 8. Implemented interface and choices
 
-Conversation writing is off unless a session explicitly names a persistent private store.
-Create one with `memory.create_overlay(name, scope, path, max_edges=2048)`, then open
-with `runtime.open(overlay=name, scope=scope, write_policy=WritePolicy(...))`.
+Retrospective conversation writing defaults on for sessions assigned a user or workspace
+scope. Start the JSONL server with `--kb-root DIRECTORY`, then open a session with
+`{"op":"open","scope":"alice"}`. The server creates or reopens that scope's private
+store automatically, mounts it alongside the trained bank, and reports its name as
+`overlay` and its enabled state as `memory_writes` in the response. No separate store
+creation or writing-enablement request is required.
+
+Python callers use `MultiTrackRuntime(multi, memory_root=directory)` and
+`runtime.open(scope="alice")`. An existing writable private store for the scope is reused,
+including a custom one created with `memory.create_overlay(...)`. Otherwise automatic
+stores live at `DIRECTORY/scopes/SHA256(scope).kb`; scope text never becomes a path.
+New default stores obey both the model's limits and the overlay limits. Reopening a scope
+after a restart retains its saved memories and refuses an incompatible model identity.
+
+Sessions without a scope do not automatically retain conversation memories. Set
+`memory_writes=False` on `open` to disable automatic memory for a session. A scoped
+session with default writing enabled requires a persistent memory directory or an
+already-open writable private store; missing storage is reported as an error. For
+explicit read access without writing, mount a private store using `bases` with its
+matching scope and `memory_writes=False`, or name it as `overlay` with writing disabled.
+
+Advanced callers may still create a custom store with
+`memory.create_overlay(name, scope, path, max_edges=2048)` and open with
+`runtime.open(overlay=name, scope=scope, write_policy=WritePolicy(...))`.
 `WritePolicy` is imported from `megatoken.serving_writes`. A private store can only be
 mounted in a session carrying the same scope. The calling application must authenticate
 that scope; the JSONL server is a trusted local interface, not an authentication service.
 
-Defaults when opting in:
+Defaults for scoped sessions:
 
 - Retrospective writes enabled, surprise writes disabled until calibrated. Enable the
   latter explicitly with `WritePolicy(surprise=True)`.
@@ -223,7 +244,9 @@ copy-on-write session merging is not implemented.
 
 `memory.flush(session)` runs eligible delayed writes and saves; `memory.close_session(session)`
 also clears retained evidence. `runtime.close()` flushes its open sessions after rendering
-finishes. `memory.forget(name, ids=..., session=..., scope=...)` filters by any supplied
+finishes. The `serve` command also closes the runtime when input ends or serving exits
+with an error, so open sessions are flushed before process cleanup.
+`memory.forget(name, ids=..., session=..., scope=...)` filters by any supplied
 criteria, erases all row columns and associated provenance, and saves atomically. It also
 clears retained evidence in affected open sessions so a subsequent flush cannot recreate
 those memories. Sessions that contributed to a blended memory remain recorded for deletion.
@@ -234,7 +257,7 @@ writable for this operation; consumers may mount its saved copy read-only. Promo
 requires explicit review and cannot target the trained bank.
 
 JSONL operations: `kb_overlay` (name, scope, path, optional max_edges/byte_budget), `open`
-(optional overlay, scope, write_policy object), `flush` (session), `kb_forget` (name and
+(optional scope, overlay, memory_writes boolean, write_policy object), `flush` (session), `kb_forget` (name and
 ids/session/scope filters), and `kb_promote` (name, destination, ids, reviewed=true).
 All named paths remain under the server's knowledge-base root. `close` saves the session's
 private store, and `kb_close` saves a writable store with an assigned path.

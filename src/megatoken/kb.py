@@ -42,8 +42,9 @@ RUNTIME_FIELDS = (
 
 
 def weights_digest(model: Any) -> str:
-    """SHA256 over every served weight (name, dtype, shape and bytes), in name order.
+    """SHA256 over retrieval-compatible served weights in name order.
 
+    Hindsight weights are excluded so adding the serving writer preserves old bases.
     The same trained weights give the same digest whether the model was loaded
     from a checkpoint or from its exported bundle.
     """

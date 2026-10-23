@@ -292,7 +292,7 @@ def test_protocol_overlay_flush_forget_and_scope(engine, tmp_path):
             dict(op="observe_text", session=opened["session"], track="main", text=text)
         )["ok"]
     assert service.handle(dict(op="flush", session=opened["session"]))["ok"]
-    assert service.handle(dict(op="kb_forget", name="private", scope="alice"))["ok"]
+    assert service.handle(dict(op="kb_forget", name="private", session=opened["session"]))["ok"]
     assert service.handle(dict(op="close", session=opened["session"]))["ok"]
     assert runtime.memory.bases["private"].edge_count == 0
     runtime.close()
@@ -320,7 +320,6 @@ def test_legacy_knowledge_base_loads_without_changing_model_identity(engine, tmp
     assert not opened.masters and not opened.provenance
 
 
-
 def test_scope_has_one_writable_store_even_after_unmount(engine, tmp_path):
     base = engine.create_overlay("user", "alice", tmp_path / "u.kb")
     session = engine.new_session({}, overlay="user", scope="alice")
@@ -329,3 +328,119 @@ def test_scope_has_one_writable_store_even_after_unmount(engine, tmp_path):
         engine.open_base("again", base.path, writable=True)
     engine.close_session(session)
     assert engine.open_base("again", base.path, writable=True).scope == "alice"
+
+
+@pytest.mark.parametrize("stream_failure", [False, True])
+def test_cli_shutdown_flushes_open_sessions(engine, tmp_path, monkeypatch, stream_failure):
+    import io
+    import json
+    import sys
+    from types import SimpleNamespace
+
+    from megatoken import cli
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+
+    runtime = MultiTrackRuntime(engine.multi)
+    monkeypatch.setattr(cli, "_runtime", lambda *a, **kw: (None, runtime))
+    args = SimpleNamespace(packs=None, collection=[], kb_root=str(tmp_path), max_sessions=2)
+
+    def requests():
+        yield json.dumps(dict(op="kb_overlay", name="private", scope="alice", path="u.kb")) + "\n"
+        yield json.dumps(dict(op="open", overlay="private", scope="alice",
+                              write_policy={"lag": 4})) + "\n"
+        (session_id,) = runtime.memory.sessions
+        for text in ("fact", "result"):
+            yield json.dumps(dict(op="observe_text", session=session_id, track="main", text=text)) + "\n"
+        assert runtime.memory.bases["private"].edge_count == 0
+        if stream_failure:
+            raise RuntimeError("input disconnected")
+
+    output = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", requests())
+    monkeypatch.setattr(sys, "stdout", output)
+    if stream_failure:
+        with pytest.raises(RuntimeError, match="input disconnected"):
+            cli._serve(args)
+    else:
+        cli._serve(args)
+    assert all(json.loads(line)["ok"] for line in output.getvalue().splitlines())
+    assert not runtime.memory.sessions
+    saved = KnowledgeBase.load(tmp_path / "u.kb", geometry=engine.bank.geometry,
+                               identity=runtime.memory.identity)
+    assert saved.edge_count > 0
+
+
+def test_scoped_sessions_write_by_default_and_reopen_after_restart(engine, tmp_path):
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+
+    runtime = MultiTrackRuntime(engine.multi, memory_root=tmp_path)
+    session = runtime.open(scope="alice")
+    writer = session.memory.writes
+    assert writer is not None and writer.policy.retrospective and not writer.policy.surprise
+    base = writer.base
+    assert base.scope == "alice" and base.path.is_relative_to(tmp_path)
+    runtime.observe(session, (ObservedEvent("main", "text", b"fact"),))
+    runtime.observe(session, (ObservedEvent("main", "text", b"result"),))
+    runtime.close()
+    assert base.edge_count > 0
+
+    restarted = MultiTrackRuntime(engine.multi, memory_root=tmp_path)
+    again = restarted.open(scope="alice")
+    restored = again.memory.writes.base
+    assert restored.path == base.path and restored.edge_ids().tolist() == base.edge_ids().tolist()
+    assert all(p["scope"] == "alice" for p in restored.provenance.values())
+    assert any(m.base is restored for m in again.memory.agenda.mounted)
+    restarted.close()
+
+
+def test_scoped_default_reuses_existing_store_and_separates_users(engine, tmp_path):
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+
+    runtime = MultiTrackRuntime(engine.multi, memory_root=tmp_path)
+    alice = runtime.open(scope="alice")
+    again = runtime.open(scope="alice")
+    bob = runtime.open(scope="bob")
+    assert alice.memory.writes.base is again.memory.writes.base
+    assert alice.memory.writes.base is not bob.memory.writes.base
+    assert alice.memory.writes.base.path != bob.memory.writes.base.path
+    assert bob.memory.writes.base not in [m.base for m in alice.memory.agenda.mounted]
+    runtime.close()
+
+
+def test_default_memory_requires_scope_and_allows_explicit_disable(engine, tmp_path):
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+    from megatoken.multitrack_service import MultiTrackService
+
+    runtime = MultiTrackRuntime(engine.multi)
+    assert runtime.open().memory.writes is None
+    with pytest.raises(ValueError, match="persistent"):
+        runtime.open(scope="alice")
+    assert runtime.open(scope="alice", memory_writes=False).memory.writes is None
+    service = MultiTrackService(runtime, kb_root=tmp_path)
+    disabled = service.handle(dict(op="open", scope="bob", memory_writes=False))
+    assert disabled["ok"] and not disabled["memory_writes"]
+    assert not (tmp_path / "scopes").exists()
+    for bad in ("false", 0, None):
+        assert not service.handle(dict(op="open", scope="alice", memory_writes=bad))["ok"]
+    opened = service.handle(dict(op="open", scope="alice"))
+    assert opened["ok"] and opened["memory_writes"] and opened["overlay"]
+    assert runtime.memory.bases[opened["overlay"]].scope == "alice"
+    runtime.close()
+
+
+def test_default_scope_reuses_custom_store_without_a_root(engine, tmp_path):
+    custom = engine.create_overlay("custom", "alice", tmp_path / "custom.kb")
+    session = engine.new_session({}, scope="alice")
+    assert session.writes.base is custom
+    engine.close_base("custom")
+    another = engine.new_session({}, scope="alice")
+    assert another.writes.base is custom
+    engine.close()
+
+
+def test_scope_name_cannot_escape_storage_root(engine, tmp_path):
+    engine.memory_root = tmp_path
+    session = engine.new_session({}, scope="../../outside")
+    assert session.writes.base.path.is_relative_to(tmp_path / "scopes")
+    assert "outside" not in session.writes.base.path.name
+    engine.close()

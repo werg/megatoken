@@ -100,6 +100,7 @@ class KnowledgeBase(EdgeStore):
                 )
                 raise
 
+    @torch.inference_mode()
     def retire(self, ids) -> None:
         """Zero every stored column before releasing rows for reuse."""
         if not self.writable:
@@ -117,6 +118,7 @@ class KnowledgeBase(EdgeStore):
             if edges:
                 self._changed()
 
+    @torch.inference_mode()
     def blend(self, ids, values: Tensor, mass, clock: int, *, destination=None) -> None:
         """Weighted means with FP32 masters; clock counts committed ordinary groups."""
         if not self.writable:
@@ -176,6 +178,7 @@ class KnowledgeBase(EdgeStore):
         self.masters = {e: v.to(device) for e, v in self.masters.items()}
         return self
 
+    @torch.inference_mode()
     def add_edges(self, **fields) -> Tensor:
         if not self.writable:
             raise RuntimeError("This knowledge base is read-only")

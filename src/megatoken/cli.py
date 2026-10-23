@@ -478,6 +478,7 @@ def _runtime(args, *, preparer=None):
         chunking=bundle.chunking,
         collections=collections,
         preparer=preparer,
+        memory_root=getattr(args, "kb_root", None),
     )
     return bundle, runtime
 
@@ -557,6 +558,7 @@ def _serve(args):
     from megatoken.multitrack_service import serve_multitrack_jsonl
 
     scratch = tempfile.TemporaryDirectory()
+    runtime = None
 
     def preparer():
         from megatoken.data.media_prepare import MediaPreparer
@@ -576,7 +578,11 @@ def _serve(args):
             runtime, sys.stdin, sys.stdout, max_sessions=args.max_sessions, kb_root=args.kb_root
         )
     finally:
-        scratch.cleanup()
+        try:
+            if runtime is not None:
+                runtime.close()
+        finally:
+            scratch.cleanup()
 
 
 def _engram_extract(args):
@@ -867,7 +873,7 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--max-sessions", type=int, default=32)
     item.add_argument(
         "--kb-root",
-        help="Directory knowledge base files are opened from and saved to; enables the kb_* operations",
+        help="Persistent memory directory; scoped sessions remember automatically; enables kb_* operations",
     )
     item.set_defaults(func=_serve)
     group = commands.add_parser(

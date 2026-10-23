@@ -28,6 +28,10 @@ must lie inside): ``kb_open`` mounts a base file built for this model under a na
 ``kb_create`` starts an empty base a user can fill, ``kb_save`` writes a base to a file,
 ``kb_close`` forgets one, ``kb_list`` describes the open ones. ``open`` takes ``bases``, a
 map of base name to blend weight (0 leaves one out), and ``trained_weight``.
+With ``kb_root``, ``open(scope="user-or-workspace")`` automatically creates or reopens
+private memory and enables retrospective writes. ``memory_writes=false`` disables it;
+surprise writes require explicit ``write_policy.surprise=true``. An open response names
+its automatic store as ``overlay`` so subsequent management operations can address it.
 
 Source collections are mounted by name (``collections``). ``open`` may name the ones
 a session searches (default: all), ``max_sources`` and ``threshold``; every answer
@@ -390,6 +394,10 @@ class MultiTrackService:
         self.device = self.model.core.initial_facets.device
         self.max_sessions = max_sessions
         self.root = None if kb_root is None else Path(kb_root).resolve()
+        if self.root is not None:
+            if runtime.memory.memory_root is not None and runtime.memory.memory_root != self.root:
+                raise ValueError("Service and runtime must use the same memory root")
+            runtime.memory.memory_root = self.root
         self.sessions: dict[str, TrackSession] = {}
         self.delivered: dict[str, int] = {}
         self.execution_tools = tuple(tools)
@@ -656,7 +664,7 @@ class MultiTrackService:
             raise ValueError("Mounted bases must be a JSON object of name to weight")
         options = {
             key: request[key]
-            for key in ("collections", "max_sources", "threshold", "overlay", "scope")
+            for key in ("collections", "max_sources", "threshold", "overlay", "scope", "memory_writes")
             if key in request
         }
         if "write_policy" in request:
@@ -675,6 +683,8 @@ class MultiTrackService:
         return {
             "session": session_id,
             "architecture_version": self.model.config.architecture_version,
+            "memory_writes": session.memory.writes is not None,
+            "overlay": None if session.memory.writes is None else session.memory.writes.base.name,
         }
 
     @staticmethod

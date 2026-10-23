@@ -131,6 +131,7 @@ class MultiTrackRuntime:
         chunking: ChunkingConfig | None = None,
         collections: Mapping[str, str | Path] | None = None,
         preparer: Callable[[], FilePreparer] | None = None,
+        memory_root: str | Path | None = None,
         output_specs: Mapping[str, ActionSpec | MediaOutputSpec] | None = None,
         record_policy_context: bool = False,
         max_event_output_bytes: int = 64 << 20,
@@ -164,7 +165,7 @@ class MultiTrackRuntime:
                 model.media_realizers.resident(modality)
         self.chunking = (chunking or ChunkingConfig()).with_hard_limit(model.config.max_capacity)
         self.memory = TransducerInferenceEngine(
-            generator, collections=collections, preparer=preparer
+            generator, collections=collections, preparer=preparer, memory_root=memory_root
         )
 
     def _output_capacity(self, session, tracks, specs=None, modality_options=None):
@@ -226,6 +227,7 @@ class MultiTrackRuntime:
         overlay: str | None = None,
         scope: str | None = None,
         write_policy=None,
+        memory_writes: bool = True,
     ) -> TrackSession:
         """Commit the metadata prefix and the first lookup, before any answer.
 
@@ -234,6 +236,9 @@ class MultiTrackRuntime:
         (``metadata_payload`` lists the rest, among them an optional ``request``)
         or none; unknown fields stay null. A question needs no field: the first
         user message is itself a lookup boundary.
+        Supplying ``scope`` automatically mounts and writes that scope's private memory;
+        configure ``memory_root`` when constructing the runtime. ``memory_writes=False``
+        disables automatic memory. Surprise writing remains off by default.
         ``bases`` mounts the engine's open knowledge bases by name with blend weights
         (``memory.open_base`` / ``create_base``); ``trained`` weights the trained base.
         A session searches the mounted ``collections`` it names (default: all);
@@ -250,6 +255,7 @@ class MultiTrackRuntime:
                 collections=collections,
                 threshold=threshold,
                 overlay=overlay, scope=scope, write_policy=write_policy,
+                memory_writes=memory_writes,
                 **options,
             ),
             tracks=TrackRegistry(max_active=self.generator.generator.config.max_tracks),
