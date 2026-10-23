@@ -41,6 +41,7 @@ from megatoken.data.open_media import (
     first_sentence,
     frozen_split,
     identity_episode,
+    is_web,
     load_sources,
     probe,
     read_clips,
@@ -1001,7 +1002,14 @@ def test_every_stream_this_module_emits_is_in_the_stage_plan():
 def test_manifest_sources_are_pinned_licensed_approved_and_readable():
     assert len(SOURCES) >= 40
     for source in SOURCES.values():
-        assert re.fullmatch(r"[0-9a-f]{40}", source.revision), source.source_id
+        if is_web(source):  # a published site: its table files are pinned by digest
+            assert source.revision.startswith("web-"), source.source_id
+            assert all(
+                re.fullmatch(r"[0-9a-f]{64}", source.options["pins"].get(name, ""))
+                for name in source.include
+            ), source.source_id
+        else:
+            assert re.fullmatch(r"[0-9a-f]{40}", source.revision), source.source_id
         assert source.license and source.license not in ("", "unreviewed"), source.source_id
         assert source.terms.license_url.startswith("https://"), source.source_id
         # Approval is the maintainer's decision, recorded with who and when.
@@ -1032,6 +1040,8 @@ def test_manifest_sources_are_pinned_licensed_approved_and_readable():
                 "captioned_video": {"video", "caption"},
                 "video_questions": {"video"},
                 "audio_questions": {"audio"},
+                "edit_judging": {"original", "candidates", "instruction"},
+                "image_edit_plan": {"original", "edited", "instruction", "plan"},
             }[source.task]
             assert needed <= roles, source.source_id
             if source.task.endswith("_chain"):  # all versions in one field, or per-turn pairs
@@ -1048,7 +1058,7 @@ def test_every_stage_plan_media_stream_has_a_source():
         name
         for name in stage_recipe("P1").mixture
         if name.endswith(("_identity", "_creation", "_edit", "_translation", "_description"))
-        or name in {"transcription", "verbalization"}
+        or name in {"transcription", "verbalization", "edit_judging", "edit_plan"}
     }
     assert media_streams <= {stream for source in SOURCES.values() for stream in source.streams}
 
@@ -2431,3 +2441,48 @@ def test_jarvisart_folders_become_a_plan_with_the_lightroom_settings_as_a_tool_c
             "ToneCurveName": "Medium Contrast",
         },
     }
+
+
+def test_a_judge_conversation_about_one_edit_becomes_pointwise_judging(tmp_path, media):
+    """EditScore: the judge's prompt names the request; its reply is the verdict. Rows that judge
+    one picture alone (naturalness) have no edit to look at and are skipped."""
+    source = make_source(
+        "editscore",
+        "edit_judging",
+        columns={
+            "original": "images.0",
+            "candidates": ["images.1"],
+            "instruction": "conversations.0.value",
+            "verdict": "conversations.1.value",
+            "id": "key",
+        },
+        include=("*.parquet",),
+        options={"clean": "image_tags"},
+    )
+    prompt = "<image>\n<image>\nYou are a professional digital artist.\nEditing instruction: Make it snow\n"
+    reply = '{\n"reasoning" : "Snow appears on the roof.",\n"score" : [15, 22]\n}'
+    pair = [
+        {"bytes": _image(1), "path": "images/1_0.png"},
+        {"bytes": _image(2), "path": "images/1_1.png"},
+    ]
+    rows = pa.table(
+        {
+            "key": ["1", "2"],
+            "conversations": [
+                [{"from": "human", "value": prompt}, {"from": "gpt", "value": reply}],
+                [
+                    {"from": "human", "value": "<image>\nRate naturalness."},
+                    {"from": "gpt", "value": reply},
+                ],
+            ],
+            "images": [pair, pair[:1]],
+        }
+    )
+    parquet.write_table(rows, _local(tmp_path, "editscore") / "0.parquet")
+    (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert episode.stream == "edit_judging"
+    texts = [r.payload.decode() for r in episode.records if not _is_media(r)]
+    assert texts[0].startswith("You are a professional digital artist.")
+    assert "<image>" not in texts[0] and "Editing instruction: Make it snow" in texts[0]
+    assert texts[-1] == reply and episode.records[-1].policy_mask
+    assert sum(_is_media(r) for r in episode.records) == 2  # the original and the one candidate

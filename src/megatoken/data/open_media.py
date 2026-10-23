@@ -66,11 +66,13 @@ MAX_SPEECH_SECONDS = 20.0
 MAX_SIDE = 1024
 VIDEO_FPS = 16
 # The manifests, in the order they were written: the first forty-four sources, the full-volume
-# additions, and the additions whose repositories need the Hub account's agreement first.
+# additions, the additions whose repositories need the Hub account's agreement first, and the
+# sources that teach judging and planning edits (some are fetched from a publisher's web site).
 MANIFEST_NAMES = (
     "sources.media.json",
     "sources.media-more.json",
     "sources.media-more-gated.json",
+    "sources.media-agentic.json",
 )
 _PACKAGE_TREE = Path(__file__).resolve().parents[3] / "configs/data"
 _CONFIGS = (
@@ -1665,7 +1667,15 @@ def _gigaspeech(text: str) -> str | None:
     return None if re.search(r"<[A-Z]+>", text) else text.strip()
 
 
-TEXT_CLEANERS: dict[str, Callable[[str], str | None]] = {"gigaspeech": _gigaspeech}
+def _without_image_tags(text: str) -> str | None:
+    """A prompt as written for a model that was shown images: without the ``<image>`` markers."""
+    return _IMAGE_TAG.sub(" ", text).strip() or None
+
+
+TEXT_CLEANERS: dict[str, Callable[[str], str | None]] = {
+    "gigaspeech": _gigaspeech,
+    "image_tags": _without_image_tags,
+}
 
 
 def _label(source: OpenSource, record: Mapping[str, Any], role: str) -> Any:
@@ -2436,7 +2446,7 @@ def edit_judging_clips(
         else _list_label(source, record, "candidates")
     )
     images = [blob(_label(source, record, "original")), *(blob(item) for item in values)]
-    if instruction is None or len(images) < 3 or any(image is None for image in images):
+    if instruction is None or len(images) < 2 or any(image is None for image in images):
         return []
     clip_id, family = _identity(source, record)
     order = sorted(range(len(values)), key=lambda index: _sha(clip_id, "order", str(index)))

@@ -76,7 +76,10 @@ def web():
 
 def _fetcher(tmp_path, **extra):
     waits: list[float] = []
-    fetcher = Fetcher(tmp_path / "cache", backoff=0.01, sleep=waits.append, **extra)
+    extra.setdefault("retries", 4)
+    fetcher = Fetcher(
+        tmp_path / "cache", backoff=0.01, sleep=waits.append, clock=lambda: 100.0, **extra
+    )
     fetcher.waits = waits
     return fetcher
 
@@ -161,3 +164,49 @@ def test_http_errors_other_than_retryable_ones_are_dead_links(tmp_path):
     fetcher = Fetcher(tmp_path / "cache", open_url=refuse, sleep=lambda seconds: None)
     assert fetcher.get("https://example.invalid/a.jpg") is None
     assert fetcher.stats["dead"] == 1 and fetcher.stats["http_403"] == 1
+
+
+def test_a_host_that_says_slow_down_makes_every_request_to_it_wait(web, tmp_path):
+    fetcher = _fetcher(tmp_path, retries=1)
+    assert fetcher.get(f"{web.url}/limited") is None
+    waits_before = len(fetcher.waits)
+    assert fetcher.get(f"{web.url}/ok/1.png") == _png(1)
+    # The pause the 429s asked for (the backoff doubled once more) is waited out before the next picture.
+    assert fetcher.waits[waits_before] == pytest.approx(0.02)
+
+
+def test_requests_to_one_host_never_exceed_its_limit(tmp_path):
+    import threading
+    import time
+
+    active = peak = 0
+    lock = threading.Lock()
+
+    class Slow:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, size=-1):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+            return b"x" * 10
+
+    fetcher = Fetcher(tmp_path / "cache", host_workers=2, open_url=lambda request, timeout: Slow())
+    threads = [
+        threading.Thread(target=fetcher.get, args=(f"https://h.example/{n}.png",)) for n in range(8)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert peak == 2 and fetcher.stats["fetched"] == 8

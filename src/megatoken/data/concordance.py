@@ -1001,11 +1001,11 @@ def edit_judging_view(
     candidates: Sequence[str],
     verdict: str,
 ) -> TaskView:
-    """Judging candidate edits: the model is shown the original, the request and two or more
+    """Judging candidate edits: the model is shown the original, the request and one or more
     candidate results (all observed, none generated) and writes the verdict (which is best, with
     the scores or critique that justify it). The verdict names every candidate it covers."""
-    if len(candidates) < 2:
-        raise ValueError("Judging needs at least two candidate edits")
+    if not candidates:
+        raise ValueError("Judging needs at least one candidate edit")
     groups = [
         group(
             observed(

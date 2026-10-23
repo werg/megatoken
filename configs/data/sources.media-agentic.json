@@ -1,0 +1,625 @@
+{
+ "schema_version": 1,
+ "metadata_checked_at": "2026-10-23",
+ "sources": [
+  {
+   "source_id": "editreward_judging",
+   "repository": "TIGER-Lab/EditReward-Data",
+   "revision": "32910be2574e1da64e6aa3536da10c35a695f847",
+   "reader": "parquet",
+   "task": "edit_judging",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-nc-4.0 (card)",
+    "license_url": "https://huggingface.co/datasets/TIGER-Lab/EditReward-Data",
+    "notes": "EditReward-Data read as judging: the source image, the request and two edits by different editing models are shown; the verdict lists each edit's human scores (instruction following and visual quality, each 1-4, and their sum) and which edit people preferred."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "original": "source_img",
+    "candidates": [
+     "left_output_image",
+     "right_output_image"
+    ],
+    "instruction": "instruction",
+    "id": "unique_key",
+    "family": "key"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "publisher-annotated",
+    "judge": {
+     "scores": {
+      "instruction following": [
+       "left_instruction_following_score",
+       "right_instruction_following_score"
+      ],
+      "visual quality": [
+       "left_quality_aesthetic_score",
+       "right_quality_aesthetic_score"
+      ]
+     },
+     "outof": 4,
+     "overall": [
+      "left_overall_score",
+      "right_overall_score"
+     ],
+     "overall_outof": 8,
+     "vote": {
+      "column": "vote_type",
+      "values": {
+       "leftvote": 0,
+       "rightvote": 1,
+       "tie": null
+      }
+     }
+    }
+   },
+   "inventory": {
+    "items": 170772,
+    "basis": "card: 170,772 rows",
+    "size_gb": 86.7,
+    "shards": 68,
+    "candidates": 2
+   },
+   "caveat": "Rows that share a key are several pairs of edits of one source image and request."
+  },
+  {
+   "source_id": "editscore_judging",
+   "repository": "chibifire/editscore-reward-train",
+   "revision": "bd1a49bb6a542f90da727f0ef4168f7909f537b4",
+   "reader": "parquet",
+   "task": "edit_judging",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "apache-2.0 (card)",
+    "license_url": "https://huggingface.co/datasets/chibifire/editscore-reward-train",
+    "notes": "EditScore reward data (parquet mirror with the pictures inside): a judge model is shown a source image, an edit and a rubric, and answers with a short reasoning and two 0-25 scores (how well the edit succeeded, how little it over-edited). Rows that judge one picture alone are skipped."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "original": "images.0",
+    "candidates": [
+     "images.1"
+    ],
+    "instruction": "conversations.0.value",
+    "verdict": "conversations.1.value",
+    "id": "key"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher",
+     "text": "teacher"
+    },
+    "tier": "model-labeled",
+    "clean": "image_tags"
+   },
+   "inventory": {
+    "items": 44000,
+    "basis": "ESTIMATE: 97,256 rows, of which about 45% (sampled in five shards) hold a source and an edited picture",
+    "size_gb": 117.1,
+    "shards": 98,
+    "candidates": 1
+   },
+   "caveat": "The scores and reasoning are a vision-language model's, not people's. The row count of rows with an edit is an estimate."
+  },
+  {
+   "source_id": "pico_banana_preference",
+   "repository": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
+   "revision": "web-2026-10-23",
+   "reader": "table",
+   "task": "edit_judging",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0)",
+    "license_url": "https://github.com/apple-aiml-research/pico-banana-400k",
+    "notes": "Pico-Banana-400K preference rows: one accepted edit and one to three rejected edits of a photo, with the (model-written) request; the pictures are fetched from the publisher's web site and the original photos from Flickr."
+   },
+   "gated": false,
+   "include": [
+    "jsonl/preference.jsonl"
+   ],
+   "columns": {
+    "original": "original",
+    "candidates": "candidates",
+    "instruction": "instruction",
+    "id": "id",
+    "family": "original"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated",
+    "base": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
+    "transform": "pico_preference",
+    "pins": {
+     "jsonl/preference.jsonl": "0028a276a5887cc5f54f5543f549f9661f957fb058bb1e4a33c1297207a93ae4"
+    },
+    "fetch": {
+     "fields": [
+      "original",
+      "candidates.*"
+     ],
+     "workers": 8,
+     "limits": {
+      "host_limits": {
+       "staticflickr.com": 2
+      }
+     }
+    },
+    "clip_seconds": 0.2,
+    "judge": {
+     "winner": 0
+    },
+    "max_side": 1024
+   },
+   "inventory": {
+    "items": 56473,
+    "basis": "published row count; about 13% of rows lose their Flickr original (measured on 60 links)",
+    "size_gb": 130.0,
+    "candidates": 2.32
+   },
+   "caveat": "The rows are read from the publisher's CDN, not the Hub. The accepted edit passed a model judge; there is no numeric score. About 1 in 8 original photos is no longer online."
+  },
+  {
+   "source_id": "pico_banana_multi_turn",
+   "repository": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
+   "revision": "web-2026-10-23",
+   "reader": "table",
+   "task": "image_edit_chain",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0)",
+    "license_url": "https://github.com/apple-aiml-research/pico-banana-400k",
+    "notes": "Pico-Banana-400K multi-turn sessions: 2-6 successive edits of one photo, each applied to the previous result, with the request of every turn; fetched from the publisher's web site."
+   },
+   "gated": false,
+   "include": [
+    "jsonl/multi-turn.jsonl"
+   ],
+   "columns": {
+    "original": "original",
+    "edited": "edited",
+    "instruction": "instruction",
+    "id": "id",
+    "family": "original"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated",
+    "base": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
+    "transform": "pico_session",
+    "unique": "id",
+    "pins": {
+     "jsonl/multi-turn.jsonl": "2b90679a6923875d103818d640508784b146c4f359a6d5189f8833acfb27ccd5"
+    },
+    "fetch": {
+     "fields": [
+      "original",
+      "edited.*"
+     ],
+     "workers": 8,
+     "limits": {
+      "host_limits": {
+       "staticflickr.com": 2
+      }
+     }
+    },
+    "clip_seconds": 0.2,
+    "max_steps": 6
+   },
+   "inventory": {
+    "items": 77229,
+    "basis": "published sessions (77,250 rows, 21 repeat a session key)",
+    "size_gb": 540.0,
+    "turns": 306513
+   },
+   "caveat": "Read from the publisher's CDN. A session whose Flickr original is gone is skipped (about 13%); a session loses its turns after a missing picture."
+  },
+  {
+   "source_id": "pico_banana_single",
+   "repository": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
+   "revision": "web-2026-10-23",
+   "reader": "table",
+   "task": "image_edit",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0)",
+    "license_url": "https://github.com/apple-aiml-research/pico-banana-400k",
+    "notes": "Pico-Banana-400K single edits: 35 kinds of edit of a photo with a request written by a model; fetched from the publisher's web site."
+   },
+   "gated": false,
+   "include": [
+    "jsonl/sft.jsonl"
+   ],
+   "columns": {
+    "original": "original",
+    "edited": "edited",
+    "instruction": "instruction",
+    "id": "id",
+    "family": "original"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher"
+    },
+    "tier": "model-generated",
+    "base": "https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb",
+    "transform": "pico_edit",
+    "unique": "id",
+    "pins": {
+     "jsonl/sft.jsonl": "afc51fe4f64ca86eefbeb3aa05c71882ef8342fa8d750a32711ce8cd0b692676"
+    },
+    "fetch": {
+     "fields": [
+      "original",
+      "edited"
+     ],
+     "workers": 8,
+     "limits": {
+      "host_limits": {
+       "staticflickr.com": 2
+      }
+     }
+    },
+    "clip_seconds": 0.4
+   },
+   "inventory": {
+    "items": 257728,
+    "basis": "published rows (257,730; two repeat an output)",
+    "size_gb": 379.0
+   },
+   "caveat": "Read from the publisher's CDN. Rows whose Flickr original is gone (about 13%) are skipped."
+  },
+  {
+   "source_id": "escher_human_edit_plan",
+   "repository": "Image-editing/escher-human-edit",
+   "revision": "5839705e0fc7531aad688839f58b6f2724ca5f85",
+   "reader": "parquet",
+   "task": "image_edit_plan",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "mit (card)",
+    "license_url": "https://huggingface.co/datasets/Image-editing/escher-human-edit",
+    "notes": "Escher repack of human-made edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture."
+   },
+   "gated": false,
+   "include": [
+    "data/train/*.parquet"
+   ],
+   "columns": {
+    "original": "source_image",
+    "edited": "edited_image",
+    "instruction": "edit_instruction",
+    "plan": "thinking",
+    "id": "id"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher",
+     "text": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 4887,
+    "basis": "footer rows",
+    "size_gb": 0.9,
+    "shards": 36
+   },
+   "caveat": "The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences."
+  },
+  {
+   "source_id": "escher_vismin_plan",
+   "repository": "Image-editing/escher-vismin",
+   "revision": "e6c8a2389fb323e293faa72e63d8d7a6c3e3cc0a",
+   "reader": "parquet",
+   "task": "image_edit_plan",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "mit (card)",
+    "license_url": "https://huggingface.co/datasets/Image-editing/escher-vismin",
+    "notes": "Escher repack of VisMin minimal object, attribute, count and position edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture."
+   },
+   "gated": false,
+   "include": [
+    "data/train/*.parquet"
+   ],
+   "columns": {
+    "original": "source_image",
+    "edited": "edited_image",
+    "instruction": "edit_instruction",
+    "plan": "thinking",
+    "id": "id"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher",
+     "text": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 13668,
+    "basis": "footer rows",
+    "size_gb": 10.1,
+    "shards": 106
+   },
+   "caveat": "The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences."
+  },
+  {
+   "source_id": "escher_aurora_kubric_plan",
+   "repository": "Image-editing/escher-aurora-kubric",
+   "revision": "90ca8d6094b9a750cda159b40bd6f2c8bd5f1601",
+   "reader": "parquet",
+   "task": "image_edit_plan",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "mit (card)",
+    "license_url": "https://huggingface.co/datasets/Image-editing/escher-aurora-kubric",
+    "notes": "Escher repack of AURORA Kubric rendered scenes, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture."
+   },
+   "gated": false,
+   "include": [
+    "data/train/*.parquet"
+   ],
+   "columns": {
+    "original": "source_image",
+    "edited": "edited_image",
+    "instruction": "edit_instruction",
+    "plan": "thinking",
+    "id": "id"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher",
+     "text": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 93000,
+    "basis": "ESTIMATE: 3 of 757 files probed, 128 rows per file",
+    "size_gb": 53.4,
+    "shards": 757
+   },
+   "caveat": "The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences."
+  },
+  {
+   "source_id": "escher_aurora_ag_plan",
+   "repository": "Image-editing/escher-aurora-ag",
+   "revision": "ec8a095d844dd0f7d45f49008c3a1fa89f4ef0d8",
+   "reader": "parquet",
+   "task": "image_edit_plan",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "mit (card)",
+    "license_url": "https://huggingface.co/datasets/Image-editing/escher-aurora-ag",
+    "notes": "Escher repack of AURORA Action Genome action edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture."
+   },
+   "gated": false,
+   "include": [
+    "data/train/*.parquet"
+   ],
+   "columns": {
+    "original": "source_image",
+    "edited": "edited_image",
+    "instruction": "edit_instruction",
+    "plan": "thinking",
+    "id": "id"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher",
+     "text": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 8306,
+    "basis": "footer rows",
+    "size_gb": 2.2,
+    "shards": 85
+   },
+   "caveat": "The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences."
+  },
+  {
+   "source_id": "escher_ss2_plan",
+   "repository": "Image-editing/escher-ss2",
+   "revision": "fb12a775c807f000db9d1cef6da303fa569409c3",
+   "reader": "parquet",
+   "task": "image_edit_plan",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "mit (card)",
+    "license_url": "https://huggingface.co/datasets/Image-editing/escher-ss2",
+    "notes": "Escher repack of SS2 (Something-Something) motion edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture."
+   },
+   "gated": false,
+   "include": [
+    "data/train/*.parquet"
+   ],
+   "columns": {
+    "original": "source_image",
+    "edited": "edited_image",
+    "instruction": "edit_instruction",
+    "plan": "thinking",
+    "id": "id"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher",
+     "text": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 32600,
+    "basis": "ESTIMATE: 60 files probed, about 128 rows per file",
+    "size_gb": 6.9,
+    "shards": 255
+   },
+   "caveat": "The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences."
+  },
+  {
+   "source_id": "escher_magicbrush_plan",
+   "repository": "Image-editing/escher-magicbrush",
+   "revision": "1c9ee5cb756f8be35cf39bc69d96a5b987313d6f",
+   "reader": "parquet",
+   "task": "image_edit_plan",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "mit (card)",
+    "license_url": "https://huggingface.co/datasets/Image-editing/escher-magicbrush",
+    "notes": "Escher repack of MagicBrush human-request edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture."
+   },
+   "gated": false,
+   "include": [
+    "data/train/*.parquet"
+   ],
+   "columns": {
+    "original": "source_image",
+    "edited": "edited_image",
+    "instruction": "edit_instruction",
+    "plan": "thinking",
+    "id": "id"
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher",
+     "text": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 8800,
+    "basis": "ESTIMATE: 60 files probed, about 128 rows per file",
+    "size_gb": 1.9,
+    "shards": 69
+   },
+   "caveat": "The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences."
+  },
+  {
+   "source_id": "editworld_reasoning_plan",
+   "repository": "tyfeld/editworld-reasoning",
+   "revision": "df77f61bdc304bc0ec06a65bce5cc67e2ad90faf",
+   "reader": "parquet",
+   "task": "image_edit_plan",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "none on the card",
+    "license_url": "https://huggingface.co/datasets/tyfeld/editworld-reasoning",
+    "notes": "EditWorld reasoning: the request is a concept (\"growing tall and strong\"), the plan is a paragraph that works out what the picture should show, then the edited picture."
+   },
+   "gated": false,
+   "include": [
+    "data/train-*.parquet"
+   ],
+   "columns": {
+    "original": "input_image",
+    "edited": "output_image",
+    "instruction": "input_text",
+    "plan": "output_text",
+    "id": [
+     "input_text",
+     "output_text"
+    ]
+   },
+   "options": {
+    "provenance": {
+     "media": "teacher",
+     "text": "teacher"
+    },
+    "tier": "model-generated"
+   },
+   "inventory": {
+    "items": 7736,
+    "basis": "card: 7,736 rows",
+    "size_gb": 1.3,
+    "shards": 3
+   }
+  },
+  {
+   "source_id": "jarvisart_plan",
+   "repository": "JarvisArt/MMArt-PPR10k",
+   "revision": "8c36f7408ca5b4e0e9ec92a3fe115191d3beca61",
+   "reader": "folders",
+   "task": "image_edit_plan",
+   "terms": {
+    "approved": true,
+    "reviewed_by": "Gabriel Pickard",
+    "reviewed_at": "2026-10-23",
+    "license": "apache-2.0 (card)",
+    "license_url": "https://huggingface.co/datasets/JarvisArt/MMArt-PPR10k",
+    "notes": "JarvisArt: 4,055 portrait photos retouched by experts; the request, a step-by-step retoucher's reasoning (revised version) and the exact Lightroom develop settings, written as a tool call, come before the retouched photo."
+   },
+   "gated": false,
+   "include": [
+    "global/*/before.jpg"
+   ],
+   "columns": {
+    "original": "original",
+    "edited": "edited",
+    "instruction": "instruction",
+    "plan": "plan",
+    "id": "__key__"
+   },
+   "options": {
+    "provenance": {
+     "text": "teacher"
+    },
+    "tier": "model-labeled",
+    "transform": "jarvis_plan",
+    "members": {
+     "before": "before.jpg",
+     "after": "processed.jpg",
+     "settings": "config.lua",
+     "request": "en/user_want_middle/user_prompt.txt",
+     "reasoning": "en/user_want_middle/revised160_expert_cot.txt"
+    }
+   },
+   "inventory": {
+    "items": 4055,
+    "basis": "full tree listing: 4,055 sample folders",
+    "size_gb": 3.3,
+    "shards": 40
+   },
+   "caveat": "Loose files: about 6 Hub requests per folder. Each folder has three request lengths; the middle one is read. The reasoning is model-written from the experts' settings."
+  }
+ ]
+}

@@ -26,6 +26,7 @@ import os
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import Counter, deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -43,6 +44,16 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+class _Host:
+    """One web host's politeness: a limit on simultaneous requests, and a shared pause after it
+    says "slow down" (429 or 503), growing while it keeps saying so."""
+
+    def __init__(self, workers: int):
+        self.slots = threading.BoundedSemaphore(workers)
+        self.resume_at = 0.0
+        self.strikes = 0
+
+
 class Fetcher:
     """Download URLs with a content-addressed cache, polite retries and a count of every outcome."""
 
@@ -51,16 +62,22 @@ class Fetcher:
         cache: Path,
         *,
         timeout: float = 30.0,
-        retries: int = 4,
-        backoff: float = 2.0,
+        retries: int = 6,
+        backoff: float = 4.0,
+        host_workers: int = 4,
+        host_limits: Mapping[str, int] | None = None,
         max_bytes: int = 64 << 20,
         cache_bytes: int = 20 << 30,
         stats: Counter[str] | None = None,
         open_url: Callable[[urllib.request.Request, float], Any] | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.cache = Path(cache)
         self.timeout, self.retries, self.backoff = timeout, retries, backoff
+        self._clock = clock
+        self._host_workers, self._host_limits = host_workers, dict(host_limits or {})
+        self._hosts: dict[str, _Host] = {}
         self.max_bytes, self.cache_bytes = max_bytes, cache_bytes
         self.stats = stats if stats is not None else Counter()
         self._open = open_url or (
@@ -131,18 +148,31 @@ class Fetcher:
             with self._lock:
                 self._gates.pop(url, None)
 
+    def _host(self, url: str) -> _Host:
+        name = urllib.parse.urlsplit(url).hostname or ""
+        limit = next(
+            (n for suffix, n in self._host_limits.items() if name.endswith(suffix)),
+            self._host_workers,
+        )
+        with self._lock:
+            return self._hosts.setdefault(name, _Host(limit))
+
     def _get(self, url: str) -> bytes | None:
         body, known = self._remembered(url)
         if known:
             self.stats["cached" if body is not None else "dead_cached"] += 1
             return body
         reason = "failed"
+        host = self._host(url)
         for attempt in range(self.retries + 1):
-            wait = self.backoff * 2**attempt
+            pause = host.resume_at - self._clock()
+            if pause > 0:  # every request to this host waits while it asks for peace
+                self._sleep(pause)
             try:
                 request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-                with self._open(request, self.timeout) as response:
+                with host.slots, self._open(request, self.timeout) as response:
                     body = response.read(self.max_bytes + 1)
+                host.strikes = 0
                 if len(body) > self.max_bytes:
                     reason = "too_big"
                     break
@@ -158,9 +188,12 @@ class Fetcher:
                 if error.code not in RETRY_STATUSES:
                     reason = "dead"
                     break
+                host.strikes += 1
+                wait = min(self.backoff * 2 ** (host.strikes - 1), 60.0)
                 retry_after = error.headers.get("Retry-After") if error.headers else None
                 if retry_after and retry_after.isdigit():
                     wait = min(float(retry_after), 60.0)
+                host.resume_at = max(host.resume_at, self._clock() + wait)
             except (
                 urllib.error.URLError,
                 http.client.HTTPException,
@@ -170,8 +203,8 @@ class Fetcher:
                 ValueError,
             ):
                 self.stats["network_errors"] += 1
-            if attempt < self.retries:
-                self._sleep(min(wait, 60.0))
+                if attempt < self.retries:
+                    self._sleep(min(self.backoff * 2**attempt, 60.0))
         self.stats[reason] += 1
         if reason != "failed":  # a server that never answered may answer on a retried shard
             self._note(url).write_text(f"dead:{reason}")
