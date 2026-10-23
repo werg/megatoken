@@ -63,12 +63,18 @@ class HeldOutEvaluator:
                 from megatoken.data.coverage import require_coverage
 
                 recipe = stage_recipe(config.phase)
-                require_coverage(
-                    next(iter(self.corpora.values())),
-                    recipe.constraints.get("required_behaviors", {}),
-                    recipe.mixture,
-                    split="validation",
-                )
+                # Coverage spans every root; a per-stream corpus holds only the roots that
+                # carry that stream, so the first stream's corpus would miss the rest.
+                everything = PreparedCorpus(config.datasets, split="validation")
+                try:
+                    require_coverage(
+                        everything,
+                        recipe.constraints.get("required_behaviors", {}),
+                        recipe.mixture,
+                        split="validation",
+                    )
+                finally:
+                    everything.close()
         except BaseException:
             self.close()
             raise

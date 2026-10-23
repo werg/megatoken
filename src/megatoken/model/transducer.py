@@ -70,22 +70,17 @@ def real_boundary(roles: Sequence[int], complete: Sequence[bool]) -> bool:
     )
 
 
-def event_attention_mask(*, groups: Tensor, mode: str) -> Tensor:
+def event_attention_mask(*, groups: Tensor) -> Tensor:
     """A [batch, query-event, key-event] mask from each event's retrieval group.
 
-    ``full`` sees everything; ``group-inverse`` sees the event's own retrieval
-    group and every later one. Sink slots are appended by attention itself, so
-    no row is ever empty.
+    Each event sees its own retrieval group and every later one. Attention appends
+    sink slots, so no row is ever empty.
     """
     if groups.ndim != 2 or groups.dtype != torch.long:
         raise ValueError("Every event needs an int64 [batch, events] retrieval group")
     if bool((groups < 0).any()):
         raise ValueError("Event chronology cannot be negative")
-    if mode == "full":
-        return torch.ones((*groups.shape, groups.shape[1]), device=groups.device, dtype=torch.bool)
-    if mode == "group-inverse":
-        return groups[:, None, :] >= groups[:, :, None]
-    raise ValueError(f"Unknown track attention mode {mode!r}")
+    return groups[:, None, :] >= groups[:, :, None]
 
 
 class WideKnowledgeReadout(nn.Module):
@@ -264,7 +259,7 @@ class NativeTransducer(nn.Module):
     # ------------------------------------------------------------ hindsight
 
     def hindsight_pass(
-        self, events: OrdinaryEvents, reads: Sequence[int | None], *, mode: str
+        self, events: OrdinaryEvents, reads: Sequence[int | None]
     ) -> HindsightValues:
         """One isolated C pass over ordinary events; h_t for every lookup.
 
@@ -273,8 +268,6 @@ class NativeTransducer(nn.Module):
         """
         if self.hindsight_realizer is None:
             raise RuntimeError("Hindsight head is unavailable")
-        if mode not in ("full", "group-inverse"):
-            raise ValueError("Hindsight reads a full or group-inverse pass")
         c = self.core.config
         raw = events.raw
         if raw.ndim != 4 or raw.shape[0] != 1 or raw.shape[2:] != (c.n_facets, c.facet_dim):
@@ -296,7 +289,7 @@ class NativeTransducer(nn.Module):
         device = raw.device
         track_ids = torch.tensor([[registry.index(t) for t in events.tracks]], device=device)
         modality_ids = torch.tensor([[MODALITY_IDS[m] for m in events.modalities]], device=device)
-        mask = event_attention_mask(groups=events.groups, mode=mode)
+        mask = event_attention_mask(groups=events.groups)
         facet_mask = mask.repeat_interleave(c.n_facets, 1).repeat_interleave(c.n_facets, 2)
         empty = raw.new_empty(1, c.kv_heads, 0, c.attention_head_dim)
         with expert_scope(None):
@@ -325,7 +318,7 @@ class NativeTransducer(nn.Module):
     @torch.no_grad()
     def retrospective_values(self, events: OrdinaryEvents, reads: Sequence[int | None]):
         """Read completed recorded groups without changing causal history."""
-        return self.hindsight_pass(events, reads, mode="group-inverse")
+        return self.hindsight_pass(events, reads)
 
     # -------------------------------------------------------------- lookups
 
@@ -469,36 +462,8 @@ class NativeTransducer(nn.Module):
             strength = strength * 0
         return self.core.adapters.select(found.value, strength)
 
-    def boundary(
-        self,
-        multi,
-        state: MultiTrackState,
-        agenda: SearchAgenda,
-        *,
-        training: bool = False,
-        hindsight: Tensor | None = None,
-        overlay: float = 0.0,
-        generator: torch.Generator | None = None,
-        train_rows: bool | None = None,
-        effort: int = 6,
-        cancelled: Callable[[], bool] | None = None,
-        sources: SourceSession | None = None,
-    ) -> tuple[MultiTrackState, Lookup | None]:
-        """One serialized query and knowledge commit; the agenda changes only on success.
-
-        The query is P's own reparameterized sample on the reserved query
-        track, realized by an embedding R. A cancellation or a failure leaves
-        both the agenda and the returned state untouched.
-
-        With ``sources``, the same query block is read by the embedding head's
-        query role and the mounted collections are searched; the items chosen are
-        observed after the knowledge event (``model.sources``).
-        """
-        if state.batch_size != 1 or state.device != self.bank.device:
-            raise ValueError("Native lookup is one session on the bank/model device")
-        if agenda.lookups >= self.bank.geometry.max_lookups or (cancelled and cancelled()):
-            return state, None
-        working = agenda.copy()
+    def causal_query(self, multi, state, *, training: bool, effort: int = 6):
+        """Construct a query from this prefix without committing any internal events."""
         mean = multi.tracks.predict_group(state, tracks=(TRANSDUCER_QUERY_TRACK,), effort=effort)
         # The policy's own reparameterized draw; ``generator`` drives only exploration.
         query_tracks, _ = multi.tracks._track_indices(state, (TRANSDUCER_QUERY_TRACK,))
@@ -535,6 +500,39 @@ class NativeTransducer(nn.Module):
             query = self.query_realizer(
                 selected[:, 0], EmbeddingSpec(QUERY_SPACE, "query", self.bank.geometry.query_dim)
             )[0]
+        return selected, query
+
+    def boundary(
+        self,
+        multi,
+        state: MultiTrackState,
+        agenda: SearchAgenda,
+        *,
+        training: bool = False,
+        hindsight: Tensor | None = None,
+        overlay: float = 0.0,
+        generator: torch.Generator | None = None,
+        train_rows: bool | None = None,
+        effort: int = 6,
+        cancelled: Callable[[], bool] | None = None,
+        sources: SourceSession | None = None,
+    ) -> tuple[MultiTrackState, Lookup | None]:
+        """One serialized query and knowledge commit; the agenda changes only on success.
+
+        The query is P's own reparameterized sample on the reserved query
+        track, realized by an embedding R. A cancellation or a failure leaves
+        both the agenda and the returned state untouched.
+
+        With ``sources``, the same query block is read by the embedding head's
+        query role and the mounted collections are searched; the items chosen are
+        observed after the knowledge event (``model.sources``).
+        """
+        if state.batch_size != 1 or state.device != self.bank.device:
+            raise ValueError("Native lookup is one session on the bank/model device")
+        if agenda.lookups >= self.bank.geometry.max_lookups or (cancelled and cancelled()):
+            return state, None
+        working = agenda.copy()
+        selected, query = self.causal_query(multi, state, training=training, effort=effort)
         assistant = torch.full((1, 1), ROLE_IDS["assistant"], dtype=torch.long, device=state.device)
         queried = multi.tracks.advance_group(
             state, selected, tracks=(TRANSDUCER_QUERY_TRACK,), role_ids=assistant

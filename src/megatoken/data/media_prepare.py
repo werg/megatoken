@@ -206,17 +206,28 @@ class MediaPreparer:
         end_tick: int,
         fps: Fraction,
         target: bool = True,
+        ticks_per_second: int | None = None,
     ) -> MediaRecord:
         """Prepare only the available displayed interval, with exact source PTS.
 
         Resampling to the output codec's uniform clock retains a correspondence
         to every original displayed frame. No full-clip teacher features leak
-        into a prefix example. Source ticks use the container's own time base.
+        into a prefix example. Ticks are in the container's own time base, unless
+        ``ticks_per_second`` names the clock they were declared on (a timed-media
+        manifest's): they are then converted to container ticks through the video's
+        time base, so a 24-per-second manifest cannot be read as 24 milliseconds.
         """
-        from megatoken.data.media_timing import decode_video_interval, video_timeline
+        from megatoken.data.media_timing import (
+            container_ticks,
+            decode_video_interval,
+            video_timeline,
+        )
 
         original = Path(path)
         timeline = video_timeline(original)
+        if ticks_per_second is not None:
+            start_tick = container_ticks(start_tick, ticks_per_second, timeline.time_base)
+            end_tick = container_ticks(end_tick, ticks_per_second, timeline.time_base)
         frames, indices = decode_video_interval(original, timeline, start_tick, end_tick, fps)
         height, width = frames.shape[-2:]
         pixels = np.round(frames.clip(0, 1) * 255).astype(np.uint8).transpose(0, 2, 3, 1)

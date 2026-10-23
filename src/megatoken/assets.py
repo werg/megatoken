@@ -1,6 +1,6 @@
-"""Pinned codec assets and optional, offline native-table warm starts.
+"""Pinned codec assets and offline native-table warm starts.
 
-Cold native initialization is the default. The optional extractor reads only a
+The shared curriculum selects the production donors. Diagnostic extraction can read a
 selected donor embedding tensor, builds fixed 128D byte-key descriptors, and never
 introduces a donor tokenizer or backbone into the served graph. Multiple selected
 donors retain separate maps and coverage rather than mixing descriptor spaces.
@@ -246,6 +246,51 @@ def install_engram_asset(model: Any, path: str | Path) -> None:
             for name in ("rows", "descriptors", "coverage", "support")
         }
     model.core.frontend.ngrams.install_import(**tensors, allow_hashed=row_space == "native_hashed")
+
+
+def install_configured_imports(model, config, *, resumed=False, phase_transition=False):
+    """Honor requested donors after restore; preserve existing maps and forbid duplicates."""
+    import torch
+
+    requested = (
+        [config.engram_import] if config.engram_import else list(config.engram_imports or [])
+    )
+    table = model.core.frontend.ngrams
+    restored = ([table] if table.import_map is not None else []) + list(table.import_branches)
+    if len(restored) > len(requested):
+        raise ValueError("Checkpoint carries unrequested donor imports; bake them explicitly first")
+    if resumed and not phase_transition and len(restored) != len(requested):
+        raise ValueError(
+            "Exact resume cannot introduce missing donor imports; use a phase transition"
+        )
+    for branch, path in zip(restored, requested, strict=False):
+        source = Path(path)
+        metadata = json.loads((source / "engram.json").read_text())
+        if sha256_file(source / "descriptors.npz") != metadata["descriptor_sha256"]:
+            raise ValueError("Restored donor descriptor checksum mismatch")
+        with np.load(source / "descriptors.npz", allow_pickle=False) as archive:
+            rows = torch.from_numpy(archive["rows"].copy()).long()
+            order = rows.argsort()
+            descriptors = torch.from_numpy(archive["descriptors"].copy()).float()[order]
+            weights = torch.from_numpy((archive["coverage"] * archive["support"]).copy()).float()[
+                order
+            ]
+        if (
+            not torch.equal(branch.import_rows.cpu(), rows[order])
+            or not torch.equal(branch.descriptors.cpu(), descriptors)
+            or not torch.equal(branch.import_weights.cpu(), weights)
+        ):
+            raise ValueError(
+                "Configured donor differs from the restored import; cannot reorder or replace it"
+            )
+    owners_before = {name for name, _ in model.named_parameters()}
+    for path in requested[len(restored) :]:
+        install_engram_asset(model, path)
+    return tuple(
+        name.rsplit(".", 1)[0] + "."
+        for name, _ in model.named_parameters()
+        if name not in owners_before
+    )
 
 
 def bake_checkpoint(

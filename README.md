@@ -28,18 +28,40 @@ Python 3.11/3.12 and the tested native PyTorch runtime are expected.
 ```bash
 python -m pip install -e '.[train,data,dev]'
 megatoken doctor
-python -m pytest -q tests
 ```
 
-The checked-in stage configurations deliberately use `PIN_*` placeholders: they **cannot** start training until preparation outputs (prepared episodes, codec, pack manifest) exist and match. Single node:
+The package defines one curriculum with one artifact/compute binding file per stage in
+`configs/train`. Training-method decisions come from `data/stages.json`, including the
+optimizer, effort mixture, representation, trainable weights, decision horizon and learning-rate
+schedule. Production uses independent DiLoCo learners throughout. Resolve the `PIN_*` artifact
+and coordinator bindings before launch; missing supply is an error.
 
 ```bash
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/coherence.example.yaml
+python -m megatoken.cloud_diloco launch configs/cloud/train-default.example.json
 ```
+
+The checked-in launch templates require teacher hindsight and structural memory guidance.
+Prepare targets once for the exact corpus and window settings, preserving every data root and
+stage mixture, then check the emitted configuration before launch:
+
+```bash
+python -m megatoken prepare-hindsight \
+  --train-config /path/to/resolved-train.yaml --writer /path/to/retrieved-writer \
+  --output /path/to/hindsight --device cuda
+python -m megatoken train-check --config /path/to/hindsight/train.json
+```
+
+The default cloud handoff starts at the initial representation stage:
+[configs/cloud/train-default.example.json](configs/cloud/train-default.example.json).
+Later stage jobs select the next stage binding and restore the preceding export.
+It delivers the prepared teacher artifact to learners and its identity to the coordinator.
+[Default memory setup and remaining inputs](docs/training.md#default-memory-recipe-and-launch-readiness)
+explain the single-node and cloud paths. A checked template with unfilled artifact paths reports
+**not ready**; enabling an objective never substitutes for preparing its data.
 
 There is **no** implicit launcher default or `megatoken smoke`.
 
-**DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` run decoupled learners ([configs/train/diloco-coreweave.example.yaml](configs/train/diloco-coreweave.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). Every phase runs decoupled: neural parameters sync as fragments and the coordinator merges the transducer bank's rounds. Each phase is a new coordinator started from the previous phase's export. For hardware-specific setup, see [Blackwell](docs/blackwell.md).
+**DiLoCo is the target training methodology.** `megatoken diloco init|serve|export` run decoupled learners ([configs/train/pretraining.example.yaml](configs/train/pretraining.example.yaml), [docs/diloco-coreweave.md](docs/diloco-coreweave.md)). Every phase runs decoupled: neural parameters sync as fragments and the coordinator merges the transducer bank's rounds. Each phase is a new coordinator started from the previous phase's export. For hardware-specific setup, see [Blackwell](docs/blackwell.md).
 
 ## Serve
 
@@ -66,9 +88,9 @@ executable preparation paths from data acquisition and learned-quality results.
 
 ## Validation contract
 
-A production launch requires: complete CPU and Python-version tests, GPU/native attention gradient and RoPE parity, true multi-rank equivalence (dense gradients and the merged bank), checkpoint corruption/recovery, and the learned-quality measurements in the transducer plan. Passing structural tests does not assert learned-quality results.
-
-The development PR stays **draft until verified**.
+Before training, run the bounded correctness checks and the actual-input readiness check.
+Do not gate the first bounded tranche on comparison studies, whole-corpus teacher preparation,
+or learned-quality results that require training. Monitor quality and throughput during the run.
 
 ## Media: one input path, one realization path
 

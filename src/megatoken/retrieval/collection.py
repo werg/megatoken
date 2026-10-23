@@ -286,7 +286,9 @@ class SourceCollection:
                     descriptor,
                     key.tobytes(),
                     self._meta("revision") + 1,
-                    time.monotonic_ns(),
+                    # Wall clock, like the search cutoff's default: a monotonic reading is
+                    # meaningless once the process or machine changes.
+                    time.time_ns(),
                 ),
             ).lastrowid
             centroids = self._index()
@@ -410,6 +412,18 @@ class SourceCollection:
     @property
     def indexed(self) -> bool:
         return self._index() is not None
+
+    @property
+    def needs_reindex(self) -> bool:
+        """True when never indexed, or grown to over twice the size the cells were fit on.
+
+        New items join the nearest existing cell, so a collection that has doubled since the
+        fit has cells (and a probe count) tuned to a much smaller one.
+        """
+        if not self.count:
+            return False
+        report = self._meta("index") if self.indexed else None
+        return not isinstance(report, dict) or self.count > 2 * max(1, report.get("items", 0))
 
     @property
     def nprobe(self) -> int:

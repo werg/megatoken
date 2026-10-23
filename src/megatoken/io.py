@@ -74,6 +74,11 @@ def atomic_binary_writer(path: str | Path) -> Iterator[BinaryIO]:
         temporary.unlink(missing_ok=True)
 
 
+def write_text_atomic(path: str | Path, text: str) -> None:
+    with atomic_binary_writer(path) as handle:
+        handle.write(text.encode())
+
+
 def write_json(path: str | Path, value: Any) -> None:
     with atomic_binary_writer(path) as handle:
         handle.write(json.dumps(value, indent=2, sort_keys=True, allow_nan=False).encode())

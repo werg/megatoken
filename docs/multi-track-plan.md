@@ -138,7 +138,7 @@ Do not put two distinct recurrent blocks inside one event merely to keep its ext
 
 A meridian is one atomic **selection and integration group**. All participating raw blocks exist before joint C begins. Every member can attend to every other member in that group.
 
-A meridian contains at most one event per track. Events needing additional causal steps use subsequent meridians. Several tracks may be absent.
+A meridian may contain several events on one track (same-track peers, for example the audio and video of one camera); each names its own unique event identity. Events needing additional causal steps use subsequent meridians. Several tracks may be absent.
 
 ### Alignment
 
@@ -196,7 +196,7 @@ Use half-open media spans `[start_tick, end_tick)` with `end_tick >= start_tick`
 The schema validator must enforce the following before an example reaches the model:
 
 - Event IDs are unique within a session and retain their identity across tapes, prepared data, execution, and replay. Each selected event belongs to exactly one meridian and one registered track.
-- A meridian is nonempty, has one kind and one pre-state, contains at most one event per track, and respects configured event/history capacities. Its members agree with the enclosing meridian ID. Padded tensor rows are not schema events.
+- A meridian is nonempty, has one kind and one pre-state, has a unique identity for every member (several may share a track), and respects configured event/history capacities. Its members agree with the enclosing meridian ID. Padded tensor rows are not schema events.
 - The canonical event chronology is ordered meridians. Serialize members in a stable event-ID order for hashing and transport; that order does not create additional causal edges or enter model conditioning as an ordinal feature.
 - A declared predictive dependency points to a completed earlier meridian. Same-meridian peer computation and alignment are distinct from such a dependency. Do not turn an actual worker/critic dependency into a joint group merely because two records are adjacent in a transcript.
 - Physical chunks of one logical payload remain ordered and complete on their track. Other tracks may interleave between its parts. Validate action bytes, part counts, roles, and execution identity across that per-track sequence; replace v6's global-contiguity assumption explicitly.
@@ -969,7 +969,7 @@ Use the tiny preset for contract and gradient checks, then the compact or produc
 | --- | --- | --- |
 | Canonical control bundle and bounded reference slots | `controls.py`, `model/frontend.py`, `generation/structure.py`, `served.py` | Prompt/typed-control equivalence fixtures, field precedence, causal references, absent-control neutrality, and immutable selected rendering controls |
 | Multimodal-ready targets and accounting | `generation/targets.py`, `data/schema.py`, `data/storage.py`, `data/prepare.py`, `training/engine.py`, `training/config.py` | Placeholder media fixtures validate sample/frame specs, fingerprints, valid-element counts, zero-count ranks, and accumulation/progress meters without requiring large codec downloads |
-| Shared ownership and grouped RL trajectory | `training/rl.py`, `training/history.py`, `training/optimizer.py`, `model/audit.py`, `generation/policy.py` | Freeze the complete materialization map, score full-group densities, and replay chronological generated/observed groups through an RL update on controlled fixtures |
+| Shared ownership and grouped RL trajectory | `training/outcome.py`, `training/history.py`, `training/optimizer.py`, `model/audit.py`, `generation/policy.py` | Freeze the complete materialization map, score full-group densities, and replay chronological generated/observed groups through an RL update on controlled fixtures |
 
 The RL event log must represent `calls A+B -> result B -> follow-up B -> result A`; it cannot remain a list of one-action/one-observation pairs. E1 supplies the real concurrent adapters as part of this same delivery. RL collection uses the nonspeculative canonical path and includes selected invalid/empty events; the same-weight density/materialization gate remains mandatory.
 
@@ -999,7 +999,7 @@ Add a small `modalities` package for codec/feature adapters and media specificat
 
 | Extension | Prerequisites and locations | Deliverable and exit evidence |
 | --- | --- | --- |
-| **E1 — concurrent execution** | A/B; `served.py`, `environments.py`, `training/rl.py`, data action/result adapters | Actual overlapping requests on an adapter with a declared lease contract; out-of-order results, idempotency, conflicting operations, retrieval provenance, close/drain behavior, and chronological replay |
+| **E1 — concurrent execution** | A/B; `served.py`, `environments.py`, `training/outcome.py`, data action/result adapters | Actual overlapping requests on an adapter with a declared lease contract; out-of-order results, idempotency, conflicting operations, retrieval provenance, close/drain behavior, and chronological replay |
 | **E2 — joint audiovisual realization** | C2/D2 plus acquired paired audiovisual data and shared timing specs; media adapters/realizers and grouped loss preparation | Coupled audiovisual generation with measured content agreement, continuation, fine event synchronization, and speech/lip synchronization; both coarse and fine quality gates pass |
 | **E3 — one-meridian speculation** | E1's single-owner commit and delivery ledger; session branch/runtime code plus speech/video prefix adapters | Enabled text/media branches and provisional-prefix integration, revision-checked atomic accept/discard, no dispatch before acceptance, no rollback after delivery, and passing latency-versus-wasted-work measurements |
 
@@ -1038,7 +1038,7 @@ Turn the less obvious cases into explicit fixtures, extending the existing test 
 | Target peer appears first in serialized storage or carries a copy reference | No peer tape, target bytes, or target-derived metadata enters the group's P prefix | `test_training_history.py`, `test_training_stream.py` |
 | Recorded tool continuation with perturbed sampled siblings | Recorded continuation is unchanged; primary prior branch remains target-independent | `test_generation_policy.py`, `test_training_history.py` |
 | Same examples packed differently or spread over ranks with empty modality counts | Prepared/actual denominators and globally normalized gradients agree | `test_training_math.py`, `test_distributed.py` |
-| Two supported snapshot reads, conflicting writes, and duplicate retry | Declared lease outcomes, no silent rebasing, no duplicate external effect | `test_environments.py`, `test_rl_integration.py` |
+| Two supported snapshot reads, conflicting writes, and duplicate retry | Declared lease outcomes, no silent rebasing, no duplicate external effect | `test_environments.py` |
 
 Add a served save/reload/replay integration case using the same grouped event fixture. Validate CPU reference correctness first; any accelerated path must meet the same active-mask, density, and state contract. A documentation change does not itself supply these future implementation receipts.
 
@@ -1183,7 +1183,7 @@ The review began at `main` commit `6d33c127bb4b358ef9d5eb8dfa51769e1315b301` and
 - [Control protocol](../src/megatoken/controls.py), [data schema](../src/megatoken/data/schema.py), [chunking](../src/megatoken/data/chunking.py), and [served bundles](../src/megatoken/served.py).
 - [Policy](../src/megatoken/generation/policy.py), [realizer](../src/megatoken/generation/realizer.py), [tapes](../src/megatoken/generation/structure.py), and [training engine](../src/megatoken/training/engine.py).
 - [Gaussian coordinates/density](../src/megatoken/generation/latents.py), [native history](../src/megatoken/training/history.py), [packing](../src/megatoken/data/packing.py), and [training stream](../src/megatoken/training/stream.py).
-- [Optimizer resume contract](../src/megatoken/training/optimizer.py), [training configuration](../src/megatoken/training/config.py), [environment leases](../src/megatoken/environments.py), and [RL trajectory/replay](../src/megatoken/training/rl.py).
+- [Optimizer resume contract](../src/megatoken/training/optimizer.py), [training configuration](../src/megatoken/training/config.py), [environment leases](../src/megatoken/environments.py), and [outcome credit](../src/megatoken/training/outcome.py).
 - [Merged chunking PR #6](https://github.com/werg/megatoken/pull/6), [chunking contracts](chunking.md), and [production parser policy](../configs/data/chunking.production.json) are part of the refreshed baseline.
 
 ### External primary sources checked on 2026-10-19

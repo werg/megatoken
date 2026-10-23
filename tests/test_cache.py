@@ -583,3 +583,20 @@ def test_previously_published_uncompressed_files_still_restore(tmp_path):
     unpacker.write(payload)
     assert (tmp_path / "old/data").read_bytes() == payload
     assert done == {"old/data"}
+
+
+def test_one_plaintext_sealed_at_two_segment_sizes_never_shares_a_key_and_nonce():
+    key = keys()
+    plain = bytes(range(256)) * 40
+    salt = key.salt("piece/" + hashlib.sha256(plain).hexdigest())
+
+    def seal(segment: int) -> bytes:
+        sink = io.BytesIO()
+        cache.encrypt_stream(io.BytesIO(plain), sink, key, b"piece", segment, salt)
+        return sink.getvalue()
+
+    small, large = seal(4096), seal(8192)
+    start = len(cache.MAGIC) + 4
+    assert small[start : start + cache.SALT_BYTES] != large[start : start + cache.SALT_BYTES]
+    assert open_all(small, key, b"piece") == open_all(large, key, b"piece") == plain
+    assert seal(4096) == small  # the same inputs still seal to the same bytes

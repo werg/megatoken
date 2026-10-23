@@ -333,7 +333,7 @@ attention backend without claiming that every masked case has the same kernel.
 This section is the decoder-level draw of the single-track predictor: the unit under test
 of the realizer and the diagnostic sampler of held-out evaluation and the benchmark. It is
 never served, collected or stored in a dataset. Serving, collection and training exchange
-one tape format, the group tape (`fmt-multitrack-facets-v12`, see [serving](#export-and-serving)).
+one tape format, the group tape (`fmt-multitrack-facets-v15`, see [serving](#export-and-serving)).
 
 `sample` returns a `PolicyResult` with exact bytes, emitted IDs, updated state, an
 immutable `ActionTape`, and the summed Gaussian log density. `score_tape` predicts

@@ -51,6 +51,7 @@ class Fragment:
 def training_identity(config: Any) -> str:
     """Objective identity excludes local paths, worker IDs and logging cadence."""
     fields = (
+        "purpose",
         "phase",
         "model",
         "codec",
@@ -80,11 +81,20 @@ def training_identity(config: Any) -> str:
         "router_balance_mode",
         "trainable",
         "text_anchor_weight",
+        "hindsight_distill_weight",
+        "navigation_weight",
+        "navigation_examples",
+        "navigation_negatives",
     )
     identity: dict[str, Any] = {name: getattr(config, name) for name in fields}
     import json
     from pathlib import Path
 
+    from megatoken.io import sha256_file
+
+    targets = getattr(config, "hindsight_targets", None)
+    identity["hindsight_targets"] = (
+        sha256_file(Path(targets) / "manifest.json") if targets else None)
     assets = (
         [config.engram_import]
         if getattr(config, "engram_import", None)

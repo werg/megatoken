@@ -1,5 +1,3 @@
-> **BREAKING MIGRATION NOTICE:** This document retains historical v8 training/background details. Its old `configs/train/*.yaml` stage commands are **not supported**. Only the phase-gated curriculum described in [README.md](../README.md), with the memory mechanism in [continuous-state-transducer-plan.md](continuous-state-transducer-plan.md), may launch training.
-
 # Training and operations
 
 > **Implementation boundary (architecture v13):** The stages described below
@@ -30,7 +28,7 @@ execution examples. Grouped-media student collection and structural-only budget
 accounting remain outstanding, as recorded in the
 [current implementation status](multi-track-implementation.md).
 
-## Two representation-training modes
+## Representation training across stages
 
 The recurrent input is a `[batch, 32, 512]` raw facet tensor, or `[batch, 32, 256]`
 in the smaller preset. E builds the same format through ordered byte/ngram processing,
@@ -85,9 +83,9 @@ once in the `shared` domain, while E-private gradients use the separate `encoder
 domain. Other core owners do not receive gradients from the reconstruction branch.
 Main recurrent and replay objectives update shared pools under their normal scope.
 
-`TrainConfig.representation_mode` selects `bootstrap` or `recurrent`. The value `auto`
-resolves to bootstrap for B0 and recurrent for every other supervised phase. Production
-YAMLs make the choice explicit. Prepared loss plans record their mode, exact masks,
+The curriculum selects bootstrap representation training for the initial stage and recurrent
+training thereafter. Production binding files inherit this choice; conflicting overrides are
+errors. The `auto` setting is only available in bounded diagnostics. Prepared loss plans record their mode, exact masks,
 optional native labels, and denominators; forward rejects a different mode or denominator.
 
 ### Bootstrap: train a noisy byte codec and its causal predictor
@@ -469,8 +467,8 @@ current transaction before saving. A hard kill can lose work after the last save
 transaction; an unfinished temporary directory is never loaded as a valid checkpoint.
 
 ```bash
-megatoken train --config configs/train/b0.yaml --resume runs/b0/checkpoints
-megatoken train --config configs/train/p1.yaml \
+megatoken train --config configs/train/coherence.example.yaml --resume runs/b0/checkpoints
+megatoken train --config my-p1.yaml \
   --resume runs/b0/checkpoints --phase-transition
 ```
 
@@ -505,15 +503,16 @@ The required production import uses the native hashed context tables from both d
 The cloud preparation recipe selects real text contexts from a verified prepared corpus,
 reads only the addressed donor rows by HTTP range, and writes one independent asset map per
 donor. Use [the DiLoCo preparation workflow](diloco-coreweave.md#run-a-phase) and its
-[training example](../configs/train/diloco-engram-import.example.yaml). The source row IDs
+[training example](../configs/train/pretraining.example.yaml). The source row IDs
 are never copied into Megatoken's byte hash space; each donor is hashed and projected with
 its own reference mapping.
 
-Set `engram_import` for one map or ordered `engram_imports` for multiple independent maps.
+Production uses the two ordered `engram_imports` selected by the shared curriculum.
+The single-map extraction setting is reserved for bounded diagnostic checks.
 Temporary maps are installed or restored before optimizer owner enumeration. Baking folds
 the imported contributions into the native table, rebases affected FP32 masters, clears
-affected row moments, and removes temporary owners. DiLoCo exports must be baked before
-creating a served bundle or using the export as the next phase seed. No donor model runs
+affected row moments, and removes temporary owners. Bake the final export before creating
+a served bundle. Keep the maps installed in exports that seed later training stages. No donor model runs
 during training or serving.
 
 ## Outcome RL
@@ -548,3 +547,123 @@ source label into measured long-context coverage or automatically advance curric
 `WindowAudit` checks actual writer/reader windows and exposure. Use those measurements
 and fixed task outcomes to decide when to extend the next pilot.
 
+
+## Default memory recipe and launch readiness
+
+Every training entry point uses one curriculum, including direct Python callers. Runtime
+methods and learning-rate schedules live in `data/stages.json`. Production uses hybrid
+Muon/AdamW, the declared effort mixture, the stage's representation and trainable weights,
+and its scored-decision horizon. Teacher distillation is 0.1 and structural supervision 0.05.
+Evaluation defaults to every 100 steps, and evaluation/checkpointing cannot be disabled.
+Later stages require both selected pinned native text imports in the prescribed order, retained
+through the remaining training stages; bake them for final serving export rather than mid-curriculum.
+All production stages use independent DiLoCo learners. New stages must restore the preceding
+stage's checkpoint; restarting the same stage is also supported. Media alignment requires both
+the decoder assets and prepared text anchors. Conflicting method overrides are errors.
+
+There is one binding example for each of the eight stages. The duplicate pretraining variants
+have been deleted; `configs/train/pretraining.example.yaml` is the one pretraining binding.
+These files supply prepared roots, artifact paths and process settings, without copying method
+choices. The aligned-task root explicitly accounts for endpoints, endpoint-conditioned video,
+speech counterfactuals and cross-track evidence. Placeholder roles are declarations, not proof
+of prepared supply: actual-input checks still require the real train/validation episodes.
+
+Bounded checks must explicitly declare `purpose: diagnostic` and an explicit `max_steps` or
+`budget`. With no teacher artifact they exercise causal retrieval only; they do not compute
+substitute learned hindsight. The learned hindsight head remains because production distills it
+and serving uses it for retrospective values. The old full-attention curriculum has been deleted. Production objective weights are fixed
+by the shared objective contract; diagnostic overrides cannot become production defaults.
+The production contract is tested both with omitted fields and with deliberate disabling attempts.
+
+Teacher preparation and input checking are package commands, `megatoken prepare-hindsight`
+and `megatoken train-check`. There is no standalone teacher preparation script or forwarding
+entry point. Cloud jobs call the same package commands. The old synchronous shell and Slurm
+production launchers have been deleted.
+
+Prepare targets for the **unchanged** selected corpus:
+
+For the first training segment, select a bounded tranche of prepared roots that supplies
+every required stream and validation behavior. Prepare teacher targets for that selected
+tranche; do not wait for the eventual whole-corpus preparation. Further tranches can be
+prepared while training runs, then adopted at an explicit segment transition. This helper
+indexes every window in the selected tranche, so passing the eventual full corpus would
+unnecessarily make its entire teacher pass a launch prerequisite.
+
+```bash
+python -m megatoken prepare-hindsight \
+  --train-config /path/to/resolved-train.yaml \
+  --writer /path/to/retrieved-hindsight-writer \
+  --output /path/to/hindsight --device cuda
+python -m megatoken train-check \
+  --config /path/to/hindsight/train.json --report /path/to/readiness.json
+```
+
+The emitted configuration preserves data roots, source splits, stage mixtures, output path,
+decoder packs and distributed settings. It uses a checksummed SQLite sidecar for every training
+window, with packed values in separate assets. Its corpus identity must match the selected roots
+on the learner and the compact root metadata on a cached-data coordinator. Only a finished
+manifest is accepted. Existing window rows allow interrupted preparation to resume. Reuse
+`--encoding-from` from the preceding phase to keep the same fixed value language.
+
+Teacher supervision applies to plain-text windows. A window containing media or compressed
+features is explicitly marked unsupported: ordinary bank retrieval stays active, with no teacher
+overlay, no substitute learned hindsight target and no lasting hindsight write for that window.
+Existing media prediction/reconstruction and per-step encode-and-reconstruct remain enabled by
+the original stage mixture. Structural guidance can still use eligible text links in such a window.
+Validation uses ordinary retrieval with teacher targets and auxiliary structural teaching off.
+
+The readiness report verifies the codec, selected streams and required behavior coverage,
+validation supply, actual teacher values and links, corpus/target identity, decoder requirements,
+locked pack files and selected donor asset checksums. It allocates no model. Training also checks
+teacher inputs before model allocation. It is an input/objective check, not a hardware throughput
+or learned-quality certificate; no comparison study is required before training.
+
+### Cloud handoff
+
+Use `configs/cloud/prepare-teacher-structure.example.json` for the offline writer job. Supply the
+same prepared roots named by the training configuration as verified inputs. Produce the writer's
+verified cloud-input entries without loading it:
+
+```bash
+python -m megatoken prepare-hindsight --writer /path/to/retrieved-writer \
+  --cloud-inputs /path/to/writer-inputs.json
+```
+
+Append those entries to the preparation job's `inputs`. The job publishes `out/hindsight`. In
+`configs/cloud/train-default.example.json`, set `hindsight.peer` to that completed sandbox.
+The launcher maps its artifact to `/work/data/hindsight`, matching the training templates.
+Learners receive the index and packed values; the CPU coordinator receives the small manifest
+only. The writer backbone is not loaded on training learners. Other verified launch inputs must
+include the real codec, decoder packs, and both requested donor descriptor assets. Missing
+required artifact headers or duplicate destinations are rejected before launching sandboxes.
+Cached-data coordinators retain dataset glob selectors until compact root selection; they do not
+try to expand absent local data paths.
+
+The default cloud preparation job emits the configuration with its intended training-side teacher
+path preserved, even when preparation writes to `out/hindsight`. Local preparation can set the
+same path as `--output`, or relocate the artifact by changing only the path in the run configuration;
+its immutable manifest, encoding and corpus identities still have to match.
+
+### Phase transitions and frozen stages
+
+A new phase restores the preceding checkpoint and then verifies/installs its requested pretrained
+text imports before enumerating parameters and global masters. Existing maps are retained and
+checked; missing new phase imports are appended once. Exact resume cannot silently introduce,
+remove or reorder imports. This applies both to the coordinator and the local trainer.
+Learner bootstrap preserves the installed parameter objects, so the optimizer continues
+updating every donor map after loading the coordinator's starting weights.
+
+For `trainable: media_bridge` and `trainable: latent_policy`, the bank remains searchable but its
+separate sparse optimizer, hindsight writes, new entries, pruning and value-mode switching are
+frozen. The coordinator rejects mutation-bearing rounds. Privileged hindsight is disabled in these
+frozen scopes; latent-policy updates therefore use causal retrieval rather than future overlays.
+
+### Readiness boundary
+
+Production examples use the canonical stage budgets. Short rehearsals must set their own
+explicit `budget` or `max_steps`; the examples no longer silently shorten the initial stages.
+
+Resolved data/codec/pack/donor paths, a completed teacher artifact, a compatible checkpoint and
+allocated compute remain required. Checked-in `PIN_*` examples are intentionally not runnable as
+production inputs. Static coverage now accounts for every stage and declared stream; actual
+prepared supply and the pinned donor identities must still pass `megatoken train-check`.

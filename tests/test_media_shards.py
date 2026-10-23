@@ -279,6 +279,8 @@ def test_two_shards_ingest_reconcile_and_finish_keeping_every_asset_in_place(
             folder / f"{number}.parquet",
         )
     roots = [tmp_path / "out/prepared" / f"{shard:05d}" for shard in range(2)]
+    packs = tmp_path / "packs.json"
+    packs.write_text('{"version": 1, "packs": {}}')
 
     def run(*arguments):
         monkeypatch.setattr("sys.argv", ["prepare_open_media", *arguments])
@@ -294,14 +296,14 @@ def test_two_shards_ingest_reconcile_and_finish_keeping_every_asset_in_place(
         common = ["--root", str(root), "--codec", "byte", "--shard-spec", str(spec_file)]
         run(
             *common,
-            *("--packs", "unused", "--inputs", str(tmp_path / "inputs")),
+            *("--packs", str(packs), "--inputs", str(tmp_path / "inputs")),
             *("--work", str(tmp_path / "scratch"), "--ingest-only"),
         )
         assert (root / "digest.sqlite").is_file() and not (root / "manifest.json").exists()
         # Running the ingest again changes nothing: the shard is done.
         run(
             *common,
-            *("--packs", "unused", "--inputs", str(tmp_path / "inputs")),
+            *("--packs", str(packs), "--inputs", str(tmp_path / "inputs")),
             *("--work", str(tmp_path / "scratch"), "--ingest-only"),
         )
     summary = reconcile([root / "digest.sqlite" for root in roots], tmp_path / "decisions")

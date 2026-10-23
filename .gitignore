@@ -21,3 +21,5 @@ assets/
 .env
 .env.*
 !*.example
+*.key
+*.pem

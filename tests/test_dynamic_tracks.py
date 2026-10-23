@@ -385,3 +385,43 @@ def test_prepared_timing_roundtrips_and_dependencies_require_prior_groups():
     assert Episode.from_dict(episode.to_dict()) == episode
     with pytest.raises(ValueError, match="earlier meridian"):
         replace(episode, meridians=(Meridian(0, (source, replace(answer, meridian_id=0)), 600),))
+
+
+def test_a_track_cannot_grant_a_child_more_than_it_holds_by_omitting_the_parent():
+    import json
+
+    from megatoken.tool_schema import compile_tool_spec
+
+    _, runtime = _runtime()
+    session = runtime.open()
+    worker = runtime.track_action(
+        session, "create", purpose="Worker", completion="done", budget=10, capabilities=("text",)
+    )
+
+    def issue(**create):
+        spec = compile_tool_spec(
+            json.dumps(
+                [
+                    {
+                        "name": "track_create",
+                        "parameters": {
+                            "type": "object",
+                            "const": {"purpose": "Child", "completion": "done", **create},
+                        },
+                    }
+                ]
+            ),
+            128,
+        )
+        provisional = runtime.speculate(session, tracks=(worker.address,), specs=(spec,), effort=1)
+        return runtime.execute_lifecycle(session, runtime.accept(session, provisional))[0]
+
+    try:
+        wider = issue(budget=4, capabilities=["text", "audio"])
+        assert "capabilities" in wider["error"]  # no parent named, yet the issuer is the parent
+        richer = issue(budget=500, capabilities=["text"])
+        assert "budget" in richer["error"]
+        allowed = issue(budget=4, capabilities=["text"])
+        assert tuple(allowed["track"]["capabilities"]) == ("text",)
+    finally:
+        runtime.close()

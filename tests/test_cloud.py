@@ -372,3 +372,22 @@ def test_collect_pulls_safe_paths(tmp_path, monkeypatch):
     )
     assert cloud.collect("sb-1", tmp_path / "dest", timeout=1)["files"] == 1
     assert pulled == [tmp_path / "dest" / "out" / "a" / "b.bin"]
+
+
+def test_collect_fails_loudly_when_the_sandbox_has_no_output_list(tmp_path, monkeypatch):
+    class Result:
+        def __init__(self, returncode=0):
+            self.returncode, self.stdout = returncode, "0"
+
+        def result(self):
+            return self
+
+    class Sandbox:
+        def exec(self, argv):
+            # outputs-ready and exit-status exist; outputs.json does not.
+            return Result(1 if argv[-1].endswith("outputs.json") else 0)
+
+    monkeypatch.setattr(cloud, "_attach", lambda sandbox_id: Sandbox())
+    monkeypatch.setattr(cloud, "STATE", tmp_path / "state")
+    with pytest.raises(cloud.CloudError, match="no output list"):
+        cloud.collect("sb-1", tmp_path / "dest", timeout=1)

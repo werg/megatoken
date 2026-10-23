@@ -382,3 +382,21 @@ def test_adapter_options_the_adapter_never_reads_are_rejected():
         adapt_row(chat_row(), "chat", chat_context(include_reasoning=True))
     with pytest.raises(SchemaError, match="allow_pending_final_action"):
         adapt_row(chat_row(), "document", chat_context(allow_pending_final_action=True))
+
+
+def test_one_repository_has_one_family_key_whatever_its_spelling():
+    from megatoken.data.schema import Lineage
+
+    spellings = [
+        "o/r",
+        "O/R.git",
+        "o/r.git/",
+        "https://github.com/o/r",
+        "https://www.github.com/o/r/",
+        "http://github.com/o/r.git",
+        "git@github.com:o/r.git",
+        "ssh://git@github.com/o/r",
+        "github.com/o/r",
+    ]
+    keys = {Lineage("s", "rev", "fam", repository=spelling).family_keys for spelling in spellings}
+    assert len(keys) == 1 and "repository:o/r" in next(iter(keys))

@@ -1,19 +1,12 @@
-"""v10 training orchestration: boundaries, hindsight curriculum, sparse barriers.
+"""Memory training with prepared teacher values and sparse bank updates.
 
-One ``TransducerTrainer`` owns the bank's sparse optimizer and growth for a
-run. Each training window gets a ``TransducerSequence``: it plans the window's
-latency boundaries, runs the hindsight pass once, performs every lookup and
-records the differentiable ones. After the window's backward,
-``after_backward`` turns their gradients into hindsight writes, structural
-evidence and write-out candidates; ``barrier`` then steps the bank.
+Each window plans causal lookups. Supported text windows attach immutable teacher
+values; an isolated future-only pass distills the serving hindsight head. Item
+encoders learn against the same prepared targets. Backward gradients drive sparse
+updates and candidate entries, committed at the bank barrier. Windows without
+teacher support perform causal retrieval without substitute targets or writes.
 
-Serving uses ``BoundaryScheduler`` for the same boundary rule, live.
-
-The same hindsight pass trains the ingest heads: wherever a lookup's hindsight
-group is, or contains, exactly one item (an image, a clip, a document piece),
-that item read alone should give the value the hindsight head gave
-(distillation), and its key should be the one the lookup's own query picks out
-among the window's items (contrast).
+Serving uses BoundaryScheduler for the same boundary rule.
 """
 
 from __future__ import annotations
@@ -91,18 +84,11 @@ class BoundaryScheduler:
 
 @dataclass(frozen=True)
 class HindsightSchedule:
-    """The warm-up mask curriculum, the overlay anneal and the 1-in-8 rule."""
+    """Anneal the prepared teacher overlay into ordinary bank retrieval."""
 
-    full_steps: int = 4096
-    gap1_steps: int = 4096
     warmup_steps: int = 16384
     overlay_steps: int = 65536
     hindsight_only_every: int = 8
-
-    def stage(self, step: int) -> str:
-        if step < self.full_steps:
-            return "full"
-        return "gap1" if step < self.full_steps + self.gap1_steps else "gap2"
 
     def overlay(self, step: int, sequence: int) -> float:
         """Weight of h_t in the value and the landing: 1 in warm-up, annealed,
@@ -115,15 +101,7 @@ class HindsightSchedule:
             return 1 - (step - self.warmup_steps) / self.overlay_steps
         return 1.0 if sequence % self.hindsight_only_every == 0 else 0.0
 
-    def computes_hindsight(self, step: int, sequence: int, *, learned: bool) -> bool:
-        # Before the switch every lookup writes h_t into its edges; after it,
-        # the pass runs only for the hindsight-only sequences.
-        return not learned or self.overlay(step, sequence) > 0
 
-    def reads(self, step: int, groups: int, lookups: int) -> list[int | None]:
-        """The retrieval group each lookup's h_t reads (None: past the end)."""
-        gap = 1 if self.stage(step) == "gap2" else 0
-        return [t + gap if t + gap < groups else None for t in range(lookups)]
 
 
 @dataclass(frozen=True)
@@ -202,6 +180,12 @@ class TransducerTrainer:
         max_writeouts: int = 512,
         cache_edges: int = 8192,
         reading: ReadingBase | None = None,
+        teacher_targets=None,
+        bank_trainable: bool = True,
+        teacher_weight: float = 0.1,
+        navigation_weight: float = 0.0,
+        navigation_examples: int = 8,
+        navigation_negatives: int = 32,
     ) -> None:
         self.native = native
         self.bank = native.bank
@@ -212,6 +196,12 @@ class TransducerTrainer:
             provisional=provisional,
             max_writeouts=max_writeouts,
         )
+        self.teacher_targets = teacher_targets
+        self.bank_trainable = bank_trainable
+        self.teacher_weight = teacher_weight
+        self.navigation_weight = navigation_weight
+        self.navigation_examples = navigation_examples
+        self.navigation_negatives = navigation_negatives
         self.schedule = schedule or HindsightSchedule()
         self.sequences = 0
         self.records: list[_Recorded] = []
@@ -229,51 +219,57 @@ class TransducerTrainer:
         generator: torch.Generator | None = None,
         mounted: tuple[Mounted, ...] | None = None,
         sources: SourceSession | None = None,
+        memory_eligible: bool | None = None,
     ) -> TransducerSequence:
         """Plan one training window (or a bank-only evaluation window when not training).
 
         ``mounted`` are the bases the window searches (default: the trained base alone).
-        A window that mounts others learns nothing into the trained base: what those
-        bases hold is not to be memorized by it. ``sources`` are the collections the
+        ``memory_eligible`` explicitly controls lasting writes of this window's own targets;
+        declaring reference bases alone never grants that permission. ``sources`` are the collections the
         window's session has mounted.
         """
         training = self.native.training
+        if memory_eligible is None:
+            memory_eligible = mounted is None
         lookups = plan_boundaries(
             meridians,
             max_lookups=self.bank.geometry.max_lookups,
-            generator=generator if training else None,
+            generator=None,
         )
         question = question_lookup(meridians, lookups)
-        if not training:
+        if not training or not self.bank_trainable:
             return TransducerSequence(
                 self,
                 lookups,
                 step,
                 alpha=0.0,
-                hindsight=False,
                 mounted=mounted,
                 sources=sources,
                 question=question,
+                memory_eligible=False,
             )
         sequence = self.sequences
         self.sequences += 1
-        learned = self.bank.learned_values
         return TransducerSequence(
             self,
             lookups,
             step,
-            alpha=self.schedule.overlay(step, sequence),
-            hindsight=self.schedule.computes_hindsight(step, sequence, learned=learned),
+            alpha=self.schedule.overlay(step, sequence) if self.teacher_targets is not None else 0.0,
             generator=generator,
             mounted=mounted,
             sources=sources,
             question=question,
+            memory_eligible=memory_eligible,
         )
 
     def after_backward(self, step: int) -> dict[str, int]:
         """Hindsight writes, structural evidence and write-out candidates of the window."""
+        if not self.bank_trainable:
+            self.records.clear()
+            self.candidates.clear()
+            return {"transducer_observed": 0, "transducer_writes": 0}
         g = self.bank.geometry
-        writeout_stage = self.schedule.stage(step) == "gap2"
+        writeout_stage = self.teacher_targets is not None
         observed = writes = 0
         for record in self.records:
             lookup = record.lookup
@@ -331,6 +327,10 @@ class TransducerTrainer:
         """Step the touched rows, add write-outs; in a single-owner run, evolve per round."""
         if self.records:
             raise RuntimeError("Collect backward evidence before the sparse step")
+        if not self.bank_trainable:
+            return {"transducer_updated_fields": 0, "transducer_written_values": 0,
+                    "transducer_writeouts": 0, "transducer_edges": self.bank.edge_count,
+                    "transducer_frozen": 1}
         result = self.optimizer.step(step)
         added = self.growth.write_out(self.candidates, step=step)
         self.candidates.clear()
@@ -354,7 +354,8 @@ class TransducerTrainer:
         """Bank-only validation runs every 1,024 steps once the overlay has ended."""
         schedule = self.schedule
         return (
-            not self.bank.learned_values
+            self.bank_trainable
+            and not self.bank.learned_values
             and step % SWITCH_EVERY == 0
             and step >= schedule.warmup_steps + schedule.overlay_steps
         )
@@ -375,10 +376,33 @@ class TransducerTrainer:
             "optimizer": self.optimizer.state_dict(),
             "growth": self.growth.state_dict(),
             "sequences": self.sequences,
+            "supervision": self.supervision_identity(),
             "switch": self.switch.state_dict(),
         }
 
-    def load_state_dict(self, state: dict) -> None:
+    def supervision_identity(self):
+        targets = self.teacher_targets
+        return {"teacher": None if targets is None else targets.manifest["encoding_identity"],
+                "targets": None if targets is None else targets.identity,
+                "memory_policy": ("causal-only-v1" if targets is None else
+                                  targets.manifest["memory_policy"]),
+                "bank_trainable": self.bank_trainable,
+                "teacher_weight": self.teacher_weight, "navigation_weight": self.navigation_weight,
+                "navigation_examples": self.navigation_examples,
+                "navigation_negatives": self.navigation_negatives}
+
+    def validate_supervision(self, state, *, allow_target_transition=False):
+        prior = state.get("supervision", {})
+        current = self.supervision_identity()
+        if prior.get("teacher") != current["teacher"]:
+            if state["bank"]["rows"]["ids"].numel():
+                raise ValueError("Checkpoint teacher value identity changed; explicit handover required")
+        if (not allow_target_transition and prior.get("targets") != current["targets"]
+            and prior):
+            raise ValueError("Checkpoint teacher target identity changed during resume")
+
+    def load_state_dict(self, state: dict, *, allow_target_transition=False) -> None:
+        self.validate_supervision(state, allow_target_transition=allow_target_transition)
         self.bank.load_snapshot(state["bank"])
         self.optimizer.load_state_dict(state["optimizer"])
         self.growth.load_state_dict(state["growth"])
@@ -396,25 +420,27 @@ class TransducerSequence:
         step: int,
         *,
         alpha: float,
-        hindsight: bool,
         generator: torch.Generator | None = None,
         mounted: tuple[Mounted, ...] | None = None,
         sources: SourceSession | None = None,
         question: int | None = None,
+        memory_eligible: bool = True,
     ) -> None:
         self.trainer = trainer
         self.native = trainer.native
         self.before = lookups_before
         self.step = step
         self.alpha = alpha
-        self.wants_hindsight = hindsight
         self.generator = generator
         self.mounted = mounted
+        self.memory_eligible = memory_eligible and self.native.training
         self.values: HindsightValues | None = None
         self.items: IngestedWindow | None = None
-        self.queries: list[Tensor] = []  # the unit query of every lookup performed
+        self.queries: dict[int, Tensor] = {}  # the unit query of every lookup performed
         self.agenda: SearchAgenda | None = None
         self.lookups = 0
+        self.stored: HindsightValues | None = None
+        self.teacher_loss: Tensor | None = None
         self.sources = sources
         # The search of the lookup after the first finished user message (``question``,
         # counted among the window's lookups), which the data may annotate.
@@ -439,9 +465,8 @@ class TransducerSequence:
         raw: Callable[[int], Tensor],
     ) -> None:
         """Run the hindsight pass once for every planned lookup (training only)."""
-        if not self.wants_hindsight or not self.planned:
+        if self.stored is None or not self.planned:
             return
-        schedule = self.trainer.schedule
         groups = self.groups()
         blocks, roles, tracks, modalities, positions, owners = [], [], [], [], [], []
         for index, meridian in enumerate(meridians):
@@ -461,13 +486,15 @@ class TransducerSequence:
             torch.tensor([positions], device=device),
             torch.tensor([owners], device=device),
         )
-        stage = schedule.stage(self.step)
-        reads = schedule.reads(self.step, groups[-1] + 1, self.planned)
-        # With no overlay h_t never reaches the loss: it only feeds writes and evidence.
-        with torch.set_grad_enabled(torch.is_grad_enabled() and self.alpha > 0):
-            self.values = self.native.hindsight_pass(
-                events, reads, mode="full" if stage == "full" else "group-inverse"
-            )
+        reads = [t + 1 if t + 1 <= groups[-1] else None for t in range(self.planned)]
+        self.values = self.stored
+        if torch.is_grad_enabled() and self.trainer.teacher_weight > 0:
+            valid = ~self.stored.sink_only
+            if bool(valid.any()):
+                learned = self.native.hindsight_pass(events, reads)
+                target = self.stored.values[valid].detach().float()
+                error = (learned.values[valid].float() - target).square().sum(-1)
+                self.teacher_loss = (error / target.square().sum(-1).clamp_min(1e-6)).mean()
         self._ingest(events, meridians, reads)
 
     def _ingest(
@@ -481,7 +508,7 @@ class TransducerSequence:
         if not torch.is_grad_enabled():
             return
         modalities = [m for meridian in meridians for m in meridian.modalities]
-        items = [k for k, modality in enumerate(modalities) if modality in FEATURE_MODALITIES]
+        items = [k for k, modality in enumerate(modalities) if modality in (*FEATURE_MODALITIES, "text")]
         owners = events.groups[0].tolist()
         matches = []
         for t, group in enumerate(reads):
@@ -520,6 +547,9 @@ class TransducerSequence:
         if self.values is not None:
             h = self.values.values[t]
             sink_only = bool(self.values.sink_only[t])
+            if self.stored is not None and sink_only:
+                # A dense zero placeholder is not a teacher value: retrieve normally.
+                h = None
         alpha = self.alpha if h is not None else 0.0
         differentiable = torch.is_grad_enabled() and self.native.training
         if not differentiable and h is not None:
@@ -533,7 +563,7 @@ class TransducerSequence:
             overlay=alpha,
             generator=self.generator,
             # With alpha = 1 the bank's output never reaches the loss.
-            train_rows=differentiable and alpha < 1,
+            train_rows=differentiable and self.trainer.bank_trainable and alpha < 1,
             effort=effort,
             sources=self.sources,
         )
@@ -547,9 +577,9 @@ class TransducerSequence:
                 if tensor.requires_grad:
                     tensor.retain_grad()
             self.trainer.records.append(
-                _Recorded(lookup, h, bool(sink_only), alpha, writes=self.mounted is None)
+                _Recorded(lookup, h, bool(sink_only), alpha, writes=self.memory_eligible)
             )
-            self.queries.append(lookup.query.detach())
+            self.queries[t] = lookup.query.detach()
         return state
 
     def ingest_losses(self) -> dict[str, Tensor]:
@@ -563,7 +593,7 @@ class TransducerSequence:
         if window is None or self.values is None:
             return {}
         # A lookup that was cancelled or hit the cap has no query, so no pair.
-        pairs = [(t, k) for t, k in window.matches if t < len(self.queries)]
+        pairs = [(t, k) for t, k in window.matches if t in self.queries]
         if not pairs:
             return {}
         target = torch.stack([self.values.values[t].detach().float() for t, _ in pairs])

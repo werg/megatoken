@@ -543,11 +543,11 @@ def collect(sandbox_id: str, destination: Path, *, timeout: float = 30 * 86400) 
         time.sleep(30)
     status = sandbox.exec(["cat", f"{base}/exit-status"]).result().stdout.strip()
     probe = sandbox.exec(["test", "-f", f"{base}/outputs.json"]).result()
-    manifest = (
-        json.loads(sandbox.read_file(f"{base}/outputs.json").result())
-        if probe.returncode == 0
-        else {"files": []}
-    )
+    if probe.returncode != 0:
+        # The bootstrap could not list the outputs (disk full, say); "no outputs" would
+        # release the sandbox and lose them.
+        raise CloudError(f"{sandbox_id}: no output list; the job log is {base}/job.log")
+    manifest = json.loads(sandbox.read_file(f"{base}/outputs.json").result())
     pulled = 0
     targets = [_output_target(destination, item["path"]) for item in manifest["files"]]
     for item, target in zip(manifest["files"], targets, strict=True):

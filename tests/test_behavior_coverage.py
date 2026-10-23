@@ -156,14 +156,14 @@ def test_family_ids_deduplicate_across_roots_and_split_filter_is_exact():
     )
 
 
-def test_legacy_family_counts_cannot_be_summed_across_roots():
-    legacy = {
+def test_family_counts_without_identities_are_refused():
+    counts_only = {
         "version": 1,
         "original_families": {"train|calls|executed_parallel_calls": 1},
     }
-    with pytest.raises(ValueError, match="reprepare manifests"):
+    with pytest.raises(ValueError, match="Malformed original family identities"):
         require_coverage(
-            corpus(legacy, legacy),
+            corpus(counts_only, counts_only),
             {"executed_parallel_calls": 1},
             {"calls"},
         )

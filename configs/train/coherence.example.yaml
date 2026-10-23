@@ -1,33 +1,34 @@
-# Single-node coherence bootstrap (B0) with the always-on transducer bank.
-# All PIN_* artifact identities must be filled in after original data preparation.
+# Training methods are defined by the shared curriculum; bind artifacts and compute here.
 phase: B0
 output: runs/coherence
 model: 32x512
-# Prepared roots read as one corpus; without a stage mixture it is a single stream.
 datasets:
-  - PIN_PREPARED_CAUSAL_MERIDIAN_EPISODES
+- PIN_PREPARED_CAUSAL_MERIDIAN_EPISODES
 codec: PIN_RAW_CODEC_DIRECTORY
 device: auto
 precision: bf16
 require_blackwell: true
 expert_backend: auto
-representation_mode: auto
-# B0 is metered in ingested tokens (I); omit budget for the stage's full limit.
-budget: 1000000
 microbatch_episodes: 1
 max_accumulation_windows: 64
 max_history_tokens: 4096
 max_window_records: 16
 max_record_bytes: 16384
 generated_capacity: 512
-scored_decisions: 4
-effort: 6
-# Every 100 steps, score 16 held-out windows of the validation split.
-eval_every: 100
 eval_windows: 16
 checkpoint_every: 100
 router_balance_mode: global
 gradient_checkpointing: true
 compile: false
-use_stage_mixture: false
-use_effort_mixture: false
+hindsight_targets: /work/data/hindsight
+navigation_examples: 8
+navigation_negatives: 32
+decoupled:
+  run_id: PIN_RUN_ID
+  coordinator_url: https://PIN_COORDINATOR
+  workers: 8
+  local_steps: 256
+  io_workers: 4
+  timeout_seconds: 120
+  max_offline_steps: 2048
+  wire_dtype: bf16

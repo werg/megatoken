@@ -32,6 +32,27 @@ def test_multiple_imports_requires_nonempty_ordered_path_list(bad):
         TrainConfig(engram_imports=bad)
 
 
+def test_bootstrap_preserves_optimizer_ownership_of_all_imports():
+    from megatoken.model.frontend import NativeNGramTable
+
+    table = NativeNGramTable(load_model_config("tiny"))
+    for _ in range(2):
+        table.install_import(torch.tensor([7]), torch.ones(1, 128),
+                             torch.ones(1), torch.ones(1))
+    optimizer = MasterAdamW(table, lr=0.01)
+    parameters = dict(table.named_parameters())
+    state = {name: tensor.clone() for name, tensor in table.state_dict().items()}
+    table.load_state_dict(state)
+    assert all(parameter is parameters[name] for name, parameter in table.named_parameters())
+    # This is the order used by learner bootstrap: optimizer exists before load.
+    maps = [table.import_map.weight, table.import_branches[0].import_map.weight]
+    before = [parameter.detach().clone() for parameter in maps]
+    sum(parameter.square().sum() for parameter in maps).backward()
+    optimizer.step()
+    assert all(not torch.equal(parameter, initial)
+               for parameter, initial in zip(maps, before, strict=True))
+
+
 def test_profile_extraction_uses_pinned_donor_byte_vocabulary(tmp_path, monkeypatch):
     from megatoken import donors
 
@@ -341,3 +362,36 @@ def test_diloco_export_bake_preserves_global_masters_and_served_lookup(tmp_path,
             max_staleness=2,
         )
     )
+
+
+def test_coordinator_phase_start_installs_both_requested_imports_after_checkpoint_restore(tmp_path):
+    from megatoken.training.engine import train as run_training
+
+    base = tiny_train_config(tmp_path / "base", max_steps=1)
+    previous = run_training(base)["checkpoint"]
+    assets = []
+    for i in range(2):
+        donor = tmp_path / f"donor-{i}.safetensors"
+        save_file({"embedding": torch.randn(256, 32)}, str(donor))
+        destination = tmp_path / f"import-{i}"
+        extract_engram(donor, "embedding", "byte", destination, model="tiny", seed=i)
+        assets.append(str(destination))
+    next_config = replace(base, phase="P1", engram_imports=assets,
+        decoupled=DecoupledConfig(coordinator_url="http://127.0.0.1:9", workers=1, run_id="next"))
+    config_path = tmp_path / "next.json"
+    config_path.write_text(json.dumps(asdict(next_config)))
+    root = tmp_path / "coordinator"
+    _diloco_initialize(Namespace(config=str(config_path), root=str(root), resume=previous,
+        quorum=1, fragment_mib=1, outer_lr=0.7, outer_momentum=0.9,
+        grace_seconds=0.0, max_staleness=2))
+    bootstrap = torch.load(root / "bootstrap.pt", weights_only=True)["model"]
+    assert "core.frontend.ngrams.import_map.weight" in bootstrap
+    assert "core.frontend.ngrams.import_branches.0.import_map.weight" in bootstrap
+    # Restoring the same desired imports must retain the learned maps without appending.
+    from megatoken.assets import install_configured_imports
+    model = build_model(load_model_config("tiny"), ByteCodec.byte_fallback())
+    model.load_state_dict(bootstrap)
+    before = model.core.frontend.ngrams.import_map.weight.clone()
+    assert install_configured_imports(model, next_config, resumed=True) == ()
+    assert len(model.core.frontend.ngrams.import_branches) == 1
+    torch.testing.assert_close(model.core.frontend.ngrams.import_map.weight, before)

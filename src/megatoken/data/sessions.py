@@ -254,14 +254,16 @@ def codex_rollout(row: Mapping[str, Any], value: Any) -> tuple[Messages, None]:
             results = []
 
     for event in _list(value, "Codex events"):
-        payload = event.get("payload") if isinstance(event, Mapping) else None
+        if not isinstance(event, Mapping):
+            continue  # a stray non-object line is not an event
+        payload = event.get("payload")
         if event.get("type") != "response_item" or not isinstance(payload, Mapping):
             continue
         kind = payload.get("type")
         if kind == "message":
             texts = [
                 b["text"]
-                for b in payload.get("content", [])
+                for b in (payload.get("content") or [])
                 if isinstance(b, Mapping) and isinstance(b.get("text"), str)
             ]
             text = "\n".join(texts)
@@ -281,7 +283,7 @@ def codex_rollout(row: Mapping[str, Any], value: Any) -> tuple[Messages, None]:
             flush_results()
             summary = " ".join(
                 b["text"]
-                for b in payload.get("summary", [])
+                for b in (payload.get("summary") or [])
                 if isinstance(b, Mapping) and isinstance(b.get("text"), str)
             )
             pending += _thinking(summary)

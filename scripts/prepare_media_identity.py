@@ -50,7 +50,7 @@ def main() -> None:
                 if not line.strip():
                     continue
                 record = MediaRecord.from_bytes(json.loads(line)["record"].encode())
-                for asset in (record.source, record.target):
+                for asset in (record.source, record.target, record.embedding, record.rendered):
                     if asset is not None:
                         store.load(asset)  # every referenced asset is present and intact
                 episode = identity_episode(record)

@@ -83,13 +83,6 @@ def read_ami_annotations(archive: str | Path, meeting: str):
     return tuple(speakers)
 
 
-def _words(words):
-    text = ""
-    for word in words:
-        text += ("" if not text or word.punctuation else " ") + word.text
-    return text.encode("utf-8")
-
-
 def ami_conversation(
     preparer,
     directory: str | Path,
@@ -128,7 +121,15 @@ def ami_conversation(
     if start_second < 0 or any(end > v.frames for v in clocks.values()):
         raise ValueError("Conversation prefix is outside an original channel")
     original_family = f"ami:{meeting[:-1]}" if meeting[-1] in "abcd" else f"ami:{meeting}"
-    variant = stable_id("ami-causal-prefix-v1", meeting, str(start_second), str(chunks), outgoing)
+    variant = stable_id(
+        "ami-causal-prefix-v2",
+        meeting,
+        str(start_second),
+        str(chunks),
+        str(chunk_seconds),
+        outgoing,
+        ",".join(agents),
+    )
     records, groups, dependencies, labels = [], [], [], []
     track_ids = {s.agent: f"speaker:{s.identity}" for s in selected}
     instruction = PhysicalRecord(

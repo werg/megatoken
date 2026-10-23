@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 SOURCES = {
@@ -119,10 +120,15 @@ def main() -> None:
     parser.add_argument("--input", type=Path, required=True, help="The released data/chat.jsonl")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
-        "--token", required=True, help="Hugging Face token with both gates accepted"
+        "--token",
+        help="Hugging Face token with both gates accepted (default: $HF_TOKEN; prefer the "
+        "variable, since an argument is visible in the process list)",
     )
     args = parser.parse_args()
-    found = find_prompts(needed_hashes(args.input), args.token)
+    token = args.token or os.environ.get("HF_TOKEN")
+    if not token:
+        parser.error("a Hugging Face token is required: set HF_TOKEN or pass --token")
+    found = find_prompts(needed_hashes(args.input), token)
     print(json.dumps(restore(args.input, args.output, found)), flush=True)
 
 

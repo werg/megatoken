@@ -70,27 +70,29 @@ def load_transducer_state(checkpoint: str | Path) -> dict:
     )
 
 
-def resume_transducer(trainer: Any, rank_rounds: Any, checkpoint: str | Path) -> None:
+def resume_transducer(trainer: Any, rank_rounds: Any, checkpoint: str | Path,
+                      *, allow_target_transition: bool = False) -> None:
     """Restore a run's transducer from a checkpoint, however many ranks wrote or read it."""
     saved = load_transducer_state(checkpoint)
+    trainer.validate_supervision(saved, allow_target_transition=allow_target_transition)
     if rank_rounds is not None:
-        rank_rounds.load_state_dict(saved)
+        rank_rounds.load_state_dict(saved, allow_target_transition=allow_target_transition)
     elif "canonical" in saved:
         # A multi-owner bank (ranks or coordinator); this learner's statistics restart.
         trainer.bank.load_snapshot(saved["bank"])
         trainer.sequences = int(saved.get("sequences", 0))
     else:
-        trainer.load_state_dict(saved)
+        trainer.load_state_dict(saved, allow_target_transition=allow_target_transition)
 
 
 class CanonicalBank:
     """The run's canonical bank and its merging coordinator, kept on the CPU."""
 
-    def __init__(self, geometry: TransducerGeometry, *, evidence_from: int) -> None:
+    def __init__(self, geometry: TransducerGeometry, *, evidence_from: int, frozen=False) -> None:
         self.bank = TransducerBank(geometry)
         self.growth = TransducerGrowth(self.bank)
         self.coordinator = TransducerCoordinator(
-            self.bank, self.growth, evidence_from=evidence_from
+            self.bank, self.growth, evidence_from=evidence_from, frozen=frozen
         )
         self.skipped_merges = 0
 
@@ -169,7 +171,9 @@ class TransducerHost(CanonicalBank):
         super().__init__(
             TransducerGeometry(**settings["geometry"]),
             evidence_from=int(settings["evidence_from"]),
+            frozen=bool(settings.get("frozen", False)),
         )
+        self.supervision = settings.get("supervision")
         self.root = Path(root) / "transducer"
         self.root.mkdir(parents=True, exist_ok=True)
         self.workers = workers
@@ -181,6 +185,20 @@ class TransducerHost(CanonicalBank):
         state = self.root / "state.pt"
         if state.exists():
             self.load_state_dict(_load(state))
+
+    def checkpoint_state(self) -> dict:
+        state = super().checkpoint_state()
+        if self.supervision is not None:
+            state["supervision"] = self.supervision
+        return state
+
+    def seed(self, state: dict) -> None:
+        prior = state.get("supervision") or {}
+        current = self.supervision or {}
+        if (state["bank"]["rows"]["ids"].numel()
+            and prior.get("teacher") != current.get("teacher")):
+            raise ValueError("Coordinator seed teacher value identity changed; explicit handover required")
+        super().seed(state)
 
     def persist(self) -> None:
         _save(self.root / "state.pt", self.state_dict())
@@ -213,7 +231,8 @@ class TransducerHost(CanonicalBank):
         return {"switch_requested": self.coordinator.record_validation(step, loss)}
 
     def try_merge(self) -> bool:
-        pending = len(self.coordinator.pending)
+        # A quorum is distinct learners: one fast learner's queued rounds are not a quorum.
+        pending = len({round_.worker for round_ in self.coordinator.pending})
         if pending < self.min_quorum:
             self.quorum_since = None
             return False
@@ -355,7 +374,8 @@ class RankRounds:
         self.canonical: CanonicalBank | None = None
         if context.is_primary:
             self.canonical = CanonicalBank(
-                trainer.bank.geometry, evidence_from=trainer.schedule.warmup_steps
+                trainer.bank.geometry, evidence_from=trainer.schedule.warmup_steps,
+                frozen=not trainer.bank_trainable,
             )
             self.canonical.bank.load_snapshot(trainer.bank.state_snapshot())
 
@@ -398,11 +418,13 @@ class RankRounds:
         return {
             **self.canonical.checkpoint_state(),
             "sequences": self.trainer.sequences,
+            "supervision": self.trainer.supervision_identity(),
             "rounds": self.sync.state_dict(),
         }
 
-    def load_state_dict(self, state: dict) -> None:
+    def load_state_dict(self, state: dict, *, allow_target_transition=False) -> None:
         """Exact resume of a multi-rank run, or a new run seeded from any checkpoint."""
+        self.trainer.validate_supervision(state, allow_target_transition=allow_target_transition)
         self.trainer.bank.load_snapshot(state["bank"])
         self.trainer.sequences = int(state.get("sequences", 0))
         resumed = "rounds" in state

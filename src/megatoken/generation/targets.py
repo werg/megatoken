@@ -36,6 +36,7 @@ class PreparedTargets:
     roles: tuple[int, ...]
     representation_mode: str = "bootstrap"
     native_tapes: tuple[GroupActionTape | None, ...] = ()
+    mode_specs: tuple[ActionSpec | None, ...] = ()
 
     @property
     def mode(self) -> str:
@@ -209,6 +210,7 @@ def prepare_targets(
     role_ids=None,
     representation_mode="bootstrap",
     native_tapes=None,
+    mode_specs=None,
 ) -> PreparedTargets:
     if (target_ids is None) == (target_bytes is None):
         raise ValueError("supply exactly one of target_ids or target_bytes")
@@ -245,13 +247,25 @@ def prepare_targets(
     ):
         raise ValueError("one supported role and terminal label are required per target")
     capacities = tuple(workspace_capacity(len(row), capacity, config.max_capacity) for row in ids)
+    public_specs = (None,) * batch if mode_specs is None else tuple(mode_specs)
+    if len(public_specs) != batch or any(
+        spec is not None and (not isinstance(spec, ActionSpec) or not spec.allow_text)
+        for spec in public_specs
+    ):
+        raise ValueError("Each text target needs its public, text-permitting output spec")
+    if any(
+        spec is not None
+        and not spec.min_tokens <= len(row) <= min(spec.max_tokens, config.max_capacity)
+        for spec, row in zip(public_specs, ids, strict=True)
+    ):
+        raise ValueError("Text target length is outside its public output support")
     lexical = sum(map(sum, masks))
     pairs = _native_pairs(codec, config, payloads, ids, roles, native_tapes)
     denominators = _denominators(
         config,
         batch,
         lexical,
-        batch,
+        batch + sum(spec is not None for spec in public_specs),
         mode=representation_mode,
         native=sum(tape is not None for tape in pairs),
     )
@@ -266,6 +280,7 @@ def prepare_targets(
         roles,
         representation_mode,
         pairs,
+        public_specs,
     )
 
 

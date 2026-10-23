@@ -23,6 +23,7 @@ from megatoken.data.concordance import (
 from megatoken.data.media_prepare import MediaPreparer, file_sha256
 from megatoken.data.schema import Lineage, MediaSpan
 from megatoken.data.sources import TermsReview
+from megatoken.io import write_text_atomic
 
 
 def read_manifest(path: str | Path) -> list[dict[str, Any]]:
@@ -116,7 +117,9 @@ def read_manifest(path: str | Path) -> list[dict[str, Any]]:
                 or video.get("available_at_ns", avail) < 0
             ):
                 raise ValueError(f"{path}:{line_no}: video availability must be an external time")
-            if not any(
+            if not (
+                row.get("streaming_translation") is not None and chunk.get("wait_for_more")
+            ) and not any(
                 k in chunk
                 for k in (
                     "transcript",
@@ -159,6 +162,9 @@ def read_manifest(path: str | Path) -> list[dict[str, Any]]:
                         f"{path}:{line_no}: translated-speech references must be conditioned on incoming source audio"
                     )
             if chunk.get("translation") is not None:
+                streaming = row.get("streaming_translation")
+                if isinstance(streaming, dict) and isinstance(streaming.get("language"), dict):
+                    chunk.setdefault("language", dict(streaming["language"]))
                 language = chunk.get("language")
                 if not isinstance(language, dict) or not all(
                     isinstance(language.get(k), str) and language[k] for k in ("source", "target")
@@ -244,6 +250,10 @@ def read_manifest(path: str | Path) -> list[dict[str, Any]]:
                     raise ValueError(
                         f"{path}:{line_no}: generated audio/video peers require one explicit shared alignment annotation"
                     )
+        if row.get("streaming_translation") is not None:
+            from .streaming_translation import validate_streaming_translation
+
+            validate_streaming_translation(row)
         rows.append(row)
     return rows
 
@@ -309,7 +319,7 @@ def prepare_rows(
     media: MediaPreparer,
     output: str | Path,
     source_terms: TermsReview | dict[str, Any],
-    preprocessing_id: str = "timed-media-v2",
+    preprocessing_id: str = "timed-media-v3",
     source_id: str | None = None,
     max_recordings: int | None = None,
     codec=None,
@@ -345,11 +355,28 @@ def prepare_rows(
             raise ValueError(f"Audio digest mismatch: {audio_path}")
         artifacts, avail_by_id, audio_avail_by_id, video_avail_by_id = [], {}, {}, {}
         source_files = [{"role": "audio", "path": str(audio_path), "sha256": audio_hash}]
+        for parent in row.get("original_source_files", ()):
+            if (
+                not isinstance(parent, dict)
+                or not isinstance(parent.get("path"), str)
+                or not isinstance(parent.get("sha256"), str)
+            ):
+                raise ValueError("Original media parents need a path and content digest")
+            original = (manifest_path.parent / parent["path"]).resolve()
+            if not original.is_file() or file_sha256(original) != parent["sha256"]:
+                raise ValueError(f"Original media parent is missing or changed: {original}")
+            source_files.append(
+                {
+                    "role": parent.get("role", "original_source"),
+                    "path": str(original),
+                    "sha256": parent["sha256"],
+                }
+            )
         for i, chunk in enumerate(row["chunks"]):
             cid, start, end = f"c{i}", chunk["start_sample"], chunk["end_sample"]
             channel, speaker = (
                 chunk.get("channel", 0),
-                str(chunk.get("speaker", f"channel-{chunk.get('channel', 0)}")),
+                str(chunk.get("speaker", "")),
             )
             media_record = media.audio_interval(
                 audio_path, start_sample=start, end_sample=end, channel=channel
@@ -381,7 +408,11 @@ def prepare_rows(
                 source_files.append({"role": "video", "path": str(vp), "sha256": file_sha256(vp)})
                 fps = Fraction(v.get("output_fps_num", 2), v.get("output_fps_den", 1))
                 vm = media.video_interval(
-                    vp, start_tick=v["start_tick"], end_tick=v["end_tick"], fps=fps
+                    vp,
+                    start_tick=v["start_tick"],
+                    end_tick=v["end_tick"],
+                    fps=fps,
+                    ticks_per_second=v["ticks_per_second"],
                 )
                 vspan = MediaSpan(
                     row["recording_id"],
@@ -422,7 +453,11 @@ def prepare_rows(
                             kind + cid,
                             "text",
                             payload=str(chunk[kind]).encode(),
-                            media_span=_audio_span(row, chunk),
+                            media_span=_audio_span(
+                                row, {**chunk, **chunk.get("translation_span", {})}
+                            )
+                            if kind == "translation"
+                            else _audio_span(row, chunk),
                             speaker=speaker,
                             provenance="natural",
                             verification="annotated",
@@ -464,7 +499,7 @@ def prepare_rows(
                         media=target_audio,
                         media_span=span,
                         speaker="",
-                        provenance="natural",
+                        provenance=spec.get("provenance", "natural"),
                         verification="annotated",
                         transform_json=target_audio.transform_json,
                     )
@@ -483,7 +518,11 @@ def prepare_rows(
                 )
                 rate = Fraction(spec.get("output_fps_num", 2), spec.get("output_fps_den", 1))
                 target_video = media.video_interval(
-                    target_path, start_tick=spec["start_tick"], end_tick=spec["end_tick"], fps=rate
+                    target_path,
+                    start_tick=spec["start_tick"],
+                    end_tick=spec["end_tick"],
+                    fps=rate,
+                    ticks_per_second=spec["ticks_per_second"],
                 )
                 span = _target_span(target_path, spec, "video")
                 artifacts.append(
@@ -493,7 +532,7 @@ def prepare_rows(
                         "video",
                         media=target_video,
                         media_span=span,
-                        provenance="natural",
+                        provenance=spec.get("provenance", "natural"),
                         verification="annotated",
                         transform_json=target_video.transform_json,
                     )
@@ -553,13 +592,13 @@ def prepare_rows(
                         media=output_audio,
                         media_span=translated_span,
                         speaker="",
-                        provenance="natural",
+                        provenance=s.get("provenance", "natural"),
                         verification="annotated",
                         transform_json=output_audio.transform_json,
                     )
                 )
         lineage = Lineage(
-            source_id=row["recording_id"],
+            source_id=row.get("source_id", source_id or row["recording_id"]),
             revision=str(row.get("revision", "local")),
             family_id=row["family_id"],
             source_uri=str(audio_path),
@@ -578,6 +617,10 @@ def prepare_rows(
             row.get("verification", "annotated"),
             teacher_id=str(getattr(media.teacher, "identity", "locked-teacher")),
         )
+        if row.get("streaming_translation") is not None:
+            from .streaming_translation import compile_streaming_translation
+
+            episodes.append(compile_streaming_translation(bundle, row, audio_avail_by_id))
         # Coavailable source intervals become peers. Incoming audio only is usable input;
         # outgoing source material can only be a checked generation target.
         availability: dict[int, list[int]] = defaultdict(list)
@@ -632,7 +675,8 @@ def prepare_rows(
                 languages = chunk["language"]
                 instruction = f"Translate this available speech chunk from {languages['source']} into {languages['target']}."
                 tasks.append(("speech_translation", f"c{target_i}translation", instruction))
-                tasks.append(("streaming_translation", f"c{target_i}translation", instruction))
+                if row.get("streaming_translation") is None:
+                    tasks.append(("streaming_translation", f"c{target_i}translation", instruction))
             if chunk.get("caption") is not None and not outgoing:
                 tasks.append(
                     (
@@ -728,6 +772,53 @@ def prepare_rows(
                     ),
                 )
                 episodes.append(compile_task(bundle, view))
+                if family == "speech_translation" and chunk.get("translated_speech"):
+                    # Matched views distinguish prospective joint prediction
+                    # from speech conditioned on an already committed translation.
+                    speech = generated(
+                        f"c{target_i}sa",
+                        "text-output",
+                        "Speak the translation.",
+                        alignment_id=f"{row['recording_id']}:{target_i}",
+                    )
+                    pair_relation = Relation("same_spoken_content", aid, f"c{target_i}sa")
+                    episodes.append(
+                        compile_task(
+                            bundle,
+                            TaskView(
+                                f"{target_i}-direct-joint-translation",
+                                family,
+                                (*source_groups, _timed_group([*target_events, speech], cutoff)),
+                                relations=(*relations, pair_relation),
+                                verification_json=json.dumps({"translation_path": "direct_joint"}),
+                            ),
+                        )
+                    )
+                    sequential_speech = generated(
+                        f"c{target_i}sa",
+                        "text-output",
+                        "Speak the committed translation.",
+                        reference_artifact_ids=(aid,),
+                        alignment_id=f"{row['recording_id']}:{target_i}",
+                    )
+                    episodes.append(
+                        compile_task(
+                            bundle,
+                            TaskView(
+                                f"{target_i}-text-then-speech-translation",
+                                family,
+                                (
+                                    *source_groups,
+                                    _timed_group(target_events, cutoff),
+                                    _timed_group([sequential_speech], cutoff),
+                                ),
+                                relations=(*relations, pair_relation),
+                                verification_json=json.dumps(
+                                    {"translation_path": "text_then_speech"}
+                                ),
+                            ),
+                        )
+                    )
             targets = chunk.get("generation_targets", {})
             outputs = chunk.get("generation_request", {}).get("outputs", [])
             if outputs:
@@ -855,12 +946,30 @@ def prepare_rows(
                 "family_id": row["family_id"],
                 "split": row["split"],
                 "source_files": source_files,
+                "transformation": row.get("transformation", "none declared"),
                 "chunk_count": len(row["chunks"]),
                 "bundle_id": bundle_id,
             }
         )
+    # A manifest alone cannot identify the preparation: compiler changes alter
+    # executed lifecycle decisions and their training dependencies.
+    compiler_paths = [
+        Path(__file__).with_name(name)
+        for name in (
+            "timed_media.py",
+            "streaming_translation.py",
+            "concordance.py",
+            "dedup.py",
+            "causal_identity.py",
+            "supply.py",
+        )
+    ]
+    compiler_sha256 = hashlib.sha256(
+        b"".join(path.name.encode() + b"\0" + path.read_bytes() for path in compiler_paths)
+    ).hexdigest()
     receipt = {
-        "format": "timed-media-preparation/v2",
+        "format": "timed-media-preparation/v3",
+        "compiler_sha256": compiler_sha256,
         "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
         "terms": terms.__dict__
         if hasattr(terms, "__dict__")
@@ -869,13 +978,14 @@ def prepare_rows(
         "episode_count": len(episodes),
         "sources": receipts,
     }
-    (output / "episodes.jsonl").write_text(
+    write_text_atomic(
+        output / "episodes.jsonl",
         "".join(
             json.dumps(e.to_dict(), ensure_ascii=False, sort_keys=True) + "\n" for e in episodes
-        )
+        ),
     )
-    (output / "source-receipts.json").write_text(
-        json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+    write_text_atomic(
+        output / "source-receipts.json", json.dumps(receipt, indent=2, sort_keys=True) + "\n"
     )
     if codec is not None:
         from megatoken.data.dedup import DedupConfig, DedupStore
@@ -894,7 +1004,7 @@ def prepare_rows(
                 codec=codec,
                 source_receipts=[receipt],
                 pipeline_fingerprint=hashlib.sha256(
-                    (receipt["manifest_sha256"] + preprocessing_id).encode()
+                    (receipt["manifest_sha256"] + compiler_sha256 + preprocessing_id).encode()
                 ).hexdigest(),
                 shard_bytes=shard_bytes,
                 sidecars={"timed-media-report.json": receipt},

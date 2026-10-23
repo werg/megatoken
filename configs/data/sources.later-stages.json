@@ -2117,6 +2117,72 @@
       "publisher_card": "https://huggingface.co/datasets/fudayuan/AgentRefine-gpt4o-64000",
       "metadata_checked_at": "2026-10-22",
       "notes": "64k text-environment trajectories (household, science, web tasks) written ENTIRELY by GPT-4o, observations included, with refinement turns after errors; the per-message `loss` flag marks the turns to learn from."
+    },
+    {
+      "source_id": "base-replay-fineweb-edu",
+      "uri": "hf://datasets/HuggingFaceFW/fineweb-edu",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "base_replay",
+      "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+      "subset": "sample-10BT",
+      "split": "train",
+      "max_rows": 1500,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "odc-by-1.0",
+        "license_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "ODC-By 1.0 attribution; also subject to the Common Crawl terms of use.",
+        "redistribute": "no",
+        "redistribute_basis": "odc-by-1.0, but the notes record: the notes cite a provider's terms of use or service"
+      },
+      "field_map": {},
+      "options": {},
+      "publisher_card": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Second view of fineweb-edu-10bt's pinned rows, as natural-document replay of the base stage for the supervised stages (M1, M2); the same rows are intentionally seen again."
+    },
+    {
+      "source_id": "base-replay-stackv2-edu",
+      "uri": "hf://datasets/common-pile/stackv2_edu_filtered",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "base_replay",
+      "revision": "c354dbe88469a1153e97c6a63ac50591849654de",
+      "subset": null,
+      "split": "train",
+      "max_rows": 400,
+      "files": [
+        {
+          "path": "stack-edu-0020.json.gz",
+          "sha256": "a7e7e74b37216664012d24988cb749e0267d4b1ffebdb88311cdb762f00dc6f2",
+          "size_bytes": 992584353
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "per-file permissive (Blue Oak list)",
+        "license_url": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Each file carries its own permissive licence (metadata.license, Blue Oak certified list); licence labelling can be wrong (see the dataset card's license-issues section).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'per-file permissive (Blue Oak list)'"
+      },
+      "field_map": {
+        "family": "metadata.repo_name",
+        "filename": "metadata.path",
+        "language": "metadata.language"
+      },
+      "options": {
+        "content_kind": "code"
+      },
+      "publisher_card": "https://huggingface.co/datasets/common-pile/stackv2_edu_filtered",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Second view of stackv2-edu-0020's pinned rows, as natural-code replay of the base stage for the supervised stages (M1, M2); the same rows are intentionally seen again."
     }
   ]
 }

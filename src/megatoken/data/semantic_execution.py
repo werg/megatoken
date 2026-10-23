@@ -434,8 +434,11 @@ def _validate(
                 _fail("Noncanonical semantic event ID")
             if event_id in completed:
                 _fail("Duplicate semantic producer ID")
+        declared = fields.get("dependsOn", ())
+        if not isinstance(declared, (list, tuple)):
+            _fail("Malformed semantic producer dependencies")
         for prior in (
-            *fields.get("dependsOn", ()),
+            *declared,
             *((fields.get("control"),) if fields.get("control") else ()),
         ):
             if not isinstance(prior, str) or prior not in completed or completed[prior] >= index:
@@ -650,7 +653,10 @@ def _add_dependencies(
     control = fields.get("control")
     if control is not None:
         earlier = [*earlier, control]
-    for read in fields.get("reads", ()):
+    reads = fields.get("reads", ())
+    if not isinstance(reads, (list, tuple)):
+        _fail("Malformed semantic producer reads")
+    for read in reads:
         if isinstance(read, dict) and read.get("supplyingSemantic"):
             earlier = [*earlier, read["supplyingSemantic"]]
     for dependency in dict.fromkeys(earlier):

@@ -325,7 +325,12 @@ class NativeNGramTable(nn.Module):
         )
         if branch_indices != list(range(len(branch_indices))):
             error_msgs.append(f"{prefix}engram branch indices are not contiguous")
-        self.import_branches = nn.ModuleList(_NGramImport(self) for _ in branch_indices)
+        # Bootstrap can load after the optimizer has registered these parameters.
+        # Preserve existing branches so its gradient hooks and masters stay attached.
+        while len(self.import_branches) < len(branch_indices):
+            self.import_branches.append(_NGramImport(self))
+        if len(self.import_branches) > len(branch_indices):
+            self.import_branches = self.import_branches[:len(branch_indices)]
         for name in ("import_rows", "descriptors", "import_weights"):
             key = prefix + name
             if key in state_dict:

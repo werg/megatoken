@@ -16,6 +16,11 @@ STREAM_PRODUCERS = {
     "duplex_execution": "megatoken.data.execution_traces:prepare_traces",
     "timed_conversation": "megatoken.data.timed_media:prepare_rows",
     "streaming_translation": "megatoken.data.timed_media:prepare_rows",
+    "av_understanding": "megatoken.data.concordance:compile_task",
+    "endpoints": "megatoken.data.concordance:compile_task",
+    "endpoint_conditioned_video": "megatoken.data.concordance:compile_task",
+    "speech_counterfactual": "megatoken.data.concordance:compile_task",
+    "cross_track_evidence": "megatoken.data.concordance:compile_task",
 }
 
 
@@ -40,6 +45,10 @@ class StageRecipe:
     mixture: dict[str, float]
     effort_mix: dict[int, float]
     constraints: dict[str, Any]
+    training: dict[str, Any]
+    learning_rate: dict[str, float]
+    required_donor_profiles: tuple[str, ...]
+    previous_phase: str | None
 
 
 def load_recipes() -> dict[str, Any]:
@@ -67,4 +76,107 @@ def stage_recipe(phase: str) -> StageRecipe:
         mixture=raw["mixture"],
         effort_mix={int(key): value for key, value in raw["effort_mix"].items()},
         constraints=raw["constraints"],
+        training={**load_recipes()["training_defaults"], **raw["training"]},
+        learning_rate=raw["learning_rate"],
+        required_donor_profiles=tuple(raw.get("required_donor_profiles", ())),
+        previous_phase=raw["previous_phase"],
     )
+
+
+def default_training_features() -> dict[str, Any]:
+    """Authoritative runtime defaults, resolved by every TrainConfig constructor."""
+    return dict(load_recipes()["training_defaults"])
+
+
+def validate_stage_supply(config, corpus, *, split="train"):
+    """Check declared default supply before expensive teacher preparation or training."""
+    if not config.use_stage_mixture:
+        return
+    from .coverage import require_coverage
+
+    recipe = stage_recipe(config.phase)
+    required = (
+        recipe.mixture
+        if split == "train"
+        else {name: weight for name, weight in recipe.mixture.items() if name in STREAM_PRODUCERS}
+    )
+    missing = [
+        name
+        for name, weight in required.items()
+        if weight > 0
+        and not any(
+            part.manifest["counts"].get(f"split:{split}|stream:{name}", 0) for part in corpus.parts
+        )
+    ]
+    if missing:
+        raise ValueError(f"Required {split} stage streams are absent: {missing}")
+    require_coverage(
+        corpus, recipe.constraints.get("required_behaviors", {}), recipe.mixture, split=split
+    )
+
+
+def validate_training_donors(config) -> None:
+    """Verify selected donor identities before production model allocation."""
+    if config.purpose != "production":
+        return
+    from pathlib import Path
+
+    from megatoken.donors import DONOR_PROFILES
+    from megatoken.io import sha256_file
+
+    required = stage_recipe(config.phase).required_donor_profiles
+    if not required:
+        return
+    for name, root in zip(required, config.engram_imports or (), strict=True):
+        metadata = json.loads((Path(root) / "engram.json").read_text())
+        profile = DONOR_PROFILES[name]
+        expected = {
+            key: getattr(profile, key)
+            for key in (
+                "repository",
+                "revision",
+                "tokenizer_sha256",
+                "config_sha256",
+                "index_sha256",
+            )
+        }
+        if (
+            metadata.get("donor_profile") != name
+            or metadata.get("algorithm") != "native-context-to-byte-hash-v1"
+            or any(
+                metadata.get("donor_metadata", {}).get(key) != value
+                for key, value in expected.items()
+            )
+        ):
+            raise ValueError(
+                f"Production donor must be the pinned {name} asset in curriculum order"
+            )
+        if sha256_file(Path(root) / "descriptors.npz") != metadata["descriptor_sha256"]:
+            raise ValueError(f"Production donor checksum differs: {name}")
+
+
+def validate_stage_start(config, previous_phase: str | None) -> None:
+    """Production advances through the one curriculum or resumes its current stage."""
+    if config.purpose != "production":
+        return
+    expected = stage_recipe(config.phase).previous_phase
+    if previous_phase == config.phase:
+        return
+    if previous_phase != expected:
+        raise ValueError(
+            f"Production stage {config.phase} requires a checkpoint from {expected}; "
+            f"received {previous_phase}"
+        )
+
+
+def validate_teacher_encoding_source(config, encoding_from) -> None:
+    """Keep every production stage in the existing bank's value space."""
+    if (
+        config.purpose == "production"
+        and stage_recipe(config.phase).previous_phase is not None
+        and not encoding_from
+    ):
+        raise ValueError(
+            "Production stages after bootstrap require the preceding teacher "
+            "encoding via --encoding-from"
+        )

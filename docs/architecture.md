@@ -22,12 +22,12 @@ C does not participate in the current output realization.
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version **12** (`ARCHITECTURE_VERSION`) defines the currently supported
+Architecture version **13** (`ARCHITECTURE_VERSION`) defines the currently supported
 core and grouped state. The one tape that serving, collection and training exchange is
-`GroupActionTape` (`fmt-multitrack-facets-v13`); a single-track draw is a group of one event.
+`GroupActionTape` (`fmt-multitrack-facets-v15`); a single-track draw is a group of one event.
 The decoder-level single-event tape `fmt-canonical-facets-v8` is only the output of the
 single-track diagnostic sampler. Checkpoints require v13 weights and the
-locked pack manifest's fingerprint; dataset schema version 4 is required.
+locked pack manifest's fingerprint; dataset schema version 5 is required.
 The legacy CLI names `recurrent32` and `compact32` still select the corresponding
 fresh-construction geometry, not old checkpoint semantics.
 

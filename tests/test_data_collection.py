@@ -219,6 +219,44 @@ def test_student_only_uses_its_own_verified_outcome_without_teacher_help(tmp_pat
         assert not list(ledger.connection.execute("SELECT * FROM requests"))
 
 
+def test_binary_student_output_survives_correction_without_replacing_action_bytes(tmp_path):
+    import json
+    from dataclasses import replace
+
+    from native_support import group_tape
+
+    task, codec = seed(), ByteCodec.byte_fallback()
+    payload = b"\xff\xfe\x00"
+    tape = replace(group_tape(codec, payload), policy_context=())
+
+    class Student:
+        model = "byte-student"
+
+        def respond(self, request):
+            return TeacherResponse(
+                content=payload, emitted_ids=tape.emitted_ids[0], native_tape_json=tape.to_json()
+            )
+
+    teacher = RepairTeacher()
+    with (
+        registry(tmp_path / "families", [task]) as families,
+        CollectionLedger(tmp_path / "usage", config()) as ledger,
+    ):
+        episode = Collector(teacher, FixtureEnvironment, codec, ledger, families).collect(
+            task,
+            student=Student(),
+            student_snapshot="sha256:frozen",
+            student_prefix_steps=1,
+        )
+        assert episode.supervision.verified_success
+        assert next(r for r in episode.records if r.provenance == "student").payload == payload
+        assert any(
+            m.get("content") == "Binary content (base64): //4A"
+            for m in json.loads(teacher.requests[0].messages_json)
+        )
+        assert "outcome_credit" not in episode.supervision.annotations_json
+
+
 def test_interrupted_requests_hold_reservations_and_attempt_caps(tmp_path):
     task = seed()
     ledger = CollectionLedger(tmp_path / "ledger", config(teacher_output_limit=100))
@@ -313,3 +351,16 @@ def test_run_pilot_skips_a_quarantined_seed_instead_of_aborting(tmp_path):
     assert meters["distinct_tasks"] == 1 and meters["attempts"] == 1
     ledger.close()
     store.close()
+
+
+def test_request_status_lets_reconciliation_skip_what_is_already_settled(tmp_path):
+    ledger = CollectionLedger(tmp_path / "ledger", config(teacher_output_limit=100))
+    attempt = ledger.begin_attempt(seed(), split="train")
+    ledger.reserve(attempt, "req", output_limit=20, raw_input=10)
+    assert ledger.request_status("req") == "submitted"
+    ledger.settle("req", TeacherResponse(content=b"abc"), raw_output=3)
+    assert ledger.request_status("req") == "complete"
+    assert ledger.request_status("unknown") is None
+    with pytest.raises(ValueError, match="outstanding"):
+        ledger.settle("req", TeacherResponse(content=b"abc"), raw_output=3)  # why the CLI skips it
+    ledger.close()

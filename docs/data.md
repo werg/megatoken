@@ -520,48 +520,48 @@ The plan therefore moves share from raw text towards four agent streams and chat
 | `environment_trajectories` | Short text-game or web-shop style tasks (AgentInstruct, AgentBank, AgentTraj-L). Tiny but diverse. |
 | `chat` | General assistant conversations. |
 
-Share changes (each phase sums to 1; shares not listed are unchanged, including every media
-share and `long_document_reading`):
+Share changes (each phase sums to 1; shares not listed keep their relative size, scaled down by
+the 5% (P1) to 20% (S) that went to the dynamic-track streams):
 
 **P1** (400B tokens)
 
 | Stream | Before | After |
 | --- | --- | --- |
-| executed_trajectories | 4.1% | 17% |
-| verified_trajectories | - | 5% |
-| tool_use | - | 6% |
-| environment_trajectories | - | 0.1% |
-| chat | 2.05% | 8% |
-| synthetic_reasoning | 6.15% | 10% |
-| natural_documents | 16.4% | 6% |
-| synthetic_documents | 20.5% | 8% |
-| natural_code | 12.3% | 8% |
-| synthetic_code_rewrite | 12.3% | 3.9% |
-| synthetic_code_dialogue | 8.2% | 8% |
-| base_reading | - | 1% |
-| collection_reading | - | 1% |
+| executed_trajectories | 4.1% | 16.05% |
+| verified_trajectories | - | 4.75% |
+| tool_use | - | 5.7% |
+| environment_trajectories | - | 0.095% |
+| chat | 2.05% | 7.6% |
+| synthetic_reasoning | 6.15% | 9.5% |
+| natural_documents | 16.4% | 5.7% |
+| synthetic_documents | 20.5% | 7.6% |
+| natural_code | 12.3% | 7.6% |
+| synthetic_code_rewrite | 12.3% | 3.705% |
+| synthetic_code_dialogue | 8.2% | 7.6% |
+| base_reading | - | 0.95% |
+| collection_reading | - | 0.95% |
 
 Raw and generic web text (`natural_documents` plus `synthetic_documents`) falls from 36.9% to
-14% (two points went to reading from a knowledge base and from a source collection); the
-three agent streams plus environment tasks rise from 4.1% to 28.1%.
+13.3% (two points went to reading from a knowledge base and from a source collection); the
+three agent streams plus environment tasks rise from 4.1% to 26.6%.
 `synthetic_code_rewrite` has a source only since the later-stage round (see "Later-stage
 streams"); the smaller share is kept.
 
-**M1** (60B): `executed_trajectories` 9.3% to 21%, new `verified_trajectories` 8%,
-`tool_use` 4%, `chat` 2%; paid for by `issue_pr_sequences` 37.9% to 28.4%,
-`connected_repositories` 18.6% to 13% and `base_replay` 18.6% to 8%.
+**M1** (60B): `executed_trajectories` 9.3% to 19.95%, new `verified_trajectories` 7.6%,
+`tool_use` 3.8%, `chat` 1.9%; paid for by `issue_pr_sequences` 37.9% to 26.9%,
+`connected_repositories` 18.6% to 12.35% and `base_replay` 18.6% to 6.2%.
 
-**M2** (40B): `verified_trajectories` 46.5% to 49%, new `executed_trajectories` 8%,
-`tool_use` 7%, `chat` 2%; paid for by `grounded_artifacts` 18.6% to 9% and `base_replay`
-14% to 4.05%.
+**M2** (40B): `verified_trajectories` 46.5% to 46.35%, new `executed_trajectories` 7.6%,
+`tool_use` 6.65%, `chat` 1.9%; paid for by `grounded_artifacts` 18.6% to 8.55% and
+`base_replay` 14% to 2.4%.
 
-**LC** (20B): new `executed_trajectories` 10%, `verified_trajectories` 10%, `tool_use` 5%;
-paid for by `long_verified_dependencies` 47.5% to 40%, `long_natural_code_replay` 23.75% to
-10% and `mixed_quality_episodes` 23.75% to 20%.
+**LC** (20B): new `executed_trajectories` 9.5%, `verified_trajectories` 9.5%, `tool_use` 4.75%;
+paid for by `long_verified_dependencies` 47.5% to 38%, `long_natural_code_replay` 23.75% to
+7.6% and `mixed_quality_episodes` 23.75% to 19%.
 
-**S** (2B scored positions): `verified_successful_multiturn` 57% to 46%, new `tool_use`
-6% and `chat` 5%, `typed_exact_instructions` 9.5% to 14%; `natural_document_replay`
-4.75% to 2%, `tested_artifacts` 9.5% to 8%.
+**S** (2B scored positions): `verified_successful_multiturn` 57% to 40.9%, new `tool_use`
+5.4% and `chat` 4.5%, `typed_exact_instructions` 9.5% to 12.6%; `natural_document_replay`
+4.75% to 0.9%, `tested_artifacts` 9.5% to 7.2%.
 
 ### Unique tokens against planned exposure
 
@@ -573,18 +573,18 @@ is time to find more data or lower the share.
 
 | Stream | Unique tokens (B) | P1 | M1 | M2 | LC | Planned total (B) | Times each token is seen |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| executed_trajectories | 47.2 | 68.0 | 12.6 | 3.2 | 2.0 | 85.8 | 1.8x |
-| verified_trajectories | 20.9 | 20.0 | 4.8 | 19.6 | 2.0 | 46.4 | 2.2x |
-| tool_use | 13.0 | 24.0 | 2.4 | 2.8 | 1.0 | 30.2 | 2.3x |
-| chat | 10.2 | 32.0 | 1.2 | 0.8 | - | 34.0 | 3.3x |
-| synthetic_reasoning | 23.1 | 40.0 | - | - | - | 40.0 | 1.7x |
-| mixed_quality_episodes | 12.0 | - | - | - | 4.0 | 4.0 | 0.3x |
-| environment_trajectories | 0.1 | 0.4 | - | - | - | 0.4 | 4.0x |
+| executed_trajectories | 47.2 | 64.2 | 12.0 | 3.0 | 1.9 | 81.1 | 1.7x |
+| verified_trajectories | 20.9 | 19.0 | 4.6 | 18.5 | 1.9 | 44.0 | 2.1x |
+| tool_use | 13.0 | 22.8 | 2.3 | 2.7 | 0.9 | 28.7 | 2.2x |
+| chat | 10.2 | 30.4 | 1.1 | 0.8 | - | 32.3 | 3.2x |
+| synthetic_reasoning | 23.1 | 38.0 | - | - | - | 38.0 | 1.6x |
+| mixed_quality_episodes | 12.0 | - | - | - | 3.8 | 3.8 | 0.3x |
+| environment_trajectories | 0.1 | 0.4 | - | - | - | 0.4 | 3.8x |
 
-S (scored positions, not tokens): `recovery_clarification` plans 0.28B positions from a
-source of about 7M tokens (When2Call), roughly 40 passes over the same 15,000 rows. That is
+S (scored positions, not tokens): `recovery_clarification` plans 0.25B positions from a
+source of about 7M tokens (When2Call), roughly 36 passes over the same 15,000 rows. That is
 the worst mismatch in the plan; the stream needs generated or collected recovery
-episodes. `typed_exact_instructions` has about 0.28B tokens against 0.28B positions
+episodes. `typed_exact_instructions` has about 0.28B tokens against 0.25B positions
 planned. `verified_successful_multiturn` re-reads the same pinned verified sets as
 `verified_trajectories` through second manifest entries (`s-verified-*`), so it adds no
 unique tokens.

@@ -32,9 +32,19 @@ def assert_equal_tree(left, right):
         assert left == right
 
 
-def test_uninterrupted_matches_exact_resume(training_config):
+def test_uninterrupted_matches_exact_resume(training_config, monkeypatch):
     full = train(replace(training_config, output=training_config.output + "-full", max_steps=2))
     first = train(training_config)
+    from megatoken.training import engine
+
+    original_loader = engine.load_model_config
+    monkeypatch.setattr(
+        engine,
+        "load_model_config",
+        lambda *args, **kwargs: replace(
+            original_loader(*args, **kwargs), context_local_events=7, context_cross_events=3
+        ),
+    )
     resumed = train(training_config, resume=first["checkpoint"])
     uninterrupted, _ = load_checkpoint(full["checkpoint"])
     recovered, _ = load_checkpoint(resumed["checkpoint"])
@@ -92,7 +102,9 @@ def test_resume_compatibility_covers_every_setting_that_changes_the_trajectory()
     from megatoken.training.config import DecoupledConfig, TrainConfig
     from megatoken.training.engine import _resume_compatible
 
-    base = TrainConfig(phase="B0", decoupled=DecoupledConfig("http://a:1", "run", workers=2))
+    base = TrainConfig(
+        purpose="diagnostic", max_steps=1, phase="B0", decoupled=DecoupledConfig("http://a:1", "run", workers=2)
+    )
     saved = asdict(base)
     # Where the coordinator lives (and how patiently it is polled) does not matter ...
     moved = replace(

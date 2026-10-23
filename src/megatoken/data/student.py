@@ -53,6 +53,7 @@ class ModelTeacher:
         *,
         device: str = "auto",
         effort: int = 6,
+        allow_text: bool = True,
         seed: int = 0,
         collections: Mapping[str, str | Path] | None = None,
         open_options: Mapping[str, Any] | None = None,
@@ -83,6 +84,7 @@ class ModelTeacher:
         self.codec = bundle.codec
         self.snapshot = "sha256:" + bundle.manifest["model_sha256"]
         self.model = f"frozen-student:conversation-{CONVERSATION_PROFILE_VERSION}:" + self.snapshot
+        self.allow_text = bool(allow_text)
         self.effort, self.seed = effort, seed
         self.open_options = dict(open_options or {})
         self._session_id: str | None = None
@@ -190,7 +192,7 @@ class ModelTeacher:
         if json.loads(request.tools_json):
             spec = replace(
                 compile_tool_spec(request.tools_json, max_tokens=maximum),
-                allow_text=True,
+                allow_text=self.allow_text,
                 copy_sources=recent_copy_sources(list(request.records)),
             )
         else:

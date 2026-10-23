@@ -15,6 +15,32 @@ import torch
 from megatoken.model.policy_context import reconstruct
 
 
+def latent_policy_parameter_ids(model):
+    """P-local owners only: freeze shared banks and all latent-to-action mappings.
+
+    The pooled expert weights also serve the codec and cannot change during a
+    latent-policy update. P's local gains, routes, query interactions, modality
+    choices and Gaussian parameters remain trainable.
+    """
+    policy = {id(p) for p in model.core.predictor_parameters()} | {
+        id(p) for p in model.facet_distribution.parameters()
+    }
+    fixed = set()
+    for parameters in (
+        model.core.shared_parameters(),
+        model.core.encoder_parameters(),
+        model.core.central_parameters(),
+        model.core.control_parameters(),
+        model.core.realizer_parameters(),
+        model.decoder.parameters(),
+        model.media_realizers.parameters(),
+        model.embedding_realizer.parameters(),
+        model.transducer.parameters(),
+    ):
+        fixed.update(id(p) for p in parameters)
+    return policy - fixed
+
+
 @dataclass(frozen=True)
 class OutcomeCredit:
     reward: float

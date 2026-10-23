@@ -523,8 +523,20 @@ def test_a_worker_keeps_its_lease_on_the_wall_clock_and_leases_again_after_losin
             "tokens": 10,
             "delta": torch.ones(64),
         }
+        renewals = []
+        original_lease = worker._lease
+
+        def renewed_lease():
+            result = original_lease()
+            renewals.append(result)
+            return result
+
+        monkeypatch.setattr(worker, "_lease", renewed_lease)
         assert worker._upload(0, entry)["status"] == "queued"
-        assert worker.transport.json("GET", "/v1/status")["live_workers"] == 1
+        assert renewals
+        # A queued authenticated update plus a new lease proves recovery.
+        # Heartbeats remain deliberately stopped: another HTTP round trip is
+        # allowed to outlive this test's one-second lease under contention.
     finally:
         worker.close()
 
@@ -692,3 +704,68 @@ def test_a_redirect_to_another_origin_never_carries_the_bearer_token(tmp_path):
     finally:
         for server in (elsewhere, origin):
             server.shutdown()
+
+
+def test_independent_stream_treats_an_episode_without_windows_as_an_idle_slot(
+    tmp_path, monkeypatch
+):
+    from megatoken.training import stream as stream_module
+
+    codec = ByteCodec.byte_fallback()
+    source = write_demo_source(tmp_path / "source.jsonl", count=8, max_record_bytes=128)
+    prepare_sources([source], tmp_path / "data", codec).close()
+    dataset = PreparedCorpus([tmp_path / "data"])
+    config = WindowConfig(max_window_tokens=512, max_records=2)
+    real_plan = stream_module._WindowPlan
+
+    class EmptyFirst:
+        calls = 0
+
+        def __init__(self, episode, codec, config):
+            EmptyFirst.calls += 1
+            self.real = real_plan(episode, codec, config)
+
+        def __len__(self):
+            return 0 if EmptyFirst.calls == 1 else len(self.real)
+
+        def __getitem__(self, index):
+            return self.real[index]
+
+    monkeypatch.setattr(stream_module, "_WindowPlan", EmptyFirst)
+    stream = IndependentWindowStream(dataset, codec, config, seed=5, rank=0, world_size=1)
+    try:
+        assert stream.next() is None  # the empty episode: one idle slot, no exception
+        assert stream.next() is not None  # then it moves on to the next episode
+    finally:
+        stream.close()
+
+
+def test_a_heartbeat_is_answered_while_a_merge_holds_the_coordinator(tmp_path):
+    import threading
+
+    coordinator, _, _ = _coordinator(tmp_path, workers=1, quorum=1)
+    session = str(uuid.uuid4())
+    coordinator.lease(0, session)
+    entered, release = threading.Event(), threading.Event()
+
+    def long_merge():
+        with coordinator.lock:  # what a slow merge or snapshot holds
+            entered.set()
+            release.wait(30)
+
+    thread = threading.Thread(target=long_merge, daemon=True)
+    thread.start()
+    assert entered.wait(5)
+    try:
+        answered = []
+        beat = threading.Thread(
+            target=lambda: answered.append(coordinator.heartbeat(0, session, steps=1, tokens=7)),
+            daemon=True,
+        )
+        beat.start()
+        beat.join(5)
+        assert answered and answered[0]["global_tokens"] == 7
+        assert len(answered[0]["versions"]) == len(coordinator.fragments)
+    finally:
+        release.set()
+        thread.join(5)

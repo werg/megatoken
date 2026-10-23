@@ -687,3 +687,31 @@ def test_a_row_filter_can_require_a_nonempty_conversation():
     for row in ({"messages": []}, {"messages": ""}, {"messages": None}, {}, {"messages": 3}):
         with pytest.raises(RowFilterReject):
             validate_row_filters(row, rule)
+
+
+def test_codex_rollout_skips_stray_lines_and_null_content():
+    def item(payload):
+        return {"type": "response_item", "payload": payload}
+
+    events = [
+        "not an event",
+        None,
+        item({"type": "message", "role": "user", "content": None}),
+        item({"type": "reasoning", "summary": None}),
+        item(
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "add a flag"}],
+            }
+        ),
+        item(
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Added."}],
+            }
+        ),
+    ]
+    episode = session("codex_session", "events", events)
+    assert kinds(episode) == ["text", "text"]

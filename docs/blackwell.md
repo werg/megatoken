@@ -212,50 +212,21 @@ schemas, raw-facet tape serialization, prefix replay loops, and the eager
 reference dispatch have different capture constraints. Do not report a dense-FFN
 compile result as compilation of the complete serving policy.
 
-## 5. Launch data parallel training
+## 5. Launch production training
 
-Launch one training process per GPU with `torchrun`. The trainer uses explicit
-NCCL gradient reductions on CUDA, shared global loss denominators, and identical
-optimizer transaction boundaries. Empty local partitions still participate in the
-collectives. It does not use expert parallelism or parameter offload.
-
-Use the repository training CLI with its concrete phase configuration, for example:
+Production uses independent DiLoCo learners and one coordinator. The stage binding files in
+`configs/train` inherit the shared curriculum; the pretraining file includes both required
+pretrained text imports. Resolve the artifacts and compute bindings, prepare teacher targets,
+and run `megatoken train-check` before launching the cloud job:
 
 ```bash
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml
-
-# Continue from an actual B0 checkpoint; phase transitions preserve model/codec.
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/p1.yaml \
-  --resume runs/b0/checkpoints/YOUR_CHECKPOINT --phase-transition
+python -m megatoken.cloud_diloco launch configs/cloud/train-default.example.json
 ```
 
-Use the checkpoint path printed by the trainer. PyTorch's
-[torchrun guide](https://docs.pytorch.org/docs/2.10/elastic/run.html) documents local
-process counts, rendezvous configuration, and multi-node launch semantics. Every
-rank must see the same immutable prepared-data manifest and codec fingerprint.
-
-For Slurm, request the required nodes and GPUs, then launch **one torchrun agent per
-node** using `srun --ntasks-per-node=1`. Give all agents the same rendezvous ID and
-reachable coordinator address; use `--nnodes`, `--nproc-per-node`, `--rdzv-backend=c10d`,
-and `--rdzv-endpoint` explicitly. `torchrun` creates the per-GPU workers. Avoid
-launching one Slurm task per GPU and then spawning another full set of GPU workers
-inside each task. SchedMD's [srun reference](https://slurm.schedmd.com/srun.html)
-defines task/resource allocation and failure exit behavior. Use the cluster's
-supported networking and CPU-affinity settings rather than copying an interface
-name from a different system.
-
-`scripts/slurm.sh` implements this topology. Submit it from the shared repository
-root inside the cluster's configured container/runtime, for example:
-
-```bash
-sbatch --nodes=2 --gpus-per-node=8 scripts/slurm.sh configs/train/b0.yaml
-```
-
-Resource names, account/partition, container integration, and network selection
-remain cluster configuration. Set `RDZV_PORT` if the default port 29500 is already
-allocated; every node inherits the same coordinator and job-specific rendezvous ID.
-Do not depend on the copied Slurm batch script's filesystem location: the launcher
-uses `SLURM_SUBMIT_DIR`, or an explicit shared `MEGATOKEN_ROOT`.
+See [the cloud training guide](diloco-coreweave.md) for coordinator setup and checkpoint-driven
+stage transitions. The old synchronous production shell/Slurm launch scripts have been deleted.
+Synchronous reductions remain available through the package for explicitly bounded diagnostic
+checks of gradient and checkpoint mathematics; they are not another production recipe.
 
 The prepared corpus can use the same semantic chunking policy for every
 production phase. For example, after collecting reviewed local source records:
@@ -264,7 +235,8 @@ production phase. For example, after collecting reviewed local source records:
 megatoken prepare --demo artifacts/bootstrap.jsonl --codec artifacts/codec \
   --chunk-target-tokens 512 --chunk-soft-max-tokens 768 --max-record-tokens 1024 \
   --output artifacts/prepared
-NPROC_PER_NODE=8 scripts/launch.sh configs/train/b0.yaml --max-steps 100
+# Set an explicit max_steps limit in your resolved stage bindings for a short run.
+python -m megatoken.cloud_diloco launch /path/to/resolved-cloud-job.json
 ```
 
 The bootstrap/demo input is only an execution fixture; use accepted corpus

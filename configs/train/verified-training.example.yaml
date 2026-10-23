@@ -1,0 +1,45 @@
+# Training methods are defined by the shared curriculum; bind artifacts and compute here.
+phase: M2
+output: /work/runs/verified-training
+model: 32x512
+packs: /work/assets/packs/lock.json
+engram_imports:
+- /work/assets/deepseek-v4.1-flash-1017
+- /work/assets/qwen3.8-flash-next
+datasets:
+- PIN_PREPARED_LATER_STAGE_TEXT_ROOT
+- PIN_PREPARED_MEDIA_IDENTITY_ROOT
+- PIN_PREPARED_MEDIA_TASKS_ROOT
+- PIN_PREPARED_LONG_DOCUMENT_READING_ROOT
+- PIN_PREPARED_BASE_AND_COLLECTION_READING_ROOT
+- PIN_PREPARED_DYNAMIC_EXECUTION_ROOT
+- PIN_PREPARED_TIMED_MEDIA_ROOT
+- PIN_PREPARED_ALIGNED_TASKS_ROOT
+codec: PIN_RAW_CODEC_DIRECTORY
+device: cuda
+precision: bf16
+require_blackwell: true
+expert_backend: triton
+microbatch_episodes: 1
+max_accumulation_windows: 64
+max_history_tokens: 4096
+max_window_records: 16
+max_record_bytes: 16384
+generated_capacity: 512
+eval_windows: 16
+checkpoint_every: 100
+router_balance_mode: global
+gradient_checkpointing: true
+compile: false
+decoupled:
+  run_id: PIN_M2_RUN_ID
+  coordinator_url: https://REPLACE-WITH-COORDINATOR-HOST
+  workers: 8
+  local_steps: 256
+  io_workers: 4
+  timeout_seconds: 120
+  max_offline_steps: 2048
+  wire_dtype: bf16
+hindsight_targets: /work/data/hindsight
+navigation_examples: 8
+navigation_negatives: 32

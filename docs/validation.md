@@ -121,7 +121,7 @@ Reproduce the package gate with:
 ```bash
 python -m ruff check src tests scripts
 python -m ruff format --check src tests scripts
-bash -n scripts/launch.sh scripts/slurm.sh
+bash -n src/megatoken/cloud_bootstrap.sh
 python -m build --no-isolation
 python -m pip install --no-deps --force-reinstall dist/megatoken-0.1.0-py3-none-any.whl
 python -m pytest -q --junitxml=validation/contextual32-v4-installed-tests.xml
@@ -240,7 +240,7 @@ masters/moments with BF16 parameters, variable-mask global normalization,
 phase transitions, current-work meters, and exact model/optimizer/RNG/cursor
 resume. The package exposes disjoint E, C, P, and core-owned R groups.
 
-### Native history, controls, and outcome RL
+### Native history, controls, and outcome credit
 
 [Native-history tests](../tests/test_training_history.py) preserve the original
 interleaving of observed records, invalid draws, valid empty draws, and valid
@@ -256,14 +256,9 @@ training, evaluation, serving, and student collection. Tests check neutral absen
 controls, mixed batches, public schema forwarding, hidden verifier exclusion,
 and unchanged serving sessions after request errors.
 
-[RL tests](../tests/test_rl_integration.py) execute fixture actions with verified
-outcomes. A real predictor update changes the latent density while frozen E/C/KV/
-U/R weights, replayed raw/early/final features, KV, and decoded bytes/IDs remain
-unchanged under matched execution modes. The frozen FP32 masters and moments are
-preserved too. Replay mismatch fails before Adam; exact RL resume restores task
-cursor and RNG. Equal-reward groups skip the optimizer, including momentum and
-weight-decay-only updates. Lexical decoding contributes zero P; Gaussian work
-uses Z.
+The earlier outcome-RL trainer and its tests were removed. Verified outcomes are
+now recorded on episodes as credit and reported by held-out evaluation (decisions,
+mean advantage, mean log ratio); no training update from them is validated here.
 
 Raw saved facets are exact. Derived floating-point activations and densities use
 backend-appropriate tolerances when execution modes differ; the tests do not

@@ -101,12 +101,21 @@ def test_speech_translation_needs_no_translated_speech(tmp_path):
     (text_only,) = standard_views(bundle())
     assert (text_only.family, text_only.view_id) == ("speech_translation", "direct-translation")
     assert [e.track_id for e in text_only.groups[1].events] == ["translation"]
-    (joint,) = standard_views(
+    joint, sequential = standard_views(
         bundle(BundleArtifact("ts", "translated_speech", "audio", media=spoken))
     )
     assert joint.view_id == "direct-joint-translation"
     assert [e.track_id for e in joint.groups[1].events] == ["translation", "translated_speech"]
     assert len(joint.relations) == 2 and len(text_only.relations) == 1
+    assert sequential.view_id == "text-then-speech-translation"
+    sequential_episode = compile_task(
+        bundle(BundleArtifact("ts", "translated_speech", "audio", media=spoken)), sequential
+    )
+    assert len(sequential_episode.meridians) == 3
+    earlier_text = sequential_episode.meridians[1].events[0]
+    later_speech = sequential_episode.meridians[2].events[0]
+    assert earlier_text.track_id == later_speech.track_id
+    assert earlier_text.record_id in later_speech.reference_event_ids
     episode = compile_task(bundle(), text_only)
     assert episode.stream == "speech_translation" and len(episode.meridians) == 2
 

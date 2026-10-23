@@ -118,7 +118,11 @@ class Fetcher:
         path = self._blob(digest)
         with self._lock:
             if not path.exists():
-                path.write_bytes(body)
+                # Write beside the blob and rename, so a crash never leaves a truncated body
+                # that a later run would trust as complete.
+                partial = path.with_name(path.name + ".partial")
+                partial.write_bytes(body)
+                os.replace(partial, path)
                 self._size += len(body)
                 self._evict(keep=digest)
             self._note(url).write_text(digest)

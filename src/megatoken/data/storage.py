@@ -24,6 +24,7 @@ from .chunking import ChunkingConfig, ChunkingStats
 from .dedup import DedupStore
 from .media_assets import MEDIA, MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from .schema import Codec, Episode
+from .supply import SupplyCensus
 
 DATASET_VERSION = 5
 
@@ -92,6 +93,7 @@ def export_prepared(
     from .coverage import Coverage
 
     coverage = Coverage(connection)
+    structured_supply = SupplyCensus(connection)
     asset_store = TensorAssetStore(root)
     shard_index = 0
     shard_handle: BinaryIO | None = None
@@ -143,6 +145,7 @@ def export_prepared(
                     if asset is not None:
                         asset_store.load(asset)
             coverage.add(episode, row["split"], row["stream"])
+            structured_supply.add(episode, row["split"], row["stream"])
             for modality, count in _scored_media_outputs(episode).items():
                 key = f"{row['split']}|{row['stream']}|{modality}"
                 scored_media_counts[key] = scored_media_counts.get(key, 0) + count
@@ -237,6 +240,7 @@ def export_prepared(
                 connection.commit()
         close_shard()
         behavior_coverage = coverage.report()
+        structured_supply_report = structured_supply.report()
         connection.commit()
         connection.execute("VACUUM")
         connection.close()
@@ -277,6 +281,7 @@ def export_prepared(
             "feature_counts": feature_counts,
             "scored_media_counts": scored_media_counts,
             "behavior_coverage": behavior_coverage,
+            "structured_supply": structured_supply_report,
             "feature_extractors": feature_extractors,
             "complete": True,
         }
@@ -378,86 +383,32 @@ class PreparedDataset:
     def scored_media_modalities(self, streams: Sequence[str]) -> set[str]:
         """Media decoder modalities used by selected scored outputs.
 
-        New roots carry this compact summary in their verified manifest. Older
-        roots derive it once from their actual episode records and cache the
-        result outside the immutable prepared root.
+        The compact summary lives in the root's verified manifest.
         """
         if self.split is None:
             raise ValueError("Scored media outputs require a selected data split")
         selected = set(streams)
-        if "scored_media_counts" in self.manifest:
-            summary = self.manifest["scored_media_counts"]
-            if not isinstance(summary, dict):
-                raise ValueError("Prepared scored-media summary is malformed")
-            result = set()
-            for key, count in summary.items():
-                try:
-                    split, remainder = key.split("|", 1)
-                    stream, modality = remainder.rsplit("|", 1)
-                except (AttributeError, ValueError):
-                    raise ValueError("Prepared scored-media summary is malformed") from None
-                if (
-                    split not in SPLITS
-                    or not stream
-                    or modality not in MEDIA
-                    or type(count) is not int
-                    or count <= 0
-                ):
-                    raise ValueError("Prepared scored-media summary is malformed")
-                if split == self.split and stream in selected:
-                    result.add(modality)
-            return result
+        summary = self.manifest.get("scored_media_counts")
+        if not isinstance(summary, dict):
+            raise ValueError("Prepared scored-media summary is malformed")
         result = set()
-        if not any(self.feature_count(self.split, modality) for modality in MEDIA):
-            return result
-        for stream in sorted(selected):
-            result.update(self._legacy_scored_media_modalities(stream))
-        return result
-
-    def _legacy_scored_media_modalities(self, stream: str) -> set[str]:
-        cache_name = content_hash(
-            {"fingerprint": self.manifest["fingerprint"], "split": self.split, "stream": stream}
-        )
-        cache_root = Path("/tmp/megatoken-prepared-media-summary")
-        cache_root.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_root / f"{cache_name}.json"
-        lock_path = cache_root / f"{cache_name}.lock"
-        import fcntl
-
-        with lock_path.open("a+b") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        for key, count in summary.items():
             try:
-                try:
-                    cached = json.loads(cache_path.read_text())
-                    modalities = cached["modalities"]
-                    if (
-                        cached.get("fingerprint") == self.manifest["fingerprint"]
-                        and cached.get("split") == self.split
-                        and cached.get("stream") == stream
-                        and isinstance(modalities, list)
-                        and set(modalities) <= set(MEDIA)
-                    ):
-                        return set(modalities)
-                except (OSError, ValueError, KeyError, TypeError):
-                    pass
-                modalities: set[str] = set()
-                with PreparedDataset(
-                    self.root, self.split, stream, verify_checksums=self.verify_checksums
-                ) as scoped:
-                    for episode in scoped.iter_episodes():
-                        modalities.update(_scored_media_outputs(episode))
-                write_json(
-                    cache_path,
-                    {
-                        "fingerprint": self.manifest["fingerprint"],
-                        "split": self.split,
-                        "stream": stream,
-                        "modalities": sorted(modalities),
-                    },
-                )
-                return modalities
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                split, remainder = key.split("|", 1)
+                stream, modality = remainder.rsplit("|", 1)
+            except (AttributeError, ValueError):
+                raise ValueError("Prepared scored-media summary is malformed") from None
+            if (
+                split not in SPLITS
+                or not stream
+                or modality not in MEDIA
+                or type(count) is not int
+                or count <= 0
+            ):
+                raise ValueError("Prepared scored-media summary is malformed")
+            if split == self.split and stream in selected:
+                result.add(modality)
+        return result
 
     def feature_item(self, split: str, modality: str, position: int) -> FeatureItem:
         row = self.connection.execute(
@@ -470,15 +421,7 @@ class PreparedDataset:
 
     def feature_extractors(self) -> set[str]:
         """Teachers that produced this root's feature tensors (one item per split and modality)."""
-        if "feature_extractors" in self.manifest:
-            return set(self.manifest["feature_extractors"])
-        extractors = set()
-        for scope in self.manifest["feature_counts"]:
-            row = self.connection.execute(
-                "SELECT descriptor FROM features WHERE scope=? AND position=0", (scope,)
-            ).fetchone()
-            extractors.add(MediaRecord.from_bytes(bytes(row["descriptor"])).source.extractor)
-        return extractors
+        return set(self.manifest["feature_extractors"])
 
     def index_entry(self, index: int) -> dict[str, Any]:
         if index < 0:

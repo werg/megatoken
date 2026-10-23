@@ -123,6 +123,7 @@ def tiny_train_config(
     items = [make_episode(i) for i in range(episodes)]
     dataset = prepare_dataset(root, items, chunking=prepared_chunking)
     values = dict(
+        purpose="diagnostic",
         phase="B0",
         datasets=[str(dataset)],
         output=str(root / "run"),
@@ -146,5 +147,24 @@ def tiny_train_config(
         use_stage_mixture=False,
         use_effort_mixture=False,
     )
+    values.update(overrides)
+    return TrainConfig(**values)
+
+
+def production_config(phase="B0", **overrides):
+    """Valid production schema bindings; tests supply actual artifacts before execution."""
+    from megatoken.data.recipes import stage_recipe
+    from megatoken.training.config import DecoupledConfig
+
+    values = dict(
+        phase=phase,
+        hindsight_targets="teacher",
+        decoupled=DecoupledConfig("https://coordinator", "test"),
+    )
+    if phase == "MB":
+        values["packs"] = "packs"
+        values["text_anchors"] = "text-anchors.jsonl"
+    if stage_recipe(phase).required_donor_profiles:
+        values["engram_imports"] = ["donor-first", "donor-second"]
     values.update(overrides)
     return TrainConfig(**values)

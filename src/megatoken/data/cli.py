@@ -449,6 +449,8 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
                 for line in handle:
                     if line.strip():
                         receipt = json.loads(line)
+                        if ledger.request_status(receipt["request_id"]) == "complete":
+                            continue  # settled by an earlier run with this file: safe to rerun
                         ledger.settle(
                             receipt["request_id"],
                             TeacherResponse(

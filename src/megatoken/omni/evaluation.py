@@ -41,8 +41,11 @@ def character_error_rate(reference: str, hypothesis: str) -> float:
 def endpoint_rmse(actual_video: np.ndarray, first: np.ndarray, last: np.ndarray):
     if actual_video.ndim != 4 or first.shape != actual_video.shape[1:] or last.shape != first.shape:
         raise ValueError("Video and independently sampled endpoint pixels need identical geometry")
-    return float(np.sqrt(np.mean((actual_video[0] - first) ** 2))), float(
-        np.sqrt(np.mean((actual_video[-1] - last) ** 2))
+    # Float first: unsigned 8-bit pixels would wrap around on subtraction.
+    video = actual_video.astype(np.float64)
+    first, last = first.astype(np.float64), last.astype(np.float64)
+    return float(np.sqrt(np.mean((video[0] - first) ** 2))), float(
+        np.sqrt(np.mean((video[-1] - last) ** 2))
     )
 
 
@@ -56,7 +59,8 @@ def edit_preservation_rmse(before: np.ndarray, after: np.ndarray, change_mask: n
     outside = ~np.broadcast_to(mask, before.shape)
     if not outside.any():
         raise ValueError("No unchanged coordinates available for edit-preservation score")
-    return float(np.sqrt(np.mean((before[outside] - after[outside]) ** 2)))
+    difference = before[outside].astype(np.float64) - after[outside].astype(np.float64)
+    return float(np.sqrt(np.mean(difference**2)))
 
 
 def timed_event_matches(reference, predicted, *, tolerance_seconds: float):

@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--packs", type=Path)
     parser.add_argument("--tasks", type=int, default=8)
     parser.add_argument("--steps", type=int, default=8)
     parser.add_argument("--requests", type=int, default=3)
@@ -45,7 +46,7 @@ def main():
     if min(args.tasks, args.steps, args.requests) < 1:
         raise ValueError("Task, update and request bounds must be positive")
     args.root.mkdir(parents=True, exist_ok=False)
-    student = ModelTeacher(args.bundle, device=args.device, effort=1, seed=37)
+    student = ModelTeacher(args.bundle, packs=args.packs, device=args.device, effort=1, seed=37)
     codec, snapshot = student.codec, student.snapshot
     tasks = [
         TaskSeed(
@@ -69,6 +70,9 @@ def main():
         attempts_per_task=1,
         max_requests_per_attempt=args.requests,
         max_output_per_request=128,
+        chunking=student.runtime.chunking,
+        max_record_tokens=student.runtime.chunking.hard_max_tokens,
+        max_record_bytes=student.runtime.chunking.max_bytes,
         seed_mix=(("terminal", 1.0),),
     )
     outcomes, decisions = [], 0
@@ -123,6 +127,7 @@ def main():
     config = replace(
         actor_config,
         phase="D",
+        trainable="latent_policy",
         datasets=[str(args.root / "data")],
         output=str(args.root / "training"),
         device=args.device,

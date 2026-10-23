@@ -127,7 +127,6 @@ def _condition_grad(model, name):
 def test_prepared_media_summary_tracks_scored_outputs_for_custom_stream(tmp_path):
     from dataclasses import replace
 
-    from megatoken.io import content_hash, write_json
 
     assets, episode, _, _ = _case(tmp_path / "assets")
     episode = replace(episode, stream="custom_generated_media")
@@ -156,17 +155,6 @@ def test_prepared_media_summary_tracks_scored_outputs_for_custom_stream(tmp_path
     with PreparedDataset(root) as dataset:
         assert dataset.scored_media_modalities(("custom_generated_media",)) == {"image"}
         assert dataset.scored_media_modalities(("custom_observation_only",)) == set()
-
-    # Old prepared roots derive the answer from checked episode records and
-    # cache it without editing the immutable manifest or shards.
-    manifest_path = root / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest.pop("scored_media_counts")
-    manifest.pop("fingerprint")
-    manifest["fingerprint"] = content_hash(manifest)
-    write_json(manifest_path, manifest)
-    with PreparedDataset(root) as dataset:
-        assert dataset.scored_media_modalities(("custom_generated_media",)) == {"image"}
 
 
 def test_media_reference_counts_its_input_size_not_text_and_corruption_fails(tmp_path):

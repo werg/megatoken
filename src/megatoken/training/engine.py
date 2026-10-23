@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import signal
+import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -31,6 +32,7 @@ from megatoken.loading import (
     parameter_report,
     restore_weights,
 )
+from megatoken.model import ModelConfig
 from megatoken.runtime import capture_rng, doctor, restore_rng, seed_everything
 from megatoken.teacher import PINNED_TEACHER
 from megatoken.tensors import byte_tensor
@@ -229,13 +231,12 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             None if decoupled is None else {key: decoupled[key] for key in _DECOUPLED_IDENTITY}
         )
     critical = (
+        "purpose",
         "model",
         "model_overrides",
         "codec",
         "precision",
         "expert_backend",
-        "engram_import",
-        "engram_imports",
         "weight_decay",
         "inner_optimizer",
         "decoupled",
@@ -243,6 +244,8 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
     if not phase_transition:
         critical += (
             "phase",
+            "engram_import",
+            "engram_imports",
             "datasets",
             "seed",
             "microbatch_episodes",
@@ -265,13 +268,17 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
             "deterministic",
             "gradient_checkpointing",
             "representation_mode",
+            "format_supervision_version",
             "router_balance_mode",
             "trainable",
             "text_anchors",
             "text_anchor_weight",
+            "hindsight_targets",
+            "hindsight_distill_weight",
         )
     for key in critical:
-        if old.get(key) != current.get(key):
+        default = 1 if key == "format_supervision_version" else None
+        if old.get(key, default) != current.get(key):
             raise ValueError(
                 f"Resume configuration changed {key}; use an explicit phase transition "
                 "only when the architecture/codec are unchanged"
@@ -281,6 +288,9 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
 def train(
     config: TrainConfig, *, resume: str | None = None, phase_transition: bool = False
 ) -> dict[str, Any]:
+    from megatoken.data.recipes import validate_training_donors
+
+    validate_training_donors(config)
     if phase_transition and not resume:
         raise ValueError("A phase transition requires the previous phase's checkpoint")
     if config.decoupled is not None and (
@@ -312,7 +322,7 @@ def train(
     checkpoint_writer = None
     optimizer = None
     transducer = None
-    dataset = stream = heldout = None
+    dataset = stream = heldout = teacher_targets = None
     old_handlers = {}
     stop_requested = False
 
@@ -355,6 +365,20 @@ def train(
                 f"Prepared features come from teacher {dataset.extractor!r}, "
                 f"not this model's {model_config.media_extractor!r}"
             )
+        from megatoken.data.hindsight import HindsightTargets
+
+        teacher_targets = (
+            HindsightTargets(
+                config.hindsight_targets,
+                config=config,
+                codec=codec,
+                value_dim=model_config.transducer_geometry.value_dim,
+            )
+            if config.hindsight_targets
+            else None
+        )
+        if teacher_targets is not None:
+            teacher_targets.validate_corpus(dataset.identity)
         recipe = stage_recipe(config.phase)
         plan = AutoencodePlan.from_stage(recipe.constraints)
         if config.use_stage_mixture:
@@ -416,6 +440,23 @@ def train(
                     f"Active training objectives need installed media packs for: {', '.join(missing)}"
                 )
         packs_fingerprint = sha256_file(config.packs) if config.packs else None
+        payload = None
+        if resume:
+            payload, _ = load_checkpoint(resume, map_location="cpu")
+            _resume_compatible(payload["train_config"], config, phase_transition)
+            if payload["codec_fingerprint"] != codec.fingerprint:
+                raise ValueError("Checkpoint codec identity differs")
+            declared_model = ModelConfig.from_dict(payload["model_config"])
+            # A named preset is a convenience for NEW runs. Its defaults may
+            # evolve while a long-running experiment is executing. The saved
+            # model geometry remains authoritative on restart; explicit caller
+            # overrides must still agree exactly with that declaration.
+            declared_values = declared_model.to_dict()
+            if any(
+                declared_values.get(key) != model_config.to_dict().get(key) for key in overrides
+            ):
+                raise ValueError("Checkpoint model configuration differs from explicit overrides")
+            model_config = declared_model
         model = build_model(
             model_config,
             codec,
@@ -424,25 +465,17 @@ def train(
             packs=config.packs,
         )
         new_owners: tuple[str, ...] = ()
-        payload = None
-        if resume:
-            payload, _ = load_checkpoint(resume, map_location="cpu")
-            _resume_compatible(payload["train_config"], config, phase_transition)
-            if payload["codec_fingerprint"] != codec.fingerprint:
-                raise ValueError("Checkpoint codec identity differs")
-            if payload["model_config"] != model_config.to_dict():
-                raise ValueError("Checkpoint model configuration differs")
+        if payload is not None:
             # Dynamic temporary imports must be restored before optimizer owner
             # enumeration, or their FP32 masters and hooks would be missing.
             new_owners = restore_weights(
                 model, payload, packs_fingerprint, phase_transition=phase_transition
             )
-        elif config.engram_import or config.engram_imports:
-            from megatoken.assets import install_engram_asset
+        from megatoken.assets import install_configured_imports
 
-            paths = [config.engram_import] if config.engram_import else config.engram_imports
-            for path in paths:
-                install_engram_asset(model, path)
+        new_owners += install_configured_imports(
+            model, config, resumed=bool(resume), phase_transition=phase_transition
+        )
         # Check decoder requirements before enumerating optimizer owners. This
         # catches a missing pack at startup while leaving media observations
         # that only feed text prediction usable without a decoder.
@@ -450,6 +483,12 @@ def train(
         # Synchronous ranks are learners of one canonical bank merged on rank 0.
         transducer = TransducerTrainer(
             model.transducer,
+            teacher_targets=teacher_targets,
+            bank_trainable=config.trainable == "all",
+            teacher_weight=config.hindsight_distill_weight,
+            navigation_weight=config.navigation_weight,
+            navigation_examples=config.navigation_examples,
+            navigation_negatives=config.navigation_negatives,
             worker=config.decoupled.resolved_worker_id if config.decoupled else context.rank,
             provisional=config.decoupled is not None or context.world_size > 1,
         )
@@ -457,7 +496,12 @@ def train(
         if context.world_size > 1:
             rank_rounds = RankRounds(transducer, context)
         if resume:
-            resume_transducer(transducer, rank_rounds, resolve_checkpoint(resume))
+            resume_transducer(
+                transducer,
+                rank_rounds,
+                resolve_checkpoint(resume),
+                allow_target_transition=phase_transition,
+            )
         context.broadcast_model(model)
         phase = config.schedule
         optimizer = MasterAdamW(
@@ -472,6 +516,13 @@ def train(
             bridge = {id(parameter) for parameter in model.media_bridge_parameters()}
             optimizer.freeze(
                 [name for name, p in optimizer.model_parameters.items() if id(p) not in bridge]
+            )
+        elif config.trainable == "latent_policy":
+            from .outcome import latent_policy_parameter_ids
+
+            policy = latent_policy_parameter_ids(model)
+            optimizer.freeze(
+                [name for name, p in optimizer.model_parameters.items() if id(p) not in policy]
             )
         # Shape-harmonized expert banks are one global owner used by many
         # routed sites. Keep their gradients in one clipping domain rather than
@@ -831,6 +882,8 @@ def train(
             # The old per-operation router loss has been replaced.
             weights["router_balance"] = 0.0
             ledger = LossLedger(local_counts, global_counts, weights)
+            # Per-window mean losses are divided by the windows of the whole transaction.
+            window_scale = 1.0 / max(1, context.sum_counts({"windows": len(batches)})["windows"])
             optimizer.zero_grad()
             # Include core selectors and any routed sites owned by the
             # training-only transducer heads; those sites still train the same
@@ -860,6 +913,7 @@ def train(
                             else (text_anchors, anchor_denom, config.text_anchor_weight)
                         ),
                         transducer=transducer,
+                        window_scale=window_scale,
                     )
                     for key, value in diagnostics_batch.items():
                         step_diagnostics[key] = step_diagnostics.get(key, 0.0) + value
@@ -1069,18 +1123,33 @@ def train(
     finally:
         for signum, handler in old_handlers.items():
             signal.signal(signum, handler)
+        # Every resource is released even if an earlier close fails (a failed checkpoint
+        # write must not leave the optimizer, streams and coordinator session open, nor
+        # replace the error that ended the run); the first failure is raised at the end.
+        failures: list[BaseException] = []
+
+        def release(closer) -> None:
+            try:
+                closer()
+            except Exception as error:
+                failures.append(error)
+
         if checkpoint_writer is not None:
             # A periodic write still in flight must land before the run returns.
-            checkpoint_writer.close()
+            release(checkpoint_writer.close)
         if diloco is not None:
-            diloco.close()
+            release(diloco.close)
         if optimizer is not None:
-            optimizer.close()
+            release(optimizer.close)
         if stream is not None:
-            stream.close()
+            release(stream.close)
         if heldout is not None:
-            heldout.close()
+            release(heldout.close)
+        if teacher_targets is not None:
+            release(teacher_targets.close)
         if dataset is not None:
-            dataset.close()
-        close_mounted()
-        context.close()
+            release(dataset.close)
+        release(close_mounted)
+        release(context.close)
+        if failures and sys.exc_info()[0] is None:
+            raise failures[0]

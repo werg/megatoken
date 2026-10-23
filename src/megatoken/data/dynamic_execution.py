@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 
 from megatoken.environments import FIXTURE_TOOLS, SnapshotEnvironment
@@ -31,21 +31,55 @@ from .schema import (
     stable_id,
 )
 
-SOURCE_VERSION = "dynamic-executions-v2"
+SOURCE_VERSION = "dynamic-executions-v3"
 
 
-def execution_episode(index: int, *, delegated: bool = True, split: str = "train") -> Episode:
-    """A verified task with replayable public observations and exact effects."""
-    family = stable_id(SOURCE_VERSION, str(index))
+def task_definition(index: int, *, dependent: bool = False) -> dict:
+    """Private verifier data stays in the environment; reset returns public inputs."""
     a, b = index * 7 + 11, index * 13 + 5
-    env = SnapshotEnvironment()
-    initial = env.reset(
+    initial_files = {"left.txt": str(a), "right.txt": str(b)}
+    prompt = "Read left.txt and right.txt, add their numbers, write the result to answer.txt, then finish."
+    if dependent:
+        initial_files = {"left.txt": f"right-{index}.txt", f"right-{index}.txt": str(b)}
+        prompt = "Read left.txt to discover which file to read next. Read that file, double its number, write the result to answer.txt, then finish."
+        a = b
+    return {
+        "prompt": prompt,
+        "initial_files": initial_files,
+        "expected_files": {**initial_files, "answer.txt": str(a + b)},
+    }
+
+
+def execution_episode(
+    index: int,
+    *,
+    delegated: bool = True,
+    split: str = "train",
+    read_delay_seconds: float = 0.0,
+    delegation_overhead_seconds: float = 0.0,
+    dependent: bool = False,
+) -> Episode:
+    """A verified task with replayable public observations and exact effects."""
+    if min(read_delay_seconds, delegation_overhead_seconds) < 0:
+        raise ValueError("Controlled execution delays must be nonnegative")
+    # A logical clock in nanoseconds, driven by the controlled delays, not by the machine:
+    # the same index must give the same episode bytes, and the recorded intervals still show
+    # exactly which reads overlapped. Real sleeps below only make the execution genuinely slow.
+    clock = [1_000_000]
+    read_delay_ns = round(read_delay_seconds * 1e9)
+    overhead_ns = round(delegation_overhead_seconds * 1e9)
+    family = stable_id(SOURCE_VERSION, str(index))
+    variant = canonical_json(
         {
-            "prompt": "Read left.txt and right.txt, add their numbers, write the result to answer.txt, then finish.",
-            "initial_files": {"left.txt": str(a), "right.txt": str(b)},
-            "expected_files": {"left.txt": str(a), "right.txt": str(b), "answer.txt": str(a + b)},
+            "delegated": delegated,
+            "dependent": dependent,
+            "read_delay_seconds": read_delay_seconds,
+            "delegation_overhead_seconds": delegation_overhead_seconds,
         }
     )
+    task = task_definition(index, dependent=dependent)
+    env = SnapshotEnvironment()
+    initial = env.reset(task, session=stable_id("execution-session", family, variant)[:32])
     registry = TrackRegistry(max_active=8, address_prefix=f"task-{family[:12]}")
     root = registry.create(
         "Answer the user's request using actual tool results",
@@ -53,6 +87,7 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
         capabilities=("text", "read", "write", "finish"),
     )
     records, groups, actions, dependencies, execution_log = [], [], [], [], []
+    execution_intervals = []
     tracks = {root.address: TrackSpec(root.address, "assistant", description=root.purpose)}
     available = []
     revisions = []
@@ -63,7 +98,7 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
         events = []
         for item in items:
             role, track, payload, scored, extra = item
-            record_id = stable_id("execution-record", family, str(delegated), str(len(records)))
+            record_id = stable_id("execution-record", family, variant, str(len(records)))
             record = PhysicalRecord(
                 record_id,
                 role,
@@ -77,7 +112,8 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
             records.append(record)
             tracks.setdefault(track, TrackSpec(track, role))
             events.append(TrackEvent(record_id, track, "text", number, role))
-        groups.append(Meridian(number, tuple(events), selected_at_ns=time.monotonic_ns()))
+        groups.append(Meridian(number, tuple(events), selected_at_ns=clock[0]))
+        clock[0] += 1_000_000
         return tuple(records[-len(items) :])
 
     group(
@@ -93,15 +129,37 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
         ]
     )
     available.append(records[0].record_id)
+    group(
+        [
+            (
+                "system",
+                root.address,
+                canonical_json(
+                    {
+                        "execution_costs": {
+                            "read_delay_seconds": read_delay_seconds,
+                            "worker_creation_delay_seconds": delegation_overhead_seconds,
+                        },
+                        "read_dependency": "second path is learned from first result"
+                        if dependent
+                        else "independent paths",
+                    }
+                ).encode(),
+                False,
+                {},
+            )
+        ]
+    )
 
     def calls(values):
+        registry.charge(tuple(value[2] for value in values))
         items, selected = [], []
         for name, arguments, track in values:
             payload = canonical_json({"name": name, "arguments": arguments}).encode()
             action_id = stable_id(
                 "execution-action",
                 family,
-                str(delegated),
+                variant,
                 str(len(actions) + len(selected)),
                 payload,
             )
@@ -151,7 +209,7 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
                 "execution_id": execution_id,
                 "input_state": state_id,
                 "result_record": observed.record_id,
-                "available_at_ns": time.monotonic_ns(),
+                "available_at_ns": clock[0],
             }
         )
 
@@ -162,7 +220,11 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
                 (
                     "track_create",
                     {
-                        "purpose": f"Read {path} and publish its number",
+                        "purpose": (
+                            "Read the path published by the first completed read and publish its number"
+                            if dependent and path == "right.txt"
+                            else f"Read {path} and publish its contents"
+                        ),
                         "completion": "The number is available",
                         "parent": root.address,
                         "capabilities": ["text", "read"],
@@ -174,6 +236,8 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
             ]
         )
         for ordinal, item in enumerate(selected):
+            time.sleep(delegation_overhead_seconds)
+            clock[0] += overhead_ns
             arguments = dict(item[0][1])
             purpose = arguments.pop("purpose")
             worker = registry.create(purpose, **arguments)
@@ -234,7 +298,27 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
     else:
         workers = [root, root]
     snapshot = env.state_id
-    if delegated:
+
+    def execute(item, state, start):
+        time.sleep(read_delay_seconds)
+        observed = env.step(item[0][3], action_id=item[0][4], expected_state_id=state)
+        return observed, start, start + read_delay_ns
+
+    def completed(item, value, state):
+        observed, start, end = value
+        clock[0] = max(clock[0], end)
+        result(item, observed.observation, observed.execution_id, state)
+        execution_intervals.append(
+            {
+                "action_id": item[0][4],
+                "execution_id": observed.execution_id,
+                "started_at_ns": start,
+                "completed_at_ns": end,
+            }
+        )
+        return observed
+
+    if delegated and not dependent:
         selected = calls(
             [
                 ("read", {"path": path}, worker.address)
@@ -242,11 +326,9 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
             ]
         )
         with ThreadPoolExecutor(max_workers=2) as executor:
+            dispatched = clock[0]  # both reads start together: that is the overlap on record
             pending = {
-                executor.submit(
-                    env.step, item[0][3], action_id=item[0][4], expected_state_id=snapshot
-                ): item
-                for item in selected
+                executor.submit(execute, item, snapshot, dispatched): item for item in selected
             }
             if index % 3 == 0:
                 group(
@@ -268,9 +350,9 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
                     f"lifecycle:{family}:cancel",
                     "available-public-task",
                 )
-            for future in as_completed(pending):
-                observed = future.result()
-                result(pending[future], observed.observation, observed.execution_id, snapshot)
+            # In the order the actions were selected, not the order threads happened to finish.
+            for future, item in pending.items():
+                completed(item, future.result(), snapshot)
         if index % 3 == 0:
             group(
                 [
@@ -292,10 +374,14 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
                 "available-public-task",
             )
     else:
-        for worker, path in zip(workers, ("left.txt", "right.txt"), strict=True):
+        path = "left.txt"
+        for ordinal, worker in enumerate(workers):
+            if ordinal == 1 and not dependent:
+                path = "right.txt"
             (item,) = calls([("read", {"path": path}, worker.address)])
-            observed = env.step(item[0][3], action_id=item[0][4], expected_state_id=env.state_id)
-            result(item, observed.observation, observed.execution_id, snapshot)
+            observed = completed(item, execute(item, env.state_id, clock[0]), snapshot)
+            if dependent and ordinal == 0:
+                path = json.loads(observed.observation)["content"]
     if delegated:
         for operation in ("progress", "complete"):
             selected = calls(
@@ -325,7 +411,15 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
                     f"lifecycle:{family}:{operation}:{ordinal}",
                     "available-public-task",
                 )
-    (item,) = calls([("write", {"path": "answer.txt", "content": str(a + b)}, root.address)])
+    (item,) = calls(
+        [
+            (
+                "write",
+                {"path": "answer.txt", "content": task["expected_files"]["answer.txt"]},
+                root.address,
+            )
+        ]
+    )
     before = env.state_id
     observed = env.step(item[0][3], action_id=item[0][4], expected_state_id=before)
     result(item, observed.observation, observed.execution_id, before)
@@ -337,7 +431,7 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
     if not verdict.verified or verdict.reward != 1:
         raise RuntimeError("Authored execution failed independent environment verification")
     return Episode(
-        stable_id("execution-episode", family, str(delegated)),
+        stable_id("execution-episode", family, variant),
         tuple(records),
         Lineage(SOURCE_VERSION, SOURCE_VERSION, family, frozen_split=split),
         actions=tuple(actions),
@@ -357,6 +451,12 @@ def execution_episode(index: int, *, delegated: bool = True, split: str = "train
                     "origin": "authored_executed",
                     "execution_contract": "immutable_reads_per_resource_writes",
                     "delegated": delegated,
+                    "dependent_reads": dependent,
+                    "controlled_read_delay_seconds": read_delay_seconds,
+                    "controlled_worker_creation_delay_seconds": delegation_overhead_seconds,
+                    "elapsed_seconds": clock[0] / 1e9,
+                    "clock": "logical",
+                    "execution_intervals": execution_intervals,
                     "executions": execution_log,
                     "natural_timing": False,
                 }

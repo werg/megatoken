@@ -162,15 +162,28 @@ def _target_plan(
         raise ValueError("Grouped target exceeds generated_capacity")
     terminal = record.part_index + 1 == record.part_count
     tape = native.paired_tape(index)
-    if item.episode.tools_json != "[]" and record.action_id and record.part_count == 1:
+    spec = None
+    if item.episode.tools_json != "[]":
         spec = compile_tool_spec(
             item.episode.tools_json,
             config.generated_capacity,
             wire_formats=("canonical", "openai", "anthropic"),
         )
+        if getattr(config, "format_supervision_version", 1) >= 2 and tape is None:
+            # Serving's canonical-only choices must retain these same indices.
+            # Extra imported wire envelopes follow the complete canonical prefix.
+            order = {"canonical": 0, "openai": 1, "anthropic": 2}
+            spec = dataclasses.replace(
+                spec,
+                allow_text=True,
+                schemas=tuple(
+                    sorted(spec.schemas, key=lambda schema: order[schema.name.rsplit(":", 1)[1]])
+                ),
+            )
         # Only records preceding the *whole meridian* can be public copies.
         earlier = [record.payload for record in item.episode.records[:beginning]]
         spec = dataclasses.replace(spec, copy_sources=recent_copy_sources(earlier))
+    if spec is not None and record.action_id and record.part_count == 1:
         schema_index = matching_schema(spec, record.payload)
         if schema_index is not None:
             bindings = supervised_bindings(spec, schema_index, record.payload)
@@ -193,6 +206,13 @@ def _target_plan(
                         if tape is not None
                         else candidate
                     )
+    mode_spec = (
+        spec
+        if spec is not None
+        and getattr(config, "format_supervision_version", 1) >= 2
+        and tape is None
+        else None
+    )
     return model.prepare_target(
         [entry.token_ids],
         free_mask=[entry.free_mask],
@@ -200,6 +220,7 @@ def _target_plan(
         role_ids=[ROLE_TO_ID[record.role]],
         representation_mode=config.representation_training,
         native_tapes=[tape],
+        mode_specs=[mode_spec],
     )
 
 
@@ -574,7 +595,25 @@ def _transducer_sequence(
         generator=torch.Generator().manual_seed(seed),
         mounted=mounted,
         sources=sources,
+        memory_eligible=(
+            batch.windows[0].episode.stream not in {"base_reading", "collection_reading"}
+            and (trainer.teacher_targets is not None or mounted is None)
+        ),
     )
+    if trainer.native.training and trainer.teacher_targets is not None and trainer.bank_trainable:
+        from megatoken.model.transducer import HindsightValues
+
+        item = batch.windows[0]
+        values, sink = trainer.teacher_targets.load(
+            item.episode, item.window.start, item.window.end, sequence.before, device=device
+        )
+        if values is None:
+            # Explicit non-text coverage: retrieve normally, with no unaligned substitute.
+            sequence.alpha = 0.0
+            sequence.memory_eligible = False
+            sequence.teacher_unsupported = True
+        else:
+            sequence.stored = HindsightValues(values, sink)
     sequence.hindsight(
         meridians,
         lambda index: _actual_raw(
@@ -601,6 +640,7 @@ def forward_meridian_batch(
     text_anchors=None,
     differentiate: bool = True,
     transducer: Any,
+    window_scale: float = 1.0,
 ) -> dict[str, float | torch.Tensor]:
     """Differentiate through scored meridians and rebuild the actual prefix.
 
@@ -609,6 +649,11 @@ def forward_meridian_batch(
     (under ``torch.no_grad``). The transducer looks up at the window's planned
     boundaries; ``transducer`` is the run's ``TransducerTrainer`` (in evaluation
     its lookups read the bank alone and record nothing).
+
+    The ingest, teacher-distillation and navigation losses are means over one window's
+    items. ``window_scale`` (one over the number of windows in the whole optimizer
+    transaction, across ranks) keeps their sum over windows a mean, as the globally
+    divided losses are: without it their gradient grows with the accumulation length.
     """
     multi = MultiTrackGenerator.of(model)
     store = batch.windows[0].assets
@@ -682,6 +727,18 @@ def forward_meridian_batch(
     sequence = _transducer_sequence(
         model, batch, transducer, store, device, model_version, seed, mounted
     )
+    teaching = None
+    if differentiate and model.training and transducer.navigation_weight > 0:
+        from megatoken.training.structure import StructuralTeaching
+
+        teaching = StructuralTeaching.prepare(
+            model,
+            multi,
+            episode,
+            batch.steps,
+            max_examples=transducer.navigation_examples,
+            negatives=transducer.navigation_negatives,
+        )
     state = sequence.begin(
         multi,
         state,
@@ -904,6 +961,10 @@ def forward_meridian_batch(
                 )
             )
         state = announce(state, step)
+        if teaching is not None:
+            teaching.after(
+                multi, state, [r.record.record_id for r in step.records], effort=batch.effort
+            )
     if batch.retrieval is not None and _question_scored(batch.prefix, batch.steps):
         if sequence.question_search is None:
             raise RuntimeError("The annotated lookup after the question did not run")
@@ -913,16 +974,29 @@ def forward_meridian_batch(
         losses.append(ledger.backward_loss(terms))
         for name, value in retrieved.items():
             metrics[name] = metrics.get(name, 0) + value
+    if getattr(sequence, "teacher_unsupported", False):
+        metrics["teacher_unsupported_windows"] = 1
+    if sequence.stored is not None:
+        metrics["teacher_target_windows"] = 1
+        metrics["teacher_target_values"] = int((~sequence.stored.sink_only).sum())
+    if sequence.teacher_loss is not None:
+        losses.append(sequence.teacher_loss * transducer.teacher_weight * window_scale)
+        metrics["hindsight_distill_loss"] = sequence.teacher_loss.detach()
+    if teaching is not None:
+        loss, measured = teaching.terms()
+        metrics.update(measured)
+        if loss is not None:
+            losses.append(loss * transducer.navigation_weight * window_scale)
+            metrics["navigation_loss"] = loss.detach()
     for name, loss in sequence.ingest_losses().items():
         weight = INGEST_VALUE_WEIGHT if name == "ingest_value" else INGEST_KEY_WEIGHT
-        losses.append(loss * weight)
+        losses.append(loss * weight * window_scale)
         metrics[f"{name}_loss"] = loss.detach()
     if differentiate and losses:
         torch.stack(losses).sum().backward()
     metrics["context_windows"] = 1
     metrics["context_retained_events_sum"] = len(state.history_event_ids)
     metrics["context_cache_bytes_sum"] = sum(
-        value.numel() * value.element_size()
-        for value in (state.history.keys, state.history.values)
+        value.numel() * value.element_size() for value in (state.history.keys, state.history.values)
     )
     return metrics

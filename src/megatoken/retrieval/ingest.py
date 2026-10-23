@@ -97,8 +97,8 @@ class FileIngest:
         return added
 
     def add_files(self, files: Iterable[str | Path | PreparedFile]) -> int:
-        """Prepare and add files; the collection is indexed afterwards if it was not yet."""
+        """Prepare and add files; the collection is (re)indexed afterwards if it needs it."""
         added = sum(self.add_file(file) for file in files)
-        if not self.collection.indexed and self.collection.count:
+        if self.collection.needs_reindex:
             self.collection.reindex()
         return added

@@ -18,7 +18,9 @@ here is arithmetic over the manifests' inventories: re-run it after editing them
 from __future__ import annotations
 
 import argparse
+import json
 import math
+import sqlite3
 from pathlib import Path
 
 from megatoken.data.media_sharding import clip_seconds
@@ -363,7 +365,8 @@ def gap_table(only: set[str] | None = None, sources: dict[str, OpenSource] | Non
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("table", choices=("sources", "gap", "edits", "summary"))
+    parser.add_argument("table", choices=("sources", "gap", "edits", "summary", "prepared"))
+    parser.add_argument("--root", type=Path, action="append", help="Checked prepared roots for measured supply")
     parser.add_argument("--only", nargs="*", help="limit the gap table to these source ids")
     parser.add_argument(
         "--baseline", nargs="*", type=Path, help="the manifests before the change, for summary"
@@ -375,6 +378,20 @@ def main() -> None:
         help="read these manifests instead of the committed ones",
     )
     args = parser.parse_args()
+    if args.table == "prepared":
+        if not args.root:
+            parser.error("prepared supply requires at least one --root")
+        from megatoken.data.storage import PreparedDataset
+        from megatoken.data.supply import SupplyCensus
+
+        with sqlite3.connect(":memory:") as database:
+            census = SupplyCensus(database)
+            for root in args.root:
+                with PreparedDataset(root, split=None) as data:
+                    for index, episode in enumerate(data.iter_episodes()):
+                        census.add(episode, data.index_entry(index)["split"], episode.stream)
+            print(json.dumps(census.report(), indent=2))
+        return
     if args.manifest:
         global SOURCES
         SOURCES = load_sources(*args.manifest)

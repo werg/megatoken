@@ -46,8 +46,25 @@ from .sources import TermsReview, pin_local_source, write_source_manifest
 _PILOT = load_recipes()["collection_pilot"]
 
 
+def _message_text(payload: bytes) -> str:
+    """Lossless textual transport for byte policies that have not learned UTF-8.
+
+    Physical records and local actor inputs retain the original bytes. The HTTP
+    teacher's JSON text view explicitly describes binary output instead of
+    crashing collection or silently replacing the sampled action.
+    """
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return "Binary content (base64): " + base64.b64encode(payload).decode("ascii")
+
+
 class CollectionLimit(RuntimeError):
     """The predeclared collection/task/attempt budget has no available capacity."""
+
+
+class MalformedTeacherResponse(ValueError):
+    """The provider answered, but not with a well-formed completion (bad tool arguments, say)."""
 
 
 class QuarantinedSeed(ValueError):
@@ -283,13 +300,18 @@ class OpenAICompatibleTeacher:
         choice = obj["choices"][0]
         message = choice["message"]
         usage = obj.get("usage", {})
-        calls = tuple(
-            TeacherCall(call["id"], call["function"]["name"], call["function"]["arguments"])
-            for call in message.get("tool_calls", ())
-        )
+        try:
+            # Models do emit empty or invalid argument strings; some servers send null lists.
+            calls = tuple(
+                TeacherCall(call["id"], call["function"]["name"], call["function"]["arguments"])
+                for call in (message.get("tool_calls") or ())
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise MalformedTeacherResponse(f"Teacher tool call is malformed: {error!r}") from error
+        usage = usage or {}
         reasoning = (message.get("reasoning_content") or "").encode()
         hidden_reasoning = int(
-            usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
+            (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
         )
         # Returned reasoning is metered even when the target policy omits it.
         return TeacherResponse(
@@ -300,7 +322,7 @@ class OpenAICompatibleTeacher:
             provider_input_tokens=int(usage.get("prompt_tokens", 0)),
             provider_output_tokens=int(usage.get("completion_tokens", 0)),
             provider_cache_read_tokens=int(
-                usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
+                (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
             ),
             provider_cache_write_tokens=int(usage.get("cache_creation_input_tokens", 0)),
             request_id=obj.get("id", ""),
@@ -500,6 +522,13 @@ class CollectionLedger:
         except BaseException:
             self.connection.rollback()
             raise
+
+    def request_status(self, request_id: str) -> str | None:
+        """The ledger's status for a request (``None``: unknown), for idempotent reconciliation."""
+        row = self.connection.execute(
+            "SELECT status FROM requests WHERE request_id=?", (request_id,)
+        ).fetchone()
+        return None if row is None else row["status"]
 
     def settle(self, request_id: str, response: TeacherResponse, *, raw_output: int) -> None:
         if (
@@ -829,9 +858,9 @@ class Collector:
         try:
             if seed.policy:
                 append(seed.policy, "system")
-                messages.append({"role": "system", "content": seed.policy.decode("utf-8")})
+                messages.append({"role": "system", "content": _message_text(seed.policy)})
             append(seed.prompt, "user")
-            messages.append({"role": "user", "content": seed.prompt.decode("utf-8")})
+            messages.append({"role": "user", "content": _message_text(seed.prompt)})
             if seed.mode != "artifact":
                 if self.environment_factory is None:
                     raise ValueError(
@@ -845,7 +874,7 @@ class Collector:
                     )
                 values = append(result.observation, "environment", provenance=result.provenance)
                 last_observation = values[0].record_id
-                messages.append({"role": "user", "content": result.observation.decode("utf-8")})
+                messages.append({"role": "user", "content": _message_text(result.observation)})
             request_count = (
                 self.config.max_requests_per_attempt
                 if student_only
@@ -1016,7 +1045,7 @@ class Collector:
                     }
                     for call in response.calls
                 ]
-                message: dict[str, Any] = {"role": "assistant", "content": visible.decode("utf-8")}
+                message: dict[str, Any] = {"role": "assistant", "content": _message_text(visible)}
                 if native_calls:
                     message["tool_calls"] = native_calls
                 messages.append(message)
@@ -1084,7 +1113,7 @@ class Collector:
                             {
                                 "role": "tool",
                                 "tool_call_id": call.call_id,
-                                "content": result.observation.decode("utf-8"),
+                                "content": _message_text(result.observation),
                             }
                         )
                     if result.done and is_student and not student_only:
@@ -1232,6 +1261,8 @@ class Collector:
                     )
                 except (QuarantinedSeed, CollectionLimit):
                     break
+                except MalformedTeacherResponse:
+                    continue  # the attempt is spent; the run goes on with the next one
                 yield episode
                 if episode.supervision.verified_success:
                     break

@@ -12,7 +12,7 @@ import hashlib
 import math
 from collections.abc import Iterator
 from contextlib import contextmanager
-from contextvars import ContextVar, copy_context
+from contextvars import ContextVar
 from typing import NamedTuple
 
 import torch
@@ -46,12 +46,6 @@ def expert_scope(weights: Tensor | None) -> Iterator[None]:
         yield
     finally:
         _CURRENT_ADAPTER_WEIGHTS.reset(token)
-
-
-def capture_expert_context():
-    """Capture the current context for explicit checkpoint replay."""
-
-    return copy_context()
 
 
 def current_adapter_weights(rows: Tensor) -> Tensor | None:
