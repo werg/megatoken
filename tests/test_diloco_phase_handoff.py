@@ -11,6 +11,8 @@ import torch
 from training_fixture import tiny_train_config
 
 from megatoken.cli import _diloco_initialize
+from megatoken.data.storage import PreparedCorpus
+from megatoken.io import content_hash
 from megatoken.training.checkpoint import load_checkpoint
 from megatoken.training.config import DecoupledConfig
 from megatoken.training.diloco_export import export_coordinator
@@ -111,3 +113,49 @@ def test_media_phase_coordinator_starts_from_the_text_phase_export(tmp_path, mon
             "drop-coordinator",
             resume=media_checkpoint,
         )
+
+
+def test_coordinator_bootstraps_from_compact_cache_metadata_without_data_mount(tmp_path):
+    config = tiny_train_config(
+        tmp_path / "corpus",
+        decoupled=DecoupledConfig(
+            coordinator_url="http://127.0.0.1:9", run_id="metadata", workers=2
+        ),
+    )
+    with PreparedCorpus(config.datasets) as prepared:
+        roots = []
+        for root in prepared.all_roots:
+            manifest = json.loads((root / "manifest.json").read_text())
+            roots.append(
+                {"name": root.name, "fingerprint": manifest["fingerprint"], "extractors": []}
+            )
+        roots.sort(key=lambda item: item["fingerprint"])
+        metadata = {
+            "fingerprint": content_hash([item["fingerprint"] for item in roots]),
+            "codec_fingerprint": prepared.codec_fingerprint,
+            "chunking": prepared.chunking,
+            "extractors": [],
+            "roots": roots,
+        }
+    metadata_path = tmp_path / "corpus-metadata.json"
+    metadata_path.write_text(json.dumps(metadata))
+    uncached = dataclasses.replace(config, datasets=["/work/data/prepared/*"])
+    config_path = tmp_path / "metadata-train.json"
+    config_path.write_text(json.dumps(dataclasses.asdict(uncached)))
+    _diloco_initialize(
+        Namespace(
+            config=str(config_path),
+            root=str(tmp_path / "metadata-coordinator"),
+            resume=None,
+            corpus_metadata=str(metadata_path),
+            quorum=1,
+            fragment_mib=1,
+            outer_lr=0.7,
+            outer_momentum=0.9,
+            grace_seconds=0.0,
+            max_staleness=2,
+        )
+    )
+    manifest = json.loads((tmp_path / "metadata-coordinator" / "manifest.json").read_text())
+    assert manifest["dataset_fingerprint"] == metadata["fingerprint"]
+    assert manifest["chunking_identity"] == metadata["chunking"]

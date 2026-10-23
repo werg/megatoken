@@ -30,6 +30,64 @@ class BakeReport:
     optimizer_rows_reset: bool
 
 
+class _NGramImport(nn.Module):
+    """One donor's independent projected descriptors and learned native map."""
+
+    def __init__(self, table: NativeNGramTable | None = None, *, device=None, dtype=None):
+        super().__init__()
+        self.import_map = nn.Linear(128, table.config.ngram_dim if table else 16, bias=False)
+        if table is not None:
+            self.import_map = self.import_map.to(
+                device=table.embedding.weight.device, dtype=table.embedding.weight.dtype
+            )
+        elif device is not None:
+            self.import_map = self.import_map.to(device=device, dtype=dtype)
+        self.register_buffer("import_rows", torch.empty(0, dtype=torch.long))
+        self.register_buffer("descriptors", torch.empty(0, 128))
+        self.register_buffer("import_weights", torch.empty(0))
+
+    def contribution(self, indices: Tensor, dtype: torch.dtype) -> Tensor:
+        positions = torch.searchsorted(self.import_rows, indices)
+        safe_positions = positions.clamp_max(self.import_rows.numel() - 1)
+        covered = (positions < self.import_rows.numel()) & (
+            self.import_rows[safe_positions] == indices
+        )
+        with torch.autocast(device_type=indices.device.type, enabled=False):
+            contribution = F.linear(
+                self.descriptors[safe_positions].float(), self.import_map.weight.float()
+            )
+            contribution = contribution * self.import_weights[safe_positions, None].float()
+        return contribution.to(dtype) * covered.unsqueeze(-1)
+
+    def _apply(self, fn, recurse=True):
+        descriptors, weights = self.descriptors, self.import_weights
+        result = super()._apply(fn, recurse=recurse)
+        self.descriptors = descriptors.to(device=self.import_map.weight.device, dtype=torch.float32)
+        self.import_weights = weights.to(device=self.import_map.weight.device, dtype=torch.float32)
+        return result
+
+    def install(self, rows: Tensor, descriptors: Tensor, coverage: Tensor, support: Tensor):
+        permutation = torch.argsort(rows)
+        self.import_rows = rows[permutation].detach()
+        self.descriptors = descriptors.to(rows.device, torch.float32)[permutation].detach()
+        self.import_weights = (
+            (coverage * support).to(rows.device, torch.float32)[permutation].detach()
+        )
+        nn.init.normal_(self.import_map.weight, std=0.01)
+
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+    ):
+        for name in ("import_rows", "descriptors", "import_weights"):
+            key = prefix + name
+            if key in state_dict:
+                current = getattr(self, name)
+                setattr(self, name, torch.empty_like(state_dict[key], device=current.device))
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs
+        )
+
+
 class NativeNGramTable(nn.Module):
     """Exact unigrams/bigrams and collision-labelled longer n-gram fallback.
 
@@ -47,6 +105,7 @@ class NativeNGramTable(nn.Module):
         self.register_buffer("import_rows", torch.empty(0, dtype=torch.long))
         self.register_buffer("descriptors", torch.empty(0, 128))
         self.register_buffer("import_weights", torch.empty(0))
+        self.import_branches = nn.ModuleList()
 
     def _apply(self, fn, recurse=True):
         descriptors, weights = self.descriptors, self.import_weights
@@ -93,32 +152,46 @@ class NativeNGramTable(nn.Module):
             contribution = contribution * self.import_weights[positions, None].float()
         return contribution.to(dtype)
 
+    @property
+    def has_import(self) -> bool:
+        return self.import_map is not None or bool(self.import_branches)
+
     def lookup(self, indices: Tensor) -> Tensor:
         base = self.embedding(indices)
-        if self.import_map is None or self.import_rows.numel() == 0:
-            return base
-        positions = torch.searchsorted(self.import_rows, indices)
-        safe_positions = positions.clamp_max(self.import_rows.numel() - 1)
-        covered = (positions < self.import_rows.numel()) & (
-            self.import_rows[safe_positions] == indices
-        )
-        return base + self._static_contribution(safe_positions, base.dtype) * covered.unsqueeze(-1)
+        result = base
+        if self.import_map is not None and self.import_rows.numel():
+            positions = torch.searchsorted(self.import_rows, indices)
+            safe_positions = positions.clamp_max(self.import_rows.numel() - 1)
+            covered = (positions < self.import_rows.numel()) & (
+                self.import_rows[safe_positions] == indices
+            )
+            result = result + self._static_contribution(
+                safe_positions, base.dtype
+            ) * covered.unsqueeze(-1)
+        for branch in self.import_branches:
+            result = result + branch.contribution(indices, base.dtype)
+        return result
 
     def forward(self, byte_ids: Tensor) -> Tensor:
         indices, valid = self.indices(byte_ids)
         return self.lookup(indices) * valid.unsqueeze(-1)
 
     def install_import(
-        self, rows: Tensor, descriptors: Tensor, coverage: Tensor, support: Tensor
+        self,
+        rows: Tensor,
+        descriptors: Tensor,
+        coverage: Tensor,
+        support: Tensor,
+        *,
+        allow_hashed: bool = False,
     ) -> None:
-        """Attach immutable, already aggregated 128D descriptors to exact rows.
+        """Attach one donor's immutable 128D descriptors to exact rows.
 
         Donor normalization/extraction belongs to the offline asset pipeline.
-        Coverage and support are fixed, not extra learned per-row gates.
+        Each donor gets an independent learned map; mapped contributions are added
+        in asset order. Coverage and support are fixed, not learned gates.
         Install before constructing the optimizer (or explicitly add its group).
         """
-        if self.import_map is not None:
-            raise RuntimeError("An engram import is already installed; bake or remove it first")
         rows = rows.to(device=self.embedding.weight.device, dtype=torch.long)
         if rows.ndim != 1 or descriptors.shape != (rows.numel(), 128):
             raise ValueError("Expected rows[n] and fixed descriptors[n,128]")
@@ -126,47 +199,84 @@ class NativeNGramTable(nn.Module):
             raise ValueError("Coverage and support must each have one value per row")
         if rows.numel() == 0 or rows.unique().numel() != rows.numel():
             raise ValueError("Imported rows must be nonempty and unique")
-        if bool(((rows < 0) | (rows >= self.config.exact_rows)).any()):
-            raise ValueError("Only exact native rows can receive this import")
+        upper = self.config.ngram_rows if allow_hashed else self.config.exact_rows
+        if bool(((rows < 0) | (rows >= upper)).any()):
+            kind = "native" if allow_hashed else "exact native"
+            raise ValueError(f"Imported rows must fit the {kind} key space")
+        if allow_hashed and bool((rows < self.config.exact_rows).any()):
+            raise ValueError("Native hashed imports must not target exact byte rows")
         if not bool(torch.isfinite(descriptors).all()):
             raise ValueError("Descriptors must be finite")
         if not bool(((coverage >= 0) & (coverage <= 1) & (support >= 0) & (support <= 1)).all()):
             raise ValueError("Coverage and support must lie in [0,1]")
-        permutation = torch.argsort(rows)
-        self.import_rows = rows[permutation].detach()
-        self.descriptors = descriptors.to(rows.device, torch.float32)[permutation].detach()
-        self.import_weights = (
-            (coverage * support).to(rows.device, torch.float32)[permutation].detach()
-        )
-        self.import_map = nn.Linear(128, self.config.ngram_dim, bias=False).to(
-            device=rows.device,
-            dtype=self.embedding.weight.dtype,
-        )
-        nn.init.normal_(self.import_map.weight, std=0.01)
+        if self.import_map is None:
+            permutation = torch.argsort(rows)
+            self.import_rows = rows[permutation].detach()
+            self.descriptors = descriptors.to(rows.device, torch.float32)[permutation].detach()
+            self.import_weights = (
+                (coverage * support).to(rows.device, torch.float32)[permutation].detach()
+            )
+            self.import_map = nn.Linear(128, self.config.ngram_dim, bias=False).to(
+                device=rows.device,
+                dtype=self.embedding.weight.dtype,
+            )
+            nn.init.normal_(self.import_map.weight, std=0.01)
+        else:
+            branch = _NGramImport(self).to(device=rows.device)
+            branch.install(rows, descriptors, coverage, support)
+            self.import_branches.append(branch)
 
     @torch.no_grad()
-    def bake(self, optimizer: Any | None = None, chunk_rows: int = 8192) -> BakeReport:
+    def bake(
+        self,
+        optimizer: Any | None = None,
+        chunk_rows: int = 8192,
+        master_weights: Tensor | None = None,
+    ) -> BakeReport:
         """Fold static contributions, remove map/assets, and reset affected moments.
 
         Optimizers with FP32 shadow weights may implement ``on_engram_bake``;
         ordinary torch optimizers are handled directly. A before/after snapshot
         is the caller's responsibility; this operation intentionally is explicit.
         """
-        if self.import_map is None:
+        if self.import_map is None and not self.import_branches:
             raise RuntimeError("No temporary engram import to bake")
         if chunk_rows <= 0:
             raise ValueError("chunk_rows must be positive")
-        rows = self.import_rows
+        if master_weights is not None and (
+            master_weights.dtype != torch.float32
+            or master_weights.shape != self.embedding.weight.shape
+        ):
+            raise ValueError("Global master weights must be FP32 and match the native table")
+        row_sets = ([self.import_rows] if self.import_map is not None else []) + [
+            branch.import_rows for branch in self.import_branches
+        ]
+        rows = torch.unique(torch.cat(row_sets), sorted=True)
         before = self.lookup(rows).clone()
-        removed = tuple(self.import_map.parameters())
-        for start in range(0, rows.numel(), chunk_rows):
-            positions = torch.arange(
-                start, min(rows.numel(), start + chunk_rows), device=rows.device
-            )
-            indices = rows[positions]
-            self.embedding.weight[indices] += self._static_contribution(
-                positions, self.embedding.weight.dtype
-            )
+        removed = tuple(
+            ([*self.import_map.parameters()] if self.import_map is not None else [])
+            + [parameter for branch in self.import_branches for parameter in branch.parameters()]
+        )
+        if self.import_map is not None:
+            for start in range(0, self.import_rows.numel(), chunk_rows):
+                positions = torch.arange(
+                    start, min(self.import_rows.numel(), start + chunk_rows), device=rows.device
+                )
+                indices = self.import_rows[positions]
+                self.embedding.weight[indices] += self._static_contribution(
+                    positions, self.embedding.weight.dtype
+                )
+        for branch in self.import_branches:
+            for start in range(0, branch.import_rows.numel(), chunk_rows):
+                indices = branch.import_rows[start : start + chunk_rows]
+                self.embedding.weight[indices] += branch.contribution(
+                    indices, self.embedding.weight.dtype
+                )
+        if master_weights is not None:
+            # Match regular optimizer baking: after sequential model-dtype additions,
+            # rebase the union's masters to the effective table value. Other masters
+            # retain all global FP32 precision.
+            master_weights.index_copy_(0, rows, self.embedding.weight[rows].float())
         reset = optimizer is not None
         if optimizer is not None:
             if hasattr(optimizer, "on_engram_bake"):
@@ -180,15 +290,16 @@ class NativeNGramTable(nn.Module):
                 for value in optimizer.state.get(self.embedding.weight, {}).values():
                     if isinstance(value, Tensor) and value.shape == self.embedding.weight.shape:
                         value[rows] = 0
+        self.import_map = None
+        self.import_branches = nn.ModuleList()
+        self.import_rows = rows.new_empty(0)
+        self.descriptors = self.descriptors.new_empty(0, 128)
+        self.import_weights = self.import_weights.new_empty(0)
         after = self.embedding(rows)
         error = float((before.float() - after.float()).abs().max())
         if error != 0:
             raise RuntimeError(f"Engram bake lookup parity failed: max error {error}")
         count = rows.numel()
-        self.import_map = None
-        self.import_rows = rows.new_empty(0)
-        self.descriptors = self.descriptors.new_empty(0, 128)
-        self.import_weights = self.import_weights.new_empty(0)
         return BakeReport(count, sum(p.numel() for p in removed), error, reset)
 
     def _load_from_state_dict(
@@ -201,6 +312,17 @@ class NativeNGramTable(nn.Module):
             )
         elif map_key not in state_dict:
             self.import_map = None
+        branch_prefix = prefix + "import_branches."
+        branch_indices = sorted(
+            {
+                int(key[len(branch_prefix) :].split(".", 1)[0])
+                for key in state_dict
+                if key.startswith(branch_prefix) and key.endswith(".import_map.weight")
+            }
+        )
+        if branch_indices != list(range(len(branch_indices))):
+            error_msgs.append(f"{prefix}engram branch indices are not contiguous")
+        self.import_branches = nn.ModuleList(_NGramImport(self) for _ in branch_indices)
         for name in ("import_rows", "descriptors", "import_weights"):
             key = prefix + name
             if key in state_dict:

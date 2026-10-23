@@ -206,6 +206,19 @@ def export_prepared(
         census.update(transcript_counts)
         parser_review = json.loads(store.get_meta("parser_review_summary") or "{}")
         census["parser_review_rows"] = parser_review.get("total", 0)
+        with sqlite3.connect(f"file:{root / 'index.sqlite'}?mode=ro", uri=True) as index:
+            feature_extractors = sorted(
+                {
+                    MediaRecord.from_bytes(bytes(row[0])).source.extractor
+                    for scope in feature_counts
+                    if (
+                        row := index.execute(
+                            "SELECT descriptor FROM features WHERE scope=? AND position=0",
+                            (scope,),
+                        ).fetchone()
+                    )
+                }
+            )
         manifest = {
             "schema_version": DATASET_VERSION,
             "codec_fingerprint": codec.fingerprint,
@@ -220,6 +233,7 @@ def export_prepared(
             "index": {"path": "index.sqlite", "sha256": sha256_file(root / "index.sqlite")},
             "counts": scope_counts,
             "feature_counts": feature_counts,
+            "feature_extractors": feature_extractors,
             "complete": True,
         }
         manifest["fingerprint"] = content_hash(manifest)
@@ -328,6 +342,8 @@ class PreparedDataset:
 
     def feature_extractors(self) -> set[str]:
         """Teachers that produced this root's feature tensors (one item per split and modality)."""
+        if "feature_extractors" in self.manifest:
+            return set(self.manifest["feature_extractors"])
         extractors = set()
         for scope in self.manifest["feature_counts"]:
             row = self.connection.execute(

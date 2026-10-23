@@ -129,7 +129,9 @@ def test_default_full_model_budget_expansion_is_bounded_and_legacy_counts_roundt
     assert restored == previous
     assert restored.state_geometry == config.state_geometry
 
-    codec = ByteCodec([bytes((value,)) for value in range(256)] + [None] * (config.vocab_size - 256))
+    codec = ByteCodec(
+        [bytes((value,)) for value in range(256)] + [None] * (config.vocab_size - 256),
+    )
     with torch.device("meta"):
         expanded = build_model(config, codec, device="meta")
         legacy = build_model(previous, codec, device="meta")

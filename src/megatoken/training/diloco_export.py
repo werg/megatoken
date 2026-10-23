@@ -55,8 +55,30 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
     for name, value in params.items():
         snapshot[name] = value.to(snapshot[name].dtype)
     # The global FP32 masters seed the next phase's coordinator (diloco init --resume).
+    from megatoken.data.chunking import ChunkingConfig
     from megatoken.io import sha256_file
+    from megatoken.loading import load_codec
+    from megatoken.model.config import ModelConfig
     from megatoken.training.transducer_sync import TransducerHost
+
+    model_config = ModelConfig.from_dict(manifest["model_config"])
+    codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+    if codec.fingerprint != manifest["codec_fingerprint"]:
+        raise ValueError("Export codec differs from the coordinator")
+    chunking_identity = manifest.get("chunking_identity")
+    if chunking_identity is None:
+        # A legacy/local coordinator may still have its corpus mounted. Derive
+        # the policy from those manifests; never claim an invented default.
+        from megatoken.data import PreparedCorpus
+
+        with PreparedCorpus(config.datasets) as prepared:
+            if manifest.get("dataset_fingerprint") and (
+                prepared.identity != manifest["dataset_fingerprint"]
+            ):
+                raise ValueError("Export corpus differs from the coordinator's dataset")
+            chunking_identity = prepared.chunking
+    else:
+        chunking_identity = ChunkingConfig.from_identity(chunking_identity, codec).identity(codec)
 
     host = TransducerHost(
         root,
@@ -73,6 +95,7 @@ def export_coordinator(root: str | Path, output: str | Path, config: object) -> 
         {
             "model": snapshot,
             "model_config": manifest["model_config"],
+            "chunking": chunking_identity,
             "train_config": asdict(config),
             "codec_fingerprint": manifest["codec_fingerprint"],
             "packs_fingerprint": sha256_file(config.packs) if config.packs else None,

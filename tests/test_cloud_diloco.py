@@ -48,6 +48,42 @@ def test_role_jobs_are_valid_and_never_carry_secrets():
     assert "gateway-token" in learner["command"][2]
 
 
+def test_launch_delivers_verified_assets_to_every_role(tmp_path, monkeypatch):
+    repo, run = _launch_env(tmp_path, monkeypatch)
+    assets = [
+        {
+            "path": f"assets/engram/{name}",
+            "source": f"/tmp/{name}",
+            "sha256": sha,
+        }
+        for name, sha in (("engram.json", "a" * 64), ("descriptors.npz", "b" * 64))
+    ]
+    spec = _spec(assets={"inputs": assets})
+    run.write_text(json.dumps(spec))
+    started = []
+
+    class Sandbox:
+        def __init__(self, sandbox_id):
+            self.sandbox_id = sandbox_id
+
+    def start(job, repo_, *, secrets=None, files=None, snapshot=None):
+        started.append(job)
+        if files:
+            files(Sandbox(job["id"]))
+        if job["id"].endswith("coordinator"):
+            return {"sandbox_id": job["id"], "url": "https://c", "commit": "x"}, None
+        return {"sandbox_id": job["id"]}, None
+
+    monkeypatch.setattr(cloud, "start", start)
+    monkeypatch.setattr(cloud_diloco, "_status", lambda *args: {})
+    monkeypatch.setattr(cloud, "service_url", lambda sandbox: "https://c")
+    _stoppable(monkeypatch)
+    cloud_diloco.launch(run, repo)
+    assert len(started) == 3
+    for job in started:
+        assert job["inputs"][-2:] == assets
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -189,12 +225,44 @@ def test_launch_ensures_the_data_then_gives_the_key_to_learners_only(tmp_path, m
     from megatoken import cache, cloud_prepare
 
     repo, run = _launch_env(tmp_path, monkeypatch)
-    run.write_text(json.dumps(_spec(data=CACHED)))
+    assets = [
+        {
+            "path": f"assets/engram/{name}",
+            "source": f"/tmp/{name}",
+            "sha256": sha,
+        }
+        for name, sha in (("engram.json", "d" * 64), ("descriptors.npz", "e" * 64))
+    ]
+    run.write_text(json.dumps(_spec(data=CACHED, assets={"inputs": assets})))
     key_file = cache.keygen(tmp_path / "keys" / "cache.key")
     token = tmp_path / "token"
     token.write_text("hf_secret\n")
     pin = tmp_path / "pin.json"
-    pin.write_text('{"pin": true}')
+    from megatoken.io import content_hash
+
+    root_fingerprint = "a" * 64
+    corpus = {
+        "fingerprint": content_hash([root_fingerprint]),
+        "codec_fingerprint": "b" * 64,
+        "chunking": {"fingerprint": "c" * 64},
+        "extractors": [],
+        "roots": [{"name": "root", "fingerprint": root_fingerprint, "extractors": []}],
+    }
+    pin_document = {"pin": True, "prepared_corpus": corpus}
+    pin_document["parts"] = [
+        {
+            "prepared_roots": {
+                "root": {
+                    "fingerprint": root_fingerprint,
+                    "codec_fingerprint": "b" * 64,
+                    "chunking": corpus["chunking"],
+                    "extractors": [],
+                }
+            },
+            "groups": {"root": "permissive"},
+        }
+    ]
+    pin.write_text(json.dumps(pin_document))
     asked = []
     monkeypatch.setattr(
         cloud_prepare,
@@ -217,10 +285,14 @@ def test_launch_ensures_the_data_then_gives_the_key_to_learners_only(tmp_path, m
     assert asked[0][0] == repo / "configs/cloud/prepare-full-agentic.json"
     (coordinator, c_secrets, c_files), *learners = started
     assert c_secrets == ["diloco-token"] and "in/cache-pin.json" not in c_files
+    assert json.loads(c_files["in/corpus-metadata.json"]) == corpus
+    assert "--corpus-metadata /work/in/corpus-metadata.json" in coordinator["command"][2]
+    assert coordinator["inputs"][-2:] == assets
     assert len(learners) == 2
     for job, secrets, files in learners:
         assert secrets == ["cache-key", "diloco-token", "gateway-token", "hf-token"]
-        assert files["in/cache-pin.json"] == b'{"pin": true}'
+        assert files["in/cache-pin.json"] == pin.read_bytes()
+        assert job["inputs"][-2:] == assets
         assert key_file.read_text().strip() not in json.dumps(job)
 
 

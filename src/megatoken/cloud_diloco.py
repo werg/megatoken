@@ -55,6 +55,7 @@ EXPORT = "out/export"
 RUN_CONFIG = f"{cloud.WORK}/run/train.json"
 URL_FILE = "run/coordinator-url"  # an input: the URL exists only once the coordinator does
 PIN_FILE = "in/cache-pin.json"  # an input: the pin of the stored data
+CORPUS_FILE = "in/corpus-metadata.json"  # small identity bootstrap for the coordinator
 DATA_DIR = f"{cloud.WORK}/data/prepared"  # where a learner restores the stored roots
 RUNS = cloud.STATE / "diloco"
 # The coordinator outlives its learners, so it can still export when the last one ends.
@@ -76,6 +77,12 @@ def validate(spec: dict[str, Any]) -> dict[str, Any]:
         )
     if set(spec["data"]) not in ({"peer", "prefixes"}, {"inputs"}, {"cache"}):
         raise cloud.CloudError("data is {peer, prefixes}, {inputs} or {cache}")
+    if "assets" in spec and (
+        not isinstance(spec["assets"], dict)
+        or set(spec["assets"]) != {"inputs"}
+        or not isinstance(spec["assets"]["inputs"], list)
+    ):
+        raise cloud.CloudError("assets is {inputs: ordinary verified sandbox input files}")
     if "cache" in spec["data"]:
         stored = spec["data"]["cache"]
         if (
@@ -128,6 +135,8 @@ _TOKEN = 'export MEGATOKEN_DILOCO_TOKEN="$(cat "$MEGATOKEN_CW_SECRETS/diloco-tok
 
 def coordinator_job(spec: dict[str, Any], inputs: list[dict[str, Any]]) -> dict[str, Any]:
     args = " ".join(spec.get("coordinator", {}).get("args", []))
+    if "cache" in spec["data"]:
+        args = f"{args} --corpus-metadata {cloud.WORK}/{CORPUS_FILE}".strip()
     finish = f"{cloud.WORK}/.cloud/finish"
     return {
         "id": f"{spec['id']}-coordinator",
@@ -219,9 +228,10 @@ def launch(
     spec = validate(json.loads(path.read_text()))
     if _run_path(spec["id"]).exists():
         raise cloud.CloudError(f"Run {spec['id']} exists; finish it or choose a new id")
-    inputs = data_inputs(spec["data"])
+    inputs = [*data_inputs(spec["data"]), *spec.get("assets", {}).get("inputs", [])]
     learner_secrets: dict[str, bytes] = {}
     pin = b""
+    corpus_metadata = b""
     if "cache" in spec["data"]:
         stored = spec["data"]["cache"]
         # Data stored and verified, or rebuilt first (which can take hours, before any GPU bills).
@@ -234,6 +244,9 @@ def launch(
         )
         print(json.dumps({"data": found}), file=sys.stderr)
         pin = Path(found["pin"]).read_bytes()
+        corpus_metadata = json.dumps(
+            publish.prepared_corpus_metadata(json.loads(pin)), sort_keys=True
+        ).encode()
         learner_secrets = {
             "hf-token": (hf_token or Path.home() / ".cache/huggingface/token").read_bytes().strip(),
             cache.SECRET_NAME: cache.read_key_file(cache_key).hex().encode(),
@@ -251,7 +264,10 @@ def launch(
                 coordinator_job(spec, inputs),
                 repo,
                 secrets={"diloco-token": token.encode()},
-                files=lambda sandbox: {URL_FILE: cloud.service_url(sandbox).encode()},
+                files=lambda sandbox: {
+                    URL_FILE: cloud.service_url(sandbox).encode(),
+                    **({CORPUS_FILE: corpus_metadata} if corpus_metadata else {}),
+                },
                 snapshot=snapshot,
             )
             started.append(entry["sandbox_id"])

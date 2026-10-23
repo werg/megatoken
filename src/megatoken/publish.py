@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any
 
 from megatoken import cache, hub
-from megatoken.io import sha256_file
+from megatoken.io import content_hash, sha256_file
 from megatoken.redistribution import REDISTRIBUTION_GROUPS
 
 PIP = ["pyarrow", *cache.PIP]  # what a sandbox needs beside the project's own requirements
@@ -432,6 +432,17 @@ def store_part(
         log(f"uploaded and verified {len(public)} public files")
     prune_public(api, repo, run, part, public)
     encrypted = [name for name in roots if groups[name] == "no"]
+    from megatoken.data.storage import PreparedDataset
+
+    prepared_roots = {}
+    for name in roots:
+        manifest = json.loads((prepared / name / "manifest.json").read_text())
+        with PreparedDataset(prepared / name, split=None) as dataset:
+            extractors = sorted(dataset.feature_extractors())
+        prepared_roots[name] = {
+            key: manifest[key] for key in ("fingerprint", "codec_fingerprint", "chunking")
+        }
+        prepared_roots[name]["extractors"] = extractors
     receipt: dict[str, Any] = {
         "schema": RECEIPT_SCHEMA,
         "run": run,
@@ -444,6 +455,7 @@ def store_part(
             for group, found in counts.items()
         },
         "roots": {name: groups[name] for name in roots},
+        "prepared_roots": prepared_roots,
     }
     if encrypted:
         sealed = cache.store(
@@ -455,6 +467,9 @@ def store_part(
             source=prepared,
             work=work / "cache",
             only=encrypted,
+            metadata={
+                "prepared_roots": {name: receipt["prepared_roots"][name] for name in encrypted}
+            },
             piece_bytes=piece_bytes,
             segment=segment,
             log=log,
@@ -543,6 +558,42 @@ def make_pin(
         raise PublishError("The receipts name different repositories")
     if any(receipt["run"] != run for receipt in parts):
         raise PublishError("The receipts belong to a different run")
+    for receipt in parts:
+        prepared_names = set(receipt.get("prepared_roots", {}))
+        group_names = set(receipt.get("roots", {}))
+        if not prepared_names or prepared_names != group_names:
+            raise PublishError("Part roots differ from their prepared-root metadata")
+    prepared_roots = {
+        name: value
+        for receipt in parts
+        for name, value in receipt.get("prepared_roots", {}).items()
+    }
+    if not prepared_roots or len(prepared_roots) != sum(
+        len(receipt.get("prepared_roots", {})) for receipt in parts
+    ):
+        raise PublishError("Part receipts lack unique prepared-root metadata")
+    codecs = {item["codec_fingerprint"] for item in prepared_roots.values()}
+    chunkings = {
+        content_hash(item["chunking"]): item["chunking"] for item in prepared_roots.values()
+    }
+    extractors = {extractor for item in prepared_roots.values() for extractor in item["extractors"]}
+    if len(codecs) != 1 or len(chunkings) != 1:
+        raise PublishError("Prepared roots disagree on codec or chunking identity")
+    roots = [
+        {
+            "name": name,
+            "fingerprint": item["fingerprint"],
+            "extractors": item["extractors"],
+        }
+        for name, item in sorted(prepared_roots.items(), key=lambda pair: pair[1]["fingerprint"])
+    ]
+    prepared_corpus = {
+        "fingerprint": content_hash([item["fingerprint"] for item in roots]),
+        "codec_fingerprint": next(iter(codecs)),
+        "chunking": next(iter(chunkings.values())),
+        "extractors": sorted(extractors),
+        "roots": roots,
+    }
     return {
         "schema": PIN_SCHEMA,
         "run": run,
@@ -553,9 +604,12 @@ def make_pin(
                 "part": receipt["part"],
                 "public": receipt["public"],
                 "encrypted": receipt["encrypted"],
+                "prepared_roots": receipt["prepared_roots"],
+                "groups": receipt["roots"],
             }
             for receipt in parts
         ],
+        "prepared_corpus": prepared_corpus,
     }
 
 
@@ -572,18 +626,123 @@ def load_pin(path: Path) -> dict[str, Any]:
     return pin
 
 
+def prepared_corpus_metadata(pin: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the compact, pin-bound identity needed to initialize a coordinator."""
+    value = pin.get("prepared_corpus")
+    if not isinstance(value, Mapping):
+        raise PublishError(
+            "The data pin lacks prepared-corpus metadata; backfill it from verified prepared roots"
+        )
+    roots = value.get("roots")
+    if not isinstance(roots, list) or not roots:
+        raise PublishError("The data pin has no prepared-root identities")
+    fingerprints = [root.get("fingerprint") for root in roots if isinstance(root, Mapping)]
+    if len(fingerprints) != len(roots) or len(set(fingerprints)) != len(roots):
+        raise PublishError("The data pin has invalid prepared-root identities")
+    if content_hash(fingerprints) != value.get("fingerprint"):
+        raise PublishError("The prepared-corpus fingerprint does not match its roots")
+    if not value.get("codec_fingerprint") or not isinstance(value.get("chunking"), Mapping):
+        raise PublishError("The data pin lacks codec or chunking identity")
+    part_roots: dict[str, Mapping[str, Any]] = {}
+    for part in pin.get("parts", []):
+        roots_for_part = part.get("prepared_roots", {})
+        if set(roots_for_part) != set(part.get("groups", {})):
+            raise PublishError("A data-pin part lacks bound prepared-root metadata")
+        if set(part_roots).intersection(roots_for_part):
+            raise PublishError("Data-pin prepared root names are duplicated")
+        part_roots.update(roots_for_part)
+    if set(part_roots) != {root["name"] for root in roots}:
+        raise PublishError("Prepared-corpus metadata differs from its pinned parts")
+    codecs = {item.get("codec_fingerprint") for item in part_roots.values()}
+    chunkings = {content_hash(item.get("chunking")) for item in part_roots.values()}
+    extractors = {
+        extractor for item in part_roots.values() for extractor in item.get("extractors", [])
+    }
+    expected_roots = [
+        {
+            "name": name,
+            "fingerprint": item["fingerprint"],
+            "extractors": item.get("extractors", []),
+        }
+        for name, item in sorted(part_roots.items(), key=lambda pair: pair[1]["fingerprint"])
+    ]
+    if (
+        len(codecs) != 1
+        or len(chunkings) != 1
+        or next(iter(codecs)) != value["codec_fingerprint"]
+        or next(iter(chunkings)) != content_hash(value["chunking"])
+        or sorted(extractors) != value.get("extractors")
+        or roots != expected_roots
+    ):
+        raise PublishError("Prepared-corpus summary differs from the pinned part metadata")
+    return {
+        "fingerprint": value["fingerprint"],
+        "codec_fingerprint": value["codec_fingerprint"],
+        "chunking": value["chunking"],
+        "extractors": value["extractors"],
+        "roots": roots,
+    }
+
+
 def verify_pin(api: Any, keys: cache.Keys | None, pin: Mapping[str, Any], scratch: Path) -> None:
     """Check the pinned commit without downloading the data: every public file is there with
     its recorded size and sha256, and every encrypted part's manifest decrypts and every piece
     is stored at its recorded size and hash. Raises ``PublishError`` or ``CacheError``."""
     remote = cache.Remote(api)
     try:
+        has_corpus_metadata = "prepared_corpus" in pin
+        if has_corpus_metadata:
+            prepared_corpus_metadata(pin)
         for part in pin["parts"]:
             verify_files(remote, pin["repo"], pin["revision"], part["public"], scratch)
+            if not has_corpus_metadata:
+                if part["encrypted"]:
+                    if keys is None:
+                        raise PublishError("The pin has encrypted parts and no key was given")
+                    cache.verify_part(
+                        api,
+                        keys,
+                        repo=pin["repo"],
+                        revision=pin["revision"],
+                        run=pin["run"],
+                        part=part["part"],
+                        folder=part["encrypted"],
+                        scratch=scratch,
+                    )
+                continue
+            expected_roots = part.get("prepared_roots", {})
+            groups = part.get("groups", {})
+            if set(expected_roots) != set(groups):
+                raise PublishError("The pin's prepared roots and publication groups differ")
+            public_paths = {item["path"] for item in part["public"]}
+            for name, expected in expected_roots.items():
+                group = groups[name]
+                if group not in PUBLIC_GROUPS:
+                    continue
+                manifest_path = (
+                    f"{part_dir(group, pin['run'], part['part'])}/{name}/root/manifest.json"
+                )
+                if manifest_path not in public_paths:
+                    raise PublishError(f"{name}: prepared root manifest is absent from the pin")
+                local = remote.download(pin["repo"], manifest_path, pin["revision"], scratch)
+                try:
+                    manifest = json.loads(local.read_text())
+                finally:
+                    local.unlink(missing_ok=True)
+                if any(
+                    manifest.get(key) != expected.get(key)
+                    for key in ("fingerprint", "codec_fingerprint", "chunking")
+                ) or (
+                    "feature_extractors" in manifest
+                    and manifest["feature_extractors"] != expected.get("extractors", [])
+                ):
+                    raise PublishError(
+                        f"{name}: pin metadata differs from the public root manifest"
+                    )
             if part["encrypted"]:
                 if keys is None:
                     raise PublishError("The pin has encrypted parts and no key was given")
-                cache.verify_part(
+                protected = cache.verify_part(
                     api,
                     keys,
                     repo=pin["repo"],
@@ -593,6 +752,13 @@ def verify_pin(api: Any, keys: cache.Keys | None, pin: Mapping[str, Any], scratc
                     folder=part["encrypted"],
                     scratch=scratch,
                 )
+                encrypted_roots = {
+                    name: expected_roots[name]
+                    for name, group in groups.items()
+                    if group not in PUBLIC_GROUPS
+                }
+                if protected.get("metadata", {}).get("prepared_roots") != encrypted_roots:
+                    raise PublishError("Pin metadata differs from the encrypted root manifests")
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 

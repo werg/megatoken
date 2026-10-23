@@ -241,6 +241,16 @@ def test_the_pin_records_one_commit_and_the_whole_run_comes_back(tmp_path):
     receipt, prepared = store(hub, tmp_path)
     pin = finalize(hub, [receipt], tmp_path)
     assert pin["revision"] == hub.head[REPO] and pin["repo"] == REPO
+    assert (
+        publish.prepared_corpus_metadata(pin)["fingerprint"]
+        == pin["prepared_corpus"]["fingerprint"]
+    )
+    changed_summary = json.loads(json.dumps(pin))
+    changed_summary["parts"][0]["prepared_roots"]["00000"]["fingerprint"] = "f" * 64
+    with pytest.raises(publish.PublishError, match="summary differs"):
+        publish.prepared_corpus_metadata(changed_summary)
+    with pytest.raises(publish.PublishError, match="backfill"):
+        publish.prepared_corpus_metadata({"parts": []})
     assert b"Zstandard-compressed" in hub.commits[REPO][pin["revision"]]["README.md"]
     path = tmp_path / "run.pin.json"
     path.write_text(json.dumps(pin))
@@ -404,6 +414,9 @@ def test_sandboxes_write_their_own_folders_and_races_are_repeated(tmp_path, monk
         publish.make_pin(RUN, REPO, "x", [first, first])
     with pytest.raises(publish.PublishError, match="different run"):
         publish.make_pin("another-run", REPO, "x", [first])
+    mismatched = {**first, "prepared_roots": {"not-the-group": first["prepared_roots"]["00000"]}}
+    with pytest.raises(publish.PublishError, match="Part roots differ"):
+        publish.make_pin(RUN, REPO, "x", [mismatched])
     with pytest.raises(publish.PublishError, match="none of the requested parts"):
         publish.fetch(api=hub, keys=KEY, pin=pin, dest=tmp_path / "none", parts=[7])
 

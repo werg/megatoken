@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import fnmatch
 import json
 import sys
 from dataclasses import asdict
@@ -95,10 +96,13 @@ def _train(args):
 
 def _diloco_initialize(args):
     """Create immutable coordinator bootstrap from the exact train architecture."""
+    import json
+
     import torch
 
     from megatoken.data import PreparedCorpus
-    from megatoken.io import sha256_file
+    from megatoken.data.chunking import ChunkingConfig
+    from megatoken.io import content_hash, sha256_file
     from megatoken.loading import build_model, load_codec, load_model_config, restore_weights
     from megatoken.runtime import seed_everything
     from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint
@@ -108,7 +112,10 @@ def _diloco_initialize(args):
     from megatoken.training.transducer import HindsightSchedule
     from megatoken.training.transducer_sync import load_transducer_state
 
-    config = TrainConfig.load(args.config)
+    config = TrainConfig.load(
+        args.config,
+        expand_data=not bool(getattr(args, "corpus_metadata", None)),
+    )
     if config.decoupled is None:
         raise ValueError("Set decoupled settings in the training config before initializing")
     seed_everything(config.seed, config.deterministic)
@@ -151,18 +158,71 @@ def _diloco_initialize(args):
         )
         # The previous phase's bank seeds this coordinator's canonical bank.
         transducer_state = load_transducer_state(resolve_checkpoint(args.resume))
-    elif config.engram_import:
+    elif config.engram_import or config.engram_imports:
         from megatoken.assets import install_engram_asset
 
-        install_engram_asset(model, config.engram_import)
+        paths = [config.engram_import] if config.engram_import else config.engram_imports
+        for path in paths:
+            install_engram_asset(model, path)
     masters = {
         # Owners new in this phase start from their initialization.
         name: weights.get(name, parameter).detach().cpu().float()
         for name, parameter in model.named_parameters()
         if parameter.requires_grad
     }
-    with PreparedCorpus(config.datasets) as prepared:
-        dataset_fingerprint = prepared.identity
+    if getattr(args, "corpus_metadata", None):
+        corpus = json.loads(Path(args.corpus_metadata).read_text())
+        roots = corpus.get("roots")
+        if not isinstance(roots, list) or not roots:
+            raise ValueError("Coordinator corpus metadata has no prepared roots")
+        fingerprints = [item.get("fingerprint") for item in roots if isinstance(item, dict)]
+        names = [item.get("name") for item in roots if isinstance(item, dict)]
+        if (
+            len(fingerprints) != len(roots)
+            or len(set(fingerprints)) != len(roots)
+            or len(set(names)) != len(roots)
+        ):
+            raise ValueError("Coordinator corpus metadata has invalid root fingerprints")
+        if content_hash(fingerprints) != corpus.get("fingerprint"):
+            raise ValueError("Coordinator corpus fingerprint differs from its roots")
+        if corpus.get("codec_fingerprint") != codec.fingerprint:
+            raise ValueError("Coordinator corpus codec differs from the training config")
+        chunking_identity = ChunkingConfig.from_identity(corpus.get("chunking"), codec).identity(
+            codec
+        )
+        if not isinstance(config.datasets, list) or not config.datasets:
+            raise ValueError("Coordinator config must name its selected prepared roots")
+        selected = {}
+        for pattern in config.datasets:
+            if not isinstance(pattern, str):
+                raise ValueError("Coordinator dataset selectors must be prepared-root paths")
+            matches = {
+                item["name"]: item
+                for item in roots
+                if fnmatch.fnmatchcase(str(Path("/work/data/prepared") / item["name"]), pattern)
+                or fnmatch.fnmatchcase(item["name"], pattern)
+            }
+            if not matches:
+                raise ValueError(
+                    f"Coordinator dataset selector {pattern!r} matches no roots in the verified pin"
+                )
+            selected.update(matches)
+        if not selected:
+            raise ValueError("Coordinator corpus metadata selected no prepared roots")
+        selected_items = sorted(selected.values(), key=lambda item: item["fingerprint"])
+        if len({item["fingerprint"] for item in selected_items}) != len(selected_items):
+            raise ValueError("Selected roots contain duplicate manifest fingerprints")
+        dataset_fingerprint = content_hash([item["fingerprint"] for item in selected_items])
+        # PreparedCorpus rejects roots produced by different media teachers.
+        if (
+            len({extractor for item in selected_items for extractor in item.get("extractors", [])})
+            > 1
+        ):
+            raise ValueError("Selected prepared roots use different feature teachers")
+    else:
+        with PreparedCorpus(config.datasets) as prepared:
+            dataset_fingerprint = prepared.identity
+            chunking_identity = prepared.chunking
     return initialize_coordinator(
         args.root,
         run_id=config.decoupled.run_id,
@@ -172,6 +232,7 @@ def _diloco_initialize(args):
         codec_fingerprint=codec.fingerprint,
         train_identity=training_identity(config),
         dataset_fingerprint=dataset_fingerprint,
+        chunking_identity=chunking_identity,
         workers=config.decoupled.workers,
         min_quorum=args.quorum,
         fragment_bytes=args.fragment_mib * 1024 * 1024,
@@ -209,7 +270,9 @@ def _diloco_export(args):
     from megatoken.training.config import TrainConfig
     from megatoken.training.diloco_export import export_coordinator
 
-    return export_coordinator(args.root, args.output, TrainConfig.load(args.config))
+    return export_coordinator(
+        args.root, args.output, TrainConfig.load(args.config, expand_data=False)
+    )
 
 
 def _pipeline(args):
@@ -439,6 +502,8 @@ def _engram_extract(args):
         args.tensor_name,
         args.donor_codec,
         args.output,
+        donor_profile=args.donor_profile,
+        donor_root=args.donor_root,
         model=args.model,
         seed=args.seed,
     )
@@ -447,7 +512,24 @@ def _engram_extract(args):
 def _engram_bake(args):
     from megatoken.assets import bake_checkpoint
 
-    return bake_checkpoint(args.checkpoint, args.output, codec_path=args.codec)
+    return bake_checkpoint(args.checkpoint, args.output, codec_path=args.codec, packs=args.packs)
+
+
+def _engram_native_extract(args):
+    from megatoken.native_engram import extract_native_engram
+
+    return extract_native_engram(
+        args.donor_profile,
+        args.donor_root,
+        args.corpus,
+        args.output,
+        model=args.model,
+        max_contexts=args.max_contexts,
+        seed=args.seed,
+        split=args.split,
+        cache_dir=args.cache_dir,
+        source_mode=args.source_mode,
+    )
 
 
 def _serving_arguments(item):
@@ -548,6 +630,10 @@ def parser() -> argparse.ArgumentParser:
     initial.add_argument(
         "--resume",
         help="Start this phase from the previous phase's coordinator export or checkpoint",
+    )
+    initial.add_argument(
+        "--corpus-metadata",
+        help="Verified compact prepared-data identity; avoids fetching a stored corpus on coordinator",
     )
     initial.add_argument("--quorum", type=int, default=4)
     initial.add_argument("--fragment-mib", type=int, default=64)
@@ -697,21 +783,43 @@ def parser() -> argparse.ArgumentParser:
     inspecting.add_argument("base")
     inspecting.set_defaults(func=_kb_inspect)
     item = commands.add_parser(
-        "engram", help="Optional offline native-table initialization and exact baking"
+        "engram", help="Offline donor memory import, token-embedding baseline, and exact baking"
     )
     sub = item.add_subparsers(dest="engram_command", required=True)
     extract = sub.add_parser("extract")
-    extract.add_argument("--embedding-file", required=True)
-    extract.add_argument("--tensor-name", required=True)
-    extract.add_argument("--donor-codec", required=True)
+    extract.add_argument("--embedding-file")
+    extract.add_argument("--tensor-name")
+    extract.add_argument("--donor-codec")
+    extract.add_argument(
+        "--donor-profile", choices=("deepseek-v4.1-flash-1017", "qwen3.8-flash-next")
+    )
+    extract.add_argument(
+        "--donor-root",
+        help="Local snapshot containing pinned model/tokenizer metadata and embedding shard",
+    )
     extract.add_argument("--output", required=True)
     extract.add_argument("--model", default="32x512")
     extract.add_argument("--seed", type=int, default=17)
     extract.set_defaults(func=_engram_extract)
+    native = sub.add_parser("extract-native", help="Import a selected donor's n-gram memory")
+    native.add_argument(
+        "--donor-profile", choices=("deepseek-v4.1-flash-1017", "qwen3.8-flash-next"), required=True
+    )
+    native.add_argument("--donor-root", required=True)
+    native.add_argument("--corpus", action="append", required=True)
+    native.add_argument("--output", required=True)
+    native.add_argument("--model", default="32x512")
+    native.add_argument("--max-contexts", type=int, required=True)
+    native.add_argument("--seed", type=int, default=17)
+    native.add_argument("--split", default="train")
+    native.add_argument("--cache-dir")
+    native.add_argument("--source-mode", choices=("local", "ranges"), default="local")
+    native.set_defaults(func=_engram_native_extract)
     bake = sub.add_parser("bake")
     bake.add_argument("--checkpoint", required=True)
     bake.add_argument("--output", required=True)
     bake.add_argument("--codec", default="byte")
+    bake.add_argument("--packs")
     bake.set_defaults(func=_engram_bake)
     return root
 

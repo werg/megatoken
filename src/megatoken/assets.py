@@ -1,8 +1,9 @@
 """Pinned codec assets and optional, offline native-table warm starts.
 
 Cold native initialization is the default. The optional extractor reads only a
-selected local donor embedding tensor, builds fixed 128D byte-key descriptors,
-and never introduces a donor tokenizer or backbone into the served graph.
+selected donor embedding tensor, builds fixed 128D byte-key descriptors, and never
+introduces a donor tokenizer or backbone into the served graph. Multiple selected
+donors retain separate maps and coverage rather than mixing descriptor spaces.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 import urllib.request
@@ -76,11 +78,13 @@ def fetch_codec(output: str | Path, *, local_tokenizer: str | Path | None = None
 
 
 def extract_engram(
-    embedding_file: str | Path,
-    tensor_name: str,
-    donor_codec: str,
+    embedding_file: str | Path | None,
+    tensor_name: str | None,
+    donor_codec: str | None,
     output: str | Path,
     *,
+    donor_profile: str | None = None,
+    donor_root: str | Path | None = None,
     model: str = "32x512",
     seed: int = 17,
     chunk_rows: int = 2048,
@@ -99,8 +103,32 @@ def extract_engram(
 
     if chunk_rows < 1 or support_target < 1:
         raise ValueError("Chunk rows and support target must be positive")
+    if donor_profile:
+        if embedding_file is not None or tensor_name is not None or donor_codec is not None:
+            raise ValueError(
+                "Use either a pinned donor profile or explicit embedding/tokenizer files"
+            )
+        if donor_root is None:
+            raise ValueError("A donor root is required with a pinned donor profile")
+        from megatoken.donors import donor_profile_metadata, load_donor_profile
+
+        asset = load_donor_profile(donor_profile, donor_root)
+        embedding_file = asset.embedding_file
+        tensor_name = asset.profile.tensor_name
+        codec = asset.vocabulary
+        provenance = donor_profile_metadata(asset)
+        if asset.embedding_file.stat().st_size != asset.profile.shard_size:
+            raise ValueError("Pinned donor embedding shard has the wrong size")
+        donor_digest = sha256_file(asset.embedding_file)
+        if donor_digest != asset.profile.shard_sha256:
+            raise ValueError("Pinned donor embedding shard SHA256 mismatch")
+    else:
+        if embedding_file is None or tensor_name is None or donor_codec is None:
+            raise ValueError("Explicit extraction requires embedding, tensor name, and donor codec")
+        codec = load_codec(donor_codec)
+        provenance = {}
+        donor_digest = None
     config = load_model_config(model)
-    codec = load_codec(donor_codec)
     destination = Path(output)
     if destination.exists():
         raise FileExistsError("Engram assets are immutable; choose a new output directory")
@@ -112,8 +140,13 @@ def extract_engram(
             raise ValueError(f"Donor tensor {tensor_name!r} was not found")
         weights = donor.get_slice(tensor_name)
         shape = weights.get_shape()
-        if len(shape) != 2 or shape[0] < codec.vocab_size:
-            raise ValueError("Donor embedding rows must cover the declared raw donor codec")
+        if len(shape) != 2 or shape[0] != codec.vocab_size:
+            raise ValueError(
+                "Donor tensor rows must exactly match the raw tokenizer vocabulary; "
+                "hashed n-gram tables and padded rows are not tokenizer embeddings"
+            )
+        if donor_profile and shape[1] != asset.profile.hidden_size:
+            raise ValueError("Donor embedding width differs from its pinned profile")
         generator = torch.Generator().manual_seed(seed)
         projection = torch.randn(shape[1], 128, generator=generator) / math.sqrt(shape[1])
         valid = set(codec.valid_token_ids)
@@ -155,16 +188,19 @@ def extract_engram(
             "format_version": 1,
             "algorithm": "exact-byte-vocabulary-projection-v1",
             "descriptor_sha256": sha256_file(temporary / "descriptors.npz"),
-            "donor_sha256": sha256_file(embedding_file),
+            "donor_sha256": donor_digest or sha256_file(embedding_file),
             "donor_tensor": tensor_name,
             "donor_codec_fingerprint": codec.fingerprint,
             "donor_shape": shape,
             "seed": seed,
             "support_target": support_target,
             "exact_rows": config.exact_rows,
+            "ngram_rows": config.ngram_rows,
+            "row_space": "exact",
             "covered_rows": len(rows),
             "descriptor_dim": 128,
             "support_unit": "distinct lexical donor tokens",
+            **provenance,
         }
         write_json(temporary / "engram.json", metadata)
         fsync_directory(temporary)
@@ -183,6 +219,25 @@ def install_engram_asset(model: Any, path: str | Path) -> None:
     metadata = json.loads((source / "engram.json").read_text())
     if metadata["format_version"] != 1 or metadata["exact_rows"] != model.core.config.exact_rows:
         raise ValueError("Engram asset does not match the native key space")
+    row_space = metadata.get("row_space", "exact")
+    if row_space not in {"exact", "native_hashed"}:
+        raise ValueError("Engram asset declares an unsupported row space")
+    expected_rows = (
+        metadata.get("ngram_rows")
+        if row_space == "native_hashed"
+        else metadata.get("ngram_rows", model.core.config.ngram_rows)
+    )
+    if expected_rows != model.core.config.ngram_rows:
+        raise ValueError("Engram asset does not match the native table size")
+    if row_space == "native_hashed":
+        if metadata.get("algorithm") != "native-context-to-byte-hash-v1":
+            raise ValueError("Native hashed asset does not declare a supported extraction method")
+        if metadata.get("hash_algorithm") != "rolling-257-order-seeded-v1":
+            raise ValueError("Native hashed asset does not match the current hash function")
+        if metadata.get("ngram_orders") != list(model.core.config.ngram_orders):
+            raise ValueError("Native hashed asset n-gram orders differ from the model")
+        if metadata.get("exact_bigrams") != model.core.config.exact_bigrams:
+            raise ValueError("Native hashed asset exact-byte layout differs from the model")
     if sha256_file(source / "descriptors.npz") != metadata["descriptor_sha256"]:
         raise ValueError("Engram descriptor checksum mismatch")
     with np.load(source / "descriptors.npz", allow_pickle=False) as archive:
@@ -190,13 +245,20 @@ def install_engram_asset(model: Any, path: str | Path) -> None:
             name: torch.from_numpy(archive[name].copy())
             for name in ("rows", "descriptors", "coverage", "support")
         }
-    model.core.frontend.ngrams.install_import(**tensors)
+    model.core.frontend.ngrams.install_import(**tensors, allow_hashed=row_space == "native_hashed")
 
 
 def bake_checkpoint(
-    checkpoint: str | Path, output: str | Path, *, codec_path: str = "byte"
+    checkpoint: str | Path,
+    output: str | Path,
+    *,
+    codec_path: str = "byte",
+    packs: str | Path | None = None,
 ) -> dict[str, Any]:
     """Create a new parity-checked checkpoint with import assets removed."""
+    import torch
+
+    from megatoken.io import sha256_file
     from megatoken.loading import build_model
     from megatoken.model.config import ModelConfig
     from megatoken.training.checkpoint import load_checkpoint, resolve_checkpoint, save_checkpoint
@@ -207,24 +269,68 @@ def bake_checkpoint(
     codec = load_codec(codec_path, vocab_size=config.vocab_size)
     if codec.fingerprint != payload["codec_fingerprint"]:
         raise ValueError("Bake codec differs from the checkpoint")
-    model = build_model(config, codec, precision=payload["train_config"]["precision"])
+    packs = packs or payload["train_config"].get("packs")
+    expected_packs = payload["packs_fingerprint"]
+    actual_packs = None if packs is None else sha256_file(packs)
+    if actual_packs != expected_packs:
+        raise ValueError("Bake realizer packs differ from the checkpoint")
+    model = build_model(config, codec, precision=payload["train_config"]["precision"], packs=packs)
     model.load_state_dict(payload["model"], strict=True)
-    optimizer = MasterAdamW(model, 1e-5, payload["train_config"].get("weight_decay", 0.1))
-    try:
-        optimizer.load_state_dict(payload["optimizer"])
-        report = asdict(model.core.frontend.ngrams.bake(optimizer))
+    table = model.core.frontend.ngrams
+    optimizer = None
+    if payload.get("export_only"):
+        masters = payload.get("master_weights")
+        if not isinstance(masters, dict):
+            raise ValueError("DiLoCo export lacks global FP32 master weights")
+        master_name = "core.frontend.ngrams.embedding.weight"
+        if master_name not in masters:
+            raise ValueError("DiLoCo export lacks the native table master")
+        if masters[master_name].dtype != torch.float32:
+            raise ValueError("DiLoCo native table master is not FP32")
+        report = asdict(table.bake(master_weights=masters[master_name]))
+        masters = {
+            name: value
+            for name, value in masters.items()
+            if name != "core.frontend.ngrams.import_map.weight"
+            and not re.fullmatch(
+                r"core\.frontend\.ngrams\.import_branches\.\d+\.import_map\.weight",
+                name,
+            )
+        }
+        # An export is an inference snapshot and next phase seed. It has no
+        # local optimizer to restore; retain the coordinator's FP32 masters.
         saved = {
             **payload,
             "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
+            "master_weights": masters,
             "engram_bake": report,
         }
-        bank = metadata.pop("transducer_checkpoint")
+    else:
+        optimizer = MasterAdamW(
+            model,
+            1e-5,
+            payload["train_config"].get("weight_decay", 0.1),
+            inner_optimizer=payload["train_config"].get("inner_optimizer", "adamw"),
+        )
+        try:
+            optimizer.load_state_dict(payload["optimizer"])
+            report = asdict(table.bake(optimizer))
+            saved = {
+                **payload,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "engram_bake": report,
+            }
+        except BaseException:
+            optimizer.close()
+            raise
+    bank = metadata.pop("transducer_checkpoint")
 
-        def carry_bank(stage: Path) -> dict[str, Any]:
-            shutil.copyfile(resolve_checkpoint(checkpoint) / bank["file"], stage / bank["file"])
-            return {"transducer_checkpoint": bank}
+    def carry_bank(stage: Path) -> dict[str, Any]:
+        shutil.copyfile(resolve_checkpoint(checkpoint) / bank["file"], stage / bank["file"])
+        return {"transducer_checkpoint": bank}
 
+    try:
         path = save_checkpoint(
             output,
             f"{payload['train_config']['phase']}-{payload['global_step']:09d}-baked",
@@ -235,4 +341,5 @@ def bake_checkpoint(
         )
         return {"checkpoint": str(path), **report}
     finally:
-        optimizer.close()
+        if optimizer is not None:
+            optimizer.close()

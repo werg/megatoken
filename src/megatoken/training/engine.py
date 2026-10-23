@@ -230,6 +230,7 @@ def _resume_compatible(old: dict[str, Any], config: TrainConfig, phase_transitio
         "precision",
         "expert_backend",
         "engram_import",
+        "engram_imports",
         "weight_decay",
         "inner_optimizer",
         "decoupled",
@@ -358,10 +359,12 @@ def train(
             new_owners = restore_weights(
                 model, payload, packs_fingerprint, phase_transition=phase_transition
             )
-        elif config.engram_import:
+        elif config.engram_import or config.engram_imports:
             from megatoken.assets import install_engram_asset
 
-            install_engram_asset(model, config.engram_import)
+            paths = [config.engram_import] if config.engram_import else config.engram_imports
+            for path in paths:
+                install_engram_asset(model, path)
         # Synchronous ranks are learners of one canonical bank merged on rank 0.
         transducer = TransducerTrainer(
             model.transducer,

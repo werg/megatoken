@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import replace
@@ -21,6 +22,7 @@ from megatoken.data import (
     reconcile,
 )
 from megatoken.data.sources import SourceFile, write_source_manifest
+from megatoken.io import content_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -365,12 +367,27 @@ class Fleet:
             def read_file(self, path):
                 if path.endswith("receipt.json"):  # a finish sandbox's upload receipt
                     part = int(sandbox_id.rsplit("-", 1)[1])
+                    name, manifest, manifest_path, raw = fleet_manifest(part)
                     receipt = {
                         "run": "unit-prep",
                         "part": part,
                         "repo": "owner/data",
-                        "public": [],
+                        "public": [
+                            {
+                                "path": manifest_path,
+                                "bytes": len(raw),
+                                "sha256": hashlib.sha256(raw).hexdigest(),
+                            }
+                        ],
                         "encrypted": None,
+                        "roots": {name: "permissive"},
+                        "prepared_roots": {
+                            name: {
+                                key: manifest[key]
+                                for key in ("fingerprint", "codec_fingerprint", "chunking")
+                            }
+                            | {"extractors": []}
+                        },
                     }
                     return Result(json.dumps(receipt).encode())
                 return Result(json.dumps({"files": fleet.files(sandbox_id)}).encode())
@@ -565,7 +582,21 @@ def make_key(tmp_path):
 def fake_hub():
     hub = FakeHub()
     hub.create_repo(REPO, repo_type="dataset", private=False, exist_ok=True)
+    hub._commit(REPO, {fleet_manifest(part)[2]: fleet_manifest(part)[3] for part in range(2)})
     return hub
+
+
+def fleet_manifest(part):
+    name = f"root-{part}"
+    manifest = {
+        "codec_fingerprint": "fixture-codec",
+        "chunking": {"fixture": True},
+        "feature_extractors": [],
+        "part": part,
+    }
+    manifest["fingerprint"] = content_hash(manifest)
+    path = f"permissive/unit-prep/part-{part:04d}/{name}/root/manifest.json"
+    return name, manifest, path, json.dumps(manifest).encode()
 
 
 def test_launch_gives_the_key_to_the_finish_wave_alone_and_pins_the_result(tmp_path, monkeypatch):
