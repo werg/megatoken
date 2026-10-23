@@ -10,7 +10,6 @@ import subprocess
 import sys
 import time
 import traceback
-from dataclasses import replace
 from pathlib import Path
 
 import torch
@@ -149,7 +148,7 @@ def main() -> None:
         "train_checkpoint", global_step=first["global_step"], checkpoint_step=state["global_step"]
     )
 
-    config = replace(config, max_steps=2)
+    # max_steps limits updates in this invocation; one resumed update reaches step 2.
     resumed = train(config, resume=checkpoint)
     if resumed["global_step"] != 2:
         raise RuntimeError(f"Resume did not advance to step 2: {resumed['global_step']}")
