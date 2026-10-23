@@ -402,12 +402,14 @@ class TransducerTrainer:
             raise ValueError("Memory training requires explicit supervision identity")
         prior = state["supervision"]
         current = self.supervision_identity()
-        if prior.get("teacher") != current["teacher"]:
+        if not isinstance(prior, dict) or prior.keys() != current.keys():
+            raise ValueError("Memory training requires complete current supervision fields")
+        if prior["teacher"] != current["teacher"]:
             if state["bank"]["rows"]["ids"].numel():
                 raise ValueError(
                     "Checkpoint teacher value identity changed; explicit handover required"
                 )
-        if not allow_target_transition and prior.get("targets") != current["targets"] and prior:
+        if not allow_target_transition and prior["targets"] != current["targets"]:
             raise ValueError("Checkpoint teacher target identity changed during resume")
 
     def load_state_dict(self, state: dict, *, allow_target_transition=False) -> None:

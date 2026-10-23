@@ -97,3 +97,16 @@ def test_no_internal_corpus_converter_is_installed():
     from importlib.util import find_spec
 
     assert find_spec("megatoken.data.legacy_linear") is None
+
+
+def test_saved_memory_supervision_cannot_infer_missing_fields():
+    from megatoken.training.transducer import TransducerTrainer
+
+    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    trainer = TransducerTrainer(model.transducer)
+    state = trainer.state_dict()
+    for field in state["supervision"]:
+        incomplete = {**state, "supervision": dict(state["supervision"])}
+        incomplete["supervision"].pop(field)
+        with pytest.raises(ValueError, match="complete current supervision"):
+            trainer.load_state_dict(incomplete)
