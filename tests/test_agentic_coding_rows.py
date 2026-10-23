@@ -635,19 +635,34 @@ def test_each_listed_hub_parquet_file_is_read_with_its_own_columns_in_small_batc
     ]
 
 
-def test_a_listed_json_lines_file_is_read_by_the_json_builder_at_its_pinned_address(monkeypatch):
-    import sys
-    import types
+@pytest.mark.parametrize("suffix", [".jsonl", ".jsonl.gz", ".jsonl.zst"])
+def test_json_lines_preserve_changing_nested_fields_and_resume(monkeypatch, suffix):
+    import gzip
+    import io
+
+    import huggingface_hub
+    import zstandard
 
     from megatoken.data.sources import SourceFile, SourceSpec, TermsReview, iter_source_rows
 
-    calls = []
+    rows = [
+        {"report": {"passed": 1, "per_file": {"a.py": True}}},
+        {"report": {"passed": 0, "error": "failed", "per_file": "unavailable"}},
+        {"messages": [{"role": "user", "content": "hi", "type": "text"}]},
+    ]
+    data = ("\n".join(json.dumps(row) for row in rows) + "\n\n").encode()
+    if suffix.endswith(".gz"):
+        data = gzip.compress(data)
+    elif suffix.endswith(".zst"):
+        data = zstandard.ZstdCompressor().compress(data)
+    opened = []
 
-    def load_dataset(path=None, **kwargs):
-        calls.append((path, kwargs))
-        return iter([{"n": 0}])
+    class FakeFileSystem:
+        def open(self, address, mode, block_size=None):
+            opened.append(address)
+            return io.BytesIO(data)
 
-    monkeypatch.setitem(sys.modules, "datasets", types.SimpleNamespace(load_dataset=load_dataset))
+    monkeypatch.setattr(huggingface_hub, "HfFileSystem", FakeFileSystem)
     source = SourceSpec(
         source_id="s",
         uri="hf://datasets/o/r",
@@ -655,14 +670,12 @@ def test_a_listed_json_lines_file_is_read_by_the_json_builder_at_its_pinned_addr
         adapter="chat",
         stream="chat",
         revision="b" * 40,
-        files=(SourceFile("data/x.jsonl"),),
-        options={"read_batch_rows": 8},
+        files=(SourceFile("data/x" + suffix),),
         terms=TermsReview(approved=True, license="mit", reviewed_by="t", reviewed_at="2026-10-22"),
     )
-    assert [row for _, row in iter_source_rows(source)] == [{"n": 0}]
-    ((path, kwargs),) = calls
-    assert path == "json" and "batch_size" not in kwargs
-    assert kwargs["data_files"] == {"train": ["hf://datasets/o/r@" + "b" * 40 + "/data/x.jsonl"]}
+    assert list(iter_source_rows(source)) == list(enumerate(rows))
+    assert list(iter_source_rows(source, start_row=1)) == list(enumerate(rows[1:], 1))
+    assert opened == [f"hf://datasets/o/r@{'b' * 40}/data/x{suffix}"] * 2
 
 
 def test_a_row_filter_can_require_a_nonempty_conversation():

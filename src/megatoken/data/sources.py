@@ -289,6 +289,9 @@ def _hub_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
                 if builder == "parquet":
                     yield from _hub_parquet_rows(address, max_batch_rows)
                     continue
+                if _file_suffix(item.path).startswith(".jsonl"):
+                    yield from _hub_jsonl_rows(address)
+                    continue
                 yield from _load_dataset()(
                     builder,
                     data_files={source.split: [address]},
@@ -306,6 +309,36 @@ def _load_dataset() -> Any:
     except ImportError as exc:
         raise RuntimeError("Hugging Face streaming requires the 'data' extra (datasets)") from exc
     return load_dataset
+
+
+def _hub_jsonl_rows(address: str) -> Iterator[dict[str, Any]]:
+    """Read independent JSON objects without imposing one nested schema on later rows.
+
+    Execution reports and tool messages legitimately add fields or change a field's type
+    between episodes, including within one file. Arrow schema inference cannot preserve them.
+    """
+    from contextlib import ExitStack
+
+    from huggingface_hub import HfFileSystem
+
+    with ExitStack() as stack:
+        handle = stack.enter_context(HfFileSystem().open(address, "rb", block_size=8 << 20))
+        if address.endswith(".gz"):
+            handle = stack.enter_context(gzip.GzipFile(fileobj=handle))
+        elif address.endswith(".zst"):
+            import io
+
+            import zstandard
+
+            reader = stack.enter_context(zstandard.ZstdDecompressor().stream_reader(handle))
+            handle = stack.enter_context(io.BufferedReader(reader))
+        for number, line in enumerate(handle):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError(f"Expected a JSON object at line {number + 1} in {address}")
+            yield row
 
 
 def _hub_parquet_rows(address: str, max_batch_rows: int) -> Iterator[dict]:

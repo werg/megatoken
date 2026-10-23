@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "metadata_checked_at": "2026-10-22",
+  "sources": [
+    {
+      "source_id": "ds4-agentic-dialogue-planning",
+      "uri": "hf://datasets/r0b0tlab/deepseek-v4-pro-0813-agentic",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "2f075a280078b485be3e07b7fbf1413b88f6411a",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "sft_openai/train-*.parquet"
+        }
+      ],
+      "terms": {
+        "license": "other",
+        "notes": "Card licence tag: other. No tool structure: multi-turn stateful booking/inventory dialogue, planning, delegation and memory management (about 2.9k train rows).",
+        "approved": true,
+        "license_url": "https://huggingface.co/datasets/r0b0tlab/deepseek-v4-pro-0813-agentic",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 4
+        },
+        "row_filters": [
+          {
+            "path": "domain",
+            "op": "in",
+            "value": [
+              "stateful_dialogue",
+              "planning_decomposition",
+              "delegation_orchestration",
+              "memory_context_management"
+            ]
+          }
+        ]
+      },
+      "publisher_card": "https://huggingface.co/datasets/r0b0tlab/deepseek-v4-pro-0813-agentic",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "lumos-unified-plan-iterative",
+      "uri": "hf://datasets/ai2lumos/lumos_unified_plan_iterative",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "chat",
+      "revision": "e93c0f4856b91c1c384d3492507b767a51abb108",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "lumos_unified_plan_iterative.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/ai2lumos/lumos_unified_plan_iterative",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0. Lumos planning module, iterative subgoal planning (maths, complex QA, web agent; multimodal rows skipped by row filter because they need images). Superset of the separate lumos_maths/complex_qa/web_agent plan_iterative sets.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
+      },
+      "field_map": {
+        "family": "id"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "dataset",
+            "op": "in",
+            "value": [
+              "maths",
+              "complex_qa",
+              "web_agent"
+            ]
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/ai2lumos/lumos_unified_plan_iterative",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "simia-agentbench-sft",
+      "uri": "hf://datasets/Simia-Agent/Simia-AgentBench-SFT-15k",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "340f059eda3b197128ac67adc03e50f5894a1cba",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "data/*.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-nc-4.0",
+        "license_url": "https://huggingface.co/datasets/Simia-Agent/Simia-AgentBench-SFT-15k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "README: CC-BY-NC-4.0 (no licence tag on the card). 15k simulated webshop, Mind2Web (HTML) and operating-system (shell) episodes generated from AgentTuning seeds; many rows are variants of the same seed, so near-duplicate quarantine will remove a large share.",
+        "redistribute": "non_commercial",
+        "redistribute_basis": "publisher states cc-by-nc-4.0; non-commercial re-sharing with attribution is allowed"
+      },
+      "field_map": {},
+      "options": {
+        "observation_provenance": "simulated",
+        "quality": {
+          "min_scored_positions": 4
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Simia-Agent/Simia-AgentBench-SFT-15k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    }
+  ]
+}

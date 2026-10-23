@@ -179,10 +179,10 @@ HTTPS gateway is HTTP/2 and lowercases header names.
   a `sha256` and either a pinned `url` or a local `source` file that the
   launcher pushes (slow for anything large).
 - `{"cache": {"run": "configs/cloud/prepare-full-agentic.json"}}`: prepared data that
-  `megatoken.cloud_prepare` stored, encrypted, on Hub dataset repos (see "Keeping the prepared
-  data" in [data.md](data.md)). `launch` first checks that the stored copy still verifies and
-  rebuilds it from the pinned sources if it does not; each learner then restores it, verified
-  and decrypted, into `/work/data/prepared` before training, so the training config's
+  `megatoken.cloud_prepare` published to one Hub dataset repository (public Parquet subsets plus
+  an encrypted folder; see "Keeping the prepared data" in [data.md](data.md)). `launch` first
+  checks that the stored copy still verifies and rebuilds it from the pinned sources if it does
+  not; each learner then restores it, verified (and the encrypted part decrypted), into `/work/data/prepared` before training, so the training config's
   `datasets` can say `/work/data/prepared/*`. The cache key and Hub token reach the learners
   as secrets (`--cache-key FILE`, `--hf-token FILE` on `launch`; defaults
   `~/.config/megatoken/cache.key` and `~/.cache/huggingface/token`).

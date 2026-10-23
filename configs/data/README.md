@@ -102,7 +102,10 @@ and the gap to the stage plan). See "Scaling the media streams" in
 [`docs/data.md`](../../docs/data.md).
 
 The four text run files (`prepare-full-agentic`, `-open`, `-agentic-chat`, `-agentic-coding`)
-carry a `cache` block: their finished roots are encrypted and stored on public Hub dataset
-repos (key from `megatoken cache keygen`, kept only in a local file), and a training run
-restores them or, if the stored copy does not verify, rebuilds them. See "Keeping the prepared
-data: an encrypted copy on the Hub" in [`docs/data.md`](../../docs/data.md).
+carry a `cache` block: their finished roots are published to one public Hub dataset repository,
+sources whose licence allows it as readable Parquet subsets (`permissive`, `share_alike`,
+`non_commercial`) and every other source encrypted (key from `megatoken cache keygen`, kept only
+in a local file). Each text source records which in `terms.redistribute` and
+`terms.redistribute_basis`. A training run restores the data or, if the stored copy does not
+verify, rebuilds it. See "Keeping the prepared data: one Hub repository" in
+[`docs/data.md`](../../docs/data.md).

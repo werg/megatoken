@@ -72,8 +72,10 @@ class FakeHub:
         }
         self._commit(repo_id, changes)
 
-    def create_commit(self, *, repo_id, operations, commit_message, repo_type):
+    def create_commit(self, *, repo_id, operations, commit_message, repo_type, parent_commit=None):
         assert repo_type == "dataset" and commit_message
+        if parent_commit is not None and parent_commit != self.head[repo_id]:
+            raise CommitConflict()
         changes = {op.path_in_repo: bytes(op.path_or_fileobj) for op in operations}
         return SimpleNamespace(oid=self._commit(repo_id, changes))
 

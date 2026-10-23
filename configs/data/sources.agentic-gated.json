@@ -25,7 +25,7 @@
         "reviewed_at": "2026-10-22",
         "notes": "Card: CC BY 4.0. Every first user turn is withheld (empty) because the prompts come from LMSYS-Chat-1M (checked on the first parquet file: 93,328 of 93,328 rows).",
         "redistribute": "no",
-        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
+        "redistribute_basis": "gated on the Hub: keep encrypted under the project policy for click-through sources"
       },
       "field_map": {
         "family": "uuid"
@@ -62,7 +62,7 @@
         "reviewed_at": "2026-10-22",
         "notes": "Card: CC BY 4.0 and ODC-By. Rows seeded from LMSYS-Chat-1M or WildChat-1M have their first user turn withheld and are rejected until restored.",
         "redistribute": "no",
-        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
+        "redistribute_basis": "gated on the Hub: keep encrypted under the project policy for click-through sources"
       },
       "field_map": {
         "mask": "metadata.train_turns",
@@ -96,7 +96,7 @@
         "reviewed_at": "2026-10-22",
         "notes": "Gated (auto): the dataset page asks for acceptance of the LMSYS-Chat-1M licence agreement.",
         "redistribute": "no",
-        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
+        "redistribute_basis": "gated on the Hub: keep encrypted under the project policy for click-through sources"
       },
       "field_map": {
         "messages": "conversation",
@@ -130,7 +130,7 @@
         "reviewed_at": "2026-10-22",
         "notes": "Card: CC BY-SA 4.0 (share-alike), gated (auto) on the Hub.",
         "redistribute": "no",
-        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
+        "redistribute_basis": "gated on the Hub: keep encrypted under the project policy for click-through sources"
       },
       "field_map": {
         "family": "id"
@@ -163,7 +163,7 @@
         "reviewed_at": "2026-10-22",
         "notes": "Card: CC BY-SA 4.0 (share-alike), gated (auto) on the Hub.",
         "redistribute": "no",
-        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
+        "redistribute_basis": "gated on the Hub: keep encrypted under the project policy for click-through sources"
       },
       "field_map": {
         "family": "id"
@@ -196,7 +196,7 @@
         "reviewed_at": "2026-10-22",
         "notes": "Card: CC BY 4.0, gated (auto) on the Hub.",
         "redistribute": "no",
-        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
+        "redistribute_basis": "gated on the Hub: keep encrypted under the project policy for click-through sources"
       },
       "field_map": {
         "family": "uuid"

@@ -129,6 +129,17 @@ def test_an_episode_that_differs_from_its_index_is_refused(tmp_path):
         publish.convert_root(root, tmp_path / "out")
 
 
+def test_a_failed_repeat_restore_removes_the_old_completion_marker(tmp_path):
+    root = make_root(tmp_path, "00000")
+    out, restored = tmp_path / "out", tmp_path / "restored"
+    publish.convert_root(root, out)
+    publish.restore_root(listing(out), restored)
+    (out / "root/index.sqlite").write_bytes(b"damaged")
+    with pytest.raises(publish.PublishError, match="index"):
+        publish.restore_root(listing(out), restored)
+    assert not (restored / "manifest.json").exists()
+
+
 def test_the_transcript_joins_the_parts_of_a_record_and_names_media():
     import base64
 
@@ -221,6 +232,8 @@ def test_every_root_needs_a_group_and_every_source_an_attribution(tmp_path):
         publish.store_part(**common, groups={}, sources={})
     with pytest.raises(publish.PublishError, match="no source to attribute"):
         publish.store_part(**common, groups={"00000": "permissive"}, sources={})
+    with pytest.raises(publish.PublishError, match="Unknown licence groups"):
+        publish.store_part(**common, groups={"00000": "typo"}, sources={})
 
 
 def test_the_pin_records_one_commit_and_the_whole_run_comes_back(tmp_path):
@@ -353,6 +366,8 @@ def test_sandboxes_write_their_own_folders_and_races_are_repeated(tmp_path, monk
     assert sorted(p.name for p in restored.iterdir()) == ["00000", "00001", "00002", "00003"]
     with pytest.raises(publish.PublishError, match="parts 0..n-1"):
         publish.make_pin(RUN, REPO, "x", [first, first])
+    with pytest.raises(publish.PublishError, match="different run"):
+        publish.make_pin("another-run", REPO, "x", [first])
     with pytest.raises(publish.PublishError, match="none of the requested parts"):
         publish.fetch(api=hub, keys=KEY, pin=pin, dest=tmp_path / "none", parts=[7])
 
@@ -390,6 +405,29 @@ def test_the_card_is_rebuilt_from_the_repository_across_runs(tmp_path):
     before = hub.head[REPO]
     assert publish.refresh_card(hub, REPO, scratch=tmp_path / "again") == before
     assert hub.head[REPO] == before
+
+
+def test_a_card_update_reloads_sources_when_another_run_uploads(tmp_path, monkeypatch):
+    from megatoken import hub as hub_module
+
+    monkeypatch.setattr(hub_module.time, "sleep", lambda _: None)
+    hub = FakeHub()
+    store(hub, tmp_path, run="run-a")
+    original = hub.create_commit
+    raced = False
+
+    def commit(**kwargs):
+        nonlocal raced
+        if not raced:
+            raced = True
+            store(hub, tmp_path, run="run-b")
+        return original(**kwargs)
+
+    hub.create_commit = commit
+    revision = publish.refresh_card(hub, REPO, scratch=tmp_path / "card")
+    card = hub.commits[REPO][revision]["README.md"].decode()
+    assert "2 encrypted parts" in card
+    assert "| 14 |" in card  # both runs' public episodes are described
 
 
 # ---- the card -------------------------------------------------------------------------------

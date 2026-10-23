@@ -494,7 +494,7 @@ def parser() -> argparse.ArgumentParser:
     item.set_defaults(func=_codec)
     item = commands.add_parser(
         "cache",
-        help="The encrypted cache of prepared data: keygen, fetch, verify (see docs/data.md)",
+        help="The key of the encrypted part of the published data: keygen (see docs/data.md)",
         add_help=False,
     )
     item.add_argument("rest", nargs=argparse.REMAINDER)

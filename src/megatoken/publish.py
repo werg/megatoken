@@ -263,12 +263,17 @@ def restore_root(files: Mapping[str, Path], dest: Path) -> int:
         raise PublishError(f"{dest.name}: the published root has no manifest")
     manifest = json.loads(own["manifest.json"].read_text())
     dest.mkdir(parents=True, exist_ok=True)
+    # A failed repeat must not leave an old completion marker over partially replaced data.
+    (dest / "manifest.json").unlink(missing_ok=True)
     for name, path in own.items():
         if name != "manifest.json":
             target = dest / cache._safe_relative(name)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, target)
-    if sha256_file(dest / manifest["index"]["path"]) != manifest["index"]["sha256"]:
+    if (
+        sha256_file(dest / cache._safe_relative(manifest["index"]["path"]))
+        != manifest["index"]["sha256"]
+    ):
         raise PublishError(f"{dest.name}: the published index does not match the manifest")
     handles: dict[str, Any] = {}
     digests: dict[str, Any] = {}
@@ -285,6 +290,7 @@ def restore_root(files: Mapping[str, Path], dest: Path) -> int:
                 ):
                     if shard not in handles:
                         target = dest / cache._safe_relative(shard)
+                        target.parent.mkdir(parents=True, exist_ok=True)
                         handles[shard] = target.with_name(target.name + ".partial").open("wb")
                         digests[shard] = hashlib.sha256()
                     line = text.encode("utf-8") + b"\n"
@@ -375,6 +381,8 @@ def store_part(
     unknown = [name for name in roots if name not in groups]
     if unknown:
         raise PublishError(f"No licence group is known for the roots {unknown}")
+    if invalid := sorted({groups[name] for name in roots} - set(REDISTRIBUTION_GROUPS)):
+        raise PublishError(f"Unknown licence groups: {invalid}")
     api.create_repo(repo, repo_type="dataset", private=False, exist_ok=True)
     staging = work / "public"
     shutil.rmtree(staging, ignore_errors=True)
@@ -491,6 +499,8 @@ def make_pin(
         raise PublishError("The receipts do not cover parts 0..n-1 exactly once")
     if any(receipt["repo"] != repo for receipt in parts):
         raise PublishError("The receipts name different repositories")
+    if any(receipt["run"] != run for receipt in parts):
+        raise PublishError("The receipts belong to a different run")
     return {
         "schema": PIN_SCHEMA,
         "run": run,
@@ -782,6 +792,20 @@ def refresh_card(
 ) -> str:
     """Rebuild the card from what ``repo`` holds and commit it (and the encrypted folder's
     notice) if they changed; returns the commit that holds everything, the new one or the head."""
+    return hub.retry_conflicts(
+        lambda: _refresh_card(api, repo, contact=contact, scratch=scratch, log=log)
+    )
+
+
+def _refresh_card(
+    api: Any,
+    repo: str,
+    *,
+    contact: str,
+    scratch: Path,
+    log: Callable[[str], None],
+) -> str:
+    """One optimistic update; if another run uploads, rebuild from the new head on retry."""
     from huggingface_hub import CommitOperationAdd
 
     remote = cache.Remote(api)
@@ -808,13 +832,12 @@ def refresh_card(
     shutil.rmtree(scratch, ignore_errors=True)
     if not changed:
         return head
-    info = hub.retry_conflicts(
-        lambda: api.create_commit(
-            repo_id=repo,
-            operations=changed,
-            commit_message="Rebuild the dataset card",
-            repo_type="dataset",
-        )
+    info = api.create_commit(
+        repo_id=repo,
+        operations=changed,
+        commit_message="Rebuild the dataset card",
+        repo_type="dataset",
+        parent_commit=head,
     )
     log(f"dataset card rebuilt in {info.oid}")
     return str(info.oid)

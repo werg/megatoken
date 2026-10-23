@@ -1454,6 +1454,8 @@ and sizes at the pinned revision (`configs/data/files.agentic.json`,
 `configs/data/files.open.json`; rebuilt from Hub metadata when missing). Every machine
 computes the same plan from the same two files and keeps its own shard, so no coordinator
 is needed. Shards are balanced by expected work to within about 3 to 13 percent.
+In the cloud runs a shard also holds the sources of one licence group only (see "Keeping the
+prepared data" below), so the plan first shares the shards out between the groups by work.
 
 **Three steps, on any machines:**
 
@@ -1593,36 +1595,105 @@ Public media (images, speech, sound, video and edits) is prepared the same way w
 run files on GPU sandboxes (`configs/cloud/prepare-full-media-*.json`); see "Cloud jobs and
 full-volume runs" under "Scaling the media streams" below.
 
-### Keeping the prepared data: an encrypted copy on the Hub
+### Keeping the prepared data: one Hub repository, public subsets and an encrypted folder
 
 Sandboxes disappear within hours and there is no durable cloud disk or bucket, so a finished
-build would be lost with them. A run file with a `cache` block (`"cache": {"owner":
-"gabrielpickard"}`; the four text run files `prepare-full-agentic`, `-open`, `-agentic-chat` and
-`-agentic-coding` have one) makes every finishing sandbox seal its finished roots and upload
-them to public Hugging Face dataset repos under that account. Every source is stored the same
-way, with no licence split: the copies are encrypted, so what is public is unreadable bytes.
-Code: `src/megatoken/cache.py`; tests: `tests/test_cache.py` (real encryption against a fake
-Hub, no network).
+build would be lost with them. A run file with a `cache` block (`"cache": {"repo":
+"gabrielpickard/megatoken-training-data"}`; the four text run files `prepare-full-agentic`,
+`-open`, `-agentic-chat` and `-agentic-coding` have one) makes every finishing sandbox publish its
+finished roots to that one public Hugging Face dataset repository. The repository name is the only
+thing to change to publish elsewhere. Code: `src/megatoken/publish.py` (layout, Parquet, pin, card)
+and `src/megatoken/cache.py` (the encryption); tests: `tests/test_publish.py`, `tests/test_cache.py`
+(real files and real encryption against a fake Hub, no network).
 
-**What is stored.** Each root's files (the shard files, `index.sqlite`, `manifest.json` and the
-reports) but not the working databases (`preparation.sqlite`, `digest.sqlite`), which training
-never reads. A finishing sandbox's files are laid end to end and cut into pieces of exactly
-1 GiB of plaintext (the last piece is padded with zeros), so the pieces are all the same size.
-Each piece is encrypted with AES-256-GCM, 4 MiB at a time, so a multi-GB piece is never held in
-memory. A piece's segments carry their position and the last one is marked, so reordering,
-cutting off or swapping a piece for another file's is detected. The manifest (file paths,
-offsets, the sha256 of every plaintext file and of every encrypted piece) is encrypted the same
-way and padded to a multiple of 1 MiB. File names are `HMAC(key, logical name)` and repo names
-are the same kind of hash (24 hex characters), so nothing in a name says what it holds. The only
-plaintext in a repo is a `README.md`: "Encrypted cache of preprocessed machine-learning training
-data for the megatoken project". There is no source list, no licence and no per-source size.
-Pieces are not tied to sources, so a source's size is not visible.
+**Which sources are public.** Every text source records a decision in its `terms`:
+`redistribute` (`permissive`, `share_alike`, `non_commercial` or `no`) and `redistribute_basis`
+(a sentence saying why). The rule, applied conservatively to each source's recorded licence text
+and notes:
 
-**What stays visible.** That the account holds these repos, their number and the number of
-equal-sized pieces in each (so each finishing sandbox's total to within 1 GiB) and when they
-were committed. Identical content sealed twice gives identical bytes (the salt is a hash of the
-content, which is what lets a rebuilt sandbox repeat an upload the Hub already holds), so
-equality of two pieces under one key would show; different content never shares a key stream.
+| group | what goes in | published as |
+|---|---|---|
+| `permissive` | MIT, Apache-2.0, BSD, CC0, CC-BY, ODC-By, ODbL, PDDL, Unlicense (and the clearly equivalent CDLA-Permissive-2.0 and OpenMDW-1.1) stated by the publisher, with nothing in the notes that limits re-sharing | readable Parquet, each row under its source's licence |
+| `share_alike` | CC-BY-SA, or a permissive set whose notes record CC-BY-SA rows | readable Parquet, CC-BY-SA-4.0 |
+| `non_commercial` | CC-BY-NC or CC-BY-NC-SA, no ND | readable Parquet, the NC licence (NC-SA if any source is NC-SA) |
+| `no` | everything else: gated sets and anything behind a click-through; no licence stated, or only inferred; "no blanket grant"; ND, research-only and educational-only; custom or vendor licences (Llama, Gemma, NVIDIA, Microsoft, RAIL, AI2 ImpACT); mixtures whose parts keep their own terms; rows that are outputs of closed commercial models (OpenAI, Anthropic, Google), whose terms limit use of outputs; sessions recorded by real developers; copyleft code; per-file or per-row licences; anything the notes leave unsure | encrypted |
+
+A source with no recorded decision counts as `no`. `tests/test_redistribution.py` checks that
+every text source has the fields, that gated, unlicensed, ND and custom-licence sources are `no`,
+and that a published source states a licence of its group.
+
+**Review of uncertain sources (2026-10-23).** The source entries retain the reason for
+withholding each source. The ambiguous groups remain encrypted: missing or inferred licences,
+per-row and per-file grants, mixed-source grants, custom terms, gated access, and provider-output
+conditions. In particular, UltraData's Apache heading does not override its upstream terms or
+its explicit prohibition on unauthorized mirroring ([publisher card](https://huggingface.co/datasets/openbmb/UltraData-SFT-Agent-2609/blob/main/README.md#-license-and-data-sources)).
+OpenSWE's recorded conflicting licence statements remain unresolved, so it stays encrypted.
+Gating alone is not treated as proof of a legal redistribution restriction: it is a reason to
+encrypt under the user's chosen storage policy. CC-BY-SA-3.0 sources keep that original licence
+in the attribution table; the group's CC-BY-SA-4.0 label does not replace upstream notices
+([CC-BY-SA-3.0 terms](https://creativecommons.org/licenses/by-sa/3.0/legalcode), section 4).
+The pilot uses three existing public datasets, one each from the permissive, non-commercial
+and encrypted groups, before the full chat build. It tests all three preparation steps and
+publishing without first allocating the full build.
+
+**Keeping groups apart.** Full-volume preparation plans shards per group (`plan_group_shards`):
+no shard mixes groups, and shards are numbered permissive first. `reconcile` replays shards in
+that order and keeps the first copy of a duplicate, so a text that a restricted source shares with
+a public one stays in the public group and is dropped from the restricted one (an exact copy, or a
+near copy above the usual similarity threshold). Everything else (families, splits, benchmark
+quarantine) is decided once over all groups. `tests/test_cloud_prepare.py` runs this on one machine
+with two sources and checks it.
+
+**The repository.**
+
+```
+README.md                                  the dataset card
+permissive/<run>/part-0003/<shard>/data-00000.parquet ...   readable rows, files of about 1 GiB
+permissive/<run>/part-0003/<shard>/root/   the root's manifest, index and reports
+permissive/<run>/part-0003/sources.json    which sources that part holds, with attribution
+share_alike/...   non_commercial/...         the same for the other public groups
+encrypted/README.md                        says plainly that the folder is unusable ciphertext
+encrypted/<opaque>/<opaque>.bin            everything in group `no`, sealed (see below)
+```
+
+The card (`license: other`) opens with a prominent notice that `encrypted/` is an ENCRYPTED cache of
+preprocessed training data for the megatoken project that cannot be used without the project's
+private key, then gives one licence per subset, a contact and takedown note, the columns, and a
+per-source attribution table grouped by subset (upstream repository URL, revision, licence, licence
+URL, episodes). Only the public subsets are declared as loadable configs; `encrypted/` is not. The
+card is rebuilt from what the repository holds, once, at the end of each run (and by `python -m
+megatoken.publish card --repo REPO` at any time), so it always covers every run. Set `cache.contact`
+in the run file to say how to reach you (default: the repository's Community tab).
+
+A Parquet row has the index columns (`source_id`, `stream`, `split`, `family_id`, `tokens`, ...), a
+readable `messages` transcript, the `tools`, and `episode_json`, the stored episode verbatim, from
+which a root is rebuilt byte for byte (each rebuilt shard file is checked against the root's own
+manifest, the index against its recorded hash). The Parquet therefore holds the text twice (and the
+token ids of the stored episode); its size at full volume is not measured.
+
+**Hub limits.** Under 100,000 files per repository (a full set is a few thousand: files of about 1
+GiB), under 10,000 entries per folder (every folder is a part, a root or a run: dozens), no file
+near 200 GB, and uploads in many commits (`upload_large_folder`). Several sandboxes upload at once:
+each writes only its own part's folders, so no path is ever written twice, and a commit the Hub
+refuses as a race (409 or 412) is repeated (`megatoken/hub.py`, with the 429 and 503 waits).
+Not checked against the live service: the account's storage quota (the four runs below prepare over 1 TB before Parquet compression;
+free public storage is best-effort and large storage requires a paid plan or an agreed grant;
+there is no spill-over to a second repository), its commit-rate limits, and the upload speed
+from the sandboxes. The first real run is a one-sandbox pilot (`configs/cloud/prepare-pilot-storage.json`).
+Current guidance: [Hub storage limits](https://huggingface.co/docs/hub/storage-limits), checked
+2026-10-23; it no longer gives a 300 GB per-repository recommendation.
+
+**The encrypted folder.** A finishing sandbox seals its group-`no` roots (just the files, never
+the working databases `preparation.sqlite` and `digest.sqlite`). The files are laid end to end and
+cut into pieces of exactly 1 GiB of plaintext (the last is padded with zeros), so the pieces are all
+the same size. Each piece is encrypted with AES-256-GCM, 4 MiB at a time, so a multi-GB piece is
+never held in memory. A piece's segments carry their position and the last one is marked, so
+reordering, cutting off or swapping a piece for another file's is detected. The manifest (file
+paths, offsets, the sha256 of every plaintext file and of every encrypted piece) is encrypted the
+same way and padded to a multiple of 1 MiB. File and folder names are `HMAC(key, logical name)`, so
+nothing in a name says what it holds. There is no source list, no licence and no per-source size
+there. Identical content sealed twice gives identical bytes (the salt is a hash of the content,
+which is what lets a rebuilt sandbox repeat an upload the Hub already holds).
 
 **The key.** One random 256-bit key, in a local file only:
 
@@ -1630,92 +1701,81 @@ equality of two pieces under one key would show; different content never shares 
 megatoken cache keygen          # writes ~/.config/megatoken/cache.key (mode 600, 64 hex characters)
 ```
 
-`keygen` refuses to overwrite an existing key: replacing it would make everything stored
-under the old one unreadable. The file is refused if other users can read it. Override the
-location with `$MEGATOKEN_CACHE_KEY_FILE` or `--cache-key FILE` on the launchers. The key
-reaches a sandbox only as a secret file (`$MEGATOKEN_CW_SECRETS/cache-key`, like `hf-token`),
-and only in the sandboxes that need it: the finishing sandboxes of a build, and the learners of
-a training run. It is never in a job file, on a command line, in a log, in a commit or in the
-repos. Back it up somewhere other than this machine (a password manager): the stored data
-is only useful with it. The other credential is the Hub token already used for preparation,
-`~/.cache/huggingface/token`, which must be a **write** token for uploading (reading the
-public repos needs none, but sandboxes send it anyway).
+`keygen` refuses to overwrite an existing key: replacing it would make everything stored under the
+old one unreadable. The file is refused if other users can read it. Override the location with
+`$MEGATOKEN_CACHE_KEY_FILE` or `--cache-key FILE` on the launchers. The key reaches a sandbox only
+as a secret file (`$MEGATOKEN_CW_SECRETS/cache-key`, like `hf-token`), and only in the sandboxes
+that need it: the finishing sandboxes of a build and the learners of a training run. It is never in
+a job file, on a command line, in a log, in a commit or in the repository. Back it up somewhere other
+than this machine: the encrypted part is only useful with it. The other credential is the Hub token
+already used for preparation, `~/.cache/huggingface/token`, which must be a **write** token for
+publishing (reading the public repository needs none, but sandboxes send it anyway).
 
-**Storing.** `launch` runs as before, and then each finishing sandbox runs
-`python -m megatoken.cache store` on its roots: seal, upload with `upload_large_folder` (the
-429 and 503 retries of `megatoken/hub.py` apply), then check by listing the repo that every
-file is there at its exact size and ciphertext sha256 (the Hub records the hash of large
-files; a small file is downloaded and hashed). The sandbox's receipt carries only repo names
-and commit hashes. When every receipt is in, the launcher writes the **pin**,
-`~/.local/state/megatoken/cloud/prepare/<run id>.cache-pin.json` (repo names and commit hashes,
-no secret; it may be committed), and stops every sandbox, the finishing ones too: the roots no
-longer need them. Resuming is cheap: sealed pieces are kept in the sandbox until stored, the
-upload skips what the Hub holds, and a redone sandbox seals identical bytes. The finishing
-sandbox needs free disk for one more copy of its roots while sealing (up to the per-sandbox
-figure below), and `hours.finish` of these run files is 4 to cover sealing and upload.
+**Publishing.** `launch` runs as before, and then each finishing sandbox runs `python -m
+megatoken.cloud_prepare publish` on its roots: public roots become Parquet under the part's own
+folders, group-`no` roots are sealed under `encrypted/<opaque>/`; both are uploaded with
+`upload_large_folder` and then checked by listing the repository (every file there at its exact size
+and sha256; the Hub records the hash of large files and a small file is downloaded and hashed). The
+sandbox's receipt lists its public files and hashes. When every receipt is in, the launcher rebuilds
+the card in one commit and writes the **pin** (`~/.local/state/megatoken/cloud/prepare/<run
+id>.cache-pin.json`): the repository, that one commit (which holds every part and the card), and the
+sha256 of every public file. It checks the pin before stopping every sandbox, the finishing ones too.
+The pin holds no secret and may be committed. Resuming is cheap: converted and sealed files are kept
+in the sandbox until published, the upload skips what the Hub holds, and a redone sandbox produces
+the same sealed bytes. The finishing sandbox needs free disk for one more copy of its roots while
+converting and sealing, and `hours.finish` of these run files is 4 to cover it.
 
 **How a training run gets its data (the decision).** `python -m megatoken.cloud_prepare ensure
 RUN.json` (also run by `cloud_diloco launch` when the data is `{"cache": {"run": "RUN.json"}}`):
 
 | situation | answer |
 |---|---|
-| a pin exists and every pinned repo and commit still holds its manifest and every piece at its recorded hash (checked without downloading the data) | **stored**: learners fetch it |
+| a pin exists, its commit still holds every public file at its recorded size and hash, and every encrypted manifest decrypts and every piece is at its recorded hash (checked without downloading the data) | **stored**: learners fetch it |
 | no pin has been recorded | **rebuild** |
-| a repo, commit or piece is missing or altered, or the key no longer opens the manifests | **rebuild** |
+| a file, piece, commit or the repository is missing or altered, or the key no longer opens the manifests | **rebuild** |
 | the Hub cannot be reached | error, no guess (a rebuild needs the Hub too) |
 
-A rebuild is `launch` from the pinned sources (the old run record is set aside), which stores and
-pins the result again. Learners then run `python -m megatoken.cache fetch --pin PIN --dest
-/work/data/prepared`: each piece's ciphertext hash is checked before it is opened, each file's
-plaintext hash (from the decrypted manifest) before it gets its name, and a rerun skips files that
-are already there and verified. Any mismatch stops the learner, since training on altered data
-must not start; run `ensure` again to rebuild. A training config can list `/work/data/prepared/*`
-among its `datasets`; a pattern stands for every directory it matches and matching nothing is an
-error. By hand: `megatoken cache verify --pin FILE`, `megatoken cache fetch --pin FILE --dest DIR
-[--part N]`.
+A rebuild is `launch` from the pinned sources (the old run record is set aside), which publishes and
+pins the result again. Learners then run `python -m megatoken.publish fetch --pin PIN --dest
+/work/data/prepared`: public files are downloaded from the pinned commit and checked against the
+pin, rebuilt into prepared roots and checked against each root's manifest; each encrypted piece's
+ciphertext hash is checked before it is opened and each file's plaintext hash before it gets its
+name; a rerun skips encrypted files already there and verified. Any mismatch stops the learner,
+since training on altered data must not start; run `ensure` again to rebuild. A training config can
+list `/work/data/prepared/*` among its `datasets`; a pattern stands for every directory it matches
+and matching nothing is an error. By hand: `python -m megatoken.publish verify --pin FILE`,
+`python -m megatoken.publish fetch --pin FILE --dest DIR [--part N]`.
 
-**If the key is lost.** The stored copy is unreadable; delete the repos and run `ensure`: with no
-way to verify it, nothing is fetched and the data is rebuilt (the sources are pinned, so the
-rebuild is the same data). Make a new key first (the old file must be moved away by hand). **If
-the key leaks**, every copy ever stored under it is readable by whoever has it, and public
-repos cannot be un-published once copied, so treat what was stored as exposed from then on.
-**To rotate** (do it if the key might have leaked, and delete the old repos right away):
-`megatoken cache keygen --path NEW.key`; with the old key (`MEGATOKEN_CACHE_KEY_FILE=OLD.key`)
-run `megatoken cache fetch --pin OLD.pin --dest /scratch/plain`; with the new one run
-`python -m megatoken.cache store --run-id RUN --part 0 --owner ACCOUNT --source /scratch/plain
---work /scratch/seal --receipt r.json`, then `python -m megatoken.cache pin r.json --run-id RUN
---output NEW.pin`; then delete the old repos on the Hub (their names are in the old pin). The new
-key gives new repo names, so the two sets never collide.
-
-**Limits assumed.** Pieces are 1 GiB and a repo holds at most 250 GiB (`cache.piece_bytes` and
-`cache.repo_bytes` in the run file change them), under the Hub's guidance of about 300 GB per
-public repo; a finishing sandbox's repos are its own, so there is no cross-sandbox coordination.
-Not checked against the live service: that the free account may hold this much public data
-(about 52 repos and 1 to 2 TB for the four text runs), the Hub's repo-creation and commit rate
-limits, and its upload speed from the sandboxes. The first real run should be a one-sandbox
-pilot.
+**If the key is lost.** The encrypted folder is unreadable; delete it and run `ensure`: with no way
+to verify it, nothing is fetched and the data is rebuilt (the sources are pinned, so the rebuild is
+the same data). Make a new key first (the old file must be moved away by hand). **If the key
+leaks**, every encrypted copy ever stored under it is readable by whoever has it, and a public
+repository cannot be un-published once copied, so treat what was stored as exposed from then on:
+make a new key, delete `encrypted/`, and rebuild. A new key gives new names.
 
 **Sizes.** From the file listings (`configs/data/files.*.json`) at the pinned revisions: stored
-bytes are the source files as the Hub holds them; text is that expanded to row text (parquet
-x3, gzip and zstd x4, the sharding plan's factors, minus rows a source's filter drops), an upper
-bound on what is sealed since deduplication and rejects only remove. Prepared roots also hold an
-index, so allow a few percent more; the encrypted size is the text plus under 0.5 percent and up
-to 1 GiB of padding per sandbox.
+bytes are the source files as the Hub holds them; text is that expanded to row text (parquet x3,
+gzip and zstd x4, the sharding plan's factors, minus rows a source's filter drops), an upper bound
+on what is prepared since deduplication and rejects only remove. Sources per group (and GiB stored
+and of text) for the four text run files:
 
-| run file | sources | sandboxes (= parts) | stored source bytes | sealed text, at most | per sandbox, at most |
-|---|---:|---:|---:|---:|---:|
-| `prepare-full-agentic` | 63 | 16 | 143 GiB | 274 GiB | 17 GiB |
-| `prepare-full-open` | 14 | 8 | 85 GiB | 259 GiB | 32 GiB |
-| `prepare-full-agentic-chat` | 169 | 8 | 95 GiB | 150 GiB | 19 GiB |
-| `prepare-full-agentic-coding` | 358 | 20 | 723 GiB | 1,180 GiB | 59 GiB |
-| all four | 604 | 52 | 1,046 GiB | 1,863 GiB | |
+| run file | permissive | share_alike | non_commercial | no |
+|---|---|---|---|---|
+| `prepare-full-agentic` | 33 (92 / 163) | 2 (under 0.1) | 2 (0.1 / 0.1) | 26 (51 / 111) |
+| `prepare-full-open` | 5 (46 / 137) | 0 | 0 | 9 (40 / 123) |
+| `prepare-full-agentic-chat` | 72 (41 / 64) | 0 | 4 (0.4 / 1.2) | 93 (54 / 86) |
+| `prepare-full-agentic-coding` | 80 (341 / 612) | 0 | 0 | 278 (382 / 568) |
+| all four | 190 (519 / 976) | 2 | 6 (0.5 / 1.3) | 406 (526 / 887) |
 
-Each part fits in one repo, so a full set is about 52 repos. Pulling a run into a training
-sandbox moves its sealed bytes once; at 100 MB/s that is about 3 minutes per 17 GiB part, so
-a learner that fetches only its share is quick and one that fetches everything (1.9 TB) needs
-about 5 hours at that rate (the speed of the Hub from the sandboxes is not measured), and
-needs that much local disk. `cloud_diloco` restores every part into each learner; pass
-`--part` to `megatoken cache fetch` yourself to restore a share.
+The other text manifests (`sources.agentic-more*.json`, `later-stages`, `v13`, the gated ones) have
+no file listing yet: `agentic-more` has 127 permissive, 28 share_alike, 7 non_commercial and 237
+`no`; `later-stages` 18, 0, 1 and 28; `v13` 6, 0, 0 and 10; the three gated manifests 34 `no`. The
+encrypted size is the text plus under 0.5 percent and up to 1 GiB of padding per sandbox; the Parquet size is not
+measured (see above). Pulling a run into a training
+sandbox moves its bytes once; at 100 MB/s that is about 3 minutes per 17 GiB part, so a learner that
+fetches everything needs several hours at that rate and the local disk for the rebuilt roots
+(the speed of the Hub from the sandboxes is not measured). `cloud_diloco` restores every part into
+each learner; pass `--part` to `python -m megatoken.publish fetch` yourself to restore a share.
 
 ## Causal windows and long-context credit
 
