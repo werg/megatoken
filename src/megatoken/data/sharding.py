@@ -164,12 +164,11 @@ def units_of(
 def assign(units: Sequence[Unit], count: int) -> list[list[Unit]]:
     """Longest unit first onto the lightest shard; stripes of one source go to different shards."""
     loads, shards = [0.0] * count, [[] for _ in range(count)]
+    holding: dict[str, set[int]] = {}
     for unit in sorted(
         units, key=lambda u: (-u.cost, u.source_id, u.stripe or (0, 0), u.files or ())
     ):
-        taken = {
-            i for i, shard in enumerate(shards) if any(u.source_id == unit.source_id for u in shard)
-        }
+        taken = holding.setdefault(unit.source_id, set())
         # A source's pieces share one spec per shard unless they are stripes, which may not.
         eligible = [i for i in range(count) if unit.stripe is None or i not in taken] or [
             i for i in range(count)
@@ -177,6 +176,7 @@ def assign(units: Sequence[Unit], count: int) -> list[list[Unit]]:
         chosen = min(eligible, key=lambda i: (loads[i], i))
         loads[chosen] += unit.cost
         shards[chosen].append(unit)
+        taken.add(chosen)
     return shards
 
 

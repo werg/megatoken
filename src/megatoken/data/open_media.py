@@ -37,13 +37,17 @@ import zipfile
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
+from itertools import takewhile
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Protocol
 
 from .concordance import (
     AlignedBundle,
     BundleArtifact,
+    TaskView,
     compile_task,
+    edit_chain_view,
+    question_chain_view,
     standard_views,
 )
 from .media_assets import MEDIA_RECORD_TYPE, MediaRecord
@@ -54,9 +58,20 @@ VALIDATION_PERCENT = 5
 MIN_SPEECH_SECONDS = 0.5
 MAX_SPEECH_SECONDS = 20.0
 MAX_SIDE = 1024
-_PACKAGE_TREE_MANIFEST = Path(__file__).resolve().parents[3] / "configs/data/sources.media.json"
-_CHECKOUT_MANIFEST = Path.cwd() / "configs/data/sources.media.json"
-MANIFEST = _PACKAGE_TREE_MANIFEST if _PACKAGE_TREE_MANIFEST.is_file() else _CHECKOUT_MANIFEST
+VIDEO_FPS = 16
+# The manifests, in the order they were written: the first forty-four sources, the full-volume
+# additions, and the additions whose repositories need the Hub account's agreement first.
+MANIFEST_NAMES = (
+    "sources.media.json",
+    "sources.media-more.json",
+    "sources.media-more-gated.json",
+)
+_PACKAGE_TREE = Path(__file__).resolve().parents[3] / "configs/data"
+_CONFIGS = (
+    _PACKAGE_TREE if (_PACKAGE_TREE / MANIFEST_NAMES[0]).is_file() else Path.cwd() / "configs/data"
+)
+MANIFESTS = tuple(path for path in (_CONFIGS / name for name in MANIFEST_NAMES) if path.is_file())
+MANIFEST = _CONFIGS / MANIFEST_NAMES[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,18 +99,32 @@ class OpenSource:
     def streams(self) -> tuple[str, ...]:
         """Every stage-plan stream this source can feed (procedural edits included)."""
         task = TASKS[self.task]
-        return tuple(sorted(task.streams | ({task.edit_stream} if task.edit_stream else set())))
+        extra = (
+            {"verbalization"}
+            if self.task == "transcription" and self.options.get("verbalize")
+            else set()
+        )
+        return tuple(
+            sorted(task.streams | extra | ({task.edit_stream} if task.edit_stream else set()))
+        )
 
     def with_options(self, **overrides: Any) -> OpenSource:
         return dataclasses.replace(self, options={**self.options, **overrides})
 
 
-def load_sources(path: Path = MANIFEST) -> dict[str, OpenSource]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    if raw.get("schema_version") != 1:
-        raise ValueError("Unknown media source manifest schema")
-    sources = {}
-    for row in raw["sources"]:
+def load_sources(*paths: Path) -> dict[str, OpenSource]:
+    """The sources of one or more manifests (default: all of ``MANIFESTS``); an id may not repeat."""
+    sources: dict[str, OpenSource] = {}
+    for path in paths or MANIFESTS:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if raw.get("schema_version") != 1:
+            raise ValueError("Unknown media source manifest schema")
+        _add_sources(sources, raw["sources"])
+    return sources
+
+
+def _add_sources(sources: dict[str, OpenSource], rows: Sequence[Mapping[str, Any]]) -> None:
+    for row in rows:
         source = OpenSource(
             source_id=row["source_id"],
             repository=row["repository"],
@@ -113,7 +142,6 @@ def load_sources(path: Path = MANIFEST) -> dict[str, OpenSource]:
         if source.source_id in sources:
             raise ValueError(f"Duplicate media source {source.source_id}")
         sources[source.source_id] = source
-    return sources
 
 
 SOURCES = load_sources()
@@ -129,6 +157,8 @@ STREAMS = frozenset(
         "speech_translation",
         "image_description",
         "image_creation",
+        "audio_description",
+        "video_description",
         "image_edit",
         "speech_edit",
         "av_creation",
@@ -268,8 +298,9 @@ def compile_bundle(
     *,
     preprocessing: str,
     tier: str | None = None,
+    views: Sequence[TaskView] | None = None,
 ) -> list[Episode]:
-    """Every standard task view the bundle's labels support."""
+    """Every standard task view the bundle's labels support, or exactly the given ``views``."""
     # Publishers reuse clip IDs (one clip, several captions or labels), so the ID also names
     # the content: identical rows merge in deduplication and different ones stay distinct.
     content = hashlib.sha256(family.encode())
@@ -291,11 +322,15 @@ def compile_bundle(
         preprocessing,
         tier or source.options.get("tier", "publisher-annotated"),
     )
-    return [compile_task(bundle, view) for view in standard_views(bundle)]
+    return [compile_task(bundle, view) for view in views or standard_views(bundle)]
 
 
 def speech_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]) -> list[Episode]:
-    """Speech with its verbatim transcript -> transcription episode and audio identity episode."""
+    """Speech with its verbatim transcript -> transcription episode and audio identity episode.
+
+    A source with ``options.verbalize`` (its transcripts are cased and punctuated like written
+    text) also gives the reverse: the transcript read as written text -> that speech.
+    """
     speech = _media(media, _sha(clip["id"], "speech"), "source_speech", "audio", clip["audio"])
     episodes = compile_bundle(
         source,
@@ -304,6 +339,15 @@ def speech_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]
         (speech, _text(source, _sha(clip["id"], "text"), "verbatim_transcript", clip["text"])),
         preprocessing=f"{source.source_id}-speech-v1",
     )
+    if source.options.get("verbalize"):
+        said = _media(media, _sha(clip["id"], "speech"), "speech", "audio", clip["audio"])
+        episodes += compile_bundle(
+            source,
+            f"{source.source_id}:{clip['id']}:said",
+            clip["family"],
+            (_text(source, _sha(clip["id"], "written"), "written_text", clip["text"]), said),
+            preprocessing=f"{source.source_id}-verbalization-v1",
+        )
     return [*episodes, identity_episode(speech.media, clip["family"])]
 
 
@@ -454,6 +498,161 @@ def edit_episodes(
     )
 
 
+def chain_episodes(
+    media: Preparer,
+    source: OpenSource,
+    kind: str,
+    clip: Mapping[str, Any],
+    *,
+    provenance: str,
+    tier: str | None = None,
+) -> list[Episode]:
+    """A multi-turn editing session as one episode: the original, then per turn the user's
+    request and the model's edited version, each turn editing the previous result.
+
+    ``clip["frames"]`` is the original followed by each turn's result, ``clip["instructions"]``
+    the request of each turn. ``kind`` is ``image`` or ``av`` (the stream is ``<kind>_edit``).
+    """
+    modality = {"image": "image", "av": "video"}[kind]
+    frames, instructions = clip["frames"], clip["instructions"]
+    if len(frames) != len(instructions) + 1 or not instructions:
+        raise ValueError("An edit chain needs one request per edited version")
+    key = clip["id"]
+    artifacts = [_media(media, _sha(key, "frame", "0"), f"original_{kind}", modality, frames[0])]
+    steps = []
+    for turn, (frame, instruction) in enumerate(zip(frames[1:], instructions, strict=True), 1):
+        ask = _text(
+            source, _sha(key, "ask", str(turn)), f"{kind}_edit_instruction_{turn}", instruction
+        )
+        result = _media(
+            media,
+            _sha(key, "frame", str(turn)),
+            f"edited_{kind}_{turn}",
+            modality,
+            frame,
+            parent_id=steps[-1][1] if steps else artifacts[0].artifact_id,
+            version=f"v{turn}",
+            provenance=provenance,
+        )
+        artifacts += [ask, result]
+        steps.append((ask.artifact_id, result.artifact_id))
+    view = edit_chain_view(
+        family=f"{kind}_edit",
+        view_id=f"verified-{kind}-edit-chain-{len(steps)}",
+        original=artifacts[0].artifact_id,
+        steps=steps,
+    )
+    return compile_bundle(
+        source,
+        f"{source.source_id}:{kind}-edit-chain:{key}",
+        clip["family"],
+        artifacts,
+        preprocessing=f"{source.source_id}-{kind}-edit-chain-v1",
+        tier=tier,
+        views=(view,),
+    )
+
+
+DESCRIPTION_FAMILY = {
+    "image": "image_description",
+    "audio": "audio_description",
+    "video": "video_description",
+}
+
+
+def _question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any], modality: str
+) -> list[Episode]:
+    """A conversation about one image, recording or video -> one multi-turn episode, and the
+    media's identity. ``clip["turns"]`` is the list of ``(question, answer)`` texts in order."""
+    subject = _media(
+        media,
+        _sha(clip["id"], modality),
+        modality,
+        modality,
+        clip[modality],
+        provenance=_provenance(source, "media"),
+    )
+    artifacts = [subject]
+    turns = []
+    for number, (question, answer) in enumerate(clip["turns"], 1):
+        asked = _text(source, _sha(clip["id"], "q", str(number)), f"question_{number}", question)
+        replied = _text(source, _sha(clip["id"], "a", str(number)), f"answer_{number}", answer)
+        artifacts += [asked, replied]
+        turns.append((asked.artifact_id, replied.artifact_id))
+    view = question_chain_view(
+        family=DESCRIPTION_FAMILY[modality],
+        view_id=f"grounded-{modality}-questions-{len(turns)}",
+        media=subject.artifact_id,
+        turns=turns,
+        modality=modality,
+    )
+    episodes = compile_bundle(
+        source,
+        f"{source.source_id}:{clip['id']}",
+        clip["family"],
+        artifacts,
+        preprocessing=f"{source.source_id}-{modality}-questions-v1",
+        views=(view,),
+    )
+    return [*episodes, identity_episode(subject.media, clip["family"])]
+
+
+def question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    return _question_episodes(media, source, clip, "image")
+
+
+def audio_question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    return _question_episodes(media, source, clip, "audio")
+
+
+def video_question_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    return _question_episodes(media, source, clip, "video")
+
+
+def video_caption_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    """A (silent or not) clip with a written description -> video description and video identity."""
+    video = _media(
+        media,
+        _sha(clip["id"], "video"),
+        "video",
+        "video",
+        clip["video"],
+        provenance=_provenance(source, "media"),
+    )
+    episodes = compile_bundle(
+        source,
+        f"{source.source_id}:{clip['id']}",
+        clip["family"],
+        (video, _text(source, _sha(clip["id"], "caption"), "video_caption", clip["caption"])),
+        preprocessing=f"{source.source_id}-video-caption-v1",
+    )
+    return [*episodes, identity_episode(video.media, clip["family"])]
+
+
+def audio_caption_episodes(
+    media: Preparer, source: OpenSource, clip: Mapping[str, Any]
+) -> list[Episode]:
+    """A recording with a written description -> audio description and audio identity."""
+    audio = _media(media, _sha(clip["id"], "sound"), "audio", "audio", clip["audio"])
+    episodes = compile_bundle(
+        source,
+        f"{source.source_id}:{clip['id']}",
+        clip["family"],
+        (audio, _text(source, _sha(clip["id"], "caption"), "audio_caption", clip["caption"])),
+        preprocessing=f"{source.source_id}-audio-caption-v1",
+    )
+    return [*episodes, identity_episode(audio.media, clip["family"])]
+
+
 def sound_episodes(media: Preparer, source: OpenSource, clip: Mapping[str, Any]) -> list[Episode]:
     """A recording of any sound -> audio identity (no open set pairs sounds with a task family)."""
     return [
@@ -513,10 +712,19 @@ class Shards:
     """
 
     def __init__(
-        self, source: OpenSource, inputs: Path | None = None, shard_slice: tuple[int, int] = (0, 1)
+        self,
+        source: OpenSource,
+        inputs: Path | None = None,
+        shard_slice: tuple[int, int] = (0, 1),
+        files: Sequence[str] | None = None,
+        stripe: tuple[int, int] | None = None,
+        sizes: Mapping[str, int] | None = None,
     ):
         self.source = source
         self.shard_slice = shard_slice
+        self.files = files
+        self.stripe = stripe
+        self.sizes = sizes or {}
         local = inputs / source.source_id if inputs else None
         self.local = local if local is not None and local.is_dir() else None
         self._fs: Any = None
@@ -535,8 +743,11 @@ class Shards:
         """Repository paths matching the source's ``include`` patterns, in a fixed order.
 
         ``shard_slice`` (index, count) keeps every count-th path from index, so several jobs can
-        each build a disjoint part of one source.
+        each build a disjoint part of one source; ``files`` names exactly the paths to read
+        (a shard of ``data/media_sharding.py``).
         """
+        if self.files is not None and patterns is None:
+            return list(self.files)[self.shard_slice[0] :: self.shard_slice[1]]
         found: list[str] = []
         for pattern in patterns or self.source.include:
             if self.local is not None:
@@ -557,7 +768,10 @@ class Shards:
             with (self.local / name).open("rb") as handle:
                 yield handle
         else:
-            with self._hub().open(self._remote(name), "rb", block_size=32 << 20) as handle:
+            # A file of a committed listing is opened with its known size: no Hub API call
+            # (the account's calls are shared by every machine of a build).
+            known = {"size": self.sizes[name]} if name in self.sizes else {}
+            with self._hub().open(self._remote(name), "rb", block_size=32 << 20, **known) as handle:
                 yield handle
 
 
@@ -565,13 +779,25 @@ class Shards:
 
 
 def locate(record: Any, path: str) -> Any:
-    """Follow a dotted path through dicts and lists (list steps are integers); None if absent."""
-    for part in path.split("."):
+    """Follow a dotted path through dicts and lists (list steps are integers); None if absent.
+
+    A mapping key may itself contain dots (a WebDataset member ``image.jpg``): the longest
+    run of path parts that names a key is taken first.
+    """
+    parts = path.split(".")
+    while parts:
         if isinstance(record, Mapping):
-            record = record.get(part)
-        elif isinstance(record, (list, tuple)) and part.lstrip("-").isdigit():
-            index = int(part)
+            for length in range(len(parts), 0, -1):
+                key = ".".join(parts[:length])
+                if key in record:
+                    record, parts = record[key], parts[length:]
+                    break
+            else:
+                return None
+        elif isinstance(record, (list, tuple)) and parts[0].lstrip("-").isdigit():
+            index = int(parts[0])
             record = record[index] if -len(record) <= index < len(record) else None
+            parts = parts[1:]
         else:
             return None
         if record is None:
@@ -596,6 +822,21 @@ def blob(value: Any) -> bytes | None:
     return bytes(value) if isinstance(value, (bytes, bytearray)) and value else None
 
 
+def audio_blob(value: Any) -> bytes | None:
+    """The bytes of an audio field: a stored file, or decoded samples (``array`` and
+    ``sampling_rate``, as some publishers store them) written as 16-bit WAV."""
+    payload = blob(value)
+    if payload is not None or not isinstance(value, Mapping) or value.get("array") is None:
+        return payload
+    import numpy
+    import soundfile
+
+    buffer = io.BytesIO()
+    samples = numpy.clip(numpy.asarray(value["array"], dtype="float32"), -1.0, 1.0)
+    soundfile.write(buffer, samples, int(value["sampling_rate"]), format="WAV", subtype="PCM_16")
+    return buffer.getvalue()
+
+
 def _top_level(source: OpenSource) -> list[str]:
     """The parquet columns a source's labelled fields, filters and uniqueness key read."""
     specs = [
@@ -603,6 +844,9 @@ def _top_level(source: OpenSource) -> list[str]:
         *source.options.get("keep", {}),
         *source.options.get("absent", ()),
         *([source.options["unique"]] if "unique" in source.options else []),
+        *source.options.get("session", {}).values(),
+        *source.options.get("choose", {}).get("candidates", ()),
+        *source.options.get("choose", {}).get("scores", ()),
     ]
     names = {
         part.split(".")[0] for spec in specs for part in ([spec] if isinstance(spec, str) else spec)
@@ -623,7 +867,7 @@ def parquet_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, An
             row = 0
             for batch in reader.iter_batches(batch_size=16, columns=wanted):
                 for record in batch.to_pylist():
-                    record["__key__"] = f"{PurePosixPath(name).stem}:{row}"
+                    record["__key__"] = f"{name.removesuffix('.parquet')}:{row}"
                     row += 1
                     yield record
 
@@ -634,9 +878,10 @@ _TEXT_EXTENSIONS = frozenset(("txt", "cls", "caption"))
 def _sample(group: Mapping[str, bytes]) -> dict[str, Any]:
     sample: dict[str, Any] = {}
     for extension, payload in group.items():
-        if extension == "json":
+        suffix = extension.rpartition(".")[2]  # ``synthetic_caption.txt`` is text
+        if suffix == "json":
             sample[extension] = json.loads(payload)
-        elif extension in _TEXT_EXTENSIONS:
+        elif suffix in _TEXT_EXTENSIONS:
             sample[extension] = payload.decode("utf-8")
         else:
             sample[extension] = payload
@@ -644,53 +889,120 @@ def _sample(group: Mapping[str, bytes]) -> dict[str, Any]:
 
 
 def webdataset_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
-    """Samples of consecutive tar members sharing a key; fields are named by file extension."""
-    for name in shards.names():
-        with shards.open(name) as handle, tarfile.open(fileobj=handle, mode="r|*") as tar:
+    """Samples of consecutive tar members sharing a key; fields are named by file extension.
+
+    ``__key__`` is the sample's name and ``__shard__`` the tar it came from: publishers restart
+    their numbering in every tar, so an ID made of both (``columns.id`` may list several fields)
+    is unique across the source.
+    """
+    for shard in shards.names():
+        with shards.open(shard) as handle, tarfile.open(fileobj=handle, mode="r|*") as tar:
             key: str | None = None
             group: dict[str, bytes] = {}
             for member in tar:
                 if not member.isfile():
                     continue
-                stem, _, extension = PurePosixPath(member.name).name.partition(".")
+                name = PurePosixPath(member.name).name
+                # A sample's files share the text before the first dot (``a.mp4``, ``a.json``), or
+                # before the last when the key itself holds a dot (``video.3.mp4``).
+                stem, _, extension = (
+                    name.rpartition(".")
+                    if source.options.get("key_split") == "last"
+                    else name.partition(".")
+                )
                 if stem != key and group:
-                    yield {"__key__": key, **_sample(group)}
+                    yield {"__key__": key, "__shard__": shard, **_sample(group)}
                     group = {}
                 key = stem
                 group[extension] = tar.extractfile(member).read()
             if group:
-                yield {"__key__": key, **_sample(group)}
+                yield {"__key__": key, "__shard__": shard, **_sample(group)}
+
+
+class _Derived(dict):
+    """A table row that also answers ``<field>__name`` (the last path component of a string
+    field) and ``<field>__stem`` (that without its extension), for ``key`` templates."""
+
+    def __missing__(self, key: str) -> str:
+        field, _, kind = key.rpartition("__")
+        if kind in ("name", "stem") and field in self:
+            path = PurePosixPath(str(self[field]))
+            return path.name if kind == "name" else path.stem
+        raise KeyError(key)
+
+
+def _table_rows(handle: BinaryIO, path: str, names: Sequence[str] | None) -> Iterable[dict]:
+    """Rows of a table: a parquet file, a csv, a JSON array of objects, or JSON lines (whatever
+    its name says)."""
+    if path.endswith(".parquet"):
+        import pyarrow.parquet as parquet
+
+        return (
+            row
+            for batch in parquet.ParquetFile(handle).iter_batches(batch_size=1024)
+            for row in batch.to_pylist()
+        )
+    text = io.TextIOWrapper(handle, encoding="utf-8", newline="")
+    if not path.endswith((".json", ".jsonl")):
+        return csv.DictReader(text, fieldnames=names)
+    first = text.read(1)
+    while first.isspace():
+        first = text.read(1)
+    rest = first + text.read()
+    if first == "[":
+        return json.loads(rest)
+    # JSON lines end at "\n" only; str.splitlines would also cut inside a string at U+2028.
+    return (json.loads(line) for line in rest.split("\n") if line.strip())
 
 
 def _table(shards: Shards, spec: Mapping[str, Any], wanted: Iterable[str]) -> dict[str, dict]:
-    """Rows of a csv/jsonl file keyed by the ``key`` template (a ``str.format`` over the row)."""
+    """Rows of a csv/json/jsonl file keyed by the ``key`` template (a ``str.format`` over the
+    row, which also offers ``<field>__name`` and ``<field>__stem`` of path fields).
+
+    ``path`` may name several files. Rows sharing a key replace one another, except that the
+    fields listed in ``merge`` (lists) are joined in file order: one video asked about in many
+    rows keeps all its conversations.
+    """
     rows: dict[str, dict] = {}
-    with shards.open(spec["path"]) as handle:
-        text = io.TextIOWrapper(handle, encoding="utf-8", newline="")
-        if spec["path"].endswith(".jsonl"):
-            lines: Iterable[dict] = (json.loads(line) for line in text if line.strip())
-        else:
-            names = spec.get("names")
-            lines = csv.DictReader(text, fieldnames=names)
-        for row in lines:
-            for name in spec.get("ints", ()):
-                row[name] = int(row[name])
-            rows[spec["key"].format(**row)] = {name: row.get(name) for name in wanted}
+    wanted = list(wanted)
+    for path in [spec["path"]] if isinstance(spec["path"], str) else spec["path"]:
+        with shards.open(path) as handle:
+            for row in _table_rows(handle, path, spec.get("names")):
+                for name in spec.get("ints", ()):
+                    row[name] = int(row[name])
+                key = spec["key"].format_map(_Derived(row))
+                kept = {name: row.get(name) for name in wanted}
+                if key in rows and spec.get("merge"):
+                    for name in spec["merge"]:
+                        kept[name] = [*(rows[key][name] or ()), *(kept[name] or ())]
+                rows[key] = kept
     return rows
 
 
 def archive_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
     """Members of zip/tar archives joined with their table row (and, for zips, a partner member).
 
-    ``options.table`` names the csv/jsonl file and the ``key`` template that matches a row to a
-    member's file name; the member's bytes are the record's ``member``. ``options.partner`` (a
+    ``options.table`` names the csv/json/jsonl file and the ``key`` template that matches a row to
+    a member's file name; the member's bytes are the record's ``member``. A table with one file
+    per archive says so in ``per_archive`` (``{"pattern": regex over the archive's name, "path":
+    template over the regex groups}``) and is read when its archive is. ``options.partner`` (a
     template over the archive's file name) names a second zip whose same-named member is the
     record's ``partner``, as in a source/edited pair of videos.
     """
     spec = source.options["table"]
-    rows = _table(shards, spec, spec.get("columns", ()))
+    each = spec.get("per_archive")
+    rows = {} if each else _table(shards, spec, spec.get("columns", ()))
     partner_template = source.options.get("partner")
     for name in shards.names():
+        if each:
+            match = re.search(each["pattern"], PurePosixPath(name).name)
+            if match is None:
+                raise ValueError(f"{source.source_id}: {name} does not match {each['pattern']}")
+            rows = _table(
+                shards,
+                {**spec, "path": each["path"].format(*match.groups())},
+                spec.get("columns", ()),
+            )
         with ExitStack() as stack:
             handle = stack.enter_context(shards.open(name))
             members = _zip_members(handle) if name.endswith(".zip") else _tar_members(handle)
@@ -708,6 +1020,143 @@ def archive_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, An
                         continue
                     record["partner"] = partner.read(member_name)
                 yield record
+
+
+class Concatenated:
+    """Several files read as one stream (the parts of an archive that was cut with ``split``)."""
+
+    def __init__(self, handles: Sequence[BinaryIO]):
+        self.handles = list(handles)
+
+    def read(self, size: int = -1) -> bytes:
+        chunks: list[bytes] = []
+        while self.handles and size != 0:
+            chunk = self.handles[0].read(size)
+            if chunk:
+                chunks.append(chunk)
+                size -= len(chunk) if size > 0 else 0
+                if size == 0:
+                    break
+            else:
+                self.handles.pop(0)
+        return b"".join(chunks)
+
+
+def _numbered(row: Mapping[str, Any], templates: Sequence[str]) -> list[Any]:
+    """Row values named by ``templates``: a plain (dotted) path once, a template with ``{n}`` for
+    n = 1, 2, ... while the row has it."""
+    values: list[Any] = []
+    for template in templates:
+        if "{n}" not in template:
+            found = locate(row, template)
+            values.extend(found if isinstance(found, list) else [found])
+            continue
+        number = 1
+        while locate(row, template.format(n=number)) not in (None, ""):
+            values.append(locate(row, template.format(n=number)))
+            number += 1
+    return values
+
+
+def _path_key(path: str) -> str:
+    return PurePosixPath(str(path).lower().replace("\\", "/")).as_posix().lstrip("./")
+
+
+def _archive_streams(shards: Shards, names: Sequence[str], multipart: bool) -> Iterator[BinaryIO]:
+    """The archives one after another, each open only while it is read (or all as one stream)."""
+    with ExitStack() as stack:
+        if multipart:
+            yield Concatenated([stack.enter_context(shards.open(name)) for name in names])
+            return
+        for name in names:
+            with shards.open(name) as handle:
+                yield handle
+
+
+def linked_records(source: OpenSource, shards: Shards) -> Iterator[dict[str, Any]]:
+    """Table rows joined with the images they name, read from archives in one pass.
+
+    ``include`` names the tables (parquet, JSON lines or one JSON array of rows) and ``options.linked``
+    the images:
+    ``strip`` is a regex removed from the row's paths first (a leading folder the archive lacks),
+    ``archives`` are patterns of tar(.gz) files (``multipart``: together one archive that was cut
+    into parts), ``sequence`` the row's media in order (``images``: field names, ``{n}`` standing
+    for 1, 2, ... while the row has it, a list field counting as several; ``texts`` likewise). An archive member belongs to a row
+    when the row's path is the member's name or its tail (case-insensitive: ``a/b.jpg`` is
+    ``data/a/B.JPG``). A row is yielded, with ``images`` and ``texts`` lists, as soon as its
+    last image has been read, and dropped when more than ``pending`` of its images wait unmatched
+    (the archive keeps a row's images apart); a row whose image is never found is skipped.
+    """
+    spec = source.options["linked"]
+    # An image path may be named by several rows, or twice by one: each use is a target.
+    wanted: dict[str, list[tuple[int, int]]] = {}
+    rows: dict[int, dict[str, Any]] = {}
+    strip = re.compile(spec["strip"]) if "strip" in spec else None
+    for table in shards.names(source.include):
+        with shards.open(table) as handle:
+            for row in _table_rows(handle, table, None):
+                paths = _numbered(row, spec["sequence"]["images"])
+                if strip is not None:
+                    paths = [
+                        strip.sub("", path) if isinstance(path, str) else path for path in paths
+                    ]
+                if not paths or any(not isinstance(path, str) for path in paths):
+                    continue
+                number = len(rows)
+                rows[number] = {
+                    "row": row,
+                    "paths": paths,
+                    "found": {},
+                    "texts": _numbered(row, spec["sequence"].get("texts", ())),
+                }
+                for position, path in enumerate(paths):
+                    wanted.setdefault(_path_key(path), []).append((number, position))
+    # A shard of a source with many archives reads its own (``files``); a table row whose
+    # images are in the others never completes and is dropped.
+    names = list(shards.files) if shards.files is not None else shards.names(spec["archives"])
+    pending_limit = spec.get("pending", 4096)
+    partial: dict[int, None] = {}  # rows with some image read, oldest first
+    waiting = 0  # images read for rows that are not complete
+    for stream in _archive_streams(shards, names, bool(spec.get("multipart"))):
+        with tarfile.open(fileobj=stream, mode="r|*") as tar:
+            for member in tar:
+                if not member.isfile():
+                    continue
+                parts = _path_key(member.name).split("/")
+                targets = next(
+                    (
+                        wanted[key]
+                        for key in ("/".join(parts[start:]) for start in range(len(parts)))
+                        if key in wanted
+                    ),
+                    (),
+                )
+                data = tar.extractfile(member).read() if targets else b""
+                for number, position in targets:
+                    entry = rows.get(number)
+                    if entry is None or position in entry["found"]:
+                        continue  # the row is complete, or this image is already read
+                    entry["found"][position] = data
+                    if len(entry["found"]) == len(entry["paths"]):
+                        record = {
+                            "__key__": entry["row"].get("id") or str(number),
+                            **entry["row"],
+                            "images": [entry["found"][i] for i in range(len(entry["paths"]))],
+                            "texts": entry["texts"],
+                        }
+                        del rows[number]
+                        partial.pop(number, None)
+                        waiting -= len(entry["paths"]) - 1
+                        yield record
+                    else:
+                        partial[number] = None
+                        waiting += 1
+                        if waiting > pending_limit:
+                            # Too many images wait for partners that are not coming.
+                            oldest = next(iter(partial))
+                            waiting -= len(rows[oldest]["found"])
+                            rows[oldest]["found"] = {}
+                            del partial[oldest]
 
 
 def _zip_members(handle: BinaryIO) -> Iterator[tuple[str, Callable[[], bytes]]]:
@@ -786,25 +1235,69 @@ def write_image(
     return path
 
 
+ASPECT_TOLERANCE = 0.03
+
+
+def _aligned(images: Sequence[Any]) -> list[Any]:
+    """The original and its successive edits at the size of the first edit.
+
+    An editing model returns its own size (MagicBrush: 1024 px for a 500 px photo), so a
+    version of another size but the same shape (aspect ratio within ``ASPECT_TOLERANCE``) is
+    resized to it. A version of another shape ends the chain; if that is the original, nothing
+    is left.
+    """
+    from PIL import Image
+
+    if len(images) < 2:
+        return []
+    width, height = images[1].size
+    aligned = []
+    for image in images:
+        if image.size != (width, height):
+            if abs(image.width / image.height - width / height) > ASPECT_TOLERANCE * width / height:
+                break
+            image = image.resize((width, height), Image.Resampling.LANCZOS)
+        aligned.append(image)
+    return aligned if len(aligned) >= 2 and min(width, height) >= 32 else []
+
+
+def write_image_chain(
+    frames: Sequence[bytes], out: Path, stem: str, *, max_side: int = MAX_SIDE
+) -> list[Path] | None:
+    """An original and each successive edit, scaled identically and saved losslessly (so
+    unedited pixels stay equal). The chain stops at the first version that is undecodable or
+    cannot follow its predecessor (``_aligned``)."""
+    from PIL import Image
+
+    images = []
+    for data in frames:
+        try:
+            images.append(Image.open(io.BytesIO(data)).convert("RGB"))
+        except (OSError, ValueError, Image.DecompressionBombError):
+            break
+    images = _aligned(images)
+    if not images:
+        return None
+    out.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for index, image in enumerate(images):
+        image.thumbnail((max_side, max_side))
+        paths.append(out / f"{stem}-{index}.png")
+        image.save(paths[-1])
+    return paths
+
+
 def write_image_pair(
     original: bytes, edited: bytes, out: Path, stem: str, *, max_side: int = MAX_SIDE
 ) -> tuple[Path, Path] | None:
     """An image and its edit scaled identically (lossless, so unedited pixels stay equal)."""
-    from PIL import Image
-
-    try:
-        images = [Image.open(io.BytesIO(data)).convert("RGB") for data in (original, edited)]
-    except (OSError, ValueError, Image.DecompressionBombError):
+    paths = write_image_chain((original, edited), out, stem, max_side=max_side)
+    if paths is None or len(paths) != 2:
         return None
-    if images[0].size != images[1].size or min(images[0].size) < 32:
-        return None
-    out.mkdir(parents=True, exist_ok=True)
-    paths = []
-    for name, image in zip(("original", "edited"), images, strict=True):
-        image.thumbnail((max_side, max_side))
-        paths.append(out / f"{stem}-{name}.png")
-        image.save(paths[-1])
-    return paths[0], paths[1]
+    named = (out / f"{stem}-original.png", out / f"{stem}-edited.png")
+    for path, target in zip(paths, named, strict=True):
+        path.replace(target)
+    return named
 
 
 def _ffmpeg(*args: str) -> None:
@@ -839,9 +1332,11 @@ def transcode(
     *,
     start: float = 0.0,
     seconds: float | None = None,
+    fps: int = VIDEO_FPS,
 ) -> None:
-    """A clip as small video (scaled into 640x640 at 16 frames/s, no sound) and, optionally, its
-    soundtrack at 24 kHz mono (the speech realizer's rate)."""
+    """A clip as small video (scaled into 640x640 at ``fps`` frames/s, no sound) and, optionally,
+    its soundtrack at 24 kHz mono (the speech realizer's rate). The video realizer takes at most
+    193 frames, so ``seconds * fps`` stays below that."""
     cut = ["-ss", str(start), *(["-t", str(seconds)] if seconds else [])]
     _ffmpeg(
         *cut,
@@ -851,11 +1346,15 @@ def transcode(
         "-vf",
         "scale=640:640:force_original_aspect_ratio=decrease:force_divisible_by=2",
         "-r",
-        "16",
+        str(fps),
         str(video),
     )
     if audio is not None:
         _ffmpeg(*cut, "-i", str(source), "-vn", "-ac", "1", "-ar", "24000", str(audio))
+
+
+def _fps(source: OpenSource) -> int:
+    return source.options.get("fps", VIDEO_FPS)
 
 
 def first_sentence(text: str) -> str:
@@ -894,9 +1393,8 @@ def _label(source: OpenSource, record: Mapping[str, Any], role: str) -> Any:
     return field_of(record, source.columns.get(role))
 
 
-def _text_label(source: OpenSource, record: Mapping[str, Any], role: str) -> str | None:
+def _text_value(source: OpenSource, value: Any) -> str | None:
     """A non-empty text label, shaped by the source's options (picking one of a list, cleaning)."""
-    value = _label(source, record, role)
     if isinstance(value, (list, tuple)):
         texts = [item for item in value if isinstance(item, str) and item.strip()]
         value = (
@@ -914,6 +1412,10 @@ def _text_label(source: OpenSource, record: Mapping[str, Any], role: str) -> str
     ):
         return None
     return value
+
+
+def _text_label(source: OpenSource, record: Mapping[str, Any], role: str) -> str | None:
+    return _text_value(source, _label(source, record, role))
 
 
 def _empty(value: Any) -> bool:
@@ -947,7 +1449,7 @@ def _identity(source: OpenSource, record: Mapping[str, Any]) -> tuple[str, str]:
 def _speech_file(
     source: OpenSource, record: Mapping[str, Any], out: Path, stem: str
 ) -> Path | None:
-    payload = blob(_label(source, record, "audio"))
+    payload = audio_blob(_label(source, record, "audio"))
     return payload and write_audio(
         payload,
         out,
@@ -1025,6 +1527,179 @@ def image_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> lis
     )
 
 
+def audio_caption_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    caption = _text_label(source, record, "caption")
+    if caption is None or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    audio = _speech_file(source, record, out, _stem(clip_id))
+    return [{"id": clip_id, "family": family, "audio": audio, "caption": caption}] if audio else []
+
+
+_USER_ROLES = frozenset(("human", "user"))
+_ASSISTANT_ROLES = frozenset(("gpt", "assistant", "model"))
+_IMAGE_TAG = re.compile(r"\s*<image(?:_\d+)?>\s*")
+
+
+def _clean_turn(text: Any) -> str | None:
+    """A turn's text without ``<image>`` placeholders; None if nothing is left."""
+    if not isinstance(text, str):
+        return None
+    text = _IMAGE_TAG.sub(" ", text).strip()
+    return text or None
+
+
+def conversation(source: OpenSource, record: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """The ``(question, answer)`` turns of a record, whichever way the publisher stored them.
+
+    ``options.format`` is ``choices`` (``question``, ``choices`` and ``answer`` fields: a
+    multiple-choice question), ``pairs`` (a list of ``{user, assistant}`` mappings, the keys named by
+    ``options.user_key`` / ``options.assistant_key``), ``messages`` (a list of role/text
+    mappings: ``from``/``value`` or ``role``/``content``; a turn that does not alternate user,
+    assistant ends the conversation) or ``parallel`` (the ``question`` and ``answer`` fields
+    are equally long lists, or single strings). ``options.max_turns`` cuts a longer one and
+    ``options.min_answer_chars`` drops a turn with a shorter answer (and every later one).
+    """
+    layout = source.options.get("format", "pairs")
+    turns: list[tuple[str, str]] = []
+    if layout == "parallel":
+        questions, answers = (_list_label(source, record, role) for role in ("question", "answer"))
+        pairs = list(zip(questions, answers, strict=False))
+    elif layout == "choices":
+        # A multiple-choice question: the options are listed in the question and the answer
+        # is the right option's letter and text (the answer field is its index or its text).
+        pairs = []
+        questions, option_lists, answers = (
+            _list_label(source, record, role) for role in ("question", "choices", "answer")
+        )
+        if option_lists and not isinstance(option_lists[0], (list, tuple)):
+            option_lists = [option_lists]  # one question's options
+        for question, options, answer in zip(questions, option_lists, answers, strict=False):
+            options = [str(option) for option in options or ()]
+            right = (
+                answer
+                if isinstance(answer, int)
+                else (options.index(answer) if answer in options else None)
+            )
+            if not options or right is None or not 0 <= right < len(options):
+                continue
+            letters = [f"{chr(65 + i)}. {option}" for i, option in enumerate(options)]
+            pairs.append((f"{question}\n" + "\n".join(letters), letters[right]))
+    elif layout == "pairs":
+        user, assistant = (
+            source.options.get("user_key", "user"),
+            source.options.get("assistant_key", "assistant"),
+        )
+        pairs = [
+            (turn.get(user), turn.get(assistant))
+            for turn in _list_label(source, record, "turns")
+            if isinstance(turn, Mapping)
+        ]
+    elif layout == "messages":
+        messages = [m for m in _list_label(source, record, "turns") if isinstance(m, Mapping)]
+        role = lambda m: str(m.get("from") or m.get("role") or "").lower()  # noqa: E731
+        text = lambda m: m.get("value") if "value" in m else m.get("content")  # noqa: E731
+        if messages and role(messages[0]) == "system":
+            messages = messages[1:]
+        pairs = [
+            (text(a), text(b))
+            for a, b in takewhile(
+                lambda pair: role(pair[0]) in _USER_ROLES and role(pair[1]) in _ASSISTANT_ROLES,
+                zip(messages[0::2], messages[1::2], strict=False),
+            )
+        ]
+    else:
+        raise ValueError(f"{source.source_id}: unknown conversation format {layout!r}")
+    for question, answer in pairs:
+        question, answer = _clean_turn(question), _clean_turn(answer)
+        if (
+            question is None
+            or answer is None
+            or len(answer) < source.options.get("min_answer_chars", 1)
+        ):
+            break
+        turns.append((question, answer))
+    return turns[: source.options.get("max_turns", 8)]
+
+
+def audio_question_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A conversation about one recording."""
+    turns = conversation(source, record)
+    if not turns or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    audio = _speech_file(source, record, out, _stem(clip_id))
+    return [{"id": clip_id, "family": family, "audio": audio, "turns": turns}] if audio else []
+
+
+def _cut_video(source: OpenSource, payload: bytes, clip_id: str, out: Path) -> Path | None:
+    """A clip of at most ``max_seconds`` as small video (the source's own sound dropped);
+    ``options.whole_only`` skips a longer video instead of cutting it."""
+    original = _video_source(payload, out, _stem(clip_id))
+    try:
+        seconds, kinds = probe(original)
+        longest = source.options.get("max_seconds", 8.0)
+        if "video" not in kinds or seconds < source.options.get("min_seconds", 1.5):
+            return None
+        if source.options.get("whole_only") and seconds > longest:
+            return None  # a question about the whole video cannot be asked of a cut of it
+        video = out / f"{_stem(clip_id)}.mp4"
+        transcode(
+            original,
+            video,
+            seconds=min(seconds, source.options.get("max_seconds", 8.0)),
+            fps=_fps(source),
+        )
+    finally:
+        original.unlink()
+    return video
+
+
+def video_question_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A conversation about one video (the first ``max_seconds`` of it)."""
+    turns = conversation(source, record)
+    payload = blob(_label(source, record, "video"))
+    if not turns or payload is None or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    video = _cut_video(source, payload, clip_id, out)
+    return [{"id": clip_id, "family": family, "video": video, "turns": turns}] if video else []
+
+
+def video_caption_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    caption = _text_label(source, record, "caption")
+    payload = blob(_label(source, record, "video"))
+    if caption is None or payload is None or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    video = _cut_video(source, payload, clip_id, out)
+    return [{"id": clip_id, "family": family, "video": video, "caption": caption}] if video else []
+
+
+def question_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A conversation about one image (a record with several images is skipped)."""
+    images = _list_label(source, record, "image")
+    turns = conversation(source, record)
+    payload = blob(images[0]) if len(images) == 1 else None
+    if not turns or payload is None or not _accepts(source, record):
+        return []
+    clip_id, family = _identity(source, record)
+    image = write_image(
+        payload, out, _stem(clip_id), max_side=source.options.get("max_side", MAX_SIDE)
+    )
+    return [{"id": clip_id, "family": family, "image": image, "turns": turns}] if image else []
+
+
 def picture_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> list[dict[str, Any]]:
     payload = blob(_label(source, record, "image"))
     if payload is None or not _accepts(source, record):
@@ -1036,12 +1711,24 @@ def picture_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> l
     return [{"id": clip_id, "family": family, "image": image}] if image else []
 
 
+def _chosen(source: OpenSource, record: Mapping[str, Any]) -> Any:
+    """The best of several candidate edits: ``options.choose`` pairs ``candidates`` (columns)
+    with their ``scores`` (columns of ratings); the highest rated is taken, None if unrated."""
+    choice = source.options["choose"]
+    scores = [field_of(record, name) for name in choice["scores"]]
+    if any(not isinstance(score, (int, float)) for score in scores):
+        return None
+    return field_of(record, choice["candidates"][scores.index(max(scores))])
+
+
 def image_edit_clips(
     source: OpenSource, record: Mapping[str, Any], out: Path
 ) -> list[dict[str, Any]]:
     instruction = _text_label(source, record, "instruction")
     original = blob(_label(source, record, "original"))
-    edited = blob(_label(source, record, "edited"))
+    edited = blob(
+        _chosen(source, record) if "choose" in source.options else _label(source, record, "edited")
+    )
     if instruction is None or original is None or edited is None or not _accepts(source, record):
         return []
     clip_id, family = _identity(source, record)
@@ -1093,7 +1780,7 @@ def av_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> list[d
         ):
             return []
         video, audio = out / f"{_stem(clip_id)}.mp4", out / f"{_stem(clip_id)}.wav"
-        transcode(original, video, audio, seconds=min(seconds, high))
+        transcode(original, video, audio, seconds=min(seconds, high), fps=_fps(source))
     finally:
         original.unlink()
     template = source.options.get("request", "Create a short clip of: {caption}.")
@@ -1145,7 +1832,7 @@ def scene_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> lis
         for start, seconds, title, description in windows:
             clip_id = f"{video_id}:{start:.1f}"
             video, audio = out / f"{_stem(clip_id)}.mp4", out / f"{_stem(clip_id)}.wav"
-            transcode(original, video, audio, start=start, seconds=seconds)
+            transcode(original, video, audio, start=start, seconds=seconds, fps=_fps(source))
             clips.append(
                 {
                     "id": clip_id,
@@ -1173,7 +1860,7 @@ def video_clips(source: OpenSource, record: Mapping[str, Any], out: Path) -> lis
         if "video" not in kinds or seconds < source.options.get("min_seconds", 1.5):
             return []
         video = out / f"{_stem(clip_id)}.mp4"
-        transcode(original, video, seconds=min(seconds, high))
+        transcode(original, video, seconds=min(seconds, high), fps=_fps(source))
     finally:
         original.unlink()
     return [{"id": clip_id, "family": family, "video": video}]
@@ -1203,11 +1890,110 @@ def video_edit_clips(
         seconds = min(min(durations.values()), high)
         paths = {name: out / f"{_stem(clip_id)}-{name}.mp4" for name in sources}
         for name, path in sources.items():
-            transcode(path, paths[name], seconds=seconds)
+            transcode(path, paths[name], seconds=seconds, fps=_fps(source))
     finally:
         for path in sources.values():
             path.unlink()
     return [{"id": clip_id, "family": family, **paths, "instruction": instruction}]
+
+
+def _list_label(source: OpenSource, record: Mapping[str, Any], role: str) -> list[Any]:
+    """A labelled field as a list: a session's per-turn values, or one value."""
+    value = _label(source, record, role)
+    if value is None:
+        return []
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
+def _chain_inputs(
+    source: OpenSource, record: Mapping[str, Any]
+) -> tuple[list[bytes], list[str]] | None:
+    """The versions (original, then each result) and requests of one editing session.
+
+    Fields are ``original`` (the first version, or every turn's input), ``edited`` (each turn's
+    result) and ``instruction`` (each turn's request), or ``images`` (all versions in order)
+    in place of the first two. ``options.max_steps`` cuts a longer session.
+    """
+    if not _accepts(source, record):
+        return None
+    if "images" in source.columns:
+        versions = [blob(item) for item in _list_label(source, record, "images")]
+    else:
+        versions = [
+            blob(item)
+            for item in (
+                _list_label(source, record, "original")[:1] + _list_label(source, record, "edited")
+            )
+        ]
+    instructions = [
+        _text_value(source, item) for item in _list_label(source, record, "instruction")
+    ]
+    steps = min(len(versions) - 1, len(instructions), source.options.get("max_steps", 8))
+    # A session continues only while every version and request is usable.
+    usable = 0
+    while usable < steps and versions[usable + 1] and instructions[usable]:
+        usable += 1
+    if usable < 1 or not versions[0]:
+        return None
+    return versions[: usable + 1], instructions[:usable]
+
+
+def image_chain_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A multi-turn image editing session: the original image, each result and each request."""
+    inputs = _chain_inputs(source, record)
+    if inputs is None:
+        return []
+    clip_id, family = _identity(source, record)
+    paths = write_image_chain(
+        inputs[0], out, _stem(clip_id), max_side=source.options.get("max_side", MAX_SIDE)
+    )
+    if paths is None:
+        return []
+    return [
+        {
+            "id": clip_id,
+            "family": family,
+            "frames": paths,
+            "instructions": inputs[1][: len(paths) - 1],
+        }
+    ]
+
+
+def video_chain_clips(
+    source: OpenSource, record: Mapping[str, Any], out: Path
+) -> list[dict[str, Any]]:
+    """A multi-turn video editing session; every version is trimmed and scaled identically."""
+    inputs = _chain_inputs(source, record)
+    if inputs is None:
+        return []
+    clip_id, family = _identity(source, record)
+    sources = [
+        _video_source(data, out, f"{_stem(clip_id)}-{index}")
+        for index, data in enumerate(inputs[0])
+    ]
+    try:
+        durations = [probe(path)[0] for path in sources]
+        kept = 1
+        while (
+            kept < len(sources)
+            and min(durations[0], durations[kept]) >= 1.0
+            and abs(durations[0] - durations[kept]) <= 0.5
+        ):
+            kept += 1
+        if kept < 2:
+            return []
+        seconds = min(min(durations[:kept]), source.options.get("max_seconds", 6.0))
+        paths = [out / f"{_stem(clip_id)}-{index}.mp4" for index in range(kept)]
+        for path, video in zip(sources, paths, strict=False):
+            transcode(path, video, seconds=seconds, fps=_fps(source))
+    finally:
+        for path in sources:
+            path.unlink(missing_ok=True)
+    return [
+        {"id": clip_id, "family": family, "frames": paths, "instructions": inputs[1][: kept - 1]}
+    ]
 
 
 SPEECH_EDITS = (
@@ -1303,12 +2089,46 @@ TASKS = {
         image_clips,
     ),
     "picture": Task(frozenset({"image_identity"}), _plain(picture_episodes), picture_clips),
+    "image_questions": Task(
+        frozenset({"image_description", "image_identity"}),
+        _plain(question_episodes),
+        question_clips,
+    ),
+    "audio_questions": Task(
+        frozenset({"audio_description", "audio_identity"}),
+        _plain(audio_question_episodes),
+        audio_question_clips,
+    ),
+    "captioned_video": Task(
+        frozenset({"video_description", "video_identity"}),
+        _plain(video_caption_episodes),
+        video_caption_clips,
+        procedural="video",
+    ),
+    "video_questions": Task(
+        frozenset({"video_description", "video_identity"}),
+        _plain(video_question_episodes),
+        video_question_clips,
+        procedural="video",
+    ),
+    "captioned_audio": Task(
+        frozenset({"audio_description", "audio_identity"}),
+        _plain(audio_caption_episodes),
+        audio_caption_clips,
+    ),
     "image_edit": Task(
         frozenset({"image_edit"}),
         lambda media, source, clip, reference: edit_episodes(
             media, source, "image", clip, provenance=_provenance(source, "media")
         ),
         image_edit_clips,
+    ),
+    "image_edit_chain": Task(
+        frozenset({"image_edit"}),
+        lambda media, source, clip, reference: chain_episodes(
+            media, source, "image", clip, provenance=_provenance(source, "media")
+        ),
+        image_chain_clips,
     ),
     "sound": Task(frozenset({"audio_identity"}), _plain(sound_episodes), sound_clips),
     "av_caption": Task(
@@ -1332,6 +2152,13 @@ TASKS = {
             media, source, "av", clip, provenance=_provenance(source, "media")
         ),
         video_edit_clips,
+    ),
+    "video_edit_chain": Task(
+        frozenset({"av_edit"}),
+        lambda media, source, clip, reference: chain_episodes(
+            media, source, "av", clip, provenance=_provenance(source, "media")
+        ),
+        video_chain_clips,
     ),
 }
 
@@ -1463,6 +2290,7 @@ CONTAINERS: dict[str, Callable[[OpenSource, Shards], Iterator[dict[str, Any]]]] 
     "parquet": parquet_records,
     "webdataset": webdataset_records,
     "archive": archive_records,
+    "linked": linked_records,
 }
 CLIP_READERS: dict[str, Callable[[OpenSource, Shards, Path, int], Iterator[dict[str, Any]]]] = {
     "fleurs": read_fleurs,
@@ -1486,9 +2314,41 @@ def read_clips(
             return
 
 
+def sessions(source: OpenSource, records: Iterable[Mapping[str, Any]]) -> Iterator[dict[str, Any]]:
+    """Rows that are the turns of one session -> one record whose fields are the turns' lists.
+
+    ``options.session`` is ``{"by": column, "order": column}``: consecutive rows with the same
+    ``by`` value form a session (its column keeps that one value), its turns sorted by ``order``.
+    (A session split across shards
+    is read as two shorter sessions, each valid.)
+    """
+    by, order = source.options["session"]["by"], source.options["session"].get("order")
+    turns: list[Mapping[str, Any]] = []
+
+    def merged() -> dict[str, Any]:
+        rows = sorted(turns, key=lambda row: field_of(row, order)) if order else turns
+        fields = {name: [row.get(name) for row in rows] for name in rows[0]}
+        return {**fields, by: rows[0][by], "__key__": str(rows[0][by])}
+
+    for record in records:
+        if turns and field_of(record, by) != field_of(turns[0], by):
+            yield merged()
+            turns = []
+        turns.append(record)
+    if turns:
+        yield merged()
+
+
 def _materialized(source: OpenSource, shards: Shards, out: Path) -> Iterator[dict[str, Any]]:
     task, unique, seen = TASKS[source.task], source.options.get("unique"), set()
-    for record in CONTAINERS[source.reader](source, shards):
+    records = CONTAINERS[source.reader](source, shards)
+    if "session" in source.options:
+        records = sessions(source, records)
+    if shards.stripe is not None:
+        # Every n-th record of all the files: the share of a source too big to divide by file.
+        index, count = shards.stripe
+        records = (record for number, record in enumerate(records) if number % count == index)
+    for record in records:
         if unique:
             key = field_of(record, unique)
             if key in seen:
@@ -1500,8 +2360,9 @@ def _materialized(source: OpenSource, shards: Shards, out: Path) -> Iterator[dic
 def discard(clip: Mapping[str, Any]) -> None:
     """Delete a clip's local media (it is prepared once its episodes exist)."""
     for value in clip.values():
-        if isinstance(value, Path):
-            value.unlink(missing_ok=True)
+        for path in value if isinstance(value, list) else [value]:
+            if isinstance(path, Path):
+                path.unlink(missing_ok=True)
 
 
 def build_episodes(
@@ -1511,14 +2372,19 @@ def build_episodes(
     *,
     work: Path,
     procedural: int = 0,
+    procedural_every: int = 0,
 ) -> Iterator[Episode]:
-    """The episodes of each clip, then one procedural edit for each of the first ``procedural``."""
+    """The episodes of each clip, then one procedural edit for each of the first ``procedural``
+    and for every ``procedural_every``-th clip (chosen by clip id, so shards agree)."""
     task = TASKS[source.task]
     references: dict[str, Mapping[str, Any]] = {}
     for index, clip in enumerate(clips):
         reference = references.get(clip["family"]) if task.reference else None
         yield from task.episodes(media, source, clip, reference)
-        if index < procedural and task.procedural:
+        if task.procedural and (
+            index < procedural
+            or (procedural_every and int(_sha(clip["id"]), 16) % procedural_every == 0)
+        ):
             make = speech_edit if task.procedural == "speech" else video_edit
             edit = make(clip, work / "edits")
             yield from edit_episodes(
@@ -1548,13 +2414,23 @@ def source_episodes(
     count: int,
     work: Path,
     procedural: int = 0,
+    procedural_every: int = 0,
     inputs: Path | None = None,
     shard_slice: tuple[int, int] = (0, 1),
+    files: Sequence[str] | None = None,
+    stripe: tuple[int, int] | None = None,
+    sizes: Mapping[str, int] | None = None,
 ) -> Iterator[Episode]:
-    """Every episode of ``count`` clips of one approved source."""
+    """Every episode of ``count`` clips of one approved source (``files``, ``stripe`` and
+    their stored ``sizes``: the part of it that one shard of ``data/media_sharding.py`` reads)."""
     source.terms.require_approval()
-    shards = Shards(source, inputs, shard_slice)
+    shards = Shards(source, inputs, shard_slice, files, stripe, sizes)
     out = work / source.source_id
     yield from build_episodes(
-        media, source, read_clips(source, shards, out, count), work=out, procedural=procedural
+        media,
+        source,
+        read_clips(source, shards, out, count),
+        work=out,
+        procedural=procedural,
+        procedural_every=procedural_every,
     )

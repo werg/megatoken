@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from megatoken.data.media_assets import (
@@ -50,6 +51,8 @@ TASK_FAMILIES = frozenset(
         "speech_translation",
         "image_description",
         "image_creation",
+        "audio_description",
+        "video_description",
         "av_understanding",
         "av_creation",
         "endpoints",
@@ -551,6 +554,38 @@ def standard_views(bundle: AlignedBundle) -> tuple[TaskView, ...]:
             ),
             (Relation("describes", labels["display_caption"], labels["image"]),),
         )
+    if has("audio", "audio_caption"):
+        add(
+            "audio_description",
+            "grounded-audio-description",
+            (
+                group(observed(labels["audio"], "audio", "Listen to the supplied recording.")),
+                group(
+                    generated(
+                        labels["audio_caption"],
+                        "caption",
+                        "Describe the audible sources, events, music and their order.",
+                    )
+                ),
+            ),
+            (Relation("describes", labels["audio_caption"], labels["audio"]),),
+        )
+    if has("video", "video_caption"):
+        add(
+            "video_description",
+            "grounded-video-description",
+            (
+                group(observed(labels["video"], "video", "Watch the supplied clip.")),
+                group(
+                    generated(
+                        labels["video_caption"],
+                        "caption",
+                        "Describe the visible subjects, motion and their order.",
+                    )
+                ),
+            ),
+            (Relation("describes", labels["video_caption"], labels["video"]),),
+        )
     if has("creation_request", "image", "display_caption"):
         add(
             "image_creation",
@@ -894,6 +929,107 @@ def edit_task_view(
         ),
         tuple(relations),
     )
+
+
+def edit_chain_view(
+    *,
+    family: str,
+    view_id: str,
+    original: str,
+    steps: Sequence[tuple[str, str]],
+    preserves_json: str = "{}",
+) -> TaskView:
+    """A multi-turn editing session: the user asks, the model renders the edit, the user asks
+    for a follow-up change to *that result*, and so on.
+
+    ``steps`` is each turn's ``(instruction, edited)`` artifact IDs, in order. Every edited
+    version names the previous result as its exact parent (the first names ``original``); the
+    follow-up requests are observed after the result they refer to, so the model conditions on
+    its own earlier edits. Every turn is one supervised output; a one-step chain is
+    ``edit_task_view``.
+    """
+    if family not in {"image_edit", "speech_edit", "av_edit"} or not steps:
+        raise ValueError("An edit chain needs an editing family and at least one step")
+    first_instruction = steps[0][0]
+    groups = [
+        group(
+            observed(
+                original, "original", "Observe this exact media version as the edit baseline."
+            ),
+            observed(first_instruction, "instruction", "Read the verified edit request."),
+        )
+    ]
+    relations: list[Relation] = []
+    previous = original
+    for turn, (instruction, edited) in enumerate(steps, 1):
+        if turn > 1:
+            groups.append(
+                group(
+                    observed(
+                        instruction,
+                        "instruction",
+                        "Read the follow-up request; it changes the latest result.",
+                    )
+                )
+            )
+        groups.append(
+            group(
+                generated(
+                    edited,
+                    "edited_media",
+                    "Apply the requested edit to the latest result, preserving all unaffected content.",
+                    revision=turn,
+                    reference_artifact_ids=(previous,),
+                )
+            )
+        )
+        relations += [
+            Relation("edit_of", edited, previous),
+            Relation("preserves", edited, previous, preserves_json),
+        ]
+        previous = edited
+    return TaskView(view_id, family, tuple(groups), tuple(relations))
+
+
+def question_chain_view(
+    *,
+    family: str,
+    view_id: str,
+    media: str,
+    turns: Sequence[tuple[str, str]],
+    modality: str = "image",
+) -> TaskView:
+    """A conversation about one observed recording: the user shows the ``media`` with a first
+    question, the model answers, the user asks a follow-up, and so on.
+
+    ``turns`` is each turn's ``(question, answer)`` text artifact IDs. Every answer is one
+    supervised output that may use the media and every earlier turn.
+    """
+    if family not in {"image_description", "audio_description", "video_description"} or not turns:
+        raise ValueError("A question chain needs a describing family and at least one turn")
+    groups = [
+        group(
+            observed(media, modality, f"Inspect the supplied {modality}."),
+            observed(turns[0][0], "question", "Read the question about it."),
+        )
+    ]
+    relations = []
+    for turn, (question, answer) in enumerate(turns, 1):
+        if turn > 1:
+            groups.append(group(observed(question, "question", "Read the follow-up question.")))
+        groups.append(
+            group(
+                generated(
+                    answer,
+                    "answer",
+                    f"Answer from what the {modality} shows and what was said before.",
+                    revision=turn,
+                    reference_artifact_ids=(media,),
+                )
+            )
+        )
+        relations.append(Relation("describes", answer, media))
+    return TaskView(view_id, family, tuple(groups), tuple(relations))
 
 
 def manifest_fingerprint(bundle: AlignedBundle, views: tuple[TaskView, ...]) -> str:

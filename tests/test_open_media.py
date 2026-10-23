@@ -595,6 +595,132 @@ def test_image_edits_keep_a_session_in_one_family_and_edit_the_exact_original(tm
     assert first.supervision.verification == "model-generated"
 
 
+def _turns(episode):
+    """(role, policy_mask, kind) of each record of an edit episode, text shortened to its words."""
+    return [
+        (
+            r.role,
+            r.policy_mask,
+            "media" if r.media_type.endswith("media-reference+json") else r.payload.decode(),
+        )
+        for r in episode.records
+    ]
+
+
+def test_a_three_step_edit_session_is_one_multi_turn_episode(tmp_path, media):
+    source = make_source(
+        "sessions",
+        "image_edit_chain",
+        columns={
+            "original": "source_img",
+            "edited": "target_img",
+            "instruction": "instruction",
+            "id": "img_id",
+            "family": "img_id",
+        },
+        include=("*.parquet",),
+        options={
+            "session": {"by": "img_id", "order": "turn_index"},
+            "provenance": {"media": "teacher"},
+            "tier": "model-generated",
+        },
+    )
+    # Session 100 has three turns (each turn edits the previous result), delivered out of
+    # order; session 101 has one; session 102's second result has another size, which ends it.
+    chain = [_image(i) for i in (1, 2, 3, 4)]
+    small = _image(5, size=(40, 40))
+    sources = [chain[1], chain[0], chain[2], chain[0], chain[0], chain[1]]
+    results = [chain[2], chain[1], chain[3], chain[3], chain[1], small]
+    parquet.write_table(
+        pa.table(
+            {
+                "img_id": ["100", "100", "100", "101", "102", "102"],
+                "turn_index": [2, 1, 3, 1, 1, 2],
+                "source_img": [{"bytes": data, "path": ""} for data in sources],
+                "target_img": [{"bytes": data, "path": ""} for data in results],
+                "instruction": ["make it red", "add a hat", "add a dog", "remove it", "blur", "x"],
+            }
+        ),
+        _local(tmp_path, "sessions") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_edit": 3}
+    long = next(e for e in episodes if e.lineage.family_id == "sessions:100")
+    assert _turns(long) == [
+        ("user", False, "media"),
+        ("user", False, "add a hat"),
+        ("assistant", True, "media"),
+        ("user", False, "make it red"),
+        ("assistant", True, "media"),
+        ("user", False, "add a dog"),
+        ("assistant", True, "media"),
+    ]
+    assert [len(m.events) for m in long.meridians] == [2, 1, 1, 1, 1, 1]
+    # Each result is the exact parent of the next: three edit dependencies in a line.
+    ids = [r.record_id for r in long.records]
+    assert [(d.writer_id, d.reader_id) for d in long.dependencies] == [
+        (ids[0], ids[2]),
+        (ids[2], ids[4]),
+        (ids[4], ids[6]),
+    ]
+    events = [e for m in long.meridians for e in m.events if e.role == "assistant"]
+    assert [e.request_revision for e in events] == [1, 2, 3]
+    assert [len(e.reference_event_ids) for e in events] == [1, 1, 1]
+    assert events[1].reference_event_ids == (ids[2],)
+    assert long.records[2].provenance == "teacher"
+    assert long.supervision.verification == "model-generated"
+    lengths = sorted(sum(r.policy_mask for r in e.records) for e in episodes)
+    assert lengths == [1, 1, 3]  # the size mismatch ended session 102 after its first turn
+
+
+def test_a_row_holding_a_whole_edit_chain_and_the_video_chain(tmp_path, media):
+    source = make_source(
+        "wholechain",
+        "image_edit_chain",
+        columns={"images": "images", "instruction": "turns", "id": "chain_id"},
+        include=("*.parquet",),
+        options={"max_steps": 2},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "chain_id": ["c1"],
+                "images": [[{"bytes": _image(i), "path": ""} for i in (1, 2, 3, 4)]],
+                "turns": [["add snow", "", "add a sun"]],
+            }
+        ),
+        _local(tmp_path, "wholechain") / "0.parquet",
+    )
+    # The empty second request ends the usable chain after one turn.
+    (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert sum(r.policy_mask for r in episode.records) == 1
+    assert episode.records[1].payload == b"add snow"
+
+
+@ffmpeg
+def test_video_edit_sessions_trim_every_version_alike(tmp_path, media):
+    source = make_source(
+        "vchain",
+        "video_edit_chain",
+        columns={"images": "videos", "instruction": "turns", "id": "chain_id"},
+        include=("*.parquet",),
+        options={"max_seconds": 1.0},
+    )
+    versions = [
+        {"bytes": _video(tmp_path / f"{i}.mp4", 2 + i * 0.1, sound=False).read_bytes()}
+        for i in range(3)
+    ]
+    parquet.write_table(
+        pa.table({"chain_id": ["v"], "videos": [versions], "turns": [["grey", "mirror"]]}),
+        _local(tmp_path, "vchain") / "0.parquet",
+    )
+    (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert episode.stream == "av_edit"
+    assert sum(r.policy_mask for r in episode.records) == 2
+    assert [d.kind for d in episode.dependencies] == ["edit", "edit"]
+    assert not list((tmp_path / "work").rglob("*.mp4"))
+
+
 def test_long_recordings_of_any_sound_are_cropped_to_a_central_excerpt(tmp_path, media):
     source = make_source(
         "music",
@@ -889,8 +1015,19 @@ def test_manifest_sources_are_pinned_licensed_approved_and_readable():
                 "av_scenes": {"video", "meta"},
                 "video": {"video"},
                 "video_edit": {"original", "edited", "instruction"},
+                "image_edit_chain": {"instruction"},
+                "video_edit_chain": {"instruction"},
+                "image_questions": {"image"},
+                "captioned_audio": {"audio", "caption"},
+                "captioned_video": {"video", "caption"},
+                "video_questions": {"video"},
+                "audio_questions": {"audio"},
             }[source.task]
             assert needed <= roles, source.source_id
+            if source.task.endswith("_chain"):  # all versions in one field, or per-turn pairs
+                assert "images" in roles or {"original", "edited"} <= roles, source.source_id
+            if source.task == "image_questions":
+                assert "turns" in roles or {"question", "answer"} <= roles, source.source_id
         if source.reader == "archive":
             assert "table" in source.options, source.source_id
         assert source.inventory.get("basis"), source.source_id
@@ -1084,3 +1221,745 @@ def test_a_reused_clip_id_with_new_content_gives_new_episodes(tmp_path, media):
     assert "accepted_candidate" in verdicts
     transcripts = {e.episode_id for e in episodes if e.stream == "transcription"}
     assert len(transcripts) == 2  # the repeated row merges; the new caption does not
+
+
+def test_a_conversation_about_an_image_is_one_multi_turn_episode_in_every_stored_layout(
+    tmp_path, media
+):
+    cauldron = make_source(
+        "pairs",
+        "image_questions",
+        columns={"image": "images", "turns": "texts", "id": "uid"},
+        include=("*.parquet",),
+        options={"format": "pairs", "max_turns": 2},
+    )
+    llava = make_source(
+        "chat",
+        "image_questions",
+        columns={"image": "image", "turns": "conversations", "id": "uid"},
+        include=("*.parquet",),
+        options={"format": "messages"},
+    )
+    lists = make_source(
+        "lists",
+        "image_questions",
+        columns={"image": "image", "question": "questions", "answer": "answers", "id": "uid"},
+        include=("*.parquet",),
+        options={"format": "parallel"},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "uid": ["a", "b", "c"],
+                # The second row shows two images and is skipped.
+                "images": [
+                    [{"bytes": _image(1), "path": ""}],
+                    [{"bytes": _image(2), "path": ""}, {"bytes": _image(3), "path": ""}],
+                    [{"bytes": _image(4), "path": ""}],
+                ],
+                "texts": [
+                    [
+                        {"user": "What is shown?", "assistant": "A red square."},
+                        {"user": "What colour?", "assistant": "Red."},
+                        {"user": "Third?", "assistant": "Cut off by max_turns."},
+                    ],
+                    [{"user": "Q", "assistant": "A"}],
+                    [{"user": "Where?", "assistant": ""}],  # no answer: nothing to learn
+                ],
+            }
+        ),
+        _local(tmp_path, "pairs") / "0.parquet",
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "uid": ["a"],
+                "image": [{"bytes": _image(5), "path": ""}],
+                "conversations": [
+                    [
+                        {"from": "human", "value": "<image>\nWhat is here?"},
+                        {"from": "gpt", "value": "A circle."},
+                        {"from": "human", "value": "Size?"},
+                        {"from": "gpt", "value": "Small."},
+                        {"from": "human", "value": "Dangling question"},
+                    ]
+                ],
+            }
+        ),
+        _local(tmp_path, "chat") / "0.parquet",
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "uid": ["a"],
+                "image": [{"bytes": _image(6), "path": ""}],
+                "questions": [["How many?", "Which side?"]],
+                "answers": [["Two.", "Left."]],
+            }
+        ),
+        _local(tmp_path, "lists") / "0.parquet",
+    )
+    first = _run(media, cauldron, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(first) == {"image_description": 1, "image_identity": 1}
+    chat = next(e for e in first if e.stream == "image_description")
+    assert [r.policy_mask for r in chat.records] == [False, False, True, False, True]
+    assert [r.payload for r in chat.records[1:]] == [
+        b"What is shown?",
+        b"A red square.",
+        b"What colour?",
+        b"Red.",
+    ]
+    assert [len(m.events) for m in chat.meridians] == [2, 1, 1, 1]
+    assert [
+        e.request_revision for m in chat.meridians for e in m.events if e.role == "assistant"
+    ] == [
+        1,
+        2,
+    ]
+    second = _run(media, llava, tmp_path, inputs=tmp_path / "inputs")
+    reply = next(e for e in second if e.stream == "image_description")
+    assert [r.payload for r in reply.records[1:]] == [
+        b"What is here?",
+        b"A circle.",
+        b"Size?",
+        b"Small.",
+    ]
+    third = _run(media, lists, tmp_path, inputs=tmp_path / "inputs")
+    assert (
+        sum(r.policy_mask for e in third if e.stream == "image_description" for r in e.records) == 2
+    )
+
+
+def test_recordings_with_descriptions_give_audio_description_and_identity(tmp_path, media):
+    source = make_source(
+        "captions",
+        "captioned_audio",
+        columns={"audio": "audio", "caption": "caption", "id": "id"},
+        include=("*.parquet",),
+        options={"pick": "first", "min_chars": 5},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "id": ["a", "b", "c"],
+                "audio": [{"bytes": _wave(i), "path": ""} for i in range(3)],
+                "caption": [["A dog barks twice.", "Dog."], ["x"], ["Rain falls on a roof."]],
+            }
+        ),
+        _local(tmp_path, "captions") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"audio_description": 2, "audio_identity": 2}
+    described = next(e for e in episodes if e.stream == "audio_description")
+    assert [(r.role, r.policy_mask) for r in described.records] == [
+        ("user", False),
+        ("assistant", True),
+    ]
+    assert described.records[1].payload == b"A dog barks twice."
+
+
+def test_an_original_of_another_size_follows_the_editing_model_when_the_shape_matches(tmp_path):
+    from megatoken.data.open_media import write_image_chain, write_image_pair
+
+    # MagicBrush: a 500 px photo edited by a model that returns 1024 px.
+    small, big, wide = _image(1, (50, 50)), _image(2, (100, 100)), _image(3, (100, 60))
+    pair = write_image_pair(small, big, tmp_path, "a")
+    assert pair is not None and {Image.open(p).size for p in pair} == {(100, 100)}
+    assert write_image_pair(small, wide, tmp_path, "b") is None  # another shape
+    chain = write_image_chain([small, big, big, wide], tmp_path, "c")
+    assert len(chain) == 3 and {Image.open(p).size for p in chain} == {(100, 100)}
+
+
+def test_rows_linked_to_images_in_a_split_archive_become_edit_sessions(tmp_path, media):
+    """SEED-Data-Edit multi-turn: jsonl rows name the source image and up to five edits, whose
+    files sit in one tar.gz that was cut into parts."""
+    source = make_source(
+        "seed",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "source_image"},
+        include=("annotations/*.jsonl",),
+        options={
+            "linked": {
+                "archives": ["images/multi_turn.tar.gz.part-*"],
+                "multipart": True,
+                "sequence": {
+                    "images": ["source_image", "edit_image_{n}"],
+                    "texts": ["instruction_{n}"],
+                },
+            },
+            "provenance": {"media": "teacher"},
+        },
+    )
+    folder = _local(tmp_path, "seed")
+    (folder / "annotations").mkdir()
+    (folder / "images").mkdir()
+    rows = [
+        {
+            "source_image": "20240407_586P/Data/12/aa.jpg",
+            "edit_image_1": "20240407_586P/Data/12/aa-edit1.JPG",
+            "instruction_1": "Remove the light bulb from the picture",
+            "edit_image_2": "20240407_586P/Data/12/aa-edit2.JPG",
+            "instruction_2": "Change the yellow text in the picture to red",
+        },
+        {
+            "source_image": "20240407_586P/Data/13/bb.jpg",
+            "edit_image_1": "20240407_586P/Data/13/bb_edit1.jpg",
+            "instruction_1": "Add character on the right",
+        },
+        {  # its edit is in no archive: skipped
+            "source_image": "20240407_586P/Data/14/cc.jpg",
+            "edit_image_1": "20240407_586P/Data/14/cc_edit1.jpg",
+            "instruction_1": "Replace background",
+        },
+    ]
+    (folder / "annotations/split_0001.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n"
+    )
+    members = {
+        # Upper-case extensions, an extra leading directory and interleaved rows.
+        "data/20240407_586P/Data/12/aa.jpg": _image(1),
+        "data/20240407_586P/Data/13/bb.jpg": _image(2),
+        "data/20240407_586P/Data/12/aa-edit1.jpg": _image(3),
+        "data/20240407_586P/Data/13/bb_edit1.jpg": _image(4),
+        "data/20240407_586P/Data/12/aa-edit2.jpg": _image(5),
+        "data/20240407_586P/Data/14/cc.jpg": _image(6),
+        "data/unrelated.jpg": _image(7),
+    }
+    whole = tmp_path / "all.tar.gz"
+    _tar(whole, members, "w:gz")
+    data = whole.read_bytes()
+    cut = len(data) // 3
+    (folder / "images/multi_turn.tar.gz.part-aa").write_bytes(data[:cut])
+    (folder / "images/multi_turn.tar.gz.part-ab").write_bytes(data[cut:])
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_edit": 2}
+    by_turns = sorted(sum(r.policy_mask for r in e.records) for e in episodes)
+    assert by_turns == [1, 2]
+    two = next(e for e in episodes if sum(r.policy_mask for r in e.records) == 2)
+    assert [r.payload for r in two.records if r.media_type.startswith("text")] == [
+        b"Remove the light bulb from the picture",
+        b"Change the yellow text in the picture to red",
+    ]
+    assert [d.kind for d in two.dependencies] == ["edit", "edit"]
+
+
+def test_multiple_choice_questions_about_recordings_list_the_options_in_the_question(
+    tmp_path, media
+):
+    source = make_source(
+        "choices",
+        "audio_questions",
+        columns={
+            "audio": "audio",
+            "question": "question",
+            "choices": "options",
+            "answer": "answer",
+            "id": "id",
+        },
+        include=("*.parquet",),
+        options={"format": "choices"},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "id": ["a", "b", "c"],
+                "audio": [{"bytes": _wave(i), "path": ""} for i in range(3)],
+                "question": ["What is heard?", "How many?", "Bad answer?"],
+                "options": [["rain", "wind"], ["one", "two", "three"], ["x", "y"]],
+                "answer": ["wind", "three", "zzz"],
+            }
+        ),
+        _local(tmp_path, "choices") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    # The third row's answer index is outside its options: no turn, no episode.
+    assert _streams(episodes) == {"audio_description": 2, "audio_identity": 2}
+    first = next(e for e in episodes if e.stream == "audio_description")
+    assert first.records[1].payload == b"What is heard?\nA. rain\nB. wind"
+    assert first.records[2].payload == b"B. wind"
+
+
+@ffmpeg
+def test_captioned_clips_and_conversations_about_video_give_video_description(tmp_path, media):
+    captions = make_source(
+        "vcap",
+        "captioned_video",
+        "archive",
+        columns={"video": "member", "caption": "caption", "id": "__key__"},
+        include=("*.zip",),
+        options={
+            "table": {"path": "t.csv", "key": "{video}", "columns": ["caption"]},
+            "max_seconds": 1.0,
+        },
+    )
+    folder = _local(tmp_path, "vcap")
+    (folder / "t.csv").write_text("video,caption\nc.mp4,A test pattern moves\n")
+    with zipfile.ZipFile(folder / "0.zip", "w") as archive:
+        archive.writestr("dir/c.mp4", _video(tmp_path / "c.mp4", 2, sound=False).read_bytes())
+    episodes = _run(media, captions, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"video_description": 1, "video_identity": 1}
+    described = next(e for e in episodes if e.stream == "video_description")
+    assert described.records[1].payload == b"A test pattern moves"
+
+    questions = make_source(
+        "vqa",
+        "video_questions",
+        columns={"video": "video", "turns": "conversations", "id": "id"},
+        include=("*.parquet",),
+        options={"format": "messages", "max_seconds": 1.0},
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "id": ["v"],
+                "video": [{"bytes": _video(tmp_path / "q.mp4", 2, sound=False).read_bytes()}],
+                "conversations": [
+                    [
+                        {"from": "human", "value": "<image>\nWhat moves?"},
+                        {"from": "gpt", "value": "A pattern."},
+                    ]
+                ],
+            }
+        ),
+        _local(tmp_path, "vqa") / "0.parquet",
+    )
+    episodes = _run(media, questions, tmp_path, inputs=tmp_path / "inputs")
+    asked = next(e for e in episodes if e.stream == "video_description")
+    assert [r.payload for r in asked.records[1:]] == [b"What moves?", b"A pattern."]
+    assert not list((tmp_path / "work").rglob("*.mp4"))
+
+
+def test_tables_may_be_json_arrays_with_path_keys_and_rows_sharing_a_key_may_merge(tmp_path, media):
+    """LLaVA-Video-178K shape: a JSON array whose rows name a video by a path inside the tar,
+    several rows (conversations) for the same video."""
+    source = make_source(
+        "videoqa",
+        "image_questions",
+        "archive",
+        columns={"image": "member", "turns": "conversations", "id": "__key__"},
+        include=("images/*.tar",),
+        options={
+            "format": "messages",
+            "table": {
+                "path": "qa.json",
+                "key": "{video__name}",
+                "columns": ["conversations"],
+                "merge": ["conversations"],
+            },
+        },
+    )
+    folder = _local(tmp_path, "videoqa")
+    (folder / "images").mkdir()
+    rows = [
+        {
+            "video": "academic/clips/a.png",
+            "conversations": [
+                {"from": "human", "value": "<image>\nWhat is this?"},
+                {"from": "gpt", "value": "A square."},
+            ],
+        },
+        {
+            "video": "other/path/a.png",
+            "conversations": [
+                {"from": "human", "value": "What colour?"},
+                {"from": "gpt", "value": "Blue."},
+            ],
+        },
+        {"video": "academic/clips/b.png", "conversations": []},
+    ]
+    (folder / "qa.json").write_text(json.dumps(rows))
+    _tar(folder / "images/0.tar", {"x/a.png": _image(1), "x/b.png": _image(2)})
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_description": 1, "image_identity": 1}
+    chat = next(e for e in episodes if e.stream == "image_description")
+    assert [r.payload for r in chat.records[1:]] == [
+        b"What is this?",
+        b"A square.",
+        b"What colour?",
+        b"Blue.",
+    ]
+
+
+def test_json_lines_in_a_file_named_json_are_read_line_by_line(tmp_path):
+    from megatoken.data.open_media import _table
+
+    source = make_source("t")
+    folder = _local(tmp_path, "t")
+    (folder / "t.json").write_text(
+        '{"location": "data_aug2/x_1.wav", "caption": "Slow piano"}\n'
+        '{"location": "data/y.wav", "caption": "Fast drums"}\n'
+    )
+    rows = _table(
+        Shards(source, tmp_path / "inputs"),
+        {"path": "t.json", "key": "{location__name}"},
+        ["caption"],
+    )
+    assert rows == {"x_1.wav": {"caption": "Slow piano"}, "y.wav": {"caption": "Fast drums"}}
+
+
+def test_a_table_with_one_file_per_archive_is_read_with_its_archive(tmp_path, media):
+    source = make_source(
+        "parts",
+        "captioned_image",
+        "archive",
+        columns={"image": "member", "caption": "caption", "id": "__key__"},
+        include=("part_*.tar",),
+        options={
+            "table": {
+                "path": "unused.csv",
+                "key": "{clip_id}.png",
+                "columns": ["caption"],
+                "per_archive": {"pattern": r"part_(\d+)", "path": "caps_{0}.csv"},
+            }
+        },
+    )
+    folder = _local(tmp_path, "parts")
+    for number in (1, 2):
+        (folder / f"caps_{number:03d}.csv").write_text(
+            f"clip_id,caption\nc{number},Caption of clip {number} here\n"
+        )
+        _tar(folder / f"part_{number:03d}.tar", {f"d/c{number}.png": _image(number)})
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    captions = sorted(e.records[1].payload for e in episodes if e.stream == "image_description")
+    assert captions == [b"Caption of clip 1 here", b"Caption of clip 2 here"]
+
+
+def test_webdataset_keys_may_hold_dots_when_asked(tmp_path):
+    source = make_source(
+        "dots", "av_caption", "webdataset", include=("*.tar",), options={"key_split": "last"}
+    )
+    _tar(
+        _local(tmp_path, "dots") / "0.tar",
+        {"d/abc.0.mp4": b"v0", "d/abc.0.json": b'{"caption": "a"}', "d/abc.1.mp4": b"v1"},
+    )
+    from megatoken.data.open_media import webdataset_records
+
+    records = list(webdataset_records(source, Shards(source, tmp_path / "inputs")))
+    assert [(r["__key__"], sorted(set(r) - {"__key__", "__shard__"})) for r in records] == [
+        ("abc.0", ["json", "mp4"]),
+        ("abc.1", ["mp4"]),
+    ]
+
+
+def test_webdataset_members_with_dotted_names_are_addressable_and_json_arrays_link(tmp_path, media):
+    """cc12m-recaptioned shape: members ``<key>.image.jpg`` and ``<key>.synthetic_caption.txt``."""
+    from megatoken.data.open_media import locate, webdataset_records
+
+    assert locate({"image.jpg": b"x", "json": {"a.b": 3}}, "json.a.b") == 3
+    assert locate({"image.jpg": b"x"}, "image.jpg") == b"x"
+    assert locate({"a": {"b": [5, 6]}}, "a.b.1") == 6
+    source = make_source(
+        "cc",
+        "captioned_image",
+        "webdataset",
+        columns={"image": "image.jpg", "caption": "synthetic_caption.txt", "id": "__key__"},
+        include=("*.tar",),
+    )
+    _tar(
+        _local(tmp_path, "cc") / "0.tar",
+        {
+            "k1.image.jpg": _image(1),
+            "k1.original_caption.txt": b"short",
+            "k1.synthetic_caption.txt": b"A long synthetic description of the image.",
+        },
+    )
+    (record,) = webdataset_records(source, Shards(source, tmp_path / "inputs"))
+    assert record["synthetic_caption.txt"].startswith("A long synthetic")
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_description": 1, "image_creation": 1, "image_identity": 1}
+
+    # ShareGPT-4o-Image edits: a JSON array table; input images are a list; one archive.
+    edits = make_source(
+        "gpt4o",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "output_image"},
+        include=("edits.json",),
+        options={
+            "linked": {
+                "archives": ["part_*.tar"],
+                "sequence": {"images": ["input_image", "output_image"], "texts": ["input_prompt"]},
+            }
+        },
+    )
+    folder = _local(tmp_path, "gpt4o")
+    (folder / "edits.json").write_text(
+        json.dumps(
+            [
+                {
+                    "input_prompt": "Remove the barrier",
+                    "input_image": ["image/v2v_1.png"],
+                    "output_image": "image/v2v_2.png",
+                }
+            ]
+        )
+    )
+    _tar(folder / "part_0.tar", {"image/v2v_1.png": _image(1), "image/v2v_2.png": _image(2)})
+    (episode,) = _run(media, edits, tmp_path, inputs=tmp_path / "inputs")
+    assert episode.stream == "image_edit" and episode.records[1].payload == b"Remove the barrier"
+
+
+def test_the_better_rated_of_two_candidate_edits_is_the_edit(tmp_path, media):
+    source = make_source(
+        "pref",
+        "image_edit",
+        columns={"original": "source", "edited": "left", "instruction": "instruction", "id": "key"},
+        include=("*.parquet",),
+        options={
+            "choose": {"candidates": ["left", "right"], "scores": ["left_score", "right_score"]}
+        },
+    )
+    parquet.write_table(
+        pa.table(
+            {
+                "key": ["a", "b", "c"],
+                "instruction": ["add a hat", "make it red", "unrated"],
+                "source": [{"bytes": _image(i), "path": ""} for i in (1, 2, 3)],
+                "left": [{"bytes": _image(i), "path": ""} for i in (2, 3, 4)],
+                "right": [{"bytes": _image(i), "path": ""} for i in (5, 6, 7)],
+                "left_score": [1.0, 9.0, None],
+                "right_score": [8.0, 2.0, None],
+            }
+        ),
+        _local(tmp_path, "pref") / "0.parquet",
+    )
+    from megatoken.data.open_media import Shards, _chosen, parquet_records
+
+    records = list(parquet_records(source, Shards(source, tmp_path / "inputs")))
+    chosen = [_chosen(source, record) for record in records]
+    assert [c["bytes"] if c else None for c in chosen] == [_image(5), _image(3), None]
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"image_edit": 2}
+
+
+def test_linked_rows_lose_a_leading_folder_and_a_shard_reads_only_its_archives(tmp_path, media):
+    """Senorita: the table says ./style/19/h.png, the archive holds ./19/h.png in one of many tars."""
+    source = make_source(
+        "sen",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "source_image"},
+        include=("table.json",),
+        options={
+            "linked": {
+                "archives": ["up/*.tar.gz"],
+                "strip": r"^(?:\./)?[^/]+/",
+                "sequence": {"images": ["source_image", "target_image"], "texts": ["instruction"]},
+            }
+        },
+    )
+    folder = _local(tmp_path, "sen")
+    (folder / "up").mkdir()
+    (folder / "table.json").write_text(
+        json.dumps(
+            [
+                {
+                    "source_image": f"./style/{n}/a.png",
+                    "target_image": f"./style/{n}/a_org.png",
+                    "instruction": f"edit {n}",
+                }
+                for n in (1, 2)
+            ]
+        )
+    )
+    for n in (1, 2):
+        _tar(
+            folder / "up" / f"{n}.tar.gz",
+            {f"./{n}/a.png": _image(n), f"./{n}/a_org.png": _image(n + 4)},
+            "w:gz",
+        )
+    everything = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert len(everything) == 2
+    shard = Shards(source, tmp_path / "inputs", files=["up/2.tar.gz"])
+    from megatoken.data.open_media import linked_records
+
+    (record,) = linked_records(source, shard)
+    assert record["texts"] == ["edit 2"] and len(record["images"]) == 2
+
+
+def test_linked_rows_may_share_an_image_or_name_it_twice_and_a_repeated_member_is_ignored(
+    tmp_path, media
+):
+    source = make_source(
+        "shared",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "id"},
+        include=("table.json",),
+        options={
+            "linked": {
+                "archives": ["up/*.tar"],
+                "sequence": {"images": ["source_image", "target_image"], "texts": ["instruction"]},
+            }
+        },
+    )
+    folder = _local(tmp_path, "shared")
+    (folder / "up").mkdir()
+    (folder / "table.json").write_text(
+        json.dumps(
+            [
+                {"id": "a", "source_image": "s.png", "target_image": "a.png", "instruction": "x"},
+                {"id": "b", "source_image": "s.png", "target_image": "b.png", "instruction": "y"},
+                {"id": "c", "source_image": "s.png", "target_image": "s.png", "instruction": "z"},
+            ]
+        )
+    )
+    _tar(folder / "up" / "0.tar", {"d1/s.png": _image(1), "a.png": _image(2), "b.png": _image(3)})
+    _tar(folder / "up" / "1.tar", {"d2/s.png": _image(4)})
+    from megatoken.data.open_media import linked_records
+
+    records = list(linked_records(source, Shards(source, tmp_path / "inputs")))
+    assert sorted(record["id"] for record in records) == ["a", "b", "c"]
+    assert all(len(record["images"]) == 2 for record in records)
+
+
+def test_a_message_list_ends_at_the_first_turn_that_does_not_alternate(tmp_path):
+    from megatoken.data.open_media import conversation
+
+    source = make_source(
+        "chat", "audio_questions", options={"format": "messages"}, columns={"turns": "turns"}
+    )
+    messages = [
+        {"role": "user", "content": "one?"},
+        {"role": "assistant", "content": "first"},
+        {"role": "assistant", "content": "stray"},
+        {"role": "assistant", "content": "stray too"},
+        {"role": "user", "content": "two?"},
+        {"role": "assistant", "content": "second"},
+    ]
+    assert conversation(source, {"turns": messages}) == [("one?", "first")]
+
+
+def test_audio_stored_as_decoded_samples_is_read_like_a_file(tmp_path, media):
+    source = make_source(
+        "notes",
+        "sound",
+        columns={"audio": "audio", "id": "id", "family": "instrument"},
+        include=("*.parquet",),
+    )
+    samples = np.sin(2 * np.pi * 220 * np.arange(32000) / 16000).astype("float32") * 0.4
+    parquet.write_table(
+        pa.table(
+            {
+                "audio": [{"array": samples.tolist(), "path": "x.wav", "sampling_rate": 16000}],
+                "id": ["a"],
+                "instrument": ["flute"],
+            }
+        ),
+        _local(tmp_path, "notes") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"audio_identity": 1}
+
+
+def test_a_transcription_source_can_also_be_read_aloud_from_its_transcripts(tmp_path, media):
+    source = make_source(
+        "asr",
+        columns={"audio": "audio", "text": "text", "id": "id"},
+        include=("*.parquet",),
+        options={"verbalize": True},
+    )
+    assert source.streams == ("audio_identity", "speech_edit", "transcription", "verbalization")
+    parquet.write_table(
+        pa.table(
+            {
+                "audio": [{"bytes": _wave(1), "path": "a.flac"}],
+                "text": ["Hello, world."],
+                "id": ["a"],
+            }
+        ),
+        _local(tmp_path, "asr") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"transcription": 1, "verbalization": 1, "audio_identity": 1}
+    said = next(e for e in episodes if e.stream == "verbalization")
+    assert said.records[0].payload == b"Hello, world." and said.records[1].policy_mask
+    assert make_source("plain").streams == ("audio_identity", "speech_edit", "transcription")
+
+
+def test_a_parquet_table_with_nested_turns_links_to_its_images(tmp_path, media):
+    """ImgEdit multi-turn: one row holds a list of turns, each naming its own input and output."""
+    source = make_source(
+        "imgedit",
+        "image_edit_chain",
+        reader="linked",
+        columns={"images": "images", "instruction": "texts", "id": "data.0.output_images.0"},
+        include=("Parquet/*.parquet",),
+        options={
+            "family_pattern": r"^[^/]+/(\d+_\d+)_\d+/",
+            "linked": {
+                "archives": ["Multiturn/results_a.tar.split.*"],
+                "multipart": True,
+                "sequence": {
+                    "images": [
+                        "data.0.input_images.0",
+                        "data.0.output_images.0",
+                        "data.1.output_images.0",
+                    ],
+                    "texts": ["data.0.prompt", "data.1.prompt"],
+                },
+            },
+        },
+    )
+
+    def turn(prompt, origin, result):
+        return {"input_images": [origin], "output_images": [result], "prompt": prompt}
+
+    chain = "results_a/00087_00016_000166465"
+    folder = _local(tmp_path, "imgedit")
+    (folder / "Parquet").mkdir()
+    (folder / "Multiturn").mkdir()
+    parquet.write_table(
+        pa.table(
+            {
+                "data": [
+                    [
+                        turn(
+                            "replace the lemon with a mango",
+                            f"{chain}/origin_0.png",
+                            f"{chain}/result_0.png",
+                        ),
+                        turn("make it ripe", f"{chain}/origin_1.png", f"{chain}/result_1.png"),
+                        turn("remove it", f"{chain}/origin_2.png", f"{chain}/result_2.png"),
+                    ]
+                ]
+            }
+        ),
+        folder / "Parquet/a.parquet",
+    )
+    members = {
+        f"mnt/data/code/{chain}/{name}.png": _image(number)
+        for number, name in enumerate(
+            ["origin_0", "result_0", "mask_0", "origin_1", "result_1", "origin_2", "result_2"]
+        )
+    }
+    whole = tmp_path / "all.tar"
+    _tar(whole, members)
+    data = whole.read_bytes()
+    cut = len(data) // 2
+    (folder / "Multiturn/results_a.tar.split.000").write_bytes(data[:cut])
+    (folder / "Multiturn/results_a.tar.split.001").write_bytes(data[cut:])
+    (episode,) = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert episode.stream == "image_edit"
+    assert episode.lineage.family_id == "imgedit:00087_00016"
+    texts = [r.payload for r in episode.records if r.media_type.startswith("text")]
+    assert texts == [b"replace the lemon with a mango", b"make it ripe"]
+
+
+def test_samples_numbered_afresh_in_every_tar_get_distinct_ids(tmp_path, media):
+    source = make_source(
+        "wds",
+        "picture",
+        "webdataset",
+        columns={"image": "jpg", "id": ["__shard__", "__key__"]},
+        include=("*.tar",),
+    )
+    folder = _local(tmp_path, "wds")
+    for number in (0, 1):
+        _tar(folder / f"{number}.tar", {"000000000.jpg": _image(number + 1)})
+    from megatoken.data.open_media import Shards, read_clips
+
+    clips = list(read_clips(source, Shards(source, tmp_path / "inputs"), tmp_path / "out", 5))
+    assert [clip["id"] for clip in clips] == ["0.tar-000000000", "1.tar-000000000"]
+    assert len({clip["family"] for clip in clips}) == 2

@@ -71,3 +71,12 @@ scaled with `AGENTIC_MORE_ROW_SCALE`. See "More chat, reasoning and agent data" 
 tested code, clarification and recovery, code rewrites, environment episodes). The cloud job
 `configs/cloud/prepare-later-stages.json` prepares it in eight shards, scaled with
 `LATER_ROW_SCALE`. See "Later-stage streams" at the end of [`docs/data.md`](../../docs/data.md).
+
+`sources.media.json`, `sources.media-more.json` and `sources.media-more-gated.json` list the public
+media sources (images, speech, sound, music, video and their edits; any licence, each recorded; the
+last file needs a click on the Hub). The pilot jobs `configs/cloud/prepare-media-*.json` build a
+slice of each source; `files.media.json` lists every file of the file-based media sources and the
+runs `configs/cloud/prepare-full-media-*.json` build all of them across GPU sandboxes
+(`python -m megatoken.cloud_prepare plan|launch`; `scripts/media_volume.py` computes sizes, costs
+and the gap to the stage plan). See "Scaling the media streams" in
+[`docs/data.md`](../../docs/data.md).

@@ -271,6 +271,8 @@ def test_stage_plan_leans_on_agentic_and_chat_data_over_raw_text():
             "verbalization",
             "speech_translation",
             "image_description",
+            "audio_description",
+            "video_description",
             "image_creation",
             "av_creation",
             "image_edit",
