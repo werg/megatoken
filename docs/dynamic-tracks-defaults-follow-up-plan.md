@@ -128,6 +128,15 @@ their input-to-response and interruption-to-stop targets, measurement boundaries
 and memory budgets. Keep media output geometry independent of hidden target data.
 Changing modality within a track remains supported by every applicable profile.
 
+Keep message role separate from track ownership in those profiles. Ordinary user
+messages, assistant replies, and relevant tool continuations belong to the same
+main conversation track. Update the legacy role-based linear importer and local
+student mapping together, rebuild their prepared data, and preserve explicitly
+declared worker tracks. Verify that an old user constraint remains directly
+available through the long conversation window despite role changes and busy
+workers. This migration is required before applying short cross-track defaults
+to production conversation data.
+
 Bound session bookkeeping as well as attention and output tensors. Account for
 copied text, completed event addresses, task transitions, tool deduplication,
 scheduling records, source receipts, and any recorded policy context. Distinguish
