@@ -19,7 +19,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: OpenMDW-1.1."
+        "notes": "Card: OpenMDW-1.1.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states openmdw-1.1; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -50,7 +52,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: OpenMDW-1.1."
+        "notes": "Card: OpenMDW-1.1.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states openmdw-1.1; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -85,7 +89,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Agentic-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0 (Apache-2.0 for the Glaive-derived part). Simulated user, agent and tool backend."
+        "notes": "Card: CC BY 4.0 (Apache-2.0 for the Glaive-derived part). Simulated user, agent and tool backend.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -122,7 +128,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Agentic-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0. Simulated user, agent and tool backend."
+        "notes": "Card: CC BY 4.0. Simulated user, agent and tool backend.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -159,7 +167,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0."
+        "notes": "Card: CC BY 4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -196,7 +206,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0."
+        "notes": "Card: CC BY 4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -231,7 +243,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0."
+        "notes": "Card: CC BY 4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -268,7 +282,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0."
+        "notes": "Card: CC BY 4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid",
@@ -302,7 +318,9 @@
         "license_url": "https://huggingface.co/datasets/Agent-Ark/Toucan-1.5M",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Calls were executed against real MCP servers."
+        "notes": "Card: Apache-2.0. Calls were executed against real MCP servers.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -334,7 +352,9 @@
         "license_url": "https://huggingface.co/datasets/interstellarninja/hermes_reasoning_tool_use",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Hermes-format tool use with reasoning, simulated tool responses."
+        "notes": "Card: Apache-2.0. Hermes-format tool use with reasoning, simulated tool responses.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "task"
@@ -370,7 +390,9 @@
         "license_url": "https://huggingface.co/datasets/Nanbeige/ToolMind",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Function-graph synthesized user, assistant and tool simulation with turn-level filtering."
+        "notes": "Card: Apache-2.0. Function-graph synthesized user, assistant and tool simulation with turn-level filtering.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -405,7 +427,9 @@
         "license_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -441,7 +465,9 @@
         "license_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -477,7 +503,9 @@
         "license_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -513,7 +541,9 @@
         "license_url": "https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -547,7 +577,9 @@
         "license_url": "https://huggingface.co/datasets/Team-ACE/ToolACE",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -581,7 +613,9 @@
         "license_url": "https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0 (auto-gated: the token already has access). Queries with their calls and no executed results."
+        "notes": "Card: CC BY 4.0 (auto-gated: the token already has access). Queries with their calls and no executed results.",
+        "redistribute": "no",
+        "redistribute_basis": "cc-by-4.0, but the notes record: gated"
       },
       "field_map": {},
       "options": {
@@ -615,7 +649,9 @@
         "license_url": "https://huggingface.co/datasets/Salesforce/APIGen-MT-5k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY-NC 4.0 (non-commercial); simulated human and tool backends."
+        "notes": "Card: CC BY-NC 4.0 (non-commercial); simulated human and tool backends.",
+        "redistribute": "non_commercial",
+        "redistribute_basis": "publisher states cc-by-nc-4.0; non-commercial re-sharing with attribution is allowed"
       },
       "field_map": {},
       "options": {
@@ -645,7 +681,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT-Tool-Use",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card text: licensed ODC-BY, for research and educational use under Ai2's responsible use guidelines."
+        "notes": "Card text: licensed ODC-BY, for research and educational use under Ai2's responsible use guidelines.",
+        "redistribute": "no",
+        "redistribute_basis": "odc-by, but the notes record: research-only or educational-only use"
       },
       "field_map": {},
       "options": {
@@ -675,7 +713,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT-Tool-Use-SA",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY-SA 4.0 (share-alike)."
+        "notes": "Card: CC BY-SA 4.0 (share-alike).",
+        "redistribute": "share_alike",
+        "redistribute_basis": "publisher states cc-by-sa-4.0; share-alike allows re-sharing under the same terms"
       },
       "field_map": {},
       "options": {
@@ -709,7 +749,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/When2Call",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0."
+        "notes": "Card: CC BY 4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -739,7 +781,9 @@
         "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card."
+        "notes": "No licence on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the dataset card'"
       },
       "field_map": {
         "family": "id"
@@ -770,7 +814,9 @@
         "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card."
+        "notes": "No licence on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the dataset card'"
       },
       "field_map": {
         "family": "id"
@@ -801,7 +847,9 @@
         "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card."
+        "notes": "No licence on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the dataset card'"
       },
       "field_map": {
         "family": "id"
@@ -832,7 +880,9 @@
         "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card."
+        "notes": "No licence on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the dataset card'"
       },
       "field_map": {
         "family": "id"
@@ -863,7 +913,9 @@
         "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card."
+        "notes": "No licence on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the dataset card'"
       },
       "field_map": {
         "family": "id"
@@ -894,7 +946,9 @@
         "license_url": "https://huggingface.co/datasets/zai-org/AgentInstruct",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card."
+        "notes": "No licence on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the dataset card'"
       },
       "field_map": {
         "family": "id"
@@ -959,7 +1013,9 @@
         "license_url": "https://huggingface.co/datasets/AgentGym/AgentTraj-L",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card; AgentGym is MIT on GitHub."
+        "notes": "No licence on the card; AgentGym is MIT on GitHub.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the dataset card'"
       },
       "field_map": {
         "family": "item_id"
@@ -990,7 +1046,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -1021,7 +1079,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -1052,7 +1112,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -1083,7 +1145,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -1114,7 +1178,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -1149,7 +1215,9 @@
         "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -1186,7 +1254,9 @@
         "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN."
+        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -1219,7 +1289,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/tulu-3-sft-mixture",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-BY-1.0 for the collection; different licences apply to subsets and some portions are non-commercial (for example No Robots, CC-BY-NC-4.0)."
+        "notes": "Card: ODC-BY-1.0 for the collection; different licences apply to subsets and some portions are non-commercial (for example No Robots, CC-BY-NC-4.0).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'odc-by (mixture; some subsets are non-commercial)'"
       },
       "field_map": {
         "family": "id"
@@ -1250,7 +1322,9 @@
         "license_url": "https://huggingface.co/datasets/HuggingFaceTB/OpenHermes-2.5-H4",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Hugging Face's re-upload of teknium/OpenHermes-2.5 as messages (the original is one 1.9 GB JSON array that cannot be streamed); neither card names a licence."
+        "notes": "Hugging Face's re-upload of teknium/OpenHermes-2.5 as messages (the original is one 1.9 GB JSON array that cannot be streamed); neither card names a licence.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (mixture of GPT-4 generated sets)'"
       },
       "field_map": {
         "family": "id"
@@ -1281,7 +1355,9 @@
         "license_url": "https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT; ChatGPT generated."
+        "notes": "Card: MIT; ChatGPT generated.",
+        "redistribute": "no",
+        "redistribute_basis": "mit, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {
         "family": "prompt_id"
@@ -1312,7 +1388,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/WildChat-4.8M",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-BY. Real user conversations with GPT models; the toxic ones are filtered out here."
+        "notes": "Card: ODC-BY. Real user conversations with GPT models; the toxic ones are filtered out here.",
+        "redistribute": "no",
+        "redistribute_basis": "odc-by, but the notes record: real people's data"
       },
       "field_map": {
         "messages": "conversation",
@@ -1351,7 +1429,9 @@
         "license_url": "https://huggingface.co/datasets/Magpie-Align/Magpie-Llama-3.1-Pro-1M-v0.1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: follow the Meta Llama 3.1 Community License (outputs of Llama-3.1-70B-Instruct)."
+        "notes": "Card: follow the Meta Llama 3.1 Community License (outputs of Llama-3.1-70B-Instruct).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'llama3.1'"
       },
       "field_map": {
         "family": "uuid"
@@ -1382,7 +1462,9 @@
         "license_url": "https://huggingface.co/datasets/Magpie-Align/Magpie-Qwen2.5-Pro-1M-v0.1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card; outputs of Qwen2.5-72B-Instruct, so the Qwen licence terms may follow."
+        "notes": "No licence on the card; outputs of Qwen2.5-72B-Instruct, so the Qwen licence terms may follow.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (Qwen2.5-72B-Instruct outputs)'"
       },
       "field_map": {
         "family": "uuid"
@@ -1413,7 +1495,9 @@
         "license_url": "https://huggingface.co/datasets/Open-Orca/SlimOrca-Dedup",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT; GPT-4 completions of FLAN prompts."
+        "notes": "Card: MIT; GPT-4 completions of FLAN prompts.",
+        "redistribute": "no",
+        "redistribute_basis": "mit, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {},
       "options": {
@@ -1446,7 +1530,9 @@
         "license_url": "https://huggingface.co/datasets/LDJnr/Capybara",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1475,7 +1561,9 @@
         "license_url": "https://huggingface.co/datasets/HuggingFaceH4/no_robots",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY-NC 4.0 (non-commercial); human written."
+        "notes": "Card: CC BY-NC 4.0 (non-commercial); human written.",
+        "redistribute": "non_commercial",
+        "redistribute_basis": "publisher states cc-by-nc-4.0; non-commercial re-sharing with attribution is allowed"
       },
       "field_map": {
         "family": "prompt_id"
@@ -1510,7 +1598,9 @@
         "license_url": "https://huggingface.co/datasets/databricks/databricks-dolly-15k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY-SA 3.0 (share-alike); human written by Databricks employees."
+        "notes": "Card: CC BY-SA 3.0 (share-alike); human written by Databricks employees.",
+        "redistribute": "share_alike",
+        "redistribute_basis": "publisher states cc-by-sa-3.0; share-alike allows re-sharing under the same terms"
       },
       "field_map": {
         "prompt": "instruction",
@@ -1547,7 +1637,9 @@
         "license_url": "https://huggingface.co/datasets/Open-Orca/OpenOrca",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT; GPT-4 completions of FLAN prompts."
+        "notes": "Card: MIT; GPT-4 completions of FLAN prompts.",
+        "redistribute": "no",
+        "redistribute_basis": "mit, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {
         "prompt": "question",
@@ -1617,7 +1709,9 @@
         "license_url": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4."
+        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4.",
+        "redistribute": "no",
+        "redistribute_basis": "cdla-permissive-2.0, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {},
       "options": {
@@ -1650,7 +1744,9 @@
         "license_url": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4."
+        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4.",
+        "redistribute": "no",
+        "redistribute_basis": "cdla-permissive-2.0, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {},
       "options": {
@@ -1683,7 +1779,9 @@
         "license_url": "https://huggingface.co/datasets/microsoft/orca-agentinstruct-1M-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4."
+        "notes": "Card: CDLA-Permissive-2.0; synthetic, generated with GPT-4.",
+        "redistribute": "no",
+        "redistribute_basis": "cdla-permissive-2.0, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {},
       "options": {
@@ -1712,7 +1810,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/Dolci-Instruct-SFT",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-BY; a mixture whose parts keep their own terms (see the Olmo 3 data cards)."
+        "notes": "Card: ODC-BY; a mixture whose parts keep their own terms (see the Olmo 3 data cards).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'odc-by (mixture)'"
       },
       "field_map": {
         "family": "id"
@@ -1743,7 +1843,9 @@
         "license_url": "https://huggingface.co/datasets/HuggingFaceTB/smol-smoltalk",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1772,7 +1874,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-By, CC BY 4.0 and Apache-2.0 apply to different parts."
+        "notes": "Card: ODC-By, CC BY 4.0 and Apache-2.0 apply to different parts.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'odc-by / cc-by-4.0 / apache-2.0 (per card)'"
       },
       "field_map": {
         "mask": "metadata.train_turns"
@@ -1803,7 +1907,9 @@
         "license_url": "https://huggingface.co/datasets/open-thoughts/OpenThoughts3-1.2M",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0; QwQ-32B reasoning traces."
+        "notes": "Card: Apache-2.0; QwQ-32B reasoning traces.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1832,7 +1938,9 @@
         "license_url": "https://huggingface.co/datasets/miromind-ai/MiroMind-M1-SFT-719K",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "prompt": "question",
@@ -1865,7 +1973,9 @@
         "license_url": "https://huggingface.co/datasets/bespokelabs/Bespoke-Stratos-17k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1894,7 +2004,9 @@
         "license_url": "https://huggingface.co/datasets/AI-MO/NuminaMath-CoT",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1927,7 +2039,9 @@
         "license_url": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden."
+        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'research use only (custom terms on the card)'"
       },
       "field_map": {},
       "options": {
@@ -1960,7 +2074,9 @@
         "license_url": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden."
+        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'research use only (custom terms on the card)'"
       },
       "field_map": {},
       "options": {
@@ -1993,7 +2109,9 @@
         "license_url": "https://huggingface.co/datasets/a-m-team/AM-Thinking-v1-Distilled",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden."
+        "notes": "Card: use strictly limited to research purposes; commercial use and harmful applications forbidden.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'research use only (custom terms on the card)'"
       },
       "field_map": {},
       "options": {
@@ -2026,7 +2144,9 @@
         "license_url": "https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0 (auto-gated: the token already has access). Queries with their calls and no executed results."
+        "notes": "Card: CC BY 4.0 (auto-gated: the token already has access). Queries with their calls and no executed results.",
+        "redistribute": "no",
+        "redistribute_basis": "cc-by-4.0, but the notes record: gated"
       },
       "field_map": {},
       "options": {
@@ -2060,7 +2180,9 @@
         "license_url": "https://huggingface.co/datasets/Team-ACE/ToolACE",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -2094,7 +2216,9 @@
         "license_url": "https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -2126,7 +2250,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: OpenMDW-1.1."
+        "notes": "Card: OpenMDW-1.1.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states openmdw-1.1; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {

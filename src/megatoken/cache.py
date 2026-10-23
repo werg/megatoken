@@ -1,12 +1,14 @@
-"""An encrypted, durable cache of prepared data on public Hugging Face dataset repos.
+"""An encrypted, durable cache of the prepared data that may not be published in the clear.
 
-Sandboxes vanish within hours, so a finished build is copied out before they do. The copy
-is encrypted: every file is sealed with AES-256-GCM under a key that lives only in a local
-file (``megatoken cache keygen`` makes it) and reaches a sandbox only as a secret file.
-What the public repos hold is ciphertext, with opaque names, and one short plaintext
-README. Nothing about the sources, their licences or their sizes is readable.
+Sandboxes vanish within hours, so a finished build is copied out before they do. Sources whose
+licences do not clearly allow redistribution are copied encrypted: every file is sealed with
+AES-256-GCM under a key that lives only in a local file (``megatoken cache keygen`` makes it)
+and reaches a sandbox only as a secret file. What the public repository holds under
+``encrypted/`` is ciphertext with opaque names. Nothing about the sources, their licences or
+their sizes is readable there, and the repository's README says so plainly (``megatoken.publish``
+writes it). The sources that may be published go to the same repository in the clear.
 
-What goes up, for one *part* (the roots one finishing sandbox wrote):
+What goes up, for one *part* (the encrypted roots one finishing sandbox wrote):
 
 * The part's files are laid end to end as one byte stream and cut into *pieces* of the
   same size (the last is padded with zeros), so file and source sizes are not visible.
@@ -15,20 +17,16 @@ What goes up, for one *part* (the roots one finishing sandbox wrote):
   and truncation are caught, and a piece is bound to its own file name.
 * A manifest (file paths, offsets, sha256 of every plaintext file, sha256 of every piece's
   ciphertext) is sealed the same way and padded to a fixed granularity.
-* File names are ``HMAC(key derived from the data key, logical name)``. Pieces go to
-  as many repos as ``repo_bytes`` needs; the repo names are opaque too.
+* File names are ``HMAC(key derived from the data key, logical name)``. A part owns one folder,
+  ``encrypted/<opaque name>/``, so parts uploaded by different sandboxes at the same time never
+  touch the same path.
 
-Reading back needs the key and a *pin* (repo names and commit hashes; it holds no secret and
-may be committed). ``fetch`` downloads the pinned commits, checks every piece's ciphertext
-hash against the manifest, decrypts, and checks every file's plaintext hash.
-``decide`` is the rule a training run follows: a pin whose repos still verify means fetch,
-anything else means rebuild (see ``megatoken.cloud_prepare ensure``).
+Reading back needs the key and a *pin* (``megatoken.publish``: the repository and one commit of
+it; it holds no secret and may be committed). ``fetch_part`` downloads the pinned commit's files,
+checks every piece's ciphertext hash against the manifest, decrypts, and checks every file's
+plaintext hash.
 
   megatoken cache keygen [--path FILE]            create the key (never overwrites)
-  python -m megatoken.cache store ...             (in a sandbox) encrypt and upload a part
-  python -m megatoken.cache fetch --pin FILE --dest DIR
-  python -m megatoken.cache verify --pin FILE     check the pinned repos without downloading
-  python -m megatoken.cache pin RECEIPT... --run-id ID --output FILE   (used when rotating the key)
 """
 
 from __future__ import annotations
@@ -50,6 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from megatoken import hub
 from megatoken.io import canonical_json, content_hash, sha256_file
 
 KEY_FILE = Path(
@@ -65,9 +64,8 @@ TAG_BYTES = 16
 SEGMENT_BYTES = 4 << 20  # plaintext sealed at a time
 MAX_SEGMENT_BYTES = 64 << 20
 PIECE_BYTES = 1 << 30  # plaintext of every piece (the last is padded to it)
-# Public dataset repos are asked to stay under about 300 GB; each of ours holds at most this.
-REPO_BYTES = 250 << 30
 MANIFEST_GRAIN = 1 << 20  # a manifest is padded (JSON allows trailing blanks) to a multiple of this
+ENCRYPTED_DIR = "encrypted"  # the folder of the shared repository that holds every part
 # Working files of the preparation that training never reads.
 SKIP_NAMES = frozenset(
     {
@@ -78,14 +76,8 @@ SKIP_NAMES = frozenset(
         "index.building.sqlite",
     }
 )
-PIN_SCHEMA = "megatoken.cache-pin/1"
-MANIFEST_SCHEMA = "megatoken.cache-part/1"
-RECEIPT_SCHEMA = "megatoken.cache-receipt/1"
-README = (
-    "# Encrypted cache\n\n"
-    "Encrypted cache of preprocessed machine-learning training data for the megatoken "
-    "project. The files are ciphertext and cannot be read without a private key.\n"
-)
+MANIFEST_SCHEMA = "megatoken.cache-part/2"
+RECEIPT_SCHEMA = "megatoken.cache-receipt/2"
 NOT_FOUND = frozenset(
     {
         "RepositoryNotFoundError",
@@ -292,11 +284,17 @@ class Entry:
     sha256: str
 
 
-def scan(source: Path) -> list[Entry]:
-    """Every file under ``source`` (working databases left out) with its hash, in sorted order,
-    placed end to end."""
+def scan(source: Path, only: Sequence[str] | None = None) -> list[Entry]:
+    """Every file under ``source`` (working databases left out; with ``only``, just the folders of
+    that name) with its hash, in sorted order, placed end to end."""
     entries, offset = [], 0
-    for path in sorted(p for p in source.rglob("*") if p.is_file() and p.name not in SKIP_NAMES):
+    for path in sorted(
+        p
+        for p in source.rglob("*")
+        if p.is_file()
+        and p.name not in SKIP_NAMES
+        and (only is None or p.relative_to(source).parts[0] in only)
+    ):
         size = path.stat().st_size
         entries.append(Entry(path.relative_to(source).as_posix(), offset, size, sha256_file(path)))
         offset += size
@@ -358,20 +356,30 @@ def _missing(error: Exception) -> bool:
 class Remote:
     """The few Hub calls the cache makes (``HfApi`` or anything shaped like it)."""
 
-    def __init__(self, api: Any, owner: str | None = None) -> None:
-        self.api, self.owner = api, owner
+    def __init__(self, api: Any) -> None:
+        self.api = api
 
-    def tree(self, repo: str, revision: str | None = None) -> dict[str, Any]:
+    def tree(
+        self, repo: str, revision: str | None = None, path: str | None = None
+    ) -> dict[str, Any]:
+        """Every file of the repo (or of the folder ``path``) at ``revision``, by path."""
         try:
             return {
                 item.path: item
                 for item in self.api.list_repo_tree(
-                    repo, repo_type="dataset", revision=revision, recursive=True, expand=True
+                    repo,
+                    path_in_repo=path,
+                    repo_type="dataset",
+                    revision=revision,
+                    recursive=True,
+                    expand=True,
                 )
             }
         except Exception as error:
             if _missing(error):
-                raise CacheError(f"{repo} (revision {revision}) does not exist") from error
+                raise CacheError(
+                    f"{repo}/{path or ''} (revision {revision}) does not exist"
+                ) from error
             raise
 
     def head(self, repo: str, revision: str | None = None) -> str:
@@ -411,11 +419,12 @@ class Remote:
             path.unlink(missing_ok=True)
 
 
-# ---- names and pins -----------------------------------------------------------------------
+# ---- names --------------------------------------------------------------------------------
 
 
-def repo_name(keys: Keys, owner: str, run: str, part: int, volume: int) -> str:
-    return f"{owner}/{keys.label(f'repo/{run}/{part}/{volume}', 24)}"
+def folder_name(keys: Keys, run: str, part: int) -> str:
+    """The repo folder of one part: opaque, and its own, so concurrent uploads never collide."""
+    return f"{ENCRYPTED_DIR}/{keys.label(f'folder/{run}/{part}', 20)}"
 
 
 def piece_file(keys: Keys, run: str, part: int, index: int) -> str:
@@ -424,39 +433,6 @@ def piece_file(keys: Keys, run: str, part: int, index: int) -> str:
 
 def manifest_file(keys: Keys, run: str, part: int) -> str:
     return keys.label(f"manifest/{run}/{part}") + ".bin"
-
-
-def load_pin(path: Path) -> dict[str, Any]:
-    pin = json.loads(Path(path).read_text())
-    if pin.get("schema") != PIN_SCHEMA or not pin.get("run") or not pin.get("parts"):
-        raise CacheError(f"{path} is not a cache pin")
-    for part in pin["parts"]:
-        if not part.get("repos") or not all(
-            r.get("repo") and r.get("revision") for r in part["repos"]
-        ):
-            raise CacheError(f"{path}: a part has no pinned repos")
-    return pin
-
-
-def make_pin(run: str, receipts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """The pin of a whole run from its parts' receipts: only repo names and commit hashes."""
-    parts = sorted(receipts, key=lambda receipt: receipt["part"])
-    if [receipt["part"] for receipt in parts] != list(range(len(parts))):
-        raise CacheError("The receipts do not cover parts 0..n-1 exactly once")
-    return {
-        "schema": PIN_SCHEMA,
-        "run": run,
-        "parts": [
-            {
-                "part": receipt["part"],
-                "repos": [
-                    {"repo": item["repo"], "revision": item["revision"]}
-                    for item in receipt["repos"]
-                ],
-            }
-            for receipt in parts
-        ],
-    }
 
 
 # ---- storing ------------------------------------------------------------------------------
@@ -473,24 +449,25 @@ def store(
     *,
     keys: Keys,
     api: Any,
-    owner: str,
+    repo: str,
     run: str,
     part: int,
     source: Path,
     work: Path,
+    only: Sequence[str] | None = None,
     piece_bytes: int = PIECE_BYTES,
-    repo_bytes: int = REPO_BYTES,
     segment: int = SEGMENT_BYTES,
     workers: int = 4,
     log: Callable[[str], None] = print,
 ) -> dict[str, Any]:
-    """Seal the files under ``source`` and upload them; returns the receipt (repos, commits).
+    """Seal the files under ``source`` (just the folders named in ``only``, if given), upload
+    them into the part's own folder of ``repo`` and return the receipt.
 
     Resumable: ``work`` keeps every sealed piece with the plan that made it, so a rerun over
     the same files reseals nothing, and the large-folder upload skips what the Hub holds.
     """
-    remote = Remote(api, owner)
-    entries = scan(source)
+    remote = Remote(api)
+    entries = scan(source, only)
     total = sum(entry.bytes for entry in entries)
     if not total:
         raise CacheError(f"{source} holds no files to store")
@@ -509,13 +486,12 @@ def store(
         shutil.rmtree(work / "state", ignore_errors=True)
         _write_state(plan_file, {"plan": plan})
     pieces = -(-total // piece_bytes)
-    per_repo = max(1, repo_bytes // cipher_size(piece_bytes, segment))
-    volumes = -(-pieces // per_repo)
+    folder = folder_name(keys, run, part)
+    local = work / "upload" / folder
 
     def seal(index: int) -> dict[str, Any]:
         name = piece_file(keys, run, part, index)
-        volume = index // per_repo
-        target = work / "upload" / str(volume) / name
+        target = local / name
         state = work / "state" / f"{name}.json"
         if target.exists() and state.exists():
             done = json.loads(state.read_text())
@@ -524,12 +500,7 @@ def store(
                 and target.stat().st_size == done["bytes"]
                 and sha256_file(target) == done["sha256"]
             ):
-                return {
-                    "name": name,
-                    "volume": volume,
-                    "bytes": done["bytes"],
-                    "sha256": done["sha256"],
-                }
+                return {"name": name, "bytes": done["bytes"], "sha256": done["sha256"]}
         target.parent.mkdir(parents=True, exist_ok=True)
         staging = target.with_name(target.name + ".partial")
         reader = _Slice(source, entries, index * piece_bytes, piece_bytes)
@@ -552,11 +523,11 @@ def store(
             reader.close()
         os.replace(staging, target)
         _write_state(state, {"plan": plan, "bytes": size, "sha256": sha})
-        return {"name": name, "volume": volume, "bytes": size, "sha256": sha}
+        return {"name": name, "bytes": size, "sha256": sha}
 
     with ThreadPoolExecutor(max(1, min(workers, pieces))) as pool:
         sealed = list(pool.map(seal, range(pieces)))
-    log(f"sealed {pieces} pieces in {volumes} repos")
+    log(f"sealed {pieces} pieces")
 
     manifest = {
         "schema": MANIFEST_SCHEMA,
@@ -566,7 +537,6 @@ def store(
         "piece_bytes": piece_bytes,
         "segment": segment,
         "stream_bytes": total,
-        "volumes": volumes,
         "files": [
             {"path": e.path, "offset": e.offset, "bytes": e.bytes, "sha256": e.sha256}
             for e in entries
@@ -576,7 +546,7 @@ def store(
     body = canonical_json(manifest)
     body += b" " * (-len(body) % MANIFEST_GRAIN)
     manifest_name = manifest_file(keys, run, part)
-    manifest_path = work / "upload" / "0" / manifest_name
+    manifest_path = local / manifest_name
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     import io
 
@@ -590,26 +560,23 @@ def store(
             keys.salt(f"{manifest_name}/{hashlib.sha256(body).hexdigest()}"),
         )
 
-    repos = []
-    for volume in range(volumes):
-        folder = work / "upload" / str(volume)
-        (folder / "README.md").write_text(README)
-        repo = repo_name(keys, owner, run, part, volume)
-        api.create_repo(repo, repo_type="dataset", private=False, exist_ok=True)
-        api.upload_large_folder(repo_id=repo, folder_path=str(folder), repo_type="dataset")
-        head = remote.head(repo)
-        tree = remote.tree(repo, head)
-        for local in sorted(p for p in folder.iterdir() if p.is_file()):
-            item = tree.get(local.name)
-            if item is None or item.size != local.stat().st_size:
-                raise CacheError(f"{repo}: {local.name} did not arrive intact")
-            if remote.remote_sha256(repo, local.name, head, item, work / "verify") != sha256_file(
-                local
-            ):
-                raise CacheError(f"{repo}: {local.name} differs from what was uploaded")
-        repos.append({"repo": repo, "revision": head, "volume": volume})
-        log(f"uploaded and verified {repo}")
+    api.create_repo(repo, repo_type="dataset", private=False, exist_ok=True)
+    hub.retry_conflicts(
+        lambda: api.upload_large_folder(
+            repo_id=repo, folder_path=str(work / "upload"), repo_type="dataset"
+        )
+    )
+    head = remote.head(repo)
+    tree = remote.tree(repo, head, folder)
+    for path in sorted(p for p in local.iterdir() if p.is_file()):
+        name = f"{folder}/{path.name}"
+        item = tree.get(name)
+        if item is None or item.size != path.stat().st_size:
+            raise CacheError(f"{repo}: {name} did not arrive intact")
+        if remote.remote_sha256(repo, name, head, item, work / "verify") != sha256_file(path):
+            raise CacheError(f"{repo}: {name} differs from what was uploaded")
     shutil.rmtree(work / "verify", ignore_errors=True)
+    log(f"uploaded and verified {folder}")
     return {
         "schema": RECEIPT_SCHEMA,
         "run": run,
@@ -617,7 +584,8 @@ def store(
         "files": len(entries),
         "stream_bytes": total,
         "pieces": pieces,
-        "repos": repos,
+        "repo": repo,
+        "folder": folder,
     }
 
 
@@ -632,13 +600,19 @@ def _safe_relative(path: str) -> Path:
 
 
 def read_manifest(
-    remote: Remote, keys: Keys, pin: Mapping[str, Any], part: Mapping[str, Any], scratch: Path
+    remote: Remote,
+    keys: Keys,
+    *,
+    repo: str,
+    revision: str,
+    run: str,
+    part: int,
+    folder: str,
+    scratch: Path,
 ) -> dict[str, Any]:
-    """A part's decrypted manifest from its first pinned repo, checked against the pin."""
-    run = pin["run"]
-    name = manifest_file(keys, run, part["part"])
-    first = part["repos"][0]
-    path = remote.download(first["repo"], name, first["revision"], scratch)
+    """A part's decrypted manifest from its folder at the pinned commit."""
+    name = manifest_file(keys, run, part)
+    path = remote.download(repo, f"{folder}/{name}", revision, scratch)
     try:
         with path.open("rb") as handle:
             body = b"".join(decrypt_stream(handle, keys, name.encode()))
@@ -648,43 +622,48 @@ def read_manifest(
     if (
         manifest.get("schema") != MANIFEST_SCHEMA
         or manifest["run"] != run
-        or manifest["part"] != part["part"]
+        or manifest["part"] != part
     ):
-        raise CacheError(f"Part {part['part']}: the manifest belongs to another run or part")
-    if manifest["volumes"] != len(part["repos"]):
-        raise CacheError(f"Part {part['part']}: the pin lists the wrong number of repos")
+        raise CacheError(f"Part {part}: the manifest belongs to another run or part")
     for item in manifest["files"]:
         _safe_relative(item["path"])
     return manifest
 
 
-def verify_remote(api: Any, keys: Keys, pin: Mapping[str, Any], scratch: Path) -> dict[int, Any]:
-    """Check every pinned repo without downloading the data: the manifests decrypt, and every
-    piece is stored at its exact size with the ciphertext hash the manifest records.
-    Returns the manifests by part; raises ``CacheError`` for anything missing or altered."""
+def verify_part(
+    api: Any,
+    keys: Keys,
+    *,
+    repo: str,
+    revision: str,
+    run: str,
+    part: int,
+    folder: str,
+    scratch: Path,
+) -> dict[str, Any]:
+    """Check one part without downloading its data: the manifest decrypts, and every piece is
+    stored at its exact size with the ciphertext hash the manifest records. Returns the
+    manifest; raises ``CacheError`` for anything missing or altered."""
     remote = Remote(api)
-    manifests = {}
-    try:
-        for part in pin["parts"]:
-            manifest = read_manifest(remote, keys, pin, part, scratch)
-            trees = {
-                index: remote.tree(item["repo"], item["revision"])
-                for index, item in enumerate(part["repos"])
-            }
-            for piece in manifest["pieces"]:
-                repo = part["repos"][piece["volume"]]
-                item = trees[piece["volume"]].get(piece["name"])
-                if item is None or item.size != piece["bytes"]:
-                    raise CacheError(f"Part {part['part']}: a piece is missing or the wrong size")
-                found = remote.remote_sha256(
-                    repo["repo"], piece["name"], repo["revision"], item, scratch
-                )
-                if found != piece["sha256"]:
-                    raise CacheError(f"Part {part['part']}: a stored piece does not match its hash")
-            manifests[part["part"]] = manifest
-    finally:
-        shutil.rmtree(scratch, ignore_errors=True)
-    return manifests
+    manifest = read_manifest(
+        remote,
+        keys,
+        repo=repo,
+        revision=revision,
+        run=run,
+        part=part,
+        folder=folder,
+        scratch=scratch,
+    )
+    tree = remote.tree(repo, revision, folder)
+    for piece in manifest["pieces"]:
+        name = f"{folder}/{piece['name']}"
+        item = tree.get(name)
+        if item is None or item.size != piece["bytes"]:
+            raise CacheError(f"Part {part}: a piece is missing or the wrong size")
+        if remote.remote_sha256(repo, name, revision, item, scratch) != piece["sha256"]:
+            raise CacheError(f"Part {part}: a stored piece does not match its hash")
+    return manifest
 
 
 class _Unpacker:
@@ -785,126 +764,80 @@ def _ahead(
                 pending.result().unlink(missing_ok=True)
 
 
-def fetch(
+def fetch_part(
     *,
     keys: Keys,
     api: Any,
-    pin: Mapping[str, Any],
+    repo: str,
+    revision: str,
+    run: str,
+    part: int,
+    folder: str,
     dest: Path,
-    parts: Sequence[int] | None = None,
+    scratch: Path,
     workers: int = 4,
     log: Callable[[str], None] = print,
-) -> dict[str, Any]:
-    """Download the pinned commits into ``dest``: every piece's ciphertext hash is checked
-    before it is opened, and every file's plaintext hash before it is given its name. A rerun
-    skips files already there and verified. Raises ``CacheError`` on any mismatch."""
+) -> dict[str, int]:
+    """Download one part of the pinned commit into ``dest``: every piece's ciphertext hash is
+    checked before it is opened, and every file's plaintext hash before it is given its name.
+    A rerun skips files already there and verified. Raises ``CacheError`` on any mismatch."""
     remote = Remote(api)
     dest.mkdir(parents=True, exist_ok=True)
-    scratch = dest.with_name(dest.name + ".fetching")
-    chosen = [part for part in pin["parts"] if parts is None or part["part"] in parts]
-    if not chosen:
-        raise CacheError("The pin has none of the requested parts")
-    files = byte_count = 0
-    try:
-        for part in chosen:
-            manifest = read_manifest(remote, keys, pin, part, scratch)
-            done = _already_there(manifest, dest)
-            unpack = _Unpacker(manifest, dest, done)
-            size = manifest["piece_bytes"]
-            wanted = []
-            for index, piece in enumerate(manifest["pieces"]):
-                start, end = index * size, min((index + 1) * size, manifest["stream_bytes"])
-                if any(
-                    item["path"] not in done
-                    for item in manifest["files"]
-                    if item["bytes"]
-                    and item["offset"] < end
-                    and item["offset"] + item["bytes"] > start
-                ):
-                    wanted.append((index, piece))
+    manifest = read_manifest(
+        remote,
+        keys,
+        repo=repo,
+        revision=revision,
+        run=run,
+        part=part,
+        folder=folder,
+        scratch=scratch,
+    )
+    done = _already_there(manifest, dest)
+    unpack = _Unpacker(manifest, dest, done)
+    size = manifest["piece_bytes"]
+    wanted = []
+    for index, piece in enumerate(manifest["pieces"]):
+        start, end = index * size, min((index + 1) * size, manifest["stream_bytes"])
+        if any(
+            item["path"] not in done
+            for item in manifest["files"]
+            if item["bytes"] and item["offset"] < end and item["offset"] + item["bytes"] > start
+        ):
+            wanted.append((index, piece))
 
-            def download(
-                item: tuple[int, Mapping[str, Any]], part: Mapping[str, Any] = part
-            ) -> Path:
-                repo = part["repos"][item[1]["volume"]]
-                return remote.download(repo["repo"], item[1]["name"], repo["revision"], scratch)
+    def download(item: tuple[int, Mapping[str, Any]]) -> Path:
+        return remote.download(repo, f"{folder}/{item[1]['name']}", revision, scratch)
 
-            with ThreadPoolExecutor(max(1, workers)) as pool:
-                for (index, piece), path in _ahead(pool, wanted, download, workers):
-                    try:
-                        if sha256_file(path) != piece["sha256"]:
-                            raise CacheError(
-                                f"Part {part['part']}: a downloaded piece does not match its hash"
-                            )
-                        unpack.start(index * size)
-                        with path.open("rb") as handle:
-                            for block in decrypt_stream(handle, keys, piece["name"].encode()):
-                                unpack.write(block)
-                    except BaseException:
-                        unpack.abandon()
-                        raise
-                    finally:
-                        path.unlink(missing_ok=True)
-            missing = [
-                item["path"]
-                for item in manifest["files"]
-                if item["bytes"] and item["path"] not in done
-            ]
-            if missing:
-                raise CacheError(f"Part {part['part']}: {len(missing)} files were not restored")
-            for item in manifest["files"]:
-                if not item["bytes"]:
-                    target = dest / _safe_relative(item["path"])
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(b"")
-            files += len(manifest["files"])
-            byte_count += manifest["stream_bytes"]
-            log(f"part {part['part']}: {len(manifest['files'])} files restored")
-    finally:
-        shutil.rmtree(scratch, ignore_errors=True)
-    return {
-        "run": pin["run"],
-        "parts": [p["part"] for p in chosen],
-        "files": files,
-        "bytes": byte_count,
-    }
-
-
-# ---- the decision a run follows -----------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Decision:
-    mode: str  # "stored": fetch the pin; "rebuild": prepare the data again
-    reason: str
-
-
-def decide(pin_path: Path | None, keys: Keys, api: Any, scratch: Path) -> Decision:
-    """Fetch if the pin names repos that still verify, otherwise rebuild.
-
-    A missing pin or repo or commit, a piece that is gone or altered, or a key that no longer
-    opens the manifests all mean rebuild. A network failure is not an answer and propagates.
-    """
-    if pin_path is None or not Path(pin_path).is_file():
-        return Decision("rebuild", "no pin has been recorded for this run")
-    try:
-        pin = load_pin(Path(pin_path))
-        verify_remote(api, keys, pin, scratch)
-    except (CacheError, KeyError, ValueError) as error:
-        return Decision("rebuild", f"the stored copy does not verify: {error}")
-    return Decision("stored", "every pinned repo verifies against its manifest")
+    with ThreadPoolExecutor(max(1, workers)) as pool:
+        for (index, piece), path in _ahead(pool, wanted, download, workers):
+            try:
+                if sha256_file(path) != piece["sha256"]:
+                    raise CacheError(f"Part {part}: a downloaded piece does not match its hash")
+                unpack.start(index * size)
+                with path.open("rb") as handle:
+                    for block in decrypt_stream(handle, keys, piece["name"].encode()):
+                        unpack.write(block)
+            except BaseException:
+                unpack.abandon()
+                raise
+            finally:
+                path.unlink(missing_ok=True)
+    missing = [
+        item["path"] for item in manifest["files"] if item["bytes"] and item["path"] not in done
+    ]
+    if missing:
+        raise CacheError(f"Part {part}: {len(missing)} files were not restored")
+    for item in manifest["files"]:
+        if not item["bytes"]:
+            target = dest / _safe_relative(item["path"])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"")
+    log(f"part {part}: {len(manifest['files'])} encrypted files restored")
+    return {"files": len(manifest["files"]), "bytes": manifest["stream_bytes"]}
 
 
 # ---- command line -------------------------------------------------------------------------
-
-
-def _api() -> Any:
-    from huggingface_hub import HfApi
-
-    from megatoken import hub
-
-    hub.install()
-    return HfApi()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -912,71 +845,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     item = commands.add_parser("keygen", help="create the data key (refuses to overwrite)")
     item.add_argument("--path", type=Path, default=KEY_FILE)
-    item = commands.add_parser("store", help="(in a sandbox) encrypt a part and upload it")
-    item.add_argument("--run-id", required=True)
-    item.add_argument("--part", type=int, required=True)
-    item.add_argument("--owner", required=True, help="the Hub account that owns the repos")
-    item.add_argument("--source", type=Path, required=True)
-    item.add_argument("--work", type=Path, required=True)
-    item.add_argument("--receipt", type=Path, required=True)
-    item.add_argument("--piece-bytes", type=int, default=PIECE_BYTES)
-    item.add_argument("--repo-bytes", type=int, default=REPO_BYTES)
-    item = commands.add_parser("fetch", help="download, verify and decrypt a pinned run")
-    item.add_argument("--pin", type=Path, required=True)
-    item.add_argument("--dest", type=Path, required=True)
-    item.add_argument("--part", type=int, action="append", help="only this part (repeatable)")
-    item.add_argument("--workers", type=int, default=4)
-    item = commands.add_parser("verify", help="check the pinned repos without downloading data")
-    item.add_argument("--pin", type=Path, required=True)
-    item = commands.add_parser("pin", help="write a run's pin from its parts' store receipts")
-    item.add_argument("receipts", nargs="+", type=Path)
-    item.add_argument("--run-id", required=True)
-    item.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
-        if args.command == "keygen":
-            path = keygen(args.path)
-            print(json.dumps({"key_file": str(path)}))
-            return 0
-        if args.command == "pin":
-            pin = make_pin(args.run_id, [json.loads(path.read_text()) for path in args.receipts])
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(json.dumps(pin, indent=1))
-            print(json.dumps({"pin": str(args.output), "parts": len(pin["parts"])}))
-            return 0
-        keys = load_keys()
-        if args.command == "store":
-            receipt = store(
-                keys=keys,
-                api=_api(),
-                owner=args.owner,
-                run=args.run_id,
-                part=args.part,
-                source=args.source,
-                work=args.work,
-                piece_bytes=args.piece_bytes,
-                repo_bytes=args.repo_bytes,
-            )
-            args.receipt.parent.mkdir(parents=True, exist_ok=True)
-            args.receipt.write_text(json.dumps(receipt, indent=1))
-            result: Any = {key: receipt[key] for key in ("part", "files", "pieces")}
-        elif args.command == "fetch":
-            result = fetch(
-                keys=keys,
-                api=_api(),
-                pin=load_pin(args.pin),
-                dest=args.dest,
-                parts=args.part,
-                workers=args.workers,
-            )
-        else:
-            scratch = Path(os.environ.get("TMPDIR", "/tmp")) / "megatoken-cache-verify"
-            manifests = verify_remote(_api(), keys, load_pin(args.pin), scratch)
-            result = {"verified_parts": sorted(manifests)}
+        path = keygen(args.path)
     except CacheError as error:
         print(f"cache: {error}", file=sys.stderr)
         return 1
-    print(json.dumps(result, sort_keys=True))
+    print(json.dumps({"key_file": str(path)}))
     return 0
 
 

@@ -110,11 +110,15 @@ def test_names_are_repeatable_per_key_and_reveal_nothing():
     a, b = keys(1), keys(2)
     assert a.label("piece/prepare-full-agentic/0/0") == a.label("piece/prepare-full-agentic/0/0")
     assert a.label("piece/x/0/0") != b.label("piece/x/0/0")
-    assert "agentic" not in cache.repo_name(a, "owner", "prepare-full-agentic", 0, 0)
-    assert cache.repo_name(a, "owner", "r", 0, 0) != cache.repo_name(a, "owner", "r", 0, 1)
+    folder = cache.folder_name(a, "prepare-full-agentic", 0)
+    assert folder.startswith("encrypted/") and "agentic" not in folder
+    assert folder != cache.folder_name(a, "prepare-full-agentic", 1)
+    assert folder != cache.folder_name(b, "prepare-full-agentic", 0)
 
 
 # ---- a part, stored and fetched -----------------------------------------------------------
+
+REPO = "someone/data"
 
 
 def make_source(root: Path, seed: int = 0) -> dict[str, bytes]:
@@ -141,16 +145,11 @@ def store_part(hub, tmp_path, key=None, *, part=0, source="src", work="work", **
     source_dir.mkdir(parents=True, exist_ok=True)
     if not any(source_dir.iterdir()):
         make_source(source_dir)
-    options = {
-        "piece_bytes": PIECE,
-        "segment": SEGMENT,
-        "repo_bytes": 3 * cache.cipher_size(PIECE, SEGMENT),
-        "log": lambda _: None,
-    }
+    options = {"piece_bytes": PIECE, "segment": SEGMENT, "log": lambda _: None}
     return cache.store(
         keys=key or keys(),
         api=hub,
-        owner="someone",
+        repo=REPO,
         run="prepare-full-agentic",
         part=part,
         source=source_dir,
@@ -159,8 +158,20 @@ def store_part(hub, tmp_path, key=None, *, part=0, source="src", work="work", **
     )
 
 
-def pin_of(*receipts):
-    return cache.make_pin("prepare-full-agentic", receipts)
+def fetch_part(hub, receipt, dest, key=None, *, revision=None, **kwargs):
+    return cache.fetch_part(
+        keys=key or keys(),
+        api=hub,
+        repo=receipt["repo"],
+        revision=revision or hub.head[receipt["repo"]],
+        run=receipt["run"],
+        part=receipt["part"],
+        folder=receipt["folder"],
+        dest=dest,
+        scratch=dest.with_name(dest.name + ".scratch"),
+        log=lambda _: None,
+        **kwargs,
+    )
 
 
 def read_tree(root: Path) -> dict[str, bytes]:
@@ -171,7 +182,11 @@ def read_tree(root: Path) -> dict[str, bytes]:
     }
 
 
-def test_a_stored_part_comes_back_identical_and_the_repos_reveal_nothing(tmp_path):
+def repo_files(hub):
+    return hub.commits[REPO][hub.head[REPO]]
+
+
+def test_a_stored_part_comes_back_identical_and_the_repo_reveals_nothing(tmp_path):
     hub = FakeHub()
     receipt = store_part(hub, tmp_path)
     expected = {
@@ -181,53 +196,51 @@ def test_a_stored_part_comes_back_identical_and_the_repos_reveal_nothing(tmp_pat
     }
     assert receipt["files"] == len(expected)
     assert receipt["stream_bytes"] == sum(map(len, expected.values()))
-    assert receipt["pieces"] == 5 and len(receipt["repos"]) == 2  # three pieces to a repo
+    assert receipt["pieces"] == 5 and receipt["folder"].startswith("encrypted/")
     assert all(private is False for _, private in hub.created)
-    # Public bytes: one README per repo and nothing but fixed-size ciphertext besides.
-    for repo, snapshots in hub.commits.items():
-        files = snapshots[hub.head[repo]]
-        assert "README.md" in files and b"megatoken" in files["README.md"]
-        assert b"secret" not in files["README.md"] and b"licen" not in files["README.md"]
-        for name, data in files.items():
-            if name == "README.md":
-                continue
-            assert name.endswith(".bin") and len(name) == 36  # 32 hex characters of HMAC
-            assert b"secret-dataset-name" not in data and b"00000" not in data
-            assert "agentic" not in name
-    pieces = {
-        len(data)
-        for repo, snapshots in hub.commits.items()
-        for name, data in snapshots[hub.head[repo]].items()
-        if name != "README.md"
-    }
+    # Public bytes: nothing but fixed-size ciphertext under opaque names, in the part's folder.
+    files = repo_files(hub)
+    assert len(files) == 6  # five pieces and the manifest
+    for name, data in files.items():
+        folder, _, leaf = name.rpartition("/")
+        assert folder == receipt["folder"]
+        assert leaf.endswith(".bin") and len(leaf) == 36  # 32 hex characters of HMAC
+        assert b"secret-dataset-name" not in data and b"00000" not in data
+        assert "agentic" not in name
     # Every piece has the same size; only the manifest (padded to a megabyte) differs.
-    assert len(pieces) == 2 and cache.cipher_size(PIECE, SEGMENT) in pieces
-    pin = pin_of(receipt)
-    assert "secret" not in json.dumps(pin) and "agentic" not in json.dumps(pin["parts"])
+    sizes = {len(data) for data in files.values()}
+    assert len(sizes) == 2 and cache.cipher_size(PIECE, SEGMENT) in sizes
     target = tmp_path / "restored"
-    summary = cache.fetch(keys=keys(), api=hub, pin=pin, dest=target, log=lambda _: None)
+    summary = fetch_part(hub, receipt, target)
     assert summary["files"] == len(expected)
     assert read_tree(target) == expected
-    assert not (tmp_path / "restored.fetching").exists()
+    assert not (tmp_path / "restored.scratch").exists() or not read_tree(tmp_path / "restored.scratch")
 
 
-def test_parts_restore_side_by_side_and_one_part_can_be_asked_for(tmp_path):
+def test_only_the_named_roots_are_stored(tmp_path):
+    hub = FakeHub()
+    receipt = store_part(hub, tmp_path, only=["00001"])
+    target = tmp_path / "restored"
+    fetch_part(hub, receipt, target)
+    assert set(read_tree(target)) == {"00001/manifest.json", "00001/shard-000.jsonl"}
+
+
+def test_parts_land_in_their_own_folders_and_restore_side_by_side(tmp_path):
     hub = FakeHub()
     first = store_part(hub, tmp_path, part=0, source="a", work="wa")
     (tmp_path / "b").mkdir()
     (tmp_path / "b/00007").mkdir()
     (tmp_path / "b/00007/shard.jsonl").write_bytes(random.Random(9).randbytes(6000))
     second = store_part(hub, tmp_path, part=1, source="b", work="wb")
-    pin = pin_of(first, second)
+    assert first["folder"] != second["folder"]
     target = tmp_path / "all"
-    cache.fetch(keys=keys(), api=hub, pin=pin, dest=target, log=lambda _: None)
+    revision = hub.head[REPO]
+    fetch_part(hub, first, target, revision=revision)
+    fetch_part(hub, second, target, revision=revision)
     assert (target / "00007/shard.jsonl").read_bytes() == (
         tmp_path / "b/00007/shard.jsonl"
     ).read_bytes()
     assert (target / "00001/shard-000.jsonl").is_file()
-    only = tmp_path / "only"
-    cache.fetch(keys=keys(), api=hub, pin=pin, dest=only, parts=[1], log=lambda _: None)
-    assert read_tree(only).keys() == {"00007/shard.jsonl"}
 
 
 def test_storing_again_reseals_nothing_unless_the_files_changed(tmp_path, monkeypatch):
@@ -242,7 +255,7 @@ def test_storing_again_reseals_nothing_unless_the_files_changed(tmp_path, monkey
     assert sealed == first["pieces"] + 1  # every piece, then the manifest
     second = store_part(hub, tmp_path)
     assert len(calls) == sealed + 1  # only the manifest is written again
-    assert [r["repo"] for r in second["repos"]] == [r["repo"] for r in first["repos"]]
+    assert second["folder"] == first["folder"]
     (tmp_path / "src/00001/shard-000.jsonl").write_bytes(random.Random(5).randbytes(5000))
     store_part(hub, tmp_path)
     assert len(calls) > sealed + 1 + first["pieces"] - 1  # the plan changed: all resealed
@@ -261,8 +274,8 @@ def test_an_upload_that_did_not_arrive_intact_is_not_reported_as_stored(tmp_path
 
     def lossy(*, repo_id, folder_path, repo_type):
         real(repo_id=repo_id, folder_path=folder_path, repo_type=repo_type)
-        files = hub.commits[repo_id][hub.head[repo_id]]
-        name = next(n for n in files if n != "README.md")
+        files = repo_files(hub)
+        name = next(iter(files))
         files[name] = files[name][:-1] + bytes([files[name][-1] ^ 1])
 
     hub.upload_large_folder = lossy
@@ -270,19 +283,26 @@ def test_an_upload_that_did_not_arrive_intact_is_not_reported_as_stored(tmp_path
         store_part(hub, tmp_path)
 
 
+def test_a_commit_that_races_with_another_is_repeated(tmp_path, monkeypatch):
+    from megatoken import hub as hub_module
+
+    monkeypatch.setattr(hub_module.time, "sleep", lambda _: None)
+    hub = FakeHub()
+    hub.conflicts = 2
+    receipt = store_part(hub, tmp_path)
+    assert hub.refused == 2 and len(repo_files(hub)) == 6
+    assert receipt["folder"] in next(iter(repo_files(hub)))
+
+
 def stored(tmp_path):
     hub = FakeHub()
-    pin = pin_of(store_part(hub, tmp_path))
-    return hub, pin
+    return hub, store_part(hub, tmp_path)
 
 
-def corrupt_a_piece(hub, pin, *, drop=False):
-    repo = pin["parts"][0]["repos"][0]
-    files = hub.commits[repo["repo"]][repo["revision"]]
-    name = sorted(n for n in files if n != "README.md")[0]
-    manifest = cache.manifest_file(keys(), pin["run"], 0)
-    if name == manifest:
-        name = sorted(n for n in files if n not in ("README.md", manifest))[0]
+def corrupt_a_piece(hub, receipt, *, drop=False):
+    files = repo_files(hub)
+    manifest = cache.manifest_file(keys(), receipt["run"], 0)
+    name = sorted(n for n in files if not n.endswith(manifest))[0]
     if drop:
         del files[name]
     else:
@@ -290,20 +310,20 @@ def corrupt_a_piece(hub, pin, *, drop=False):
 
 
 def test_fetch_refuses_an_altered_or_missing_piece(tmp_path):
-    hub, pin = stored(tmp_path)
-    corrupt_a_piece(hub, pin)
+    hub, receipt = stored(tmp_path)
+    corrupt_a_piece(hub, receipt)
     with pytest.raises(cache.CacheError, match="does not match its hash"):
-        cache.fetch(keys=keys(), api=hub, pin=pin, dest=tmp_path / "out", log=lambda _: None)
-    hub, pin = stored(tmp_path / "again")
-    corrupt_a_piece(hub, pin, drop=True)
+        fetch_part(hub, receipt, tmp_path / "out")
+    hub, receipt = stored(tmp_path / "again")
+    corrupt_a_piece(hub, receipt, drop=True)
     with pytest.raises(cache.CacheError, match="is missing"):
-        cache.fetch(keys=keys(), api=hub, pin=pin, dest=tmp_path / "out2", log=lambda _: None)
+        fetch_part(hub, receipt, tmp_path / "out2")
 
 
 def test_fetch_with_the_wrong_key_fails_before_writing_anything(tmp_path):
-    hub, pin = stored(tmp_path)
+    hub, receipt = stored(tmp_path)
     with pytest.raises(cache.CacheError, match="is missing"):  # another key names other files
-        cache.fetch(keys=keys(2), api=hub, pin=pin, dest=tmp_path / "out", log=lambda _: None)
+        fetch_part(hub, receipt, tmp_path / "out", keys(2))
     assert read_tree(tmp_path / "out") == {}
 
 
@@ -312,8 +332,8 @@ def test_a_file_whose_decrypted_hash_differs_from_the_manifest_is_never_named(
 ):
     real = cache.scan
 
-    def lying(source):
-        entries = real(source)
+    def lying(source, only=None):
+        entries = real(source, only)
         return [
             cache.Entry(e.path, e.offset, e.bytes, "0" * 64)
             if e.path.endswith("index.sqlite")
@@ -322,24 +342,24 @@ def test_a_file_whose_decrypted_hash_differs_from_the_manifest_is_never_named(
         ]
 
     monkeypatch.setattr(cache, "scan", lying)
-    hub, pin = stored(tmp_path)
+    hub, receipt = stored(tmp_path)
     with pytest.raises(cache.CacheError, match="recorded hash"):
-        cache.fetch(keys=keys(), api=hub, pin=pin, dest=tmp_path / "out", log=lambda _: None)
+        fetch_part(hub, receipt, tmp_path / "out")
     assert not (tmp_path / "out/00000/index.sqlite").exists()
     assert not list((tmp_path / "out").rglob("*.partial"))
 
 
 def test_a_rerun_fetch_downloads_only_what_is_still_missing(tmp_path):
-    hub, pin = stored(tmp_path)
+    hub, receipt = stored(tmp_path)
     target = tmp_path / "out"
-    cache.fetch(keys=keys(), api=hub, pin=pin, dest=target, log=lambda _: None)
+    fetch_part(hub, receipt, target)
     hub.downloads.clear()
-    cache.fetch(keys=keys(), api=hub, pin=pin, dest=target, log=lambda _: None)
+    fetch_part(hub, receipt, target)
     assert len(hub.downloads) == 1  # the manifest alone
     (target / "00001/shard-000.jsonl").unlink()
     (target / "00000/manifest.json").write_bytes(b"damaged")
     hub.downloads.clear()
-    cache.fetch(keys=keys(), api=hub, pin=pin, dest=target, log=lambda _: None)
+    fetch_part(hub, receipt, target)
     expected = read_tree(tmp_path / "src")
     assert (target / "00001/shard-000.jsonl").read_bytes() == expected["00001/shard-000.jsonl"]
     assert (target / "00000/manifest.json").read_bytes() == expected["00000/manifest.json"]
@@ -352,52 +372,35 @@ def test_the_unsafe_paths_of_a_forged_manifest_are_refused():
             cache._safe_relative(bad)
 
 
-# ---- the decision a run follows -----------------------------------------------------------
+def verify(hub, receipt, tmp_path, key=None, revision=None):
+    return cache.verify_part(
+        hub,
+        key or keys(),
+        repo=receipt["repo"],
+        revision=revision or hub.head[receipt["repo"]],
+        run=receipt["run"],
+        part=receipt["part"],
+        folder=receipt["folder"],
+        scratch=tmp_path / "verify",
+    )
 
 
-def decide(hub, pin, tmp_path, key=None, *, write=True):
-    path = tmp_path / "run.pin.json"
-    if write and pin is not None:
-        path.write_text(json.dumps(pin))
-    return cache.decide(path, key or keys(), hub, tmp_path / "scratch")
-
-
-def test_a_verified_pin_means_fetch(tmp_path):
-    hub, pin = stored(tmp_path)
-    decision = decide(hub, pin, tmp_path)
-    assert decision.mode == "stored" and "verifies" in decision.reason
-
-
-def test_anything_that_does_not_verify_means_rebuild(tmp_path):
-    hub, pin = stored(tmp_path)
-    assert decide(hub, pin, tmp_path, write=False).mode == "rebuild"  # no pin recorded
-    assert "no pin" in decide(hub, pin, tmp_path, write=False).reason
-    assert decide(hub, pin, tmp_path, keys(2)).mode == "rebuild"  # the key was lost or replaced
-    corrupt_a_piece(hub, pin)  # a stored piece differs (the Hub hashes small files by reading)
-    assert decide(hub, pin, tmp_path).mode == "rebuild"
-    hub, pin = stored(tmp_path / "x")
-    corrupt_a_piece(hub, pin, drop=True)
-    assert decide(hub, pin, tmp_path).mode == "rebuild"
-    hub, pin = stored(tmp_path / "y")
-    pin["parts"][0]["repos"][0]["revision"] = "f" * 40
-    assert decide(hub, pin, tmp_path).mode == "rebuild"
-    hub, pin = stored(tmp_path / "z")
-    hub.commits.clear()
-    hub.head.clear()
-    assert decide(hub, pin, tmp_path).mode == "rebuild"  # the repos were deleted
-    (tmp_path / "run.pin.json").write_text("{not json")
-    assert decide(FakeHub(), None, tmp_path, write=False).mode == "rebuild"
-
-
-def test_a_network_failure_is_not_mistaken_for_a_missing_copy(tmp_path):
-    hub, pin = stored(tmp_path)
-
-    def down(*args, **kwargs):
-        raise ConnectionError("no route")
-
-    hub.dataset_info = hub.list_repo_tree = hub.hf_hub_download = down
-    with pytest.raises(ConnectionError):
-        decide(hub, pin, tmp_path)
+def test_a_part_verifies_without_downloading_its_pieces(tmp_path):
+    hub, receipt = stored(tmp_path)
+    hub.downloads.clear()
+    manifest = verify(hub, receipt, tmp_path)
+    assert len(manifest["pieces"]) == 5
+    # The manifest and the small pieces are read; nothing is restored.
+    assert not (tmp_path / "out").exists()
+    with pytest.raises(cache.CacheError):
+        verify(hub, receipt, tmp_path, keys(2))
+    corrupt_a_piece(hub, receipt)
+    with pytest.raises(cache.CacheError, match="does not match"):
+        verify(hub, receipt, tmp_path)
+    hub, receipt = stored(tmp_path / "x")
+    corrupt_a_piece(hub, receipt, drop=True)
+    with pytest.raises(cache.CacheError, match="missing"):
+        verify(hub, receipt, tmp_path)
 
 
 def test_the_key_is_found_in_the_sandbox_secrets_or_the_local_file(tmp_path, monkeypatch):
@@ -413,19 +416,14 @@ def test_the_key_is_found_in_the_sandbox_secrets_or_the_local_file(tmp_path, mon
 
 def test_a_rebuilt_sandbox_seals_the_same_bytes_so_the_hub_skips_them(tmp_path):
     first, second = FakeHub(), FakeHub()
-    one = store_part(first, tmp_path, work="w1")
-    two = store_part(second, tmp_path, work="w2")  # a fresh work directory: nothing to resume
+    store_part(first, tmp_path, work="w1")
+    store_part(second, tmp_path, work="w2")  # a fresh work directory: nothing to resume
     manifest = cache.manifest_file(keys(), "prepare-full-agentic", 0)
 
-    def pieces(hub, receipt):
-        return {
-            name: data
-            for repo in receipt["repos"]
-            for name, data in hub.commits[repo["repo"]][repo["revision"]].items()
-            if name not in ("README.md", manifest)
-        }
+    def pieces(hub):
+        return {n: d for n, d in repo_files(hub).items() if not n.endswith(manifest)}
 
-    assert pieces(first, one) == pieces(second, two) and pieces(first, one)
+    assert pieces(first) == pieces(second) and pieces(first)
 
 
 def test_the_calls_the_cache_makes_match_the_real_huggingface_api():
@@ -435,9 +433,17 @@ def test_the_calls_the_cache_makes_match_the_real_huggingface_api():
     shapes = {
         "create_repo": dict(repo_id="r", repo_type="dataset", private=False, exist_ok=True),
         "upload_large_folder": dict(repo_id="r", folder_path="f", repo_type="dataset"),
+        "create_commit": dict(
+            repo_id="r", operations=[], commit_message="m", repo_type="dataset"
+        ),
         "dataset_info": dict(repo_id="r", revision="x"),
         "list_repo_tree": dict(
-            repo_id="r", repo_type="dataset", revision="x", recursive=True, expand=True
+            repo_id="r",
+            path_in_repo="p",
+            repo_type="dataset",
+            revision="x",
+            recursive=True,
+            expand=True,
         ),
         "hf_hub_download": dict(
             repo_id="r", filename="n", repo_type="dataset", revision="x", local_dir="d"
@@ -449,21 +455,20 @@ def test_the_calls_the_cache_makes_match_the_real_huggingface_api():
 
 def test_rotating_the_key_means_restoring_and_storing_again_under_the_new_one(tmp_path):
     hub = FakeHub()
-    old = pin_of(store_part(hub, tmp_path, keys(1)))
+    old = store_part(hub, tmp_path, keys(1))
     plain = tmp_path / "plain"
-    cache.fetch(keys=keys(1), api=hub, pin=old, dest=plain, log=lambda _: None)
-    receipt = store_part(hub, tmp_path, keys(2), source="plain", work="again")
-    new = pin_of(receipt)
-    old_repos = {item["repo"] for part in old["parts"] for item in part["repos"]}
-    new_repos = {item["repo"] for part in new["parts"] for item in part["repos"]}
-    assert not old_repos & new_repos  # other key, other names: the old repos can simply be deleted
+    fetch_part(hub, old, plain, keys(1))
+    new = store_part(hub, tmp_path, keys(2), source="plain", work="again")
+    assert old["folder"] != new["folder"]  # other key, other names: the old folder can be deleted
     restored = tmp_path / "restored"
-    cache.fetch(keys=keys(2), api=hub, pin=new, dest=restored, log=lambda _: None)
+    fetch_part(hub, new, restored, keys(2))
     assert read_tree(restored) == read_tree(plain)
-    for repo in old_repos:  # once the old repos are deleted the old key opens nothing
-        del hub.commits[repo], hub.head[repo]
-    assert decide(hub, old, tmp_path, keys(1)).mode == "rebuild"
-    assert decide(hub, new, tmp_path, keys(2)).mode == "stored"
+    files = repo_files(hub)
+    for name in [n for n in files if n.startswith(old["folder"])]:
+        del files[name]  # once the old folder is deleted the old key opens nothing
+    with pytest.raises(cache.CacheError):
+        verify(hub, old, tmp_path, keys(1))
+    assert verify(hub, new, tmp_path, keys(2))
 
 
 def test_the_command_line_makes_a_key_once_and_never_prints_it(tmp_path, capsys):

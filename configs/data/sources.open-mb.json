@@ -19,7 +19,9 @@
         "license_url": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "ODC-By 1.0 attribution; also subject to the Common Crawl terms of use."
+        "notes": "ODC-By 1.0 attribution; also subject to the Common Crawl terms of use.",
+        "redistribute": "no",
+        "redistribute_basis": "odc-by-1.0, but the notes record: the notes cite a provider's terms of use or service"
       },
       "field_map": {},
       "options": {},

@@ -1,4 +1,4 @@
-"""A stand-in for the Hugging Face Hub, shared by the cache tests (no network)."""
+"""A stand-in for the Hugging Face Hub, shared by the cache and publish tests (no network)."""
 
 from __future__ import annotations
 
@@ -24,6 +24,14 @@ class EntryNotFoundError(Exception):
     pass
 
 
+class CommitConflict(Exception):
+    """What the Hub answers a commit that raced with another one (HTTP 412)."""
+
+    def __init__(self):
+        super().__init__("precondition failed")
+        self.response = SimpleNamespace(status_code=412)
+
+
 class FakeHub:
     """Enough of ``HfApi``: dataset repos holding commits, each a snapshot of named files."""
 
@@ -32,6 +40,8 @@ class FakeHub:
         self.head: dict[str, str] = {}
         self.downloads: list[str] = []
         self.created: list[tuple[str, bool]] = []
+        self.conflicts = 0  # how many of the next commits are refused as a race
+        self.refused = 0
 
     def create_repo(self, repo_id, *, repo_type, private, exist_ok):
         assert repo_type == "dataset" and exist_ok
@@ -40,16 +50,32 @@ class FakeHub:
             self.commits[repo_id] = {"0": {}}
             self.head[repo_id] = "0"
 
-    def upload_large_folder(self, *, repo_id, folder_path, repo_type):
-        assert repo_type == "dataset"
-        files = dict(self.commits[repo_id][self.head[repo_id]])
-        for path in Path(folder_path).iterdir():
-            if path.is_file():
-                files[path.name] = path.read_bytes()
+    def _commit(self, repo_id, changes):
+        if self.conflicts:
+            self.conflicts -= 1
+            self.refused += 1
+            raise CommitConflict()
+        files = {**self.commits[repo_id][self.head[repo_id]], **changes}
         sha = hashlib.sha1(json.dumps(sorted((k, len(v)) for k, v in files.items())).encode())
         sha = sha.hexdigest() + str(len(self.commits[repo_id]))
         self.commits[repo_id][sha] = files
         self.head[repo_id] = sha
+        return sha
+
+    def upload_large_folder(self, *, repo_id, folder_path, repo_type):
+        assert repo_type == "dataset"
+        root = Path(folder_path)
+        changes = {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file() and ".cache" not in path.relative_to(root).parts
+        }
+        self._commit(repo_id, changes)
+
+    def create_commit(self, *, repo_id, operations, commit_message, repo_type):
+        assert repo_type == "dataset" and commit_message
+        changes = {op.path_in_repo: bytes(op.path_or_fileobj) for op in operations}
+        return SimpleNamespace(oid=self._commit(repo_id, changes))
 
     def _files(self, repo_id, revision):
         if repo_id not in self.head:
@@ -62,10 +88,13 @@ class FakeHub:
     def dataset_info(self, repo_id, revision=None):
         return SimpleNamespace(sha=self._files(repo_id, revision)[0])
 
-    def list_repo_tree(self, repo_id, *, repo_type, revision, recursive, expand):
+    def list_repo_tree(
+        self, repo_id, path_in_repo=None, *, repo_type, revision, recursive, expand
+    ):
         assert repo_type == "dataset" and recursive and expand
         _, files = self._files(repo_id, revision)
-        return [
+        prefix = f"{path_in_repo}/" if path_in_repo else ""
+        found = [
             SimpleNamespace(
                 path=name,
                 size=len(data),
@@ -74,7 +103,11 @@ class FakeHub:
                 else None,
             )
             for name, data in files.items()
+            if name.startswith(prefix)
         ]
+        if path_in_repo and not found:
+            raise EntryNotFoundError(path_in_repo)
+        return found
 
     def hf_hub_download(self, *, repo_id, filename, repo_type, revision, local_dir):
         assert repo_type == "dataset"

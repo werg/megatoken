@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import random
 import time
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
 RETRY_STATUSES = frozenset({429, 503})
+CONFLICT_STATUSES = frozenset({409, 412})
 MAX_WAIT_SECONDS = 3600.0
 
 
@@ -66,3 +69,28 @@ def install() -> None:
     from huggingface_hub import set_client_factory
 
     set_client_factory(patient_client)
+
+
+def retry_conflicts(call: Callable[[], Any], attempts: int = 8, pause: float = 5.0) -> Any:
+    """Run ``call``, repeating it when the Hub reports a commit conflict (409 or 412).
+
+    Several machines commit to one repository at once; the Hub refuses a commit that raced
+    with another one on the same branch, and the same commit succeeds a moment later. Anything
+    else is raised at once, and so is a conflict that outlasts ``attempts`` tries.
+    """
+    for attempt in range(attempts):
+        try:
+            return call()
+        except Exception as error:
+            status = getattr(getattr(error, "response", None), "status_code", None)
+            if status not in CONFLICT_STATUSES or attempt + 1 == attempts:
+                raise
+            time.sleep(pause * (attempt + 1) + random.uniform(0.0, pause))
+
+
+def api() -> Any:
+    """An ``HfApi`` whose requests wait out rate limits (see :func:`install`)."""
+    from huggingface_hub import HfApi
+
+    install()
+    return HfApi()

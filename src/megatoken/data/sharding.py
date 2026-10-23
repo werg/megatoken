@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .sources import REDISTRIBUTION_GROUPS
+
 # Rough source text per row in KiB, by stream; used for sources capped at a row count.
 ROW_KIB = {
     "executed_trajectories": 120,
@@ -192,22 +194,15 @@ def assign(units: Sequence[Unit], count: int) -> list[list[Unit]]:
     return shards
 
 
-def plan_shards(
+def adjusted_sources(
     manifest: Mapping[str, Any],
-    count: int,
-    listings: Mapping[str, Sequence[tuple[str, int]]] | None = None,
     *,
     scale: float = 1.0,
     full: bool = False,
     cap: int | None = None,
 ) -> list[dict[str, Any]]:
-    """``count`` manifests that together read exactly the sources' rows, once each.
-
-    ``full`` drops every row cap, so each source offers all its rows; ``listings`` then
-    maps a source id to its ``(file, stored bytes)`` list. Otherwise caps are multiplied
-    by ``scale`` and a capped source goes to one shard whole.
-    """
-    if count < 1 or scale <= 0:
+    """The manifest's sources with their row caps set for the kind of run (see ``plan_shards``)."""
+    if scale <= 0:
         raise ValueError("Shard count and scale must be positive")
     sources = [dict(source) for source in manifest["sources"]]
     if cap is not None:
@@ -226,6 +221,27 @@ def plan_shards(
             raise ValueError("Every source needs a max_rows cap before it can be scaled")
         for source in sources:
             source["max_rows"] = max(1, round(source["max_rows"] * scale))
+    return sources
+
+
+def plan_shards(
+    manifest: Mapping[str, Any],
+    count: int,
+    listings: Mapping[str, Sequence[tuple[str, int]]] | None = None,
+    *,
+    scale: float = 1.0,
+    full: bool = False,
+    cap: int | None = None,
+) -> list[dict[str, Any]]:
+    """``count`` manifests that together read exactly the sources' rows, once each.
+
+    ``full`` drops every row cap, so each source offers all its rows; ``listings`` then
+    maps a source id to its ``(file, stored bytes)`` list. Otherwise caps are multiplied
+    by ``scale`` and a capped source goes to one shard whole.
+    """
+    if count < 1:
+        raise ValueError("Shard count and scale must be positive")
+    sources = adjusted_sources(manifest, scale=scale, full=full, cap=cap)
     listings = listings or {}
     by_id = {source["source_id"]: source for source in sources}
     total = sum(source_cost(source, listings.get(source["source_id"])) for source in sources)
@@ -253,6 +269,76 @@ def plan_shards(
                 "sources": [specs[s["source_id"]] for s in sources if s["source_id"] in specs],
             }
         )
+    return shards
+
+
+def group_of(source: Mapping[str, Any]) -> str:
+    """The licence group a source is published in; a source with no recorded decision is ``no``."""
+    group = (source.get("terms") or {}).get("redistribute") or "no"
+    if group not in REDISTRIBUTION_GROUPS:
+        raise ValueError(f"{source['source_id']}: redistribute is one of {REDISTRIBUTION_GROUPS}")
+    return group
+
+
+def shard_group(shard: Mapping[str, Any]) -> str:
+    """The one licence group of a shard planned by ``plan_group_shards``."""
+    groups = {group_of(source) for source in shard["sources"]}
+    if len(groups) > 1:
+        raise ValueError(f"A shard mixes licence groups: {sorted(groups)}")
+    return groups.pop() if groups else "no"
+
+
+def allocate_shards(weights: Mapping[str, float], count: int) -> dict[str, int]:
+    """Shards per group: at least one each, the rest in proportion to the work (largest remainder)."""
+    if count < len(weights):
+        raise ValueError(
+            f"{len(weights)} licence groups need at least that many shards, but there are {count}"
+        )
+    total = sum(weights.values())
+    spare = count - len(weights)
+    shares = {
+        name: (spare * weight / total if total else spare / len(weights))
+        for name, weight in weights.items()
+    }
+    shards = {name: 1 + math.floor(share) for name, share in shares.items()}
+    order = sorted(shares, key=lambda name: (-(shares[name] - math.floor(shares[name])), name))
+    for name in order[: count - sum(shards.values())]:
+        shards[name] += 1
+    return shards
+
+
+def plan_group_shards(
+    manifest: Mapping[str, Any],
+    count: int,
+    listings: Mapping[str, Sequence[tuple[str, int]]] | None = None,
+    *,
+    scale: float = 1.0,
+    full: bool = False,
+    cap: int | None = None,
+) -> list[dict[str, Any]]:
+    """``plan_shards``, but no shard mixes sources of different licence groups.
+
+    The prepared rows of a group are published together (public ones in the clear, the rest
+    encrypted), so a shard's root must belong to one group. Shards come out in the order of
+    ``REDISTRIBUTION_GROUPS``, and ``reconcile`` replays shards in that order: when the same
+    text is in two groups, the copy in the earlier, more permissive group is kept and the
+    later one is dropped as a duplicate, so a text that may be published is never withheld
+    because a restricted source has it too.
+    """
+    sources = adjusted_sources(manifest, scale=scale, full=full, cap=cap)
+    listings = listings or {}
+    cost = {name: 0.0 for name in REDISTRIBUTION_GROUPS}
+    present = dict.fromkeys(REDISTRIBUTION_GROUPS, 0)
+    for source in sources:
+        name = group_of(source)
+        present[name] += 1
+        cost[name] += source_cost(source, listings.get(source["source_id"]))
+    counts = allocate_shards({name: cost[name] for name in cost if present[name]}, count)
+    shards: list[dict[str, Any]] = []
+    for name in REDISTRIBUTION_GROUPS:
+        if name in counts:
+            part = {**manifest, "sources": [s for s in manifest["sources"] if group_of(s) == name]}
+            shards += plan_shards(part, counts[name], listings, scale=scale, full=full, cap=cap)
     return shards
 
 

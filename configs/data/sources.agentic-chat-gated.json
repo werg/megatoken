@@ -23,7 +23,9 @@
         "license_url": "https://huggingface.co/datasets/minyichen/APIGen-MT-46k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Larger relative of Salesforce/APIGen-MT-5k (21 MB of parquet, so possibly the 5k set re-formatted)."
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Larger relative of Salesforce/APIGen-MT-5k (21 MB of parquet, so possibly the 5k set re-formatted).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -57,7 +59,9 @@
         "license_url": "https://huggingface.co/datasets/ReDiX/xlam-function-calling-60k-ita",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Italian translation of xlam-function-calling-60k (about 202 MB)."
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Italian translation of xlam-function-calling-60k (about 202 MB).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -91,7 +95,9 @@
         "license_url": "https://huggingface.co/datasets/ura-hcmut/vi_glaive-function-calling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Vietnamese translation of the first Glaive function-calling release (about 181 MB)."
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Vietnamese translation of the first Glaive function-calling release (about 181 MB).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -125,7 +131,9 @@
         "license_url": "https://huggingface.co/datasets/ura-hcmut/vi_glaive-function-calling-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Vietnamese translation of Glaive function calling v2 (about 452 MB)."
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. Vietnamese translation of Glaive function calling v2 (about 452 MB).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -159,7 +167,9 @@
         "license_url": "https://huggingface.co/datasets/ENERZAiKR/agentic-think-v2-react-hybrid",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. 212k tool-calling conversations (4.6 GB) re-derived from Nemotron tool calling, APIGen-MT, Glaive and Hermes with regenerated reasoning, so much of it repeats sources already read."
+        "notes": "Gated (manual approval): click Agree on the dataset page first. The account could not read the files, so the reader was chosen from the publisher's description and the sibling release and has not been run on real rows. 212k tool-calling conversations (4.6 GB) re-derived from Nemotron tool calling, APIGen-MT, Glaive and Hermes with regenerated reasoning, so much of it repeats sources already read.",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {

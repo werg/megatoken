@@ -23,7 +23,9 @@
         "license_url": "https://huggingface.co/datasets/tokyotech-llm/swallow-code-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0; the originals are GitHub files from The Stack v2 and keep that corpus's terms. 83% of rows carry no detected licence. Rewrites are by Qwen3-235B-A22B."
+        "notes": "Card: Apache-2.0; the originals are GitHub files from The Stack v2 and keep that corpus's terms. 83% of rows carry no detected licence. Rewrites are by Qwen3-235B-A22B.",
+        "redistribute": "no",
+        "redistribute_basis": "apache-2.0, but the notes record: components keep their own, unrecorded terms"
       },
       "field_map": {
         "document": "old_text",
@@ -75,7 +77,9 @@
         "license_url": "https://huggingface.co/datasets/rootacess/pie-perf",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (derived from IBM Project CodeNet)."
+        "notes": "Card: none on the card (derived from IBM Project CodeNet).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (derived from IBM Project CodeNet)'"
       },
       "field_map": {
         "document": "input",
@@ -131,7 +135,9 @@
         "license_url": "https://huggingface.co/datasets/KodCode/KodCode-V1-SFT-4o",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: cc-by-nc-4.0."
+        "notes": "Card: cc-by-nc-4.0.",
+        "redistribute": "no",
+        "redistribute_basis": "cc-by-nc-4.0, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {
         "prompt": "question",
@@ -178,7 +184,9 @@
         "license_url": "https://huggingface.co/datasets/KodCode/KodCode-V1-SFT-R1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: cc-by-nc-4.0."
+        "notes": "Card: cc-by-nc-4.0.",
+        "redistribute": "non_commercial",
+        "redistribute_basis": "publisher states cc-by-nc-4.0; non-commercial re-sharing with attribution is allowed"
       },
       "field_map": {
         "prompt": "question",
@@ -225,7 +233,9 @@
         "license_url": "https://huggingface.co/datasets/open-r1/verifiable-coding-problems-python_decontaminated-tested",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (problems from TACO, APPS and CodeContests)."
+        "notes": "Card: none on the card (problems from TACO, APPS and CodeContests).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (problems from TACO, APPS and CodeContests)'"
       },
       "field_map": {
         "prompt": "problem",
@@ -269,7 +279,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/OpenCodeInstruct",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: cc-by-4.0."
+        "notes": "Card: cc-by-4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "prompt": "input",
@@ -315,7 +327,9 @@
         "license_url": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0 (no licence tag on the Hub)."
+        "notes": "Card: CC BY 4.0 (no licence tag on the Hub).",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "extra_info.instance_id",
@@ -362,7 +376,9 @@
         "license_url": "https://huggingface.co/datasets/Lego-X/SWE-Lego-Real-Data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: apache-2.0."
+        "notes": "Card: apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "the card states a permissive licence for the whole set (parts: Apache-2.0, MIT, CC-BY, ODC-By)"
       },
       "field_map": {
         "family": "instance_id",
@@ -405,7 +421,9 @@
         "license_url": "https://huggingface.co/datasets/argilla/ifeval-like-data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Hub licence tag 'other' with license_name qwen: the responses are Qwen2.5-72B-Instruct outputs under the Qwen licence."
+        "notes": "Hub licence tag 'other' with license_name qwen: the responses are Qwen2.5-72B-Instruct outputs under the Qwen licence.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (Qwen license)'"
       },
       "field_map": {
         "prompt": "prompt",
@@ -450,7 +468,9 @@
         "license_url": "https://huggingface.co/datasets/UniLu/IF_multi_constraints_upto5_SFT",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: odc-by."
+        "notes": "Card: odc-by.",
+        "redistribute": "no",
+        "redistribute_basis": "odc-by, but the notes record: rows are outputs of a model under a custom licence (Llama, Gemma)"
       },
       "field_map": {
         "prompt": "prompt",
@@ -495,7 +515,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/OpenMathInstruct-1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: other (NVIDIA License)."
+        "notes": "Card: other (NVIDIA License).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (NVIDIA License)'"
       },
       "field_map": {
         "prompt": "question",
@@ -552,7 +574,9 @@
         "license_url": "https://huggingface.co/datasets/common-pile/github_archive",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "The card names no licence tag; it keeps only repositories under Blue Oak Council permissive licences and records each row's licence in metadata.license."
+        "notes": "The card names no licence tag; it keeps only repositories under Blue Oak Council permissive licences and records each row's licence in metadata.license.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'per row: Blue Oak Council permissive list (metadata.license)'"
       },
       "field_map": {
         "repository": "metadata.repo",
@@ -592,7 +616,9 @@
         "license_url": "https://huggingface.co/datasets/PotatoHD/github-pr-resolve",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: other (no text on the card)."
+        "notes": "Card: other (no text on the card).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (no text on the card)'"
       },
       "field_map": {
         "prompt": "pr_title",
@@ -646,7 +672,9 @@
         "license_url": "https://huggingface.co/datasets/PotatoHD/github-pr-resolve",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: other (no text on the card)."
+        "notes": "Card: other (no text on the card).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (no text on the card)'"
       },
       "field_map": {
         "prompt": "pr_title",
@@ -696,7 +724,9 @@
         "license_url": "https://huggingface.co/datasets/bulatSharif/gh-pr-issue-traces-10k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: apache-2.0."
+        "notes": "Card: apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "prompt": "pr.title",
@@ -749,7 +779,9 @@
         "license_url": "https://huggingface.co/datasets/JetBrains-Research/commit-chronicle",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: other (permissive repositories only; licence kept per row)."
+        "notes": "Card: other (permissive repositories only; licence kept per row).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (permissive repositories only; licence kept per row)'"
       },
       "field_map": {
         "prompt": "message",
@@ -793,7 +825,9 @@
         "license_url": "https://huggingface.co/datasets/ahnaftaz/locus-commit-pool-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: other (each source file keeps its repository's licence)."
+        "notes": "Card: other (each source file keeps its repository's licence).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (each source file keeps its repository's licence)'"
       },
       "field_map": {
         "prompt": "payload.message",
@@ -842,7 +876,9 @@
         "license_url": "https://huggingface.co/datasets/placeholderlabs/pretrain-repository-v2-mix-long-context",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (code is under its repositories' own licences)."
+        "notes": "Card: none on the card (code is under its repositories' own licences).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (code is under its repositories' own licences)'"
       },
       "field_map": {
         "text": "text",
@@ -881,7 +917,9 @@
         "license_url": "https://huggingface.co/datasets/placeholderlabs/pretrain-repository-v2-mix-long-context",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (code is under its repositories' own licences)."
+        "notes": "Card: none on the card (code is under its repositories' own licences).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (code is under its repositories' own licences)'"
       },
       "field_map": {
         "text": "text",
@@ -920,7 +958,9 @@
         "license_url": "https://huggingface.co/datasets/marin-community/swe-rebench-v2-CodeWorldModeling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: cc-by-4.0."
+        "notes": "Card: cc-by-4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "text": "text",
@@ -969,7 +1009,9 @@
         "license_url": "https://huggingface.co/datasets/swesynth/SWE-Gym-logs",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (SWE-Gym itself is MIT)."
+        "notes": "Card: none on the card (SWE-Gym itself is MIT).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (SWE-Gym itself is MIT)'"
       },
       "field_map": {
         "prompt": "problem_statement",
@@ -1007,7 +1049,9 @@
         "license_url": "https://huggingface.co/datasets/swesynth/SWE-Synth",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card."
+        "notes": "Card: none on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "prompt": "problem_statement",
@@ -1062,7 +1106,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/dolma3_longmino_pool",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-By; the underlying PDFs have mixed copyright."
+        "notes": "Card: ODC-By; the underlying PDFs have mixed copyright.",
+        "redistribute": "no",
+        "redistribute_basis": "odc-by, but the notes record: components keep their own, unrecorded terms"
       },
       "field_map": {
         "text": "text",
@@ -1099,7 +1145,9 @@
         "license_url": "https://huggingface.co/datasets/emozilla/pg19",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919)."
+        "notes": "Card: none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919)'"
       },
       "field_map": {
         "text": "text",
@@ -1137,7 +1185,9 @@
         "license_url": "https://huggingface.co/datasets/common-pile/pre_1929_books",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (US books before 1929, public domain)."
+        "notes": "Card: none on the card (US books before 1929, public domain).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (US books before 1929, public domain)'"
       },
       "field_map": {
         "text": "text"
@@ -1173,7 +1223,9 @@
         "license_url": "https://huggingface.co/datasets/emozilla/pg19",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919)."
+        "notes": "Card: none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919)'"
       },
       "field_map": {
         "text": "text",
@@ -1214,7 +1266,9 @@
         "license_url": "https://huggingface.co/datasets/rasdani/github-patches",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card."
+        "notes": "Card: none on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "prompt": "issue",
@@ -1255,7 +1309,9 @@
         "license_url": "https://huggingface.co/datasets/internlm/SWE-Fixer-Train-110K",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: mit."
+        "notes": "Card: mit.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "prompt": "problem_statement",
@@ -1296,7 +1352,9 @@
         "license_url": "https://huggingface.co/datasets/SWE-Gym/SWE-Gym-Raw",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card (SWE-Gym is MIT)."
+        "notes": "Card: none on the card (SWE-Gym is MIT).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card (SWE-Gym is MIT)'"
       },
       "field_map": {
         "prompt": "problem_statement",
@@ -1334,7 +1392,9 @@
         "license_url": "https://huggingface.co/datasets/nebius/SWE-rebench-V2-PRs",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: cc-by-4.0."
+        "notes": "Card: cc-by-4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "prompt": "problem_statement",
@@ -1377,7 +1437,9 @@
         "license_url": "https://huggingface.co/datasets/PrimeIntellect/Multi-SWE-RL-Reupload",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: other (card names CC0 with a ByteDance notice)."
+        "notes": "Card: other (card names CC0 with a ByteDance notice).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card names CC0 with a ByteDance notice)'"
       },
       "field_map": {
         "prompt": "title",
@@ -1433,7 +1495,9 @@
         "license_url": "https://huggingface.co/datasets/bigcode/commitpackft",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: mit."
+        "notes": "Card: mit.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "prompt": "message",
@@ -1474,7 +1538,9 @@
         "license_url": "https://huggingface.co/datasets/zai-org/LongCite-45k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: apache-2.0."
+        "notes": "Card: apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "prompt": "prompt",
@@ -1510,7 +1576,9 @@
         "license_url": "https://huggingface.co/datasets/tingtang2/the_stack_v2_2M_repos_pretraining_dataset_imported_context-dataset",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card."
+        "notes": "Card: none on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "prompt": "path",
@@ -1551,7 +1619,9 @@
         "license_url": "https://huggingface.co/datasets/sourcegraph/context-aware-fim-code-completions",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: none on the card."
+        "notes": "Card: none on the card.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "context": "context_items",
@@ -1586,7 +1656,9 @@
         "license_url": "https://huggingface.co/datasets/TIGER-Lab/FIM-Midtraining-400K",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: other (multiple open-source licences)."
+        "notes": "Card: other (multiple open-source licences).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (multiple open-source licences)'"
       },
       "field_map": {
         "family": "metadata.repository_url",
@@ -1622,7 +1694,9 @@
         "license_url": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0 (no licence tag on the Hub)."
+        "notes": "Card: CC BY 4.0 (no licence tag on the Hub).",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "extra_info.instance_id",
@@ -1668,7 +1742,9 @@
         "license_url": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0; Qwen3-Coder-480B generated."
+        "notes": "Card: CC BY 4.0; Qwen3-Coder-480B generated.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "trajectory",
@@ -1714,7 +1790,9 @@
         "license_url": "https://huggingface.co/datasets/togethercomputer/CoderForge-Preview",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "The card names no licence; each row carries its own license field (Apache-2.0 in the rows sampled)."
+        "notes": "The card names no licence; each row carries its own license field (Apache-2.0 in the rows sampled).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'per row (Apache-2.0 in the sampled rows); none on the card'"
       },
       "field_map": {
         "outcome": "reward",
@@ -1757,7 +1835,9 @@
         "license_url": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card badge: CC BY 4.0 (no licence tag on the Hub)."
+        "notes": "Card badge: CC BY 4.0 (no licence tag on the Hub).",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "data_source"
@@ -1797,7 +1877,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-OpenCode-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: cc-by-4.0."
+        "notes": "Card: cc-by-4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -1834,7 +1916,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-OpenCode-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: cc-by-4.0."
+        "notes": "Card: cc-by-4.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -1871,7 +1955,9 @@
         "license_url": "https://huggingface.co/datasets/m-a-p/Code-Feedback",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: apache-2.0."
+        "notes": "Card: apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1904,7 +1990,9 @@
         "license_url": "https://huggingface.co/datasets/neulab/agent-data-collection",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Per-subset licence mit from the subset's LICENSE file; the collection's card names none."
+        "notes": "Per-subset licence mit from the subset's LICENSE file; the collection's card names none.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1940,7 +2028,9 @@
         "license_url": "https://huggingface.co/datasets/neulab/agent-data-collection",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Per-subset licence apache-2.0 from the subset's LICENSE file; the collection's card names none."
+        "notes": "Per-subset licence apache-2.0 from the subset's LICENSE file; the collection's card names none.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1976,7 +2066,9 @@
         "license_url": "https://huggingface.co/datasets/neulab/agent-data-collection",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Per-subset licence cc-by-4.0 from the subset's LICENSE file; the collection's card names none."
+        "notes": "Per-subset licence cc-by-4.0 from the subset's LICENSE file; the collection's card names none.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -2012,7 +2104,9 @@
         "license_url": "https://huggingface.co/datasets/fudayuan/AgentRefine-gpt4o-64000",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: apache-2.0."
+        "notes": "Card: apache-2.0.",
+        "redistribute": "no",
+        "redistribute_basis": "apache-2.0, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {},
       "options": {

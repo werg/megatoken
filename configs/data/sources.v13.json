@@ -20,7 +20,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-CC-v2.1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {},
       "options": {},
@@ -46,7 +48,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-CC-v2.1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {},
       "options": {},
@@ -72,7 +76,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {},
       "options": {},
@@ -98,7 +104,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {},
       "options": {},
@@ -124,7 +132,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {},
       "options": {},
@@ -150,7 +160,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {},
       "options": {},
@@ -176,7 +188,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-Code-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {},
       "options": {},
@@ -202,7 +216,9 @@
         "license_url": "https://huggingface.co/datasets/HuggingFaceTB/smoltalk2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'source-specific'"
       },
       "field_map": {},
       "options": {},
@@ -228,7 +244,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Instruction-Following-Chat-v3",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'odc-by / cc-by-4.0 / apache-2.0 (per card)'"
       },
       "field_map": {
         "mask": "metadata.train_turns"
@@ -256,7 +274,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states openmdw-1.1; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {},
@@ -282,7 +302,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-Agentic-v4",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states openmdw-1.1; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {},
@@ -308,7 +330,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Open-SWE-Traces",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {},
@@ -334,7 +358,9 @@
         "license_url": "https://huggingface.co/datasets/open-thoughts/AgentTrove",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "id": [
@@ -371,7 +397,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "task": [
@@ -408,7 +436,9 @@
         "license_url": "https://huggingface.co/datasets/microsoft/Orchard",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "no",
+        "redistribute_basis": "mit, but the notes record: content withheld or redacted"
       },
       "field_map": {},
       "options": {},
@@ -434,7 +464,9 @@
         "license_url": "https://huggingface.co/datasets/AlienKevin/SWE-ZERO-12M-trajectories",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Record intended-use and upstream source obligations before acquisition."
+        "notes": "Record intended-use and upstream source obligations before acquisition.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {

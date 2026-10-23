@@ -16,6 +16,12 @@ from megatoken.io import content_hash, sha256_file, write_json
 PARQUET_BATCH_BYTES = 64 << 20
 
 
+# Whether the prepared rows of a source may be published in the clear, and in which licence
+# group. The groups are listed most permissive first: when the same text appears in two
+# sources, the copy in the earlier group is the one kept (see ``plan_group_shards``).
+REDISTRIBUTION_GROUPS = ("permissive", "share_alike", "non_commercial", "no")
+
+
 @dataclass(frozen=True, slots=True)
 class TermsReview:
     approved: bool = False
@@ -24,10 +30,22 @@ class TermsReview:
     reviewed_by: str = ""
     reviewed_at: str = ""
     notes: str = ""
+    # ``permissive``, ``share_alike`` or ``non_commercial``: the prepared rows may be published
+    # publicly under that group's licence; ``no`` (and anything unrecorded): only as an
+    # encrypted copy. ``redistribute_basis`` says why, in a sentence.
+    redistribute: str = ""
+    redistribute_basis: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.approved, bool):
             raise ValueError("Terms approval must be an explicit JSON boolean")
+        if self.redistribute and self.redistribute not in REDISTRIBUTION_GROUPS:
+            raise ValueError(f"redistribute is one of {REDISTRIBUTION_GROUPS}")
+
+    @property
+    def group(self) -> str:
+        """The licence group the source is published in; unrecorded means ``no``."""
+        return self.redistribute or "no"
 
     def require_approval(self) -> None:
         if not self.approved or not self.reviewed_by or not self.reviewed_at:

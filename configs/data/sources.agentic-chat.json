@@ -23,7 +23,9 @@
         "license_url": "https://huggingface.co/datasets/nex-agi/agent-sft",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-By. tool_calling.jsonl (524 MB): OpenAI-style function-calling dialogues generated with DeepSeek-V3.1-Nex-N1, memory assistant and other tool sets."
+        "notes": "Card: ODC-By. tool_calling.jsonl (524 MB): OpenAI-style function-calling dialogues generated with DeepSeek-V3.1-Nex-N1, memory assistant and other tool sets.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states odc-by; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -59,7 +61,9 @@
         "license_url": "https://huggingface.co/datasets/nex-agi/agent-sft",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-By. deep_research.jsonl (3.4 GB): long deep-research agent traces; tool calls are XML text (tool_use / use_parallel_tool_calls) inside assistant turns and results come back as user turns, so they are read as text-environment episodes."
+        "notes": "Card: ODC-By. deep_research.jsonl (3.4 GB): long deep-research agent traces; tool calls are XML text (tool_use / use_parallel_tool_calls) inside assistant turns and results come back as user turns, so they are read as text-environment episodes.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states odc-by; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "uuid"
@@ -95,7 +99,9 @@
         "license_url": "https://huggingface.co/datasets/nex-agi/agent-sft",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-By. agent.jsonl (1.7 GB): multi-turn runs of many specialised sub-agents (research, scraping, analytics, e-learning) on the NexAU framework; XML tool calls in assistant text, results as user turns. Some rows with a very long system prompt are held out by the parser (3 of 19 sampled)."
+        "notes": "Card: ODC-By. agent.jsonl (1.7 GB): multi-turn runs of many specialised sub-agents (research, scraping, analytics, e-learning) on the NexAU framework; XML tool calls in assistant text, results as user turns. Some rows with a very long system prompt are held out by the parser (3 of 19 sampled).",
+        "redistribute": "no",
+        "redistribute_basis": "odc-by, but the notes record: scraped content"
       },
       "field_map": {
         "family": "uuid"
@@ -131,7 +137,9 @@
         "license_url": "https://huggingface.co/datasets/miromind-ai/MiroVerse-v0.1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC-BY-NC-4.0 (non-commercial; auto-approval gate on the Hub). 12 SFT files, 8.2 GB, ~148k deep-research trajectories (multi-hop QA, WebWalker, WebShaper, WebDancer, Voyager); tool calls are <use_mcp_tool> XML in assistant text and results are user turns. The dpo/ folder (chosen/rejected pairs) is not included."
+        "notes": "Card: CC-BY-NC-4.0 (non-commercial; auto-approval gate on the Hub). 12 SFT files, 8.2 GB, ~148k deep-research trajectories (multi-hop QA, WebWalker, WebShaper, WebDancer, Voyager); tool calls are <use_mcp_tool> XML in assistant text and results are user turns. The dpo/ folder (chosen/rejected pairs) is not included.",
+        "redistribute": "no",
+        "redistribute_basis": "cc-by-nc-4.0, but the notes record: gated"
       },
       "field_map": {},
       "options": {
@@ -165,7 +173,9 @@
         "license_url": "https://huggingface.co/datasets/NexusProjectsAI/Nexus-Agents-ToolCalling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. dataset.jsonl (6.2 GB, 599,267 rows) is the whole v1 corpus; train.jsonl and validation.jsonl are its split and are not listed again. Procedurally generated, schema-verified tool calls in three narrow skills (project setup interview, user-story discovery, task generation), so it is highly templated; tool results are generated, not executed."
+        "notes": "Card: Apache-2.0. dataset.jsonl (6.2 GB, 599,267 rows) is the whole v1 corpus; train.jsonl and validation.jsonl are its split and are not listed again. Procedurally generated, schema-verified tool calls in three narrow skills (project setup interview, user-story discovery, task generation), so it is highly templated; tool results are generated, not executed.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -199,7 +209,9 @@
         "license_url": "https://huggingface.co/datasets/RedMod/MidTool-Mix-shuffled",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: licence 'other' (midtool-mix-license, LICENSE file in the repo); the account already has access. Re-upload of MidTool/MidTool-Mix; only the native_agent_traj slice holds conversations and only api-traj (Qwen XML calls) and skill-traj (parallel calls, raw tool messages) are kept: nemetron-agentic is a copy of Nemotron-Agentic-v1 and awm-rollout has invalid JSON in its structured column."
+        "notes": "Card: licence 'other' (midtool-mix-license, LICENSE file in the repo); the account already has access. Re-upload of MidTool/MidTool-Mix; only the native_agent_traj slice holds conversations and only api-traj (Qwen XML calls) and skill-traj (parallel calls, raw tool messages) are kept: nemetron-agentic is a copy of Nemotron-Agentic-v1 and awm-rollout has invalid JSON in its structured column.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'midtool-mix-license'"
       },
       "field_map": {
         "messages": "extra.messages",
@@ -246,7 +258,9 @@
         "license_url": "https://huggingface.co/datasets/r0b0tlab/qwen3.8-max-glm5.2-kimi-k3-distillation",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card licence tag: other (no text). Synthetic tool traces generated by GLM-5.2 (5.3k) and Kimi K3; about half the prompts are synthetic coding-workspace file/patch tasks, the rest corpus-search/calculator, SQLite, calendar, CSV/JSON transforms."
+        "notes": "Card licence tag: other (no text). Synthetic tool traces generated by GLM-5.2 (5.3k) and Kimi K3; about half the prompts are synthetic coding-workspace file/patch tasks, the rest corpus-search/calculator, SQLite, calendar, CSV/JSON transforms.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {
         "family": "parent_id",
@@ -283,7 +297,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/r0b0tlab/deepseek-v4-pro-0813-agentic",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {
         "tools": "tools"
@@ -328,7 +344,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/r0b0tlab/deepseek-v4-pro-0813-agentic",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {},
       "options": {
@@ -373,7 +391,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/zhangdw/to-tool-call-datasets",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "no",
+        "redistribute_basis": "apache-2.0, but the notes record: components keep their own, unrecorded terms"
       },
       "field_map": {},
       "options": {
@@ -408,7 +428,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/zhangdw/to-tool-call-datasets",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -443,7 +465,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/zhangdw/to-tool-call-datasets",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -478,7 +502,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/zhangdw/to-tool-call-datasets",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -513,7 +539,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/1stprinciple/deep-research-sft-qwen35",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -549,7 +577,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/HuggingEnvs/data-agent-sft",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "messages",
@@ -588,7 +618,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/RUC-AIBOX/ClawGym-Trajectory",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "tools": "tools"
@@ -625,7 +657,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/SII-Enigma/Davinci-ToolData",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other'"
       },
       "field_map": {
         "tools": "tools"
@@ -663,7 +697,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/dongguanting/Agent-Reflex-SFT-54K",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversations",
@@ -702,7 +738,9 @@
         "approved": true,
         "license_url": "https://huggingface.co/datasets/dongguanting/Agent-World-SFT-44K",
         "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22"
+        "reviewed_at": "2026-10-22",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "messages": "conversations",
@@ -741,7 +779,9 @@
         "license_url": "https://huggingface.co/datasets/stindardlogic/tool-calling-english-100k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 100k synthetic single-file OpenAI function-calling dialogues over 20 fixed tool schemas (weather, calendar, email, search ...), 0.18 GB; low diversity, templated."
+        "notes": "Card: Apache-2.0. 100k synthetic single-file OpenAI function-calling dialogues over 20 fixed tool schemas (weather, calendar, email, search ...), 0.18 GB; low diversity, templated.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -776,7 +816,9 @@
         "license_url": "https://huggingface.co/datasets/zake7749/Qwen-3.6-plus-agent-tool-calling-trajectory",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: no licence tag and no licence sentence; built on nvidia/ToolScale prompts with Qwen 3.6 Plus rollouts. 3,950 rows (82 MB) = conversation prefixes of 582 customer-service agent trajectories (bank / e-commerce / basketball); kept only rows with reward 1.0 (about 1,913). Mirror: ansulev/qwen-3.6-plus-agent-tool-calling (same size)."
+        "notes": "Card: no licence tag and no licence sentence; built on nvidia/ToolScale prompts with Qwen 3.6 Plus rollouts. 3,950 rows (82 MB) = conversation prefixes of 582 customer-service agent trajectories (bank / e-commerce / basketball); kept only rows with reward 1.0 (about 1,913). Mirror: ansulev/qwen-3.6-plus-agent-tool-calling (same size).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -818,7 +860,9 @@
         "license_url": "https://huggingface.co/datasets/zake7749/deepseek-v4-pro-agent-tool-calling-trajectory",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: no licence tag and no licence sentence; built on nvidia/ToolScale prompts with DeepSeek V4 Pro rollouts. 2,510 rows (48 MB) = conversation prefixes of 284 tool-using agent trajectories (movie booking / bank / e-commerce / medicine / basketball), 39% parallel tool calls; kept only rows with action-match score >= 0.7."
+        "notes": "Card: no licence tag and no licence sentence; built on nvidia/ToolScale prompts with DeepSeek V4 Pro rollouts. 2,510 rows (48 MB) = conversation prefixes of 284 tool-using agent trajectories (movie booking / bank / e-commerce / medicine / basketball), 39% parallel tool calls; kept only rows with action-match score >= 0.7.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -863,7 +907,9 @@
         "license_url": "https://huggingface.co/datasets/DuyTa/secai-agentic-rag-sft-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card tag: other. 79,651 Vietnamese/English cybersecurity records; only the 25.7% with tool calls (about 20k: CVE/CWE/ATT&CK/Exploit-DB knowledge-base lookups, multi-hop, no-result handling) are kept via n_tool_calls >= 1. test.jsonl excluded because the card forbids training on it. Teacher: Qwen3.5-122B and DeepSeek V4 Pro; the rest is chat on cybersecurity."
+        "notes": "Card tag: other. 79,651 Vietnamese/English cybersecurity records; only the 25.7% with tool calls (about 20k: CVE/CWE/ATT&CK/Exploit-DB knowledge-base lookups, multi-hop, no-result handling) are kept via n_tool_calls >= 1. test.jsonl excluded because the card forbids training on it. Teacher: Qwen3.5-122B and DeepSeek V4 Pro; the rest is chat on cybersecurity.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag; README: aggregate release labelled other pending licence review; upstream Trendyol/Fenrir Apache-2.0, Heimdall terms to be reviewed)'"
       },
       "field_map": {},
       "options": {
@@ -905,7 +951,9 @@
         "license_url": "https://huggingface.co/datasets/lazos/frontend-agent-sft",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card tag: other. Despite the repo name this is not coding: 26,912 synthetic shopping-assistant tool-use dialogues (catalog / knowledge search, add and remove from cart) with per-example randomized tool and argument names, 118 MB, product data reframed from Amazon-Reviews-2023, utterances by Qwen2.5-7B / Qwen3-30B. The other files are the same data chat-template-rendered into a text string, so the structured raw_generated.jsonl is used."
+        "notes": "Card tag: other. Despite the repo name this is not coding: 26,912 synthetic shopping-assistant tool-use dialogues (catalog / knowledge search, add and remove from cart) with per-example randomized tool and argument names, 118 MB, product data reframed from Amazon-Reviews-2023, utterances by Qwen2.5-7B / Qwen3-30B. The other files are the same data chat-template-rendered into a text string, so the structured raw_generated.jsonl is used.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag; README: review Amazon-Reviews-2023 source licensing before redistribution)'"
       },
       "field_map": {},
       "options": {
@@ -947,7 +995,9 @@
         "license_url": "https://huggingface.co/datasets/hotdogs/sme-sft-docdata-qwen38",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 9,342 synthetic SME document and data management rows (48 MB): 2,520 tool rows over 11 doc/CSV tools with deterministic tool outputs, 750 advanced rows (error recovery, multi-doc, temporal, conflict), 192 retrieval rows, 5,880 plain QA rows. Tool calls carry no ids (positional)."
+        "notes": "Card: Apache-2.0. 9,342 synthetic SME document and data management rows (48 MB): 2,520 tool rows over 11 doc/CSV tools with deterministic tool outputs, 750 advanced rows (error recovery, multi-doc, temporal, conflict), 192 retrieval rows, 5,880 plain QA rows. Tool calls carry no ids (positional).",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -983,7 +1033,9 @@
         "license_url": "https://huggingface.co/datasets/SebastianAldrin/agent-society-distill-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. 1,355 single-step decisions (16 MB) of a Claude Sonnet teacher playing a Minecraft survival/social agent: the prompt holds needs, local block map, memory and plan, the answer is one JSON action (thought, action, args). No tool-call structure; one assistant turn per row."
+        "notes": "Card: MIT. 1,355 single-step decisions (16 MB) of a Claude Sonnet teacher playing a Minecraft survival/social agent: the prompt holds needs, local block map, memory and plan, the answer is one JSON action (thought, action, args). No tool-call structure; one assistant turn per row.",
+        "redistribute": "no",
+        "redistribute_basis": "mit, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {},
       "options": {
@@ -1018,7 +1070,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Cascade-2-SFT-Data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: NVIDIA Open Model License. tau-bench-style customer-service dialogues (system, user, assistant roles only) with Qwen-style XML calls; results are simulated user-turn tool responses. 17.5 GB, about 822k rows; the math tool config of the same repo is code-interpreter data and is not read."
+        "notes": "Card: NVIDIA Open Model License. tau-bench-style customer-service dialogues (system, user, assistant roles only) with Qwen-style XML calls; results are simulated user-turn tool responses. 17.5 GB, about 822k rows; the math tool config of the same repo is code-interpreter data and is not read.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'nvidia-open-model-license'"
       },
       "field_map": {},
       "options": {
@@ -1052,7 +1106,9 @@
         "license_url": "https://huggingface.co/datasets/google/mobile-actions",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC-BY-4.0. 9,654 single-turn on-device phone actions (8,693 marked train, 961 eval); developer-role system message with date, user request, assistant tool_calls without ids; no results."
+        "notes": "Card: CC-BY-4.0. 9,654 single-turn on-device phone actions (8,693 marked train, 961 eval); developer-role system message with date, user request, assistant tool_calls without ids; no results.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1094,7 +1150,9 @@
         "license_url": "https://huggingface.co/datasets/smolagents/toolcalling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: no licence tag on the card. Qwen3-235B traces that start with a facts-survey plan, then web-search / visit-page tool calls, ending in a final_answer call; correct runs only."
+        "notes": "Card: no licence tag on the card. Qwen3-235B traces that start with a facts-survey plan, then web-search / visit-page tool calls, ending in a final_answer call; correct runs only.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -1136,7 +1194,9 @@
         "license_url": "https://huggingface.co/datasets/prem-research/Funcdex-MT-Function-Calling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. 1,787 multi-turn conversations (1,487 train + 300 test; ~9.6M tokens) over 10 toolkits (gmail, google drive, jira, stripe, ...) and 5 bundles; OpenAI-style tool_calls/tool messages; tools column; the system column holds a per-conversation persona that the chat adapter does not read."
+        "notes": "Card: MIT. 1,787 multi-turn conversations (1,487 train + 300 test; ~9.6M tokens) over 10 toolkits (gmail, google drive, jira, stripe, ...) and 5 bundles; OpenAI-style tool_calls/tool messages; tools column; the system column holds a per-conversation persona that the chat adapter does not read.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversations"
@@ -1173,7 +1233,9 @@
         "license_url": "https://huggingface.co/datasets/tbilisi-ai-lab/kona-sft-function-calling-ka-93k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-BY. ~93k rows (2 parquet shards, 179 MB); Georgian-language (mixed English/Georgian) mix of translated chat plus function-calling rows from xLAM, Synth-APIGen, Glaive, Hermes and Tbilisi AI Lab's own generated chat/tool data; chat column is a JSON string of OpenAI-style messages."
+        "notes": "Card: ODC-BY. ~93k rows (2 parquet shards, 179 MB); Georgian-language (mixed English/Georgian) mix of translated chat plus function-calling rows from xLAM, Synth-APIGen, Glaive, Hermes and Tbilisi AI Lab's own generated chat/tool data; chat column is a JSON string of OpenAI-style messages.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states odc-by; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "chat"
@@ -1210,7 +1272,9 @@
         "license_url": "https://huggingface.co/datasets/Simon-Liu/kubectl-mcp-server-tool-call-reasoning-6k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. ~6k single-turn multilingual (Traditional Chinese etc.) kubectl MCP tool requests; messages (system, user, assistant tool_calls) plus a duplicate ShareGPT conversations column in <tool_call> text; kind column separates tool and no-tool rows; no tool results."
+        "notes": "Card: Apache-2.0. ~6k single-turn multilingual (Traditional Chinese etc.) kubectl MCP tool requests; messages (system, user, assistant tool_calls) plus a duplicate ShareGPT conversations column in <tool_call> text; kind column separates tool and no-tool rows; no tool results.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -1244,7 +1308,9 @@
         "license_url": "https://huggingface.co/datasets/Simon-Liu/tw-finance-function-call-reasoning",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC-BY-NC-4.0 (research only, no commercial use). ~1.2k synthetic Traditional-Chinese Taiwan-finance tool requests; assistant turn is <think>...</think><tool_call>{json}</tool_call>; no tool results."
+        "notes": "Card: CC-BY-NC-4.0 (research only, no commercial use). ~1.2k synthetic Traditional-Chinese Taiwan-finance tool requests; assistant turn is <think>...</think><tool_call>{json}</tool_call>; no tool results.",
+        "redistribute": "no",
+        "redistribute_basis": "cc-by-nc-4.0, but the notes record: research-only or educational-only use"
       },
       "field_map": {},
       "options": {
@@ -1278,7 +1344,9 @@
         "license_url": "https://huggingface.co/datasets/twinkle-ai/tw-function-call-reasoning-10k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC-BY-4.0. 10,000 rows; xLAM-derived queries translated to Traditional Chinese with a <think> reasoning chain and a <tool_call> answer (no tool results). The tools column is in xLAM spelling (parameters as a name-to-spec map), so field_map points tools at a missing column and the schema comes from the system prompt text."
+        "notes": "Card: CC-BY-4.0. 10,000 rows; xLAM-derived queries translated to Traditional Chinese with a <think> reasoning chain and a <tool_call> answer (no tool results). The tools column is in xLAM spelling (parameters as a name-to-spec map), so field_map points tools at a missing column and the schema comes from the system prompt text.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "tools": "no_tools_column"
@@ -1314,7 +1382,9 @@
         "license_url": "https://huggingface.co/datasets/zake7749/Qwen3.6-35B-A3B-Tool-Calling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card has no licence tag (generated by Qwen3.6-35B-A3B, Apache-2.0 model; prompts from nvidia Nemotron-RL agentic corpora). 35,850 rejection-sampled SFT rows: conversation prefix plus one final assistant turn checked against the ground-truth call; each assistant message has a reasoning field the chat adapter ignores."
+        "notes": "Card has no licence tag (generated by Qwen3.6-35B-A3B, Apache-2.0 model; prompts from nvidia Nemotron-RL agentic corpora). 35,850 rejection-sampled SFT rows: conversation prefix plus one final assistant turn checked against the ground-truth call; each assistant message has a reasoning field the chat adapter ignores.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -1349,7 +1419,9 @@
         "license_url": "https://huggingface.co/datasets/Yhyu13/ToolBench_toolllama_G123_dfs",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. ToolLLaMA conversation file from Adorg/ToolBench (272 MB; the 2 GB Yhyu13 copy is too large to load): ReAct Thought/Action/Action Input turns with function-role replies, each row a prefix of a longer chain."
+        "notes": "Card: Apache-2.0. ToolLLaMA conversation file from Adorg/ToolBench (272 MB; the 2 GB Yhyu13 copy is too large to load): ReAct Thought/Action/Action Input turns with function-role replies, each row a prefix of a longer chain.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -1385,7 +1457,9 @@
         "license_url": "https://huggingface.co/datasets/BitAgent/tool_calling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card has no licence and no README. 551,285 rows; user, 'tool call' role with {name, arguments}, assistant answer written without any tool result."
+        "notes": "Card has no licence and no README. 551,285 rows; user, 'tool call' role with {name, arguments}, assistant answer written without any tool result.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "messages": "conversation"
@@ -1421,7 +1495,9 @@
         "license_url": "https://huggingface.co/datasets/sartifyllc/pawa-function-calling-60k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card has no licence tag; Swahili machine translation of Salesforce/xlam-function-calling-60k (CC-BY-4.0 upstream). ~60k rows, human query then one function_call message holding the JSON list of all calls, no result."
+        "notes": "Card has no licence tag; Swahili machine translation of Salesforce/xlam-function-calling-60k (CC-BY-4.0 upstream). ~60k rows, human query then one function_call message holding the JSON list of all calls, no result.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -1455,7 +1531,9 @@
         "license_url": "https://huggingface.co/datasets/casey-martin/BUTTON-MT-function-calling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. BUTTON compositional multi-turn tool dialogues: tools are listed in the system prompt between <tool> tags, the assistant writes <call>[...]</call> with parallel calls and one tool message holds a result entry per call. About 8k rows."
+        "notes": "No licence on the card. BUTTON compositional multi-turn tool dialogues: tools are listed in the system prompt between <tool> tags, the assistant writes <call>[...]</call> with parallel calls and one tool message holds a result entry per call. About 8k rows.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {},
       "options": {
@@ -1488,7 +1566,9 @@
         "license_url": "https://huggingface.co/datasets/AgentSuite/tau2-bench-trajectories",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence tag on the card. tau2-bench runs of many agent models with a simulated customer; successful runs only (eval_result.score at least 1). In telecom the simulated customer also calls phone tools; those turns are kept as customer text. Overlaps the tau-bench sets in the same family."
+        "notes": "No licence tag on the card. tau2-bench runs of many agent models with a simulated customer; successful runs only (eval_result.score at least 1). In telecom the simulated customer also calls phone tools; those turns are kept as customer text. Overlaps the tau-bench sets in the same family.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {
         "family": "meta.id"
@@ -1531,7 +1611,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-sk",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Slovak synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Slovak synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1565,7 +1647,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-sr",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Serbian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Serbian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1599,7 +1683,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-lb",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Luxembourgish synthetic tool dialogues, 10,440 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Luxembourgish synthetic tool dialogues, 10,440 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1633,7 +1719,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-sl",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Slovenian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Slovenian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1667,7 +1755,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-hu",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Hungarian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Hungarian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1701,7 +1791,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-fa",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Persian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Persian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1735,7 +1827,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-bs",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Bosnian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Bosnian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1769,7 +1863,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-hr",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Croatian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Croatian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1803,7 +1899,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-sq",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Albanian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Albanian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1837,7 +1935,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-bg",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Bulgarian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Bulgarian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1871,7 +1971,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-be",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Belarusian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Belarusian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1905,7 +2007,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-lv",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Latvian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Latvian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1939,7 +2043,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm13-multilingual-tool-dialogue-lt",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Lithuanian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)"
+        "notes": "Lithuanian synthetic tool dialogues, 4,000 conversations, written and model-reviewed by Gemma 4 26B; native-speaker review pending; tool results are mock (simulated)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (README: no blanket licence grant; source-specific terms and Gemma output conditions apply)'"
       },
       "field_map": {},
       "options": {
@@ -1973,7 +2079,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-zh-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Chinese synthetic tool dialogues, 1,998 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Chinese synthetic tool dialogues, 1,998 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2010,7 +2118,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-id-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Indonesian synthetic tool dialogues, 1,993 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Indonesian synthetic tool dialogues, 1,993 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2047,7 +2157,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-vi-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Vietnamese synthetic tool dialogues, 1,981 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Vietnamese synthetic tool dialogues, 1,981 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2084,7 +2196,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-ru-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Russian synthetic tool dialogues, 1,901 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Russian synthetic tool dialogues, 1,901 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2121,7 +2235,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-mk-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Macedonian synthetic tool dialogues, 3,968 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Macedonian synthetic tool dialogues, 3,968 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2158,7 +2274,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-tr-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Turkish synthetic tool dialogues, 1,959 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Turkish synthetic tool dialogues, 1,959 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2195,7 +2313,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-ar-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Arabic synthetic tool dialogues, 1,978 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Arabic synthetic tool dialogues, 1,978 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2232,7 +2352,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-ga-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Irish synthetic tool dialogues, 3,857 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Irish synthetic tool dialogues, 3,857 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2269,7 +2391,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-hi-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Hindi synthetic tool dialogues, 1,909 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Hindi synthetic tool dialogues, 1,909 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2306,7 +2430,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-gl-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Galician synthetic tool dialogues, 3,945 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Galician synthetic tool dialogues, 3,945 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2343,7 +2469,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-ko-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Korean synthetic tool dialogues, 1,926 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Korean synthetic tool dialogues, 1,926 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2380,7 +2508,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-ja-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Japanese synthetic tool dialogues, 1,962 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Japanese synthetic tool dialogues, 1,962 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2417,7 +2547,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-mt-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Maltese synthetic tool dialogues, 3,484 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Maltese synthetic tool dialogues, 3,484 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2454,7 +2586,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-cy-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Welsh synthetic tool dialogues, 3,796 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Welsh synthetic tool dialogues, 3,796 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2491,7 +2625,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-eu-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Basque synthetic tool dialogues, 3,887 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Basque synthetic tool dialogues, 3,887 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2528,7 +2664,9 @@
         "license_url": "https://huggingface.co/datasets/schneiderkamplab/dfm14-he-synthetic-tool-dialogue-r1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Hebrew synthetic tool dialogues, 1,927 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json"
+        "notes": "Hebrew synthetic tool dialogues, 1,927 accepted rows (about 1 MB of parquet), Gemma 4 26B generated and reviewed; messages and tools are JSON strings in messages_json / tools_json",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (card tag source-and-teacher-conditions; no blanket licence, upstream terms and Gemma output conditions remain in force)'"
       },
       "field_map": {
         "messages": "messages_json",
@@ -2565,7 +2703,9 @@
         "license_url": "https://huggingface.co/datasets/jensjepsen/danish-tool-dialogues-v9",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Danish translation of the Glaive part of Nanbeige/ToolMind (34,168 train rows; only 14,570 distinct conversations: most appear more than once; v8 train is identical and v7 is almost entirely contained). Skip the sft/ folder (same conversations with scrambled parameter names) and en/ (untranslated source)."
+        "notes": "Danish translation of the Glaive part of Nanbeige/ToolMind (34,168 train rows; only 14,570 distinct conversations: most appear more than once; v8 train is identical and v7 is almost entirely contained). Skip the sft/ folder (same conversations with scrambled parameter names) and en/ (untranslated source).",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -2601,7 +2741,9 @@
         "license_url": "https://huggingface.co/datasets/jensjepsen/danish-tool-dialogues-v9",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "902 Danish rows where no listed tool fits and the assistant declines; tool list is in the first user message as text"
+        "notes": "902 Danish rows where no listed tool fits and the assistant declines; tool list is in the first user message as text",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -2635,7 +2777,9 @@
         "license_url": "https://huggingface.co/datasets/jgalego/function-calling-pt-pt",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "European-Portuguese translation of toolace (10,553 conversations); tool definitions, calls and results stay English"
+        "notes": "European-Portuguese translation of toolace (10,553 conversations); tool definitions, calls and results stay English",
+        "redistribute": "permissive",
+        "redistribute_basis": "the card states a permissive licence for the whole set (parts: Apache-2.0, MIT, CC-BY, ODC-By)"
       },
       "field_map": {
         "family": "id"
@@ -2673,7 +2817,9 @@
         "license_url": "https://huggingface.co/datasets/jgalego/function-calling-pt-pt",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "European-Portuguese translation of when2call (14,928 conversations); tool definitions, calls and results stay English"
+        "notes": "European-Portuguese translation of when2call (14,928 conversations); tool definitions, calls and results stay English",
+        "redistribute": "permissive",
+        "redistribute_basis": "the card states a permissive licence for the whole set (parts: Apache-2.0, MIT, CC-BY, ODC-By)"
       },
       "field_map": {
         "family": "id"
@@ -2711,7 +2857,9 @@
         "license_url": "https://huggingface.co/datasets/jgalego/function-calling-pt-pt",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "European-Portuguese translation of xlam (59,221 conversations); tool definitions, calls and results stay English; about 7% of rows are rejected because the tool list uses xLAM parameter spelling (type 'str, optional')"
+        "notes": "European-Portuguese translation of xlam (59,221 conversations); tool definitions, calls and results stay English; about 7% of rows are rejected because the tool list uses xLAM parameter spelling (type 'str, optional')",
+        "redistribute": "permissive",
+        "redistribute_basis": "the card states a permissive licence for the whole set (parts: Apache-2.0, MIT, CC-BY, ODC-By)"
       },
       "field_map": {
         "family": "id"
@@ -2752,7 +2900,9 @@
         "license_url": "https://huggingface.co/datasets/korotkov/glaive-function-calling-v2-ru-parsed",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Russian translation of Glaive v2: 102,860 train + 9,681 test rows; roles function_call / function_response; functions column holds the tool list"
+        "notes": "Russian translation of Glaive v2: 102,860 train + 9,681 test rows; roles function_call / function_response; functions column holds the tool list",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (translation of glaiveai/glaive-function-calling-v2, Apache-2.0)'"
       },
       "field_map": {
         "tools": "functions"
@@ -2789,7 +2939,9 @@
         "license_url": "https://huggingface.co/datasets/tryumanshow/glaive-function-calling-v2-ko-refined",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Korean Glaive v2 subset, 12,371 rows, repaired into OpenAI tool_calls / tool messages (read conversations_ko, tools in function_description)"
+        "notes": "Korean Glaive v2 subset, 12,371 rows, repaired into OpenAI tool_calls / tool messages (read conversations_ko, tools in function_description)",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'not stated on the card (derived from heegyu/glaive-function-calling-v2-ko, Apache-2.0)'"
       },
       "field_map": {
         "messages": "conversations_ko",
@@ -2828,7 +2980,9 @@
         "license_url": "https://huggingface.co/datasets/nappa0326/glaive-function-calling-v2-sharegpt-japanese",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Japanese translation of Glaive v2 (112,960 rows in 2 parquet files) in the original SYSTEM:/USER:/ASSISTANT: text dump (columns system and chat)"
+        "notes": "Japanese translation of Glaive v2 (112,960 rows in 2 parquet files) in the original SYSTEM:/USER:/ASSISTANT: text dump (columns system and chat)",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -2862,7 +3016,9 @@
         "license_url": "https://huggingface.co/datasets/nntsuzu/ToolACE-Japanese",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Japanese machine translation of Team-ACE/ToolACE (11,299 conversations, about 10.5k single-turn call only, about 800 with tool results); column is named message"
+        "notes": "Japanese machine translation of Team-ACE/ToolACE (11,299 conversations, about 10.5k single-turn call only, about 800 with tool results); column is named message",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "message"
@@ -2906,7 +3062,9 @@
         "license_url": "https://huggingface.co/datasets/ghananlpcommunity/twi-translation-tool-calling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "English-to-Twi translation with a real offline dictionary lookup tool; train 15,134 rows plus validation and test files. NON-COMMERCIAL licence."
+        "notes": "English-to-Twi translation with a real offline dictionary lookup tool; train 15,134 rows plus validation and test files. NON-COMMERCIAL licence.",
+        "redistribute": "non_commercial",
+        "redistribute_basis": "publisher states cc-by-nc-4.0; non-commercial re-sharing with attribution is allowed"
       },
       "field_map": {
         "family": "id"
@@ -2943,7 +3101,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. Arabic single-call tool data (about 551k rows): roles user, 'tool call' and assistant; there is never a tool result, so each call ends its turn. Templated and low quality, kept for language coverage."
+        "notes": "No licence on the card. Arabic single-call tool data (about 551k rows): roles user, 'tool call' and assistant; there is never a tool result, so each call ends its turn. Templated and low quality, kept for language coverage.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {
         "messages": "conversation"
@@ -2979,7 +3139,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Korean translation of Glaive function calling v2 with function-call and function-response roles; about 6% of rows are rejected because the translation broke a call."
+        "notes": "Card: Apache-2.0. Korean translation of Glaive function calling v2 with function-call and function-response roles; about 6% of rows are rejected because the translation broke a call.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -3013,7 +3175,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. Vietnamese machine translation of Locutusque/function-calling-chatml (Glaive v2 re-format); the Vietnamese conversation column is read. About 7% of rows are rejected for calls the translation broke."
+        "notes": "No licence on the card. Vietnamese machine translation of Locutusque/function-calling-chatml (Glaive v2 re-format); the Vietnamese conversation column is read. About 7% of rows are rejected for calls the translation broke.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {
         "messages": "conversations_vi"
@@ -3049,7 +3213,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: ODC-BY. Japanese translation of hypervariance/function-calling-sharegpt (Glaive v2); calls are <functioncall> text inside messages. About 7k rows."
+        "notes": "Card: ODC-BY. Japanese translation of hypervariance/function-calling-sharegpt (Glaive v2); calls are <functioncall> text inside messages. About 7k rows.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states odc-by; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -3082,7 +3248,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. Italian Glaive function calling v2 (about 113k rows) with the doubled <<functioncall>> marker."
+        "notes": "No licence on the card. Italian Glaive function calling v2 (about 113k rows) with the doubled <<functioncall>> marker.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {},
       "options": {
@@ -3115,7 +3283,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 156k synthetic retrieval trajectories (search, open a document, cite) over NVIDIA docs and CodeSearchNet, one role per step (reasoning, tool_call, tool_output, answer). The same layout holds the sibling memory-agent and browsecomp-plus sets of this author, which were not sampled and are not added."
+        "notes": "Card: Apache-2.0. 156k synthetic retrieval trajectories (search, open a document, cite) over NVIDIA docs and CodeSearchNet, one role per step (reasoning, tool_call, tool_output, answer). The same layout holds the sibling memory-agent and browsecomp-plus sets of this author, which were not sampled and are not added.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "qa_id"
@@ -3150,7 +3320,9 @@
         "license_url": "https://huggingface.co/datasets/IPF/DeepResearch-traj",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. 97,630 trajectories = 6,102 OpenResearcher questions x 16 seeds, new rollouts (not byte-identical to OpenResearcher-Dataset); adds LLM-judged correct flag, kept here as a filter."
+        "notes": "Card: MIT. 97,630 trajectories = 6,102 OpenResearcher questions x 16 seeds, new rollouts (not byte-identical to OpenResearcher-Dataset); adds LLM-judged correct flag, kept here as a filter.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "qid"
@@ -3194,7 +3366,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/browsecomp-gpt-oss-120b-v2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. 1,266 BrowseComp-style questions, gpt-oss-120b via Serper-backed browser.search/open/find, GPT-4.1 judge pass@1 37.9%; ~250 KB per trajectory."
+        "notes": "No licence on the card. 1,266 BrowseComp-style questions, gpt-oss-120b via Serper-backed browser.search/open/find, GPT-4.1 judge pass@1 37.9%; ~250 KB per trajectory.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "messages": "conversation",
@@ -3232,7 +3406,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/browsecomp-high-effort-full-gpt-oss-120b",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. 1,266 BrowseComp questions x 1 gpt-oss-120b trajectory (20.9% judged correct by gpt-4o), tools browser.search/open/find plus paper_search/pubmed_search; assistant text keeps raw harmony channel markers."
+        "notes": "No licence on the card. 1,266 BrowseComp questions x 1 gpt-oss-120b trajectory (20.9% judged correct by gpt-4o), tools browser.search/open/find plus paper_search/pubmed_search; assistant text keeps raw harmony channel markers.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3269,7 +3445,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/browsecomp-oss-env-high-effort-gpt-oss-120b",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. 1,266 BrowseComp questions x 1 gpt-oss-120b trajectory (19.4% judged correct); same layout as the high-effort-full release but a separate run."
+        "notes": "No licence on the card. 1,266 BrowseComp questions x 1 gpt-oss-120b trajectory (19.4% judged correct); same layout as the high-effort-full release but a separate run.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3306,7 +3484,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/drtulu_v2_step_35_sft_web_search",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No card, no licence. ~1,000 rows: Step-3.5-Flash web-search/visit agent traces (OpenAI messages, reasoning_content, per-message loss_mask and meta keys, tool schemas stored on the system message); system prompt is Chinese."
+        "notes": "No card, no licence. ~1,000 rows: Step-3.5-Flash web-search/visit agent traces (OpenAI messages, reasoning_content, per-message loss_mask and meta keys, tool schemas stored on the system message); system prompt is Chinese.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "messages": "conversations",
@@ -3344,7 +3524,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/webshaper-gpt-oss-120b-260222",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. 500 WebShaper questions x 4 gpt-oss-120b browsing trajectories (2,000 rows, 126 MB); same layout as the 260222 BrowseComp release."
+        "notes": "No licence on the card. 500 WebShaper questions x 4 gpt-oss-120b browsing trajectories (2,000 rows, 126 MB); same layout as the 260222 BrowseComp release.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3381,7 +3563,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/bc-synthetic-gpt-oss-120b-260222",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b browsing trajectories, same layout as the 260222 BrowseComp release; 1,996 synthetic BrowseComp-style questions x 4 trajectories (7,984 rows, 531 MB)."
+        "notes": "No licence on the card. gpt-oss-120b browsing trajectories, same layout as the 260222 BrowseComp release; 1,996 synthetic BrowseComp-style questions x 4 trajectories (7,984 rows, 531 MB).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3418,7 +3602,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/monaco-gpt-oss-120b-260222",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b browsing trajectories, same layout as the 260222 BrowseComp release; 1,315 open-ended multi-answer web questions x 4 trajectories (5,260 rows, 336 MB)."
+        "notes": "No licence on the card. gpt-oss-120b browsing trajectories, same layout as the 260222 BrowseComp release; 1,315 open-ended multi-answer web questions x 4 trajectories (5,260 rows, 336 MB).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3455,7 +3641,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/personalfinance-gpt-oss-120b",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b search-and-answer trajectories on long personal-finance questions (Reddit-style), 4,693 questions x 4 (18,772 rows, 1.1 GB); same layout as the 260222 BrowseComp release."
+        "notes": "No licence on the card. gpt-oss-120b search-and-answer trajectories on long personal-finance questions (Reddit-style), 4,693 questions x 4 (18,772 rows, 1.1 GB); same layout as the 260222 BrowseComp release.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3492,7 +3680,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/open-scholar-gpt-oss-120b",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b search trajectories on scientific-literature questions (OpenScholar), 11,854 questions x 1 (704 MB); same layout as the 260222 BrowseComp release."
+        "notes": "No licence on the card. gpt-oss-120b search trajectories on scientific-literature questions (OpenScholar), 11,854 questions x 1 (704 MB); same layout as the 260222 BrowseComp release.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3529,7 +3719,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/nemotron-mcqa-gpt-oss-120b-260222",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b web-search trajectories on multiple-choice science/medical questions, 1,950 questions x 4 (7,800 rows, 349 MB); same layout as the 260222 BrowseComp release."
+        "notes": "No licence on the card. gpt-oss-120b web-search trajectories on multiple-choice science/medical questions, 1,950 questions x 4 (7,800 rows, 349 MB); same layout as the 260222 BrowseComp release.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3566,7 +3758,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/search-arena-gpt-oss-120b",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b search trajectories on open-ended Search Arena user prompts, 2,110 questions x 1 (131 MB); same layout as the 260222 BrowseComp release."
+        "notes": "No licence on the card. gpt-oss-120b search trajectories on open-ended Search Arena user prompts, 2,110 questions x 1 (131 MB); same layout as the 260222 BrowseComp release.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3603,7 +3797,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/arena-expert-gpt-oss-120b",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b search trajectories on expert-written arena prompts, 2,744 questions x 1 (151 MB); same layout as the 260222 BrowseComp release."
+        "notes": "No licence on the card. gpt-oss-120b search trajectories on expert-written arena prompts, 2,744 questions x 1 (151 MB); same layout as the 260222 BrowseComp release.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3640,7 +3836,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/bc-synthetic-extra-hard-gpt-oss-120b",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b trajectories on 205 held-out extra-hard synthetic BrowseComp questions x 4 (820 rows, 57 MB)."
+        "notes": "No licence on the card. gpt-oss-120b trajectories on 205 held-out extra-hard synthetic BrowseComp questions x 4 (820 rows, 57 MB).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3677,7 +3875,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/bc-synthetic-test-gpt-oss-120b",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. gpt-oss-120b trajectories on 211 held-out synthetic BrowseComp test questions x 4 (844 rows, 49 MB)."
+        "notes": "No licence on the card. gpt-oss-120b trajectories on 211 held-out synthetic BrowseComp test questions x 4 (844 rows, 49 MB).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -3714,7 +3914,9 @@
         "license_url": "https://huggingface.co/datasets/OpenSeeker/OpenSeeker-v1-Data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT (card says 11.7K SFT examples; file is 3.2 GB, roughly 19,000 rows incl. about 25% marked Incorrect, filtered out here). PolarSeeker/OpenSeeker-v1-Data is the same repo at the same commit. Calls are <tool_call> JSON wrapped in <tool_calls_end>, results are <tool_response> in user turns."
+        "notes": "Card: MIT (card says 11.7K SFT examples; file is 3.2 GB, roughly 19,000 rows incl. about 25% marked Incorrect, filtered out here). PolarSeeker/OpenSeeker-v1-Data is the same repo at the same commit. Calls are <tool_call> JSON wrapped in <tool_calls_end>, results are <tool_response> in user turns.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "trajectory",
@@ -3759,7 +3961,9 @@
         "license_url": "https://huggingface.co/datasets/ScienceOne-AI/S1-DeepResearch-15k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. About 17,700 rows (1.4 GB): deep-research agent traces with search/visit tools; calls as <tool_call> JSON in assistant text, results as tool-role messages; question types include closed-ended multi-hop and open-ended research."
+        "notes": "Card: Apache-2.0. About 17,700 rows (1.4 GB): deep-research agent traces with search/visit tools; calls as <tool_call> JSON in assistant text, results as tool-role messages; question types include closed-ended multi-hop and open-ended research.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "meta.question"
@@ -3796,7 +4000,9 @@
         "license_url": "https://huggingface.co/datasets/TIGER-Lab/BrowserAgent-Data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. About 43,000 single-step rows (sft 188 MB + rft 225 MB): system prompt, user turn with Objective, accessibility-tree Observation and HISTORY_ACTION, assistant reply with <think> and one fenced browser action such as click/type/scroll/stop. Each row is one step, not a whole episode."
+        "notes": "No licence on the card. About 43,000 single-step rows (sft 188 MB + rft 225 MB): system prompt, user turn with Objective, accessibility-tree Observation and HISTORY_ACTION, assistant reply with <think> and one fenced browser action such as click/type/scroll/stop. Each row is one step, not a whole episode.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -3831,7 +4037,9 @@
         "license_url": "https://huggingface.co/datasets/THU-KEG/CaRR-DeepDive",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. About 800 rows (158 MB): GLM-4.6 browsing trajectories on DeepDive questions, flat tool_calls entries [{tool_call_id,name,arguments}], tool results as a list of {output} blocks with no id, hence positional ids. deepdive-rl-2k-rubrics.jsonl is prompt-only and not included."
+        "notes": "No licence on the card. About 800 rows (158 MB): GLM-4.6 browsing trajectories on DeepDive questions, flat tool_calls entries [{tool_call_id,name,arguments}], tool results as a list of {output} blocks with no id, hence positional ids. deepdive-rl-2k-rubrics.jsonl is prompt-only and not included.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -3867,7 +4075,9 @@
         "license_url": "https://huggingface.co/datasets/zai-org/DeepDive",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Trajectories_sft split only (qa_sft and qa_rl are question-answer pairs with empty conversations). Browsing traces with <tool_call> JSON in assistant text and tool-role results."
+        "notes": "Card: Apache-2.0. Trajectories_sft split only (qa_sft and qa_rl are question-answer pairs with empty conversations). Browsing traces with <tool_call> JSON in assistant text and tool-role results.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversations",
@@ -3905,7 +4115,9 @@
         "license_url": "https://huggingface.co/datasets/lixiaochuan2020/acm-browsecompplus-train-rollouts-qwen3.5-9b-epoch2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. 2,720 rollouts of a Qwen3.5-9B student (second round of on-policy distillation) on 680 BrowseComp-Plus training questions with a local retriever; 72% judged correct by GPT-5, only those kept. raw_history is the full message list, history is a context-folded copy (not used). Tool manage_context appears in some rows."
+        "notes": "No licence on the card. 2,720 rollouts of a Qwen3.5-9B student (second round of on-policy distillation) on 680 BrowseComp-Plus training questions with a local retriever; 72% judged correct by GPT-5, only those kept. raw_history is the full message list, history is a context-folded copy (not used). Tool manage_context appears in some rows.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "messages": "raw_history",
@@ -3951,7 +4163,9 @@
         "license_url": "https://huggingface.co/datasets/lixiaochuan2020/acm-browsecompplus-train-rollouts-qwen3.5-9b-epoch1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. 2,720 rollouts of a Qwen3.5-9B student (first round of on-policy distillation) on the same 680 BrowseComp-Plus training questions; 70% judged correct by GPT-5, only those kept. Same layout as the epoch2 repo."
+        "notes": "No licence on the card. 2,720 rollouts of a Qwen3.5-9B student (first round of on-policy distillation) on the same 680 BrowseComp-Plus training questions; 70% judged correct by GPT-5, only those kept. Same layout as the epoch2 repo.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "messages": "raw_history",
@@ -3997,7 +4211,9 @@
         "license_url": "https://huggingface.co/datasets/liuqi6777/bcp_search_agent_trajectory",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0 (underlying BrowseComp-Plus questions and corpus carry their own terms). 4,980 trajectories (830 questions x 6 agents: GLM-5.1, Kimi K2.6, DeepSeek V4 Pro, Tongyi-DR 30B, Qwen3.5-35B-A3B, gpt-oss-120b high) with a local retriever and search/visit tools, OpenAI-style flat tool_calls and tool messages with ids; incomplete runs (no answer) filtered out."
+        "notes": "Card: Apache-2.0 (underlying BrowseComp-Plus questions and corpus carry their own terms). 4,980 trajectories (830 questions x 6 agents: GLM-5.1, Kimi K2.6, DeepSeek V4 Pro, Tongyi-DR 30B, Qwen3.5-35B-A3B, gpt-oss-120b high) with a local retriever and search/visit tools, OpenAI-style flat tool_calls and tool messages with ids; incomplete runs (no answer) filtered out.",
+        "redistribute": "no",
+        "redistribute_basis": "apache-2.0, but the notes record: components keep their own, unrecorded terms"
       },
       "field_map": {
         "family": "question"
@@ -4041,7 +4257,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/dr-tulu-sft-unified",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No card on this copy. It is the parsed form of rl-research/dr-tulu-sft-data (ODC-By; there each trajectory is ONE assistant string with inline call_tool and tool_output tags, which cannot be paired), so ingest this copy instead of the original. About 13,000 rows: DR Tulu SFT mix (OpenScholar, SearchArena, WebWalkerQA, PopQA/TyDi, TaskCraft, BrowseComp-GPT5). Calls are a function_calls string on the assistant message, results are environment-role messages, tool schemas are a JSON string on the system message."
+        "notes": "No card on this copy. It is the parsed form of rl-research/dr-tulu-sft-data (ODC-By; there each trajectory is ONE assistant string with inline call_tool and tool_output tags, which cannot be paired), so ingest this copy instead of the original. About 13,000 rows: DR Tulu SFT mix (OpenScholar, SearchArena, WebWalkerQA, PopQA/TyDi, TaskCraft, BrowseComp-GPT5). Calls are a function_calls string on the assistant message, results are environment-role messages, tool schemas are a JSON string on the system message.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'odc-by (inherited from the original rl-research/dr-tulu-sft-data; this copy has no card)'"
       },
       "field_map": {
         "family": "question"
@@ -4078,7 +4296,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag-2/oss-high-drtulu-v5-0422-8rollouts",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. gpt-oss-120b high-effort browsing trajectories on 4,129 synthetic BrowseComp-style questions x 8 rollouts; generation was still in progress (18,980 of 33,032 trajectories, 6.4 GB) so the pinned revision is a partial snapshot."
+        "notes": "Card: MIT. gpt-oss-120b high-effort browsing trajectories on 4,129 synthetic BrowseComp-style questions x 8 rollouts; generation was still in progress (18,980 of 33,032 trajectories, 6.4 GB) so the pinned revision is a partial snapshot.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "qid"
@@ -4115,7 +4335,9 @@
         "license_url": "https://huggingface.co/datasets/ThornZ/Search-R1-SFT",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. About 21,000 short rows (two files, Qwen2.5-7B-Instruct and Qwen3-4B-Instruct rollouts, 118 MB) in Search-R1 style on NQ/HotpotQA with a Wikipedia retriever: assistant writes thinking and a search query in <search> tags, the retriever result returns as a user turn inside <information>, final <answer>. Only the first file was run through the converter test."
+        "notes": "No licence on the card. About 21,000 short rows (two files, Qwen2.5-7B-Instruct and Qwen3-4B-Instruct rollouts, 118 MB) in Search-R1 style on NQ/HotpotQA with a Wikipedia retriever: assistant writes thinking and a search query in <search> tags, the retriever result returns as a user turn inside <information>, final <answer>. Only the first file was run through the converter test.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {},
       "options": {
@@ -4150,7 +4372,9 @@
         "license_url": "https://huggingface.co/datasets/AgentSuite/tau-bench-trajectories",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card has no licence tag. 30 model files of tau-bench retail/airline runs with real tool execution; only runs scored 1.0 kept."
+        "notes": "Card has no licence tag. 30 model files of tau-bench retail/airline runs with real tool execution; only runs scored 1.0 kept.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {
         "family": "meta.id"
@@ -4193,7 +4417,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. tau2 dialogues stored as one row per prefix plus the next step (answer); only the next step is trained, so the repeated prefixes are context. Rows with metadata.correct below 1 are dropped. About 32k rows, 883 MB."
+        "notes": "Card: Apache-2.0. tau2 dialogues stored as one row per prefix plus the next step (answer); only the next step is trained, so the repeated prefixes are context. Rows with metadata.correct below 1 are dropped. About 32k rows, 883 MB.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "metadata.source_dialog_id"
@@ -4236,7 +4462,9 @@
         "license_url": "https://huggingface.co/datasets/teacher57/tau-retail-distillation",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 180 passing Qwen3-32B tau-bench retail train rollouts as messages+tools; customer turns written by GPT-4o (card asks to check OpenAI terms)."
+        "notes": "Card: Apache-2.0. 180 passing Qwen3-32B tau-bench retail train rollouts as messages+tools; customer turns written by GPT-4o (card asks to check OpenAI terms).",
+        "redistribute": "no",
+        "redistribute_basis": "apache-2.0, but the notes record: the notes cite a provider's terms of use or service"
       },
       "field_map": {},
       "options": {
@@ -4270,7 +4498,9 @@
         "license_url": "https://huggingface.co/datasets/teacher57/tau-retail-distillation",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Qwen3-14B own rollouts on tau-bench retail train tasks used as an earlier SFT set; customer turns by GPT-4o (check OpenAI terms)."
+        "notes": "Card: Apache-2.0. Qwen3-14B own rollouts on tau-bench retail train tasks used as an earlier SFT set; customer turns by GPT-4o (check OpenAI terms).",
+        "redistribute": "no",
+        "redistribute_basis": "apache-2.0, but the notes record: the notes cite a provider's terms of use or service"
       },
       "field_map": {},
       "options": {
@@ -4304,7 +4534,9 @@
         "license_url": "https://huggingface.co/datasets/Zhongzhu/tunekv-taubench-data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card has no licence. Qwen3-Coder-30B own rollouts on tau-bench retail train tasks (4 tries each, kept when reward is 1); customer is an LLM."
+        "notes": "Card has no licence. Qwen3-Coder-30B own rollouts on tau-bench retail train tasks (4 tries each, kept when reward is 1); customer is an LLM.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {
         "messages": "traj",
@@ -4348,7 +4580,9 @@
         "license_url": "https://huggingface.co/datasets/Zhongzhu/tunekv-taubench-data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card has no licence. 27B-model own rollouts on tau-bench retail train tasks (4 tries each, kept when reward is 1)."
+        "notes": "Card has no licence. 27B-model own rollouts on tau-bench retail train tasks (4 tries each, kept when reward is 1).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {
         "messages": "traj",
@@ -4395,7 +4629,9 @@
         "license_url": "https://huggingface.co/datasets/Zhongzhu/tunekv-taubench-data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card has no licence. Qwen3-Coder-30B rollouts on tau-bench airline train tasks (4 and 8 tries; kept when reward is 1). Small."
+        "notes": "Card has no licence. Qwen3-Coder-30B rollouts on tau-bench airline train tasks (4 and 8 tries; kept when reward is 1). Small.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {
         "messages": "traj",
@@ -4435,7 +4671,9 @@
         "license_url": "https://huggingface.co/datasets/fuvty/tau-bench-synthetic",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. GLM-5 trajectories on synthetic tau-bench-style tasks (config traj-GLM5; sft-GLM5 is the same runs cut into rounds, left out); kept when reward is 1."
+        "notes": "Card: Apache-2.0. GLM-5 trajectories on synthetic tau-bench-style tasks (config traj-GLM5; sft-GLM5 is the same runs cut into rounds, left out); kept when reward is 1.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -4476,7 +4714,9 @@
         "license_url": "https://huggingface.co/datasets/Shuibai12138/mcp-universe-finance-sft",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card has no licence (one line: generated dataset). Only reward-1 finance trajectories using yfinance and calculator MCP tools (DeepSeek-style ids); task definitions under augment_tasks_financial are not conversations."
+        "notes": "Card has no licence (one line: generated dataset). Only reward-1 finance trajectories using yfinance and calculator MCP tools (DeepSeek-style ids); task definitions under augment_tasks_financial are not conversations.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {
         "family": "task_id"
@@ -4512,7 +4752,9 @@
         "license_url": "https://huggingface.co/datasets/TC130/amap_mcp",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No card and no licence. Chinese Amap map-routing MCP dialogues in Qwen tool-call style; results arrive as plain user turns; about 20 percent of results in the sample are API quota errors."
+        "notes": "No card and no licence. Chinese Amap map-routing MCP dialogues in Qwen tool-call style; results arrive as plain user turns; about 20 percent of results in the sample are API quota errors.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {},
       "options": {
@@ -4548,7 +4790,9 @@
         "license_url": "https://huggingface.co/datasets/SatoHub/sato-mcp-tool-calling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC-BY-4.0. 1539 synthetic conversations for one vendor MCP server (Sato Hub), 17 percent of them correctly not calling a tool. The messages config is used; hermes and xlam configs hold the same conversations."
+        "notes": "Card: CC-BY-4.0. 1539 synthetic conversations for one vendor MCP server (Sato Hub), 17 percent of them correctly not calling a tool. The messages config is used; hermes and xlam configs hold the same conversations.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -4584,7 +4828,9 @@
         "license_url": "https://huggingface.co/datasets/spkc83/retail-bank-servicing-alignment-sft",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. Synthetic fictional-bank servicing dialogues (3959 train rows); per-message loss flags honoured; validation, test and shadow files are not trainable."
+        "notes": "Card: MIT. Synthetic fictional-bank servicing dialogues (3959 train rows); per-message loss flags honoured; validation, test and shadow files are not trainable.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -4622,7 +4868,9 @@
         "license_url": "https://huggingface.co/datasets/SamWang0405/AdCampaignAgent-SFT",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. 1000 synthetic mobile-game ad-operations tool conversations per language (English and Chinese files); OpenAI-message files used, the ShareGPT files repeat them."
+        "notes": "Card: MIT. 1000 synthetic mobile-game ad-operations tool conversations per language (English and Chinese files); OpenAI-message files used, the ShareGPT files repeat them.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -4657,7 +4905,9 @@
         "license_url": "https://huggingface.co/datasets/acon96/Home-Assistant-Requests-V2",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. Original smart-home request set (English, German, French, Spanish, Polish; several assistant personalities); native tool calls with a tool schema per row. The combined train file repeats the five per-language train files. tuxevil V5/V5.2 are derivatives."
+        "notes": "Card: MIT. Original smart-home request set (English, German, French, Spanish, Polish; several assistant personalities); native tool calls with a tool schema per row. The combined train file repeats the five per-language train files. tuxevil V5/V5.2 are derivatives.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -4692,7 +4942,9 @@
         "license_url": "https://huggingface.co/datasets/open-athena/science-tool-use-conversations",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card tag: other, licence name openmdw. 11,405 synthetic science chats where the assistant runs shell and Python in an in-memory simulator; the full_log column keeps the tool turns (messages drops them)."
+        "notes": "Card tag: other, licence name openmdw. 11,405 synthetic science chats where the assistant runs shell and Python in an in-memory simulator; the full_log column keeps the tool turns (messages drops them).",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'other (OpenMDW)'"
       },
       "field_map": {
         "messages": "full_log",
@@ -4729,7 +4981,9 @@
         "license_url": "https://huggingface.co/datasets/alirezaaminzadeh/soc-agent-traces-100k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, tagged synthetic. About 100k scripted security-alert investigations with nine read-only tools (train files only); kept when success is true. Highly templated by archetype."
+        "notes": "Card: Apache-2.0, tagged synthetic. About 100k scripted security-alert investigations with nine read-only tools (train files only); kept when success is true. Highly templated by archetype.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "trace",
@@ -4773,7 +5027,9 @@
         "license_url": "https://huggingface.co/datasets/miyad316/cybersecurity-soc-agentic-trajectories",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC-BY-NC-4.0 (non-commercial) 2000-row preview of a 10,000-row paid release; Qwen2.5-72B generated incident-response chats with simulated tool replies."
+        "notes": "Card: CC-BY-NC-4.0 (non-commercial) 2000-row preview of a 10,000-row paid release; Qwen2.5-72B generated incident-response chats with simulated tool replies.",
+        "redistribute": "no",
+        "redistribute_basis": "a free preview of a paid release; the non-commercial tag alone is not a clear grant to re-share"
       },
       "field_map": {},
       "options": {
@@ -4808,7 +5064,9 @@
         "license_url": "https://huggingface.co/datasets/Ellbendls/phishing-email-soc-agent",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 504 distillation examples where an agent runs real email-parsing and URL-reputation tools on phishing emails. Small (3 MB)."
+        "notes": "Card: Apache-2.0. 504 distillation examples where an agent runs real email-parsing and URL-reputation tools on phishing emails. Small (3 MB).",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "metadata.investigation_id"
@@ -4845,7 +5103,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. tau2 telecom conversations (784) where the publisher blanked the customer's device-action turns into empty user messages, which are dropped on reading."
+        "notes": "Card: MIT. tau2 telecom conversations (784) where the publisher blanked the customer's device-action turns into empty user messages, which are dropped on reading.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "task_id"
@@ -4881,7 +5141,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. gpt-5 and claude-sonnet-4.5 on tau2 airline, original and code-agent runs mixed; the trace column is read, tool-call fields are JSON strings (empty when absent). About 130 rows."
+        "notes": "Card: Apache-2.0. gpt-5 and claude-sonnet-4.5 on tau2 airline, original and code-agent runs mixed; the trace column is read, tool-call fields are JSON strings (empty when absent). About 130 rows.",
+        "redistribute": "no",
+        "redistribute_basis": "apache-2.0, but the notes record: rows are outputs of a closed commercial model, whose terms limit use of outputs"
       },
       "field_map": {
         "messages": "trace"
@@ -4916,7 +5178,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. Qwen3-32B driving a real Playwright MCP browser; messages are stored as one JSON string each and calls and results have no ids. About 125 rows per 126 MB file is long web-page text."
+        "notes": "Card: MIT. Qwen3-32B driving a real Playwright MCP browser; messages are stored as one JSON string each and calls and results have no ids. About 125 rows per 126 MB file is long web-page text.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -4951,7 +5215,9 @@
         "license_url": "https://huggingface.co/datasets/ai2lumos/lumos_unified_plan_iterative",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Lumos planning module, iterative subgoal planning (maths, complex QA, web agent; multimodal rows skipped by row filter because they need images). Superset of the separate lumos_maths/complex_qa/web_agent plan_iterative sets."
+        "notes": "Card: Apache-2.0. Lumos planning module, iterative subgoal planning (maths, complex QA, web agent; multimodal rows skipped by row filter because they need images). Superset of the separate lumos_maths/complex_qa/web_agent plan_iterative sets.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -4997,7 +5263,9 @@
         "license_url": "https://huggingface.co/datasets/ai2lumos/lumos_unified_ground_iterative",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Lumos grounding module: each subgoal turned into tool-action text (KnowledgeQuery, ParagraphRetrieve, QA, Calculator, web actions) with earlier results supplied in the user turn. Multimodal rows skipped by row filter. Superset of separate ground_iterative sets."
+        "notes": "Card: Apache-2.0. Lumos grounding module: each subgoal turned into tool-action text (KnowledgeQuery, ParagraphRetrieve, QA, Calculator, web actions) with earlier results supplied in the user turn. Multimodal rows skipped by row filter. Superset of separate ground_iterative sets.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5043,7 +5311,9 @@
         "license_url": "https://huggingface.co/datasets/sabia0080/agentbench-sft-trajectories-v3-planA",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. 5,468 merged text-environment episodes: DBBench SQL-agent ReAct dialogues (about 2,966, from u-10bei dbbench_sft_dataset_react v1-v4) and ALFWorld household trajectories (2,502, from u-10bei sft_alfworld_trajectory_dataset_v5). data.jsonl and train.jsonl are identical copies."
+        "notes": "Card: MIT. 5,468 merged text-environment episodes: DBBench SQL-agent ReAct dialogues (about 2,966, from u-10bei dbbench_sft_dataset_react v1-v4) and ALFWorld household trajectories (2,502, from u-10bei sft_alfworld_trajectory_dataset_v5). data.jsonl and train.jsonl are identical copies.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5078,7 +5348,9 @@
         "license_url": "https://huggingface.co/datasets/mark-22/dbbench-spider-3500",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 1,697 correct GPT-OSS-120B trajectories (AgentBench DBBench format) answering Spider questions by running MySQL statements and reading the raw results; only trajectories that matched the gold answer are kept."
+        "notes": "Card: Apache-2.0. 1,697 correct GPT-OSS-120B trajectories (AgentBench DBBench format) answering Spider questions by running MySQL statements and reading the raw results; only trajectories that matched the gold answer are kept.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "metadata.task_id"
@@ -5114,7 +5386,9 @@
         "license_url": "https://huggingface.co/datasets/lambda/hermes-agent-reasoning-traces",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Hermes Agent harness traces by Kimi-K2.5 with real tool execution; ~7.6k rows, 4.5k kept (non-coding categories only: Agent Tools, Browser Automation, Multi-Tool, File Operations, Scheduling, Planning, Conversational; Terminal & Coding and Repository Tasks are dropped). The two top-level data/train-0000x-of-00002.parquet files are an older copy of the kimi data and are not selected."
+        "notes": "Card: Apache-2.0. Hermes Agent harness traces by Kimi-K2.5 with real tool execution; ~7.6k rows, 4.5k kept (non-coding categories only: Agent Tools, Browser Automation, Multi-Tool, File Operations, Scheduling, Planning, Conversational; Terminal & Coding and Repository Tasks are dropped). The two top-level data/train-0000x-of-00002.parquet files are an older copy of the kimi data and are not selected.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -5164,7 +5438,9 @@
         "license_url": "https://huggingface.co/datasets/lambda/hermes-agent-reasoning-traces",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Same harness traces by GLM-5.1 with real tool execution; ~7.1k rows, 3.8k kept (non-coding categories only, same filter as the kimi file)."
+        "notes": "Card: Apache-2.0. Same harness traces by GLM-5.1 with real tool execution; ~7.1k rows, 3.8k kept (non-coding categories only, same filter as the kimi file).",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -5214,7 +5490,9 @@
         "license_url": "https://huggingface.co/datasets/interstellarninja/tool-calls-single-reasoning",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 16k single-call dialogues with a <think> block, prompts taken from When2Call, Nous hermes-function-calling, xlam and glaive, regenerated with reasoning and LLM-written tool responses. About 7% of sampled rows fail because the reasoning text quotes literal <tool_call> tags; an adapter that ignores tags inside <think> would fix that."
+        "notes": "Card: Apache-2.0. 16k single-call dialogues with a <think> block, prompts taken from When2Call, Nous hermes-function-calling, xlam and glaive, regenerated with reasoning and LLM-written tool responses. About 7% of sampled rows fail because the reasoning text quotes literal <tool_call> tags; an adapter that ignores tags inside <think> would fix that.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -5248,7 +5526,9 @@
         "license_url": "https://huggingface.co/datasets/interstellarninja/tool-use-relevance-reasoning",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 15k single-turn answers with a <think> block where no tool fits or an argument is missing, so the assistant declines or asks the user (When2Call-style prompts)."
+        "notes": "Card: Apache-2.0. 15k single-turn answers with a <think> block where no tool fits or an argument is missing, so the assistant declines or asks the user (When2Call-style prompts).",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -5282,7 +5562,9 @@
         "license_url": "https://huggingface.co/datasets/interstellarninja/toolace_sequential_tool_use_reasoning",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. 5.1k multi-step tool dialogues built on ToolACE prompts with a <think> block before each call and LLM-written tool responses; the same prompts appear several times with different traces."
+        "notes": "Card: Apache-2.0. 5.1k multi-step tool dialogues built on ToolACE prompts with a <think> block before each call and LLM-written tool responses; the same prompts appear several times with different traces.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -5317,7 +5599,9 @@
         "license_url": "https://huggingface.co/datasets/interstellarninja/salesforce_hermes_tools",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence tag on the card (upstream xlam-function-calling-60k is CC-BY-4.0). 2.5k multi-turn dialogues with a <scratch_pad> plan, calls and LLM-written tool responses over xlam queries."
+        "notes": "No licence tag on the card (upstream xlam-function-calling-60k is CC-BY-4.0). 2.5k multi-turn dialogues with a <scratch_pad> plan, calls and LLM-written tool responses over xlam queries.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {},
       "options": {
@@ -5352,7 +5636,9 @@
         "license_url": "https://huggingface.co/datasets/Simia-Agent/Simia-OfficeBench-SFT-30k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "README: CC-BY-NC-4.0 (no licence tag on the card). 29.6k office-assistant trajectories (excel, word, email, calendar, shell apps) whose environment replies were simulated by an LLM. The system column (app list) is not read by this adapter."
+        "notes": "README: CC-BY-NC-4.0 (no licence tag on the card). 29.6k office-assistant trajectories (excel, word, email, calendar, shell apps) whose environment replies were simulated by an LLM. The system column (app list) is not read by this adapter.",
+        "redistribute": "non_commercial",
+        "redistribute_basis": "publisher states cc-by-nc-4.0; non-commercial re-sharing with attribution is allowed"
       },
       "field_map": {},
       "options": {
@@ -5386,7 +5672,9 @@
         "license_url": "https://huggingface.co/datasets/Simia-Agent/Simia-AgentBench-SFT-15k",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "README: CC-BY-NC-4.0 (no licence tag on the card). 15k simulated webshop, Mind2Web (HTML) and operating-system (shell) episodes generated from AgentTuning seeds; many rows are variants of the same seed, so near-duplicate quarantine will remove a large share."
+        "notes": "README: CC-BY-NC-4.0 (no licence tag on the card). 15k simulated webshop, Mind2Web (HTML) and operating-system (shell) episodes generated from AgentTuning seeds; many rows are variants of the same seed, so near-duplicate quarantine will remove a large share.",
+        "redistribute": "non_commercial",
+        "redistribute_basis": "publisher states cc-by-nc-4.0; non-commercial re-sharing with attribution is allowed"
       },
       "field_map": {},
       "options": {
@@ -5420,7 +5708,9 @@
         "license_url": "https://huggingface.co/datasets/Simia-Agent/Simia-Tau-SFT-90k-Hermes",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "README: CC-BY-NC-4.0 (no licence tag on the card). 91k tau-bench airline/retail trajectories simulated by an LLM. NEEDS a dialect tweak: tool results arrive as untagged JSON user turns right after a <tool_call>, so with hermes_tools they are read as user text and never paired with their call."
+        "notes": "README: CC-BY-NC-4.0 (no licence tag on the card). 91k tau-bench airline/retail trajectories simulated by an LLM. NEEDS a dialect tweak: tool results arrive as untagged JSON user turns right after a <tool_call>, so with hermes_tools they are read as user text and never paired with their call.",
+        "redistribute": "non_commercial",
+        "redistribute_basis": "publisher states cc-by-nc-4.0; non-commercial re-sharing with attribution is allowed"
       },
       "field_map": {},
       "options": {
@@ -5452,7 +5742,9 @@
         "license_url": "https://huggingface.co/datasets/smolagents/toolcalling",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. 9.3k web-search agent traces (web_search, visit_webpage, final_answer; real tool output) on Frames/SimpleQA questions. NEEDS the question prepended: messages start with the assistant call and the user question lives only in the original_question column."
+        "notes": "No licence on the card. 9.3k web-search agent traces (web_search, visit_webpage, final_answer; real tool output) on Frames/SimpleQA questions. NEEDS the question prepended: messages start with the assistant call and the user question lives only in the original_question column.",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none-on-card'"
       },
       "field_map": {},
       "options": {
@@ -5491,7 +5783,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5522,7 +5816,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5553,7 +5849,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5584,7 +5882,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5615,7 +5915,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5646,7 +5948,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5677,7 +5981,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5708,7 +6014,9 @@
         "license_url": "https://huggingface.co/datasets/Solaris99/AgentBank",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0."
+        "notes": "Card: Apache-2.0.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "id"
@@ -5743,7 +6051,9 @@
         "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN."
+        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -5780,7 +6090,9 @@
         "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN."
+        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -5817,7 +6129,9 @@
         "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN."
+        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -5854,7 +6168,9 @@
         "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN."
+        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -5891,7 +6207,9 @@
         "license_url": "https://huggingface.co/datasets/internlm/Agent-FLAN",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN."
+        "notes": "Card: Apache-2.0. ToolBench (RapidAPI) conversations re-formatted for Agent-FLAN.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -5924,7 +6242,9 @@
         "license_url": "https://huggingface.co/datasets/OpenResearcher/OpenResearcher-Dataset",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "test"
+        "notes": "test",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "qid"
@@ -5956,7 +6276,9 @@
         "license_url": "https://huggingface.co/datasets/Zchu/REDSearcher_SFT_10K",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "test"
+        "notes": "test",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "meta.question"
@@ -5989,7 +6311,9 @@
         "license_url": "https://huggingface.co/datasets/simplex-ai-inc/LiteResearcher-SFT-Data",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "test"
+        "notes": "test",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {},
       "options": {
@@ -6020,7 +6344,9 @@
         "license_url": "https://huggingface.co/datasets/rl-rag/browsecomp-gpt-oss-120b-260222",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "test"
+        "notes": "test",
+        "redistribute": "no",
+        "redistribute_basis": "no clear grant to re-share: the recorded licence is 'none on the card'"
       },
       "field_map": {
         "family": "qid"
@@ -6056,7 +6382,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-RL-Agentic-Conversational-Tool-Use-Pivot-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0. NeMo-Gym RL rows: Responses-API items so far plus the step that comes next; only rows whose next step is the final message are read, so each trajectory contributes its fullest rows. About 100k rows, 1.75 GB."
+        "notes": "Card: CC BY 4.0. NeMo-Gym RL rows: Responses-API items so far plus the step that comes next; only rows whose next step is the final message are read, so each trajectory contributes its fullest rows. About 100k rows, 1.75 GB.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "trajectory_id"
@@ -6098,7 +6426,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-RL-Agentic-Function-Calling-Pivot-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: CC BY 4.0. Same row shape as the conversational pivot set (Responses-API items plus the next step); rows whose next step is the final message are read. About 10k rows, 285 MB."
+        "notes": "Card: CC BY 4.0. Same row shape as the conversational pivot set (Responses-API items plus the next step); rows whose next step is the final message are read. About 10k rows, 285 MB.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states cc-by-4.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "trajectory_id"
@@ -6140,7 +6470,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: MIT. Tool-integrated reasoning: each row is one assistant output with <search> and <python> calls followed by their <result>; the reader splits them into calls and results so retrieved text is context, not trained. About 54k rows; ARPO-SFT-54K is the same data in ShareGPT form and is not added."
+        "notes": "Card: MIT. Tool-integrated reasoning: each row is one assistant output with <search> and <python> calls followed by their <result>; the reader splits them into calls and results so retrieved text is context, not trained. About 54k rows; ARPO-SFT-54K is the same data in ShareGPT form and is not added.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states mit; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "input"
@@ -6175,7 +6507,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Agent Foundation Model web-agent traces: planning, web_search and crawl_page calls with <observation> results inside one output, split into calls and results. About 9.5k rows, 223 MB."
+        "notes": "Card: Apache-2.0. Agent Foundation Model web-agent traces: planning, web_search and crawl_page calls with <observation> results inside one output, split into calls and results. About 9.5k rows, 223 MB.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "input"
@@ -6210,7 +6544,9 @@
         "license_url": "https://huggingface.co/datasets/x/y",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. Agent Foundation Model multi-hop QA traces: wiki_search calls with <observation> results inside one output, split into calls and results. About 5.6k rows, 100 MB."
+        "notes": "Card: Apache-2.0. Agent Foundation Model multi-hop QA traces: wiki_search calls with <observation> results inside one output, split into calls and results. About 5.6k rows, 100 MB.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "family": "input"
@@ -6245,7 +6581,9 @@
         "license_url": "https://huggingface.co/datasets/snorkelai/Tau2-Bench-Verified-Airline-With-Code-Agents",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0. The verified-task variant of the tau2 airline code-agent traces (about 200 rows); same shape as tau2-airline-code-agents."
+        "notes": "Card: Apache-2.0. The verified-task variant of the tau2 airline code-agent traces (about 200 rows); same shape as tau2-airline-code-agents.",
+        "redistribute": "permissive",
+        "redistribute_basis": "publisher states apache-2.0; nothing in the notes limits re-sharing"
       },
       "field_map": {
         "messages": "trace"

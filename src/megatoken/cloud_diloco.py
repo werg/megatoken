@@ -16,10 +16,11 @@ job with ``serve_outputs``, whose outputs every sandbox fetches over HTTPS at
 datacenter speed (``data.inputs`` may instead list ordinary job inputs).
 ``data.cache`` names a ``megatoken.cloud-prepare/1`` run file with a ``cache`` block
 (``{"cache": {"run": "configs/cloud/prepare-full-agentic.json"}}``): the launcher first runs
-``cloud_prepare ensure``, which checks the encrypted copy on the Hub and, if it is missing or
-does not verify, rebuilds the data from the pinned sources. Each learner then downloads,
-verifies and decrypts the pinned copy into ``/work/data/prepared`` before training (the
-training config's ``datasets`` may say ``/work/data/prepared/*``); the cache key and Hub
+``cloud_prepare ensure``, which checks the published copy on the Hub (the public Parquet
+subsets and the encrypted folder) and, if it is missing or does not verify, rebuilds the data
+from the pinned sources. Each learner then downloads and verifies the pinned commit, rebuilds
+the prepared roots and decrypts the encrypted part into ``/work/data/prepared`` before training
+(the training config's ``datasets`` may say ``/work/data/prepared/*``); the cache key and Hub
 token reach learners as secrets only. The
 coordinator serves ``megatoken diloco serve`` on a share-token HTTPS endpoint;
 learners reach it with the share token and a fresh DiLoCo bearer token, both
@@ -45,7 +46,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from megatoken import cache, cloud, cloud_prepare
+from megatoken import cache, cloud, cloud_prepare, publish
 
 SCHEMA = "megatoken.cloud-diloco/1"
 PORT = 8080
@@ -154,12 +155,13 @@ def coordinator_job(spec: dict[str, Any], inputs: list[dict[str, Any]]) -> dict[
 
 
 def _restore(spec: dict[str, Any]) -> list[str]:
-    """A learner's first step when the data is stored: fetch, verify and decrypt the pin."""
+    """A learner's first step when the data is stored: fetch and verify the pinned commit,
+    rebuild the public roots and decrypt the rest."""
     if "cache" not in spec["data"]:
         return []
     return [
         'export HF_TOKEN="$(cat "$MEGATOKEN_CW_SECRETS/hf-token")"',
-        f"python -m megatoken.cache fetch --pin {cloud.WORK}/{PIN_FILE} --dest {DATA_DIR}",
+        f"python -m megatoken.publish fetch --pin {cloud.WORK}/{PIN_FILE} --dest {DATA_DIR}",
     ]
 
 
@@ -169,7 +171,7 @@ def learner_job(spec: dict[str, Any], inputs: list[dict[str, Any]], worker: int)
         "image": spec["image"],
         "resources": spec["learners"]["resources"],
         "lifetime_hours": spec["lifetime_hours"],
-        "pip": [*spec.get("pip", []), *(cache.PIP if "cache" in spec["data"] else [])],
+        "pip": [*spec.get("pip", []), *(publish.PIP if "cache" in spec["data"] else [])],
         "inputs": inputs,
         "env": {
             "MEGATOKEN_RUN_CONFIG": spec["config"],

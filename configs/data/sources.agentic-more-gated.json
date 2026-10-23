@@ -19,7 +19,9 @@
         "license_url": "https://huggingface.co/datasets/lmsys/chatbot_arena_conversations",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (auto): needs the dataset terms accepted at https://huggingface.co/datasets/lmsys/chatbot_arena_conversations . 33k Chatbot Arena battles (April-June 2023) between 20 LLMs (GPT-4, Claude-v1, GPT-3.5, Vicuna, ...); this source keeps conversation_a when the human voted model_a the winner. Unverified (gated): column names taken from the card (conversation_a/b are OpenAI-style role/content lists)."
+        "notes": "Gated (auto): needs the dataset terms accepted at https://huggingface.co/datasets/lmsys/chatbot_arena_conversations . 33k Chatbot Arena battles (April-June 2023) between 20 LLMs (GPT-4, Claude-v1, GPT-3.5, Vicuna, ...); this source keeps conversation_a when the human voted model_a the winner. Unverified (gated): column names taken from the card (conversation_a/b are OpenAI-style role/content lists).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "messages": "conversation_a",
@@ -58,7 +60,9 @@
         "license_url": "https://huggingface.co/datasets/lmsys/chatbot_arena_conversations",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (auto): needs the dataset terms accepted at https://huggingface.co/datasets/lmsys/chatbot_arena_conversations . Same battles as the a-wins source; keeps conversation_b when the human voted model_b the winner. Unverified (gated)."
+        "notes": "Gated (auto): needs the dataset terms accepted at https://huggingface.co/datasets/lmsys/chatbot_arena_conversations . Same battles as the a-wins source; keeps conversation_b when the human voted model_b the winner. Unverified (gated).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "messages": "conversation_b",
@@ -101,7 +105,9 @@
         "license_url": "https://huggingface.co/datasets/Amod/mental_health_counseling_conversations",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: RAIL-D licence. ~3.5k real counselling question/answer pairs (Context -> Response) collected from two public mental-health platforms; responses written by psychologists. Gated with manual approval (click Agree at https://huggingface.co/datasets/Amod/mental_health_counseling_conversations); unverified (gated)."
+        "notes": "Card: RAIL-D licence. ~3.5k real counselling question/answer pairs (Context -> Response) collected from two public mental-health platforms; responses written by psychologists. Gated with manual approval (click Agree at https://huggingface.co/datasets/Amod/mental_health_counseling_conversations); unverified (gated).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "prompt": "Context",
@@ -133,7 +139,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/WildChat-nontoxic",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (auto): accept at https://huggingface.co/datasets/allenai/WildChat-nontoxic . Card: ImpACT low-risk licence; use to cause harm is prohibited. 529,514 conversations judged non-toxic by OpenAI Moderation and Detoxify."
+        "notes": "Gated (auto): accept at https://huggingface.co/datasets/allenai/WildChat-nontoxic . Card: ImpACT low-risk licence; use to cause harm is prohibited. 529,514 conversations judged non-toxic by OpenAI Moderation and Detoxify.",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -172,7 +180,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/WildChat-4.8M-Full",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval by the maintainers): request access at https://huggingface.co/datasets/allenai/WildChat-4.8M-Full . Card: ODC-BY. 4,743,336 conversations including the toxic ones that the public WildChat-4.8M leaves out; toxic conversations are filtered out here as in wildchat-4.8m."
+        "notes": "Gated (manual approval by the maintainers): request access at https://huggingface.co/datasets/allenai/WildChat-4.8M-Full . Card: ODC-BY. 4,743,336 conversations including the toxic ones that the public WildChat-4.8M leaves out; toxic conversations are filtered out here as in wildchat-4.8m.",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "messages": "conversation",
@@ -211,7 +221,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/wildguardmix",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (auto): accept the AI2 Responsible Use Guidelines at https://huggingface.co/datasets/allenai/wildguardmix . Card: ODC-BY; prompts are vanilla and adversarial (jailbreak) requests, harmful and benign; responses by several LLMs. Only rows whose response is labelled unharmful are kept (37,976 of 86,759 rows have a response at all)."
+        "notes": "Gated (auto): accept the AI2 Responsible Use Guidelines at https://huggingface.co/datasets/allenai/wildguardmix . Card: ODC-BY; prompts are vanilla and adversarial (jailbreak) requests, harmful and benign; responses by several LLMs. Only rows whose response is labelled unharmful are kept (37,976 of 86,759 rows have a response at all).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "prompt": "prompt",
@@ -250,7 +262,9 @@
         "license_url": "https://huggingface.co/datasets/allenai/wildjailbreak",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (auto): accept the AI2 Responsible Use Guidelines at https://huggingface.co/datasets/allenai/wildjailbreak . Card: ODC-BY. 262k synthetic prompt/response pairs of four kinds: vanilla harmful (refusal), vanilla benign (compliance), adversarial harmful (refusal) and adversarial benign (compliance); responses by GPT-3.5 and Mixtral."
+        "notes": "Gated (auto): accept the AI2 Responsible Use Guidelines at https://huggingface.co/datasets/allenai/wildjailbreak . Card: ODC-BY. 262k synthetic prompt/response pairs of four kinds: vanilla harmful (refusal), vanilla benign (compliance), adversarial harmful (refusal) and adversarial benign (compliance); responses by GPT-3.5 and Mixtral.",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "prompt": [
@@ -285,7 +299,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training: model-training use only; Hub licence tag `other`). Code Q&A text 'input: ... output: ...' by Qwen2.5-Coder-32B-Instruct and others. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1"
+        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training: model-training use only; Hub licence tag `other`). Code Q&A text 'input: ... output: ...' by Qwen2.5-Coder-32B-Instruct and others. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "text": "text"
@@ -314,7 +330,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training). General SFT-style text (Mixtral-8x22B, DeepSeek-V3, Qwen) in the Nemotron-4 chat format '<extra_id_1>User ... <extra_id_1>Assistant ...'. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1"
+        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training). General SFT-style text (Mixtral-8x22B, DeepSeek-V3, Qwen) in the Nemotron-4 chat format '<extra_id_1>User ... <extra_id_1>Assistant ...'. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "text": "text"
@@ -343,7 +361,9 @@
         "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training). Math Q&A text 'input: ... output: ...' expanded from math seeds with Qwen and DeepSeek models. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1"
+        "notes": "Gated (manual approval; NVIDIA Data Agreement for Model Training). Math Q&A text 'input: ... output: ...' expanded from math seeds with Qwen and DeepSeek models. Not accessible with the current token (403): unverified (gated). Hub URL to accept: https://huggingface.co/datasets/nvidia/Nemotron-Pretraining-SFT-v1",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "text": "text"
@@ -372,7 +392,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking maths (think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking maths (think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -401,7 +423,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer maths (no_think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer maths (no_think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -430,7 +454,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking code (think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking code (think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -459,7 +485,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer code (no_think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer code (no_think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -488,7 +516,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking knowledge / exam questions (think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking knowledge / exam questions (think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -517,7 +547,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer knowledge / exam questions (no_think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer knowledge / exam questions (no_think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -546,7 +578,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking general chinese chat (think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking general chinese chat (think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -575,7 +609,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer general chinese chat (no_think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer general chinese chat (no_think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -604,7 +640,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking multi-constraint instruction following (think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Deep-thinking multi-constraint instruction following (think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -633,7 +671,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer multi-constraint instruction following (no_think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Direct-answer multi-constraint instruction following (no_think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -662,7 +702,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Multilingual maths (no_think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Multilingual maths (no_think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -691,7 +733,9 @@
         "license_url": "https://huggingface.co/datasets/openbmb/UltraData-SFT-2605",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Multilingual knowledge (no_think)."
+        "notes": "Card: Apache-2.0, plus the licences of every upstream dataset the queries come from (users must review them); the card forbids unauthorised unchanged redistribution, mirroring or re-hosting. Gated (auto) on the Hub: click Agree at https://huggingface.co/datasets/openbmb/UltraData-SFT-2605 . Answers pass correctness filtering, SFT validation training on MiniCPM5-1B and benchmark decontamination; the answering model is not named on the card. Multilingual knowledge (no_think).",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {},
       "options": {
@@ -720,7 +764,9 @@
         "license_url": "https://huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories",
         "reviewed_by": "Gabriel Pickard",
         "reviewed_at": "2026-10-22",
-        "notes": "CC-BY-4.0 per card. Gated (auto-approve after accepting the conditions at https://huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories). Full execution trajectories of 17 frontier models (3 runs each) on the 108-task Toolathlon benchmark with real MCP servers; task_status.evaluation is the benchmark's own pass/fail. UNVERIFIED (gated): format taken from the card."
+        "notes": "CC-BY-4.0 per card. Gated (auto-approve after accepting the conditions at https://huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories). Full execution trajectories of 17 frontier models (3 runs each) on the 108-task Toolathlon benchmark with real MCP servers; task_status.evaluation is the benchmark's own pass/fail. UNVERIFIED (gated): format taken from the card.",
+        "redistribute": "no",
+        "redistribute_basis": "gated on the Hub: access needs an accepted click-through, which does not permit re-sharing"
       },
       "field_map": {
         "messages": "messages",
