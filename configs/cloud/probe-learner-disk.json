@@ -1,0 +1,23 @@
+{
+ "schema": "megatoken.cloud-job/1",
+ "id": "probe-learner-disk",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "resources": {
+  "cpu": "8",
+  "memory": "32Gi",
+  "gpu": 1
+ },
+ "lifetime_hours": 1,
+ "pip": [
+  "huggingface-hub>=0.28,<2"
+ ],
+ "inputs": [],
+ "outputs": [
+  "out/probe"
+ ],
+ "command": [
+  "bash",
+  "-c",
+  "set -eo pipefail; mkdir -p /work/out/probe; cd /work/out/probe; { nvidia-smi --query-gpu=name,memory.total --format=csv; df -B1 / /work /tmp /dev/shm; lsblk -b -o NAME,SIZE,TYPE,MOUNTPOINT || true; free -b; nproc; } | tee disk.txt; start=$(date +%s.%N); python -c \"from huggingface_hub import hf_hub_download as g; print(g('HuggingFaceFW/fineweb-edu', 'sample/10BT/000_00000.parquet', repo_type='dataset', local_dir='/work/dl'))\"; end=$(date +%s.%N); bytes=$(stat -c %s /work/dl/sample/10BT/000_00000.parquet); python -c \"import sys; b,s,e=int(sys.argv[1]),float(sys.argv[2]),float(sys.argv[3]); print(f'hub_download_bytes {b} seconds {e-s:.1f} MBps {b/(e-s)/1e6:.1f}')\" $bytes $start $end | tee -a disk.txt; rm -rf /work/dl"
+ ]
+}
