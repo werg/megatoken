@@ -1,5 +1,11 @@
 # Agent guidelines
 
+## Artifact and API contracts
+
+- Do not add backward compatibility, migrations, legacy modes, inferred missing saved fields, or compatibility shims.
+- When a contract changes, bump its version and reject older artifacts explicitly. Regenerate prepared data, recollect actions, rebuild model-bound indexes, and retrain as needed.
+- Original recordings and unchanged content-addressed donor assets may be reused after their exact identity checks; this does not authorize accepting an older model or prepared artifact.
+
 ## Execution resources
 
 - The local GPU is authorized for appropriate bounded work, including small CUDA
