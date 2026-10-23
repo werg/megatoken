@@ -279,7 +279,7 @@
       ],
       "terms": {
         "license": "other",
-        "notes": "Card licence tag: other; rows say 'other; synthetic research corpus'. DeepSeek-V4-Pro 0813 traces, verified by replay. Keeps only the file/sqlite/json tool-use family (about 5.0k train rows).",
+        "notes": "Card licence tag: other; rows say 'other; synthetic research corpus'. DeepSeek-V4-Pro 0813 traces, verified by replay. Keeps only the file/sqlite/json tool-use family (about 5.0k train rows). Only 8 distinct task prompts across the 4,977 kept rows (one system prompt, different workspace files), so the per-prompt cap keeps only a small share at full volume.",
         "approved": true,
         "license_url": "https://huggingface.co/datasets/r0b0tlab/deepseek-v4-pro-0813-agentic",
         "reviewed_by": "Gabriel Pickard",
@@ -3776,41 +3776,6 @@
       "notes": ""
     },
     {
-      "source_id": "searchr1-sft-qwen25",
-      "uri": "hf://datasets/ThornZ/Search-R1-SFT",
-      "format": "hf",
-      "adapter": "react_agent",
-      "stream": "environment_trajectories",
-      "revision": "fb5002ba90900bc896e82efb060ee93c7d9949fa",
-      "subset": null,
-      "split": "train",
-      "max_rows": 100000000,
-      "files": [
-        {
-          "path": "qwen2.5-7b-instruct-sft.json"
-        }
-      ],
-      "terms": {
-        "approved": true,
-        "license": "none on the card",
-        "license_url": "https://huggingface.co/datasets/ThornZ/Search-R1-SFT",
-        "reviewed_by": "Gabriel Pickard",
-        "reviewed_at": "2026-10-22",
-        "notes": "No licence on the card. Search-R1 style rollouts of Qwen2.5-7B-Instruct on NQ/HotpotQA with a Wikipedia retriever: assistant writes <thinking> and <search>query</search>, retriever result returns as a user turn inside <information>, final <answer>."
-      },
-      "field_map": {},
-      "options": {
-        "allow_pending_final_action": true,
-        "observation_provenance": "executed",
-        "quality": {
-          "min_scored_positions": 2
-        }
-      },
-      "publisher_card": "https://huggingface.co/datasets/ThornZ/Search-R1-SFT",
-      "metadata_checked_at": "2026-10-22",
-      "notes": ""
-    },
-    {
       "source_id": "browseragent-data",
       "uri": "hf://datasets/TIGER-Lab/BrowserAgent-Data",
       "format": "hf",
@@ -4126,6 +4091,41 @@
         }
       },
       "publisher_card": "https://huggingface.co/datasets/rl-rag-2/oss-high-drtulu-v5-0422-8rollouts",
+      "metadata_checked_at": "2026-10-22",
+      "notes": ""
+    },
+    {
+      "source_id": "searchr1-sft-qwen25",
+      "uri": "hf://datasets/ThornZ/Search-R1-SFT",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "fb5002ba90900bc896e82efb060ee93c7d9949fa",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000000,
+      "files": [
+        {
+          "path": "*-sft.json"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card",
+        "license_url": "https://huggingface.co/datasets/ThornZ/Search-R1-SFT",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "No licence on the card. About 21,000 short rows (two files, Qwen2.5-7B-Instruct and Qwen3-4B-Instruct rollouts, 118 MB) in Search-R1 style on NQ/HotpotQA with a Wikipedia retriever: assistant writes thinking and a search query in <search> tags, the retriever result returns as a user turn inside <information>, final <answer>. Only the first file was run through the converter test."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "observation_provenance": "executed",
+        "quality": {
+          "min_scored_positions": 2
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/ThornZ/Search-R1-SFT",
       "metadata_checked_at": "2026-10-22",
       "notes": ""
     },

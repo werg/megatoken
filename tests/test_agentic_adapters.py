@@ -981,6 +981,42 @@ def test_call_roles_spelled_with_a_space_and_calls_listed_in_one_message():
     assert [a.tool_name for a in episode.actions] == ["a", "b"] and linked(episode)
 
 
+def test_a_call_message_with_single_quoted_arguments_text_is_read_like_a_glaive_call():
+    body = '{"name": "make", "arguments": \'{\n  "title": "x"\n}\'}'
+    row = {
+        "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "function-call", "content": body},
+            {"role": "function-response", "content": '{"ok": true}'},
+            {"role": "assistant", "content": "done"},
+        ]
+    }
+    episode = adapt(row, "simulated_tool_roles")
+    assert [a.tool_name for a in episode.actions] == ["make"] and linked(episode)
+
+
+def test_tools_listed_as_a_flat_parameter_map_become_an_object_schema():
+    flat = {
+        "name": "trending",
+        "description": "d",
+        "parameters": {
+            "type": {"description": "category", "type": "str, optional", "default": "gaming"},
+            "country": {"description": "code", "type": "str"},
+        },
+    }
+    row = {
+        "tools": [flat],
+        "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "assistant", "content": "ok"},
+        ],
+    }
+    episode = adapt(row, "chat")
+    schema = json.loads(episode.tools_json)[0]["parameters"]
+    assert schema["type"] == "object" and schema["required"] == ["country"]
+    assert schema["properties"]["type"]["type"] == "string"
+
+
 def test_a_reply_that_is_one_fenced_block_of_calls_is_a_call_and_other_code_is_text():
     code = "```python\nbook(when=datetime(2023, 5, 12, 14, 0), note=...)\n```"
     row = {

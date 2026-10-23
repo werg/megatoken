@@ -592,6 +592,35 @@ def _decoded_parameters(schema: dict[str, Any]) -> dict[str, Any]:
     return {**schema, "function": inner} if wrapped else inner
 
 
+def _flat_parameters(schema: dict[str, Any]) -> dict[str, Any]:
+    """A tool whose parameters are listed as ``{name: {type: "str", ...}}`` as a JSON Schema object.
+
+    The xLAM spelling has no ``properties`` wrapper, so a parameter may even be called ``type``.
+    A parameter counts as required unless it has a default or its type says ``optional``.
+    """
+    wrapped = isinstance(schema.get("function"), dict)
+    inner = schema["function"] if wrapped else schema
+    flat = inner.get("parameters")
+    if (
+        not isinstance(flat, dict)
+        or not flat
+        or "properties" in flat
+        or not all(isinstance(item, dict) for item in flat.values())
+        or isinstance(flat.get("type"), str)
+    ):
+        return schema
+    required = [
+        name
+        for name, spec in flat.items()
+        if "default" not in spec and "optional" not in str(spec.get("type", "")).lower()
+    ]
+    inner = {
+        **inner,
+        "parameters": {"type": "object", "properties": flat, "required": required},
+    }
+    return {**schema, "function": inner} if wrapped else inner
+
+
 def _tools(value: Any) -> str:
     schemas = _object(value, "tools") if value is not None else []
     if not isinstance(schemas, list):
@@ -600,7 +629,9 @@ def _tools(value: Any) -> str:
     if any(not isinstance(item, dict) for item in schemas):
         raise SchemaError("Every tool schema must be an object")
     return canonical_json(
-        _clean_schema([_function_tool(_decoded_parameters(item)) for item in schemas])
+        _clean_schema(
+            [_function_tool(_flat_parameters(_decoded_parameters(item))) for item in schemas]
+        )
     )
 
 

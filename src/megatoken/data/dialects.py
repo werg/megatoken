@@ -470,7 +470,15 @@ def role_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
             if isinstance(body, str) and "<tool_call>" in body:
                 prose, body = _tagged_calls(body)
             elif isinstance(body, str):
-                body = _literal(body, "A tool call body")
+                try:
+                    body = _literal(body, "A tool call body")
+                except SchemaError:
+                    # Glaive's own spelling: the arguments are a single-quoted JSON string.
+                    quoted = _GLAIVE_ARGS.search(body)
+                    name = re.search(r"\"name\":\s*\"([^\"]+)\"", body)
+                    if quoted is None or name is None:
+                        raise
+                    body = {"name": name.group(1), "arguments": quoted.group(1)}
             bodies = (
                 body if isinstance(body, list) and body else [body]
             )  # several calls in one message

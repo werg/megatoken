@@ -66,6 +66,15 @@ of public sets. The cloud job `configs/cloud/prepare-agentic-more.json` prepares
 scaled with `AGENTIC_MORE_ROW_SCALE`. See "More chat, reasoning and agent data" in
 [`docs/data.md`](../../docs/data.md).
 
+`sources.agentic-chat.json` (169 non-coding tool-use, agent and assistant-with-tools sources,
+about 100 GB stored) and `sources.agentic-chat-gated.json` (5 that need a click on the Hub, with
+the page to click in each entry's notes) come from a targeted sweep for agentic chat: function
+calling, MCP, web search and deep research, tau-bench style customer-service agents and
+multilingual tool dialogues. Rows are read at full volume: the file list
+`files.agentic-chat.json` is built like the others and `configs/cloud/prepare-full-agentic-chat.json`
+prepares the manifest (8 sandboxes by 28 shards). See "Agentic chat at full volume" in
+[`docs/data.md`](../../docs/data.md).
+
 `sources.later-stages.json` holds the public sources for the streams the later stages read
 (issue and pull-request data, change histories, logs, long documents, grounded artifacts,
 tested code, clarification and recovery, code rewrites, environment episodes). The cloud job
