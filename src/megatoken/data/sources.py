@@ -177,6 +177,149 @@ def iter_source_rows(
     return ((number, row) for number, row in rows if number % count == index)
 
 
+def _hub_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
+    """The rows of a Hub source; with ``explode``, one per element of a list column."""
+    rows = _hub_file_rows(source)
+    if source.options.get("explode"):
+        rows = _exploded(rows, source.options["explode"])
+    yield from rows
+
+
+def _exploded(rows: Iterator[Mapping[str, Any]], field: str) -> Iterator[Mapping[str, Any]]:
+    """One row per element of a list-valued column (several runs stored in one task row).
+
+    The element's own fields are added to the parent's other columns, an element's overriding
+    a parent's of the same name, and ``explode_index`` says which element it was.
+    """
+    for row in rows:
+        items = row.get(field)
+        if isinstance(items, str):
+            try:
+                items = json.loads(items)
+            except json.JSONDecodeError:
+                continue
+        if not isinstance(items, list):
+            continue
+        parent = {key: value for key, value in row.items() if key != field}
+        for index, item in enumerate(items):
+            yield {
+                **parent,
+                **(item if isinstance(item, Mapping) else {"value": item}),
+                "explode_index": index,
+            }
+
+
+_FILE_BUILDERS = {
+    ".parquet": "parquet",
+    ".jsonl": "json",
+    ".jsonl.gz": "json",
+    ".jsonl.zst": "json",
+    ".json": "json",
+}
+
+
+def _file_suffix(path: str) -> str:
+    name = path.rsplit("/", 1)[-1].lower()
+    for suffix in (".jsonl.gz", ".jsonl.zst"):
+        if name.endswith(suffix):
+            return suffix
+    return name[name.rfind(".") :] if "." in name else ""
+
+
+def _hub_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
+    """The rows of a Hub source, one listed file at a time.
+
+    ``datasets`` reads a list of Parquet files as one table type fixed by the first file and
+    fails on a later file whose messages carry another field (a ``type`` beside ``role`` and
+    ``content``). Each file is its own dataset here, with its own columns.
+    """
+    if source.options.get("whole_files"):
+        yield from _whole_file_rows(source)
+        return
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError("Hugging Face streaming requires the 'data' extra (datasets)") from exc
+    kwargs: dict[str, Any] = {
+        "path": source.repository_id,
+        "name": source.subset,
+        "split": source.split,
+        "revision": source.revision,
+        "streaming": True,
+    }
+    if source.options.get("read_batch_rows"):
+        # Parquet rows that are megabytes long overflow Arrow's 2 GiB list offsets when read
+        # in the file's own (large) batches; a smaller batch reads the same rows.
+        kwargs["batch_size"] = int(source.options["read_batch_rows"])
+    for item in source.files or (None,):
+        if item is not None:
+            builder = _FILE_BUILDERS.get(_file_suffix(item.path))
+            if builder is not None:
+                # A listed file is read by its format's own builder: the repository's card may
+                # declare columns that this file's rows do not have, and ``datasets`` would
+                # then refuse to cast them.
+                address = item.path
+                if not address.startswith("hf://"):
+                    address = f"hf://datasets/{source.repository_id}@{source.revision}/{address}"
+                options = {}
+                if builder == "parquet" and "batch_size" in kwargs:
+                    options["batch_size"] = kwargs["batch_size"]
+                yield from load_dataset(
+                    builder,
+                    data_files={source.split: [address]},
+                    split=source.split,
+                    streaming=True,
+                    **options,
+                )
+                continue
+            kwargs["data_files"] = {source.split: [item.path]}
+        yield from load_dataset(**kwargs)
+
+
+def _whole_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
+    """One row per listed file, for repositories that keep one session or document per file.
+
+    ``whole_files`` is ``"jsonl"`` (a row ``{"source_file", "events": [one object per line]}``)
+    or ``"json"`` (``{"source_file", "document": the parsed file}``). A file name may contain
+    ``*`` wildcards, which are expanded against the pinned revision in sorted order. A line
+    that is not a JSON object is skipped; an unreadable file is an error, not a missing row.
+    """
+    import gzip
+
+    try:
+        from huggingface_hub import HfFileSystem
+    except ImportError as exc:
+        raise RuntimeError("Hub file reading requires huggingface_hub") from exc
+    mode = source.options["whole_files"]
+    if mode not in {"jsonl", "json"}:
+        raise ValueError("whole_files must be 'jsonl' or 'json'")
+    filesystem = HfFileSystem()
+    prefix = f"hf://datasets/{source.repository_id}@{source.revision}/"
+    for item in source.files:
+        location = item.path.removeprefix("hf://")
+        names = sorted(filesystem.glob(location)) if "*" in location else [location]
+        for name in names:
+            with filesystem.open(name, "rb") as raw:
+                data = raw.read()
+            if name.endswith(".gz"):
+                data = gzip.decompress(data)
+            relative = name.removeprefix(prefix.removeprefix("hf://"))
+            if mode == "json":
+                yield {"source_file": relative, "document": json.loads(data)}
+                continue
+            events = []
+            for line in data.splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict):
+                    events.append(event)
+            yield {"source_file": relative, "events": events}
+
+
 def _read_rows(source: SourceSpec, *, start_row: int) -> Iterator[tuple[int, dict[str, Any]]]:
     """Stream deterministic logical rows; Parquet skips completed row groups.
 
@@ -191,30 +334,10 @@ def _read_rows(source: SourceSpec, *, start_row: int) -> Iterator[tuple[int, dic
     if source.max_rows is not None and start_row >= source.max_rows:
         return
     if source.format == "hf":
-        try:
-            from datasets import load_dataset
-        except ImportError as exc:
-            raise RuntimeError(
-                "Hugging Face streaming requires the 'data' extra (datasets)"
-            ) from exc
-        kwargs: dict[str, Any] = {
-            "path": source.repository_id,
-            "name": source.subset,
-            "split": source.split,
-            "revision": source.revision,
-            "streaming": True,
-        }
-        if source.files:
-            kwargs["data_files"] = {source.split: [item.path for item in source.files]}
-        if source.options.get("read_batch_rows"):
-            # Parquet rows that are megabytes long overflow Arrow's 2 GiB list offsets when read
-            # in the file's own (large) batches; a smaller batch reads the same rows.
-            kwargs["batch_size"] = int(source.options["read_batch_rows"])
-        dataset = load_dataset(**kwargs)
         # datasets 4.8.5 Arrow skip can repeat fully skipped Parquet row groups.
         # Count actual emitted rows so persisted logical cursors stay exact.
         for row_index, row in enumerate(
-            itertools.islice(dataset, start_row, source.max_rows), start=start_row
+            itertools.islice(_hub_rows(source), start_row, source.max_rows), start=start_row
         ):
             yield row_index, dict(row)
         return

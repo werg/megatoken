@@ -65,7 +65,11 @@ def test_every_source_is_pinned_licensed_and_approved_by_the_maintainer():
 
 def test_streams_cover_the_stage_plan():
     text = {s.stream for s in SOURCES.values()}
-    for manifest in ("sources.agentic.json", "sources.later-stages.json"):
+    for manifest in (
+        "sources.agentic.json",
+        "sources.agentic-coding.json",
+        "sources.later-stages.json",
+    ):
         text |= {s.stream for s in load_source_manifest(CONFIGS / manifest)}
     covered = text | STREAMS | {"long_document_reading", "base_reading", "collection_reading"}
     assert set(stage_recipe("P1").mixture) - covered == set()

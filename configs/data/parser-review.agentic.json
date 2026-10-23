@@ -3,6 +3,7 @@
   "review_incomplete_syntax": false,
   "review_recovered_syntax": false,
   "review_unknown_languages": false,
+  "review_depth_limit": false,
   "hard_codes": [
     "native_parser_error",
     "native_parser_timeout",
@@ -15,7 +16,6 @@
     "invalid_parser_evidence",
     "parser_provider_not_serializable",
     "invalid_injection_range",
-    "crossing_protected_regions",
     "document_parser_error",
     "document_parser_unavailable",
     "icu_refinement_failed",

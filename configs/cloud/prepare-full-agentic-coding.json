@@ -1,0 +1,29 @@
+{
+ "schema": "megatoken.cloud-prepare/1",
+ "id": "prepare-full-agentic-coding",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "sources": "configs/data/sources.agentic-coding.json",
+ "listing": "configs/data/files.agentic-coding.json",
+ "review_config": "configs/data/parser-review.agentic.json",
+ "pip": [
+  "datasets>=3,<5",
+  "huggingface-hub>=0.28,<2",
+  "pyarrow",
+  "regex>=2024.11",
+  "tokenizers>=0.21,<1",
+  "zstandard>=0.23,<1"
+ ],
+ "resources": {
+  "cpu": "16",
+  "memory": "32Gi",
+  "gpu": 0
+ },
+ "sandboxes": 20,
+ "shards_per_sandbox": 14,
+ "processes": 14,
+ "hours": {
+  "ingest": 8,
+  "reconcile": 4,
+  "finish": 2
+ }
+}

@@ -26,7 +26,14 @@ MORE_GATED = {
 EVERY = {**MORE, **MORE_GATED}
 EARLIER = {
     s.source_id
-    for name in ("agentic", "agentic-gated", "open", "v13")
+    for name in (
+        "agentic",
+        "agentic-gated",
+        "agentic-coding",
+        "agentic-coding-gated",
+        "open",
+        "v13",
+    )
     for s in load_source_manifest(CONFIGS / f"sources.{name}.json")
 }
 

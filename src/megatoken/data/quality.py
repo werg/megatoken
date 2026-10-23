@@ -89,6 +89,8 @@ def validate_row_filters(row: Mapping[str, Any], filters: list[dict[str, Any]]) 
         operation, expected = rule["op"], rule.get("value")
         if operation == "exists":
             accepted = value is not None
+        elif operation == "nonempty":
+            accepted = isinstance(value, (str, list, tuple, Mapping)) and len(value) > 0
         elif operation == "eq":
             accepted = value == expected
         elif operation == "in":

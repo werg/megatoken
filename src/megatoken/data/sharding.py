@@ -85,6 +85,18 @@ PASS_RATE = {
     "s-tested-opencodeinstruct": 0.39,
     "repository-v2-long": 0.5,
     "repository-v2-long-replay": 0.5,
+    "swe-zero-12m-trajectories": 0.03,
+    "mini-coder-trajs-400k": 0.25,
+    "davinci-dev-env-native": 0.25,
+    "swe-star": 0.41,
+    "nanoswe-261002-verified": 0.43,
+    "nanoswe-260812-swe-smith-extra-short": 0.4,
+    "nanoswe-260812-unverified": 0.6,
+    "denovoswe-filtered": 0.45,
+    "jupyter-agent-thinking": 0.58,
+    "orchard-swe-unresolved": 0.3,
+    "coderforge-swe-smith-failed": 0.17,
+    "coderforge-swe-rebench-failed": 0.41,
     "pg19-books": 0.5,
     "pre-1929-books": 0.5,
 }
@@ -187,6 +199,7 @@ def plan_shards(
     *,
     scale: float = 1.0,
     full: bool = False,
+    cap: int | None = None,
 ) -> list[dict[str, Any]]:
     """``count`` manifests that together read exactly the sources' rows, once each.
 
@@ -197,7 +210,15 @@ def plan_shards(
     if count < 1 or scale <= 0:
         raise ValueError("Shard count and scale must be positive")
     sources = [dict(source) for source in manifest["sources"]]
-    if full:
+    if cap is not None:
+        # A smoke run of a manifest that has no caps: every source offers its first rows only.
+        if full or cap < 1:
+            raise ValueError("cap must be a positive row count and cannot be combined with full")
+        for source in sources:
+            source["max_rows"] = (
+                cap if source.get("max_rows") is None else min(cap, source["max_rows"])
+            )
+    elif full:
         for source in sources:
             source["max_rows"] = None
     else:
