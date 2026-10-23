@@ -1,0 +1,28 @@
+{
+ "schema": "megatoken.cloud-job/1",
+ "id": "pilot-agentic-coding-ingest-0",
+ "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+ "resources": {
+  "cpu": "16",
+  "memory": "32Gi",
+  "gpu": 0
+ },
+ "lifetime_hours": 16,
+ "pip": [
+  "datasets>=3,<5",
+  "huggingface-hub>=0.28,<2",
+  "pyarrow",
+  "regex>=2024.11",
+  "tokenizers>=0.21,<1",
+  "zstandard>=0.23,<1"
+ ],
+ "command": [
+  "bash",
+  "-c",
+  "set -eo pipefail; mkdir -p /work/out/pilot; (while sleep 300; do { date -u +%FT%TZ; du -sb /work/out/shards 2>/dev/null; df -B1 /work | tail -1; cat /proc/net/dev | grep -E 'eth0|ens' ; uptime; } >> /work/out/pilot/samples.txt; done) & start=$(date +%s); export HF_TOKEN=\"$(cat \"$MEGATOKEN_CW_SECRETS/hf-token\")\"; megatoken codec --output /work/codec; python -m megatoken.cloud_prepare ingest --run configs/cloud/prepare-full-agentic-coding.json --sandbox 0; echo \"ingest_seconds $(( $(date +%s) - start ))\" > /work/out/pilot/summary.txt; du -sb /work/out/shards >> /work/out/pilot/summary.txt; for d in /work/out/shards/*/; do du -sb $d; done >> /work/out/pilot/summary.txt; cat /proc/net/dev >> /work/out/pilot/summary.txt"
+ ],
+ "outputs": [
+  "out/logs",
+  "out/pilot"
+ ]
+}
