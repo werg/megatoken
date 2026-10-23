@@ -88,9 +88,7 @@ class FakeHub:
     def dataset_info(self, repo_id, revision=None):
         return SimpleNamespace(sha=self._files(repo_id, revision)[0])
 
-    def list_repo_tree(
-        self, repo_id, path_in_repo=None, *, repo_type, revision, recursive, expand
-    ):
+    def list_repo_tree(self, repo_id, path_in_repo=None, *, repo_type, revision, recursive, expand):
         assert repo_type == "dataset" and recursive and expand
         _, files = self._files(repo_id, revision)
         prefix = f"{path_in_repo}/" if path_in_repo else ""

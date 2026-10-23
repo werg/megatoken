@@ -47,7 +47,9 @@ def test_the_manifests_keep_their_exact_formatting():
         assert text == json.dumps(json.loads(text), indent=2, ensure_ascii=True) + "\n", path.name
 
 
-GATED = re.compile(r"gated|click agree|accept the|manual approval|auto-?approv|request access", re.I)
+GATED = re.compile(
+    r"gated|click agree|accept the|manual approval|auto-?approv|request access", re.I
+)
 UNCLEAR_LICENCE = re.compile(
     r"not stated|^none|unknown|^other|research|custom|\bnd\b|no-?deriv|gpl|rail|impact|lmsys|llama|"
     r"gemma|nvidia|microsoft|midtool|source-specific|cdla-sharing|per[- ]file|per row|^cc \(|inferred|"
@@ -66,7 +68,9 @@ def test_gated_unlicensed_nd_and_custom_licence_sources_are_not_published():
             assert terms["redistribute"] == "no", where
 
 
-PERMISSIVE = re.compile(r"^(apache-2\.0|mit|cc-by-4\.0|odc-by|cc0|cdla-permissive-2\.0|openmdw-1\.1)", re.I)
+PERMISSIVE = re.compile(
+    r"^(apache-2\.0|mit|cc-by-4\.0|odc-by|cc0|cdla-permissive-2\.0|openmdw-1\.1)", re.I
+)
 SHARE_ALIKE = re.compile(r"^(cc-by-sa|cc-by-4\.0|cc by-sa|cc-by-4\.0 and cc-by-sa)", re.I)
 NON_COMMERCIAL = re.compile(r"^cc-by-nc", re.I)
 
@@ -89,6 +93,8 @@ def test_a_published_source_states_a_licence_of_its_group():
 def test_every_group_is_used_and_the_default_is_the_safe_one():
     used = {source["terms"]["redistribute"] for _, source in all_sources()}
     assert used == set(REDISTRIBUTION_GROUPS)
-    assert TermsReview().group == "no" and TermsReview(redistribute="permissive").group == "permissive"
+    assert (
+        TermsReview().group == "no" and TermsReview(redistribute="permissive").group == "permissive"
+    )
     with pytest.raises(ValueError):
         TermsReview(redistribute="yes")

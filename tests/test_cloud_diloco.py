@@ -172,7 +172,8 @@ def test_stored_data_is_restored_by_learners_before_they_train():
     coordinator = cloud_diloco.coordinator_job(spec, [])
     command = learner["command"][2]
     assert (
-        "megatoken.publish fetch --pin /work/in/cache-pin.json --dest /work/data/prepared" in command
+        "megatoken.publish fetch --pin /work/in/cache-pin.json --dest /work/data/prepared"
+        in command
     )
     assert command.index("publish fetch") < command.index("cloud_diloco derive")
     assert "cryptography>=43,<51" in learner["pip"] and "cache" not in coordinator["command"][2]

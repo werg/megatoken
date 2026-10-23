@@ -197,7 +197,11 @@ def test_ingest_reconcile_and_finish_keep_licence_groups_apart_and_drop_copies_f
     # The restricted source is listed first: the plan must still put the permissive one first.
     manifest = tmp_path / "sources.json"
     write_source_manifest(
-        manifest, (local_source("withheld-set", files[2:], "no"), local_source("open", files[:2], "permissive"))
+        manifest,
+        (
+            local_source("withheld-set", files[2:], "no"),
+            local_source("open", files[:2], "permissive"),
+        ),
     )
     spec = run_spec(
         sources=str(manifest),
@@ -256,7 +260,12 @@ def test_ingest_reconcile_and_finish_keep_licence_groups_apart_and_drop_copies_f
         log=lambda _: None,
     )
     pin = publish.finalize(
-        api=hub, keys=key, repo="o/data", run="unit-prep", receipts=[receipt], scratch=tmp_path / "pin"
+        api=hub,
+        keys=key,
+        repo="o/data",
+        run="unit-prep",
+        receipts=[receipt],
+        scratch=tmp_path / "pin",
     )
     restored = tmp_path / "restored"
     publish.fetch(api=hub, keys=key, pin=pin, dest=restored, log=lambda _: None)

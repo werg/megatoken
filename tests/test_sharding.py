@@ -7,7 +7,12 @@ from collections import Counter
 
 import pytest
 
-from megatoken.data.sharding import plan_shards
+from megatoken.data.sharding import (
+    allocate_shards,
+    plan_group_shards,
+    plan_shards,
+    shard_group,
+)
 from megatoken.data.sources import SourceFile, SourceSpec, TermsReview, iter_source_rows
 
 TERMS = {"approved": True, "reviewed_by": "tester", "reviewed_at": "2026-01-01"}
@@ -144,3 +149,79 @@ def test_a_source_without_a_stripe_keeps_its_identity():
     striped = SourceSpec(**{**hf_source("x"), "terms": TermsReview(approved=True)}, stripe=(0, 2))
     plain = SourceSpec(**{**hf_source("x"), "terms": TermsReview(approved=True)})
     assert plain.fingerprint != striped.fingerprint
+
+
+# ---- licence groups -----------------------------------------------------------------------
+
+
+def grouped(source_id: str, group: str | None, **fields) -> dict:
+    terms = TERMS if group is None else {**TERMS, "redistribute": group}
+    return hf_source(source_id, terms=terms, **fields)
+
+
+def test_group_shards_never_mix_groups_and_put_the_most_permissive_first():
+    sources = [
+        grouped("closed", "no"),
+        grouped("unrecorded", None),
+        grouped("nc", "non_commercial"),
+        grouped("sa", "share_alike"),
+        grouped("open-a", "permissive"),
+        grouped("open-b", "permissive"),
+    ]
+    listings = {
+        s["source_id"]: [(f"hf://x/{s['source_id']}-{i}.parquet", 200_000) for i in range(10)]
+        for s in sources
+    }
+    shards = plan_group_shards(manifest(*sources), 9, listings, full=True)
+    assert len(shards) == 9
+    groups = [shard_group(shard) for shard in shards]
+    order = ["permissive", "share_alike", "non_commercial", "no"]
+    assert groups == sorted(groups, key=order.index)
+    assert set(groups) == set(order)
+    # An unrecorded decision is "no"; every file is still read exactly once.
+    by_group = {
+        g: {
+            s["source_id"]
+            for sh, gg in zip(shards, groups, strict=True)
+            if gg == g
+            for s in sh["sources"]
+        }
+        for g in order
+    }
+    assert by_group == {
+        "permissive": {"open-a", "open-b"},
+        "share_alike": {"sa"},
+        "non_commercial": {"nc"},
+        "no": {"closed", "unrecorded"},
+    }
+    files = Counter(
+        item["path"] for shard in shards for source in shard["sources"] for item in source["files"]
+    )
+    assert len(files) == 60 and set(files.values()) == {1}
+
+
+def test_a_manifest_of_one_group_plans_exactly_as_before():
+    sources = [hf_source("a"), hf_source("b")]
+    listings = {
+        s["source_id"]: [(f"hf://x/{s['source_id']}-{i}.parquet", 5000) for i in range(8)]
+        for s in sources
+    }
+    assert plan_group_shards(manifest(*sources), 4, listings, full=True) == plan_shards(
+        manifest(*sources), 4, listings, full=True
+    )
+
+
+def test_shards_are_shared_out_by_work_with_at_least_one_each():
+    assert allocate_shards({"permissive": 90.0, "no": 10.0}, 10) == {"permissive": 9, "no": 1}
+    assert allocate_shards({"permissive": 1.0, "no": 1000.0}, 5) == {"permissive": 1, "no": 4}
+    assert sum(allocate_shards({"a": 3.0, "b": 5.0, "c": 7.0}, 31).values()) == 31
+    assert allocate_shards({"a": 0.0, "b": 0.0}, 4) == {"a": 2, "b": 2}
+    with pytest.raises(ValueError, match="at least that many shards"):
+        allocate_shards({"a": 1.0, "b": 1.0}, 1)
+
+
+def test_an_unknown_decision_is_refused():
+    with pytest.raises(ValueError, match="redistribute"):
+        plan_group_shards(
+            manifest(grouped("x", "maybe")), 1, {"x": [("hf://x/x-0.parquet", 5)]}, full=True
+        )

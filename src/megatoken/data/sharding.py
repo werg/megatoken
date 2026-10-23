@@ -289,21 +289,23 @@ def shard_group(shard: Mapping[str, Any]) -> str:
 
 
 def allocate_shards(weights: Mapping[str, float], count: int) -> dict[str, int]:
-    """Shards per group: at least one each, the rest in proportion to the work (largest remainder)."""
+    """Shards per group in proportion to the work, but at least one each (largest remainder)."""
     if count < len(weights):
         raise ValueError(
             f"{len(weights)} licence groups need at least that many shards, but there are {count}"
         )
     total = sum(weights.values())
-    spare = count - len(weights)
-    shares = {
-        name: (spare * weight / total if total else spare / len(weights))
+    ideal = {
+        name: (count * weight / total if total else count / len(weights))
         for name, weight in weights.items()
     }
-    shards = {name: 1 + math.floor(share) for name, share in shares.items()}
-    order = sorted(shares, key=lambda name: (-(shares[name] - math.floor(shares[name])), name))
-    for name in order[: count - sum(shards.values())]:
-        shards[name] += 1
+    shards = {name: max(1, math.floor(share)) for name, share in ideal.items()}
+    while (missing := count - sum(shards.values())) != 0:
+        if missing > 0:  # the group furthest below its share gets the next shard
+            shards[max(shards, key=lambda n: (ideal[n] - shards[n], n))] += 1
+        else:  # the group furthest above its share, among those with a spare one, gives one back
+            giver = [n for n in shards if shards[n] > 1]
+            shards[min(giver, key=lambda n: (ideal[n] - shards[n], n))] -= 1
     return shards
 
 

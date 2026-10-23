@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import os
 import random
 from pathlib import Path
@@ -214,7 +213,9 @@ def test_a_stored_part_comes_back_identical_and_the_repo_reveals_nothing(tmp_pat
     summary = fetch_part(hub, receipt, target)
     assert summary["files"] == len(expected)
     assert read_tree(target) == expected
-    assert not (tmp_path / "restored.scratch").exists() or not read_tree(tmp_path / "restored.scratch")
+    assert not (tmp_path / "restored.scratch").exists() or not read_tree(
+        tmp_path / "restored.scratch"
+    )
 
 
 def test_only_the_named_roots_are_stored(tmp_path):
@@ -433,9 +434,7 @@ def test_the_calls_the_cache_makes_match_the_real_huggingface_api():
     shapes = {
         "create_repo": dict(repo_id="r", repo_type="dataset", private=False, exist_ok=True),
         "upload_large_folder": dict(repo_id="r", folder_path="f", repo_type="dataset"),
-        "create_commit": dict(
-            repo_id="r", operations=[], commit_message="m", repo_type="dataset"
-        ),
+        "create_commit": dict(repo_id="r", operations=[], commit_message="m", repo_type="dataset"),
         "dataset_info": dict(repo_id="r", revision="x"),
         "list_repo_tree": dict(
             repo_id="r",
