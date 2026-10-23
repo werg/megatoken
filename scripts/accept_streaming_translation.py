@@ -22,6 +22,9 @@ def main():
     p.add_argument("--steps", type=int, default=256)
     p.add_argument("--model", choices=["tiny", "32x256", "32x512"], default="tiny")
     p.add_argument("--precision", choices=["fp32", "bf16"], default="fp32")
+    p.add_argument("--capacity", type=int, default=512)
+    p.add_argument("--hindsight-targets", type=Path)
+    p.add_argument("--text-anchors", type=Path)
     p.add_argument("--microbatch-episodes", type=int, default=1)
     p.add_argument("--evaluation-episodes", type=int, default=4)
     p.add_argument("--gradient-checkpointing", action="store_true")
@@ -40,6 +43,8 @@ def main():
     args = p.parse_args()
     if min(args.steps, args.microbatch_episodes, args.evaluation_episodes) < 1:
         p.error("Training steps, batch size and evaluation count must be positive")
+    if args.capacity < 512:
+        p.error("Capacity must accommodate the declared 512-token generation bound")
     from megatoken.training.config import TrainConfig
 
     config = TrainConfig(
@@ -55,7 +60,9 @@ def main():
         device=args.device,
         precision=args.precision,
         packs=None if args.packs is None else str(args.packs),
-        model_overrides={"max_capacity": 512, "vocab_size": 256},
+        model_overrides={"max_capacity": args.capacity, "vocab_size": 256},
+        hindsight_targets=None if args.hindsight_targets is None else str(args.hindsight_targets),
+        text_anchors=None if args.text_anchors is None else str(args.text_anchors),
         max_steps=args.steps,
         microbatch_episodes=args.microbatch_episodes,
         max_accumulation_windows=1,
