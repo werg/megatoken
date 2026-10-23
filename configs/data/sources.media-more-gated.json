@@ -3,57 +3,6 @@
  "metadata_checked_at": "2026-10-23",
  "sources": [
   {
-   "source_id": "multiedit",
-   "repository": "inclusionAI/MultiEdit",
-   "revision": "0828fb64d34cc21c7f618e65c7382a4a2dcb83b0",
-   "reader": "linked",
-   "task": "image_edit_chain",
-   "terms": {
-    "approved": true,
-    "reviewed_by": "Gabriel Pickard",
-    "reviewed_at": "2026-10-22",
-    "license": "apache-2.0 (card; the edits are GPT-4o and GPT-Image-1 outputs: OpenAI's terms apply)",
-    "license_url": "https://huggingface.co/datasets/inclusionAI/MultiEdit",
-    "notes": "MultiEdit: 106.5k hard instruction edits in six groups (objects, people, text in posters, interface screenshots, new viewpoints, 38 artistic styles)."
-   },
-   "gated": true,
-   "include": [
-    "multiedit/train.jsonl"
-   ],
-   "columns": {
-    "images": "images",
-    "instruction": "texts",
-    "id": "id"
-   },
-   "options": {
-    "linked": {
-     "archives": [
-      "multiedit/train.tar.gz"
-     ],
-     "sequence": {
-      "images": [
-       "original_images",
-       "generated_images"
-      ],
-      "texts": [
-       "edit_prompt"
-      ]
-     }
-    },
-    "provenance": {
-     "media": "teacher"
-    },
-    "tier": "model-generated"
-   },
-   "inventory": {
-    "items": 106534,
-    "basis": "card: 106,534 training samples",
-    "shards": 1,
-    "size_gb": 44.7
-   },
-   "caveat": "Gated (accept the terms at the repository). The table's file names and fields come from the card, not from a read of the files."
-  },
-  {
    "source_id": "spgispeech",
    "repository": "kensho/spgispeech",
    "revision": "14e69dd3b80e968282ca55d3eb2b39cc9db2b62e",

@@ -9,7 +9,21 @@
   "finevideo",
   "multiedit",
   "spgispeech",
-  "ksponspeech"
+  "ksponspeech",
+  "sharegpt4o_image_questions",
+  "sharegpt4o_video_captions",
+  "infinity_mm_stage1",
+  "infinity_mm_synthetic",
+  "infinity_mm_zh",
+  "svit_detail",
+  "svit_conversation",
+  "svit_complex",
+  "svit_referring",
+  "medtrinity_demo",
+  "gigaspeech2_th",
+  "gigaspeech2_id",
+  "gigaspeech2_vi",
+  "wenetspeech4tts"
  ],
  "listing": "configs/data/files.media.json",
  "pip": [
@@ -32,7 +46,7 @@
   "memory": "32Gi",
   "gpu": 1
  },
- "sandboxes": 24,
+ "sandboxes": 48,
  "shards_per_sandbox": 2,
  "processes": 1,
  "hours": {
@@ -45,6 +59,10 @@
   "emilia": 40,
   "spgispeech": 40,
   "ksponspeech": 40,
-  "finevideo": 40
+  "finevideo": 40,
+  "gigaspeech2_th": 40,
+  "gigaspeech2_id": 40,
+  "gigaspeech2_vi": 40,
+  "wenetspeech4tts": 40
  }
 }

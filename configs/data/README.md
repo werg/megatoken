@@ -90,7 +90,9 @@ tested code, clarification and recovery, code rewrites, environment episodes). T
 
 `sources.media.json`, `sources.media-more.json`, `sources.media-more-gated.json` and
 `sources.media-agentic.json` list the public media sources (images, speech, sound, music, video and
-their edits; any licence, each recorded; the third file needs a click on the Hub, the last holds the
+their edits; any licence, each recorded; the third file holds the two that still need a click on the
+Hub (the others that needed one, once the account could read them, moved into `sources.media-more.json`
+with `"gated": true`, which keeps them in the `gated` pilot and full-volume runs), the last holds the
 sources that teach judging and planning edits, some of which are fetched from a publisher's web
 site). The pilot jobs `configs/cloud/prepare-media-*.json` build a
 slice of each source; `files.media.json` lists every file of the file-based media sources and the
