@@ -797,8 +797,8 @@ non-commercial and was not needed.
   syntax (Python-repr strings, a `function` role) rather than the standard one; only the
   clean SFT configuration is in.
 - **Nemotron terminal `dataset_adapters` files** (code, math, swe): each file is one row
-  group over 2 GB uncompressed, which the streaming reader cannot decode; the skill-based
-  synthetic task configurations are used.
+  group of 2 to 8 GB uncompressed. Listed Hub Parquet files are now read by range requests
+  in batches of about 64 MiB, so they are in as `nemotron-terminal-adapters-*` (226,313 traces).
 - **Orchard `gui`**, AndroidControl and other screenshot sets: need images, not text.
 - **CC-Bench** (370 rows, Claude Code format), **Llama-Nemotron SFT chat** (input/output
   shape) and **OpenThoughts-Agent** (a subset of AgentTrove): little or nothing new.
@@ -1038,7 +1038,7 @@ here is gated: `GAIR/daVinci-Dev` is a gated set whose terms the project account
 
 ### Layouts still without a reader
 
-Terminal-Corpus `dataset_adapters` (2 GB row groups), Multi-SWE-bench and Moatless zip archives,
+Multi-SWE-bench and Moatless zip archives,
 CooperBench's OpenHands event lists, EnvBench LangChain logs, openhands-feedback event lists,
 sailplane `.traj` files, AlexCuadron's O1 runs, the Nemotron-Cascade agentless split, 75 million
 relational rows of `risenlab/agentlogs`, token-id layouts (`open-athena` `*-opencode-traces`),

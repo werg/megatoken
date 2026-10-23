@@ -11366,7 +11366,145 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Skill-based synthetic terminal tasks (easy), DeepSeek-V3.2 Terminus-2 traces. The three dataset_adapters files (code, math, swe) are separate sources (nemotron-terminal-adapters-*) because each is one row group over 2 GB."
+      "notes": "Skill-based synthetic terminal tasks (easy), DeepSeek-V3.2 Terminus-2 traces. The three dataset_adapters files (code, math, swe) are the nemotron-terminal-adapters-* sources."
+    },
+    {
+      "source_id": "nemotron-terminal-adapters-code",
+      "uri": "hf://datasets/nvidia/Nemotron-Terminal-Corpus",
+      "format": "hf",
+      "adapter": "nemotron_terminal",
+      "stream": "executed_trajectories",
+      "revision": "a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9",
+      "subset": null,
+      "split": "train",
+      "max_rows": null,
+      "files": [
+        {
+          "path": "hf://datasets/nvidia/Nemotron-Terminal-Corpus@a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9/dataset_adapters/code.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "task": [
+          "task",
+          "task_id",
+          "run_id"
+        ],
+        "family": [
+          "task",
+          "task_id"
+        ],
+        "messages": "conversations"
+      },
+      "options": {
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Terminal-Corpus dataset_adapters/code.parquet: 31,960 Terminus-2 traces adapted from code task sets, same columns as the skill-based files. One row group of several GB uncompressed, read in byte-budgeted Parquet batches."
+    },
+    {
+      "source_id": "nemotron-terminal-adapters-math",
+      "uri": "hf://datasets/nvidia/Nemotron-Terminal-Corpus",
+      "format": "hf",
+      "adapter": "nemotron_terminal",
+      "stream": "executed_trajectories",
+      "revision": "a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9",
+      "subset": null,
+      "split": "train",
+      "max_rows": null,
+      "files": [
+        {
+          "path": "hf://datasets/nvidia/Nemotron-Terminal-Corpus@a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9/dataset_adapters/math.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "task": [
+          "task",
+          "task_id",
+          "run_id"
+        ],
+        "family": [
+          "task",
+          "task_id"
+        ],
+        "messages": "conversations"
+      },
+      "options": {
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Terminal-Corpus dataset_adapters/math.parquet: 162,692 Terminus-2 traces adapted from math task sets, same columns as the skill-based files. One row group of several GB uncompressed, read in byte-budgeted Parquet batches."
+    },
+    {
+      "source_id": "nemotron-terminal-adapters-swe",
+      "uri": "hf://datasets/nvidia/Nemotron-Terminal-Corpus",
+      "format": "hf",
+      "adapter": "nemotron_terminal",
+      "stream": "executed_trajectories",
+      "revision": "a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9",
+      "subset": null,
+      "split": "train",
+      "max_rows": null,
+      "files": [
+        {
+          "path": "hf://datasets/nvidia/Nemotron-Terminal-Corpus@a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9/dataset_adapters/swe.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0."
+      },
+      "field_map": {
+        "task": [
+          "task",
+          "task_id",
+          "run_id"
+        ],
+        "family": [
+          "task",
+          "task_id"
+        ],
+        "messages": "conversations"
+      },
+      "options": {
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Terminal-Corpus dataset_adapters/swe.parquet: 31,661 Terminus-2 traces adapted from swe task sets, same columns as the skill-based files. One row group of several GB uncompressed, read in byte-budgeted Parquet batches."
     },
     {
       "source_id": "nemotron-terminal-medium",
@@ -11408,7 +11546,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Skill-based synthetic terminal tasks (medium), DeepSeek-V3.2 Terminus-2 traces. The three dataset_adapters files (code, math, swe) are separate sources (nemotron-terminal-adapters-*) because each is one row group over 2 GB."
+      "notes": "Skill-based synthetic terminal tasks (medium), DeepSeek-V3.2 Terminus-2 traces. The three dataset_adapters files (code, math, swe) are the nemotron-terminal-adapters-* sources."
     },
     {
       "source_id": "nemotron-terminal-mixed",
@@ -11450,7 +11588,7 @@
       },
       "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-Terminal-Corpus",
       "metadata_checked_at": "2026-10-22",
-      "notes": "Skill-based synthetic terminal tasks (mixed), DeepSeek-V3.2 Terminus-2 traces. The three dataset_adapters files (code, math, swe) are separate sources (nemotron-terminal-adapters-*) because each is one row group over 2 GB."
+      "notes": "Skill-based synthetic terminal tasks (mixed), DeepSeek-V3.2 Terminus-2 traces. The three dataset_adapters files (code, math, swe) are the nemotron-terminal-adapters-* sources."
     },
     {
       "source_id": "open-swe-v10-openhands",

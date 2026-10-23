@@ -581,22 +581,37 @@ def test_a_missing_token_marked_on_a_decoded_string_seam_stays_inside_the_source
     assert all(0 <= d.start <= d.end <= len(payload) for d in result.diagnostics)
 
 
-def test_each_listed_hub_file_is_read_as_its_own_dataset(monkeypatch):
+def test_each_listed_hub_parquet_file_is_read_with_its_own_columns_in_small_batches(
+    monkeypatch, tmp_path
+):
     # One file's messages carry {role, content, loss}, the next {role, content, type, loss}:
-    # reading them as one dataset casts the second to the first file's columns and fails.
-    import sys
-    import types
+    # reading them as one dataset casts the second to the first file's columns and fails. Rows
+    # are decoded in byte-budgeted batches, so row groups past Arrow's 2 GiB limit still read.
+    import huggingface_hub
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
+    import megatoken.data.sources as sources
     from megatoken.data.sources import SourceFile, SourceSpec, TermsReview, iter_source_rows
 
-    calls = []
+    message = {"role": "user", "content": "hi", "loss": False}
+    local = {"a.parquet": tmp_path / "a.parquet", "b.parquet": tmp_path / "b.parquet"}
+    pq.write_table(
+        pa.Table.from_pylist([{"m": [message], "n": i} for i in range(2)]), local["a.parquet"]
+    )
+    pq.write_table(
+        pa.Table.from_pylist([{"m": [{**message, "type": "text"}], "n": i} for i in range(2)]),
+        local["b.parquet"],
+    )
+    opened = []
 
-    def load_dataset(path=None, **kwargs):
-        calls.append((path, kwargs["data_files"]))
-        (name,) = kwargs["data_files"]["train"]
-        return iter([{"file": name, "n": 0}, {"file": name, "n": 1}])
+    class FakeFileSystem:
+        def open(self, address, mode, block_size=None):
+            opened.append(address)
+            return local[address.rsplit("/", 1)[-1]].open(mode)
 
-    monkeypatch.setitem(sys.modules, "datasets", types.SimpleNamespace(load_dataset=load_dataset))
+    monkeypatch.setattr(huggingface_hub, "HfFileSystem", FakeFileSystem)
+    monkeypatch.setattr(sources, "PARQUET_BATCH_BYTES", 1)
     source = SourceSpec(
         source_id="s",
         uri="hf://datasets/o/r",
@@ -604,20 +619,19 @@ def test_each_listed_hub_file_is_read_as_its_own_dataset(monkeypatch):
         adapter="chat",
         stream="chat",
         revision="a" * 40,
-        files=(SourceFile("hf://a.parquet"), SourceFile("hf://b.parquet")),
+        files=(SourceFile("a.parquet"), SourceFile("b.parquet")),
         max_rows=3,
         terms=TermsReview(approved=True, license="mit", reviewed_by="t", reviewed_at="2026-10-22"),
     )
     rows = list(iter_source_rows(source))
-    assert [(i, r["file"], r["n"]) for i, r in rows] == [
-        (0, "hf://a.parquet", 0),
-        (1, "hf://a.parquet", 1),
-        (2, "hf://b.parquet", 0),
+    assert [(i, r["n"], "type" in r["m"][0]) for i, r in rows] == [
+        (0, 0, False),
+        (1, 1, False),
+        (2, 0, True),
     ]
-    # Each file goes to the builder of its own format, so a card's declared columns never apply.
-    assert calls == [
-        ("parquet", {"train": ["hf://a.parquet"]}),
-        ("parquet", {"train": ["hf://b.parquet"]}),
+    assert opened == [
+        f"hf://datasets/o/r@{'a' * 40}/a.parquet",
+        f"hf://datasets/o/r@{'a' * 40}/b.parquet",
     ]
 
 

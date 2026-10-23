@@ -149,6 +149,19 @@ class SourceSpec:
         return cls(**obj)
 
 
+def parquet_group_rows(reader: Any, group: int, max_batch_rows: int = 128) -> Iterator[dict]:
+    """One row group's rows, decoded in batches of about ``PARQUET_BATCH_BYTES``.
+
+    Arrow cannot hand back a nested column over 2 GiB in one piece, and long trajectories
+    reach that within a few rows, so a batch holds as many rows as fit in the budget.
+    """
+    meta = reader.metadata.row_group(group)
+    row_bytes = meta.total_byte_size / max(meta.num_rows, 1)
+    batch_size = max(1, min(max_batch_rows, int(PARQUET_BATCH_BYTES / max(row_bytes, 1))))
+    for batch in reader.iter_batches(batch_size=batch_size, row_groups=[group]):
+        yield from batch.to_pylist()
+
+
 def load_source_manifest(path: str | Path) -> tuple[SourceSpec, ...]:
     location = Path(path)
     obj = json.loads(location.read_text())
@@ -236,10 +249,6 @@ def _hub_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
     if source.options.get("whole_files"):
         yield from _whole_file_rows(source)
         return
-    try:
-        from datasets import load_dataset
-    except ImportError as exc:
-        raise RuntimeError("Hugging Face streaming requires the 'data' extra (datasets)") from exc
     kwargs: dict[str, Any] = {
         "path": source.repository_id,
         "name": source.subset,
@@ -247,10 +256,8 @@ def _hub_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
         "revision": source.revision,
         "streaming": True,
     }
-    if source.options.get("read_batch_rows"):
-        # Parquet rows that are megabytes long overflow Arrow's 2 GiB list offsets when read
-        # in the file's own (large) batches; a smaller batch reads the same rows.
-        kwargs["batch_size"] = int(source.options["read_batch_rows"])
+    # Parquet files are batched by bytes; this further caps the rows in one batch.
+    max_batch_rows = int(source.options.get("read_batch_rows", 128))
     for item in source.files or (None,):
         if item is not None:
             builder = _FILE_BUILDERS.get(_file_suffix(item.path))
@@ -261,19 +268,42 @@ def _hub_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
                 address = item.path
                 if not address.startswith("hf://"):
                     address = f"hf://datasets/{source.repository_id}@{source.revision}/{address}"
-                options = {}
-                if builder == "parquet" and "batch_size" in kwargs:
-                    options["batch_size"] = kwargs["batch_size"]
-                yield from load_dataset(
+                if builder == "parquet":
+                    yield from _hub_parquet_rows(address, max_batch_rows)
+                    continue
+                yield from _load_dataset()(
                     builder,
                     data_files={source.split: [address]},
                     split=source.split,
                     streaming=True,
-                    **options,
                 )
                 continue
             kwargs["data_files"] = {source.split: [item.path]}
-        yield from load_dataset(**kwargs)
+        yield from _load_dataset()(**kwargs)
+
+
+def _load_dataset() -> Any:
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:
+        raise RuntimeError("Hugging Face streaming requires the 'data' extra (datasets)") from exc
+    return load_dataset
+
+
+def _hub_parquet_rows(address: str, max_batch_rows: int) -> Iterator[dict]:
+    """A Hub Parquet file's rows by HTTP range reads, in byte-budgeted batches.
+
+    ``datasets`` decodes a whole row group's batch at once and fails on row groups whose
+    nested columns pass 2 GiB (long terminal sessions); this reads them in small batches.
+    """
+    import pyarrow.parquet as parquet
+    from huggingface_hub import HfFileSystem
+
+    with HfFileSystem().open(address, "rb", block_size=32 << 20) as handle:
+        # Stream each column chunk in pages instead of reading it whole (a chunk can be GBs).
+        reader = parquet.ParquetFile(handle, buffer_size=8 << 20, pre_buffer=False)
+        for group in range(reader.num_row_groups):
+            yield from parquet_group_rows(reader, group, max_batch_rows)
 
 
 def _whole_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
@@ -374,18 +404,13 @@ def _read_rows(source: SourceSpec, *, start_row: int) -> Iterator[tuple[int, dic
                 if row_index + count <= start_row:
                     row_index += count
                     continue
-                # Arrow cannot hand back a nested column over 2 GiB in one piece, and long
-                # trajectories reach that within a few rows: keep each batch near 64 MiB.
-                row_bytes = meta.total_byte_size / max(count, 1)
-                batch_size = max(1, min(128, int(PARQUET_BATCH_BYTES / max(row_bytes, 1))))
-                for batch in reader.iter_batches(batch_size=batch_size, row_groups=[group]):
-                    for row in batch.to_pylist():
-                        if source.max_rows is not None and row_index >= source.max_rows:
-                            return
-                        current = row_index
-                        row_index += 1
-                        if current >= start_row:
-                            yield current, row
+                for row in parquet_group_rows(reader, group):
+                    if source.max_rows is not None and row_index >= source.max_rows:
+                        return
+                    current = row_index
+                    row_index += 1
+                    if current >= start_row:
+                        yield current, row
 
 
 def pin_local_source(

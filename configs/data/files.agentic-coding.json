@@ -45823,6 +45823,24 @@
    26587446
   ]
  ],
+ "nemotron-terminal-adapters-code": [
+  [
+   "hf://datasets/nvidia/Nemotron-Terminal-Corpus@a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9/dataset_adapters/code.parquet",
+   854736749
+  ]
+ ],
+ "nemotron-terminal-adapters-math": [
+  [
+   "hf://datasets/nvidia/Nemotron-Terminal-Corpus@a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9/dataset_adapters/math.parquet",
+   3041504521
+  ]
+ ],
+ "nemotron-terminal-adapters-swe": [
+  [
+   "hf://datasets/nvidia/Nemotron-Terminal-Corpus@a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9/dataset_adapters/swe.parquet",
+   1162984943
+  ]
+ ],
  "nemotron-terminal-easy": [
   [
    "hf://datasets/nvidia/Nemotron-Terminal-Corpus@a1667c4ffdadea02a89bffe4f1bb7ca2ff19f8d9/synthetic_tasks/skill_based/easy/data_processing/data_filtered.parquet",
