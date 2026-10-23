@@ -19,7 +19,7 @@ among the window's items (contrast).
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 import torch
 from torch import Tensor
@@ -91,12 +91,11 @@ class BoundaryScheduler:
 
 @dataclass(frozen=True)
 class HindsightSchedule:
-    """The warm-up mask curriculum, the overlay anneal and the 1-in-8 rule."""
+    """Explicit auxiliary teacher windows; causal student windows begin immediately."""
 
     full_steps: int = 4096
     gap1_steps: int = 4096
-    warmup_steps: int = 16384
-    overlay_steps: int = 65536
+    evidence_steps: int = 16384
     hindsight_only_every: int = 8
 
     def stage(self, step: int) -> str:
@@ -105,14 +104,9 @@ class HindsightSchedule:
         return "gap1" if step < self.full_steps + self.gap1_steps else "gap2"
 
     def overlay(self, step: int, sequence: int) -> float:
-        """Weight of h_t in the value and the landing: 1 in warm-up, annealed,
-        then 1 for hindsight-only sequences and 0 for bank-only ones."""
+        """Only one explicitly selected teacher window in eight; no all-teacher warmup."""
         if step < 0 or sequence < 0:
             raise ValueError("Training step and sequence counters must be nonnegative")
-        if step < self.warmup_steps:
-            return 1.0
-        if step < self.warmup_steps + self.overlay_steps:
-            return 1 - (step - self.warmup_steps) / self.overlay_steps
         return 1.0 if sequence % self.hindsight_only_every == 0 else 0.0
 
     def computes_hindsight(self, step: int, sequence: int, *, learned: bool) -> bool:
@@ -196,6 +190,7 @@ class TransducerTrainer:
         self,
         native: NativeTransducer,
         *,
+        bank_trainable: bool = True,
         worker: int = 0,
         provisional: bool = False,
         schedule: HindsightSchedule | None = None,
@@ -204,6 +199,7 @@ class TransducerTrainer:
         reading: ReadingBase | None = None,
     ) -> None:
         self.native = native
+        self.bank_trainable = bool(bank_trainable)
         self.bank = native.bank
         self.optimizer = BlockScaleDescent(self.bank, worker=worker, cache_edges=cache_edges)
         self.growth = TransducerGrowth(
@@ -229,6 +225,7 @@ class TransducerTrainer:
         generator: torch.Generator | None = None,
         mounted: tuple[Mounted, ...] | None = None,
         sources: SourceSession | None = None,
+        teacher_supervision: bool = False,
     ) -> TransducerSequence:
         """Plan one training window (or a bank-only evaluation window when not training).
 
@@ -244,7 +241,7 @@ class TransducerTrainer:
             generator=generator if training else None,
         )
         question = question_lookup(meridians, lookups)
-        if not training:
+        if not training or not self.bank_trainable:
             return TransducerSequence(
                 self,
                 lookups,
@@ -262,8 +259,9 @@ class TransducerTrainer:
             self,
             lookups,
             step,
-            alpha=self.schedule.overlay(step, sequence),
-            hindsight=self.schedule.computes_hindsight(step, sequence, learned=learned),
+            alpha=self.schedule.overlay(step, sequence) if teacher_supervision else 0.0,
+            hindsight=teacher_supervision
+            and self.schedule.computes_hindsight(step, sequence, learned=learned),
             generator=generator,
             mounted=mounted,
             sources=sources,
@@ -272,6 +270,10 @@ class TransducerTrainer:
 
     def after_backward(self, step: int) -> dict[str, int]:
         """Hindsight writes, structural evidence and write-out candidates of the window."""
+        if not self.bank_trainable:
+            if self.records or self.candidates:
+                raise RuntimeError("Frozen memory cannot accumulate sparse writes")
+            return {"transducer_observed": 0, "transducer_writes": 0}
         g = self.bank.geometry
         writeout_stage = self.schedule.stage(step) == "gap2"
         observed = writes = 0
@@ -331,6 +333,13 @@ class TransducerTrainer:
         """Step the touched rows, add write-outs; in a single-owner run, evolve per round."""
         if self.records:
             raise RuntimeError("Collect backward evidence before the sparse step")
+        if not self.bank_trainable:
+            return {
+                "transducer_updated_fields": 0,
+                "transducer_written_values": 0,
+                "transducer_writeouts": 0,
+                "transducer_edges": self.bank.edge_count,
+            }
         result = self.optimizer.step(step)
         added = self.growth.write_out(self.candidates, step=step)
         self.candidates.clear()
@@ -341,7 +350,7 @@ class TransducerTrainer:
             "transducer_edges": self.bank.edge_count,
         }
         if evolve and step % LOCAL_STEPS == 0:
-            evolution = self.growth.evolve(step, evidence_from=self.schedule.warmup_steps)
+            evolution = self.growth.evolve(step, evidence_from=self.schedule.evidence_steps)
             # No coordinator consumes round increments here; drop them.
             self.growth.begin_round()
             self.growth.discard_round()
@@ -354,9 +363,10 @@ class TransducerTrainer:
         """Bank-only validation runs every 1,024 steps once the overlay has ended."""
         schedule = self.schedule
         return (
-            not self.bank.learned_values
+            self.bank_trainable
+            and not self.bank.learned_values
             and step % SWITCH_EVERY == 0
-            and step >= schedule.warmup_steps + schedule.overlay_steps
+            and step >= schedule.evidence_steps
         )
 
     def record_validation(self, step: int, bank_only_loss: float) -> bool:
@@ -371,6 +381,7 @@ class TransducerTrainer:
         if self.records or self.candidates:
             raise RuntimeError("Only a complete forward/backward/step window is checkpointable")
         return {
+            "schedule": asdict(self.schedule),
             "bank": self.bank.state_snapshot(),
             "optimizer": self.optimizer.state_dict(),
             "growth": self.growth.state_dict(),
@@ -379,6 +390,8 @@ class TransducerTrainer:
         }
 
     def load_state_dict(self, state: dict) -> None:
+        if state.get("schedule") != asdict(self.schedule):
+            raise ValueError("Memory training requires the exact current schedule")
         self.bank.load_snapshot(state["bank"])
         self.optimizer.load_state_dict(state["optimizer"])
         self.growth.load_state_dict(state["growth"])
@@ -533,7 +546,7 @@ class TransducerSequence:
             overlay=alpha,
             generator=self.generator,
             # With alpha = 1 the bank's output never reaches the loss.
-            train_rows=differentiable and alpha < 1,
+            train_rows=differentiable and self.trainer.bank_trainable and alpha < 1,
             effort=effort,
             sources=self.sources,
         )
@@ -542,7 +555,7 @@ class TransducerSequence:
         if t == self.question and self.sources is not None:
             self.question_search = self.sources.last
         self.agenda.truncate_credit(CREDIT_GROUPS)
-        if differentiable:
+        if differentiable and self.trainer.bank_trainable:
             for tensor in (lookup.value, lookup.bank_value, lookup.bank_landing_raw):
                 if tensor.requires_grad:
                     tensor.retain_grad()

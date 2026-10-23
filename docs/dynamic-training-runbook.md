@@ -304,8 +304,8 @@ alternatives. No legacy objective or request mode remains. Imported tool calls
 must be normalized before preparing training data. Selected native actions always
 retain their complete explicit event-to-record bindings.
 
-The current model architecture and checkpoints are version 14, prepared episodes
-and datasets are version 6, and grouped recorded actions are version 17. Older
+The current model architecture and checkpoints are version 15, prepared episodes
+and datasets are version 6, and grouped recorded actions are version 18. Older
 artifacts are rejected. There are no schema migrations, inferred saved geometry,
 legacy data cursors, alternate old objectives, or dense-layer compatibility views
 for shared expert modules. Reprepare original sources, recollect native actions,
@@ -394,3 +394,27 @@ model state; only explicitly available instructions, settings and evidence reque
 become request controls. The ordinary serving and collection interfaces construct
 those same bytes. Shared expert projections expose their actual parameter owners;
 they do not imitate a removed dense-layer interface.
+
+
+### Causal student learning from the first update
+
+The earlier all-teacher warmup made short diagnostic runs depend entirely on
+look-ahead information that serving never receives. It has been removed. Ordinary
+student training reads only the causal bank and available inputs from its first
+window. Tool/lifecycle training and recorded student actions never receive
+look-ahead teacher values. Other supervised data can explicitly enable auxiliary
+teacher windows: one in eight, independently counted as `teacher_assisted_windows`.
+They must not be reported as `causal_student_windows` or as generated student quality.
+
+Policy-only optimization also freezes the sparse memory contents, its writes and
+its growth, in addition to dense encoder/renderer parameters. Exact checkpoint
+restart requires the saved current memory-teaching schedule. Current model and
+checkpoint version 15, grouped action version 18 and native bank identity v11
+reject the superseded model-bound artifacts. Unchanged prepared-data version 6
+and independently pinned donor/source assets retain their own current identities.
+
+The counterfactual regression changes a later tool answer while keeping public
+inputs fixed and requires the earlier prediction to be byte-exact. It also forbids
+executing the future-reading teaching pass during student tool training. A separate
+regression verifies that a populated frozen memory remains unchanged through the
+sparse update boundary.

@@ -461,6 +461,7 @@ def train(
         # Synchronous ranks are learners of one canonical bank merged on rank 0.
         transducer = TransducerTrainer(
             model.transducer,
+            bank_trainable=config.trainable == "all",
             worker=config.decoupled.resolved_worker_id if config.decoupled else context.rank,
             provisional=config.decoupled is not None or context.world_size > 1,
         )
@@ -1079,6 +1080,11 @@ def train(
             "phase": phase.name,
             "phase_consumed": consumed,
             "complete": consumed >= phase.budget or (diloco is not None and diloco.finished),
+            "termination": "requested"
+            if stop_requested
+            else "budget"
+            if consumed >= phase.budget
+            else "step_limit",
             "checkpoint": last_checkpoint,
             "counters": asdict(counters),
         }

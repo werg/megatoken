@@ -282,8 +282,8 @@ def test_boundary_plan_starts_after_metadata_and_respects_real_boundaries_and_ca
 def test_hindsight_schedule():
     schedule = HindsightSchedule()
     assert [schedule.stage(s) for s in (0, 4096, 8192)] == ["full", "gap1", "gap2"]
-    assert schedule.overlay(100, 3) == 1.0
-    assert schedule.overlay(16384 + 32768, 3) == pytest.approx(0.5)
+    assert schedule.overlay(0, 3) == 0.0
+    assert schedule.overlay(16384 + 32768, 3) == 0.0
     after = 16384 + 65536
     assert schedule.overlay(after, 8) == 1.0 and schedule.overlay(after, 9) == 0.0
     assert not schedule.computes_hindsight(after, 9, learned=True)
@@ -296,7 +296,7 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
     model = tiny_model()
     trainer = TransducerTrainer(
         model.transducer,
-        schedule=HindsightSchedule(full_steps=0, gap1_steps=0, warmup_steps=4, overlay_steps=4),
+        schedule=HindsightSchedule(full_steps=0, gap1_steps=0, evidence_steps=4),
     )
     multi = MultiTrackGenerator(model)
     meridians = [Meridian((f"t{i % 2}",), (1,), ("text",), i % 3 == 2) for i in range(8)]
@@ -307,7 +307,9 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
         return observe_text(multi.tracks, state, [payloads[index]], tracks=("x",)).raw
 
     for step in (1, 2):
-        sequence = trainer.sequence(meridians, step=step, generator=torch.Generator())
+        sequence = trainer.sequence(
+            meridians, step=step, generator=torch.Generator(), teacher_supervision=True
+        )
         sequence.hindsight(meridians, raw)
         state = sequence.begin(multi, multi.tracks.initial_state(1), metadata_payload({}))
         for index, meridian in enumerate(meridians):
@@ -324,7 +326,7 @@ def test_trainer_writes_out_helpful_hindsight_and_steps_the_bank():
         if step == 1:
             assert usable and metrics["transducer_writeouts"] == usable
     assert trainer.bank.edge_count > 0
-    restored = TransducerTrainer(tiny_model().transducer)
+    restored = TransducerTrainer(tiny_model().transducer, schedule=trainer.schedule)
     restored.load_state_dict(trainer.state_dict())
     assert restored.bank.edge_ids().tolist() == trainer.bank.edge_ids().tolist()
 

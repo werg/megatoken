@@ -423,12 +423,16 @@ def main():
     )
     if args._stage == "train":
         write_json(args.root / "train-config.json", asdict(config))
-        write_json(args.root / "training.json", train(config))
+        result = train(config)
+        write_json(args.root / "training.json", result)
+        if result["termination"] == "requested":
+            raise SystemExit(130)
         next_stage("restart")
     if args._stage == "restart":
-        write_json(
-            args.root / "restart.json", train(replace(config, max_steps=2), resume=str(checkpoint))
-        )
+        result = train(replace(config, max_steps=2), resume=str(checkpoint))
+        write_json(args.root / "restart.json", result)
+        if result["termination"] == "requested":
+            raise SystemExit(130)
         next_stage("export")
     if args._stage == "export":
         from megatoken.served import export_served

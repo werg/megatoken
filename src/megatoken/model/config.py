@@ -9,7 +9,7 @@ from typing import Any
 
 from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
-ARCHITECTURE_VERSION = 14
+ARCHITECTURE_VERSION = 15
 # Reserved system track addresses; they share the session equality registry.
 TRANSDUCER_QUERY_TRACK = "__transducer_query__"
 KNOWLEDGE_TRACK = "__transducer_knowledge__"

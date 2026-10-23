@@ -355,7 +355,7 @@ class RankRounds:
         self.canonical: CanonicalBank | None = None
         if context.is_primary:
             self.canonical = CanonicalBank(
-                trainer.bank.geometry, evidence_from=trainer.schedule.warmup_steps
+                trainer.bank.geometry, evidence_from=trainer.schedule.evidence_steps
             )
             self.canonical.bank.load_snapshot(trainer.bank.state_snapshot())
 

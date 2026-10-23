@@ -1,6 +1,6 @@
-> **Scope:** This page describes the multi-track code (architecture v14), not model quality. Training is launched only through the phase-gated recipes in [README.md](../README.md); the memory mechanism is in [continuous-state-transducer-plan.md](continuous-state-transducer-plan.md) and media phases are in [media.md](media.md). Older stage commands are not supported.
+> **Scope:** This page describes the multi-track code (architecture v15), not model quality. Training is launched only through the phase-gated recipes in [README.md](../README.md); the memory mechanism is in [continuous-state-transducer-plan.md](continuous-state-transducer-plan.md) and media phases are in [media.md](media.md). Older stage commands are not supported.
 
-# Multi-track implementation status (architecture v14)
+# Multi-track implementation status (architecture v15)
 
 This page describes the code that has been written, not model quality. The complete
 research and engineering design is in [multi-track-plan.md](multi-track-plan.md).
@@ -102,7 +102,7 @@ and evaluation gates.
 
 | Capability | Current state |
 | --- | --- |
-| Breaking architecture v14 + strict format identities | Implemented in code |
+| Breaking architecture v15 + strict format identities | Implemented in code |
 | Same-meridian full attention using one C and shared final KV | Implemented in code |
 | Joint P12 live queries and existing per-event expert topology | Implemented in code |
 | Stable session track equality bias and learned modality features | Implemented in code |
@@ -317,7 +317,7 @@ reference assets or fetch pack weights.
 ## Strict formats and no migrations
 
 - Architecture version: **10** (`ARCHITECTURE_VERSION`); the one tape serving, collection
-  and training exchange is `GroupActionTape` (`fmt-multitrack-facets-v17`), recording
+  and training exchange is `GroupActionTape` (`fmt-multitrack-facets-v18`), recording
   renderer seeds and realizer pack identities per event. A single-track draw (a student's
   rollout step) is a group of one event; the decoder-level single-event tape
   `fmt-canonical-facets-v8` is only the output of the single-track diagnostic sampler.

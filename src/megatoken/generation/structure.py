@@ -310,7 +310,7 @@ def _json_bytes(value: Any) -> bytes:
     ).encode()
 
 
-TAPE_VERSION = "fmt-canonical-facets-v9"
+TAPE_VERSION = "fmt-canonical-facets-v10"
 
 
 @dataclass(frozen=True)

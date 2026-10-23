@@ -170,7 +170,7 @@ def episode_metadata(episode: Episode) -> dict[str, object]:
     Declared session tracks only: the modalities later events happen to use are future.
     """
     modalities = sorted({track.default_modality for track in episode.tracks})
-    return {"task": episode.stream, "modality": modalities, "version": "v10"}
+    return {"task": episode.stream, "modality": modalities, "version": "v11"}
 
 
 # --------------------------------------------------------------------- files

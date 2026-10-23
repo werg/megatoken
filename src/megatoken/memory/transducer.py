@@ -1,4 +1,4 @@
-"""v10 agenda-wide continuous-state transducer bank.
+"""v11 agenda-wide continuous-state transducer bank.
 
 Edges live in a columnar table on the model's device: one tensor per packed
 field, indexed by slot. Edge IDs are stable; slots are an internal detail and
@@ -627,7 +627,7 @@ class EdgeStore:
             (count, g.location_dim),
             (count,),
         ) or write_mass.shape != (count,):
-            raise ValueError("Edge field dimensions do not match v10 geometry")
+            raise ValueError("Edge field dimensions do not match v11 geometry")
         if step < 0 or not bool(torch.isfinite(bias).all()) or bool((write_mass < 0).any()):
             raise ValueError("Invalid edge statistics or bias")
         if count > self.edge_room:
@@ -729,7 +729,7 @@ class TransducerBank(EdgeStore, nn.Module):
     its controls are model parameters; it searches whatever the session mounted.
     """
 
-    identity = "continuous-state-transducer-v10"
+    identity = "continuous-state-transducer-v11"
 
     def __init__(self, geometry: TransducerGeometry | None = None) -> None:
         super().__init__()
@@ -1163,7 +1163,7 @@ class TransducerBank(EdgeStore, nn.Module):
 
     def load_snapshot(self, data: dict[str, Any]) -> None:
         if data.get("identity") != self.identity or data["geometry"] != vars(self.geometry):
-            raise ValueError("Only exact v10 packed-edge snapshot identities are accepted")
+            raise ValueError("Only exact v11 packed-edge snapshot identities are accepted")
         rows = data["rows"]
         count = int(rows["ids"].numel())
         if count > self.geometry.max_edges or count * self.geometry.row_bytes > (

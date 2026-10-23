@@ -587,6 +587,11 @@ def _transducer_sequence(
         generator=torch.Generator().manual_seed(seed),
         mounted=mounted,
         sources=sources,
+        # Auxiliary look-ahead teaching is never a student trajectory and never
+        # conditions tool/lifecycle decisions or recorded student selections.
+        teacher_supervision=(
+            batch.windows[0].episode.tools_json == "[]" and not batch.native_history.has_events
+        ),
     )
     sequence.hindsight(
         meridians,
@@ -695,6 +700,7 @@ def forward_meridian_batch(
     sequence = _transducer_sequence(
         model, batch, transducer, store, device, model_version, seed, mounted
     )
+    metrics["teacher_assisted_windows" if sequence.alpha else "causal_student_windows"] = 1
     state = sequence.begin(
         multi,
         state,

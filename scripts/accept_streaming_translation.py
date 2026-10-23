@@ -79,14 +79,14 @@ def main():
         write_json(args.root / "train-config.json", asdict(config))
         from megatoken.training.engine import train
 
-        write_json(
-            args.root / "training.json",
-            train(
-                config,
-                resume=None if args.resume is None else str(args.resume),
-                phase_transition=args.resume is not None,
-            ),
+        result = train(
+            config,
+            resume=None if args.resume is None else str(args.resume),
+            phase_transition=args.resume is not None,
         )
+        write_json(args.root / "training.json", result)
+        if result["termination"] == "requested":
+            raise SystemExit(130)
         next_stage("restart")
     # Stage transitions use the recipe recorded before the first update. Later
     # helper defaults must not silently alter an already running experiment.
@@ -94,9 +94,10 @@ def main():
     if args._stage == "restart":
         from megatoken.training.engine import train
 
-        write_json(
-            args.root / "restart.json", train(replace(config, max_steps=2), resume=str(checkpoint))
-        )
+        result = train(replace(config, max_steps=2), resume=str(checkpoint))
+        write_json(args.root / "restart.json", result)
+        if result["termination"] == "requested":
+            raise SystemExit(130)
         next_stage("export")
     if args._stage == "export":
         from megatoken.served import export_served

@@ -47,7 +47,7 @@ from .state import KVHistory, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v17"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v18"
 
 
 @dataclass(frozen=True)

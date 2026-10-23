@@ -15,7 +15,7 @@ import torch
 
 from megatoken.io import fsync_directory, sha256_file, write_json
 
-FORMAT_VERSION = 14
+FORMAT_VERSION = 15
 
 
 def stage_checkpoint(root: str | Path, name: str) -> Path:

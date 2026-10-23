@@ -79,7 +79,7 @@ def test_diloco_local_http_train_checkpoint_resume(tmp_path, monkeypatch):
         token_budget=config.schedule.budget,
         transducer={
             "geometry": dict(vars(model_config.transducer_geometry)),
-            "evidence_from": HindsightSchedule().warmup_steps,
+            "evidence_from": HindsightSchedule().evidence_steps,
         },
     )
     server = multiprocessing.get_context("spawn").Process(
