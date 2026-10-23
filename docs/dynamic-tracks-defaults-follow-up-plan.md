@@ -21,6 +21,7 @@ Use a fixed source revision for each preparation and experiment.
 | Area | Existing support | Follow up |
 | --- | --- | --- |
 | Dynamic tracks | Stable addresses, semantic purposes, lifecycle actions, per-event modality choice, shared attention | Teach useful creation and completion; integrate the host execution loop |
+| Track context | One shared bounded attention history, same-track attention bias, and global eviction of oldest event groups | Implement longer within-track context, shorter cross-track context, and physical cache retention that follows those policies |
 | Scheduling | Bounded ready queue, prerequisites, priorities, periodic service of older work | Separate waiting from execution capacity; explain and recover from blocked work |
 | Tools and sources | Concurrent execution, snapshot reads, source publication, evidence addresses | Exercise real adapters through the automatic loop and recover across disconnection |
 | Speech and media | Asynchronous rendering, delivery acknowledgements, cancellation, bounded output memory | Provide a usable voice profile and demonstrate sustained natural conversation |
@@ -141,6 +142,176 @@ Acceptance requires sustained sessions at fixed concurrency to reach a stable
 live-memory range. Measure the live memory excluding intentionally growing durable
 archives. Restart during tool execution and partial speech delivery; verify no
 effect duplication, wrong-track delivery, lost prerequisites, or cross-scope memory.
+
+## Track context windows and inference memory
+
+### Attention and retention are separate decisions
+
+Different attention windows between tracks are part of the intended design and
+remain an implementation gap. The current code retains one bounded shared history,
+adds a learned preference for same-track attention, and evicts the oldest complete
+event groups globally. That does not supply independently configurable track
+windows. The [attention reader](../src/megatoken/model/attention.py) accepts masks,
+but the track-specific window policy and corresponding cache management still need
+to be built.
+
+An attention window determines which stored events a prediction can read. A cache
+retention policy determines which projected keys and values remain in accelerator
+memory. Hiding old events with an attention mask does not free their storage.
+Implement and measure both parts together.
+
+### Default visibility and context handoff
+
+Give every track an explicit context policy whose default allows a longer history
+of its own events and a shorter recent history of events from other tracks. Count
+the within-track allowance in committed events on that track, so unrelated work
+does not prematurely age out its local history. Count the cross-track allowance
+over recent committed events from all other tracks combined, so creating more
+tracks does not multiply that allowance. Keep all facets belonging to one event
+together, and preserve causal ordering and correspondence within joint outputs.
+
+The public policy records local and cross-track window sizes, bounded retained
+instructions and references, and a context-storage budget. The host sets resource
+ceilings; the model can request a narrower window or an explicit expansion within
+them. Record any accepted policy change before the next affected selection. A
+budget reduction must report which context is no longer directly readable rather
+than silently changing the task's meaning.
+
+Use these context behaviors by default:
+
+- A new worker receives its purpose, current task revision, completion condition,
+  applicable user constraints, and explicitly selected source material. It starts
+  with a short cross-track window and grows its own longer local history. It does
+  not acquire the parent's entire history simply because it is a child track.
+- Delegation includes a bounded description of the task and references to needed
+  evidence. The worker can request missing context, fetch an older source, or ask
+  the parent to clarify. Keep the original evidence addresses and source versions.
+- Worker progress and final results become explicit messages available to their
+  consumers. The main track can retain a concise result and fetch the supporting
+  evidence when needed, allowing detailed worker history to leave accelerator
+  memory after the work completes.
+- Stable task instructions and selected essential evidence may be retained longer
+  under a separate bounded allowance. Retaining a reference address alone does not
+  retain its readable content. Report whether that content is resident, retrievable,
+  or unavailable.
+- Current corresponding output peers can still interact within their selected
+  group. A peer does not receive a later rendering, tool result, or observation as
+  an input to its own selection. Review this behavior explicitly for speech/caption
+  and audio/video groups when adding masks.
+
+Window size controls direct attention, not confidentiality. A retained summary or
+an event representation may already contain information from earlier context.
+Keep existing scope and source-permission checks independent of these windows.
+
+### Physical cache management
+
+Store each committed event's projected keys and values once, with its track,
+original position, event address, group membership, and retention requirements.
+Build the required read view for each track from that shared storage. Avoid copying
+the entire parent cache into every worker. Preserve original positions when events
+are gathered or removed; storage compaction must not renumber their temporal
+attention positions.
+
+Retain the union of events needed by runnable tracks, bounded essential references,
+and in-flight rendering snapshots. An event can leave accelerator memory when no
+live reader or immutable rendering snapshot still needs it. Waiting and inactive
+tracks may keep older context in host memory or a durable archive and restore it
+when resumed. Define the allowed restoration latency and reclaim temporary restore
+buffers. Completed tracks release detailed context after publishing necessary
+results and satisfying late-result and replay requirements.
+
+Replace the global oldest-group eviction assumption with an explicit retention
+contract. Commit joint groups atomically and preserve their event bindings, while
+allowing storage reclamation of independent member blocks after their readers have
+finished. Do not split a live group or discard a required peer during its joint
+computation. If the first implementation retains an entire historical group when
+any member is needed, account for that extra storage and test its worst case.
+
+Enforce one session accelerator-memory budget and a server-wide budget in addition
+to per-track allowances. Several active long local histories can consume more
+memory than today's short global history; smaller cross-track windows alone do not
+guarantee a reduction. On pressure, reclaim unneeded events, suspend eligible work,
+move inactive history out of accelerator memory, or negotiate a shorter context.
+Do not silently erase essential task instructions or evidence supporting an
+unfinished answer. Include metadata and rendering snapshots in the budget.
+
+Use gathered or block-based attention reads where practical. A dense mask over the
+full cache may preserve both the storage cost and much of the attention work.
+Measure temporary gathers and masks as part of peak memory, and compare an
+optimized reader with a straightforward masked reference before claiming savings.
+
+Apply the policy consistently to every historical-context path: observation
+integration, content and modality prediction, contextual output rendering, explicit
+evidence-reference reads, and internal memory/source observations. Centralize the
+visibility decision so an unmasked helper cannot bypass the selected window.
+Define how retained task summaries and memory retrieval provide compressed older
+information. Any expansion that reads old source content must become a causal,
+recorded context change before a selection consumes it.
+
+### Train context management as part of delegation
+
+Build demonstrations in which task assignment includes enough context to succeed,
+workers discover a missing premise, retrieve evidence outside the cross-track
+window, summarize progress, return a result, and retire their detailed history.
+Include cases where requesting more context is useful, unnecessary, denied by the
+budget, or impossible because the source is unavailable. Teach a supported partial
+answer or clarification rather than invention when missing evidence is essential.
+
+Include long worker tasks interleaved with busy unrelated tracks. Relevant local
+history should remain usable while older foreign history falls outside direct
+attention. Also include late changes to user constraints: deliver an explicit task
+revision or cancellation message so a worker with a short cross-track window is
+informed reliably. Do not rely on the worker noticing the parent's entire history.
+
+Vary local and cross-track window sizes during preparation and rollout while
+maintaining the default ordering that local context is longer. Give the model
+public descriptions of available context and expansion costs. Keep large shared
+context as a comparison condition. Add examples where compact handoff and a summary
+outperform retaining all details, and examples requiring exact source retrieval
+because a summary loses important detail.
+
+Collection must record the policy, visible event addresses, retained essential
+context, imported messages, context requests and their outcomes, storage moves,
+and actual cache usage at each relevant decision. Keep archived training evidence
+separate from the context made available to the model. A teacher seeing more
+context must provide a demonstration with the required handoff or retrieval step;
+its unsupported answer cannot become the student's target for a hidden premise.
+
+Replay the same visibility and policy changes in supervised and outcome training,
+held-out scoring, and serving. Update data validation, causal window packing,
+native policy-context reconstruction, checkpoint compatibility, and distributed
+accounting. Validate that prerequisites and reference reads are either visible or
+explicitly retrievable. A shorter replay window must not silently change the
+probability assigned to an already recorded action. Preserve model and policy
+identities for reproducible reconstruction after cache eviction.
+
+Train context requests and handoffs through the existing structured action path.
+Supervise context-selection and summary quality with independent task outcomes and
+source support. Any memory or latency penalty must use measured costs and frozen
+coefficients; do not reward dropping context at the expense of correctness.
+
+### Context acceptance and measurements
+
+Add a reference implementation and regressions proving that local events remain
+directly readable beyond the foreign window, unrelated traffic does not shorten a
+track's local allowance, an expired foreign event is excluded from direct reads,
+and fetching it makes it available only after the fetch commits. Cover all history
+read paths and same-track multimodal peers. Test policy changes, group eviction,
+resume, late results, source scope, and rendering from an earlier immutable snapshot.
+
+Run long delegated tasks, combined voice/tool sessions, and evidence synthesis with
+the same inputs under a long shared window and the proposed asymmetric windows.
+Also compare equal accelerator-memory budgets to distinguish additional capacity
+from better behavior. Report verified task quality, source support, context fetches,
+summary errors, cache bytes, total peak accelerator allocation, host/archive bytes,
+restoration delay, response latency, and supported concurrent sessions. State the
+hardware, active-track distribution, decoder load, and retained-event counts.
+
+Select concrete default window sizes from these comparisons before freezing the
+production profile. Acceptance requires measured accelerator-memory savings against
+the declared long-shared-context baseline, task quality within the predeclared
+margin, and bounded context-restoration latency. Report cases where the union of
+local histories grows and where offloading shifts cost to host memory or latency.
 
 ## Data collection and preparation
 
@@ -311,6 +482,7 @@ seeds, and all denominators.
 | Media correspondence | Independent matching judgments and time-local checks on genuine and deliberately incorrect pairs; detect shifts and mismatches without rejecting valid pairs indiscriminately |
 | Recovery | Correct or appropriately explained terminal outcomes after each fault type, divided by affected attempts; preserve successful effects and prevent duplicates |
 | Session stability | Live memory, queued work, and user latency during sustained use and recovery; remain within declared budgets without starvation or lost references |
+| Track context efficiency | Verified quality together with measured cache and peak accelerator bytes for long local and short foreign windows; save memory against the declared shared-context baseline without hiding restoration costs |
 
 Freeze quality margins and latency/memory targets after the development pilot and
 before final held-out testing. Report uncertainty over original families and review
@@ -324,6 +496,7 @@ behavior or media-quality requirement.
 | --- | --- | --- |
 | Reconciled baseline | Fixed source snapshot, current inventory, behavior matrix, serial baseline, and profile measurements | Existing preparation, restart, export, and protocol acceptance remain reproducible |
 | Automatic runtime | Standard session loop, separate execution/waiting limits, blocked-work outcomes, profiles, and cleanup | Real adapter integration and failure/restart tests pass without scripted intermediate model decisions |
+| Track context and storage | Longer local and shorter foreign windows, bounded handoffs and retained instructions, shared event storage, cache reclamation and restoration | All history reads follow the policy; measured memory and quality comparisons pass; policy replay and restart are consistent |
 | Diverse pilot data | Broad task families, paired serial/parallel approaches, combined conversations, translation waits, and correspondence negatives | Source review, causal validation, family splitting, manual annotation audit, and export/restore checks pass |
 | Training integration | New coverage requirements, losses, sampling reports, and recipe settings | Actual optimizer steps reach intended parameters; denominators and progress match single-process and distributed references; restart preserves exposure |
 | Learned behavior pilot | Supervised and student-outcome training with generated validation reports | Useful successes, bounded failure recovery, address invariance, and absence of future-evidence shortcuts are demonstrated |
@@ -334,6 +507,10 @@ final student trajectories only after the loop's execution and delivery semantic
 are stable. Waiting/capacity changes precede stalled-work collection. Preparation
 and annotation changes precede rebuilding data and changing production mixtures.
 Run representative real-decoder pilots before selecting voice chunk defaults.
+Implement context visibility and retention before collecting final delegation
+trajectories or selecting production window sizes. Develop the handoff and retrieval
+examples alongside the storage work, then rebuild affected prepared data and verify
+training replay against the recorded serving context.
 
 For each delivery, update the runbook, serving instructions, examples, CI checks,
 and implementation status. Archive source and training revisions, admitted data,
