@@ -350,8 +350,10 @@ def test_valid_empty_student_draw_does_not_require_an_absent_record_on_next_requ
         tape = json.loads(response.native_tape_json)
         assert tape["valid"] == [True] and tape["tracks"] == ["assistant"]
     # The prompt was observed once; both empty draws advanced the one session.
-    tracks = [event for _, event in student._session.events]
-    assert tracks.count(("user",)) == 1 and tracks.count(("assistant",)) == 2
+    # Roles remain distinct within the same continuing work track.
+    assert len(student._session.events) == 3
+    assert student._session.history.count(b"continue") == 1
+    assert [tracks for _, tracks in student._session.events] == [("assistant",)] * 3
 
 
 def integration_episodes(model, collected):
