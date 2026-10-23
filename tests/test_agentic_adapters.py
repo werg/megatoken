@@ -1056,6 +1056,63 @@ def test_tool_calls_written_inside_one_assistant_output_are_split_out_with_their
     assert linked(episode)
 
 
+def test_a_call_quoted_while_thinking_is_not_a_call_and_bare_user_results_can_be_read():
+    thinking = '<think>I could write <tool_call>{"name": "x"}</tool_call> but first</think>\n'
+    call = thinking + '<tool_call>{"name": "f", "arguments": {}}</tool_call>'
+    row = {
+        "conversations": [
+            {"from": "human", "value": "go"},
+            {"from": "gpt", "value": call},
+            {"from": "human", "value": '{"v": 1}'},
+            {"from": "gpt", "value": "done"},
+        ]
+    }
+    episode = adapt(row, "hermes_user_result_tools")
+    assert [a.tool_name for a in episode.actions] == ["f"]
+    assert [r.payload for r in episode.records if r.result_of] == [b'{"v": 1}']
+    # The ordinary reader sees a call that was never answered.
+    with pytest.raises(SchemaError, match="observation is missing"):
+        adapt(row, "hermes_tools")
+
+
+def test_glaive_calls_inside_messages_and_reasoning_roles():
+    glaive = {
+        "messages": [
+            {"role": "system", "content": "You can call functions."},
+            {"role": "user", "content": "weather?"},
+            {
+                "role": "assistant",
+                "content": '<<functioncall>> {"name": "w", "arguments": \'{"c": "Rome"}\'}',
+            },
+            {"role": "function-response", "content": '{"t": 20}'},
+            {"role": "assistant", "content": "20 degrees"},
+        ]
+    }
+    episode = adapt(glaive, "glaive_message_tools")
+    assert [json.loads(a.arguments_json) for a in episode.actions] == [{"c": "Rome"}]
+    assert linked(episode)
+    steps = {
+        "messages": json.dumps(
+            [
+                {"role": "system", "content": "Research."},
+                {"role": "user", "content": "Q?"},
+                {"role": "reasoning", "content": "<think>search</think>"},
+                {
+                    "role": "tool_call",
+                    "content": '<tool_call>\n{"name": "s", "arguments": {"q": 1}}\n</tool_call>',
+                },
+                {"role": "tool_output", "content": "<tool_response>\nfound\n</tool_response>"},
+                {"role": "reasoning", "content": "<think>enough</think>"},
+                {"role": "answer", "content": "<answer>A</answer>"},
+            ]
+        )
+    }
+    episode = adapt(steps, "reasoning_role_tools")
+    assert [r.payload for r in episode.records if r.result_of] == [b"found"]
+    assert episode.records[-1].policy_mask and b"enough" in episode.records[-1].payload
+    assert linked(episode)
+
+
 def test_xml_function_calls_keep_parameter_types():
     call = (
         "<tool_call>\n<function=book>\n<parameter=city>\nParis\n</parameter>\n"

@@ -199,6 +199,10 @@ PROFILES: dict[str, AdapterProfile] = {
     ),
     # Tool dialogues with an LLM-simulated tool backend.
     "hermes_tools": AdapterProfile(observation_provenance="simulated", dialect="hermes"),
+    # Calls in hermes syntax whose results arrive as the next, untagged user turn.
+    "hermes_user_result_tools": AdapterProfile(
+        observation_provenance="simulated", dialect="hermes_user_results"
+    ),
     "python_call_tools": AdapterProfile(observation_provenance="simulated", dialect="python_calls"),
     # gpt-oss traces of a browsing agent whose search and page tools really ran.
     "harmony_tools": AdapterProfile(observation_provenance="executed", dialect="harmony"),
@@ -217,6 +221,14 @@ PROFILES: dict[str, AdapterProfile] = {
         observation_provenance="executed",
         dialect="tool_dict",
         fields=_fields(messages="conversation"),
+    ),
+    # Glaive rows stored as messages, with the call written as <functioncall> text.
+    "glaive_message_tools": AdapterProfile(
+        observation_provenance="simulated", dialect="glaive_messages"
+    ),
+    # One role per step (reasoning, tool_call, tool_output, answer).
+    "reasoning_role_tools": AdapterProfile(
+        observation_provenance="simulated", dialect="reasoning_roles"
     ),
     "glaive_tools": AdapterProfile(
         observation_provenance="simulated",

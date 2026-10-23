@@ -179,14 +179,19 @@ def _packed_results(body: str, count: int) -> list[str] | None:
     return None
 
 
-def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
-    """``<tool_call>{json}</tool_call>`` (or the XML ``<function=...>`` form) in assistant text,
-    ``<tool_response>`` results."""
+def _hermes(row: Mapping[str, Any], value: Any, *, user_results: bool) -> tuple[Messages, Any]:
     ledger, out = _Ledger(), []
     messages = _messages(value)
     system = row.get("system_prompt", row.get("system"))
     if isinstance(system, str) and system.strip() and role_of(messages[0]) != "system":
         out.append({"role": "system", "content": system})  # a prompt kept outside the turns
+    question = row.get("original_question")
+    if (
+        isinstance(question, str)
+        and question.strip()
+        and not any(role_of(message) == "user" for message in messages)
+    ):
+        out.append({"role": "user", "content": question})  # the task is kept in its own column
     for turn, message in enumerate(messages):
         role, text = role_of(message), _text(message)
         # Qwen-style templates deliver results as a user turn made of response blocks only.
@@ -196,16 +201,25 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
             and text.lstrip().startswith("<tool_response>")
             and not _TAGGED["response"].sub("", text).strip()
         )
-        is_result = blocks_only or (
-            role == "tool" and (bool(ledger.pending) or "<tool_response>" in text)
+        # Some sets send the result as a user turn with no tags at all.
+        bare_user = role == "user" and user_results and bool(ledger.pending)
+        is_result = (
+            blocks_only
+            or bare_user
+            or (role == "tool" and (bool(ledger.pending) or "<tool_response>" in text))
         )
         if ledger.unfinished and ledger.pending and not is_result:
             raise SchemaError(
                 f"The dialogue moves on with {len(ledger.pending)} call(s) only partly answered"
             )
-        if role == "assistant" and "<tool_call>" in text:
+        # A call quoted while thinking is not a call: only text after the last </think> is read.
+        thought, closing, spoken = (
+            text.rpartition("</think>") if role == "assistant" else ("", "", text)
+        )
+        if role == "assistant" and "<tool_call>" in spoken:
             # With one capture group the split alternates prose, call, prose, call, ...
-            pieces = _TAGGED["call"].split(text)
+            pieces = _TAGGED["call"].split(spoken)
+            pieces[0] = thought + closing + pieces[0]
             ids = iter(ledger.issue(turn, len(pieces) // 2))
             blocks: list[dict[str, Any]] = []
             for index, piece in enumerate(pieces):
@@ -226,6 +240,17 @@ def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
         else:
             out.append({**message, "role": role, "content": text})
     return out, row.get("tools")
+
+
+def hermes(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """``<tool_call>{json}</tool_call>`` (or the XML ``<function=...>`` form) in assistant text,
+    ``<tool_response>`` results."""
+    return _hermes(row, value, user_results=False)
+
+
+def hermes_user_results(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """Hermes calls whose results come back as the next user turn, untagged (Simia tau-bench)."""
+    return _hermes(row, value, user_results=True)
 
 
 def _split_top(text: str, separators: str) -> list[str]:
@@ -426,7 +451,8 @@ def role_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     for turn, message in enumerate(_messages(value)):
         raw = message.get("role", message.get("from"))
         if isinstance(raw, str):
-            raw = raw.replace(" ", "_")  # "tool call" is how one publisher spells tool_call
+            # "tool call" and "function-call" are how some publishers spell tool_call, function_call.
+            raw = raw.replace(" ", "_").replace("-", "_")
         if raw in {"tool_call", "function_call"}:
             body, prose = message.get("content", message.get("value")), ""
             if isinstance(body, str) and "<tool_call>" in body:
@@ -444,7 +470,9 @@ def role_calls(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
                 for call_id, item in zip(ids, bodies, strict=True)
             ]
             out.append({**message, "role": "assistant", "content": _blocks(prose, uses)})
-        elif raw in {"tool_response", "observation", "tool"} and ledger.pending:
+        elif (
+            raw in {"tool_response", "function_response", "observation", "tool"} and ledger.pending
+        ):
             text = _text_or_json(message)
             results = _TAGGED["response"].findall(text) if "<tool_response>" in text else [text]
             if len(results) > len(ledger.pending):
@@ -466,8 +494,51 @@ def _text_or_json(message: Mapping[str, Any]) -> str:
 
 
 _GLAIVE_TURN = re.compile(r"(?m)^(USER|ASSISTANT|FUNCTION RESPONSE):[ \t]?")
-_GLAIVE_CALL = re.compile(r"^<functioncall>\s*(\{.*\})\s*(?:<\|endoftext\|>)?$", re.DOTALL)
+_GLAIVE_CALL = re.compile(
+    r"^<{1,2}functioncall>{1,2}\s*(\{.*\})\s*(?:</functioncall>)?\s*(?:<\|endoftext\|>)?$",
+    re.DOTALL,
+)
 _GLAIVE_ARGS = re.compile(r"\"arguments\":\s*'(.*)'\s*\}$", re.DOTALL)
+
+
+def _glaive_item(body: str) -> Mapping[str, Any]:
+    """The ``{"name", "arguments"}`` of a ``<functioncall>`` turn; arguments may be a quoted JSON string."""
+    match = _GLAIVE_CALL.match(body)
+    if match is None:
+        raise SchemaError("Unparseable <functioncall>")
+    text = match.group(1)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        quoted = _GLAIVE_ARGS.search(text)
+        name = re.search(r"\"name\":\s*\"([^\"]+)\"", text)
+        if quoted is None or name is None:
+            raise SchemaError("Unparseable <functioncall> arguments") from None
+        return {"name": name.group(1), "arguments": quoted.group(1)}
+
+
+def glaive_messages(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """Glaive rows already split into messages: the assistant writes ``<functioncall> {...}`` as text
+    and a ``tool`` or ``function_response`` message answers it."""
+    ledger, out = _Ledger(), []
+    for turn, message in enumerate(_messages(value)):
+        raw = message.get("role", message.get("from"))
+        role = (
+            role_of(message)
+            if not isinstance(raw, str)
+            else role_of({"role": raw.replace("-", "_")})
+        )
+        text = _text_or_json(message)
+        if role == "assistant" and re.match(r"\s*<{1,2}functioncall>", text):
+            item = _glaive_item(text.strip())
+            (call_id,) = ledger.issue(turn, 1)
+            call = _use(call_id, item.get("name"), item.get("arguments", {}))
+            out.append({"role": "assistant", "content": [call]})
+        elif role in {"tool", "function_response"} and ledger.pending:
+            out.append({"role": "tool", "content": [_result(ledger.pending.popleft(), text)]})
+        else:
+            out.append({"role": role, "content": text})
+    return out, row.get("tools")
 
 
 def glaive(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
@@ -505,18 +576,7 @@ def glaive(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
             (call_id,) = ledger.answer(1)
             out.append({"role": "tool", "content": [_result(call_id, body)]})
         elif body.startswith("<functioncall>"):
-            match = _GLAIVE_CALL.match(body)
-            if match is None:
-                raise SchemaError("Unparseable <functioncall>")
-            text = match.group(1)
-            try:
-                item = json.loads(text)
-            except json.JSONDecodeError:
-                quoted = _GLAIVE_ARGS.search(text)
-                name = re.search(r"\"name\":\s*\"([^\"]+)\"", text)
-                if quoted is None or name is None:
-                    raise SchemaError("Unparseable <functioncall> arguments") from None
-                item = {"name": name.group(1), "arguments": quoted.group(1)}
+            item = _glaive_item(body)
             (call_id,) = ledger.issue(turn, 1)
             out.append(
                 {
@@ -933,33 +993,37 @@ def environment_roles(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any
     return out, row.get("tools")
 
 
-_TAG_CALL = re.compile(r"<(search|python)>(.*?)</\1>\s*<result>(.*?)</result>", re.DOTALL)
+# Tool name, the argument it takes and what it does, for the tags these sets write.
+_TAG_TOOLS_SPEC = {
+    "search": ("query", "Search Wikipedia and return the relevant passage."),
+    "wiki_search": ("query", "Search Wikipedia and return the relevant passages."),
+    "web_search": ("query", "Search the web and return the results."),
+    "crawl_page": ("url", "Fetch a web page and return its text."),
+    "python": ("code", "Run Python code and return what it printed."),
+}
+_TAG_CALL = re.compile(
+    r"<(" + "|".join(_TAG_TOOLS_SPEC) + r")>(.*?)</\1>\s*<(result|observation)>(.*?)</\3>",
+    re.DOTALL,
+)
 _TAG_TOOLS = [
     {
-        "name": "search",
-        "description": "Search Wikipedia and return the relevant passage.",
+        "name": name,
+        "description": description,
         "parameters": {
             "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
+            "properties": {argument: {"type": "string"}},
+            "required": [argument],
         },
-    },
-    {
-        "name": "python",
-        "description": "Run Python code and return what it printed.",
-        "parameters": {
-            "type": "object",
-            "properties": {"code": {"type": "string"}},
-            "required": ["code"],
-        },
-    },
+    }
+    for name, (argument, description) in _TAG_TOOLS_SPEC.items()
 ]
 
 
 def tag_trace(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
-    """Tool-integrated reasoning written as one assistant output (Tool-Star): ``<think>`` text, then
-    ``<search>query</search><result>...</result>`` or ``<python>code</python><result>...</result>``,
-    and a closing ``<answer>``. The system prompt is ``instruction`` and the question is ``input``.
+    """Tool-integrated reasoning written as one assistant output (Tool-Star, AFM): ``<think>`` text,
+    then ``<search>query</search><result>...</result>`` or ``<python>code</python><result>...</result>``
+    (``web_search``, ``wiki_search`` and ``crawl_page`` with ``<observation>`` in AFM), and a closing
+    ``<answer>``. The system prompt is ``instruction`` and the question is ``input``.
 
     Each tagged call ends the assistant turn that wrote it and its result is the tool's reply,
     so the retrieved text is context rather than something trained.
@@ -975,15 +1039,67 @@ def tag_trace(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
     position = 0
     for turn, match in enumerate(_TAG_CALL.finditer(output)):
         (call_id,) = ledger.issue(turn, 1)
-        argument = "query" if match.group(1) == "search" else "code"
-        call = _use(call_id, match.group(1), {argument: match.group(2).strip()})
+        call = _use(
+            call_id, match.group(1), {_TAG_TOOLS_SPEC[match.group(1)][0]: match.group(2).strip()}
+        )
         out.append(
             {"role": "assistant", "content": _blocks(output[position : match.start()], [call])}
         )
-        out.append({"role": "tool", "content": [_result(call_id, match.group(3).strip())]})
+        out.append({"role": "tool", "content": [_result(call_id, match.group(4).strip())]})
         position = match.end()
     out.append({"role": "assistant", "content": output[position:]})
     return out, _TAG_TOOLS
+
+
+def reasoning_roles(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
+    """Trajectories with one role per step: ``reasoning`` (``<think>`` text), ``tool_call``
+    (``<tool_call>{json}</tool_call>``), ``tool_output`` (``<tool_response>``) and ``answer``.
+
+    Reasoning and answer text that precede a call or end the trace belong to the assistant turn
+    that speaks next; an output answers the oldest call.
+    """
+    ledger, out, spoken = _Ledger(), [], []
+
+    def speak() -> None:
+        if spoken:
+            out.append({"role": "assistant", "content": "\n\n".join(spoken)})
+            spoken.clear()
+
+    for turn, message in enumerate(_messages(value)):
+        raw = message.get("role", message.get("from"))
+        text = _text_or_json(message)
+        if raw in {"reasoning", "answer", "assistant"}:
+            spoken.append(text)
+        elif raw == "tool_call":
+            prose, calls = _tagged_calls(text)
+            if not calls:
+                raise SchemaError("A tool_call message holds no <tool_call> body")
+            ids = ledger.issue(turn, len(calls))
+            uses = [
+                _use(i, item.get("name"), item.get("arguments", item.get("parameters", {})))
+                for i, item in zip(ids, calls, strict=True)
+            ]
+            out.append(
+                {
+                    "role": "assistant",
+                    "content": _blocks("\n\n".join([*spoken, prose]).strip(), uses),
+                }
+            )
+            spoken.clear()
+        elif raw in {"tool_output", "tool_response", "tool"}:
+            speak()
+            results = _TAGGED["response"].findall(text) if "<tool_response>" in text else [text]
+            if len(results) > len(ledger.pending):
+                raise SchemaError(
+                    f"{len(results)} tool outputs for {len(ledger.pending)} pending call(s)"
+                )
+            blocks = [_result(ledger.pending.popleft(), result) for result in results]
+            out.append({"role": "tool", "content": blocks})
+        else:
+            speak()
+            out.append({"role": role_of(message), "content": text})
+    speak()
+    return out, row.get("tools")
 
 
 def _response_text(content: Any) -> str:
@@ -1066,6 +1182,8 @@ def responses(row: Mapping[str, Any], value: Any) -> tuple[Messages, Any]:
 
 DIALECTS: dict[str, Dialect] = {
     "responses": responses,
+    "reasoning_roles": reasoning_roles,
+    "glaive_messages": glaive_messages,
     "tag_trace": tag_trace,
     "environment_roles": environment_roles,
     "call_list": call_list,
@@ -1073,6 +1191,7 @@ DIALECTS: dict[str, Dialect] = {
     "tool_dict": tool_dict,
     "harmony": harmony,
     "hermes": hermes,
+    "hermes_user_results": hermes_user_results,
     "python_calls": python_calls,
     "role_calls": role_calls,
     "glaive": glaive,
