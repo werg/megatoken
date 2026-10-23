@@ -12,6 +12,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -387,3 +388,276 @@ def benchmark(
     finally:
         if optimizer is not None:
             optimizer.close()
+
+
+def benchmark_served_session(
+    config: ModelConfig | str = "tiny",
+    *,
+    codec: ByteCodec | str = "byte",
+    device: str | torch.device = "cpu",
+    steps: int = 5,
+    warmup: int = 2,
+    batch: int = 1,
+    record_bytes: int = 256,
+    capacity: int = 64,
+    history_records: int = 0,
+    effort: int = 6,
+    backend: str = "torch",
+    precision: str | None = None,
+    compile_mode: str | None = None,
+    collections: dict[str, str] | None = None,
+    bases: dict[str, str] | None = None,
+    trained_weight: float = 1.0,
+    max_sources: int = 2,
+    threshold: float | None = None,
+    seed: int = 17,
+    profile: bool = False,
+    bundle: str | Path | None = None,
+    packs: str | Path | None = None,
+) -> dict[str, Any]:
+    """Measure inference through the same session and lookup runtime as serving."""
+    if min(steps, batch, record_bytes, capacity, max_sources) < 1 or warmup < 0:
+        raise ValueError("Invalid served-session benchmark dimensions")
+    if history_records < 0:
+        raise ValueError("history_records cannot be negative")
+    if effort not in (1, 2, 3, 6):
+        raise ValueError("Unsupported predictive effort")
+    device = torch.device(device)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA benchmark requested but no CUDA device is available")
+    if backend == "triton" and device.type != "cuda":
+        raise ValueError("Triton measurements require an actual CUDA device")
+    from megatoken.controls import build_control_payload
+    from megatoken.data.chunking import ChunkingConfig
+    from megatoken.generation.structure import ActionSpec
+    from megatoken.model.multitrack import MultiTrackGenerator
+    from megatoken.multitrack_runtime import MultiTrackRuntime
+
+    if bundle is not None:
+        from megatoken.served import ServedBundle
+
+        served = ServedBundle(bundle, packs=packs, device=str(device))
+        config = served.config
+        actual_codec = served.codec
+        model = served.model
+        chunking = served.chunking
+        precision = "bf16" if next(model.parameters()).dtype == torch.bfloat16 else "fp32"
+    else:
+        if bases:
+            raise ValueError(
+                "A knowledge base is bound to exact model weights; benchmark it with --bundle"
+            )
+        if isinstance(config, str):
+            config = load_model_config(config)
+        config = replace(config, expert_backend=backend)
+        precision = precision or ("bf16" if device.type == "cuda" else "fp32")
+        if precision not in {"fp32", "bf16"}:
+            raise ValueError("precision must be fp32 or bf16")
+        actual_codec = (
+            codec
+            if isinstance(codec, ByteCodec)
+            else load_codec(codec, vocab_size=config.vocab_size)
+        )
+        if actual_codec.vocab_size != config.vocab_size:
+            raise ValueError("Served-session benchmark requires the real codec matching this model")
+        torch.manual_seed(seed)
+        model = build_model(config, actual_codec, device=device, precision=precision)
+        chunking = ChunkingConfig().with_hard_limit(config.max_capacity)
+    if capacity > config.max_capacity:
+        raise ValueError("Benchmark capacity exceeds configured maximum")
+    if not 1 <= capacity <= config.max_capacity:
+        raise ValueError("Benchmark capacity must be positive and within the model limit")
+    model.eval()
+    if compile_mode:
+        model.core.compile_kernels(compile_mode)
+    runtime = MultiTrackRuntime(
+        MultiTrackGenerator(model), chunking=chunking, collections=collections
+    )
+    mounted_bases: dict[str, float] = {}
+    for name, path in (bases or {}).items():
+        runtime.memory.open_base(name, path)
+        mounted_bases[name] = 1.0
+    prompt = (b"Describe the next step. " * ((record_bytes + 23) // 24))[:record_bytes]
+    spec = ActionSpec(min_tokens=capacity, max_tokens=capacity, require_terminal=True)
+    control = build_control_payload(tools_json="[]")
+    timing: dict[str, float] = {}
+    counts: dict[str, int] = {
+        "session_opens": 0,
+        "prompt_events": 0,
+        "generated_groups": 0,
+        "generated_positions": 0,
+        "generated_bytes": 0,
+        "runtime_lookups": 0,
+        "collection_items_retrieved": 0,
+    }
+    batch_latencies: list[float] = []
+    session_latencies: list[float] = []
+
+    def one_request(index: int, *, measure: bool) -> float:
+        _synchronize(device)
+        start = time.perf_counter()
+        phase_start = time.perf_counter()
+        with torch.profiler.record_function("fmt::session_open"):
+            session = runtime.open(
+                {"task": "benchmark", "modality": ["text"], "version": "v10"},
+                bases=mounted_bases,
+                trained=trained_weight,
+                effort=effort,
+                collections=None,
+                max_sources=max_sources,
+                threshold=threshold,
+            )
+        if measure:
+            _synchronize(device)
+            timing["session_open"] = timing.get("session_open", 0.0) + (
+                time.perf_counter() - phase_start
+            )
+            counts["session_opens"] += 1
+        source_session = session.memory.sources
+        if measure:
+            counts["runtime_lookups"] += session.memory.agenda.lookups
+            counts["collection_items_retrieved"] += (
+                0 if source_session is None else len(source_session.log)
+            )
+        for _ in range(history_records + 1):
+            retrieved_before = 0 if source_session is None else len(source_session.log)
+            lookups_before = session.memory.agenda.lookups
+            phase_start = time.perf_counter()
+            with torch.profiler.record_function("fmt::observe_prompt"):
+                runtime.observe_text(session, "user", prompt, role="user", effort=effort)
+            if measure:
+                _synchronize(device)
+                timing["observe_prompt"] = timing.get("observe_prompt", 0.0) + (
+                    time.perf_counter() - phase_start
+                )
+                counts["prompt_events"] += 1
+                counts["runtime_lookups"] += session.memory.agenda.lookups - lookups_before
+                counts["collection_items_retrieved"] += (
+                    0 if source_session is None else len(source_session.log)
+                ) - retrieved_before
+        retrieved_before = 0 if source_session is None else len(source_session.log)
+        lookups_before = session.memory.agenda.lookups
+        phase_start = time.perf_counter()
+        with torch.profiler.record_function("fmt::generate_answer"):
+            generated = runtime.generate(
+                session,
+                tracks=("assistant",),
+                specs=(spec,),
+                controls=(control,),
+                effort=effort,
+                generator=torch.Generator(device=device).manual_seed(seed + index + 1),
+            )
+        if measure:
+            _synchronize(device)
+            timing["generate_answer"] = timing.get("generate_answer", 0.0) + (
+                time.perf_counter() - phase_start
+            )
+            counts["generated_groups"] += 1
+            counts["generated_positions"] += len(generated.tape.emitted_ids[0])
+            counts["generated_bytes"] += len(generated.tape.payloads[0])
+            counts["runtime_lookups"] += session.memory.agenda.lookups - lookups_before
+            counts["collection_items_retrieved"] += (
+                0 if source_session is None else len(source_session.log)
+            ) - retrieved_before
+        _synchronize(device)
+        return time.perf_counter() - start
+
+    def one_iteration(index: int, *, measure: bool) -> float:
+        _synchronize(device)
+        start = time.perf_counter()
+        for request in range(batch):
+            duration = one_request(index * batch + request, measure=measure)
+            if measure:
+                session_latencies.append(duration)
+        _synchronize(device)
+        duration = time.perf_counter() - start
+        if measure:
+            batch_latencies.append(duration)
+        return duration
+
+    for index in range(warmup):
+        one_iteration(index, measure=False)
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+    for index in range(steps):
+        one_iteration(warmup + index, measure=True)
+    elapsed = sum(batch_latencies)
+    _synchronize(device)
+    measured_profile = None
+    if profile:
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if device.type == "cuda":
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
+        with torch.profiler.profile(
+            activities=activities, record_shapes=True, profile_memory=True
+        ) as profiler:
+            one_iteration(warmup + steps, measure=False)
+        measured_profile = {
+            "separate_untimed_iteration": True,
+            "regions": [
+                {
+                    "name": event.key,
+                    "calls": event.count,
+                    "cpu_total_seconds": event.cpu_time_total / 1e6,
+                    "device_total_seconds": getattr(event, "device_time_total", 0.0) / 1e6,
+                }
+                for event in profiler.key_averages()
+                if event.key.startswith("fmt::")
+            ],
+            "note": "Region CPU/device times are inclusive and overlap their parent regions; do not add them together",
+        }
+    ordered_sessions = sorted(session_latencies)
+    ordered_batches = sorted(batch_latencies)
+    report = {
+        "format_version": 1,
+        "workload": "served_session_inference",
+        "configuration": {
+            "model": config.to_dict(),
+            "bundle": None if bundle is None else str(bundle),
+            "codec": actual_codec.fingerprint,
+            "device": str(device),
+            "precision": precision,
+            "steps": steps,
+            "warmup": warmup,
+            "batch": batch,
+            "batch_execution": "serial_sessions",
+            "prompt_bytes": record_bytes,
+            "history_records": history_records,
+            "capacity": capacity,
+            "effort": effort,
+            "trained_bank_weight": trained_weight,
+            "knowledge_bases": sorted(mounted_bases),
+            "collections": sorted(collections or {}),
+            "max_sources_per_lookup": max_sources,
+            "collection_score_threshold": threshold,
+        },
+        "phase_seconds": timing,
+        "elapsed_seconds": elapsed,
+        "latency_seconds": {
+            "median": float(torch.tensor(session_latencies).median()),
+            "p95": ordered_sessions[max(0, math.ceil(0.95 * len(ordered_sessions)) - 1)],
+            "per_session": session_latencies,
+            "batch_median": float(torch.tensor(batch_latencies).median()),
+            "batch_p95": ordered_batches[max(0, math.ceil(0.95 * len(ordered_batches)) - 1)],
+            "per_batch": batch_latencies,
+        },
+        "counts": counts,
+        "rates": {name + "_per_second": value / elapsed for name, value in counts.items()},
+        "dispatch": dispatch_summary(model.core.dispatch_metrics()),
+        "memory": (
+            {
+                "peak_allocated_bytes": torch.cuda.max_memory_allocated(device),
+                "peak_reserved_bytes": torch.cuda.max_memory_reserved(device),
+            }
+            if device.type == "cuda"
+            else {"peak_allocated_bytes": None, "peak_reserved_bytes": None}
+        ),
+        "profile": measured_profile,
+        "note": (
+            "Measures metadata lookup, prompt observation, generated answer, and any configured "
+            "collection or knowledge-base retrieval through MultiTrackRuntime."
+        ),
+    }
+    for collection in runtime.memory.collections.values():
+        collection.close()
+    return report

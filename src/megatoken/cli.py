@@ -315,24 +315,61 @@ def _evaluate(args):
     import torch
 
     from megatoken.data import PreparedCorpus
+    from megatoken.data.chunking import ChunkingConfig
     from megatoken.loading import load_trained
     from megatoken.runtime import seed_everything
     from megatoken.training.config import TrainConfig
-    from megatoken.training.evaluation import evaluate_records
+    from megatoken.training.evaluation import evaluate_records, evaluate_served_records
 
     device = torch.device(
         ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     )
-    trained = load_trained(args.checkpoint, device=device, codec_path=args.codec)
+    trained = load_trained(
+        args.checkpoint, device=device, codec_path=args.codec, packs=getattr(args, "packs", None)
+    )
     seed_everything(args.seed)
-    config = TrainConfig.from_dict({**trained.payload["train_config"], "effort": args.effort})
-    dataset = PreparedCorpus(args.datasets or config.datasets, split=args.split)
+    train_settings = {**trained.payload["train_config"], "effort": args.effort}
+    if args.datasets:
+        train_settings["datasets"] = args.datasets
+    config = TrainConfig.from_dict(train_settings)
+    dataset = PreparedCorpus(config.datasets, split=args.split)
     try:
-        return evaluate_records(
-            trained.model, dataset, trained.codec, config, device, episodes=args.episodes
+        if args.core_only:
+            if args.collection or args.base:
+                raise ValueError(
+                    "Mounted collections and knowledge bases require served evaluation"
+                )
+            return evaluate_records(
+                trained.model, dataset, trained.codec, config, device, episodes=args.episodes
+            )
+        collections = _named_paths(args.collection, "--collection")
+        bases = _named_paths(args.base, "--base")
+        return evaluate_served_records(
+            trained.model,
+            dataset,
+            config,
+            device,
+            episodes=args.episodes,
+            seed=args.seed,
+            collections=collections,
+            bases=bases,
+            trained_weight=args.trained_weight,
+            max_sources=args.max_sources,
+            threshold=args.threshold,
+            chunking=ChunkingConfig.from_identity(trained.payload["chunking"], trained.codec),
         )
     finally:
         dataset.close()
+
+
+def _named_paths(values, option):
+    result = {}
+    for value in values:
+        name, separator, path = value.partition("=")
+        if not separator or not name or not path or name in result:
+            raise ValueError(f"{option} entries must be unique NAME=PATH values")
+        result[name] = path
+    return result
 
 
 def _kb_build(args):
@@ -349,6 +386,42 @@ def _kb_inspect(args):
 
 def _benchmark(args):
     from megatoken.benchmark import benchmark
+
+    if args.packs and not args.bundle:
+        raise ValueError("--packs is used with the verified --bundle")
+    if args.backward and args.model_only:
+        raise ValueError("--model-only is an inference benchmark, not a training measurement")
+    if (args.backward or args.core_only or args.model_only) and (args.collection or args.base):
+        raise ValueError("Mounted collections and knowledge bases require served-session inference")
+    if (args.backward or args.core_only or args.model_only) and args.bundle:
+        raise ValueError("--bundle applies to served-session inference, not this diagnostic")
+    if not args.backward and not args.core_only and not args.model_only:
+        from megatoken.benchmark import benchmark_served_session
+
+        return benchmark_served_session(
+            config=args.model,
+            codec=args.codec,
+            bundle=args.bundle,
+            packs=args.packs,
+            device=args.device,
+            steps=args.steps,
+            warmup=args.warmup,
+            batch=args.batch,
+            record_bytes=args.record_bytes,
+            capacity=args.capacity,
+            history_records=args.history_records,
+            backend=args.backend,
+            precision=args.precision,
+            compile_mode=args.compile_mode,
+            effort=args.effort,
+            seed=17,
+            collections=_named_paths(args.collection, "--collection"),
+            bases=_named_paths(args.base, "--base"),
+            trained_weight=args.trained_weight,
+            max_sources=args.max_sources,
+            threshold=args.threshold,
+            profile=args.profile,
+        )
 
     return benchmark(
         config=args.model,
@@ -663,22 +736,37 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--device")
     item.set_defaults(func=_pipeline)
     item = commands.add_parser(
-        "evaluate", help="Fixed-holdout served-prior sampling and lexical CE"
+        "evaluate", help="Fixed-holdout generated samples through served sessions"
     )
     item.add_argument("--checkpoint", required=True)
     item.add_argument("--datasets", nargs="+")
     item.add_argument("--codec")
+    item.add_argument("--packs", help="Relocate the checkpoint's matching media pack manifest")
     item.add_argument("--device", default="auto")
     item.add_argument("--split", choices=("validation", "test"), default="validation")
     item.add_argument("--episodes", type=int, default=16)
     item.add_argument("--effort", type=int, choices=(1, 2, 3, 6), default=6)
     item.add_argument("--seed", type=int, default=17)
+    item.add_argument(
+        "--core-only",
+        action="store_true",
+        help="Run the lower-level model-only loss and sampling diagnostic without session memory",
+    )
+    item.add_argument("--collection", action="append", default=[], metavar="NAME=DIRECTORY")
+    item.add_argument("--base", action="append", default=[], metavar="NAME=FILE")
+    item.add_argument("--trained-weight", type=float, default=1.0)
+    item.add_argument("--max-sources", type=int, default=2)
+    item.add_argument("--threshold", type=float)
     item.set_defaults(func=_evaluate)
     item = commands.add_parser(
         "benchmark", help="Measure real end-to-end work, memory, and dispatch"
     )
     item.add_argument("--model", default="tiny")
     item.add_argument("--codec", default="byte")
+    item.add_argument(
+        "--bundle", help="Run the exact shipped weights so model-bound knowledge bases can mount"
+    )
+    item.add_argument("--packs", help="The realizer pack manifest paired with --bundle")
     item.add_argument("--device", default="cpu")
     item.add_argument("--precision", choices=("bf16", "fp32"))
     for name, default in (
@@ -697,8 +785,24 @@ def parser() -> argparse.ArgumentParser:
         "--representation-mode", choices=("bootstrap", "recurrent"), default="bootstrap"
     )
     item.add_argument("--compile-mode")
-    for name in ("backward", "profile", "core-only"):
+    for name in ("backward", "profile"):
         item.add_argument("--" + name, action="store_true")
+    diagnostics = item.add_mutually_exclusive_group()
+    diagnostics.add_argument(
+        "--core-only",
+        action="store_true",
+        help="Measure the encoder/core without lexical generation",
+    )
+    diagnostics.add_argument(
+        "--model-only",
+        action="store_true",
+        help="Measure full generation without session memory lookups",
+    )
+    item.add_argument("--collection", action="append", default=[], metavar="NAME=DIRECTORY")
+    item.add_argument("--base", action="append", default=[], metavar="NAME=FILE")
+    item.add_argument("--trained-weight", type=float, default=1.0)
+    item.add_argument("--max-sources", type=int, default=2)
+    item.add_argument("--threshold", type=float)
     item.set_defaults(func=_benchmark)
     item = commands.add_parser("export", help="Create a checksummed served-only safetensors bundle")
     item.add_argument("--checkpoint", required=True)

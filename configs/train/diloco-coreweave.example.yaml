@@ -13,6 +13,9 @@ datasets:
   - PIN_PREPARED_MEDIA_TASKS_ROOT
   - PIN_PREPARED_LONG_DOCUMENT_READING_ROOT
 codec: PIN_RAW_CODEC_DIRECTORY
+# This recipe includes media identity and media generation tasks. Supply the
+# pack lock that declares the audio, image and video realizer assets.
+packs: PIN_PACK_ROOT/lock.json
 device: cuda
 precision: bf16
 require_blackwell: true

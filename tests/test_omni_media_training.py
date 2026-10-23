@@ -1,5 +1,6 @@
 """Prepared media (teacher features -> realizer latents) through the grouped loss ledger."""
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -7,9 +8,18 @@ import torch
 from media_support import FakeRealizer, install_fake_realizers, prepared_record
 from training_fixture import MODEL_OVERRIDES, tiny_train_config
 
-from megatoken.data import Episode, Lineage, PhysicalRecord, WindowConfig, iter_windows
+from megatoken.data import (
+    DedupConfig,
+    DedupStore,
+    Episode,
+    Lineage,
+    PhysicalRecord,
+    WindowConfig,
+    iter_windows,
+)
 from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from megatoken.data.schema import Meridian, TrackEvent, TrackSpec, encode_record
+from megatoken.data.storage import PreparedDataset, export_prepared
 from megatoken.generation.codec import ByteCodec
 from megatoken.loading import build_model
 from megatoken.model import ModelConfig
@@ -112,6 +122,46 @@ def _condition_grad(model, name):
     # Realizer-specific trainability is carried by the site's local output
     # gain; the shape-pool router head is shared with other same-shaped sites.
     return model.media_realizers.packs[name].condition.project.output_gain.grad
+
+
+def test_prepared_media_summary_tracks_scored_outputs_for_custom_stream(tmp_path):
+    from dataclasses import replace
+
+    from megatoken.io import content_hash, write_json
+
+    _, episode, _, _ = _case(tmp_path / "assets")
+    episode = replace(episode, stream="custom_generated_media")
+    observation_only = replace(
+        episode,
+        episode_id="custom_observation_only",
+        stream="custom_observation_only",
+        records=(*episode.records[:-1], replace(episode.records[-1], policy_mask=False)),
+    )
+    root = tmp_path / "prepared"
+    with DedupStore(
+        tmp_path / "prep.sqlite", DedupConfig(train_fraction=1.0, validation_fraction=0.0)
+    ) as dedup:
+        with dedup.transaction():
+            dedup.add(episode, CODEC)
+            dedup.add(observation_only, CODEC)
+        dedup.freeze()
+        export_prepared(
+            dedup, root, codec=CODEC, source_receipts=[], pipeline_fingerprint="media-summary-test"
+        )
+    with PreparedDataset(root) as dataset:
+        assert dataset.scored_media_modalities(("custom_generated_media",)) == {"image"}
+        assert dataset.scored_media_modalities(("custom_observation_only",)) == set()
+
+    # Old prepared roots derive the answer from checked episode records and
+    # cache it without editing the immutable manifest or shards.
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("scored_media_counts")
+    manifest.pop("fingerprint")
+    manifest["fingerprint"] = content_hash(manifest)
+    write_json(manifest_path, manifest)
+    with PreparedDataset(root) as dataset:
+        assert dataset.scored_media_modalities(("custom_generated_media",)) == {"image"}
 
 
 def test_media_reference_counts_its_input_size_not_text_and_corruption_fails(tmp_path):

@@ -56,6 +56,10 @@ from megatoken.training.distributed import DistributedContext
 from megatoken.training.heldout import HeldOutEvaluator
 from megatoken.training.history import NativeHistory
 from megatoken.training.losses import LossLedger
+from megatoken.training.media_dependencies import (
+    required_media_modalities,
+    validate_media_realizers,
+)
 from megatoken.training.meridians import (
     MeridianPreparedBatch,
     forward_meridian_batch,
@@ -365,6 +369,35 @@ def train(
             paths = [config.engram_import] if config.engram_import else config.engram_imports
             for path in paths:
                 install_engram_asset(model, path)
+        # Check decoder requirements before enumerating optimizer owners. This
+        # catches a missing pack at startup while leaving media observations
+        # that only feed text prediction usable without a decoder.
+        windows_config = window_config(config)
+        dataset = PreparedCorpus(config.datasets)
+        if dataset.codec_fingerprint != codec.fingerprint:
+            raise ValueError("Prepared datasets use a different codec")
+        if dataset.extractor not in (None, model_config.media_extractor):
+            raise ValueError(
+                f"Prepared features come from teacher {dataset.extractor!r}, "
+                f"not this model's {model_config.media_extractor!r}"
+            )
+        plan = AutoencodePlan.from_stage(stage_recipe(config.phase).constraints)
+        if config.use_stage_mixture:
+            active_streams = stage_recipe(config.phase).mixture
+        else:
+            active_streams = {
+                scope.removeprefix("stream:")
+                for part in dataset.parts
+                for scope in part.manifest["counts"]
+                if scope.startswith("stream:")
+            }
+        scored_media = dataset.scored_media_modalities(tuple(active_streams))
+        required = required_media_modalities(
+            dataset,
+            scored_media,
+            autoencode_items=plan.items if config.use_stage_mixture else 0,
+        )
+        validate_media_realizers(model, required)
         # Synchronous ranks are learners of one canonical bank merged on rank 0.
         transducer = TransducerTrainer(
             model.transducer,
@@ -442,15 +475,6 @@ def train(
             # `set_gradient_domains` requires a partition of optimizer owners.
             # It also ensures the global pools are represented exactly once.
             optimizer.set_gradient_domains(domains)
-        windows_config = window_config(config)
-        dataset = PreparedCorpus(config.datasets)
-        if dataset.codec_fingerprint != codec.fingerprint:
-            raise ValueError("Prepared datasets use a different codec")
-        if dataset.extractor not in (None, model_config.media_extractor):
-            raise ValueError(
-                f"Prepared features come from teacher {dataset.extractor!r}, "
-                f"not this model's {model_config.media_extractor!r}"
-            )
         text_anchors = None
         if config.text_anchors:
             from megatoken.training.text_anchors import TextAnchors
@@ -459,7 +483,6 @@ def train(
                 config.text_anchors, dataset.stores, extractor=model_config.media_extractor
             )
         sampler = center = None
-        plan = AutoencodePlan.from_stage(stage_recipe(config.phase).constraints)
         if config.use_stage_mixture and plan.items:
             sampler = FeatureSampler(
                 dataset,
