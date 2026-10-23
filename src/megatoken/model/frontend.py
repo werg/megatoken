@@ -42,9 +42,12 @@ class _NGramImport(nn.Module):
             )
         elif device is not None:
             self.import_map = self.import_map.to(device=device, dtype=dtype)
-        self.register_buffer("import_rows", torch.empty(0, dtype=torch.long))
-        self.register_buffer("descriptors", torch.empty(0, 128))
-        self.register_buffer("import_weights", torch.empty(0))
+        # Checkpoint loading creates additional donors after the table has moved.
+        # Their buffers must start beside the map, including on CUDA.
+        buffer_device = self.import_map.weight.device
+        self.register_buffer("import_rows", torch.empty(0, dtype=torch.long, device=buffer_device))
+        self.register_buffer("descriptors", torch.empty(0, 128, device=buffer_device))
+        self.register_buffer("import_weights", torch.empty(0, device=buffer_device))
 
     def contribution(self, indices: Tensor, dtype: torch.dtype) -> Tensor:
         positions = torch.searchsorted(self.import_rows, indices)
