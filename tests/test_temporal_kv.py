@@ -82,8 +82,10 @@ def test_three_temporary_writes_are_read_once_and_never_enter_cache(checkpointin
     core.predict_facets(state, effort=1).square().mean().backward()
     assert raw.grad is not None and raw.grad.norm() > 0
     for writer in core.central.temporary_memories:
-        assert writer.key_value.weight.grad is not None
-        assert writer.key_value.weight.grad.norm() > 0
+        assert writer.key_value.router.weight.grad is not None
+        assert writer.key_value.router.weight.grad.norm() > 0
+        assert writer.key_value._bank.weight.grad is not None
+        assert writer.key_value._bank.weight.grad.norm() > 0
     for layer in core.central.layers[1:]:
         assert layer.temporary_gate.grad is not None
         assert layer.temporary_gate.grad.abs() > 0
@@ -157,9 +159,9 @@ def test_old_rotated_keys_and_values_survive_until_full_chunk_eviction():
 
 def test_old_architecture_version_cannot_reuse_rotary_history_cache():
     config = ModelConfig.tiny()
-    with pytest.raises(ValueError, match="requires version 10"):
+    with pytest.raises(ValueError, match="requires version 11"):
         ModelConfig.tiny(architecture_version=5)
-    with pytest.raises(ValueError, match="architecture_version=10"):
+    with pytest.raises(ValueError, match="architecture_version=11"):
         ModelConfig.from_dict({**config.to_dict(), "architecture_version": 5})
     core = FacetedCore(config)
     state = core.advance_raw(core.initial_state(1), torch.randn(1, 4, 32))
@@ -199,3 +201,4 @@ def test_same_track_attention_bias_respects_identity_not_track_number():
     with torch.no_grad():
         attention.same_track_bias.zero_()
     assert not torch.allclose(result, attention.read(query, features, query_track_ids=queries))
+

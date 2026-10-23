@@ -200,6 +200,64 @@ def test_gradient_domains_require_disjoint_complete_ownership():
     optimizer.close()
 
 
+def test_shared_expert_pool_has_one_training_owner_and_its_own_clip_domain():
+    from types import SimpleNamespace
+
+    from megatoken.model.expert_pools import ShapePools
+
+    class TwoSites(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.first = torch.nn.Linear(3, 4)
+            self.second = torch.nn.Linear(3, 4)
+            self.expert_pools = ShapePools(
+                SimpleNamespace(
+                    facet_dim=4,
+                    projection_experts=3,
+                    p_experts=5,
+                    u_experts=3,
+                    adapter_experts=2,
+                    adapter_rank=2,
+                    adapter_topk=1,
+                    expert_backend="torch",
+                )
+            )
+            self.expert_pools.bind(self, "test")
+
+    model = TwoSites()
+    # Both sites refer to the same bank without registering it a second time.
+    assert model.first._bank is model.second._bank
+    pool_parameter = model.first._bank.weight
+    owners = [
+        name
+        for name, parameter in model.named_parameters(remove_duplicate=False)
+        if id(parameter) == id(pool_parameter)
+    ]
+    assert len(owners) == 1
+
+    optimizer = MasterAdamW(model, lr=0.01)
+    shared_names = [name for name in optimizer.masters if name.startswith("expert_pools.")]
+    site_names = [
+        name
+        for name in optimizer.masters
+        if name.startswith(("first.router.", "second.router."))
+    ]
+    rest_names = [
+        name for name in optimizer.masters if name not in set(shared_names + site_names)
+    ]
+    optimizer.set_gradient_domains(
+        {"shared": shared_names, "routers": site_names, "model": rest_names}
+    )
+    values = torch.randn(2, 3)
+    loss = model.first(values).square().sum() + 2 * model.second(values).square().sum()
+    loss.backward()
+    metrics = optimizer.step(max_norm=0.1)
+    assert "gradient_norm_shared" in metrics
+    assert "gradient_norm_routers" in metrics
+    assert pool_parameter in optimizer.model_parameters.values()
+    optimizer.close()
+
+
 def test_checkpoint_corruption_and_retention(tmp_path):
     first = save_checkpoint(
         tmp_path, "phase-B0", {"value": torch.ones(2)}, {"global_step": 0}, pinned=True, keep=1
@@ -237,3 +295,4 @@ def test_configuration_rejects_unknown_or_invalid_fields():
         TrainConfig.from_dict({"leaning_rate": 0.01})
     with pytest.raises(ValueError, match="Unknown.*repair_fraction"):
         TrainConfig.from_dict({"repair_fraction": 0.4})
+

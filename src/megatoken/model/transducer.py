@@ -28,6 +28,7 @@ from megatoken.retrieval.session import SourceSession
 from .adapters import ADAPTER_DROPOUT, AdapterMixture
 from .config import KNOWLEDGE_TRACK, METADATA_TRACK, RESERVED_TRACKS, TRANSDUCER_QUERY_TRACK
 from .core import MODALITY_IDS, ROLE_IDS, FacetedCore
+from .expert_pools import expert_scope
 from .ingest import IngestedRows, IngestHeads, IngestItem
 from .multitrack import MultiTrackState, ObservedEvent
 from .sources import read_sources
@@ -126,11 +127,12 @@ class WideKnowledgeReadout(nn.Module):
         ):
             raise ValueError("Knowledge readout requires complete value/query/location vectors")
         dtype = self.row_identifiers.dtype
-        condition = self.condition(torch.cat((query, location)).to(dtype))
+        condition = self.condition(torch.cat((query, location)).to(dtype)[None])[0]
         rows = value.to(dtype).reshape(1, self.row_count, self.width)
         rows = self.row_adapter(rows + self.row_identifiers[None]) + condition
         # The shared U bank is registered once, on the core; this only routes through it.
-        context = self.route_input(condition)[None, None].expand(1, self.facets, -1)
+        routed_condition = self.route_input(condition[None])[0]
+        context = routed_condition[None, None].expand(1, self.facets, -1)
         routed = core.apply_u(rows, RealizationContext(context), level=1).to(dtype)
         keys = torch.cat((self.key_norm(routed), self.sink_key[None, None]), dim=1)
         values = torch.cat((routed, self.sink_value[None, None]), dim=1)
@@ -267,20 +269,24 @@ class NativeTransducer(nn.Module):
         mask = event_attention_mask(groups=events.groups, mode=mode)
         facet_mask = mask.repeat_interleave(c.n_facets, 1).repeat_interleave(c.n_facets, 2)
         empty = raw.new_empty(1, c.kv_heads, 0, c.attention_head_dim)
-        final = self.core.central(
-            raw.flatten(1, 2),
-            KVHistory(empty, empty),
-            events.roles,
-            events.meridians.repeat_interleave(c.n_facets, dim=1),
-            track_ids=track_ids,
-            modality_ids=modality_ids,
-            history_track_ids=track_ids.new_empty(1, 0),
-            attention_mask=facet_mask,
-        )[0]
+        with expert_scope(None):
+            final = self.core.central(
+                raw.flatten(1, 2),
+                KVHistory(empty, empty),
+                events.roles,
+                events.meridians.repeat_interleave(c.n_facets, dim=1),
+                track_ids=track_ids,
+                modality_ids=modality_ids,
+                history_track_ids=track_ids.new_empty(1, 0),
+                attention_mask=facet_mask,
+            )[0]
         slot_groups = events.groups[0].repeat_interleave(c.n_facets)
         read = torch.tensor([-1 if r is None else r for r in reads], device=device)
         visible = (slot_groups[None] == read[:, None]) & (read[:, None] >= 0)
-        values = self.hindsight_realizer(final, visible)
+        # Future evidence must never inherit an adapter mixture from the live
+        # session that happened to call this training-only path.
+        with expert_scope(None):
+            values = self.hindsight_realizer(final, visible)
         return HindsightValues(values, ~visible.any(dim=1))
 
     # -------------------------------------------------------------- lookups
@@ -310,9 +316,24 @@ class NativeTransducer(nn.Module):
         return state, self.bank.initial_agenda(self._prefix(state), mounted)
 
     def _prefix(self, state: MultiTrackState) -> Tensor:
-        """The query-width vector a committed metadata event maps to."""
+        """The query-width vector a committed metadata event maps to under E."""
         pooled = state.final[0, 0].mean(dim=0).to(self.prefix_head.weight.dtype)
-        return self.prefix_head(pooled).float()
+        weights = self._event_adapter_weights("e", state, METADATA_TRACK)
+        with expert_scope(weights):
+            return self.prefix_head(pooled[None])[0].float()
+
+    def _event_adapter_weights(
+        self, owner: str, state: MultiTrackState, track: str
+    ) -> Tensor | None:
+        """One committed owner's mixture for one reserved transducer track."""
+        if state.adapters is None:
+            return None
+        track_id = self.core.config.max_tracks + RESERVED_TRACKS.index(track)
+        ids = torch.full(
+            (state.batch_size, 1), track_id, device=state.device, dtype=torch.long
+        )
+        plan = self.core.adapters.plan(owner, state.adapters, ids)
+        return None if plan is None else plan.weights[0, :, 0]
 
     # --------------------------------------------------------------- ingest
 
@@ -333,7 +354,9 @@ class NativeTransducer(nn.Module):
             raise ValueError("Nothing to ingest")
         device = self.bank.device
         raws = torch.stack([item.raw for item in items]).to(device)
-        values, keys = self.ingest(self.core, raws, [item.modality for item in items])
+        # Ingested library entries are written outside any live session scope.
+        with expert_scope(None):
+            values, keys = self.ingest(self.core, raws, [item.modality for item in items])
         destinations = self.bank.content_location(values)
         starts: dict[bytes, Tensor] = {}
         previous = {
@@ -409,10 +432,23 @@ class NativeTransducer(nn.Module):
         working = agenda.copy()
         mean = multi.tracks.predict_group(state, tracks=(TRANSDUCER_QUERY_TRACK,), effort=effort)
         # The policy's own reparameterized draw; ``generator`` drives only exploration.
-        selected = multi.generator.facet_distribution(mean).sample() if training else mean
-        query = self.query_realizer(
-            selected[:, 0], EmbeddingSpec(QUERY_SPACE, "query", self.bank.geometry.query_dim)
-        )[0]
+        query_ids = self.core.config.max_tracks + RESERVED_TRACKS.index(TRANSDUCER_QUERY_TRACK)
+        query_tracks = torch.full(
+            (state.batch_size, 1), query_ids, device=state.device, dtype=torch.long
+        )
+        if training:
+            prior_plan = self.core.adapters.plan("p", state.adapters, query_tracks)
+            prior_weights = None if prior_plan is None else prior_plan.weights[0, :, 0]
+            with expert_scope(prior_weights):
+                selected = multi.generator.facet_distribution(mean).sample()
+        else:
+            selected = mean
+        query_plan = self.core.adapters.plan("r", state.adapters, query_tracks)
+        query_weights = None if query_plan is None else query_plan.weights[0, :, 0]
+        with expert_scope(query_weights):
+            query = self.query_realizer(
+                selected[:, 0], EmbeddingSpec(QUERY_SPACE, "query", self.bank.geometry.query_dim)
+            )[0]
         assistant = torch.full((1, 1), ROLE_IDS["assistant"], dtype=torch.long, device=state.device)
         queried = multi.tracks.advance_group(
             state, selected, tracks=(TRANSDUCER_QUERY_TRACK,), role_ids=assistant
@@ -428,7 +464,9 @@ class NativeTransducer(nn.Module):
         )
         if found is None:
             return state, None
-        block = self.readout(found.value, query, found.landing, core=self.core)
+        readout_weights = self._event_adapter_weights("r", state, KNOWLEDGE_TRACK)
+        with expert_scope(readout_weights):
+            block = self.readout(found.value, query, found.landing, core=self.core)
         # From the knowledge event on, every meridian runs under this lookup's mixture.
         queried = replace(
             queried,
@@ -460,3 +498,4 @@ class NativeTransducer(nn.Module):
         if read is not None:
             sources.commit(read[1])
         return committed, found
+

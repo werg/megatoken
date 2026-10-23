@@ -20,6 +20,13 @@ from .adapters import AdapterBank, AdapterPlan
 from .attention import AttentionFeatures, AttentionRead, KVProjection, join_attention
 from .blocks import DenseFacetBlock
 from .config import ModelConfig
+from .expert_pools import (
+    ShapePools,
+    checkpoint_context_fn,
+    current_adapter_weights,
+    expert_scope,
+    iter_sites,
+)
 from .experts import ExpertBank
 from .frontend import SeedControlEncoder
 from .ingestion import ChunkEncoder
@@ -36,7 +43,7 @@ MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "compressed_text"
 
 
 class PairStage(nn.Module):
-    """A stage-private dense branch around one globally shared expert bank."""
+    """Local routes and residual gates over globally shared pair expert weights."""
 
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
@@ -68,7 +75,10 @@ class PairStage(nn.Module):
     ) -> Tensor:
         dim = facets.shape[-1]
         pairs = self.norm(torch.cat((facets[:, left], facets[:, right]), -1))
-        delta = bank(pairs, route.expert_ids, route.confidence) + self.always(pairs)
+        delta = bank(
+            pairs, route.expert_ids, route.confidence,
+            adapter_weights=current_adapter_weights(pairs),
+        ) + self.always(pairs)
         delta = delta * self.residual_gates[update_index].sigmoid()
         left_delta, right_delta = delta.split(dim, -1)
         contributions = torch.cat((left_delta, right_delta), dim=1)
@@ -99,11 +109,10 @@ class FacetRemix(nn.Module):
 
 
 class CentralProcessor(nn.Module):
-    """Dense causal C with three temporary KV writers and one final writer.
+    """Expert-routed causal C with temporary KV writers and one final writer.
 
-    No prospective control, random draw, sparse P expert, or decoder owner is
-    involved. Its derived features may be cached and reused until model weights
-    change. The raw input remains intact outside this module.
+    Routes depend on committed input only. Its derived features may be cached
+    until model weights change. The raw input remains intact outside this module.
     """
 
     def __init__(self, config: ModelConfig) -> None:
@@ -198,49 +207,53 @@ class CentralProcessor(nn.Module):
                 else self.memory
             )
             enabled = self.config.checkpoint_stages if checkpointing is None else checkpointing
-            source = facets
-            if enabled and self.training and torch.is_grad_enabled():
-                # Pin captured intermediates per layer for exact checkpoint replay.
-                facets = checkpoint(
-                    lambda value, block=layer, writer=projector, previous=temporary: block(
-                        value,
+            weights = None if adapters is None else adapters.weights[index].repeat_interleave(
+                self.config.n_facets, dim=1
+            )
+            with expert_scope(weights):
+                if enabled and self.training and torch.is_grad_enabled():
+                    # Pin the causal adapter scope as well as the intermediate KV.
+                    facets = checkpoint(
+                        lambda value, block=layer, writer=projector, previous=temporary: block(
+                            value,
+                            projected,
+                            projector=writer,
+                            temporary=previous,
+                            temporal_positions=positions,
+                            slot_codes=addresses,
+                            query_track_ids=live_tracks,
+                            query_key_mask=attention_mask,
+                        ),
+                        facets,
+                        use_reentrant=False,
+                        preserve_rng_state=False,
+                        context_fn=checkpoint_context_fn,
+                    )
+                else:
+                    facets = layer(
+                        facets,
                         projected,
-                        projector=writer,
-                        temporary=previous,
+                        projector=projector,
+                        temporary=temporary,
                         temporal_positions=positions,
                         slot_codes=addresses,
                         query_track_ids=live_tracks,
                         query_key_mask=attention_mask,
-                    ),
-                    facets,
-                    use_reentrant=False,
-                    preserve_rng_state=False,
-                )
-            else:
-                facets = layer(
-                    facets,
-                    projected,
-                    projector=projector,
-                    temporary=temporary,
-                    temporal_positions=positions,
-                    slot_codes=addresses,
-                    query_track_ids=live_tracks,
-                    query_key_mask=attention_mask,
-                )
-            if adapters is not None:
-                facets = facets + adapters.delta(source, index)
-            # Stage i publishes only a short-lived, position-rotated KV for i+1.
-            # Neither these projections nor their tensors enter KVHistory.
-            if index < len(self.temporary_memories):
-                temporary = projector(
-                    facets,
-                    temporal_positions=positions,
-                    slot_codes=addresses,
-                    track_ids=live_tracks,
-                )
+                    )
+                # Intermediate projections use the same committed adapter choice.
+                if index < len(self.temporary_memories):
+                    temporary = projector(
+                        facets,
+                        temporal_positions=positions,
+                        slot_codes=addresses,
+                        track_ids=live_tracks,
+                    )
         return facets
 
-    def write(self, final: Tensor, history: KVHistory, positions: Tensor) -> KVHistory:
+    def write(
+        self, final: Tensor, history: KVHistory, positions: Tensor,
+        *, adapters: AdapterPlan | None = None,
+    ) -> KVHistory:
         """Append all final-stage facets; evict only complete oldest megatokens.
 
         Every retained record has exactly n_facets K/V slots for its lifetime.
@@ -253,11 +266,15 @@ class CentralProcessor(nn.Module):
         if final.shape[1] > c.max_history_chunks * c.n_facets:
             raise ValueError("One meridian exceeds the historical event capacity")
         events = final.shape[1] // c.n_facets
-        added = self.memory(
-            final,
-            temporal_positions=positions,
-            slot_codes=self.slot_codes().repeat(events, 1).to(final.dtype),
+        weights = None if adapters is None else adapters.weights[-1].repeat_interleave(
+            c.n_facets, dim=1
         )
+        with expert_scope(weights):
+            added = self.memory(
+                final,
+                temporal_positions=positions,
+                slot_codes=self.slot_codes().repeat(events, 1).to(final.dtype),
+            )
         max_slots = c.max_history_chunks * c.n_facets
         keys = torch.cat((history.keys, added.keys), dim=2)[:, :, -max_slots:]
         values = torch.cat((history.values, added.values), dim=2)[:, :, -max_slots:]
@@ -286,6 +303,9 @@ class FacetedCore(nn.Module):
         self.config = config or ModelConfig()
         c = self.config
         self.model_version = 0
+        self.expert_pools = ShapePools(c)
+        self.expert_pools.ffn_bank(c.facet_dim)
+        self.expert_pools.ffn_bank(c.pair_dim)
         self.frontend = ChunkEncoder(c)
         self.media_encoder = MediaEncoder(c)
         self.control_encoder = SeedControlEncoder(c)
@@ -299,12 +319,10 @@ class FacetedCore(nn.Module):
         nn.init.normal_(self.effort_embedding.weight, std=0.02)
         self.control_injection = nn.Linear(c.control_dim, c.facet_dim, bias=False)
         self.remix = FacetRemix(c)
-        self.p_bank = ExpertBank(c.p_experts, c.pair_dim, c.p_hidden, c.expert_backend, "p")
         self.stages = nn.ModuleList(PairStage(c) for _ in range(c.prediction_layers))
         self.p_router = EpochRouter(
             c.facet_dim, c.router_dim, c.p_experts, c.eligible_experts, version=c.routing_version
         )
-        self.u_bank = ExpertBank(c.u_experts, c.facet_dim, c.u_hidden, c.expert_backend, "u")
         self.u_always = SwiGLU(c.facet_dim, c.u_always_hidden)
         self.u_router = EpochRouter(
             c.facet_dim, c.router_dim, c.u_experts, c.eligible_experts, version=c.routing_version
@@ -316,11 +334,25 @@ class FacetedCore(nn.Module):
         for name, tensor in self._pair_topology().items():
             self.register_buffer(name, tensor, persistent=False)
         self._routing_losses: list[tuple[Tensor, Tensor]] = []
+        self.expert_pools.bind(self, "core", exclusions=("slots",))
+
+    @property
+    def p_bank(self) -> ExpertBank:
+        return self.expert_pools.ffn_bank(self.config.pair_dim)
+
+    @property
+    def u_bank(self) -> ExpertBank:
+        return self.expert_pools.ffn_bank(self.config.facet_dim)
+
+    def shared_parameters(self) -> Iterator[nn.Parameter]:
+        """The single owner of all expert matrices and per-expert adapter factors."""
+        yield from self.expert_pools.parameters()
 
     def encoder_parameters(self) -> Iterator[nn.Parameter]:
         """Only E owners; contextual C and P are independently owned."""
         yield from self.frontend.parameters()
         yield from self.media_encoder.parameters()
+        yield from self.adapters.owners["e"].parameters()
 
     def central_parameters(self) -> Iterator[nn.Parameter]:
         """C, its KV projections and its adapters."""
@@ -335,7 +367,6 @@ class FacetedCore(nn.Module):
             self.control_injection,
             self.effort_embedding,
             self.remix,
-            self.p_bank,
             self.stages,
             self.p_router,
             self.adapters.owners["p"],
@@ -351,7 +382,7 @@ class FacetedCore(nn.Module):
         yield from self.adapters.owners["r"].parameters()
         yield self.u_gate
         yield self.lexical_gate
-        for module in (self.u_bank, self.u_always, self.u_router, self.u_norm, self.lexical_norm):
+        for module in (self.u_always, self.u_router, self.u_norm, self.lexical_norm):
             yield from module.parameters()
 
     def compile_kernels(self, mode: str = "default") -> None:
@@ -767,7 +798,10 @@ class FacetedCore(nn.Module):
             )
             start += count
         if self.config.checkpoint_stages and self.training and torch.is_grad_enabled():
-            return checkpoint(compute, facets, use_reentrant=False, preserve_rng_state=False)
+            return checkpoint(
+                compute, facets, use_reentrant=False, preserve_rng_state=False,
+                context_fn=checkpoint_context_fn,
+            )
         return compute(facets)
 
     def _record_routing_loss(self, balance: Tensor, stabilization: Tensor) -> None:
@@ -803,13 +837,14 @@ class FacetedCore(nn.Module):
         )
         self._record_routing_loss(route.balance_loss, route.stabilization_loss)
         normalized = self.u_norm(rows)
-        delta = self.u_bank(normalized, route.expert_ids, route.confidence) + self.u_always(
-            normalized
-        )
+        delta = self.u_bank(
+            normalized, route.expert_ids, route.confidence,
+            adapter_weights=current_adapter_weights(normalized),
+        ) + self.u_always(normalized)
         return rows + self.u_gate.sigmoid() * delta
 
     def lexical_refine(self, rows: Tensor) -> Tensor:
-        """The final dense refinement aliases the same U always branch."""
+        """The final routed refinement reuses the shared single-facet pool."""
         rows = rows.to(self.u_always.gate_up.weight.dtype)
         return rows + self.lexical_gate.sigmoid() * self.u_always(self.lexical_norm(rows))
 
@@ -843,7 +878,10 @@ class FacetedCore(nn.Module):
         previous = self._routing_losses
         self._routing_losses = []
         # Auxiliary branches also stay out of the global router-balance replay.
-        routers = (self.p_router, self.u_router, *self.adapters.owners.values())
+        routers = (
+            self.p_router, self.u_router, *self.adapters.owners.values(),
+            *(site for _, site in iter_sites(self)),
+        )
         recorders = [router.balance_recorder for router in routers]
         for router in routers:
             router.balance_recorder = None
@@ -902,3 +940,4 @@ class FacetedCore(nn.Module):
             role_ids=torch.where(rows, ROLE_IDS["document"], state.role_ids),
             episode_ids=torch.where(rows, ids, state.episode_ids),
         )
+

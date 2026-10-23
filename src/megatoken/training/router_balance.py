@@ -1,4 +1,4 @@
-"""Optimizer-step-global router-only balancing without additional optimizer state.
+"""Optimizer-step-global balancing for routers with replayable soft preferences.
 
 Memory is O(distinct routing contexts), not O(stages x contexts): hard counts
 are accumulated eagerly as sufficient statistics, and each detached context is
@@ -16,17 +16,33 @@ from megatoken.model.adapters import AdapterRoute, OwnerAdapters
 from megatoken.model.core import FacetedCore
 from megatoken.model.routing import EpochRouter, RowRoute
 
-# What the balance covers: expert routers with a replayable soft preference.
-BalancedRouter = EpochRouter | OwnerAdapters
+# Every supported router has ``experts``, ``balance_probabilities`` and a
+# ``balance_recorder``. The latter is deliberately attached to a site/controller,
+# not to a shared expert bank: balancing should train the selector that made a
+# choice, never the parameters shared by its experts.
+BalancedRouter = EpochRouter | OwnerAdapters | torch.nn.Module
 
 
-def balance_routers(core: FacetedCore) -> dict[str, BalancedRouter]:
-    """Every router the global balance covers: P's, U's and the three adapter controllers."""
-    return {
+def balance_routers(model_or_core: FacetedCore | torch.nn.Module) -> dict[str, BalancedRouter]:
+    """Return the individual expert selectors that can record balance routes.
+
+    A universal MoE model has a selector at each learned site. These are named
+    separately so diagnostics describe each local selector. Core P/U routers
+    and adapter controllers remain in the map because they still make distinct
+    routing decisions alongside the shared expert sites. Passing the full
+    generator also includes routed sites in training-only transducer heads;
+    passing only the core is supported for callers that only exercise core.
+    """
+    from megatoken.model.expert_pools import iter_sites
+
+    core = getattr(model_or_core, "core", model_or_core)
+    routers: dict[str, BalancedRouter] = {
         "p": core.p_router,
         "u": core.u_router,
         **{f"adapter_{name}": owner for name, owner in core.adapters.owners.items()},
     }
+    routers.update({f"site_{name}": site for name, site in iter_sites(model_or_core)})
+    return routers
 
 
 @dataclass
@@ -105,8 +121,8 @@ class RouterBalanceWindow:
         counts = self.global_counts(distributed, routers=routers)
         diagnostics = {}
         total_loss = None
-        # Each router's term reaches only its own head, so this is a per-router weight:
-        # the half each of P and U had when they were the only balanced routers.
+        # Each router's term reaches only its own selector. Keep the historical
+        # coefficient scale while each site receives its own named diagnostic.
         pool_scale = 0.5
         for name, router in sorted(routers.items()):
             hard = counts[name]
@@ -138,3 +154,4 @@ class RouterBalanceWindow:
 
     def clear(self):
         self.states.clear()
+

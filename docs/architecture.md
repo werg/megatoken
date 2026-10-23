@@ -1,6 +1,6 @@
-# Architecture v10: direct raw-facet realization and multi-track causal KV
+# Architecture v11: shared expert pools and multi-track causal KV
 
-**The single-event path below is one special case of the multi-track core (architecture v10).**
+**The single-event path below is one special case of the multi-track core (architecture v11).**
 Multiple tracks are integrated as one atomic meridian with a shared full-resolution
 KV history and joint central processing. For the grouped contract, see the
 [multi-track plan](multi-track-plan.md) and
@@ -22,11 +22,11 @@ C does not participate in the current output realization.
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version **10** (`ARCHITECTURE_VERSION`) defines the currently supported
+Architecture version **11** (`ARCHITECTURE_VERSION`) defines the currently supported
 core and grouped state. The one tape that serving, collection and training exchange is
 `GroupActionTape` (`fmt-multitrack-facets-v12`); a single-track draw is a group of one event.
 The decoder-level single-event tape `fmt-canonical-facets-v8` is only the output of the
-single-track diagnostic sampler. Checkpoints require v10 weights and the
+single-track diagnostic sampler. Checkpoints require v11 weights and the
 locked pack manifest's fingerprint; dataset schema version 3 remains.
 The legacy CLI names `recurrent32` and `compact32` still select the corresponding
 fresh-construction geometry, not old checkpoint semantics.
@@ -78,10 +78,17 @@ predictive blocks retain most depth after the remix. This allocation is a design
 choice to validate in training, not an experimentally established optimum.
 
 C and E use the same `DenseFacetBlock` implementation with separate parameters.
-P owns one large packed expert bank shared across its twelve stages; each stage
-owns its query/output attention projections and dense residual branch. C owns
-its own small dense blocks. This separates gradient ownership while sharing
-operator code. Three stage-specific intermediate KV projectors feed the next C
+Every eligible learned linear projection and SwiGLU site is a routed expert
+site. Its small selector and site-specific biases are local to that operation;
+the expert values live in a core-owned shape registry. Linear pools are shared
+by their padded canonical input/output dimensions, and SwiGLU pools are shared
+by their canonical model width (with a `2D` gate/up width). A site pads its input
+to the pool width, routes one selected expert, and crops the output to the site's
+original width. This gives C, P, U, R, and the trainable media paths the same
+learned expert system while keeping each site's routing decision independent.
+P still has its twelve residual attention stages and U still has its realization
+structure; their old stage-local expert values are now accessed through these
+global shape buckets. Three stage-specific intermediate KV projectors feed the next C
 block; one final KV projector alone owns persistent history and P's live keys.
 Each C/P block retains its own query/output reader. Intermediate KV is never
 added to the cache.
@@ -150,26 +157,32 @@ and optional media control. No distinction exists between normal R and a
 raw-only bootstrap fallback. R can render before or independently of C, and
 terminal outputs need no C pass unless a successor state is requested.
 
-### The knowledge-routed adapter mixture
+### Retrieval-conditioned adapters on every expert pool
 
-C, P and R each own eight low-rank experts of rank 8 (`adapter_experts`,
-`adapter_rank`, `adapter_topk`; part of the architecture identity) and a small
-controller (`model/adapters.py`). After every transducer lookup the controllers
-read the lookup's blended 32,768-wide knowledge value, the one its knowledge
-event is read from, and keep one preference over the experts per owner. Scaled by
-one minus the sink's share of the lookup, that is the **mixture**. It rides on
+C, P and R no longer own separate adapter banks. Every shared expert pool stores
+low-rank adapter factors alongside each base expert; `adapter_experts`,
+`adapter_rank` and `adapter_topk` are part of the architecture identity. The
+site-local controller receives the retrieval-conditioned preference. After
+every transducer lookup, the controllers read the lookup's blended 32,768-wide
+knowledge value, the one its knowledge event is read from, and keep one
+preference per controller. Scaled by one minus the sink's share of the lookup,
+that is the **mixture**. It rides on
 the multitrack state, so every meridian on every track runs under it until the
 next lookup replaces it; before the first lookup there is none, and a lookup
 that found only the sink has strength exactly zero. Serving sessions carry it in
 their state, so a speculative branch inherits it and a rejected one cannot leak it.
 
-At every site the controller adds a track and a stage preference to the lookup's,
-picks the top two experts with softmax weights, and adds their low-rank update of
-the site's *input* to the site's output: after each of the four C layers (before
-the layer's temporary KV is written), after each of the twelve P stages, and on
-the selected raw block that every realizer (text, audio, image, video) reads.
-The hindsight pass and the single-event path have no mixture. Training drops a
-lookup's whole mixture with probability 0.1 (seeded by the window's generator).
+At a routed site, the controller's preference selects adapter factors belonging
+to the chosen base expert and adds their low-rank update to the expert result.
+The same path applies across C, P, U, R, and other eligible learned projections,
+including media-local sites. Shared pool weights are registered once under the
+core and therefore have one optimizer master, checkpoint owner, and distributed
+update even when many operations use them. Each site keeps its own selector and
+site-local bias. The hindsight pass is a training-only set of sites that uses
+the same core pools; its local selectors are excluded from served export with
+the hindsight head, while those global pools remain part of the served state.
+Training drops a lookup's whole mixture with probability 0.1 (seeded by the
+window's generator).
 
 ## Public state APIs and exact chronology
 
@@ -369,3 +382,4 @@ encoder-only ownership, deterministic replay, masking, and version rejection.
 The [validation report](validation.md) gives actual receipts and owner counts.
 The [Blackwell runbook](blackwell.md) covers device execution, full-vocabulary
 memory fit, throughput, and quality gates before committing a long training run.
+

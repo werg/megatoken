@@ -18,9 +18,11 @@ from megatoken.multitrack_service import serve_multitrack_jsonl
 def _runtime(tmp_path, preparer=None):
     root = reading_root(tmp_path)
     model = tiny_model()
-    # Adapter weights start at zero in a fresh model; give them an effect to observe.
-    for owner in model.core.adapters.owners.values():
-        torch.nn.init.normal_(owner.up, std=0.5)
+    # Adapter up-projections start at zero in a fresh model; explicitly enable
+    # the shared per-expert factors so this test can observe their effect.
+    for name, parameter in model.core.expert_pools.named_parameters():
+        if "adapter_up" in name:
+            torch.nn.init.normal_(parameter, std=0.5)
     runtime = MultiTrackRuntime(
         MultiTrackGenerator(model),
         collections={"main": root / COLLECTION},
@@ -132,3 +134,4 @@ def test_the_service_adds_files_to_both_and_opens_a_session_on_both(tmp_path):
     assert not by_id[3]["ok"] and "collection name, a base name" in by_id[3]["error"]
     assert not by_id[4]["ok"] and "outside the knowledge base root" in by_id[4]["error"]
     assert by_id[5]["ok"] and by_id[5]["retrieved"]
+

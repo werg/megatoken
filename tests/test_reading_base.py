@@ -208,9 +208,14 @@ def test_ingest_losses_distil_the_hindsight_value_and_contrast_the_keys():
     # Only the ingest heads learn from them: the hindsight head is the teacher, the query is a target.
     (losses["ingest_value"] + losses["ingest_key"]).backward()
     heads = model.transducer.ingest
-    assert heads.value.output.weight.grad is not None and heads.key.project.weight.grad is not None
-    assert model.transducer.hindsight_realizer.output.weight.grad is None
-    assert model.transducer.query_realizer.query.weight.grad is None
+    assert heads.value.output.router.weight.grad is not None
+    assert heads.value.output._bank.weight.grad is not None
+    assert heads.key.project.router.weight.grad is not None
+    assert heads.key.project._bank.weight.grad is not None
+    # Shared pool gradients from ingest are valid; the teacher and query sites'
+    # local routers must stay untouched by this distillation loss.
+    assert model.transducer.hindsight_realizer.output.router.weight.grad is None
+    assert model.transducer.query_realizer.query.router.weight.grad is None
 
 
 def test_only_lookups_actually_made_are_paired_and_one_item_has_nothing_to_contrast():
@@ -423,3 +428,4 @@ def test_the_producer_builds_documents_and_media_episodes_with_declared_items(tm
     assert speech.records[0].payload.endswith(b"one two three four five")
     assert photo.records[1].payload == b"A red door. It is old."
     assert [r["document"] for r in declared_items(photo)] == [""]
+

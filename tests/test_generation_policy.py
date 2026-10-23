@@ -378,7 +378,8 @@ def test_typed_identifiers_copies_and_placements_have_two_pass_counts(model):
     assert result.losses["placement"][1] == 2
     assert result.losses["lexical"][1] == result.losses["reconstruction"][1] == 3
     sum(loss / count for loss, count in result.losses.values() if count).backward()
-    assert model.decoder.binding_query.weight.grad.abs().sum() > 0
+    assert model.decoder.binding_query.router.weight.grad.abs().sum() > 0
+    assert model.decoder.binding_query._bank.weight.grad.abs().sum() > 0
     assert model.decoder.identifier_slots.weight.grad.abs().sum() > 0
     assert model.decoder.schema_codes.weight.grad.abs().sum() > 0  # downstream conditioning
 
@@ -513,6 +514,7 @@ def test_metrics_are_detached_and_report_both_decoder_passes(model):
 
 def test_served_export_contains_all_shared_owners_and_is_identical(model):
     served = FacetedGenerator(FacetedCore(model.config), model.codec, training_heads=False)
+    assert model.core.expert_pools.manifest()["pools"] == served.core.expert_pools.manifest()["pools"]
     weights = model.served_state_dict()
     assert set(weights) == {n for n in model.state_dict() if "hindsight_realizer" not in n}
     assert not any(
@@ -530,6 +532,29 @@ def test_served_export_contains_all_shared_owners_and_is_identical(model):
     assert original.tape == exported.tape
     with pytest.raises(RuntimeError, match="served model"):
         served.supervised_step(served.core.initial_state(1), target_bytes=b"x")
+
+
+def test_late_media_registration_binds_its_trainable_condition(model):
+    from torch import nn
+
+    from megatoken.model.expert_pools import RoutedLinear
+
+    class TrainableConditionRealizer(nn.Module):
+        name = "pocket"
+        modality = "audio"
+
+        def __init__(self, width):
+            super().__init__()
+            self.condition = nn.Sequential(nn.Linear(width, 5))
+
+    realizer = TrainableConditionRealizer(model.config.facet_dim)
+    model.media_realizers.register(realizer)
+
+    assert isinstance(realizer.condition[0], RoutedLinear)
+    assert any(
+        site["site"] == "media_realizers.packs.pocket.condition.0"
+        for site in model.core.expert_pools.manifest()["sites"]
+    )
 
 
 def test_noncanonical_teacher_ids_remain_actual_ce_targets():
@@ -886,3 +911,4 @@ def test_a_typed_action_is_sized_by_its_values_not_its_wire_syntax(model):
         teacher=plan,
     )
     assert decoded.capacity == plan.capacity
+

@@ -1,28 +1,14 @@
-"""The knowledge-routed adapter mixture: small low-rank experts steered by each lookup.
+"""Causal retrieval controllers for adapters on every shared expert matrix.
 
-C, P and R each own a bank of low-rank experts and a controller. After every
-lookup the controllers read the lookup's blended knowledge value (the wide value
-the knowledge event is read from) and keep, per owner, one preference over the
-experts. That preference, scaled by how much the lookup actually found (one
-minus the sink's share), is the *mixture*. It lives on the multitrack state, so
-it applies to every meridian on every track until the next lookup replaces it;
-before the first lookup there is none and nothing changes.
-
-At each site (every C layer, every P stage, and the selected raw block before
-realization) the controller adds a track and a stage preference to the
-lookup's, picks the top experts with softmax weights, and adds their low-rank
-update of the site's input to the site's output.
-
-The router reads the full 32,768-wide value through one 8-way linear map
-(262 thousand weights per owner) rather than through a 16-million-weight
-projection to facet width first: the map is itself the learned projection, to
-the only space the router needs, and the session carries just the 3 x 8
-resulting preferences.
+The E/C/P/R owners keep small controllers, not residual adapter networks. Their
+lookup-, track- and stage-conditioned sparse weights select the expert-specific
+low-rank factors owned by the global shape pools. A session stores only these
+preferences and never a modified copy of the model. Before the first lookup,
+or for an all-sink lookup, the base experts run without an adapter correction.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, replace
 
 import torch
@@ -31,7 +17,7 @@ from torch.nn import functional as F
 
 from .config import RESERVED_TRACKS, ModelConfig
 
-OWNERS = ("c", "p", "r")
+OWNERS = ("e", "c", "p", "r")
 # The chance a lookup's whole mixture is dropped in training, so the model stays
 # usable without adapters (as it is before the first lookup).
 ADAPTER_DROPOUT = 0.1
@@ -70,20 +56,8 @@ class AdapterPlan:
     owner: OwnerAdapters
     weights: Tensor  # [sites, batch, events, experts]; zero off the chosen experts
 
-    def delta(self, source: Tensor, site: int) -> Tensor:
-        """The mixture's low-rank update of ``source`` at ``site``.
-
-        ``source`` holds whole events: its leading dimensions flatten to
-        [batch, events, rows] and its last is the facet width.
-        """
-        weights = self.weights[site]
-        batch, events, _ = weights.shape
-        rows = source.reshape(batch, events, -1, source.shape[-1])
-        return self.owner.low_rank(rows, weights).reshape(source.shape)
-
-
 class OwnerAdapters(nn.Module):
-    """One owner's experts and the controller that picks among them."""
+    """One execution role's controller for shared experts' adapter factors."""
 
     def __init__(
         self,
@@ -98,8 +72,6 @@ class OwnerAdapters(nn.Module):
     ) -> None:
         super().__init__()
         self.width, self.experts, self.rank, self.topk = width, experts, rank, topk
-        self.down = nn.Parameter(torch.randn(experts, rank, width) / math.sqrt(width))
-        self.up = nn.Parameter(torch.randn(experts, rank, width) * 1e-3)
         self.router = nn.Linear(value_dim, experts, bias=False)
         # Rows 0..max_tracks-1 are user tracks, then the reserved system tracks.
         self.track_preference = nn.Embedding(max_tracks + len(RESERVED_TRACKS), experts)
@@ -129,22 +101,8 @@ class OwnerAdapters(nn.Module):
         if self.balance_recorder is not None:
             self.balance_recorder.capture(self, route)
 
-    def low_rank(self, x: Tensor, weights: Tensor) -> Tensor:
-        """Mix every expert's rank-``rank`` update with ``weights`` (zero off the chosen ones).
-
-        ``x`` is [batch, events, rows, width], ``weights`` [batch, events, experts].
-        Every expert is computed densely, in one pair of matmuls: the experts x
-        rank hidden features cost less than gathering each row's chosen factors.
-        """
-        down = self.down.reshape(-1, self.width).to(x.dtype)
-        hidden = F.linear(x, down).unflatten(-1, (self.experts, self.rank))
-        hidden = hidden * weights.to(x.dtype)[:, :, None, :, None]
-        up = self.up.reshape(-1, self.width).to(x.dtype)
-        return hidden.flatten(-2) @ up / self.rank
-
-
 class AdapterBank(nn.Module):
-    """The three owners' adapters, held by the core that owns the layers they steer."""
+    """The four causal routing controllers; factors live only in shared pools."""
 
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
@@ -161,7 +119,7 @@ class AdapterBank(nn.Module):
                     sites=sites,
                 )
                 for name, sites in zip(
-                    OWNERS, (c.central_layers, c.prediction_layers, 1), strict=True
+                    OWNERS, (1, c.central_layers, c.prediction_layers, 1), strict=True
                 )
             }
         )
@@ -202,20 +160,6 @@ class AdapterBank(nn.Module):
             self._record(owner, mixture, track_ids, top.indices)
         return AdapterPlan(owner, weights)
 
-    def realization(
-        self, mixture: AdapterMixture | None, track_ids: Tensor | None, raw: Tensor
-    ) -> Tensor:
-        """R's input: selected raw blocks [batch, events, facets, width] plus the update.
-
-        Every realizer (text, audio, image, video) reads exactly this block, so
-        one update here conditions them all.
-        """
-        if mixture is None:
-            return raw
-        if track_ids is None:
-            raise ValueError("Realization adapters need the track of every event")
-        return raw + self.plan("r", mixture, track_ids).delta(raw, 0)
-
     @staticmethod
     def _record(
         owner: OwnerAdapters, mixture: AdapterMixture, track_ids: Tensor, chosen: Tensor
@@ -226,3 +170,4 @@ class AdapterBank(nn.Module):
                 owner.record_executed(
                     AdapterRoute(chosen[site, :, event], mixture.context, site * tracks + track)
                 )
+

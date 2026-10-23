@@ -2,7 +2,7 @@
 
 # Training and operations
 
-> **Implementation boundary (architecture v10):** The stages described below
+> **Implementation boundary (architecture v11):** The stages described below
 > still support legacy one-event episodes. The grouped `MultiTrackGenerator`
 > also supports grouped text, audio, image and video bootstrap/recurrent
 > meridians. Media enters only as pinned EmbeddingGemma2 hidden states and leaves
@@ -29,6 +29,34 @@ transitions, then publish only the final rotated KV entry. A
 non-residual remix and twelve sparse prediction stages produce the next Gaussian mean.
 The realizer reads canonical raw facets directly; only future P uses
 C's final features and historical KV. See [architecture.md](architecture.md) for the tensor graph.
+
+### Shared expert ownership
+
+Eligible learned projections and SwiGLU operations route through globally
+registered expert pools. Pools are grouped by padded input/output shape (linear
+sites) or hidden width (SwiGLU sites), so sites with compatible shapes use the
+same expert values. Each operation keeps its own small router and any local
+bias; the pool is referenced without registering a second copy under each
+site. The optimizer, checkpoint, and synchronous or DiLoCo synchronization
+therefore see every global pool parameter once, regardless of how many sites
+use it. Retrieval-conditioned adapter factors are stored with those shared
+expert values and follow the same one-owner rule.
+
+The trainer clips gradients from global pools in a separate `shared` domain.
+This prevents one pool's norm from being counted once for every site that uses
+it. Site-local routers, biases, and the rest of the model remain in the model
+domain; recurrent encoder reconstruction retains its own encoder domain. Router
+balance diagnostics are reported for each selector separately, including the
+core P/U selectors, adapter controllers, and every routed site present in the
+full training model. These are local counts, not an aggregate claim that only
+P and U cover the model's routing decisions.
+
+In the media-bridge stage, the shared expert pools and their adapters remain
+frozen while media-local encoding, routing, and realizer conditions train. The
+E-only recurrent reconstruction path also freezes the global pools and their
+adapters as part of its direct readout; gradients pass through the fixed
+readout to E without updating those shared values. Main recurrent and replay
+objectives continue to update shared pools under their normal training scope.
 
 `TrainConfig.representation_mode` selects `bootstrap` or `recurrent`. The value `auto`
 resolves to bootstrap for B0 and recurrent for every other supervised phase. Production
@@ -436,3 +464,4 @@ explicit dependency annotations, accounting, and restart contracts. They do not 
 source label into measured long-context coverage or automatically advance curricula.
 `WindowAudit` checks actual writer/reader windows and exposure. Use those measurements
 and fixed task outcomes to decide when to extend the next pilot.
+

@@ -15,6 +15,7 @@ from torch.nn import functional as F
 from .attention import AttentionBranch
 from .blocks import DenseFacetBlock
 from .config import ModelConfig
+from .expert_pools import current_adapter_weights, expert_scope
 from .frontend import ByteFrontend, SourceFeatures
 from .layers import RMSNorm, SwiGLU, position_features
 
@@ -59,6 +60,7 @@ class PairReduction(nn.Module):
         ordered = self.ordered_merge(self.pair_norm(pairs.flatten(-2)))
         occupancy = self.occupancy(pair_mask.to(features.dtype))
         scale = position_features(1, dim, features.device, offset=level).to(features.dtype)
+        scale = scale[None].expand(batch, -1, -1)
         value = mean.to(features.dtype) + self.residual_gates[0].sigmoid() * (
             ordered + occupancy + self.level_projection(scale)
         )
@@ -68,10 +70,17 @@ class PairReduction(nn.Module):
         padding = (-reduced_count) % self.window_size
         windows = F.pad(value, (0, 0, 0, padding)).reshape(-1, self.window_size, dim)
         window_mask = F.pad(output_mask, (0, padding)).reshape(-1, self.window_size)
-        windows = windows + self.residual_gates[1].sigmoid() * self.attention(
-            windows, windows, window_mask
+        weights = current_adapter_weights(features[:, :1])
+        window_weights = None if weights is None else weights[:, 0].repeat_interleave(
+            windows.shape[0] // batch, dim=0
         )
-        windows = windows + self.residual_gates[2].sigmoid() * self.ffn(self.ffn_norm(windows))
+        # Window flattening is explicit so a neighboring session's mixture can
+        # never be mistaken for another window in this session.
+        with expert_scope(window_weights):
+            windows = windows + self.residual_gates[1].sigmoid() * self.attention(
+                windows, windows, window_mask
+            )
+            windows = windows + self.residual_gates[2].sigmoid() * self.ffn(self.ffn_norm(windows))
         value = self.output_norm(windows).reshape(batch, -1, dim)[:, :reduced_count]
         return value * output_mask[..., None], output_mask
 
@@ -166,3 +175,4 @@ class ChunkEncoder(ByteFrontend):
                 return self._finish(facets)
             level += 1
             features, mask = self.reduction(features, mask, level=level)
+

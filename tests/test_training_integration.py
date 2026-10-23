@@ -116,12 +116,15 @@ def test_resume_compatibility_covers_every_setting_that_changes_the_trajectory()
 
 
 def test_router_balance_recorders_are_released_when_a_forward_fails(training_config, monkeypatch):
+    from megatoken.model.expert_pools import iter_sites
+
     models = []
 
     def failing(model, *args, **kwargs):
         models.append(model)
         assert model.core.p_router.balance_recorder is not None
         assert all(o.balance_recorder is not None for o in model.core.adapters.owners.values())
+        assert all(site.balance_recorder is not None for _, site in iter_sites(model))
         raise RuntimeError("forward failed")
 
     monkeypatch.setattr("megatoken.training.engine.forward_meridian_batch", failing)
@@ -131,3 +134,5 @@ def test_router_balance_recorders_are_released_when_a_forward_fails(training_con
     assert model.core.p_router.balance_recorder is None
     assert model.core.u_router.balance_recorder is None
     assert all(owner.balance_recorder is None for owner in model.core.adapters.owners.values())
+    assert all(site.balance_recorder is None for _, site in iter_sites(model))
+

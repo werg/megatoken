@@ -235,7 +235,7 @@ def test_earlier_raw_and_cache_receive_future_prediction_gradients(checkpoint_st
     assert raw.grad.norm() > 0
     assert first.history.keys.grad.norm() > 0 and first.history.values.grad.norm() > 0
     assert core.frontend.bytes.weight.grad.norm() > 0
-    assert core.central.memory.key_value.weight.grad.norm() > 0
+    assert core.central.memory.key_value._bank.weight.grad.norm() > 0
 
 
 def test_same_observation_retains_different_earlier_context_in_central_features():
@@ -274,7 +274,7 @@ def test_detached_observation_encoder_preserves_central_and_live_recurrence_grad
     core.predict_facets(observed).square().mean().backward()
     assert raw.grad.norm() > 0
     assert all(parameter.grad is None for parameter in core.encoder_parameters())
-    assert core.central.layers[0].ffn.down.weight.grad.norm() > 0
+    assert core.central.layers[0].ffn._bank.down.grad.norm() > 0
 
 
 def test_detached_control_frontend_keeps_control_encoder_trainable():
@@ -431,6 +431,7 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
         for name, parameter in core.named_parameters()
         if parameter.grad is None
         and not name.startswith(conditional)
+        and "adapter_" not in name
         and not name.endswith("attention.same_track_bias")
     ] == []
     assert all(
@@ -449,25 +450,26 @@ def test_owner_groups_are_disjoint_complete_and_allow_fixed_decoder_latent_rl():
         list(core.predictor_parameters()),
         list(core.realizer_parameters()),
         list(core.control_parameters()),
+        list(core.shared_parameters()),
     ]
     owners = [parameter for group in groups for parameter in group]
     assert len({id(parameter) for parameter in owners}) == len(owners)
     assert {id(parameter) for parameter in owners} == {
         id(parameter) for parameter in core.parameters()
     }
-    for group in (groups[0], groups[1], groups[3], groups[4]):
+    for group in (groups[0], groups[1], groups[3], groups[4], groups[5]):
         for parameter in group:
             parameter.requires_grad_(False)
     state = core.observe(torch.randint(256, (1, 51)), core.initial_state(1))
     core.predict_facets(state).square().mean().backward()
     assert all(
         parameter.grad is None
-        for group in (groups[0], groups[1], groups[3], groups[4])
+        for group in (groups[0], groups[1], groups[3], groups[4], groups[5])
         for parameter in group
     )
     assert core.remix.channels.down.weight.grad.norm() > 0
-    assert core.stages[0].attention.query.weight.grad.norm() > 0
-    assert core.p_bank.gate_up.grad.norm() > 0
+    assert core.stages[0].attention.query.router.weight.grad.norm() > 0
+    assert all(parameter.grad is None for parameter in groups[5])
 
 
 def test_real_owner_counts_shared_kv_and_expert_banks():
@@ -475,28 +477,26 @@ def test_real_owner_counts_shared_kv_and_expert_banks():
     core = FacetedCore(config)
     audit = audit_parameters(core)
     assert audit["total_parameters"] == sum(parameter.numel() for parameter in core.parameters())
-    assert (
-        sum(parameter.numel() for parameter in core.p_bank.parameters())
-        == 3 * config.p_experts * config.pair_dim * config.p_hidden
+    assert core.p_bank.gate_up.numel() == core.p_bank.experts * 2 * core.p_bank.hidden * core.p_bank.dim
+    assert core.p_bank.down.numel() == core.p_bank.experts * core.p_bank.dim * core.p_bank.hidden
+    assert core.p_bank.gate_up_adapter_up.numel() > 0
+    assert core.p_bank.down_adapter_up.numel() > 0
+    assert len({id(stage.always.router.weight) for stage in core.stages}) == 12
+    assert all(stage.always._bank is core.stages[0].always._bank for stage in core.stages)
+    assert len({id(stage.attention.query.router.weight) for stage in core.stages}) == 12
+    assert all(
+        stage.attention.query._bank is core.stages[0].attention.query._bank
+        for stage in core.stages
     )
-    assert len({id(stage.always.gate_up.weight) for stage in core.stages}) == 12
-    assert len({id(stage.attention.query.weight) for stage in core.stages}) == 12
     assert all(layer.kv is None for layer in core.central.layers)
     assert not hasattr(core.central, "history_pool")
-    assert (
-        sum(name == "central.memory.key_value.weight" for name, _ in core.named_parameters()) == 1
-    )
+    projectors = [core.central.memory, *core.central.temporary_memories]
+    assert len({id(projector.key_value._bank) for projector in projectors}) == 1
+    assert len({id(projector.key_value.router.weight) for projector in projectors}) == 4
     assert len(core.central.temporary_memories) == 3
-    assert (
-        sum(
-            name.startswith("central.temporary_memories.") and name.endswith(".key_value.weight")
-            for name, _ in core.named_parameters()
-        )
-        == 3
-    )
     assert core.central.slot_embedding.shape == (config.n_facets, config.facet_dim)
     assert all(core.central.layers[index].temporary_gate is not None for index in (1, 2, 3))
-    assert sum(name == "u_always.gate_up.weight" for name, _ in core.named_parameters()) == 1
+    assert core.u_always._bank is core.expert_pools.ffn_bank(config.facet_dim)
     assert not any("gdn" in name or "carry" in name for name, _ in core.named_parameters())
 
 
@@ -616,3 +616,4 @@ def test_old_archive_settings_cannot_silently_change_full_slot_geometry():
     for removed in ("history_slots", "recent_history_chunks", "archived_slots_per_chunk"):
         with pytest.raises(ValueError, match="Unknown model configuration fields"):
             ModelConfig.from_dict({**config, removed: 2})
+
