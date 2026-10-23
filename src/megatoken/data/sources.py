@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import codecs
 import gzip
 import itertools
 import json
+import random
 import re
+import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass, field, replace
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
@@ -282,10 +287,20 @@ def _hub_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
                 if not address.startswith("hf://"):
                     address = f"hf://datasets/{source.repository_id}@{source.revision}/{address}"
                 if builder == "parquet":
-                    yield from _hub_parquet_rows(address, max_batch_rows)
+                    yield from _retry_hub_file(
+                        address,
+                        lambda address=address: _hub_parquet_rows(address, max_batch_rows),
+                    )
                     continue
                 if _file_suffix(item.path).startswith(".jsonl"):
-                    yield from _hub_jsonl_rows(address)
+                    yield from _retry_hub_file(
+                        address, lambda address=address: _hub_jsonl_rows(address)
+                    )
+                    continue
+                if _file_suffix(item.path) == ".json":
+                    yield from _retry_hub_file(
+                        address, lambda address=address: _hub_json_file_rows(address)
+                    )
                     continue
                 yield from _load_dataset()(
                     builder,
@@ -296,6 +311,78 @@ def _hub_file_rows(source: SourceSpec) -> Iterator[Mapping[str, Any]]:
                 continue
             kwargs["data_files"] = {source.split: [item.path]}
         yield from _load_dataset()(**kwargs)
+
+
+def _retry_hub_file(address: str, reader: Any) -> Iterator[dict[str, Any]]:
+    """Retry transient Hub errors while retaining exact row position.
+
+    ``prepare_sources`` commits its cursor after each ingested row. This local
+    retry also recovers when a ranged file read is rate limited after yielding
+    rows: it reopens the pinned file and skips only rows already emitted.
+    """
+    emitted = 0
+    deadline: float | None = None
+    last_error: Exception | None = None
+    attempt = 0
+    while deadline is None or time.monotonic() < deadline:
+        attempt += 1
+        row_index = 0
+        try:
+            for row in reader():
+                if row_index >= emitted:
+                    emitted += 1
+                    yield row
+                row_index += 1
+            return
+        except Exception as error:
+            delay = _hub_retry_delay(error, attempt)
+            if delay is None:
+                raise
+            if deadline is None:
+                deadline = time.monotonic() + 60 * 60
+            remaining = deadline - time.monotonic()
+            if delay >= remaining:
+                raise
+            last_error = error
+            print(
+                f"Hub file read was rate limited or unavailable; retrying in {delay:.0f}s "
+                f"(attempt {attempt}, {emitted} rows already read)",
+                flush=True,
+            )
+            time.sleep(delay)
+    if last_error is not None:
+        raise last_error
+
+
+def _hub_retry_delay(error: Exception, attempt: int) -> float | None:
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    name = type(error).__name__.lower()
+    if status not in {429, 500, 502, 503, 504} and not any(
+        token in name
+        for token in (
+            "timeout",
+            "connectionerror",
+            "connecterror",
+            "readerror",
+            "networkerror",
+            "remoteprotocol",
+        )
+    ):
+        return None
+    headers = getattr(response, "headers", {})
+    retry_after = headers.get("Retry-After") if headers is not None else None
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            try:
+                return max(
+                    0.0, (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds()
+                )
+            except (TypeError, ValueError, OverflowError):
+                pass
+    return min(300.0, 5.0 * 2 ** min(attempt - 1, 6)) + random.uniform(0, 1.5)
 
 
 def _load_dataset() -> Any:
@@ -334,6 +421,166 @@ def _hub_jsonl_rows(address: str) -> Iterator[dict[str, Any]]:
             if not isinstance(row, dict):
                 raise ValueError(f"Expected a JSON object at line {number + 1} in {address}")
             yield row
+
+
+def _hub_json_file_rows(address: str) -> Iterator[dict[str, Any]]:
+    """Stream a Hub ``.json`` file as JSONL or a top-level array of objects.
+
+    Some published data files use a ``.json`` suffix for JSON Lines. The Hub
+    JSON builder infers one nested Arrow schema for all rows and fails when a
+    later row adds, removes or changes a nested field. Decode independent rows
+    directly, while retaining support for conventional JSON arrays.
+    """
+    from huggingface_hub import HfFileSystem
+
+    with HfFileSystem().open(address, "rb", block_size=8 << 20) as handle:
+        prefix = handle.read(64 << 10)
+        first = prefix.lstrip(b"\xef\xbb\xbf \t\r\n")[:1]
+        chunks = itertools.chain((prefix,), iter(lambda: handle.read(1 << 20), b""))
+        chunks = _strip_json_bom(chunks)
+        if first == b"[":
+            yield from _json_array_objects(chunks, address)
+        else:
+            yield from _json_object_stream(chunks, address)
+
+
+def _strip_json_bom(chunks: Iterator[bytes]) -> Iterator[bytes]:
+    first = next(chunks, b"")
+    yield first.removeprefix(codecs.BOM_UTF8)
+    yield from chunks
+
+
+def _json_object_stream(chunks: Iterator[bytes], address: str) -> Iterator[dict[str, Any]]:
+    """Read whitespace-separated JSON objects, including a pretty-printed single object."""
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    json_decoder = json.JSONDecoder()
+    text = ""
+    position = 0
+    ended = False
+    row_number = 0
+    chunk_iter = iter(chunks)
+
+    def refill() -> bool:
+        nonlocal text, ended
+        try:
+            block = next(chunk_iter)
+        except StopIteration:
+            text += decoder.decode(b"", final=True)
+            ended = True
+            return False
+        text += decoder.decode(block)
+        return True
+
+    while not ended or position < len(text):
+        if position > 1 << 20:
+            text = text[position:]
+            position = 0
+        while position < len(text) and text[position].isspace():
+            position += 1
+        if position == len(text):
+            if not refill():
+                return
+            continue
+        try:
+            row, end = json_decoder.raw_decode(text, position)
+        except json.JSONDecodeError as error:
+            if ended:
+                raise ValueError(f"Invalid JSON object at row {row_number} in {address}") from error
+            refill()
+            continue
+        if not isinstance(row, dict):
+            raise ValueError(f"Expected a JSON object at row {row_number} in {address}")
+        position = end
+        if position == len(text) and not ended:
+            refill()
+        if position < len(text) and not text[position].isspace():
+            raise ValueError(f"Expected whitespace between JSON objects in {address}")
+        row_number += 1
+        yield row
+
+
+def _json_array_objects(chunks: Iterator[bytes], address: str) -> Iterator[dict[str, Any]]:
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    json_decoder = json.JSONDecoder()
+    text = ""
+    position = 0
+    started = False
+    ended = False
+    expect_value = True
+    after_comma = False
+    row_number = 0
+    chunk_iter = iter(chunks)
+
+    def refill() -> bool:
+        nonlocal text, ended
+        try:
+            block = next(chunk_iter)
+        except StopIteration:
+            text += decoder.decode(b"", final=True)
+            ended = True
+            return False
+        text += decoder.decode(block)
+        return True
+
+    while not ended or position < len(text):
+        if position > 1 << 20:
+            text = text[position:]
+            position = 0
+        while position < len(text) and text[position].isspace():
+            position += 1
+        if not started:
+            if position == len(text):
+                if not refill():
+                    raise ValueError(f"Expected a JSON array in {address}")
+                continue
+            if text[position] != "[":
+                raise ValueError(f"Expected a JSON array in {address}")
+            position += 1
+            started = True
+            continue
+        while position < len(text) and text[position].isspace():
+            position += 1
+        if position == len(text):
+            if not refill():
+                raise ValueError(f"Unterminated JSON array in {address}")
+            continue
+        if not expect_value:
+            if text[position] == "]":
+                position += 1
+                while True:
+                    if position < len(text) and text[position:].strip():
+                        raise ValueError(f"Trailing content after JSON array in {address}")
+                    if not refill():
+                        return
+            if text[position] != ",":
+                raise ValueError(f"Expected a comma between JSON array rows in {address}")
+            position += 1
+            expect_value = True
+            after_comma = True
+            continue
+        if text[position] == "]":
+            if after_comma:
+                raise ValueError(f"Trailing comma in JSON array in {address}")
+            position += 1
+            while True:
+                if position < len(text) and text[position:].strip():
+                    raise ValueError(f"Trailing content after JSON array in {address}")
+                if not refill():
+                    return
+        try:
+            row, end = json_decoder.raw_decode(text, position)
+        except json.JSONDecodeError as error:
+            if ended:
+                raise ValueError(f"Invalid JSON array row in {address}") from error
+            refill()
+            continue
+        if not isinstance(row, dict):
+            raise ValueError(f"Expected JSON objects in array in {address}")
+        yield row
+        row_number += 1
+        position = end
+        expect_value = False
+        after_comma = False
 
 
 def _hub_parquet_rows(address: str, max_batch_rows: int) -> Iterator[dict]:
