@@ -249,7 +249,7 @@ def test_the_pin_records_one_commit_and_the_whole_run_comes_back(tmp_path):
     changed_summary["parts"][0]["prepared_roots"]["00000"]["fingerprint"] = "f" * 64
     with pytest.raises(publish.PublishError, match="summary differs"):
         publish.prepared_corpus_metadata(changed_summary)
-    with pytest.raises(publish.PublishError, match="backfill"):
+    with pytest.raises(publish.PublishError, match="rebuild and republish"):
         publish.prepared_corpus_metadata({"parts": []})
     assert b"Zstandard-compressed" in hub.commits[REPO][pin["revision"]]["README.md"]
     path = tmp_path / "run.pin.json"

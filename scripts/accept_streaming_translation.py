@@ -15,11 +15,16 @@ from megatoken.io import write_json
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--data", type=Path, required=True)
+    p.add_argument("--data", type=Path, action="append", required=True)
     p.add_argument("--packs", type=Path)
     p.add_argument("--evaluation-stream", default="streaming_translation")
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--steps", type=int, default=256)
+    p.add_argument("--model", choices=["tiny", "32x256", "32x512"], default="tiny")
+    p.add_argument("--precision", choices=["fp32", "bf16"], default="fp32")
+    p.add_argument("--microbatch-episodes", type=int, default=1)
+    p.add_argument("--evaluation-episodes", type=int, default=4)
+    p.add_argument("--gradient-checkpointing", action="store_true")
     p.add_argument("--phase", choices=["B0", "P1", "MB"], default="B0")
     p.add_argument("--budget", type=int)
     p.add_argument("--resume", type=Path)
@@ -33,24 +38,26 @@ def main():
     p.add_argument("--device", default="cuda")
     p.add_argument("--_stage", default="train", choices=["train", "restart", "export", "evaluate"])
     args = p.parse_args()
+    if min(args.steps, args.microbatch_episodes, args.evaluation_episodes) < 1:
+        p.error("Training steps, batch size and evaluation count must be positive")
     from megatoken.training.config import TrainConfig
 
     config = TrainConfig(
         purpose="diagnostic",
-        model="tiny",
+        model=args.model,
         phase=args.phase,
         trainable="media_bridge" if args.phase == "MB" else "all",
         budget=args.budget,
-        datasets=[str(args.data)],
+        datasets=[str(path) for path in args.data],
         output=str(args.root / "training"),
         codec="byte",
         allow_byte_codec=True,
         device=args.device,
-        precision="fp32",
+        precision=args.precision,
         packs=None if args.packs is None else str(args.packs),
         model_overrides={"max_capacity": 512},
         max_steps=args.steps,
-        microbatch_episodes=1,
+        microbatch_episodes=args.microbatch_episodes,
         max_accumulation_windows=1,
         accumulate_scored=1,
         accumulate_ingested=4096,
@@ -59,7 +66,7 @@ def main():
         max_record_bytes=8192,
         generated_capacity=512,
         effort=1,
-        gradient_checkpointing=False,
+        gradient_checkpointing=args.gradient_checkpointing,
         expert_backend=args.expert_backend,
         checkpoint_every=32,
         use_stage_mixture=False,
@@ -109,7 +116,7 @@ def main():
         next_stage("evaluate")
     import torch
 
-    from megatoken.data.storage import PreparedDataset
+    from megatoken.data.storage import PreparedCorpus
     from megatoken.generation.structure import ActionSpec
     from megatoken.model.media import MediaOutputSpec
     from megatoken.omni.quality import DecodedQualityArchive
@@ -128,7 +135,9 @@ def main():
             "text_normalization": "lowercase whitespace tokenization for WER; exact UTF-8 bytes archived",
         },
     )
-    with PreparedDataset(args.data, split="validation", stream=args.evaluation_stream) as data:
+    with PreparedCorpus(config.datasets, split="validation", stream=args.evaluation_stream) as data:
+        if not len(data):
+            raise ValueError("The selected held-out stream contains no prepared episodes")
         output_specs = {"text": ActionSpec(max_tokens=config.generated_capacity)}
         if args.audio_samples is not None:
             output_specs["audio"] = MediaOutputSpec(
@@ -144,7 +153,7 @@ def main():
             data,
             config,
             torch.device(args.device),
-            episodes=4,
+            episodes=args.evaluation_episodes,
             decoded_evaluator=archive,
             output_specs=output_specs,
         )
