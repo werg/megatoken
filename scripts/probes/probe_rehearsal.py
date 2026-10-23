@@ -292,6 +292,7 @@ ROOT_ROLE_HINTS: dict[str, tuple[str, ...]] = {
         "scripts/prepare_execution_traces.py",
     ),
     "TIMED_MEDIA": ("scripts/prepare_timed_media.py", "scripts/prepare_meeting_prefix.py"),
+    "CONTEXT_CURRICULUM": ("scripts/prepare_context_tasks.py",),
 }
 # Scripts that really write a prepared root (the others measure, verify or acquire).
 PRODUCER_PREFIXES = ("prepare_", "import_")
@@ -838,7 +839,9 @@ class DataBuilder:
         import numpy as np
         import soundfile
 
-        soundfile.write(audio, 0.3 * np.sin(np.arange(48000) / (3 + index % 5)), 16000, format="WAV")
+        soundfile.write(
+            audio, 0.3 * np.sin(np.arange(48000) / (3 + index % 5)), 16000, format="WAV"
+        )
         source = make_source(
             "translation", "translation_text", options={"sustained_translation": True}
         )
@@ -858,16 +861,42 @@ class DataBuilder:
 
     def build_text_root(self, recipe_streams: list[str]) -> Path:
         episodes = []
+        context_episodes = []
         for stream in recipe_streams:
             if stream in MEDIA_STREAM_MODALITY or stream in {
                 "collection_reading",
                 "duplex_execution",
             }:
                 continue
+            if stream == "context_management":
+                # The real producer: the stage recipes require every retention strategy and
+                # task template to appear in several original tasks per split.
+                from megatoken.data.context_curriculum import curriculum_episodes
+
+                made = [
+                    e
+                    for e in curriculum_episodes(32)
+                    if e.lineage.frozen_split in {"train", "validation"}
+                ]
+                context_episodes.extend(made)
+                validation = sum(e.lineage.frozen_split == "validation" for e in made)
+                self.note(
+                    stream,
+                    "real",
+                    "text",
+                    "megatoken.data.context_curriculum.curriculum_episodes",
+                    len(made) - validation,
+                    validation,
+                )
+                continue
             train, val = 0, 0
             # Dynamic execution shows four ways of handling work, in each split.
-            train_count = max(self.per_stream, 4) if stream == "dynamic_execution" else self.per_stream
-            val_count = (4 if stream == "dynamic_execution" else 1) if self.wants_validation(stream) else 0
+            train_count = (
+                max(self.per_stream, 4) if stream == "dynamic_execution" else self.per_stream
+            )
+            val_count = (
+                (4 if stream == "dynamic_execution" else 1) if self.wants_validation(stream) else 0
+            )
             for number in range(train_count + val_count):
                 is_val = number >= train_count
                 if stream == "dynamic_execution":
@@ -877,7 +906,10 @@ class DataBuilder:
                     kind, constructor = "real", "megatoken.data.dynamic_execution.execution_episode"
                 elif stream == "streaming_translation":
                     episode = self.streaming_episode(stream)
-                    kind, constructor = "real", "megatoken.data.open_media.translation_text_episodes"
+                    kind, constructor = (
+                        "real",
+                        "megatoken.data.open_media.translation_text_episodes",
+                    )
                 elif stream in EXECUTED_STANDINS:
                     episode = self.executed_episode(stream, delegated=number % 2 == 1)
                     kind = "stand_in"
@@ -896,6 +928,10 @@ class DataBuilder:
                 episodes.append(episode)
             self.note(stream, kind, "text", constructor, train, val)
         self.roots["text"] = self.export(self.workdir / "root-text", episodes)
+        if context_episodes:
+            # Kept out of the bootstrap and text-only stages: its longest windows are for the
+            # stage mixture, whose recipes require it.
+            self.roots["context"] = self.export(self.workdir / "root-context", context_episodes)
         return self.roots["text"]
 
     # -- media ---------------------------------------------------------------------------
@@ -1744,6 +1780,7 @@ def rehearsal(args, workdir: Path, report: Report) -> None:
                 str(roots["duplex_heldout"]),
                 str(roots["collection"]),
                 str(roots["collection_heldout"]),
+                *([str(roots["context"])] if "context" in roots else []),
             ],
             representation_mode="recurrent",
             use_stage_mixture=True,

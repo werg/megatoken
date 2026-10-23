@@ -94,7 +94,7 @@ def test_launch_readiness_catches_the_known_configuration_gaps():
     # The one pretraining example declares a root for aligned tasks.
     for name in ("pretraining",):
         config = next(c for c in result["configs"] if f"{name}.example" in c["config"])
-        assert config["roots_listed"] == 8
+        assert config["roots_listed"] == 9
         assert config["missing_streams"] == []
         assert config["unfilled_placeholders"], "PIN_ placeholders must be reported"
     assert findings["phases_without_an_example_config"] == []
