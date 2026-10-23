@@ -364,10 +364,15 @@ def main():
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--families", type=int, default=64)
     p.add_argument("--steps", type=int, default=64)
+    p.add_argument("--foundation-steps", type=int, default=256)
     p.add_argument(
-        "--_stage", choices=("prepare", "train", "restart", "export", "evaluate"), default="prepare"
+        "--_stage",
+        choices=("prepare", "foundation", "train", "restart", "export", "evaluate"),
+        default="prepare",
     )
     args = p.parse_args()
+    if min(args.families, args.steps, args.foundation_steps) < 1:
+        p.error("Family and update budgets must be positive")
 
     def next_stage(stage):
         os.execv(
@@ -381,6 +386,8 @@ def main():
                 str(args.families),
                 "--steps",
                 str(args.steps),
+                "--foundation-steps",
+                str(args.foundation_steps),
                 "--_stage",
                 stage,
             ],
@@ -390,7 +397,10 @@ def main():
     if args._stage == "prepare":
         args.root.mkdir(parents=True, exist_ok=False)
         prepare(args.root / "data", families=args.families)
-        next_stage("train")
+        with PreparedDataset(args.root / "data", split="validation") as heldout:
+            if not len(heldout):
+                raise ValueError("Prepare held-out original families before training")
+        next_stage("foundation")
     from megatoken.training.config import TrainConfig
     from megatoken.training.engine import train
 
@@ -399,10 +409,7 @@ def main():
         model="tiny",
         model_overrides={"max_capacity": 512},
         phase="P1",
-        # This experiment starts from random weights. Its public text reader
-        # must learn together with prediction and realization; a frozen random
-        # reader is not the pretrained reader assumed by recurrent-only tuning.
-        representation_mode="bootstrap",
+        representation_mode="recurrent",
         budget=1000000,
         datasets=[str(args.root / "data")],
         output=str(args.root / "training"),
@@ -425,13 +432,33 @@ def main():
         use_effort_mixture=False,
         checkpoint_every=16,
     )
+    if args._stage == "foundation":
+        foundation = replace(
+            config,
+            phase="B0",
+            representation_mode="bootstrap",
+            budget=2000000,
+            max_steps=args.foundation_steps,
+            output=str(args.root / "foundation"),
+        )
+        write_json(args.root / "foundation-config.json", asdict(foundation))
+        result = train(foundation)
+        write_json(args.root / "foundation.json", result)
+        if result["termination"] == "requested":
+            raise SystemExit(130)
+        next_stage("train")
     if args._stage == "train":
         write_json(args.root / "train-config.json", asdict(config))
-        result = train(config)
+        result = train(
+            config,
+            resume=str(args.root / "foundation/checkpoints/latest.json"),
+            phase_transition=True,
+        )
         write_json(args.root / "training.json", result)
         if result["termination"] == "requested":
             raise SystemExit(130)
         next_stage("restart")
+    config = TrainConfig.load(args.root / "train-config.json")
     if args._stage == "restart":
         result = train(replace(config, max_steps=2), resume=str(checkpoint))
         write_json(args.root / "restart.json", result)
