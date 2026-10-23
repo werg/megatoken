@@ -8,6 +8,7 @@ Malformed or unavailable fields are explicit rejects, not guessed targets.
 from __future__ import annotations
 
 import datetime
+import itertools
 import json
 import re
 from collections.abc import Mapping
@@ -66,6 +67,9 @@ class AdapterProfile:
     environment_turns: bool = False
     # An artifact row may omit the request (a rewrite is its own request).
     prompt_required: bool = True
+    # Family values end in a random trial suffix after this separator ("task_7__3Ecuzfu"); the
+    # task, which all of its trials share, is what comes before the last one.
+    family_separator: str = ""
 
 
 DEFAULT_FIELDS = {
@@ -160,11 +164,30 @@ PROFILES: dict[str, AdapterProfile] = {
         trajectory=True,
         observation_provenance="executed",
         harness="terminus2",
-        require_parent=True,
-        fields=_fields(outcome="reward"),
+        fields=_fields(
+            outcome="reward",
+            task=("task", "task_id", "task_name"),
+            family=("task", "task_id", "task_name", "trial_name"),
+            id=("trial_name", "run_id", "trajectory_id"),
+        ),
+        family_separator="__",
+    ),
+    # The same trials where the reward is a verifier's test verdict (graded terminal tasks).
+    "agent_trove_graded": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        harness="terminus2",
+        outcome_verification="publisher_tests",
+        fields=_fields(
+            outcome="reward",
+            task=("task", "task_id", "task_name"),
+            family=("task", "task_id", "task_name", "trial_name"),
+            id=("trial_name", "run_id", "trajectory_id"),
+        ),
+        family_separator="__",
     ),
     "nemotron_terminal": AdapterProfile(
-        trajectory=True, observation_provenance="executed", harness="terminus2", require_parent=True
+        trajectory=True, observation_provenance="executed", harness="terminus2"
     ),
     # Text scaffolds: the assistant message is the action and the next user message its result.
     "openhands_xml": AdapterProfile(
@@ -191,6 +214,75 @@ PROFILES: dict[str, AdapterProfile] = {
         observation_provenance="executed",
         outcome_verification="publisher_tests",
         harness="mini_swe",
+    ),
+    # Logs of real coding-agent sessions, one file each (data/sessions.py). Their outcome is
+    # unknown, so a source admits them as unknown-quality imitation data.
+    "claude_code_session": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        dialect="claude_code",
+        fields=_fields(messages="events", id="source_file"),
+    ),
+    "pi_session": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        dialect="pi_session",
+        fields=_fields(messages="events", id="source_file"),
+    ),
+    "codex_session": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        dialect="codex_rollout",
+        fields=_fields(messages="events", id="source_file"),
+    ),
+    "opencode_session": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        dialect="opencode_session",
+        fields=_fields(messages="document", id="source_file"),
+    ),
+    # Other published layouts of coding-agent runs (data/sessions.py).
+    "harbor_rollout": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        dialect="longest_root",
+        fields=_fields(messages="conversations_json"),
+    ),
+    "responses_agent": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        dialect="responses_items",
+        fields=_fields(messages="messages"),
+    ),
+    "step_record_agent": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        dialect="step_records",
+        fields=_fields(messages="trajectory"),
+    ),
+    "normalized_agent": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        dialect="normalized_events",
+        fields=_fields(messages="events"),
+    ),
+    "parts_agent": AdapterProfile(
+        trajectory=True,
+        observation_provenance="executed",
+        outcome_verification="publisher_tests",
+        dialect="parts_calls",
+        fields=_fields(messages="messages"),
+    ),
+    # Replies and interpreter output in one string, split at <observation> tags.
+    "tagged_observation_agent": AdapterProfile(
+        observation_provenance="executed",
+        environment_turns=True,
+        dialect="observation_tags",
+        fields=_fields(messages="output"),
     ),
     # Plain ReAct text (Thought/Action turns, environment replies): no structured calls exist.
     "react_agent": AdapterProfile(observation_provenance="executed", environment_turns=True),
@@ -267,7 +359,9 @@ _HINT_OPTIONS = frozenset(
     {"content_kind", "language", "filename", "mime_type", "locale", "chat_template"}
 )
 # Read by the preparation pipeline itself rather than by an adapter.
-_PIPELINE_OPTIONS = frozenset({"lineage_join", "row_filters", "quality", "read_batch_rows"})
+_PIPELINE_OPTIONS = frozenset(
+    {"lineage_join", "row_filters", "quality", "read_batch_rows", "whole_files", "explode"}
+)
 _PROFILE_OPTIONS: dict[str, frozenset[str]] = {
     "native": frozenset({"preserve_native_stream"}),
     "chat": _HINT_OPTIONS
@@ -279,6 +373,7 @@ _PROFILE_OPTIONS: dict[str, frozenset[str]] = {
         "admit_unknown_outcome",
         "path_dependencies",
         "drop_empty_user_turns",
+        "wrap_text_arguments",
     },
     "serialized_chat": _HINT_OPTIONS | {"allow_incomplete_serialized"},
     "document": _HINT_OPTIONS | {"allow_incomplete_serialized"},
@@ -335,6 +430,9 @@ def _path(row: Mapping[str, Any], path: str) -> Any:
                 current = json.loads(current)
             except json.JSONDecodeError:
                 return None
+        if isinstance(current, list) and key.isdigit():
+            current = current[int(key)] if int(key) < len(current) else None
+            continue
         if not isinstance(current, Mapping):
             return None
         current = current.get(key)
@@ -451,6 +549,8 @@ def _lineage(reader: _Reader, raw_sha: str, prompt_override: bytes | None = None
     repository = _label(reader.get("repository"), "repository")
     task = _label(reader.get("task"), "task")
     family = _label(reader.get("family"), "family")
+    if family and reader.profile.family_separator:
+        family = family.rpartition(reader.profile.family_separator)[0] or family
     ancestors = reader.get("ancestors", ())
     if isinstance(ancestors, str):
         ancestors = (ancestors,)
@@ -623,6 +723,8 @@ def _flat_parameters(schema: dict[str, Any]) -> dict[str, Any]:
 
 def _tools(value: Any) -> str:
     schemas = _object(value, "tools") if value is not None else []
+    if schemas is None:  # a JSON "null" string means no tools
+        schemas = []
     if not isinstance(schemas, list):
         raise SchemaError("tools must be a list (possibly JSON encoded)")
     schemas = [_object(item, "tool schema") for item in schemas]
@@ -654,6 +756,8 @@ class _EpisodeBuilder:
         self.actions: list[LogicalAction] = []
         self.pending: dict[str, LogicalAction] = {}
         self.completed: set[str] = set()
+        self.reissued: dict[str, int] = {}
+        self.alias: dict[str, str] = {}
         self.parser_annotations: dict[str, Any] = {}
         self.family_prompt: bytes | None = None
         self.observation_provenance = reader.context.options.get(
@@ -661,8 +765,11 @@ class _EpisodeBuilder:
         )
         self.assistant_spoke = False
         # For sources whose calls carry no ID: calls are numbered by position and each
-        # result answers the oldest unanswered call. Opt-in, because it is a convention.
-        self.positional = bool(reader.context.options.get("positional_call_ids", False))
+        # result answers the oldest unanswered call. Trajectory adapters use it unless told
+        # otherwise (the harnesses they read never name a call); other adapters opt in.
+        self.positional = bool(
+            reader.context.options.get("positional_call_ids", reader.profile.trajectory)
+        )
 
     def content_hints(self, *objects: Mapping[str, Any]) -> dict[str, Any]:
         """Specific block/message hints override source options and row defaults.
@@ -820,6 +927,13 @@ class _EpisodeBuilder:
         transform: str = "identity",
         parse_hints: Mapping[str, Any] | None = None,
     ) -> None:
+        if call_id in self.completed and call_id not in self.pending:
+            # Some sources number calls per turn ("call_1") or per command ("bash:1") and reuse
+            # the number once the earlier call has its result; the later call gets its own
+            # identity. A number reused while the first call is still open stays an error.
+            self.reissued[call_id] = self.reissued.get(call_id, 0) + 1
+            original, call_id = call_id, f"{call_id}#{self.reissued[call_id]}"
+            self.alias[original] = call_id
         if call_id in self.pending or call_id in self.completed:
             raise SchemaError(f"Tool call ID reused: {call_id}")
         raw_arguments = arguments if isinstance(arguments, str) else canonical_json(arguments)
@@ -859,12 +973,30 @@ class _EpisodeBuilder:
         source_field: str,
         transform: str = "identity",
         parse_hints: Mapping[str, Any] | None = None,
+        closes_all: bool = False,
     ) -> None:
+        """A result for one call; ``closes_all`` lets a single message answer every open call.
+
+        Text scaffolds print one combined terminal screen after a turn, however many commands
+        (or consecutive turns) came before it. That screen is the newest action's result and
+        the earlier ones are settled by it: they get no result record of their own.
+        """
         if call_id is None:
-            if len(self.pending) != 1 and not (self.positional and self.pending):
+            if closes_all and self.pending:
+                *earlier, call_id = self.pending
+                for settled in earlier:
+                    self.completed.add(settled)
+                    del self.pending[settled]
+            elif len(self.pending) != 1 and not (self.positional and self.pending):
                 raise SchemaError(
                     "Unlinked observation; call IDs may be inferred only for exactly one pending action"
                 )
+            else:
+                call_id = next(iter(self.pending))
+        call_id = self.alias.get(call_id, call_id)
+        if call_id not in self.pending and call_id not in self.completed and len(self.pending) == 1:
+            # The result names a call that was never made (a translated or renumbered ID) while
+            # exactly one call is open: it can only be that call's result.
             call_id = next(iter(self.pending))
         if call_id not in self.pending:
             raise SchemaError(f"Tool result has no preceding unexecuted call: {call_id}")
@@ -892,6 +1024,8 @@ def _tool_call(call: Any, default_id: str | None = None) -> tuple[str, str, Any]
     if not isinstance(call, Mapping):
         raise SchemaError("Every tool call must be an object")
     function = call.get("function", call)
+    if isinstance(function, str):  # {"function": "bash", "arguments": {...}}
+        function = {"name": function, "arguments": call.get("arguments", {})}
     if not isinstance(function, Mapping):
         raise SchemaError("A tool call's function must be an object")
     name = function.get("name")
@@ -915,30 +1049,78 @@ def _first_user_text(content: Any) -> bytes | None:
     return None
 
 
-_OPENHANDS_CALL = re.compile(r"<function=([^>\s]+)>(.*?)</function>\s*$", re.DOTALL)
+_OPENHANDS_CALL = re.compile(
+    r"<function=([^>\s]+)>(.*?)</function>\s*(?:</tool_call>\s*)?$", re.DOTALL
+)
 _OPENHANDS_PARAMETER = re.compile(r"<parameter=([^>\s]+)>(.*?)</parameter>", re.DOTALL)
 _FENCE = re.compile(r"```(?:bash|sh)?[ \t]*\n(.*?)```", re.DOTALL)
-_EXECUTE = re.compile(r"<execute>\n?(.*?)\n?</execute>", re.DOTALL)
+_EXECUTE = re.compile(r"<(?:execute|code)>\n?(.*?)\n?</(?:execute|code)>", re.DOTALL)
+_END_CODE = re.compile(r"```(?:py|python)[ \t]*\n(.*?)```[ \t]*<end_code>", re.DOTALL)
 _TEXT_HARNESSES = frozenset({"terminus2", "mini_swe", "openhands", "swe_agent", "codeact"})
 
 
-def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | None:
-    if harness == "terminus2":
-        stripped = content.strip()
-        if stripped.startswith("<think>") and "</think>" in stripped:
-            # Reasoning models write their thinking first; the call is the JSON after it.
-            stripped = stripped.partition("</think>")[2].strip()
-        if stripped.startswith("```json") and stripped.endswith("```"):
-            stripped = stripped[7:-3].strip()
+_LINE_START_BRACE = re.compile(r"^[ \t]*\{", re.MULTILINE)
+
+
+_OPENHANDS_ANY = re.compile(r"<function=([^>\s]+)>(.*?)</function>", re.DOTALL)
+
+
+def _parallel_calls(content: str) -> list[dict[str, Any]] | None:
+    """Several ``<function=...>`` calls in one reply, as ``<functions>`` groups them, else None.
+
+    Each call has its own result message later; they read as one batch action here.
+    """
+    if content.count("<function=") < 2:
+        return None
+    calls = list(_OPENHANDS_ANY.finditer(content))
+    if len(calls) != content.count("<function=") or content[calls[-1].end() :].strip() not in {
+        "",
+        "</functions>",
+    }:
+        return None
+    return [
+        {
+            "name": call.group(1),
+            "arguments": {
+                key: value.removeprefix("\n").removesuffix("\n")
+                for key, value in _OPENHANDS_PARAMETER.findall(call.group(2))
+            },
+        }
+        for call in calls
+    ]
+
+
+def _terminus_json(content: str) -> dict[str, Any] | None:
+    """The command batch of a Terminus-2 reply, as the harness itself finds it.
+
+    The harness accepts a reply that has text around the JSON object (it only warns), and
+    reasoning models put their thinking first, often with only the closing ``</think>`` left.
+    """
+    text = content.strip()
+    if "</think>" in text:
+        text = text.rpartition("</think>")[2].strip()
+    if text.startswith("```json") and text.endswith("```"):
+        text = text[7:-3].strip()
+    decoder = json.JSONDecoder()
+    for match in itertools.islice(_LINE_START_BRACE.finditer(text), 8):
+        start = match.end() - 1
         try:
-            parsed = json.loads(stripped)
+            parsed, _ = decoder.raw_decode(text, start)
         except json.JSONDecodeError:
-            return None
+            continue
         if (
             isinstance(parsed, dict)
             and isinstance(parsed.get("commands"), list)
             and parsed["commands"]
         ):
+            return parsed
+    return None
+
+
+def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | None:
+    if harness == "terminus2":
+        parsed = _terminus_json(content)
+        if parsed is not None:
             return "terminal.batch", parsed
     if harness == "mini_swe":
         commands = re.findall(r"```(?:bash|sh)\s*\n(.*?)```", content, flags=re.DOTALL)
@@ -946,6 +1128,9 @@ def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | 
             return "bash", {"command": commands[0]}
     if harness == "openhands":
         # One <function=name><parameter=key>value</parameter></function> closes the message.
+        parallel = _parallel_calls(content)
+        if parallel is not None:
+            return "parallel_calls", {"calls": parallel}
         call = _OPENHANDS_CALL.search(content)
         if call is not None and content.count("<function=") == 1:
             arguments = {
@@ -955,7 +1140,8 @@ def _harness_action(content: str, harness: str) -> tuple[str, dict[str, Any]] | 
             return call.group(1), arguments
     if harness == "codeact":
         # One <execute> code block per message; the next user message is its observation.
-        blocks = _EXECUTE.findall(content)
+        text = content.rpartition("</think>")[2] if "</think>" in content else content
+        blocks = _EXECUTE.findall(text) or _END_CODE.findall(text)
         if len(blocks) == 1:
             return "execute", {"code": blocks[0]}
     if harness == "swe_agent":
@@ -1032,6 +1218,8 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         if not isinstance(message, Mapping):
             raise SchemaError("Every message must be an object")
         role = role_of(message)
+        if role == "exit":  # mini-swe-agent's closing record: the submission, not a turn
+            continue
         if message.get("role", message.get("from")) == "developer":
             builder.parser_annotations.setdefault("source_roles", {})[str(turn)] = "developer"
         hints = builder.content_hints(message)
@@ -1047,7 +1235,8 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         )
         base = f"{reader.origin('messages')}[{turn}]"
         content = _with_reasoning(message, role, _first(message, _CONTENT_KEYS))
-        if role == "user" and builder.family_prompt is None:
+        first_user = role == "user" and builder.family_prompt is None
+        if first_user:
             # Repeated prompts must share one family however they are encoded.
             builder.family_prompt = _first_user_text(content)
         if (
@@ -1083,8 +1272,10 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
         if calls and role != "assistant":
             raise SchemaError("Only assistant messages can issue tools")
         blank_user = role == "user" and isinstance(content, str) and not content.strip()
-        if blank_user and drop_empty_users and not calls:
-            continue  # the publisher blanked a turn (a withheld device action), not the prompt
+        if blank_user and not calls and (drop_empty_users or not first_user):
+            # A blank follow-up turn (a withheld device action, an empty reply) carries nothing
+            # to learn; only a missing task is fatal, unless the source says to drop those too.
+            continue
         if (content is None and not calls) or blank_user:
             raise SchemaError(
                 f"Message {turn} has no content; a source that withholds prompts must be restored first"
@@ -1146,14 +1337,50 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                 if isinstance(content, str) and role == "assistant"
                 else None
             )
-            if role in {"tool", "environment"}:
+            if (
+                role in {"tool", "environment"}
+                and not builder.pending
+                and _result_id(message, role) is None
+                and reader.profile.harness in _TEXT_HARNESSES
+            ):
+                # The harness answered a reply that held no action (a format error); keep it as context.
+                builder.append(
+                    payload,
+                    role="environment",
+                    turn=turn,
+                    source_field=base + ".content",
+                    provenance=builder.observation_provenance,
+                    parse_hints=hints,
+                )
+            elif role in {"tool", "environment"}:
+                call_id = _result_id(message, role)
+                batch = False
+                if call_id is None and len(builder.pending) > 1 and not builder.positional:
+                    # Several calls are open and this result names none. With a result for each
+                    # (this one and the untagged ones right after it) they pair in call order;
+                    # with fewer, one result answers the whole batch of parallel calls.
+                    following = 0
+                    for later in messages[turn + 1 :]:
+                        later = _object(later, "message") if isinstance(later, str) else later
+                        if (
+                            not isinstance(later, Mapping)
+                            or role_of(later) not in {"tool", "environment"}
+                            or _result_id(later, role_of(later)) is not None
+                        ):
+                            break
+                        following += 1
+                    if following + 1 >= len(builder.pending):
+                        call_id = next(iter(builder.pending))
+                    else:
+                        batch = True
                 builder.observation(
                     payload,
                     turn=turn,
-                    call_id=_result_id(message, role),
+                    call_id=call_id,
                     source_field=base + ".content",
                     transform="canonical-json-v1" if structured_result else "identity",
                     parse_hints=hints,
+                    closes_all=batch,
                 )
             elif role == "user" and builder.pending and reader.profile.harness in _TEXT_HARNESSES:
                 builder.observation(
@@ -1162,6 +1389,7 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                     call_id=_result_id(message, role),
                     source_field=base + ".content",
                     parse_hints=hints,
+                    closes_all=True,
                 )
             elif role == "user" and reader.profile.environment_turns and builder.assistant_spoke:
                 # Replies after the task prompt come from the environment; no call is named.
@@ -1200,6 +1428,14 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
             call_id, tool_name, arguments = _tool_call(
                 call, f"{builder.episode_id}:{turn}:{index}" if builder.positional else None
             )
+            if reader.context.options.get("wrap_text_arguments") and isinstance(arguments, str):
+                # Tools such as Codex's apply_patch take raw text, not a JSON object.
+                try:
+                    wrapped = not isinstance(json.loads(arguments), dict)
+                except json.JSONDecodeError:
+                    wrapped = True
+                if wrapped:
+                    arguments = {"input": arguments}
             canonical = {
                 "function": {"arguments": arguments, "name": tool_name},
                 "id": call_id,
@@ -1216,7 +1452,13 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                 transform="canonical-tool-json-v1",
                 parse_hints=hints,
             )
-    if builder.pending and not reader.context.options.get("allow_pending_final_action", False):
+    # A trajectory that stops on a call (a finish or submit step, or a run cut off at its turn
+    # limit) is ordinary: the call is still a scored action, it just has no result to read.
+    allow_pending = reader.context.options.get(
+        "allow_pending_final_action",
+        reader.profile.trajectory or reader.context.stream in {"chat", "tool_use"},
+    )
+    if builder.pending and not allow_pending:
         raise SchemaError(
             "Trace ends with an action whose observation is missing; opt into incomplete traces explicitly"
         )

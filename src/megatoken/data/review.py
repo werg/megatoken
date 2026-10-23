@@ -37,6 +37,8 @@ from .schema import (
 from .sources import SourceSpec
 
 REVIEW_VERSION = "parser-review-v1"
+# Recursion-depth limits of the text grammar walk and of the syntax-tree walk.
+_DEPTH_CODES = frozenset({"depth_budget_exhausted", "tree_depth_budget_exhausted"})
 _HARD_CODES = (
     "native_parser_error",
     "native_parser_timeout",
@@ -91,6 +93,9 @@ class ParserReviewPolicy:
     review_incomplete_syntax: bool = False
     review_recovered_syntax: bool = False
     review_unknown_languages: bool = False
+    # Text nested deeper than the parser's recursion limit stays one flat, still chunked region.
+    # A corpus of terminal transcripts (shell inside JSON inside quoted screens) can waive it.
+    review_depth_limit: bool = True
 
     def __post_init__(self) -> None:
         for name in (
@@ -98,6 +103,7 @@ class ParserReviewPolicy:
             "review_incomplete_syntax",
             "review_recovered_syntax",
             "review_unknown_languages",
+            "review_depth_limit",
         ):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"Parser review {name} must be boolean")
@@ -115,7 +121,10 @@ class ParserReviewPolicy:
                     code
                     for code in codes
                     if code in self.hard_codes
-                    or code.endswith(("_budget", "_budget_exhausted"))
+                    or (
+                        code.endswith(("_budget", "_budget_exhausted"))
+                        and (self.review_depth_limit or code not in _DEPTH_CODES)
+                    )
                     or (self.review_incomplete_syntax and code in _UNCLOSED_CODES)
                     or (
                         self.review_recovered_syntax

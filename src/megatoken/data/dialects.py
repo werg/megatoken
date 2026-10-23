@@ -1224,3 +1224,8 @@ DIALECTS: dict[str, Dialect] = {
     "prompt_and_reply": prompt_and_reply,
     "prompt_completion": prompt_completion,
 }
+
+# Agent-harness session logs (data/sessions.py).
+from .sessions import SESSION_DIALECTS  # noqa: E402
+
+DIALECTS.update(SESSION_DIALECTS)

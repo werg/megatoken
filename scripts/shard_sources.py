@@ -6,7 +6,8 @@
         --listing configs/data/files.agentic.json
 
 The manifest's own row caps are a first real run; ``--scale`` multiplies them and keeps the
-leading rows identical. ``--full`` drops every cap, so each source offers all its rows, and
+leading rows identical, and ``--cap N`` limits every source to its first N rows (a smoke run of
+a manifest that has no caps, such as sources.agentic-coding.json). ``--full`` drops every cap, so each source offers all its rows, and
 splits the sources by file (or by row stripe, for a source whose files are too big to split)
 using each source's file list at its pinned revision. ``--listing`` names a JSON file of
 those lists: it is read if it exists and otherwise built from the Hugging Face Hub (metadata
@@ -36,6 +37,9 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--scale", type=float, default=1.0)
     parser.add_argument("--full", action="store_true", help="drop every row cap")
+    parser.add_argument(
+        "--cap", type=int, help="smoke run: read only the first N rows of each source"
+    )
     parser.add_argument("--listing", type=Path, help="JSON file of each source's files and sizes")
     parser.add_argument("--shard", default="0/1", help="i/n: keep the i-th of n balanced shards")
     args = parser.parse_args()
@@ -44,7 +48,9 @@ def main() -> None:
         raise SystemExit("Shard index must be in [0, count)")
     manifest = json.loads(args.manifest.read_text())
     listings = read_listings(manifest, args.listing) if args.full else None
-    shard = plan_shards(manifest, count, listings, scale=args.scale, full=args.full)[index]
+    shard = plan_shards(manifest, count, listings, scale=args.scale, full=args.full, cap=args.cap)[
+        index
+    ]
     args.output.write_text(json.dumps(shard, indent=1))
     rows = [source["max_rows"] for source in shard["sources"]]
     detail = "all rows" if args.full else f"{sum(rows)} rows at scale {args.scale}"

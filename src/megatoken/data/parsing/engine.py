@@ -234,10 +234,11 @@ class _Engine:
             if len(self.result.regions) >= self.limits.max_regions:
                 self.diagnostic("region_budget_exhausted", view)
                 break
+            region_start = view.position(region.start)
             self.result.regions.append(
                 Region(
-                    view.position(region.start),
-                    view.position(region.end, end=True),
+                    region_start,
+                    max(region_start, view.position(region.end, end=True)),
                     region.kind,
                     region.language,
                     depth + region.depth,

@@ -100,6 +100,8 @@ def row_for(source):
         command = (
             '{"analysis": "a", "plan": "p", "commands": [{"keystrokes": "ls\\n", "duration": 0.1}]}'
         )
+        if adapter == "agent_trove":  # the published column is `conversations`
+            return conversation_of(row, "conversations", text_scaffold(command))
         return conversation(source, row, text_scaffold(command))
     if adapter == "openhands_xml":
         return conversation(
@@ -256,7 +258,8 @@ def row_for(source):
 def row_passing_filters(source):
     row = row_for(source)
     for rule in source.options.get("row_filters", []):
-        put(row, rule["path"], rule.get("value"))
+        if rule["op"] != "exists":  # the row already holds the field the rule asks for
+            put(row, rule["path"], rule.get("value"))
     # A recorded test verdict is what lets the engine train on a trajectory; unknown outcomes are not imitated.
     defaults = dict(PROFILES[source.adapter].fields)
     outcome = first(source.field_map.get("outcome") or defaults.get("outcome", "resolved"))
@@ -407,7 +410,10 @@ def test_the_agentic_job_holds_back_parser_faults_but_not_prose_around_code():
     default = ParserReviewPolicy()
     # A conversation mixes prose and code in every turn; one badly parsed chunk must not drop
     # a whole trajectory. Every other fault is still held out.
-    assert set(default.hard_codes) - set(policy.hard_codes) == {"low_syntax_coverage"}
+    assert set(default.hard_codes) - set(policy.hard_codes) == {
+        "low_syntax_coverage",
+        "crossing_protected_regions",
+    }
     assert policy.classify(["low_syntax_coverage", "recovered_syntax"]) == ()
     assert policy.classify(["native_parser_crash"]) == ("native_parser_crash",)
     job = json.loads(

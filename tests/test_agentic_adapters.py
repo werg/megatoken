@@ -243,9 +243,10 @@ def test_xlam_calls_have_no_result_and_parameters_become_json_schema():
             ]
         ),
     }
+    # A tool-use dialogue may end on its calls; a source can still insist on a result.
     with pytest.raises(SchemaError, match="observation is missing"):
-        adapt(row, "xlam_calls")
-    episode = adapt(row, "xlam_calls", allow_pending_final_action=True)
+        adapt(row, "xlam_calls", allow_pending_final_action=False)
+    episode = adapt(row, "xlam_calls")
     assert len(episode.actions) == 2 and not any(r.result_of for r in episode.records)
     schema = json.loads(episode.tools_json)[0]["parameters"]
     assert schema["required"] == ["city"] and schema["properties"]["days"]["type"] == "integer"
@@ -487,7 +488,7 @@ def test_results_find_their_call_under_each_publisher_spelling():
         assert any(r.result_of for r in episode.records) and linked(episode)
 
 
-def test_calls_without_ids_pair_by_position_only_when_the_source_opts_in():
+def test_calls_without_ids_pair_by_position_when_the_source_opts_in_or_is_a_trajectory():
     row = {
         "repo": "o/r",
         "messages": [
@@ -505,15 +506,19 @@ def test_calls_without_ids_pair_by_position_only_when_the_source_opts_in():
             {"role": "assistant", "content": "done"},
         ],
     }
+    # A tool-use set must opt in; a trajectory adapter pairs by position unless told not to.
     with pytest.raises(SchemaError, match="ID"):
-        adapt(row, "open_swe", "executed_trajectories")
-    episode = adapt(
-        row, "open_swe", "executed_trajectories", positional_call_ids=True, assume_outcome="success"
-    )
-    first, second = episode.actions
-    answers = [r for r in episode.records if r.result_of]
-    assert [r.result_of for r in answers] == [first.action_id, second.action_id]
-    assert [r.payload for r in answers] == [b"one", b"two"]
+        adapt(row, "nemotron_agentic_v4")
+    with pytest.raises(SchemaError, match="ID"):
+        adapt(row, "open_swe", "executed_trajectories", positional_call_ids=False)
+    for episode in (
+        adapt(row, "nemotron_agentic_v4", positional_call_ids=True),
+        adapt(row, "open_swe", "executed_trajectories", assume_outcome="success"),
+    ):
+        first, second = episode.actions
+        answers = [r for r in episode.records if r.result_of]
+        assert [r.result_of for r in answers] == [first.action_id, second.action_id]
+        assert [r.payload for r in answers] == [b"one", b"two"]
 
 
 def test_a_source_with_no_outcome_is_admitted_as_unknown_only_when_it_says_so():
@@ -1108,7 +1113,7 @@ def test_a_call_quoted_while_thinking_is_not_a_call_and_bare_user_results_can_be
     assert [r.payload for r in episode.records if r.result_of] == [b'{"v": 1}']
     # The ordinary reader sees a call that was never answered.
     with pytest.raises(SchemaError, match="observation is missing"):
-        adapt(row, "hermes_tools")
+        adapt(row, "hermes_tools", allow_pending_final_action=False)
 
 
 def test_glaive_calls_inside_messages_and_reasoning_roles():
