@@ -142,6 +142,13 @@ The default preparation supplies at least four original instances of every
 template in validation. Smaller diagnostic preparations may fail regular stage
 admission even though they are usable for bounded integration checks.
 
+The production training examples include a separate prepared context root. Bind
+it alongside the existing roots before preparing teacher guidance with
+`megatoken prepare-hindsight --train-config ...`. Generate that guidance for the
+complete new corpus, then run `megatoken validate-training-inputs` on the resulting
+training configuration as described in [production training](training.md). Adding
+this root after preparing teacher guidance leaves the new examples uncovered.
+
 Answer checking recomputes facts from actual sources, verifies linked read results,
 and checks visibility for answers and summaries. The tests also replay episodes
 through actual serving context, including internal retrieval events, and sample
