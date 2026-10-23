@@ -393,6 +393,8 @@ def store_part(
                 total["tokens"] += seen["tokens"]
             log(f"converted {name} ({group})")
     for group, found in counts.items():
+        if unlisted := sorted(set(found) - set(sources)):
+            raise PublishError(f"The rows of {unlisted} have no source to attribute them to")
         listing = {
             "schema": SOURCES_SCHEMA,
             "run": run,

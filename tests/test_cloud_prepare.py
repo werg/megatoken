@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from cache_support import FakeHub
 
-from megatoken import cache, cloud, cloud_prepare
+from megatoken import cache, cloud, cloud_prepare, publish
 from megatoken.data import (
     Episode,
     Lineage,
@@ -139,11 +139,11 @@ def cloud_prepare_jobs(spec, path, tmp_path):
 TERMS = TermsReview(True, "fixture", reviewed_by="test", reviewed_at="2026-10-17")
 
 
-def document(name, text, family):
+def document(name, text, family, source="test"):
     return Episode(
         name,
         make_records(text.encode(), logical_id=name, role="document", policy_mask=True),
-        Lineage("test", "fixed", family),
+        Lineage(source, "fixed", family),
         stream="natural_documents",
     )
 
@@ -152,29 +152,20 @@ def body(index):
     return " ".join(f"{index:x}{i:x}" for i in range(120))
 
 
-def test_ingest_reconcile_and_finish_on_one_machine_remove_cross_shard_duplicates(tmp_path):
-    files = []
-    for number in range(4):
-        path = tmp_path / f"part-{number}.jsonl"
-        episodes = [
-            document(f"d{number}-{i}", body(10 * number + i), f"f{number}-{i}") for i in range(3)
-        ]
-        # Two neighbouring rows of one text: wherever the plan cuts, both shards hold it.
-        episodes += [
-            document(f"copy-{number}-{side}", body(99), f"copy-{number}-{side}") for side in "ab"
-        ]
-        path.write_text("\n".join(json.dumps(item.to_dict()) for item in episodes) + "\n")
-        files.append(path)
-    base = pin_local_source(
-        files[0], source_id="parts", adapter="native", stream="natural_documents", terms=TERMS
+def local_source(source_id, files, group):
+    terms = TermsReview(
+        True, "fixture", reviewed_by="test", reviewed_at="2026-10-17", redistribute=group
     )
-    source = replace(
+    base = pin_local_source(
+        files[0], source_id=source_id, adapter="native", stream="natural_documents", terms=terms
+    )
+    return replace(
         base,
         files=tuple(
             SourceFile(
                 str(item),
                 pin_local_source(
-                    item, source_id="x", adapter="native", stream="natural_documents", terms=TERMS
+                    item, source_id="x", adapter="native", stream="natural_documents", terms=terms
                 )
                 .files[0]
                 .sha256,
@@ -183,8 +174,31 @@ def test_ingest_reconcile_and_finish_on_one_machine_remove_cross_shard_duplicate
             for item in files
         ),
     )
+
+
+def test_ingest_reconcile_and_finish_keep_licence_groups_apart_and_drop_copies_from_the_later(
+    tmp_path,
+):
+    files = []
+    for number in range(4):
+        path = tmp_path / f"part-{number}.jsonl"
+        source = "open" if number < 2 else "withheld-set"
+        episodes = [
+            document(f"d{number}-{i}", body(10 * number + i), f"f{number}-{i}", source)
+            for i in range(3)
+        ]
+        # The same text in every file: wherever the plan cuts, both licence groups hold it.
+        episodes += [
+            document(f"copy-{number}-{side}", body(99), f"copy-{number}-{side}", source)
+            for side in "ab"
+        ]
+        path.write_text("\n".join(json.dumps(item.to_dict()) for item in episodes) + "\n")
+        files.append(path)
+    # The restricted source is listed first: the plan must still put the permissive one first.
     manifest = tmp_path / "sources.json"
-    write_source_manifest(manifest, (source,))
+    write_source_manifest(
+        manifest, (local_source("withheld-set", files[2:], "no"), local_source("open", files[:2], "permissive"))
+    )
     spec = run_spec(
         sources=str(manifest),
         listing=str(tmp_path / "listing.json"),
@@ -193,6 +207,7 @@ def test_ingest_reconcile_and_finish_on_one_machine_remove_cross_shard_duplicate
         shards_per_sandbox=1,
         processes=2,
     )
+    assert cloud_prepare.shard_groups(spec) == ["permissive", "no"]
     work = tmp_path / "work"
     for sandbox in range(2):
         commands = cloud_prepare.shard_commands(
@@ -202,6 +217,7 @@ def test_ingest_reconcile_and_finish_on_one_machine_remove_cross_shard_duplicate
     digests = [work / "out/shards" / f"{shard:05d}" / "digest.sqlite" for shard in range(2)]
     assert all(path.is_file() for path in digests)
     summary = reconcile(digests, work / "out/decisions")
+    # Eight copies of one text: seven are duplicates, and the one kept is in the first group.
     assert (summary["cross_shard_duplicates"], summary["accepted"]) == (1, 13), summary
     (work / "in").mkdir()
     (work / "in/decisions").symlink_to(work / "out/decisions")
@@ -218,26 +234,46 @@ def test_ingest_reconcile_and_finish_on_one_machine_remove_cross_shard_duplicate
     roots = [work / "out/prepared" / f"{shard:05d}" for shard in range(2)]
     with PreparedCorpus(roots, split=None) as corpus:
         assert len(corpus) == 13  # 20 documents; seven are copies of another
-    # The roots outlive the sandboxes: sealed, uploaded, and fetched back into a fresh directory.
+    with PreparedCorpus(roots[:1], split=None) as corpus:
+        assert len(corpus) == 7  # the open source keeps the one copy of the shared text
+    with PreparedCorpus(roots[1:], split=None) as corpus:
+        assert len(corpus) == 6  # the private source holds only what is its own
+    # The roots outlive the sandboxes: the open one published as Parquet, the private one
+    # encrypted, and both fetched back into a fresh directory from one pinned commit.
     key, hub = cache.Keys(bytes(range(32))), FakeHub()
-    receipt = cache.store(
+    receipt = publish.store_part(
         keys=key,
         api=hub,
-        owner="o",
+        repo="o/data",
         run="unit-prep",
         part=0,
-        source=work / "out/prepared",
+        prepared=work / "out/prepared",
         work=tmp_path / "sealing",
+        groups={"00000": "permissive", "00001": "no"},
+        sources=publish.attribution(json.loads(manifest.read_text())["sources"]),
         piece_bytes=1 << 16,
         segment=1 << 12,
         log=lambda _: None,
     )
+    pin = publish.finalize(
+        api=hub, keys=key, repo="o/data", run="unit-prep", receipts=[receipt], scratch=tmp_path / "pin"
+    )
     restored = tmp_path / "restored"
-    pin = cache.make_pin("unit-prep", [receipt])
-    cache.fetch(keys=key, api=hub, pin=pin, dest=restored, log=lambda _: None)
+    publish.fetch(api=hub, keys=key, pin=pin, dest=restored, log=lambda _: None)
     assert not list(restored.rglob("preparation.sqlite"))  # the working store is not kept
     with PreparedCorpus(sorted(restored.iterdir()), split=None) as corpus:
         assert len(corpus) == 13
+    open_shards = sorted(p.name for p in (work / "out/prepared/00000").glob("episodes-*.jsonl"))
+    for name in open_shards:
+        assert (restored / "00000" / name).read_bytes() == (
+            work / "out/prepared/00000" / name
+        ).read_bytes()
+    # The repository: readable rows only of the open source, nothing of the private one.
+    public = [n for n in hub.commits["o/data"][pin["revision"]] if n.startswith("permissive/")]
+    assert any(n.endswith(".parquet") for n in public)
+    everything = b"".join(hub.commits["o/data"][pin["revision"]].values())
+    assert b"withheld-set" not in everything
+    assert any(n.startswith("encrypted/") for n in hub.commits["o/data"][pin["revision"]])
 
 
 def test_the_launcher_refuses_a_run_whose_shards_are_not_pinned(tmp_path):
@@ -320,8 +356,8 @@ class Fleet:
             def read_file(self, path):
                 if path.endswith("receipt.json"):  # a finish sandbox's upload receipt
                     part = int(sandbox_id.rsplit("-", 1)[1])
-                    repos = [{"repo": f"owner/r{part}", "revision": "c" * 40, "volume": 0}]
-                    return Result(json.dumps({"part": part, "repos": repos}).encode())
+                    receipt = {"part": part, "repo": "owner/data", "public": [], "encrypted": None}
+                    return Result(json.dumps(receipt).encode())
                 return Result(json.dumps({"files": fleet.files(sandbox_id)}).encode())
 
             def exec(self, argv):
@@ -446,28 +482,31 @@ def test_a_run_resumes_only_from_the_commit_it_started_at(tmp_path, monkeypatch)
         cloud_prepare.launch(repo / "configs/run.json", repo, hf_token=token, poll=0)
 
 
-# ---- the encrypted cache -------------------------------------------------------------------
+# ---- publishing to the shared repository ---------------------------------------------------
+
+REPO = "owner/data"
 
 
-def test_a_cached_runs_finish_jobs_seal_and_upload_and_no_other_job_does(tmp_path):
-    spec = cloud_prepare.validate(run_spec(cache={"owner": "someone", "piece_bytes": 1 << 28}))
+def test_a_cached_runs_finish_jobs_publish_and_no_other_job_does(tmp_path):
+    spec = cloud_prepare.validate(
+        run_spec(cache={"repo": REPO, "piece_bytes": 1 << 28, "parquet_bytes": 1 << 29})
+    )
     jobs = {
         path.stem: json.loads(path.read_text())
         for path in cloud_prepare.write_jobs(spec, "configs/cloud/unit-prep.json", tmp_path)
     }
     for name, job in jobs.items():
         cloud.validate(job)
-        assert ("cache store" in json.dumps(job)) == name.startswith("finish")
+        assert ("cloud_prepare publish" in json.dumps(job)) == name.startswith("finish")
     command = jobs["finish-1"]["command"][2]
-    assert "--part 1" in command and "--owner someone" in command
-    assert "--piece-bytes 268435456" in command and "--repo-bytes" not in command
+    assert "publish --run configs/cloud/unit-prep.json --sandbox 1" in command
     # The key is read from the sandbox's secret file by the program: it is on no command line.
     assert "KEY" not in command
     assert "out/cache" in jobs["finish-1"]["outputs"]
-    assert "cryptography>=43,<51" in jobs["finish-1"]["pip"]
+    assert {"cryptography>=43,<51", "pyarrow"} <= set(jobs["finish-1"]["pip"])
     assert "out/cache" not in jobs["ingest-1"]["outputs"]
-    # The sealed pieces are removed from the sandbox's disk once they are safely uploaded.
-    assert command.index("cache store") < command.index("rm -rf")
+    # The converted and sealed files are removed from the sandbox's disk once they are uploaded.
+    assert command.index("cloud_prepare publish") < command.index("rm -rf")
 
 
 def test_runs_without_a_cache_block_are_unchanged():
@@ -478,7 +517,18 @@ def test_runs_without_a_cache_block_are_unchanged():
 
 @pytest.mark.parametrize(
     "block",
-    [{}, {"owner": ""}, {"owner": "a", "extra": 1}, {"owner": "a", "piece_bytes": 0}, "x"],
+    [
+        {},
+        {"repo": ""},
+        {"repo": "no-slash"},
+        {"repo": "a/b/c"},
+        {"repo": "a/b", "extra": 1},
+        {"repo": "a/b", "piece_bytes": 0},
+        {"repo": "a/b", "parquet_bytes": 1.5},
+        {"repo": "a/b", "contact": 3},
+        {"owner": "a"},
+        "x",
+    ],
 )
 def test_a_malformed_cache_block_is_rejected(block):
     with pytest.raises(cloud.CloudError):
@@ -486,7 +536,7 @@ def test_a_malformed_cache_block_is_rejected(block):
 
 
 def test_media_runs_are_not_cached():
-    media = run_spec(kind="media", media_sources="all", cache={"owner": "a"})
+    media = run_spec(kind="media", media_sources="all", cache={"repo": REPO})
     media["resources"] = {"cpu": "16", "memory": "32Gi", "gpu": 1}
     with pytest.raises(cloud.CloudError, match="not cached"):
         cloud_prepare.validate(media)
@@ -497,28 +547,37 @@ def make_key(tmp_path):
     return path, path.read_text().strip()
 
 
+def fake_hub():
+    hub = FakeHub()
+    hub.create_repo(REPO, repo_type="dataset", private=False, exist_ok=True)
+    return hub
+
+
 def test_launch_gives_the_key_to_the_finish_wave_alone_and_pins_the_result(tmp_path, monkeypatch):
-    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"owner": "owner"})
+    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"repo": REPO})
     key_file, key = make_key(tmp_path)
+    hub = fake_hub()
     run = cloud_prepare.launch(
-        repo / "configs/run.json", repo, hf_token=token, cache_key=key_file, poll=0
+        repo / "configs/run.json", repo, hf_token=token, cache_key=key_file, api=hub, poll=0
     )
     for name, job in fleet.jobs.items():
         assert key not in json.dumps(job) and "hf_secret" not in json.dumps(job)
         wanted = ["cache-key", "hf-token"] if "finish" in name else ["hf-token"]
         assert fleet.secrets[name] == wanted, name
-    pin = cache.load_pin(Path(run["cache_pin"]))
+    pin = publish.load_pin(Path(run["cache_pin"]))
     assert pin["run"] == "unit-prep" and [p["part"] for p in pin["parts"]] == [0, 1]
-    assert pin["parts"][1]["repos"] == [{"repo": "owner/r1", "revision": "c" * 40}]
+    # One commit of the one repository holds every part and the rebuilt card.
+    assert pin["repo"] == REPO and pin["revision"] == hub.head[REPO]
+    assert b"ENCRYPTED" in hub.commits[REPO][pin["revision"]]["README.md"]
     assert key not in Path(run["cache_pin"]).read_text()
-    # The data is safe in the repos, so every sandbox, the finish ones too, is released.
+    # The data is safe in the repository, so every sandbox, the finish ones too, is released.
     assert len(fleet.stopped) == 5 and set(fleet.stopped) == set(fleet.jobs)
     again = cloud_prepare.launch(repo / "configs/run.json", repo, hf_token=token, poll=0)
     assert again["finished"] and len(fleet.stopped) == 5  # nothing is redone
 
 
 def test_a_cached_run_needs_its_key_before_it_starts_anything(tmp_path, monkeypatch):
-    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"owner": "owner"})
+    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"repo": REPO})
     with pytest.raises(cache.CacheError, match="No cache key"):
         cloud_prepare.launch(
             repo / "configs/run.json", repo, hf_token=token, cache_key=tmp_path / "none", poll=0
@@ -527,21 +586,21 @@ def test_a_cached_run_needs_its_key_before_it_starts_anything(tmp_path, monkeypa
 
 
 def test_ensure_fetches_when_the_stored_copy_verifies_and_rebuilds_otherwise(tmp_path, monkeypatch):
-    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"owner": "owner"})
+    repo, token, fleet = fleet_env(tmp_path, monkeypatch, cache={"repo": REPO})
     key_file, _ = make_key(tmp_path)
-    monkeypatch.setattr(cache, "_api", lambda: object())
+    hub = fake_hub()
     answers = iter(
         [
-            cache.Decision("stored", "verifies"),
-            cache.Decision("rebuild", "no pin has been recorded for this run"),
-            cache.Decision("rebuild", "the stored copy does not verify: a piece is missing"),
+            publish.Decision("stored", "verifies"),
+            publish.Decision("rebuild", "no pin has been recorded for this run"),
+            publish.Decision("rebuild", "the stored copy does not verify: a piece is missing"),
         ]
     )
-    monkeypatch.setattr(cache, "decide", lambda *args: next(answers))
+    monkeypatch.setattr(publish, "decide", lambda *args: next(answers))
     run = repo / "configs/run.json"
 
     def ensure():
-        return cloud_prepare.ensure(run, repo, hf_token=token, cache_key=key_file, poll=0)
+        return cloud_prepare.ensure(run, repo, hf_token=token, cache_key=key_file, api=hub, poll=0)
 
     assert ensure()["mode"] == "stored" and fleet.jobs == {}  # nothing was prepared again
     rebuilt = ensure()
