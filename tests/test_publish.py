@@ -275,6 +275,42 @@ def test_a_pin_of_public_roots_alone_needs_no_key(tmp_path):
     assert sorted(p.name for p in restored.iterdir()) == ["00000", "00001"]
 
 
+def test_rebuilding_a_part_removes_old_parquet_files_and_newly_restricted_roots(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(publish, "ROW_GROUP_ROWS", 2)
+    hub = FakeHub()
+    first, prepared = store(hub, tmp_path, parquet_bytes=1)
+    prefix = publish.part_dir("permissive", RUN, 0)
+    assert sum(n.endswith(".parquet") for n in hub.commits[REPO][hub.head[REPO]]) > 1
+    ids = {
+        row["source_id"] for name in first["roots"] for row in publish.root_rows(prepared / name)
+    }
+    common = dict(
+        keys=KEY,
+        api=hub,
+        repo=REPO,
+        run=RUN,
+        part=0,
+        prepared=prepared,
+        work=tmp_path / "rebuild",
+        sources=sources_of(*ids),
+        piece_bytes=1 << 15,
+        segment=1 << 12,
+        log=lambda _: None,
+    )
+    second = publish.store_part(**common, groups=first["roots"])
+    assert sum(n.endswith(".parquet") for n in hub.commits[REPO][hub.head[REPO]]) == 1
+    pin = finalize(hub, [second], tmp_path)
+    restored = tmp_path / "restored"
+    publish.fetch(api=hub, keys=KEY, pin=pin, dest=restored, log=lambda _: None)
+    assert tree(restored / "00000") == {
+        n: d for n, d in tree(prepared / "00000").items() if Path(n).name not in cache.SKIP_NAMES
+    }
+    publish.store_part(**common, groups={"00000": "no", "00001": "no"})
+    assert not any(n.startswith(prefix + "/") for n in hub.commits[REPO][hub.head[REPO]])
+
+
 def decide(hub, pin, tmp_path, key=KEY, *, write=True):
     path = tmp_path / "decide.pin.json"
     path.unlink(missing_ok=True)

@@ -50,12 +50,14 @@ class FakeHub:
             self.commits[repo_id] = {"0": {}}
             self.head[repo_id] = "0"
 
-    def _commit(self, repo_id, changes):
+    def _commit(self, repo_id, changes, deleted=()):
         if self.conflicts:
             self.conflicts -= 1
             self.refused += 1
             raise CommitConflict()
         files = {**self.commits[repo_id][self.head[repo_id]], **changes}
+        for path in deleted:
+            files.pop(path, None)
         sha = hashlib.sha1(json.dumps(sorted((k, len(v)) for k, v in files.items())).encode())
         sha = sha.hexdigest() + str(len(self.commits[repo_id]))
         self.commits[repo_id][sha] = files
@@ -76,8 +78,13 @@ class FakeHub:
         assert repo_type == "dataset" and commit_message
         if parent_commit is not None and parent_commit != self.head[repo_id]:
             raise CommitConflict()
-        changes = {op.path_in_repo: bytes(op.path_or_fileobj) for op in operations}
-        return SimpleNamespace(oid=self._commit(repo_id, changes))
+        changes = {
+            op.path_in_repo: bytes(op.path_or_fileobj)
+            for op in operations
+            if hasattr(op, "path_or_fileobj")
+        }
+        deleted = [op.path_in_repo for op in operations if not hasattr(op, "path_or_fileobj")]
+        return SimpleNamespace(oid=self._commit(repo_id, changes, deleted))
 
     def _files(self, repo_id, revision):
         if repo_id not in self.head:

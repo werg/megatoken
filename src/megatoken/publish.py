@@ -430,6 +430,7 @@ def store_part(
         verify_files(remote, repo, head, public, work / "verify")
         shutil.rmtree(work / "verify", ignore_errors=True)
         log(f"uploaded and verified {len(public)} public files")
+    prune_public(api, repo, run, part, public)
     encrypted = [name for name in roots if groups[name] == "no"]
     receipt: dict[str, Any] = {
         "schema": RECEIPT_SCHEMA,
@@ -460,6 +461,47 @@ def store_part(
         )
         receipt["encrypted"] = sealed["folder"]
     return receipt
+
+
+def prune_public(
+    api: Any, repo: str, run: str, part: int, files: Sequence[Mapping[str, Any]]
+) -> None:
+    """A rebuild may produce fewer Parquet files or move a source to encryption.
+
+    Remove superseded public paths of this part, so the Hub's Parquet glob cannot load
+    leftovers. Other runs and parts are untouched; the current upload is verified first.
+    """
+    from huggingface_hub import CommitOperationDelete
+
+    remote = cache.Remote(api)
+    wanted = {item["path"] for item in files}
+
+    def update() -> bool:
+        head = remote.head(repo)
+        stale = []
+        for group in PUBLIC_GROUPS:
+            try:
+                found = remote.tree(repo, head, part_dir(group, run, part))
+            except cache.CacheError:
+                continue
+            stale.extend(
+                path
+                for path, item in found.items()
+                if path not in wanted and getattr(item, "size", None) is not None
+            )
+        if not stale:
+            return False
+        api.create_commit(
+            repo_id=repo,
+            operations=[CommitOperationDelete(path_in_repo=path) for path in sorted(stale)[:100]],
+            commit_message="Remove superseded public files from a rebuilt part",
+            repo_type="dataset",
+            parent_commit=head,
+        )
+        return True
+
+    while hub.retry_conflicts(update):
+        pass
 
 
 def verify_files(
