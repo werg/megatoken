@@ -65,3 +65,9 @@ source needs a token that has accepted its terms). The runs that use them are
 of public sets. The cloud job `configs/cloud/prepare-agentic-more.json` prepares the first,
 scaled with `AGENTIC_MORE_ROW_SCALE`. See "More chat, reasoning and agent data" in
 [`docs/data.md`](../../docs/data.md).
+
+`sources.later-stages.json` holds the public sources for the streams the later stages read
+(issue and pull-request data, change histories, logs, long documents, grounded artifacts,
+tested code, clarification and recovery, code rewrites, environment episodes). The cloud job
+`configs/cloud/prepare-later-stages.json` prepares it in eight shards, scaled with
+`LATER_ROW_SCALE`. See "Later-stage streams" at the end of [`docs/data.md`](../../docs/data.md).

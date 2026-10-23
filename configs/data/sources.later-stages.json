@@ -1,0 +1,2028 @@
+{
+  "schema_version": 1,
+  "metadata_checked_at": "2026-10-22",
+  "sources": [
+    {
+      "source_id": "swallow-code-v2-rewrite",
+      "uri": "hf://datasets/tokyotech-llm/swallow-code-v2",
+      "format": "hf",
+      "adapter": "code_rewrite",
+      "stream": "synthetic_code_rewrite",
+      "revision": "a98c80e3cc4150450f30b9eb8dd9d1e0097d1cfa",
+      "subset": null,
+      "split": "train",
+      "max_rows": 60000,
+      "files": [
+        {
+          "path": "stage5-auto-format/python/medium/train_*.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/tokyotech-llm/swallow-code-v2",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: Apache-2.0; the originals are GitHub files from The Stack v2 and keep that corpus's terms. 83% of rows carry no detected licence. Rewrites are by Qwen3-235B-A22B."
+      },
+      "field_map": {
+        "document": "old_text",
+        "target": "text",
+        "repository": "repo_name",
+        "created_at": "revision_date"
+      },
+      "options": {
+        "content_kind": "code",
+        "language": "python",
+        "row_filters": [
+          {
+            "path": "is_vendor",
+            "op": "eq",
+            "value": false
+          },
+          {
+            "path": "is_generated",
+            "op": "eq",
+            "value": false
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/tokyotech-llm/swallow-code-v2",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "old_text is the original Python file, text the LLM rewrite after ruff formatting (stage 5, medium quality tier). Rewrites average 5x the original's length (added docstrings and type hints); equivalence is not checked. Rows are ~31 KB because of duplicated intermediate fields, so the stream carries ~290 GB for 9M rows."
+    },
+    {
+      "source_id": "pie-perf-slow-to-fast",
+      "uri": "hf://datasets/rootacess/pie-perf",
+      "format": "hf",
+      "adapter": "human_code_rewrite",
+      "stream": "synthetic_code_rewrite",
+      "revision": "19cdf6dacb0647058528e65904df8d7715d41453",
+      "subset": null,
+      "split": "train",
+      "max_rows": 40000,
+      "files": [
+        {
+          "path": "data/train-00000-of-00001-d1b0a81dfd56e941.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (derived from IBM Project CodeNet)",
+        "license_url": "https://huggingface.co/datasets/rootacess/pie-perf",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (derived from IBM Project CodeNet)."
+      },
+      "field_map": {
+        "document": "input",
+        "target": "target",
+        "family": "problem_id"
+      },
+      "options": {
+        "content_kind": "code",
+        "language": "python",
+        "row_filters": [
+          {
+            "path": "status_v0",
+            "op": "eq",
+            "value": "Accepted"
+          },
+          {
+            "path": "status_v1",
+            "op": "eq",
+            "value": "Accepted"
+          },
+          {
+            "path": "improvement_frac",
+            "op": "gte",
+            "value": 10
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 8
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/rootacess/pie-perf",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Two accepted competitive-programming submissions of one problem: the slower input and the measurably faster target (improvement_frac is percent runtime saved). Human code on both sides. Only the train file; the test splits are evaluation."
+    },
+    {
+      "source_id": "kodcode-sft-4o",
+      "uri": "hf://datasets/KodCode/KodCode-V1-SFT-4o",
+      "format": "hf",
+      "adapter": "tested_artifact",
+      "stream": "tested_artifacts",
+      "revision": "14f8782fb7787c7e31dd4a1372518bc10fedb66e",
+      "subset": null,
+      "split": "train",
+      "max_rows": 30000,
+      "files": [
+        {
+          "path": "data/train-*-of-00005.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-nc-4.0",
+        "license_url": "https://huggingface.co/datasets/KodCode/KodCode-V1-SFT-4o",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: cc-by-nc-4.0."
+      },
+      "field_map": {
+        "prompt": "question",
+        "target": "4o_solution",
+        "outcome": "4o_correctness",
+        "family": "question_id"
+      },
+      "options": {
+        "content_kind": "code",
+        "row_filters": [
+          {
+            "path": "4o_correctness",
+            "op": "eq",
+            "value": "True"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/KodCode/KodCode-V1-SFT-4o",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Question, solution and pytest tests are all GPT-4o written; the publisher drew three solutions and kept a row only when one passed its tests (4o_correctness). The `incorrect` split is not read. Tests are not imported into the transcript."
+    },
+    {
+      "source_id": "kodcode-sft-r1",
+      "uri": "hf://datasets/KodCode/KodCode-V1-SFT-R1",
+      "format": "hf",
+      "adapter": "tested_artifact",
+      "stream": "tested_artifacts",
+      "revision": "26c8a11c800d71b6c4bafe12a92c9090ef0b6214",
+      "subset": null,
+      "split": "train",
+      "max_rows": 30000,
+      "files": [
+        {
+          "path": "data/train-*-of-00011.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-nc-4.0",
+        "license_url": "https://huggingface.co/datasets/KodCode/KodCode-V1-SFT-R1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: cc-by-nc-4.0."
+      },
+      "field_map": {
+        "prompt": "question",
+        "target": "r1_solution",
+        "outcome": "r1_correctness",
+        "family": "question_id"
+      },
+      "options": {
+        "content_kind": "code",
+        "row_filters": [
+          {
+            "path": "r1_correctness",
+            "op": "eq",
+            "value": "True"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/KodCode/KodCode-V1-SFT-R1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Same questions as KodCode-V1-SFT-4o with DeepSeek-R1 solutions that passed the same tests (r1_correctness). The code-only r1_solution is the target, not the long <think> response. Questions repeat across the two KodCode releases; family is question_id."
+    },
+    {
+      "source_id": "openr1-verifiable-python-tested",
+      "uri": "hf://datasets/open-r1/verifiable-coding-problems-python_decontaminated-tested",
+      "format": "hf",
+      "adapter": "human_tested_artifact",
+      "stream": "tested_artifacts",
+      "revision": "77ace849f7cc8f10d23945c748f9ff464427f83b",
+      "subset": null,
+      "split": "train",
+      "max_rows": 15068,
+      "files": [
+        {
+          "path": "data/train-*-of-00003.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (problems from TACO, APPS and CodeContests)",
+        "license_url": "https://huggingface.co/datasets/open-r1/verifiable-coding-problems-python_decontaminated-tested",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (problems from TACO, APPS and CodeContests)."
+      },
+      "field_map": {
+        "prompt": "problem",
+        "target": "gold_standard_solution",
+        "outcome": "test_reward",
+        "family": "problem_id"
+      },
+      "options": {
+        "content_kind": "code",
+        "language": "python",
+        "row_filters": [
+          {
+            "path": "test_reward",
+            "op": "eq",
+            "value": 1.0
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/open-r1/verifiable-coding-problems-python_decontaminated-tested",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Human problems and human gold solutions; the publisher ran every gold solution against its tests and kept test_reward == 1.0 (all rows). The solution arrives inside a code fence."
+    },
+    {
+      "source_id": "s-tested-opencodeinstruct",
+      "uri": "hf://datasets/nvidia/OpenCodeInstruct",
+      "format": "hf",
+      "adapter": "tested_artifact",
+      "stream": "tested_artifacts",
+      "revision": "8f3ba5bafe4d6e8db46082cf7ae6741bc370604d",
+      "subset": null,
+      "split": "train",
+      "max_rows": 60000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/OpenCodeInstruct",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: cc-by-4.0."
+      },
+      "field_map": {
+        "prompt": "input",
+        "target": "output",
+        "outcome": "average_test_score"
+      },
+      "options": {
+        "content_kind": "code",
+        "row_filters": [
+          {
+            "path": "average_test_score",
+            "op": "eq",
+            "value": "1"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/OpenCodeInstruct",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Second view of the synthetic_code_dialogue source: only rows whose LLM-written unit tests all passed (average_test_score is the string '1'; about 39% of rows). Do not prepare both views into one run unless duplicate exposure is intended."
+    },
+    {
+      "source_id": "scale-swe-distilled-v4-pro",
+      "uri": "hf://datasets/AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "verified_successful_multiturn",
+      "revision": "cf6eb6188051a85fa34ebd91cae1956352f0e78d",
+      "subset": null,
+      "split": "train",
+      "max_rows": 4000,
+      "files": [
+        {
+          "path": "scale_swe_merged_score1_n41057_20260611_094619_v2_sft.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0 (no licence tag on the Hub)."
+      },
+      "field_map": {
+        "family": "extra_info.instance_id",
+        "outcome": "extra_info.success"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "extra_info.success",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "OpenHands runs of DeepSeek-V4-Pro on real GitHub pull-request tasks; extra_info.success and score 1.0 come from the publisher's evaluator running FAIL_TO_PASS and PASS_TO_PASS tests (all 41,057 rows). The system prompt and tool list repeat in every row."
+    },
+    {
+      "source_id": "swe-lego-real-resolved",
+      "uri": "hf://datasets/Lego-X/SWE-Lego-Real-Data",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "verified_successful_multiturn",
+      "revision": "879c96b91dfa321b4d1c621d149a9200f8a1d118",
+      "subset": null,
+      "split": "train",
+      "max_rows": 5009,
+      "files": [
+        {
+          "path": "data/resolved-00000-of-00001.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/Lego-X/SWE-Lego-Real-Data",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: apache-2.0."
+      },
+      "field_map": {
+        "family": "instance_id",
+        "repository": "repo",
+        "outcome": "resolved"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/Lego-X/SWE-Lego-Real-Data",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Qwen3-Coder-480B OpenHands runs on SWE-rebench tasks; `resolved` is the publisher's test verdict (true for all 5,009 rows of the resolved split; the unresolved split is not read). Same task pool as nebius/SWE-rebench-openhands-trajectories."
+    },
+    {
+      "source_id": "ifeval-like-filtered",
+      "uri": "hf://datasets/argilla/ifeval-like-data",
+      "format": "hf",
+      "adapter": "tested_artifact",
+      "stream": "verified_successful_multiturn",
+      "revision": "56505d1771e36fa5aa07aa9a1b39008fe60a8487",
+      "subset": "filtered",
+      "split": "train",
+      "max_rows": 56339,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "other (Qwen license)",
+        "license_url": "https://huggingface.co/datasets/argilla/ifeval-like-data",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Hub licence tag 'other' with license_name qwen: the responses are Qwen2.5-72B-Instruct outputs under the Qwen licence."
+      },
+      "field_map": {
+        "prompt": "prompt",
+        "target": "response",
+        "outcome": "prompt_level_strict_acc"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "prompt_level_strict_acc",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/argilla/ifeval-like-data",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Single-turn pairs whose response passed the IFEval programmatic checker (prompt_level_strict_acc, true for every row of the filtered configuration)."
+    },
+    {
+      "source_id": "if-multi-constraints-sft",
+      "uri": "hf://datasets/UniLu/IF_multi_constraints_upto5_SFT",
+      "format": "hf",
+      "adapter": "tested_artifact",
+      "stream": "verified_successful_multiturn",
+      "revision": "c5af3227e618b5c980806ad992a03da457b48234",
+      "subset": null,
+      "split": "train",
+      "max_rows": 42161,
+      "files": [
+        {
+          "path": "IF_multi_constraints_upto5_SFT.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "odc-by",
+        "license_url": "https://huggingface.co/datasets/UniLu/IF_multi_constraints_upto5_SFT",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: odc-by."
+      },
+      "field_map": {
+        "prompt": "prompt",
+        "target": "response",
+        "outcome": "strict_score"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "strict_score",
+            "op": "gte",
+            "value": 1.0
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/UniLu/IF_multi_constraints_upto5_SFT",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Responses (gemma-4-31B-it) kept when the official IFBench checker scored strict_score 1.0."
+    },
+    {
+      "source_id": "openmathinstruct1-correct",
+      "uri": "hf://datasets/nvidia/OpenMathInstruct-1",
+      "format": "hf",
+      "adapter": "tested_artifact",
+      "stream": "verified_successful_multiturn",
+      "revision": "4627efae6bd2ddcebb8acac00d513ffd8e00775c",
+      "subset": null,
+      "split": "train",
+      "max_rows": 60000,
+      "files": [
+        {
+          "path": "correct_solutions/train.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "other (NVIDIA License)",
+        "license_url": "https://huggingface.co/datasets/nvidia/OpenMathInstruct-1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: other (NVIDIA License)."
+      },
+      "field_map": {
+        "prompt": "question",
+        "target": "generated_solution",
+        "outcome": "is_correct"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "is_correct",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 4,
+          "required_verified_success": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/OpenMathInstruct-1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Mixtral-written solutions with real Python-interpreter blocks and outputs, kept when the predicted answer matched the GSM8K/MATH training answer (is_correct). Verification is an answer match, not unit tests; code and its output sit in one assistant message."
+    },
+    {
+      "source_id": "gharchive-threads",
+      "uri": "hf://datasets/common-pile/github_archive",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "issue_pr_sequences",
+      "revision": "60317859e1212d37268e2b55e31acd2aecd4ae52",
+      "subset": null,
+      "split": "train",
+      "max_rows": 200000,
+      "files": [
+        {
+          "path": "gharchive/v0/documents/00000_github-archive-threads.jsonl.gz"
+        },
+        {
+          "path": "gharchive/v0/documents/00400_github-archive-threads.jsonl.gz"
+        },
+        {
+          "path": "gharchive/v0/documents/00800_github-archive-threads.jsonl.gz"
+        },
+        {
+          "path": "gharchive/v0/documents/01200_github-archive-threads.jsonl.gz"
+        },
+        {
+          "path": "gharchive/v0/documents/01600_github-archive-threads.jsonl.gz"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "per row: Blue Oak Council permissive list (metadata.license)",
+        "license_url": "https://huggingface.co/datasets/common-pile/github_archive",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "The card names no licence tag; it keeps only repositories under Blue Oak Council permissive licences and records each row's licence in metadata.license."
+      },
+      "field_map": {
+        "repository": "metadata.repo",
+        "family": "metadata.url"
+      },
+      "options": {
+        "quality": {
+          "min_tokens": 128,
+          "max_repeated_line_fraction": 0.5
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/common-pile/github_archive",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "30M GH Archive issue and pull-request threads (title, body and comments flattened to text, bots removed); source is gharchive/issue (70%) or gharchive/pull-request. Issue and pull request are separate rows, linked only by repository. Automated 'is down' issue bursts are common, hence the minimum length and repeated-line limit."
+    },
+    {
+      "source_id": "pr-resolve-issue-to-patch",
+      "uri": "hf://datasets/PotatoHD/github-pr-resolve",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_sequences",
+      "revision": "cdbbf14765295ff8b6ce4a39420e3d9072868c5e",
+      "subset": null,
+      "split": "train",
+      "max_rows": 12000,
+      "files": [
+        {
+          "path": "data/train-00000-of-00011.parquet"
+        },
+        {
+          "path": "data/train-00005-of-00011.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "other (no text on the card)",
+        "license_url": "https://huggingface.co/datasets/PotatoHD/github-pr-resolve",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: other (no text on the card)."
+      },
+      "field_map": {
+        "prompt": "pr_title",
+        "hints": [
+          "issue_text",
+          "pr_body"
+        ],
+        "patch": "gold_diff",
+        "task": "pr_number",
+        "repository": "repo",
+        "family": "repo"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "task_type",
+            "op": "eq",
+            "value": "issue_to_patch"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/PotatoHD/github-pr-resolve",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Merged pull requests: title as the request, then the linked issue text (present in 15% of rows) and the PR description, then the merged diff. Base commit only, no file contents. Rows are alphabetical by repository, so a small cap reads only the first repositories."
+    },
+    {
+      "source_id": "pr-resolve-comment-to-fix",
+      "uri": "hf://datasets/PotatoHD/github-pr-resolve",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_sequences",
+      "revision": "cdbbf14765295ff8b6ce4a39420e3d9072868c5e",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "data/train-00002-of-00011.parquet"
+        },
+        {
+          "path": "data/train-00007-of-00011.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "other (no text on the card)",
+        "license_url": "https://huggingface.co/datasets/PotatoHD/github-pr-resolve",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: other (no text on the card)."
+      },
+      "field_map": {
+        "prompt": "pr_title",
+        "hints": [
+          "pr_body",
+          "review_threads"
+        ],
+        "patch": "review_threads",
+        "repository": "repo",
+        "family": "repo"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "task_type",
+            "op": "eq",
+            "value": "comment_to_fix"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/PotatoHD/github-pr-resolve",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "The only public follow-up-commit data: a reviewer's comment (the thread's `comment`, with its file path) is read before the diff that resolved it (`resolving_diff`)."
+    },
+    {
+      "source_id": "pr-traces-10k",
+      "uri": "hf://datasets/bulatSharif/gh-pr-issue-traces-10k",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_sequences",
+      "revision": "e85e9dcfe20e43c8a728eb6c986631913a63e03a",
+      "subset": null,
+      "split": "train",
+      "max_rows": 4000,
+      "files": [
+        {
+          "path": "github_pr_issue_traces_raw_2025_10k.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/bulatSharif/gh-pr-issue-traces-10k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: apache-2.0."
+      },
+      "field_map": {
+        "prompt": "pr.title",
+        "hints": [
+          "linked_issue.title",
+          "linked_issue.body",
+          "linked_issue_comments",
+          "pr.body",
+          "pr_comments",
+          "reviews",
+          "review_comments"
+        ],
+        "patch": "full_diff",
+        "repository": "repo_name",
+        "task": "pr_number",
+        "family": "repo_name",
+        "created_at": "pr.created_at"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/bulatSharif/gh-pr-issue-traces-10k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Complete human pull-request threads: linked issue and its comments, PR description, conversation comments, reviews and inline review comments (grouped by kind, not in time order), then the merged diff. ~190 KB of API metadata per row is not imported."
+    },
+    {
+      "source_id": "commit-chronicle",
+      "uri": "hf://datasets/JetBrains-Research/commit-chronicle",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "code_evolution",
+      "revision": "5fd076e67b812a9f3d1999e5e40f71715f84bb51",
+      "subset": null,
+      "split": "train",
+      "max_rows": 60000,
+      "files": [
+        {
+          "path": "data/train-00000-of-00061-2a7ccc8e843f5f5b.parquet"
+        },
+        {
+          "path": "data/train-00012-of-00061-ed6de29bbde599b4.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "other (permissive repositories only; licence kept per row)",
+        "license_url": "https://huggingface.co/datasets/JetBrains-Research/commit-chronicle",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: other (permissive repositories only; licence kept per row)."
+      },
+      "field_map": {
+        "prompt": "message",
+        "patch": "mods",
+        "repository": "repo",
+        "task": "hash",
+        "family": "repo",
+        "created_at": "date"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/JetBrains-Research/commit-chronicle",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "10.7M commits with diffs only (no file contents); rows of one repository are contiguous and mostly oldest first. Message as the request, each file's diff as a scored target. Only the train and validation splits are used; test is evaluation."
+    },
+    {
+      "source_id": "locus-commit-pool",
+      "uri": "hf://datasets/ahnaftaz/locus-commit-pool-v1",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "code_evolution",
+      "revision": "6883f90b50d88cda272b63ef49d0493ad6a9b476",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "shards/0a582f09ed89/split-07-of-10/band-01/commit-doc-00000000-c47af23f2af7a413.jsonl"
+        },
+        {
+          "path": "shards/2956d1b3f053/split-11-of-16/band-01/commit-doc-00000003-33faf1046375ab8b.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "other (each source file keeps its repository's licence)",
+        "license_url": "https://huggingface.co/datasets/ahnaftaz/locus-commit-pool-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: other (each source file keeps its repository's licence)."
+      },
+      "field_map": {
+        "prompt": "payload.message",
+        "before": "payload.changed_files",
+        "patch": "payload.changed_files",
+        "repository": "meta.repository_id",
+        "task": "meta.commit_oid",
+        "family": "meta.repository_id",
+        "created_at": "meta.identity.committed_at"
+      },
+      "options": {
+        "row_filters": [
+          {
+            "path": "annotations.possible_ai_authorship.signal",
+            "op": "eq",
+            "value": "no_named_signal_detected"
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/ahnaftaz/locus-commit-pool-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Real single-parent commits, newest first within a repository: the message, every changed file as it stood before the commit, then each file's unified patch. Roughly 4% of commits carry a named AI-author signal and are filtered out. The nested `meta` object differs between shards; the streaming JSON reader may need explicit features per file."
+    },
+    {
+      "source_id": "repository-v2-long",
+      "uri": "hf://datasets/placeholderlabs/pretrain-repository-v2-mix-long-context",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "connected_repositories",
+      "revision": "fb825c81d9650bd697d4fd6cbfaf2e5303965869",
+      "subset": null,
+      "split": "train",
+      "max_rows": 1500,
+      "files": [
+        {
+          "path": "shards/shard-000[0-4][0-9]/documents.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (code is under its repositories' own licences)",
+        "license_url": "https://huggingface.co/datasets/placeholderlabs/pretrain-repository-v2-mix-long-context",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (code is under its repositories' own licences)."
+      },
+      "field_map": {
+        "text": "text",
+        "family": "document_id"
+      },
+      "options": {
+        "content_kind": "code",
+        "read_batch_rows": 16,
+        "quality": {
+          "min_tokens": 4096,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/placeholderlabs/pretrain-repository-v2-mix-long-context",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Whole GitHub repositories (Stack v3, default-branch snapshot of Aug 2025) as one markdown document each, files in path order; median 29k tokens. The repository name is only in the aligned metadata.parquet, so the document id is the family (one document per repository). The snapshot is HEAD, so repositories contain later fixes of old issues."
+    },
+    {
+      "source_id": "repository-v2-long-replay",
+      "uri": "hf://datasets/placeholderlabs/pretrain-repository-v2-mix-long-context",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "long_natural_code_replay",
+      "revision": "fb825c81d9650bd697d4fd6cbfaf2e5303965869",
+      "subset": null,
+      "split": "train",
+      "max_rows": 1000,
+      "files": [
+        {
+          "path": "shards/shard-005[0-4][0-9]/documents.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (code is under its repositories' own licences)",
+        "license_url": "https://huggingface.co/datasets/placeholderlabs/pretrain-repository-v2-mix-long-context",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (code is under its repositories' own licences)."
+      },
+      "field_map": {
+        "text": "text",
+        "family": "document_id"
+      },
+      "options": {
+        "content_kind": "code",
+        "read_batch_rows": 16,
+        "quality": {
+          "min_tokens": 32768,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/placeholderlabs/pretrain-repository-v2-mix-long-context",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "The same long repository documents as `repository-v2-long`, read from other shards and kept only when at least 32k tokens, for natural-code replay in the long-context phase."
+    },
+    {
+      "source_id": "code-world-traces-affected",
+      "uri": "hf://datasets/marin-community/swe-rebench-v2-CodeWorldModeling",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "build_logs",
+      "revision": "515d954708bece40e983f71d131e0d211327adba",
+      "subset": null,
+      "split": "train",
+      "max_rows": 6000,
+      "files": [
+        {
+          "path": "data/traces-000??-of-07243.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/marin-community/swe-rebench-v2-CodeWorldModeling",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: cc-by-4.0."
+      },
+      "field_map": {
+        "text": "text",
+        "family": "instance_id",
+        "task": "instance_id"
+      },
+      "options": {
+        "content_kind": "code",
+        "row_filters": [
+          {
+            "path": "affected",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_tokens": 256,
+          "max_tokens": 250000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/marin-community/swe-rebench-v2-CodeWorldModeling",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Executed Python test runs on SWE-rebench-V2 tasks: for tests that the pull request fixes (affected = true) the row is the failing line-by-line execution trace, the human fix patch, and the passing trace. Rows over 250k tokens (3%, up to 29 MB) are rejected by the length limit. Not CI logs: no public set pairs real CI failures with their fixes."
+    },
+    {
+      "source_id": "swe-gym-failure-logs",
+      "uri": "hf://datasets/swesynth/SWE-Gym-logs",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "build_logs",
+      "revision": "3ceff49cd365873ea1128e229f61894367c6c3fa",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2438,
+      "files": [
+        {
+          "path": "data/train-00000-of-00002.parquet"
+        },
+        {
+          "path": "data/train-00001-of-00002.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (SWE-Gym itself is MIT)",
+        "license_url": "https://huggingface.co/datasets/swesynth/SWE-Gym-logs",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (SWE-Gym itself is MIT)."
+      },
+      "field_map": {
+        "prompt": "problem_statement",
+        "family": "instance_id",
+        "task": "instance_id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 250000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/swesynth/SWE-Gym-logs",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "problem_statement holds the real pytest failure output of the buggy checkout (replacing the issue text); the target is the human pull-request patch that fixes it. 85% of logs are between 1 KB and 256 KB; longer ones are rejected by the length limit."
+    },
+    {
+      "source_id": "swe-synth-failure-logs",
+      "uri": "hf://datasets/swesynth/SWE-Synth",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "build_logs",
+      "revision": "3e51ace0997d846f68a117ec223888d233b23d68",
+      "subset": null,
+      "split": "train",
+      "max_rows": 4000,
+      "files": [
+        {
+          "path": "data/train-0000?-of-00024.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card",
+        "license_url": "https://huggingface.co/datasets/swesynth/SWE-Synth",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card."
+      },
+      "field_map": {
+        "prompt": "problem_statement",
+        "patch": "_metadata.reverse_patch_diff",
+        "family": "instance_id",
+        "task": "instance_id"
+      },
+      "options": {
+        "read_batch_rows": 8,
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 250000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/swesynth/SWE-Synth",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Executed pytest failure output for an injected bug; the target is the reverse of the injected patch. The bugs are synthetic (the card is empty; inferred from the field names), the logs are real executions. Logs over 256 KB (about 22% of rows) are rejected."
+    },
+    {
+      "source_id": "longmino-science-pdfs",
+      "uri": "hf://datasets/allenai/dolma3_longmino_pool",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "long_context",
+      "revision": "564e991b38d7114db554b608a256b7e027a027a1",
+      "subset": null,
+      "split": "train",
+      "max_rows": 400,
+      "files": [
+        {
+          "path": "data/olmocr_science_pdfs-science_math_and_technology-2e17/*.jsonl.zst"
+        },
+        {
+          "path": "data/olmocr_science_pdfs-education_and_jobs-2e17/*.jsonl.zst"
+        },
+        {
+          "path": "data/olmocr_science_pdfs-health-2e17/*.jsonl.zst"
+        },
+        {
+          "path": "data/olmocr_science_pdfs-finance_and_business-2e17/*.jsonl.zst"
+        },
+        {
+          "path": "data/olmocr_science_pdfs-history_and_geography-2e17/*.jsonl.zst"
+        },
+        {
+          "path": "data/olmocr_science_pdfs-literature-2e17/*.jsonl.zst"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "odc-by",
+        "license_url": "https://huggingface.co/datasets/allenai/dolma3_longmino_pool",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: ODC-By; the underlying PDFs have mixed copyright."
+      },
+      "field_map": {
+        "text": "text",
+        "family": "id"
+      },
+      "options": {
+        "quality": {
+          "min_tokens": 65536,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/allenai/dolma3_longmino_pool",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "OCR'd science PDFs of 131k to 262k Dolma tokens (the `2e17` bucket), by topic directory; median 730 KB. The nested per-span metadata (~150 KB a row) is carried in the annotations. Adult-content and fashion topics are not read."
+    },
+    {
+      "source_id": "pg19-books",
+      "uri": "hf://datasets/emozilla/pg19",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "long_context",
+      "revision": "c021754c8e01c5b1cc83a1f549c1f97fbbb756b8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 600,
+      "files": [
+        {
+          "path": "data/train-00000-of-00023-5263dc4323e881d2.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919)",
+        "license_url": "https://huggingface.co/datasets/emozilla/pg19",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919)."
+      },
+      "field_map": {
+        "text": "text",
+        "family": "url"
+      },
+      "options": {
+        "read_batch_rows": 4,
+        "quality": {
+          "min_tokens": 49152,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/emozilla/pg19",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Project Gutenberg books before 1919. Roughly half the books fall between 65k and 262k tokens; the length limits drop the rest. The test and validation files are not read."
+    },
+    {
+      "source_id": "pre-1929-books",
+      "uri": "hf://datasets/common-pile/pre_1929_books",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "long_context",
+      "revision": "a158135b4765f01d321b5cbe1ff90ebbd354b00f",
+      "subset": null,
+      "split": "train",
+      "max_rows": 300,
+      "files": [
+        {
+          "path": "data/documents/00000_public_library_1929.jsonl.gz"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (US books before 1929, public domain)",
+        "license_url": "https://huggingface.co/datasets/common-pile/pre_1929_books",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (US books before 1929, public domain)."
+      },
+      "field_map": {
+        "text": "text"
+      },
+      "options": {
+        "quality": {
+          "min_tokens": 49152,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/common-pile/pre_1929_books",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Raw OCR (page headers, hyphenation); titles may duplicate PG-19's."
+    },
+    {
+      "source_id": "s-replay-pg19",
+      "uri": "hf://datasets/emozilla/pg19",
+      "format": "hf",
+      "adapter": "document",
+      "stream": "natural_document_replay",
+      "revision": "c021754c8e01c5b1cc83a1f549c1f97fbbb756b8",
+      "subset": null,
+      "split": "train",
+      "max_rows": 120,
+      "files": [
+        {
+          "path": "data/train-00018-of-00023-f59d477d80180c78.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919)",
+        "license_url": "https://huggingface.co/datasets/emozilla/pg19",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (deepmind/pg19 is Apache-2.0; texts are public domain pre-1919)."
+      },
+      "field_map": {
+        "text": "text",
+        "family": "url"
+      },
+      "options": {
+        "read_batch_rows": 4,
+        "quality": {
+          "min_tokens": 16384,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/emozilla/pg19",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Natural long-document replay for the supervised stage, from a shard the M1 entry does not read."
+    },
+    {
+      "source_id": "github-patches",
+      "uri": "hf://datasets/rasdani/github-patches",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_diffs",
+      "revision": "02ef4a17f2dee2a69cc0c7c8ab8fd26ce42ce40d",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "data/train-00000-of-00015.parquet"
+        },
+        {
+          "path": "data/train-00005-of-00015.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card",
+        "license_url": "https://huggingface.co/datasets/rasdani/github-patches",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card."
+      },
+      "field_map": {
+        "prompt": "issue",
+        "before": "before_files",
+        "patch": "pr_diff",
+        "task": "in_source_id",
+        "family": "in_source_id"
+      },
+      "options": {
+        "read_batch_rows": 16,
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/rasdani/github-patches",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Real GitHub issue text, the files the patch touches as they were before it, then the PR diff (SWE-Fixer-Train rows). The only set with human issues and pre-change contents. pr_diff has a heavy tail (median 0.9k chars, max 3.9 MB); very long ones are rejected."
+    },
+    {
+      "source_id": "swe-fixer-train-110k",
+      "uri": "hf://datasets/internlm/SWE-Fixer-Train-110K",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_diffs",
+      "revision": "9e3f1366be2c9a1a230d243b4008354436685501",
+      "subset": null,
+      "split": "train",
+      "max_rows": 40000,
+      "files": [
+        {
+          "path": "swe-fixer-train-110k.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/internlm/SWE-Fixer-Train-110K",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: mit."
+      },
+      "field_map": {
+        "prompt": "problem_statement",
+        "repository": "repo",
+        "task": "instance_id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/internlm/SWE-Fixer-Train-110K",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Real GitHub issue and comment text with the merged patch; base commit only. Overlaps SWE-Gym-Raw (43k shared instances) and includes SWE-bench's repositories: decontaminate against SWE-bench test instances before training."
+    },
+    {
+      "source_id": "swe-gym-raw",
+      "uri": "hf://datasets/SWE-Gym/SWE-Gym-Raw",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_diffs",
+      "revision": "47e98187b31fd5a83deb62d5c48b94619648f2db",
+      "subset": null,
+      "split": "train",
+      "max_rows": 20000,
+      "files": [
+        {
+          "path": "data/train-00000-of-00006.parquet"
+        },
+        {
+          "path": "data/train-00003-of-00006.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card (SWE-Gym is MIT)",
+        "license_url": "https://huggingface.co/datasets/SWE-Gym/SWE-Gym-Raw",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card (SWE-Gym is MIT)."
+      },
+      "field_map": {
+        "prompt": "problem_statement",
+        "repository": "repo",
+        "task": "instance_id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/SWE-Gym/SWE-Gym-Raw",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Real issues and hints with the merged patch (62k unique instances, 43k of them also in SWE-Fixer-Train). Test lists are empty in this raw release."
+    },
+    {
+      "source_id": "swe-rebench-v2-prs",
+      "uri": "hf://datasets/nebius/SWE-rebench-V2-PRs",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_diffs",
+      "revision": "fbf0ecf50f268d5344149e2f0097db6bede83737",
+      "subset": null,
+      "split": "train",
+      "max_rows": 8000,
+      "files": [
+        {
+          "path": "data/train-00000-of-00003.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nebius/SWE-rebench-V2-PRs",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: cc-by-4.0."
+      },
+      "field_map": {
+        "prompt": "problem_statement",
+        "hints": [
+          "hints_text",
+          "pr_description"
+        ],
+        "repository": "repo",
+        "task": "instance_id"
+      },
+      "options": {
+        "read_batch_rows": 16,
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nebius/SWE-rebench-V2-PRs",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "126k pull requests of 20+ languages with executed FAIL_TO_PASS/PASS_TO_PASS lists. The problem_statement is LLM-written from the PR (99% start with a Title/Problem template); hints_text (real issue comments) and pr_description are human. Test names and the interface and meta fields are not imported."
+    },
+    {
+      "source_id": "multi-swe-rl-reupload",
+      "uri": "hf://datasets/PrimeIntellect/Multi-SWE-RL-Reupload",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_diffs",
+      "revision": "dbf7ae8a407d68e2f2660ef197a375796a550db6",
+      "subset": null,
+      "split": "train",
+      "max_rows": 4703,
+      "files": [
+        {
+          "path": "data/train-*.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "other (card names CC0 with a ByteDance notice)",
+        "license_url": "https://huggingface.co/datasets/PrimeIntellect/Multi-SWE-RL-Reupload",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: other (card names CC0 with a ByteDance notice)."
+      },
+      "field_map": {
+        "prompt": "title",
+        "hints": [
+          "resolved_issues.body",
+          "body"
+        ],
+        "patch": "fix_patch",
+        "repository": "repo",
+        "task": "instance_id",
+        "family": "instance_id"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/PrimeIntellect/Multi-SWE-RL-Reupload",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Multilingual issue-to-PR tasks (C, C++, Go, Java, Rust, TypeScript, JavaScript) with real issue and PR text and executed test results. Reupload of ByteDance-Seed/Multi-SWE-RL."
+    },
+    {
+      "source_id": "commitpackft",
+      "uri": "hf://datasets/bigcode/commitpackft",
+      "format": "hf",
+      "adapter": "repository",
+      "stream": "issue_pr_diffs",
+      "revision": "4c1dc5e645e4d39b68a2d101b8dc0079653c16a9",
+      "subset": null,
+      "split": "train",
+      "max_rows": 100000,
+      "files": [
+        {
+          "path": "python/train/0000.parquet"
+        },
+        {
+          "path": "javascript/train/0000.parquet"
+        },
+        {
+          "path": "java/train/0000.parquet"
+        },
+        {
+          "path": "typescript/train/0000.parquet"
+        },
+        {
+          "path": "go/train/0000.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/bigcode/commitpackft",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: mit."
+      },
+      "field_map": {
+        "prompt": "message",
+        "before": "old_contents",
+        "patch": "new_contents",
+        "repository": "repos",
+        "task": "commit"
+      },
+      "options": {
+        "read_batch_rows": 128,
+        "quality": {
+          "min_scored_positions": 8,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/bigcode/commitpackft",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "OctoPack's filtered commits (commit fc56fe33c030c6daa414c2b112c932b8eed085e6), read from the Hub's automatic Parquet conversion of that commit because the original repository ships a loading script that the streaming reader refuses. The commit message is the instruction, the file before is context, and the whole file after is the target (not a diff). `repos` lists forks, a weak lineage key."
+    },
+    {
+      "source_id": "longcite-45k",
+      "uri": "hf://datasets/zai-org/LongCite-45k",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "grounded_artifacts",
+      "revision": "b776b01faf6e132a3d9cc373de1b46cd6630d772",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2000,
+      "files": [
+        {
+          "path": "long.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/zai-org/LongCite-45k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: apache-2.0."
+      },
+      "field_map": {
+        "prompt": "prompt",
+        "target": "response"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/zai-org/LongCite-45k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Real long documents (numbered sentences <C0>...) with a question; the answer cites sentence ranges <cite>[a-b]</cite>. Questions, answers and citations are LLM-written (GLM-4 pipeline). The citation spans are not turned into dependency links here."
+    },
+    {
+      "source_id": "imported-context-files",
+      "uri": "hf://datasets/tingtang2/the_stack_v2_2M_repos_pretraining_dataset_imported_context-dataset",
+      "format": "hf",
+      "adapter": "artifact",
+      "stream": "grounded_artifacts",
+      "revision": "73671814f5a1318526c3fdc30e34b0e004b29459",
+      "subset": null,
+      "split": "train",
+      "max_rows": 20000,
+      "files": [
+        {
+          "path": "data/train-00000-of-00016.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card",
+        "license_url": "https://huggingface.co/datasets/tingtang2/the_stack_v2_2M_repos_pretraining_dataset_imported_context-dataset",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card."
+      },
+      "field_map": {
+        "prompt": "path",
+        "document": "context",
+        "target": "content",
+        "repository": "repo_name"
+      },
+      "options": {
+        "content_kind": "code",
+        "language": "python",
+        "read_batch_rows": 64,
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/tingtang2/the_stack_v2_2M_repos_pretraining_dataset_imported_context-dataset",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "A real Python file as the target, grounded in the repository files it imports (concatenated in `context`), with its path as the request. Rows are contiguous by repository. The Stack v2 era: may contain secrets."
+    },
+    {
+      "source_id": "sourcegraph-context-fim",
+      "uri": "hf://datasets/sourcegraph/context-aware-fim-code-completions",
+      "format": "hf",
+      "adapter": "fim",
+      "stream": "long_context_fim",
+      "revision": "59178e2aaa628a54a99588fb61ac8d04dd03193a",
+      "subset": null,
+      "split": "train",
+      "max_rows": 13489,
+      "files": [
+        {
+          "path": "data/train-0000?-of-00004.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "none on the card",
+        "license_url": "https://huggingface.co/datasets/sourcegraph/context-aware-fim-code-completions",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: none on the card."
+      },
+      "field_map": {
+        "context": "context_items",
+        "repository": "repo_name"
+      },
+      "options": {
+        "content_kind": "code",
+        "read_batch_rows": 16
+      },
+      "publisher_card": "https://huggingface.co/datasets/sourcegraph/context-aware-fim-code-completions",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Real code with the middle removed and ~100 ranked chunks of OTHER files as retrieved context: the only true cross-file fill-in-the-middle set found. Only ~0.25B unique tokens."
+    },
+    {
+      "source_id": "tiger-fim-midtraining",
+      "uri": "hf://datasets/TIGER-Lab/FIM-Midtraining-400K",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "long_context_fim",
+      "revision": "5fd41b043bda55db754f366f0e5a82ba83e48741",
+      "subset": null,
+      "split": "train",
+      "max_rows": 10000,
+      "files": [
+        {
+          "path": "all_merged_400k.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "other (multiple open-source licences)",
+        "license_url": "https://huggingface.co/datasets/TIGER-Lab/FIM-Midtraining-400K",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: other (multiple open-source licences)."
+      },
+      "field_map": {
+        "family": "metadata.repository_url",
+        "repository": "metadata.repository_url"
+      },
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/TIGER-Lab/FIM-Midtraining-400K",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "A real Python file with one function body masked, as an instruction; the assistant side (reasoning and body) is written by Gemini-3-Flash and LLM-judged, so this is infilling by a model, not natural fill-in-the-middle. Zero overlap with SWE-bench repositories per the card."
+    },
+    {
+      "source_id": "ldep-scale-swe-v4-pro",
+      "uri": "hf://datasets/AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "long_verified_dependencies",
+      "revision": "cf6eb6188051a85fa34ebd91cae1956352f0e78d",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "scale_swe_merged_score1_n41057_20260611_094619_v2_sft.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0 (no licence tag on the Hub)."
+      },
+      "field_map": {
+        "family": "extra_info.instance_id",
+        "outcome": "extra_info.success"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "extra_info.success",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true,
+          "min_tokens": 32768,
+          "max_tokens": 400000
+        },
+        "path_dependencies": true
+      },
+      "publisher_card": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled-DeepSeek-v4-Pro-High-41k",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Second view of the verified trajectory source `scale-swe-distilled-v4-pro`: the same pinned rows, kept only when at least 32k tokens, with each file edit linked to the first result that showed the model that file (structured `path` arguments of editor tool calls; shell commands are not linked). Public trajectories rarely exceed ~125k tokens, so the plan's 131k-262k episodes are not reachable from public data."
+    },
+    {
+      "source_id": "ldep-rebench-openhands",
+      "uri": "hf://datasets/nebius/SWE-rebench-openhands-trajectories",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "long_verified_dependencies",
+      "revision": "35455389ab51bf5e2306bfd436ef72d0f98bf882",
+      "subset": null,
+      "split": "train",
+      "max_rows": 4000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: CC BY 4.0; Qwen3-Coder-480B generated."
+      },
+      "field_map": {
+        "messages": "trajectory",
+        "family": "instance_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "row_filters": [
+          {
+            "path": "resolved",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true,
+          "min_tokens": 32768,
+          "max_tokens": 400000
+        },
+        "path_dependencies": true
+      },
+      "publisher_card": "https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Second view of the verified trajectory source `rebench-openhands`: the same pinned rows, kept only when at least 32k tokens, with each file edit linked to the first result that showed the model that file (structured `path` arguments of editor tool calls; shell commands are not linked). Public trajectories rarely exceed ~125k tokens, so the plan's 131k-262k episodes are not reachable from public data."
+    },
+    {
+      "source_id": "ldep-coderforge",
+      "uri": "hf://datasets/togethercomputer/CoderForge-Preview",
+      "format": "hf",
+      "adapter": "open_swe",
+      "stream": "long_verified_dependencies",
+      "revision": "060fca96cf723b2ebab3181e9e59fafd273df3cb",
+      "subset": "trajectories",
+      "split": "filtered_reward1",
+      "max_rows": 3000,
+      "files": [],
+      "terms": {
+        "approved": true,
+        "license": "per row (Apache-2.0 in the sampled rows); none on the card",
+        "license_url": "https://huggingface.co/datasets/togethercomputer/CoderForge-Preview",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "The card names no licence; each row carries its own license field (Apache-2.0 in the rows sampled)."
+      },
+      "field_map": {
+        "outcome": "reward",
+        "family": "trajectory_id"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "positional_call_ids": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "required_verified_success": true,
+          "min_tokens": 32768,
+          "max_tokens": 400000
+        },
+        "path_dependencies": true
+      },
+      "publisher_card": "https://huggingface.co/datasets/togethercomputer/CoderForge-Preview",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Second view of the verified trajectory source `coderforge-reward1`: the same pinned rows, kept only when at least 32k tokens, with each file edit linked to the first result that showed the model that file (structured `path` arguments of editor tool calls; shell commands are not linked). Public trajectories rarely exceed ~125k tokens, so the plan's 131k-262k episodes are not reachable from public data."
+    },
+    {
+      "source_id": "scale-swe-distilled-v32",
+      "uri": "hf://datasets/AweAI-Team/Scale-SWE-Distilled",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "mixed_quality_episodes",
+      "revision": "c14ce2130f494812fef907f4afc81d8e33990805",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "data/train-0000?-of-00008.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card badge: CC BY 4.0 (no licence tag on the Hub)."
+      },
+      "field_map": {
+        "family": "data_source"
+      },
+      "options": {
+        "allow_pending_final_action": true,
+        "admit_unknown_outcome": true,
+        "read_batch_rows": 16,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true,
+          "max_tokens": 400000
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/AweAI-Team/Scale-SWE-Distilled",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "71k DeepSeek-V3.2 OpenHands trajectories on executable GitHub tasks (3.5B tokens). The release records no per-row success, so every row is admitted as an unknown-outcome run and never counted as verified."
+    },
+    {
+      "source_id": "opencode-question-tool",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-OpenCode-v1",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "recovery_clarification",
+      "revision": "556d5237acff203f3e1a0be49428634c3606cda2",
+      "subset": null,
+      "split": "train",
+      "max_rows": 2500,
+      "files": [
+        {
+          "path": "question_tool/data.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-OpenCode-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: cc-by-4.0."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "observation_provenance": "executed",
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-OpenCode-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "OpenCode coding tasks where the agent may call a `question` tool to ask the user a clarifying question mid-task (78% of sampled rows do). Everything is LLM-written: tasks by GPT-OSS-120B, rollouts by Qwen3-Coder-480B, and the user's answers by a simulator, so the `question` results are simulated while other tool results were executed."
+    },
+    {
+      "source_id": "opencode-agent-skills-question-tool",
+      "uri": "hf://datasets/nvidia/Nemotron-SFT-OpenCode-v1",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "recovery_clarification",
+      "revision": "556d5237acff203f3e1a0be49428634c3606cda2",
+      "subset": null,
+      "split": "train",
+      "max_rows": 1500,
+      "files": [
+        {
+          "path": "agent_skills_question_tool/data.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-OpenCode-v1",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: cc-by-4.0."
+      },
+      "field_map": {
+        "family": "uuid"
+      },
+      "options": {
+        "observation_provenance": "executed",
+        "allow_pending_final_action": true,
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/nvidia/Nemotron-SFT-OpenCode-v1",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "The agent-skills variant of the same release: tasks driven by skill files, same `question` tool."
+    },
+    {
+      "source_id": "code-feedback",
+      "uri": "hf://datasets/m-a-p/Code-Feedback",
+      "format": "hf",
+      "adapter": "chat",
+      "stream": "recovery_clarification",
+      "revision": "f411b16a97c910ac9acf8b0d0948e340aa77cc34",
+      "subset": null,
+      "split": "train",
+      "max_rows": 30000,
+      "files": [
+        {
+          "path": "Code-Feedback.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/m-a-p/Code-Feedback",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/m-a-p/Code-Feedback",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Multi-turn coding with interpreter feedback: 45% of conversations contain a user turn 'Execution result: ...' (real interpreter output, delivered in the user role) and 13% an error or traceback that a later assistant turn answers. Whether the fix works is not recorded; the assistant turns are LLM-written."
+    },
+    {
+      "source_id": "adp-go-browse-wa",
+      "uri": "hf://datasets/neulab/agent-data-collection",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "environment_trajectories",
+      "revision": "31a76bfb0124d77ae7322eabbb0171bf11ee2c67",
+      "subset": null,
+      "split": "train",
+      "max_rows": 3000,
+      "files": [
+        {
+          "path": "go-browse-wa/full_sft/full_sft_openhands.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "mit",
+        "license_url": "https://huggingface.co/datasets/neulab/agent-data-collection",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Per-subset licence mit from the subset's LICENSE file; the collection's card names none."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/neulab/agent-data-collection",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Go-Browse exploration of WebArena sites by LLM agents (~12k tokens a trajectory). Agent Data Protocol conversion: the page is an accessibility-tree text dump in each user turn, the action a `<function=browser>` call. The 18.7k-character system prompt and tool list that the row repeats are not imported. No success label."
+    },
+    {
+      "source_id": "adp-nnetnav-wa",
+      "uri": "hf://datasets/neulab/agent-data-collection",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "environment_trajectories",
+      "revision": "31a76bfb0124d77ae7322eabbb0171bf11ee2c67",
+      "subset": null,
+      "split": "train",
+      "max_rows": 800,
+      "files": [
+        {
+          "path": "nnetnav-wa/full_sft/full_sft_openhands.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/neulab/agent-data-collection",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Per-subset licence apache-2.0 from the subset's LICENSE file; the collection's card names none."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/neulab/agent-data-collection",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "NNetNav unsupervised exploration of WebArena sites, labelled retroactively (~42k tokens). Agent Data Protocol conversion: the page is an accessibility-tree text dump in each user turn, the action a `<function=browser>` call. The 18.7k-character system prompt and tool list that the row repeats are not imported. No success label."
+    },
+    {
+      "source_id": "adp-mind2web",
+      "uri": "hf://datasets/neulab/agent-data-collection",
+      "format": "hf",
+      "adapter": "openhands_xml",
+      "stream": "environment_trajectories",
+      "revision": "31a76bfb0124d77ae7322eabbb0171bf11ee2c67",
+      "subset": null,
+      "split": "train",
+      "max_rows": 300,
+      "files": [
+        {
+          "path": "mind2web/full_sft/full_sft_openhands.jsonl"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "cc-by-4.0",
+        "license_url": "https://huggingface.co/datasets/neulab/agent-data-collection",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Per-subset licence cc-by-4.0 from the subset's LICENSE file; the collection's card names none."
+      },
+      "field_map": {},
+      "options": {
+        "allow_pending_final_action": true,
+        "admit_unknown_outcome": true,
+        "quality": {
+          "min_scored_positions": 16,
+          "required_executed_observation": true
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/neulab/agent-data-collection",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "Mind2Web: HUMAN web-task demonstrations on live sites (~116k tokens each, long). Agent Data Protocol conversion: the page is an accessibility-tree text dump in each user turn, the action a `<function=browser>` call. The 18.7k-character system prompt and tool list that the row repeats are not imported. No success label."
+    },
+    {
+      "source_id": "agentrefine-gpt4o",
+      "uri": "hf://datasets/fudayuan/AgentRefine-gpt4o-64000",
+      "format": "hf",
+      "adapter": "react_agent",
+      "stream": "environment_trajectories",
+      "revision": "26f9f0680276a178b529581090d22f2c526e0ea6",
+      "subset": null,
+      "split": "train",
+      "max_rows": 64000,
+      "files": [
+        {
+          "path": "data/train-00000-of-00001.parquet"
+        }
+      ],
+      "terms": {
+        "approved": true,
+        "license": "apache-2.0",
+        "license_url": "https://huggingface.co/datasets/fudayuan/AgentRefine-gpt4o-64000",
+        "reviewed_by": "Gabriel Pickard",
+        "reviewed_at": "2026-10-22",
+        "notes": "Card: apache-2.0."
+      },
+      "field_map": {},
+      "options": {
+        "quality": {
+          "min_scored_positions": 16
+        }
+      },
+      "publisher_card": "https://huggingface.co/datasets/fudayuan/AgentRefine-gpt4o-64000",
+      "metadata_checked_at": "2026-10-22",
+      "notes": "64k text-environment trajectories (household, science, web tasks) written ENTIRELY by GPT-4o, observations included, with refinement turns after errors; the per-message `loss` flag marks the turns to learn from."
+    }
+  ]
+}

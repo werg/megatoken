@@ -32,6 +32,7 @@ ROLES = {
     "ai": "assistant",
     "model": "assistant",
     "function": "tool",
+    "function_call": "assistant",
     "tool_response": "tool",
     "observation": "tool",
     "ipython": "tool",
