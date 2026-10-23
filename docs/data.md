@@ -1314,7 +1314,7 @@ evidence needed to choose production acquisition and training scale.
 ## Scaling the media streams
 
 The open-licence pilot above draws a few thousand clips per media stream from six datasets. This
-section records the scale-up: 147 pinned public media datasets (103 of them added
+section records the scale-up: 160 pinned public media datasets (116 of them added
 in a second pass that put image and video editing first), a reader for each kind of file layout,
 pilot jobs that build a slice of every source, and full-volume runs that build all of it across
 many sandboxes. Licence, size and layout facts were read from the Hub on 2026-10-22 and 23 (a card
@@ -1324,10 +1324,12 @@ what it leaves open.
 
 ### How a source is described and read
 
-Three manifests list the sources: `configs/data/sources.media.json` (the first forty-four, some
-corrected), `sources.media-more.json` (100 more, all open) and `sources.media-more-gated.json`
+Four manifests list the sources: `configs/data/sources.media.json` (the first forty-four, some
+corrected), `sources.media-more.json` (100 more, all open), `sources.media-more-gated.json`
 (3 that need a click on the Hub first; the gated sources that were already known stay
-in the first file). `open_media.load_sources()` reads all three. Each entry holds
+in the first file) and `sources.media-agentic.json` (13 that teach judging and planning
+edits, three of them published on a web site rather than the Hub: see "Agentic editing").
+`open_media.load_sources()` reads all four. Each entry holds
 
 - the Hub repository and the immutable revision it is pinned to, the licence found on its card,
   the approval record, notes on what the licence does not settle, and whether the repository is
@@ -1353,6 +1355,12 @@ Readers (`data/open_media.py`):
   (`multipart`, as `cat part-*` would join it), the table may be parquet with nested turns, a
   leading folder of the row's paths may be stripped, and a shard may read only some of the
   archives. This is the reader behind the multi-turn edit sessions.
+- `table` (new): rows of a table file (parquet, csv, JSON array or JSON lines); for datasets that
+  name their pictures by URL, with `options.fetch` (below). The files may be on a web site: a
+  source whose `repository` is a URL (not a Hub dataset) lists its files in `include`, downloads
+  each whole with byte-range resume, and checks it against `options.pins` (SHA-256).
+- `folders` (new): one record per folder of loose files; `include` names an anchor file of each
+  folder and `options.members` the files to read (field name -> path inside the folder).
 - two special readers, `fleurs` (the same sentence read in two languages) and `docci` (files
   that are not on the Hub).
 
@@ -1369,6 +1377,8 @@ Tasks turn a record into a clip and then into episodes of the stage plan's own s
 | `image_questions` (new) | image_description: a multi-turn conversation about one image (question, answer, follow-up, ...), plus image_identity |
 | `image_edit` | image_edit |
 | `image_edit_chain` (new) | image_edit: a session of edits, each applied to the previous result |
+| `edit_judging` (new) | edit_judging: the original, the request and candidate edits are shown, the verdict is written |
+| `image_edit_plan` (new) | edit_plan: the original and request are shown, a plan or tool call and then the edited picture are written |
 | `captioned_audio` (new) | audio_description, audio_identity |
 | `audio_questions` (new) | audio_description: a conversation about one recording |
 | `sound` | audio_identity |
@@ -1388,7 +1398,10 @@ editing" below.
 
 Options added in this pass: `session` (rows that are the turns of one session are grouped by a
 column, turns ordered by another), `choose` (take the better rated of several candidate edits),
-`verbalize` (a transcription source also gives text to speech), `linked` (archives, `multipart`,
+`verbalize` (a transcription source also gives text to speech), `judge` (how a verdict is built
+from scores, a vote, a winner or a column), `transform` (reshape a publisher's own row layout),
+`fetch`, `originals`, `pins` and `base` (sources published as URLs), `members` (folders),
+`clean: "image_tags"` (drop `<image>` markers from a prompt), `linked` (archives, `multipart`,
 `strip`, the `sequence` of images and texts of a row), `whole_only` and `fps` (video questions
 about whole videos at a given frame rate), `table.per_archive`, `table.merge`, `format`
 (`pairs`, `messages`, `parallel` or `choices` for a conversation) and `keep` filters.
@@ -1476,7 +1489,9 @@ sessions (a run of edits where each applies to the previous result), images or c
 | `taesiri_image_editing_request` | image single edits | 3,061 | 0 | 1.0 | 6,122 | 0 | 4 |
 | `editworld_reasoning` | image single edits | 7,736 | 0 | 1.0 | 15,472 | 1 | 11 |
 | `multiedit` | image single edits | 106,534 | 0 | 1.0 | 213,068 | 45 | 154 |
-| **total** | | 22,128,466 | 140,905 | 2.4 | 44,063,984 | 26,548 | 53,380 |
+| `pico_banana_multi_turn` | image chains | 306,513 | 77,229 | 4.0 | 383,742 | 540 | 112 |
+| `pico_banana_single` | image single edits | 257,728 | 0 | 1.0 | 515,456 | 379 | 373 |
+| **total** | | 22,692,707 | 218,134 | 2.9 | 44,963,182 | 27,467 | 53,865 |
 
 What the numbers say, in plain words:
 
@@ -1484,8 +1499,9 @@ What the numbers say, in plain words:
   hosted, strictly chained sessions: MagicBrush (4,500 sessions of 1 to 3 edits, human-made
   with an image-editing model), SEED-Data-Edit part 3 (21,382 sessions of 1 to 6 edits) and
   ImgEdit's multi-turn sets (115,023 sessions, two chained edits each after the cut explained
-  below). Together 140,905 sessions and 333,853 edit requests, an average of
-  2.4 edits per session. A single edit set is far larger: 16,187,033 image
+  below) and Pico-Banana-400K (77,229 sessions of 2 to 6 edits, fetched from its
+  publisher's site: see "Agentic editing" below). Together 218,134 sessions and 640,366 edit requests, an average of
+  2.9 edits per session. A single edit set is far larger: 16,444,761 image
   edits and 5,607,580 video edits.
 - **Image edits** now cover instruction edits by human retouchers (SEED-Data-Edit part 2:
   51,610 requests answered on photo-editing forums; the small `taesiri` set of 3,061), by
@@ -1519,10 +1535,8 @@ starts again from the first result (the user withdraws the previous round), so o
 two edits of each session are chained and the third is not read. MagicBrush sessions that span
 two parquet files are read as two shorter sessions when the files go to different shards.
 
-**Preference and feedback.** `EditReward-Data` has two edits from different editors for each
-request, with human scores for instruction following and quality. The `choose` option keeps
-the better rated one, so the data is used as best-of-two edits. The rejected edit and the scores
-are not yet used; see the proposals below.
+**Preference and feedback** are now their own task (edit judging, below). EditReward-Data is
+read both ways: as best-of-two edits above (the `choose` option) and as judging.
 
 **Not wired, with the reason:**
 
@@ -1545,28 +1559,130 @@ are not yet used; see the proposals below.
 - Ditto-1M, ReCo-Data and OpenVE-3M raw archives (tars whose two clips of a pair are far apart
   or in separate tars): read through third-party parquet repacks and OpenVE's WebDataset shards
   instead.
-- Agentic editing traces: JarvisArt (`MMArt-PPR10k`: 4,055 retouching requests with an
-  expert's plan and the Lightroom settings as the tool call, stored as 52,000 loose files),
-  ThinkEdit (about 146,000 critique-and-rewrite conversations over zips of images), EditScore
-  (about 97,000 judge conversations), and five small computer-use sets of an editor's screen
-  (`contralabs`: Premiere, Descript, Photoshop, Firefly, Gemini: 1,734 steps with screenshot,
-  thought, action and tool call). None fits an existing task; see the proposals below.
-- Video edit plans (a timeline script that produces an edit): no open dataset exists; the only
-  match was a text benchmark.
+- Agentic editing traces that are not read: ThinkEdit (about 142,000 critique-and-rewrite
+  conversations, 310 GB in zips with no licence on the card), UniREdit-Data (about 100,000
+  reasoning paragraphs, but the pictures sit in a 149 GB multi-part zip), the
+  RationalRewards critiques (about 75,000 pairwise and 100,000 single-edit judgements written by
+  a teacher model; the pictures are in two tar.gz files of 79 and 93 GB that cannot be read in
+  random order), a 120-row collection of plan, critique and intermediate-picture
+  trajectories (`NilanE/ComplexMultistepImageEditing`), and five small computer-use sets of an
+  editor's screen (`contralabs`: Premiere, Descript, Photoshop, Firefly, Gemini: 1,734 steps with
+  screenshots, thoughts and tool calls but no source or exported media).
+- Video edit plans (an edit-decision list, timeline or ffmpeg command written before the video):
+  no open dataset with the videos exists. Three command-only collections were found (about 1,000
+  natural-language-to-ffmpeg pairs, 30 with reasoning) but they name no video, so the executed
+  plans below are made instead.
 
-**Proposals for new task kinds** (not implemented):
+### Agentic editing: judging, plans and fetched pictures
 
-1. *Edit judging*: show the original, the request and two edits; the target is a verdict and a
-   score. It would use EditReward-Data (170,772 pairs with human scores), Pico-Banana's
-   preference rows (56,473, with up to three rejected edits each) and EditScore. It needs a new
-   family and a share in the stage plan.
-2. *Edit with a plan*: original, request, a written plan or tool call (Lightroom settings, an
-   editor's API call), then the result. It would use JarvisArt, EditWorld reasoning and the
-   Escher reasoning traces. It needs a folder reader for JarvisArt's loose files.
-3. *Screen trace*: a sequence of screenshots each followed by a thought and an action, for the
-   `contralabs` sets. Only 1,734 steps exist openly, so it is cheap but small.
-4. *URL-fetch reader*: for Pico-Banana. It would download each image from its URL (with retries
-   and a pinned manifest, as for DOCCI), and use the Flickr original only when it is still alive.
+Two new task kinds teach the model to act like an editor rather than only to carry out one edit,
+and a new fetch step makes a dataset usable whose pictures are published as links. Each has its
+own stream in the stage plan (`data/stages.json`): `edit_judging` and `edit_plan`.
+
+**Edit judging (`edit_judging`).** The model is shown an original picture, an edit request and
+one or more candidate edits, and writes the verdict. Nothing but the verdict is supervised.
+
+```
+record 0  user       original picture
+record 1  user       "Add sweeping speed lines behind the runner and a radial blur around their feet."
+record 2  user       candidate A (picture)
+record 3  user       candidate B (picture)
+record 4  assistant  Candidate A: instruction following 2 of 4, visual quality 3 of 4, overall 5 of 8.
+                     Candidate B: instruction following 1 of 4, visual quality 4 of 4, overall 5 of 8.
+                     Verdict: the candidates are equally good.                   supervised
+```
+
+(a real EditReward-Data row; the scores are the people's, the candidates are edits by two editing
+models). The candidates are shown in a fixed pseudo-random order, so the best one is not always
+first. A source supplies the verdict as scores per aspect (`options.judge`), as a vote, as "the
+publisher lists the preferred edit first" (Pico-Banana) or as a text the publisher wrote
+(EditScore's judge replies). Sources: `editreward_judging`, `editscore_judging`, `pico_banana_preference`.
+
+Volume: 271,245 judgements over 769,735 pictures (334 GB in the
+repositories), so an `edit_judging` share of 0.15% of the first stage is about
+2.5 passes over the data. The EditScore count is an estimate: about 45% of its rows
+hold both a source and an edited picture (the rest judge one picture alone and are skipped). The
+EditScore scores and reasons come from a vision-language model, not from people.
+
+**Edit with a plan (`edit_plan`).** The model is shown the original and the request, then writes
+a plan or a tool call, and then renders the edited picture; both are supervised, so the plan is
+something the model must be able to carry out.
+
+```
+record 0  user       original picture
+record 1  user       "Remove factory smoke."
+record 2  assistant  1. The source image shows a lake scene at sunset with factory smoke rising
+                     from the background. 2. The object to be edited is the factory smoke ...
+                     3. The area to be edited is within the bounding box [...] ...   supervised
+record 3  assistant  edited picture                                                  supervised
+```
+
+(a real Escher row). Plans are plain text or code:
+
+- *Reasoning plans*: the six Escher repacks, EditWorld reasoning (`escher_human_edit_plan`, `escher_vismin_plan`, `escher_aurora_kubric_plan`, `escher_aurora_ag_plan`, `escher_ss2_plan`, `escher_magicbrush_plan`, `editworld_reasoning_plan`).
+  The plans are machine-written and sometimes contradict the request.
+- *Tool calls*: JarvisArt gives 4,055 portraits retouched by experts with the retoucher's
+  step-by-step reasoning and then the exact Lightroom develop settings, written as
+  `Tool call: {"tool": "lightroom.develop", "settings": {...}}` after the reasoning (only the
+  non-default settings are listed). It is stored as loose files, so it has a folder reader
+  (`folders`) that reads about six Hub files per portrait; the `members` option names the files.
+- *Executed plans*: every procedural edit is also a plan whose result is verified by running it.
+  A speech or video edit's plan is the ffmpeg command that was run
+  (`ffmpeg -i input.mp4 -vf hflip output.mp4`, from 6 speech and 8 video edit types); a
+  picture edit's plan is the short PIL program that was run (12 edit types, such as
+  `edited = ImageOps.grayscale(image).convert("RGB")`), and for pictures only the plan is made,
+  because real picture edits are plentiful. A source makes these only for the clips named by
+  `--procedural` or `procedural_every`: the full-volume runs give one picture clip in 400 and
+  one video clip in 40 a plan (about 345,000 and 245,000), and one speech edit in eight (the
+  speech runs edit one clip in 40, so about 680,000), so the plan stream is not mostly audio.
+  Their tier is `procedural`.
+
+Volume: 173,052 real plans over 346,104 pictures (80 GB). The 0.15% share
+of the first stage asks for about 862,069 plan episodes, so the real plans would be used
+about 5.0 times each; the executed plans fill the rest and can be made in any
+number (the stream's row in the gap table counts all of them).
+
+**Fetching pictures from links (Pico-Banana-400K).** Apple publishes three row files and the
+edited pictures on its own web site, and the original photos as Flickr links
+(`options.fetch`; the reader is `table`, with `options.pins` fixing each file's SHA-256 and
+`options.transform` reshaping its rows). The fetching runs in the sandbox that prepares the
+shard, only for the rows that shard keeps, and never on a workstation:
+
+- every body is stored once under the SHA-256 of its content, and every link's outcome
+  (content, or dead) is remembered, so a retried shard asks the server nothing again;
+- a dead link (404, 403, 410, ...) is skipped and counted. A session is cut at its first missing
+  picture, or skipped when its original is missing; a judging row needs every candidate;
+- a busy server (429, 503, timeouts) is retried with growing waits, and while one host asks for
+  peace every request to it waits (at most 2 at a time to Flickr, 4 to other hosts);
+- the counts (`fetched`, `cached`, `dead`, `failed`, `http_404`, `http_429`, ..., rows read and
+  rows with a dead link) are printed after each source and written to `fetch-report.json` in the
+  prepared root;
+- the row files are downloaded by byte ranges that resume where a cut-off answer stopped (the
+  CDN ended a long download early without an error twice), and refused when the SHA-256 differs.
+
+Pico-Banana gives three sources: `pico_banana_preference`, `pico_banana_multi_turn`, `pico_banana_single`. The original photos are published as Flickr
+links, and the Flickr route was tried first: about one photo in eight was gone (HTTP 404 or 410,
+7 of 60 links) and Flickr answered a few parallel downloads with "too many requests" (429), so
+on a first real try more than half of the session rows lost a picture. Open Images keeps its own
+copy of every one of these photos (its table lists the original Flickr file name of each; all
+241,133 distinct originals of the three row files are in it, checked against the 638 MB table), so
+`options.originals` points the originals at those copies (`open-images-dataset.s3.amazonaws.com`),
+with the table pinned by SHA-256 and downloaded once per machine. Only a photo missing from the
+table would still be fetched from Flickr. The edited pictures are PNG files of about 1.5 MB, so
+the whole set is about 1 TB to download; the shard plan treats a picture as 0.2 s of work
+(`clip_seconds`) instead of the 0.05 s of a picture read from the Hub. The licence is CC BY-NC-ND
+4.0 (the README's) and the source photos are Open Images (CC BY 2.0).
+
+**Proposals still open** (not implemented):
+
+1. *Screen trace*: a sequence of screenshots each followed by a thought and an action, for the
+   `contralabs` sets. Only 1,734 steps exist openly and they have no media to edit, so it is
+   cheap but small.
+2. *Video plans*: a video edit written as an edit-decision list or timeline needs paired videos;
+   the natural-language ffmpeg command sets could be made into executed plans by running each
+   command on a public clip and keeping the ones that succeed.
+3. *Critique-and-retry*: ThinkEdit's and RationalRewards' reasoned critiques followed by a
+   rewritten request (about 240,000 rows) once their zips and tar.gz files can be read in order.
 
 ### The sources
 
@@ -1649,6 +1765,29 @@ first accept the publisher's terms.
 | `taesiri_image_editing_request` (`taesiri/ImageEditingRequestV1`) | 3.9k real photo-editing requests, each with the original photo, a person's edited version and the request as written (typos kept). | none on the card (requests and images from an online photo-editing request forum: the posters keep their rights) | 3.06k items; 0.3 GB |  |
 | `editworld_reasoning` (`tyfeld/editworld-reasoning`) | EditWorld reasoning: 7.7k edits whose request is a question about the world ("what appears when the clock strikes midnight?"), with the edited picture. | none on the card | 7.74k items; 1.3 GB | The long reasoning text of each row (output_text) is not read. |
 | `multiedit` (`inclusionAI/MultiEdit`) (gated) | MultiEdit: 106.5k hard instruction edits in six groups (objects, people, text in posters, interface screenshots, new viewpoints, 38 artistic styles). | apache-2.0 (card; the edits are GPT-4o and GPT-Image-1 outputs: OpenAI's terms apply) | 107k items; 45 GB | Gated (accept the terms at the repository). The table's file names and fields come from the card, not from a read of the files. |
+| `pico_banana_multi_turn` (`https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb`) | Pico-Banana-400K multi-turn sessions: 2-6 successive edits of one photo, each applied to the previous result, with the request of every turn; fetched from the publisher's web site. | cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0) | 77.2k items; 540 GB | Read from the publisher's CDN (originals from Open Images' copies). A session loses its later turns after a missing picture. |
+| `pico_banana_single` (`https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb`) | Pico-Banana-400K single edits: 35 kinds of edit of a photo with a request written by a model; fetched from the publisher's web site. | cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0) | 258k items; 379 GB | Read from the publisher's CDN (originals from Open Images' copies). |
+
+#### Judging edits (edit_judging)
+
+| Source | What it is | Licence on the card | Size | Notes |
+| --- | --- | --- | --- | --- |
+| `editreward_judging` (`TIGER-Lab/EditReward-Data`) | EditReward-Data read as judging: the source image, the request and two edits by different editing models are shown; the verdict lists each edit's human scores (instruction following and visual quality, each 1-4, and their sum) and which edit people preferred. | cc-by-nc-4.0 (card) | 171k items; 87 GB | Rows that share a key are several pairs of edits of one source image and request. |
+| `editscore_judging` (`chibifire/editscore-reward-train`) | EditScore reward data (parquet mirror with the pictures inside): a judge model is shown a source image, an edit and a rubric, and answers with a short reasoning and two 0-25 scores (how well the edit succeeded, how little it over-edited). Rows that judge one picture alone are skipped. | apache-2.0 (card) | 44k items; 117 GB | The scores and reasoning are a vision-language model's, not people's. The row count of rows with an edit is an estimate. |
+| `pico_banana_preference` (`https://ml-site.cdn-apple.com/datasets/pico-banana-300k/nb`) | Pico-Banana-400K preference rows: one accepted edit and one to three rejected edits of a photo, with the (model-written) request; the pictures are fetched from the publisher's web site and the original photos from Open Images' copies of them. | cc-by-nc-nd-4.0 (the dataset's README); the source photos are Open Images (CC BY 2.0) | 56.5k items; 130 GB | The rows are read from the publisher's CDN, not the Hub, and the original photos from Open Images' copies. The accepted edit passed a model judge; there is no numeric score. |
+
+#### Edits written as a plan or tool call (edit_plan)
+
+| Source | What it is | Licence on the card | Size | Notes |
+| --- | --- | --- | --- | --- |
+| `escher_human_edit_plan` (`Image-editing/escher-human-edit`) | Escher repack of human-made edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture. | mit (card) | 4.89k items; 0.9 GB | The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences. |
+| `escher_vismin_plan` (`Image-editing/escher-vismin`) | Escher repack of VisMin minimal object, attribute, count and position edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture. | mit (card) | 13.7k items; 10 GB | The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences. |
+| `escher_aurora_kubric_plan` (`Image-editing/escher-aurora-kubric`) | Escher repack of AURORA Kubric rendered scenes, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture. | mit (card) | 93k items; 53 GB | The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences. |
+| `escher_aurora_ag_plan` (`Image-editing/escher-aurora-ag`) | Escher repack of AURORA Action Genome action edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture. | mit (card) | 8.31k items; 2.2 GB | The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences. |
+| `escher_ss2_plan` (`Image-editing/escher-ss2`) | Escher repack of SS2 (Something-Something) motion edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture. | mit (card) | 32.6k items; 6.9 GB | The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences. |
+| `escher_magicbrush_plan` (`Image-editing/escher-magicbrush`) | Escher repack of MagicBrush human-request edits, read for its written reasoning: a numbered plan (what is in the picture, which object, where, what the edit changes) comes before the edited picture. | mit (card) | 8.8k items; 1.9 GB | The plans are machine-written and sometimes contradict the request. The repack's cards say MIT but the underlying datasets keep their licences. |
+| `editworld_reasoning_plan` (`tyfeld/editworld-reasoning`) | EditWorld reasoning: the request is a concept ("growing tall and strong"), the plan is a paragraph that works out what the picture should show, then the edited picture. | none on the card | 7.74k items; 1.3 GB |  |
+| `jarvisart_plan` (`JarvisArt/MMArt-PPR10k`) | JarvisArt: 4,055 portrait photos retouched by experts; the request, a step-by-step retoucher's reasoning (revised version) and the exact Lightroom develop settings, written as a tool call, come before the retouched photo. | apache-2.0 (card) | 4.05k items; 3.3 GB | Loose files: about 6 Hub requests per folder. Each folder has three request lengths; the middle one is read. The reasoning is model-written from the experts' settings. |
 
 #### Speech (transcription, verbalization, speech_translation)
 
@@ -1763,7 +1902,7 @@ exactly one pilot job and that the gated sources are in the gated job only.
 
 | Job (`configs/cloud/<name>.json`) | Prepared root | Sources and clip counts |
 | --- | --- | --- |
-| `prepare-media-edits` | `media-edits` | magicbrush 4,500, ultraedit 10,000, hq_edit 4,000, instructpix2pix 10,000, omniedit 4,000, anyedit 6,000, sharegpt4o_image_edit 1,500, ultraedit_region 2,000, pipe 2,000, bytemorph_demo 2,000, nhr_edit 2,000, nhr_edit_part2 2,000, gpt_edit_simpler 2,000, editreward_data 2,000, flux_kontext_ipa 2,000, maskedit_10k 2,000, escher_aurora_kubric 2,000, escher_aurora_ag 2,000, escher_human_edit 2,000, escher_vismin 2,000, x2edit 2,000, seed_data_edit_multi_turn 1,500, seed_data_edit_real 1,500, taesiri_image_editing_request 2,000, editworld_reasoning 2,000, imgedit_content_memory 1,500, imgedit_content_understanding 1,500, imgedit_version_backtracking 1,500 |
+| `prepare-media-edits` | `media-edits` | magicbrush 4,500, ultraedit 10,000, hq_edit 4,000, instructpix2pix 10,000, omniedit 4,000, anyedit 6,000, sharegpt4o_image_edit 1,500, ultraedit_region 2,000, pipe 2,000, bytemorph_demo 2,000, nhr_edit 2,000, nhr_edit_part2 2,000, gpt_edit_simpler 2,000, editreward_data 2,000, flux_kontext_ipa 2,000, maskedit_10k 2,000, escher_aurora_kubric 2,000, escher_aurora_ag 2,000, escher_human_edit 2,000, escher_vismin 2,000, x2edit 2,000, seed_data_edit_multi_turn 1,500, seed_data_edit_real 1,500, taesiri_image_editing_request 2,000, editworld_reasoning 2,000, imgedit_content_memory 1,500, imgedit_content_understanding 1,500, imgedit_version_backtracking 1,500, editreward_judging 1,500, editscore_judging 1,500, pico_banana_preference 1,500, pico_banana_multi_turn 1,500, pico_banana_single 2,000, escher_human_edit_plan 1,500, escher_vismin_plan 1,500, escher_aurora_kubric_plan 1,500, escher_aurora_ag_plan 1,500, escher_ss2_plan 1,500, escher_magicbrush_plan 1,500, editworld_reasoning_plan 1,500, jarvisart_plan 1,500 |
 | `prepare-media-gated` | `media-gated` | gigaspeech 10,000, emilia 10,000, finevideo 6,000, multiedit 1,500, spgispeech 2,000, ksponspeech 2,000 |
 | `prepare-media-images` | `media-images` | docci 2,000, scienceqa_images 5,000, llava_recap_cc3m 15,000, llava_recap_558k 8,000, llava_recap_118k 8,000, blip3o_long_caption 15,000, text_to_image_2m 15,000, commoncatalog_cc_by 8,000, coco_captions 8,000, recap_coco_30k 8,000, textcaps 8,000, flickr30k 8,000, densefusion_1m 8,000, videoufo_frames 2,000, pixelprose 2,000, pd12m 2,000, recap_datacomp_12m 2,000, cc12m_recaptioned 2,000, wit_base 2,000, met_openaccess 2,000, roco_radiology 2,000, scimmir 2,000, wikiart_recaption 2,000, pmc_oa 2,000, sharegpt4o_image_t2i 2,000, finevision 3,000, pixmo_cap_images 2,000, art_museums_pd_440k 2,000, swiss_ai_smithsonian 2,000, swiss_ai_nasa 2,000, megalith_10m 2,000, llava_next_data 3,000 |
 | `prepare-media-sound` | `media-sound` | audioset 20,000, audiocaps 10,000, clotho 3,839, song_describer 746, wavcaps_10s_16k 1,500, musicbench 1,500, freesound_laion_640k 1,500, jamendomaxcaps 1,500, fma_large_clips 1,500, mtg_jamendo 1,500, fsd50k 1,500, esc50 1,500, urbansound8k 1,500, nsynth 1,500, birdset_xeno_canto 1,500 |
@@ -1801,7 +1940,7 @@ video edits now exceed what the stage plan asks for.
 
 | Run (`configs/cloud/<name>.json`) | Sources | GPU sandboxes | Shards | Estimated GPU hours per shard | Ingest hours per sandbox | Sandbox-hours billed | Repository TB | Prepared TB (est.) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `prepare-full-media-edits` | 28 | 48 | 96 | 4.7-4.7 | 16 | 1,209 | 19.4 | 23.6 |
+| `prepare-full-media-edits` | 41 | 48 | 96 | 5.5-5.5 | 16 | 1,209 | 20.7 | 24.9 |
 | `prepare-full-media-gated` | 6 | 24 | 48 | 7.3-7.3 | 20 | 705 | 5.1 | 24.0 |
 | `prepare-full-media-images` | 32 | 128 | 256 | 7.5-7.5 | 22 | 3,977 | 66.2 | 100.0 |
 | `prepare-full-media-sound` | 15 | 4 | 8 | 4.1-4.1 | 12 | 93 | 5.2 | 2.9 |
@@ -1820,9 +1959,11 @@ bigger than compressed media), and estimated GPU hours.
 | Speech | 16 | 40 | 169,623,619 | 218,231,332 | 597,366 hours | 35.9 | 117.8 | 1,516 |
 | Sound and music | 4 | 15 | 1,807,103 | 3,975,221 | 14,796 hours | 5.2 | 2.9 | 33 |
 | Images with text | 13 | 32 | 50,729,133 | 138,195,802 | 138,195,802 images | 66.2 | 100.0 | 1,919 |
-| Image edits | 6 | 29 | 6,946,900 | 16,327,938 | 32,839,545 images | 19.5 | 23.8 | 456 |
+| Image edits | 6 | 31 | 6,946,900 | 16,662,895 | 33,509,459 images | 20.4 | 24.3 | 506 |
 | Video | 4 | 14 | 5,845,210 | 9,757,814 | 26,347 hours | 87.9 | 28.0 | 1,382 |
 | Video edits | 1 | 17 | 1,000,000 | 5,607,580 | 18,692 hours | 7.1 | 29.6 | 1,558 |
+| Edit judging | 0 | 3 | 0 | 271,245 | 769,735 images | 0.3 | 0.6 | 19 |
+| Edit plans | 0 | 8 | 0 | 173,052 | 346,104 images | 0.1 | 0.3 | 5 |
 
 "Before" is the manifest before this work (44 sources; MagicBrush counted as single edits). Hours
 for speech are the sources' own; images and video are counted by image or clip.
@@ -1833,7 +1974,7 @@ Things to know before launching:
   of one shard of each family should replace them; the plan and the hours in the run files
   follow from the constants in `data/media_sharding.py` and `hours` in the run files.
 - **Storage.** The prepared form is about 1.4 times the repository bytes in total
-  (302 TB against 222 TB). It stays in the ingest sandboxes until training pulls
+  (303 TB against 223 TB). It stays in the ingest sandboxes until training pulls
   it, so each of the 460 GPU sandboxes holds a few hundred gigabytes. The P1 media shares
   need about 120 TB of it (60B D tokens at 2 KB of features per token), so building
   everything is about 2.5 times what P1 reads once; build the families in turn, or lower
@@ -1842,7 +1983,7 @@ Things to know before launching:
   gave the account 500 API calls every five minutes on 2026-10-22). The committed listing removes
   the listing and size calls. Every Hub request that remains goes through
   `megatoken.hub.install()` (wait out 429 and 503), as all scripts here do. File reads are range
-  requests of 32 MiB; reading 222 TB makes millions of them, so the account's download
+  requests of 32 MiB; reading 223 TB makes millions of them, so the account's download
   limit, not the GPUs, may set the pace.
 - **Gated.** A source the account cannot read (the three marked 403 below) stops the sandbox
   that holds it at its first file. Accept their terms first, or take them out of the `gated` run's
@@ -1899,7 +2040,7 @@ unique clips before the length and caption filters) by `scripts/media_volume.py 
 per-episode text tokens measured with the reference codec on real label text from the first
 forty-four sources and estimated for the others (marked in the script).
 
-Streams, now (147 sources):
+Streams, now (160 sources):
 
 | Stream | Sources | Episodes available | D tokens per episode | P1 share (tokens) | Episodes the share implies | Passes over the data |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1907,9 +2048,11 @@ Streams, now (147 sources):
 | audio_identity | 54 | 222,066,553 | 260 | 1.00% (4.0B) | 15,362,784 | 0.1 |
 | av_creation | 8 | 7,451,145 | 975 | 1.00% (4.0B) | 4,102,540 | 0.6 |
 | av_edit | 31 | 15,365,394 | 1,725 | 0.75% (3.0B) | 1,739,612 | 0.1 |
+| edit_judging | 3 | 271,245 | 887 | 0.15% (0.6B) | 676,222 | 2.5 |
+| edit_plan | 91 | 351,438,711 | 406 | 0.15% (0.6B) | 1,477,520 | 0.0 |
 | image_creation | 28 | 114,310,295 | 446 | 1.00% (4.0B) | 8,958,567 | 0.1 |
 | image_description | 30 | 129,089,584 | 421 | 1.50% (6.0B) | 14,258,927 | 0.1 |
-| image_edit | 29 | 16,327,938 | 590 | 1.00% (4.0B) | 6,774,261 | 0.4 |
+| image_edit | 31 | 16,662,895 | 590 | 0.70% (2.8B) | 4,742,527 | 0.3 |
 | image_identity | 32 | 138,195,802 | 293 | 1.50% (6.0B) | 20,477,816 | 0.1 |
 | speech_edit | 39 | 218,091,332 | 518 | 0.75% (3.0B) | 5,796,599 | 0.0 |
 | speech_translation | 5 | 28,365,589 | 294 | 1.50% (6.0B) | 20,377,443 | 0.7 |
@@ -1917,7 +2060,7 @@ Streams, now (147 sources):
 | verbalization | 16 | 151,400,485 | 274 | 1.00% (4.0B) | 14,621,713 | 0.1 |
 | video_description | 6 | 2,306,669 | 1,176 | 0.50% (2.0B) | 1,701,153 | 0.7 |
 | video_identity | 14 | 9,757,814 | 871 | 1.50% (6.0B) | 6,888,724 | 0.7 |
-| **all media streams** | | | | 15.00% (60.0B) | 145,826,302 | |
+| **all media streams** | | | | 15.00% (60.0B) | 145,948,311 | |
 
 Streams before this work (the same arithmetic on the first forty-four sources; the new
 `audio_description` and `video_description` streams had no source):
@@ -1928,9 +2071,11 @@ Streams before this work (the same arithmetic on the first forty-four sources; t
 | audio_identity | 19 | 171,290,722 | 255 | 1.00% (4.0B) | 15,697,538 | 0.1 |
 | av_creation | 3 | 4,825,253 | 914 | 1.00% (4.0B) | 4,378,022 | 0.9 |
 | av_edit | 5 | 6,845,210 | 1,628 | 0.75% (3.0B) | 1,843,099 | 0.3 |
+| edit_judging | 0 | 0 | 0 | 0.15% (0.6B) | 0 | inf |
+| edit_plan | 32 | 226,057,962 | 396 | 0.15% (0.6B) | 1,516,394 | 0.0 |
 | image_creation | 12 | 50,722,915 | 446 | 1.00% (4.0B) | 8,958,567 | 0.2 |
 | image_description | 12 | 50,722,915 | 430 | 1.50% (6.0B) | 13,947,001 | 0.3 |
-| image_edit | 6 | 6,946,900 | 587 | 1.00% (4.0B) | 6,813,149 | 1.0 |
+| image_edit | 6 | 6,946,900 | 587 | 0.70% (2.8B) | 4,769,205 | 0.7 |
 | image_identity | 13 | 50,729,133 | 293 | 1.50% (6.0B) | 20,477,816 | 0.4 |
 | speech_edit | 15 | 169,483,619 | 509 | 0.75% (3.0B) | 5,888,737 | 0.0 |
 | speech_translation | 3 | 23,985,811 | 309 | 1.50% (6.0B) | 19,432,531 | 0.8 |
@@ -1938,7 +2083,7 @@ Streams before this work (the same arithmetic on the first forty-four sources; t
 | verbalization | 4 | 696,358 | 274 | 1.00% (4.0B) | 14,610,954 | 21.0 |
 | video_description | 0 | 0 | 0 | 0.50% (2.0B) | 0 | inf |
 | video_identity | 4 | 5,845,210 | 810 | 1.50% (6.0B) | 7,407,247 | 1.3 |
-| **all media streams** | | | | 15.00% (60.0B) | 139,984,089 | |
+| **all media streams** | | | | 15.00% (60.0B) | 139,456,538 | |
 
 Columns: "Episodes available" counts each source's clips once per stream it feeds; "D tokens per
 episode" is the mean cost in D including the media vectors, weighted by items; "Episodes the share
@@ -1951,15 +2096,18 @@ Reading it:
   the manifests can supply**, except `audio_description` (5.7 passes: the open audio caption sets
   hold 0.8M clips). Before, `verbalization` needed 21 passes over 0.7M clips; now transcription
   sources also read their text aloud (`verbalize`), 16 sources feed it, and it needs 0.1 passes.
+  The two new editing streams are covered by real data more thinly: `edit_judging` needs
+  2.5 passes over its 271,245 judgements, and the real plans of `edit_plan` are
+  173,052 (about 5.0 passes; the executed plans, made from any clip, fill the rest).
 - Video is the closest to its limit: `video_identity` 0.7, `video_description` 0.7 and
   `av_creation` 0.6 passes, and `av_edit` has the most real data (5,607,580 pairs against
   1.7M asked).
 - The edit streams are covered with real data: image edits need 6.8M episodes and there are
-  16,520,886 pairs (29 sources), of which 140,905 sessions hold several edits
+  17,085,127 pairs (31 sources), of which 218,134 sessions hold several edits
   (each edit and result of a session counts); video edits need 1.7M and there are 5,607,580.
-- The fourteen media streams hold 15% of P1 (60B D). At the tokens per episode above that is
+- The sixteen media streams hold 15% of P1 (60B D). At the tokens per episode above that is
   about 146 million episodes (the last row of the table), each a training window,
-  against 222M unique audio clips, 138M images, 9.8M video clips and 22M edits in the
+  against 222M unique audio clips, 138M images, 9.8M video clips and 23M edits in the
   manifests. Media dominate P1's data volume: 60B D of media is about 120 TB of teacher features
   alone (2 KB a vector).
 
@@ -1967,6 +2115,11 @@ Share changes made (`data/stages.json`; the P1 media total is unchanged at 15%, 
 theirs): `audio_description` takes 0.5% of P1 (2.0B D) and `video_description` 0.5% (2.0B D), taken
 from `audio_identity` (1.5% to 1.0%) and `video_identity` (2.0% to 1.5%); M1 and M2 move 0.25%
 of their budgets the same way. Prepared roots built before this change lack the two new streams.
+
+The editing streams then gave a part of their share to the two new ones: in the first stage
+`image_edit` goes from 1.0% to 0.7% and `edit_judging` and `edit_plan` take 0.15% each; in M1 and
+M2 `image_edit` goes from 0.5% to 0.4% and each new stream takes 0.05%. The media total stays at
+15% (first stage) and the other stages' media totals are unchanged.
 
 ### Not added, and why
 
@@ -2162,6 +2315,19 @@ more (`recap_coco_30k`, `fleurs`) were not sampled for the reasons given in thei
 | `multiedit` | linked | NOT READ: gated (HTTP 403 for this account on 2026-10-23); the layout was written from the dataset card. Needs Agree on the Hub, then a sample check. |
 | `spgispeech` | parquet | NOT READ: gated (HTTP 403 for this account on 2026-10-23); the layout was written from the dataset card. Needs Agree on the Hub, then a sample check. |
 | `ksponspeech` | parquet | NOT READ: gated (HTTP 403 for this account on 2026-10-23); the layout was written from the dataset card. Needs Agree on the Hub, then a sample check. |
+| `editreward_judging` | parquet | read: 3 clips from a sample, episodes edit_judging 3 |
+| `editscore_judging` | parquet | read: 3 clips from a sample, episodes edit_judging 3 |
+| `pico_banana_preference` | table | read: 8 clips from a sample, episodes edit_judging 8; fetched 87 pictures (99 MB) over the network, 0 of 25 rows with a dead link |
+| `pico_banana_multi_turn` | table | read: 8 clips from a sample, episodes image_edit 8; fetched 104 pictures (151 MB) over the network, 0 of 23 rows with a dead link |
+| `pico_banana_single` | table | read: 8 clips from a sample, episodes image_edit 8; fetched 50 pictures (44 MB) over the network, 0 of 25 rows with a dead link |
+| `escher_human_edit_plan` | parquet | read: 2 clips from a sample, episodes edit_plan 2 |
+| `escher_vismin_plan` | parquet | read: 2 clips from a sample, episodes edit_plan 2 |
+| `escher_aurora_kubric_plan` | parquet | read: 2 clips from a sample, episodes edit_plan 2 |
+| `escher_aurora_ag_plan` | parquet | read: 2 clips from a sample, episodes edit_plan 2 |
+| `escher_ss2_plan` | parquet | read: 2 clips from a sample, episodes edit_plan 2 |
+| `escher_magicbrush_plan` | parquet | read: 2 clips from a sample, episodes edit_plan 2 |
+| `editworld_reasoning_plan` | parquet | read: 2 clips from a sample, episodes edit_plan 2 |
+| `jarvisart_plan` | folders | read: 3 clips from a sample, episodes edit_plan 3 |
 
 ### Corrections to the pilot section above
 

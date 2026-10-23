@@ -2493,7 +2493,7 @@ def test_a_flickr_original_is_fetched_from_open_images_when_it_holds_a_copy(
     _open_images_index.cache_clear()
     csv_text = (
         "ImageID,Subset,OriginalURL,OriginalLandingURL\n"
-        f"abc123,train,https://farm3.staticflickr.com/5310/orig.jpg?zz=1,https://flickr.example/1\n"
+        "abc123,train,https://farm3.staticflickr.com/5310/orig.jpg?zz=1,https://flickr.example/1\n"
         "def456,train,https://c1.staticflickr.com/1/67/other.jpg,https://flickr.example/2\n"
     )
     pico_site.files["/oi/index.csv"] = csv_text.encode()
