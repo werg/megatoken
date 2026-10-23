@@ -1166,7 +1166,7 @@
    },
    "options": {
     "pick": "longest",
-    "min_chars": 20
+    "min_chars": 12
    },
    "inventory": {
     "items": 6480000,
@@ -1174,7 +1174,7 @@
     "shards": 330,
     "size_gb": 308.2
    },
-   "caveat": "The longest caption can be in any language: there is no language filter."
+   "caveat": "The longest caption can be in any language (no language filter) and is often only a title of two to five words."
   },
   {
    "source_id": "met_openaccess",
@@ -1200,7 +1200,7 @@
     "id": "objectID"
    },
    "options": {
-    "min_chars": 8
+    "min_chars": 4
    },
    "inventory": {
     "items": 259874,
@@ -2333,60 +2333,6 @@
    }
   },
   {
-   "source_id": "seed_data_edit_unsplash",
-   "repository": "AILab-CVC/SEED-Data-Edit-Part1-Unsplash",
-   "revision": "013f8d0dc0581d3b286b1179f87101f24b9f5e29",
-   "reader": "linked",
-   "task": "image_edit_chain",
-   "terms": {
-    "approved": true,
-    "reviewed_by": "Gabriel Pickard",
-    "reviewed_at": "2026-10-22",
-    "license": "cc-by-nc-4.0 (card, non-commercial research; Unsplash photos under the Unsplash Lite licence)",
-    "license_url": "https://huggingface.co/datasets/AILab-CVC/SEED-Data-Edit-Part1-Unsplash",
-    "notes": "SEED-Data-Edit part 1 (Unsplash): 2.0M prompt-to-prompt edits (add an object, replace an object, change the style) of small Unsplash photos, filtered by an image-text match score."
-   },
-   "gated": false,
-   "include": [
-    "auto_editing/unsplash/annotations/split_*.jsonl"
-   ],
-   "columns": {
-    "images": "images",
-    "instruction": "texts",
-    "id": "target_image",
-    "family": "source_image_origin"
-   },
-   "options": {
-    "linked": {
-     "archives": [
-      "auto_editing/unsplash/images/unsplash_images.tar.gz.part-*"
-     ],
-     "multipart": true,
-     "sequence": {
-      "images": [
-       "source_image",
-       "target_image"
-      ],
-      "texts": [
-       "instruction"
-      ]
-     },
-     "pending": 100000
-    },
-    "provenance": {
-     "media": "teacher"
-    },
-    "tier": "model-generated"
-   },
-   "inventory": {
-    "items": 2035344,
-    "basis": "annotation lines",
-    "shards": 93,
-    "size_gb": 200.5
-   },
-   "caveat": "One 200 GB archive that cannot be divided by file, so a sandbox streams all of it and keeps its share of the rows (stripes)."
-  },
-  {
    "source_id": "imgedit_content_memory",
    "repository": "sysuyy/ImgEdit",
    "revision": "f8de753484a2b6bd37f135fd20d308b66b09a523",
@@ -3055,7 +3001,7 @@
    "options": {
     "linked": {
      "archives": [
-      "obj_removal_videos_upload*/*.tar.gz"
+      "obj_removal_videos_upload2/*.tar.gz"
      ],
      "strip": "^(?:\\./)?[^/]+/",
      "sequence": {
@@ -3079,7 +3025,7 @@
     "hours": 944,
     "basis": "counted from the table's entries",
     "shards": 200,
-    "size_gb": 197.8
+    "size_gb": 158.0
    },
    "caveat": "Edited clips of some subsets have another frame rate than the original; both are cut to their common length."
   },
@@ -3109,7 +3055,7 @@
    "options": {
     "linked": {
      "archives": [
-      "obj_removal_videos_upload*/*.tar.gz"
+      "obj_removal_videos_upload/*.tar.gz"
      ],
      "strip": "^(?:\\./)?[^/]+/",
      "sequence": {
@@ -3133,7 +3079,7 @@
     "hours": 1213,
     "basis": "counted from the table's entries",
     "shards": 200,
-    "size_gb": 197.8
+    "size_gb": 39.8
    },
    "caveat": "Edited clips of some subsets have another frame rate than the original; both are cut to their common length."
   },

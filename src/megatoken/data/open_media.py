@@ -822,6 +822,21 @@ def blob(value: Any) -> bytes | None:
     return bytes(value) if isinstance(value, (bytes, bytearray)) and value else None
 
 
+def audio_blob(value: Any) -> bytes | None:
+    """The bytes of an audio field: a stored file, or decoded samples (``array`` and
+    ``sampling_rate``, as some publishers store them) written as 16-bit WAV."""
+    payload = blob(value)
+    if payload is not None or not isinstance(value, Mapping) or value.get("array") is None:
+        return payload
+    import numpy
+    import soundfile
+
+    buffer = io.BytesIO()
+    samples = numpy.clip(numpy.asarray(value["array"], dtype="float32"), -1.0, 1.0)
+    soundfile.write(buffer, samples, int(value["sampling_rate"]), format="WAV", subtype="PCM_16")
+    return buffer.getvalue()
+
+
 def _top_level(source: OpenSource) -> list[str]:
     """The parquet columns a source's labelled fields, filters and uniqueness key read."""
     specs = [
@@ -1434,7 +1449,7 @@ def _identity(source: OpenSource, record: Mapping[str, Any]) -> tuple[str, str]:
 def _speech_file(
     source: OpenSource, record: Mapping[str, Any], out: Path, stem: str
 ) -> Path | None:
-    payload = blob(_label(source, record, "audio"))
+    payload = audio_blob(_label(source, record, "audio"))
     return payload and write_audio(
         payload,
         out,

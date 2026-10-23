@@ -1831,6 +1831,28 @@ def test_a_message_list_ends_at_the_first_turn_that_does_not_alternate(tmp_path)
     assert conversation(source, {"turns": messages}) == [("one?", "first")]
 
 
+def test_audio_stored_as_decoded_samples_is_read_like_a_file(tmp_path, media):
+    source = make_source(
+        "notes",
+        "sound",
+        columns={"audio": "audio", "id": "id", "family": "instrument"},
+        include=("*.parquet",),
+    )
+    samples = np.sin(2 * np.pi * 220 * np.arange(32000) / 16000).astype("float32") * 0.4
+    parquet.write_table(
+        pa.table(
+            {
+                "audio": [{"array": samples.tolist(), "path": "x.wav", "sampling_rate": 16000}],
+                "id": ["a"],
+                "instrument": ["flute"],
+            }
+        ),
+        _local(tmp_path, "notes") / "0.parquet",
+    )
+    episodes = _run(media, source, tmp_path, inputs=tmp_path / "inputs")
+    assert _streams(episodes) == {"audio_identity": 1}
+
+
 def test_a_transcription_source_can_also_be_read_aloud_from_its_transcripts(tmp_path, media):
     source = make_source(
         "asr",
