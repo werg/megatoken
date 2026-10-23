@@ -12,6 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from megatoken.io import write_json
+from megatoken.model.context import DEFAULT_CROSS_EVENTS, DEFAULT_LOCAL_EVENTS
 from megatoken.model.multitrack import MultiTrackGenerator
 from megatoken.multitrack_runtime import MultiTrackRuntime
 from megatoken.multitrack_service import MultiTrackService
@@ -43,9 +44,9 @@ def main():
         effort=1,
         model_overrides={
             "max_capacity": 512,
-            "max_history_chunks": 64,
-            "context_local_events": 4,
-            "context_cross_events": 1,
+            "max_history_chunks": 1024,
+            "context_local_events": DEFAULT_LOCAL_EVENTS,
+            "context_cross_events": DEFAULT_CROSS_EVENTS,
         },
         max_steps=2,
         microbatch_episodes=1,

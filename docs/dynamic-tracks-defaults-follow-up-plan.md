@@ -8,6 +8,14 @@ training replay. See [track context support](track-context.md) for exact behavio
 acceptance evidence, and remaining calibration, cache offloading, and recovery work.
 The current-support table below records the starting point for this follow-up.
 
+The provisional operating defaults are now chosen: 256 local events and 16 recent
+foreign events. Calibration does not block their use. A dedicated training-data
+stream now supplies six authored task templates, six retention/retrieval choices,
+and several window sizes, including those operating defaults. All variants of one
+original task share a split; admission checks the training and validation supply.
+See [track context support](track-context.md) for preparation and mixture details.
+This establishes executable exercises, not demonstrated quality on natural tasks.
+
 The system should make useful progress from an ordinary user request: create tracks
 when they help, coordinate tools and sources, keep listening during speech, recover
 from failure, and finish without leaving resources occupied. Training must teach

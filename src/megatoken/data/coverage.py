@@ -25,6 +25,10 @@ def behaviors(episode) -> set[str]:
         validate_context_announcements(episode)
         result.add("public_context_window")
     annotations = json.loads(episode.supervision.annotations_json)
+    if episode.stream == "context_management":
+        from .context_curriculum import validate_curriculum_episode
+
+        result.update(validate_curriculum_episode(episode))
     for receipt in annotations.get("context_read_receipts", ()):
         action = actions.get(receipt.get("action_id"))
         record = records.get(receipt.get("result_record_id"))
@@ -262,7 +266,10 @@ def require_coverage(corpus, requirements, streams, *, split="train"):
                 or any(not isinstance(identity, str) or not identity for identity in ids)
                 or len(set(ids)) != len(ids)
             ):
-                raise ValueError(f"Malformed original family identities for {key}")
+                raise ValueError(
+                    f"Malformed original family identities for {key}; reprepare manifests "
+                    "with original family identities"
+                )
             available_ids[behavior].update(ids)
     available = Counter({name: len(ids) for name, ids in available_ids.items()})
     missing = {name: count for name, count in requirements.items() if available[name] < count}

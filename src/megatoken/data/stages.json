@@ -65,7 +65,7 @@
         "long_document_reading": 0.028499999999999998,
         "base_reading": 0.0095,
         "collection_reading": 0.0095,
-        "dynamic_execution": 0.02,
+        "dynamic_execution": 0.015,
         "duplex_execution": 0.01,
         "timed_conversation": 0.01,
         "streaming_translation": 0.01,
@@ -73,7 +73,8 @@
         "endpoints": 0.00095,
         "endpoint_conditioned_video": 0.0008550000000000001,
         "speech_counterfactual": 0.00095,
-        "cross_track_evidence": 0.001
+        "cross_track_evidence": 0.001,
+        "context_management": 0.005
       },
       "effort_mix": {
         "6": 0.8,
@@ -94,7 +95,25 @@
           "executed_overlapping_calls": 1,
           "cheap_work_kept_serial": 1,
           "slow_independent_work_delegated": 1,
-          "dependent_work_kept_serial": 1
+          "dependent_work_kept_serial": 1,
+          "public_context_window": 4,
+          "explicit_context_read": 4,
+          "context_unavailable": 4,
+          "context_task_verified": 4,
+          "context_default_windows": 4,
+          "context_strategy_recent": 4,
+          "context_strategy_local": 4,
+          "context_strategy_pin": 4,
+          "context_strategy_fetch": 4,
+          "context_strategy_summary": 4,
+          "context_strategy_unavailable": 4,
+          "context_template_field_lookup": 1,
+          "context_template_invoice_total": 1,
+          "context_template_latest_revision": 1,
+          "context_template_user_constraint": 1,
+          "context_template_evidence_join": 1,
+          "context_template_exact_quotation": 1,
+          "context_released": 4
         }
       }
     },
@@ -126,7 +145,7 @@
         "long_document_reading": 0.019,
         "base_reading": 0.00475,
         "collection_reading": 0.0095,
-        "dynamic_execution": 0.02,
+        "dynamic_execution": 0.015,
         "duplex_execution": 0.01,
         "timed_conversation": 0.01,
         "streaming_translation": 0.01,
@@ -134,7 +153,8 @@
         "endpoints": 0.000475,
         "endpoint_conditioned_video": 0.00042750000000000004,
         "speech_counterfactual": 0.001,
-        "cross_track_evidence": 0.001
+        "cross_track_evidence": 0.001,
+        "context_management": 0.005
       },
       "effort_mix": {
         "6": 0.8,
@@ -155,7 +175,25 @@
           "executed_overlapping_calls": 1,
           "cheap_work_kept_serial": 1,
           "slow_independent_work_delegated": 1,
-          "dependent_work_kept_serial": 1
+          "dependent_work_kept_serial": 1,
+          "public_context_window": 4,
+          "explicit_context_read": 4,
+          "context_unavailable": 4,
+          "context_task_verified": 4,
+          "context_default_windows": 4,
+          "context_strategy_recent": 4,
+          "context_strategy_local": 4,
+          "context_strategy_pin": 4,
+          "context_strategy_fetch": 4,
+          "context_strategy_summary": 4,
+          "context_strategy_unavailable": 4,
+          "context_template_field_lookup": 1,
+          "context_template_invoice_total": 1,
+          "context_template_latest_revision": 1,
+          "context_template_user_constraint": 1,
+          "context_template_evidence_join": 1,
+          "context_template_exact_quotation": 1,
+          "context_released": 4
         }
       }
     },
@@ -185,7 +223,7 @@
         "long_document_reading": 0.019,
         "base_reading": 0.00475,
         "collection_reading": 0.0095,
-        "dynamic_execution": 0.02,
+        "dynamic_execution": 0.015,
         "duplex_execution": 0.01,
         "timed_conversation": 0.01,
         "streaming_translation": 0.01,
@@ -193,7 +231,8 @@
         "endpoints": 0.000475,
         "endpoint_conditioned_video": 0.00042750000000000004,
         "speech_counterfactual": 0.001,
-        "cross_track_evidence": 0.001
+        "cross_track_evidence": 0.001,
+        "context_management": 0.005
       },
       "effort_mix": {
         "6": 0.8,
@@ -214,7 +253,25 @@
           "executed_overlapping_calls": 1,
           "cheap_work_kept_serial": 1,
           "slow_independent_work_delegated": 1,
-          "dependent_work_kept_serial": 1
+          "dependent_work_kept_serial": 1,
+          "public_context_window": 4,
+          "explicit_context_read": 4,
+          "context_unavailable": 4,
+          "context_task_verified": 4,
+          "context_default_windows": 4,
+          "context_strategy_recent": 4,
+          "context_strategy_local": 4,
+          "context_strategy_pin": 4,
+          "context_strategy_fetch": 4,
+          "context_strategy_summary": 4,
+          "context_strategy_unavailable": 4,
+          "context_template_field_lookup": 1,
+          "context_template_invoice_total": 1,
+          "context_template_latest_revision": 1,
+          "context_template_user_constraint": 1,
+          "context_template_evidence_join": 1,
+          "context_template_exact_quotation": 1,
+          "context_released": 4
         }
       }
     },
@@ -231,7 +288,7 @@
         "long_document_reading": 0.0475,
         "base_reading": 0.0095,
         "collection_reading": 0.0095,
-        "dynamic_execution": 0.02,
+        "dynamic_execution": 0.015,
         "duplex_execution": 0.01,
         "timed_conversation": 0.005904900000000001,
         "streaming_translation": 0.01,
@@ -239,7 +296,8 @@
         "endpoints": 0.0009000000000000002,
         "endpoint_conditioned_video": 0.0008100000000000002,
         "speech_counterfactual": 0.0007290000000000002,
-        "cross_track_evidence": 0.0006561000000000002
+        "cross_track_evidence": 0.0006561000000000002,
+        "context_management": 0.005
       },
       "effort_mix": {
         "6": 0.8,
@@ -260,7 +318,25 @@
           "executed_overlapping_calls": 1,
           "cheap_work_kept_serial": 1,
           "slow_independent_work_delegated": 1,
-          "dependent_work_kept_serial": 1
+          "dependent_work_kept_serial": 1,
+          "public_context_window": 4,
+          "explicit_context_read": 4,
+          "context_unavailable": 4,
+          "context_task_verified": 4,
+          "context_default_windows": 4,
+          "context_strategy_recent": 4,
+          "context_strategy_local": 4,
+          "context_strategy_pin": 4,
+          "context_strategy_fetch": 4,
+          "context_strategy_summary": 4,
+          "context_strategy_unavailable": 4,
+          "context_template_field_lookup": 1,
+          "context_template_invoice_total": 1,
+          "context_template_latest_revision": 1,
+          "context_template_user_constraint": 1,
+          "context_template_evidence_join": 1,
+          "context_template_exact_quotation": 1,
+          "context_released": 4
         }
       }
     },
@@ -279,7 +355,7 @@
         "image_description": 0.018000000000000002,
         "speech_translation": 0.009000000000000001,
         "collection_reading": 0.009000000000000001,
-        "dynamic_execution": 0.04,
+        "dynamic_execution": 0.03,
         "duplex_execution": 0.02,
         "timed_conversation": 0.02,
         "streaming_translation": 0.02,
@@ -287,7 +363,8 @@
         "endpoints": 0.001,
         "endpoint_conditioned_video": 0.001,
         "speech_counterfactual": 0.001,
-        "cross_track_evidence": 0.001
+        "cross_track_evidence": 0.001,
+        "context_management": 0.01
       },
       "effort_mix": {
         "6": 0.6,
@@ -308,7 +385,25 @@
           "executed_overlapping_calls": 1,
           "cheap_work_kept_serial": 1,
           "slow_independent_work_delegated": 1,
-          "dependent_work_kept_serial": 1
+          "dependent_work_kept_serial": 1,
+          "public_context_window": 4,
+          "explicit_context_read": 4,
+          "context_unavailable": 4,
+          "context_task_verified": 4,
+          "context_default_windows": 4,
+          "context_strategy_recent": 4,
+          "context_strategy_local": 4,
+          "context_strategy_pin": 4,
+          "context_strategy_fetch": 4,
+          "context_strategy_summary": 4,
+          "context_strategy_unavailable": 4,
+          "context_template_field_lookup": 1,
+          "context_template_invoice_total": 1,
+          "context_template_latest_revision": 1,
+          "context_template_user_constraint": 1,
+          "context_template_evidence_join": 1,
+          "context_template_exact_quotation": 1,
+          "context_released": 4
         }
       }
     },
