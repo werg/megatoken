@@ -85,13 +85,26 @@ def test_encode_and_reconstruct_trains_the_encoder_side_only(tmp_path):
     terms = autoencode_losses(model, items, space_fingerprint="space", center=center)
     assert terms["reconstruction"][1] == 3 and terms["embedding"][1] == 3
     (terms["reconstruction"][0] + terms["embedding"][0]).backward()
-    assert model.core.media_encoder.projection.router.weight.grad.abs().sum() > 0
-    assert model.core.media_encoder.projection._bank.weight.grad.abs().sum() > 0
+    projection = model.core.media_encoder.projection
+    # The direct encode-and-reconstruct objective trains E through the shared
+    # pool used by its projection.
+    assert projection.output_gain.grad is not None
+    assert projection.output_gain.grad.abs().sum() > 0
+    assert projection._bank.weight.grad is not None
+    assert projection._bank.weight.grad.abs().sum() > 0
     assert model.core.media_encoder.queries.grad.abs().sum() > 0
-    assert model.embedding_realizer.document.weight.grad.abs().sum() > 0
+    document = model.embedding_realizer.document
+    assert document.output_gain.grad is not None
+    assert document.output_gain.grad.abs().sum() > 0
+    assert document.router.weight.grad is not None
+    assert document.router.weight.grad.abs().sum() > 0
+    assert document._bank.weight.grad is not None
+    assert document._bank.weight.grad.abs().sum() > 0
     for name in ("pocket", "sana", "sana_video"):
         project = model.media_realizers.packs[name].condition.project
-        assert project.router.weight.grad.abs().sum() > 0
+        assert project.output_gain.grad is not None
+        assert project.output_gain.grad.abs().sum() > 0
+        assert project._bank.weight.grad is not None
         assert project._bank.weight.grad.abs().sum() > 0
     # Nothing passes through the core.
     assert all(p.grad is None for p in model.core.central.parameters())

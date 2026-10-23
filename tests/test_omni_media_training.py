@@ -109,7 +109,9 @@ def _forward(model, episode, config, store, *, window_config=None):
 
 
 def _condition_grad(model, name):
-    return model.media_realizers.packs[name].condition.project.router.weight.grad
+    # Realizer-specific trainability is carried by the site's local output
+    # gain; the shape-pool router head is shared with other same-shaped sites.
+    return model.media_realizers.packs[name].condition.project.output_gain.grad
 
 
 def test_media_reference_counts_its_input_size_not_text_and_corruption_fails(tmp_path):
@@ -229,12 +231,9 @@ def test_joint_text_audio_and_visual_targets_have_distinct_objectives(tmp_path):
     assert batch.counts["lexical"] == len(b"bright")
     assert _condition_grad(model, "pocket").abs().sum() > 0
     assert _condition_grad(model, "sana").abs().sum() > 0
-    # Shared routing-head gradients aggregate by shape; the site-local
-    # conditioner biases remain distinct for the two realizer branches.
-    pocket_bias = model.media_realizers.packs["pocket"].condition.project.bias.grad
-    sana_bias = model.media_realizers.packs["sana"].condition.project.bias.grad
-    assert pocket_bias is not None and sana_bias is not None
-    assert not torch.equal(pocket_bias, sana_bias)
+    # The site-local gains remain distinct for the two realizer branches even
+    # though their shape-pool routing head is shared.
+    assert not torch.equal(_condition_grad(model, "pocket"), _condition_grad(model, "sana"))
     counters = batch_counters([batch])
     assert counters.audio_samples == 48
     assert counters.image_events == 1

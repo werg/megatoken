@@ -236,6 +236,33 @@ def test_hindsight_pass_clears_any_live_adapter_scope():
     torch.testing.assert_close(scoped, unscoped)
 
 
+def test_hindsight_source_routing_uses_each_events_track(monkeypatch):
+    model = tiny_model()
+    native = model.transducer
+    width = model.config.facet_dim
+    events = OrdinaryEvents(
+        torch.randn(1, 3, model.config.n_facets, width),
+        torch.ones(1, 3, dtype=torch.long),
+        ("text",) * 3,
+        ("a", "b", "a"),
+        torch.tensor([[1, 1, 2]]),
+        torch.tensor([[0, 0, 1]]),
+    )
+    seen = []
+    original = model.core.expert_pools.router_features
+
+    def record(context, *, track_ids=None, role="other", stage=0):
+        if role == "r":
+            routed_tracks = track_ids.detach().clone() if track_ids is not None else None
+            seen.append((context.shape, routed_tracks))
+        return original(context, track_ids=track_ids, role=role, stage=stage)
+
+    monkeypatch.setattr(model.core.expert_pools, "router_features", record)
+    native.hindsight_pass(events, [0, 1, None], mode="group-inverse")
+    assert seen[0][0] == (3, width)
+    assert seen[0][1].tolist() == [0, 1, 0]
+
+
 def test_boundary_plan_starts_after_metadata_and_respects_real_boundaries_and_cap():
     plain = Meridian(("a",), (1,), ("text",), False)
     turn = Meridian(("a",), (2,), ("text",), True)

@@ -360,21 +360,18 @@ class MultiTrackCore:
         with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
             for index, event in enumerate(events):
                 weights = None if adapters is None else adapters.weights[0, :, index]
-                prior_context = state.raw if state.final is None else state.final
-                with self.core.expert_pools.routing_epoch(
-                    prior_context.mean((1, 2)),
-                    track_ids=track_ids[:, index],
-                    role="e",
-                    adapter_weights=weights,
-                ), expert_scope(weights):
+                with expert_scope(weights):
                     if event.modality == "text":
                         values, lengths = byte_tensor([event.payload], state.device)
-                        encoded = self.core.encode_chunk(values, lengths=lengths)
+                        encoded = self.core.encode_chunk(
+                            values, lengths=lengths, track_ids=track_ids[:, index]
+                        )
                     else:
                         if event.payload.device != state.device:
                             raise ValueError("Media event must be on the model device")
                         encoded = self.core.encode_media(
-                            event.payload, event.valid_mask, extractor=event.extractor
+                            event.payload, event.valid_mask, extractor=event.extractor,
+                            track_ids=track_ids[:, index],
                         )
                 raws.append(encoded)
         return self.advance_group(
@@ -826,12 +823,8 @@ class MultiTrackGenerator:
         ids, _ = self.tracks._track_indices(state, tracks)
         plan = core.adapters.plan("p", state.adapters, ids)
         weights = None if plan is None else plan.weights[0].flatten(0, 1)
-        prior_context = state.raw if state.final is None else state.final
-        context = prior_context.mean((1, 2))[:, None].expand(-1, len(tracks), -1).flatten(0, 1)
-        with core.expert_pools.routing_epoch(
-            context, track_ids=ids.flatten(), role="p", adapter_weights=weights
-        ), expert_scope(weights):
-            encoded = encode_controls(core, payloads, encoder_grad=False)
+        with expert_scope(weights):
+            encoded = encode_controls(core, payloads, encoder_grad=False, track_ids=ids.flatten())
         return None if encoded is None else encoded[None].to(state.device)
 
     def _prior(self, mean: Tensor, state: MultiTrackState, tracks: Sequence[str]):
@@ -1058,17 +1051,15 @@ class MultiTrackGenerator:
         encoded = []
         for index, plan in enumerate(plans):
             weights = None if encoder_plan is None else encoder_plan.weights[0, :, index]
-            prior_context = state.raw if state.final is None else state.final
-            with core.expert_pools.routing_epoch(
-                prior_context.mean((1, 2)),
-                track_ids=track_ids[:, index], role="e", adapter_weights=weights,
-            ), expert_scope(weights):
+            with expert_scope(weights):
                 if isinstance(plan, MediaTrainTarget):
-                    current = core.encode_media(plan.source, extractor=plan.extractor)
+                    current = core.encode_media(
+                        plan.source, extractor=plan.extractor, track_ids=track_ids[:, index]
+                    )
                 else:
                     payload = plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
                     values, lengths = byte_tensor([payload], state.device)
-                    current = core.encode_chunk(values, lengths)
+                    current = core.encode_chunk(values, lengths, track_ids=track_ids[:, index])
             encoded.append(current)
         target_raw = torch.stack(encoded, dim=1)
         q = DiagonalGaussian(

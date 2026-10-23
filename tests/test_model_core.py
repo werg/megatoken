@@ -440,6 +440,9 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
         "".join(character if character.isalnum() else "_" for character in pool) + "__codes"
         for pool in media_only_pools - used_elsewhere
     }
+    inactive_media_pool_prefixes = tuple(
+        f"expert_pools.pools.{pool}." for pool in media_only_pools - used_elsewhere
+    )
     assert [
         name
         for name, parameter in core.named_parameters()
@@ -448,6 +451,7 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
         and "adapter_" not in name
         and not name.endswith("attention.same_track_bias")
         and not any(name.endswith(f"pool_codes.{code}") for code in inactive_media_pool_codes)
+        and not any(name.startswith(prefix) for prefix in inactive_media_pool_prefixes)
     ] == []
     assert all(
         torch.isfinite(parameter.grad).all()

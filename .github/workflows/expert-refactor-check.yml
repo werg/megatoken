@@ -42,7 +42,48 @@ jobs:
           print('FORMAT_PATCH_END')
           PY
       - name: Test the reference implementation
-        run: python -m pytest -q --maxfail=25 --junitxml=validation/expert-tests.xml
+        run: python -m pytest -q --junitxml=validation/expert-tests.xml
+      - name: Report shapes and routing work
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import torch
+          from torch import nn
+          from megatoken.generation.codec import ByteCodec
+          from megatoken.loading import build_model
+          from megatoken.model.audit import audit_parameters
+          from megatoken.model.config import ModelConfig
+          from megatoken.model.expert_pools import ShapePools
+
+          config = ModelConfig()
+          codec = ByteCodec(tuple(bytes([b]) for b in range(256)) + (None,) * (config.vocab_size - 256))
+          with torch.device('meta'):
+              model = build_model(config, codec, device='meta', precision='bf16')
+          manifest = model.core.expert_pools.manifest(model)
+          audit = audit_parameters(model)
+          print(json.dumps({'default_router': manifest['routing'],
+                            'default_pools': manifest['pools'],
+                            'default_coverage': manifest['coverage'],
+                            'default_parameters': audit['total_parameters'],
+                            'parameter_aliases': audit['aliases']}))
+
+          config = ModelConfig.tiny()
+          pools = ShapePools(config)
+          probe = nn.Sequential(nn.Linear(config.facet_dim, config.facet_dim),
+                                nn.Linear(config.facet_dim, config.facet_dim),
+                                nn.Linear(config.facet_dim, config.pair_dim))
+          pools.bind(probe, 'diagnostic')
+          with pools.routing_epoch(torch.randn(2, config.facet_dim),
+                                   track_ids=torch.tensor([0, 1]), role='c'):
+              output = probe(torch.randn(2, 5, config.facet_dim))
+          metrics = pools.metrics()
+          assert metrics['router_evaluations'] == 1
+          assert metrics['palette_evaluations'] == 2
+          assert metrics['expert_rows'] == 30
+          print({'three_site_routing_work': {key: metrics[key] for key in
+                 ('router_evaluations', 'palette_evaluations', 'expert_rows')}})
+          PY
       - name: Keep diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

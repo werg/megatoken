@@ -216,8 +216,8 @@ def test_ingest_losses_distil_the_hindsight_value_and_contrast_the_keys():
     # sites' own affine terms must stay untouched by this distillation loss.
     teacher = model.transducer.hindsight_realizer.output
     query = model.transducer.query_realizer.query
-    assert teacher.bias.grad is None and teacher.output_gain.grad is None
-    assert query.bias.grad is None and query.output_gain.grad is None
+    assert teacher.output_gain.grad is None
+    assert query.output_gain.grad is None
 
 
 def test_only_lookups_actually_made_are_paired_and_one_item_has_nothing_to_contrast():

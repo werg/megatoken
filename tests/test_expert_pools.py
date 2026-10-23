@@ -8,6 +8,7 @@ import torch
 from torch import nn
 
 from megatoken.model.expert_pools import (
+    RoutedConv1d,
     RoutedLinear,
     RoutedSwiGLU,
     ShapePools,
@@ -59,6 +60,9 @@ def test_bind_shares_pool_without_registering_duplicate_references():
     report = pools.manifest()
     assert len(report["sites"]) == 2
     assert len(report["pools"]) == 1
+    assert report["routing"]["router_bank"]["experts"] == config().router_experts
+    assert report["routing"]["router_bank"]["input_dim"] == config().router_dim
+    assert report["routing"]["pool_selector_count"] == 1
 
 
 def test_routed_linear_preserves_shape_and_routes_gradients():
@@ -211,10 +215,58 @@ def test_site_exposes_replayable_balance_route():
     assert len(recorder.routes) == 1
     router, route = recorder.routes[0]
     assert router is site.router
-    assert route.expert_ids.shape == (6, 1)
+    assert route.expert_ids.shape == (2, 3)
     probabilities = site.balance_probabilities(route.router_context, route.router_stage)
-    assert probabilities.shape == (6, site.experts)
-    assert torch.allclose(probabilities.sum(-1), torch.ones(6))
+    assert probabilities.shape == (2, site.experts)
+    assert torch.allclose(probabilities.sum(-1), torch.ones(2))
+
+
+def test_conv1d_kernel_taps_share_linear_pool_and_one_palette():
+    class Model(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv = nn.Conv1d(4, 8, kernel_size=3, bias=False)
+            self.projection = nn.Linear(4, 8, bias=False)
+
+    model = Model()
+    pools = ShapePools(config())
+    pools.bind(model, "conv_test")
+    assert isinstance(model.conv, RoutedConv1d)
+    assert isinstance(model.projection, RoutedLinear)
+    assert model.conv._bank is model.projection._bank
+
+    # The production frontend pads two positions on the left before a valid
+    # convolution. Its routed replacement must retain the original sequence
+    # length and channel-first output shape.
+    x = torch.randn(2, 4, 7, requires_grad=True)
+    pools.metrics(reset=True)
+    with pools.routing_epoch(x.transpose(1, 2), role="e"):
+        y = model.conv(torch.nn.functional.pad(x, (2, 0)))
+        z = model.projection(torch.randn(2, 5, 4))
+    assert y.shape == (2, 8, 7)
+    assert z.shape == (2, 5, 8)
+    (y.square().mean() + z.square().mean()).backward()
+    assert pools.pools[next(iter(pools.pools))].weight.grad is not None
+    metrics = pools.metrics()
+    assert metrics["router_evaluations"] == 1
+    assert metrics["palette_evaluations"] == 1
+    # 3 convolution taps x 2 x 7 rows, plus the shared projection's 2 x 5.
+    assert metrics["expert_rows"] == 52
+    assert pools.manifest(model)["coverage"]["unconverted"] == ()
+
+
+def test_conv1d_covers_stride_dilation_and_explicit_padding_geometry():
+    module = nn.Sequential(nn.Conv1d(4, 8, kernel_size=3, stride=2, dilation=2, padding=1))
+    pools = ShapePools(config())
+    pools.bind(module, "conv_geometry")
+    assert module[0](torch.randn(2, 4, 9)).shape == (2, 8, 4)
+
+
+def test_grouped_conv1d_fails_explicitly_instead_of_leaving_dense_weights():
+    module = nn.Sequential(nn.Conv1d(4, 8, kernel_size=3, groups=2))
+    pools = ShapePools(config())
+    with pytest.raises(NotImplementedError, match="grouped Conv1d"):
+        pools.bind(module, "grouped_conv")
 
 
 def test_checkpoint_replay_context_restores_scope_and_marks_replay():
@@ -230,6 +282,30 @@ def test_checkpoint_replay_context_restores_scope_and_marks_replay():
         assert current_adapter_weights(torch.randn(2, 3, 4)).shape == (2, 3, 2)
         assert _EXPERT_REPLAY.get()
     assert not _EXPERT_REPLAY.get()
+
+
+def test_checkpoint_replay_clones_route_palette_snapshot_without_counter_replay():
+    from megatoken.model.expert_pools import _CURRENT_ROUTING_PLAN, _EXPERT_REPLAY
+
+    module = nn.Sequential(nn.Linear(4, 4, bias=False))
+    pools = ShapePools(config())
+    pools.bind(module, "checkpoint_palette")
+    context = torch.randn(2, 4)
+    with pools.routing_epoch(context, adapter_weights=torch.ones(2, 2)) as plan:
+        rows = torch.randn(2, 3, 4)
+        first = module(rows)
+        assignments = plan.palette_cache[next(iter(plan.palette_cache))][0].clone()
+        before = (pools.router_evaluations, pools.palette_evaluations, pools.expert_rows)
+        _, recompute = checkpoint_context_fn()
+        with recompute:
+            replay = _CURRENT_ROUTING_PLAN.get()
+            assert replay is not plan
+            assert replay.palette_cache.keys() == plan.palette_cache.keys()
+            replay_output = module(rows)
+            assert torch.equal(replay.palette_cache[next(iter(replay.palette_cache))][0], assignments)
+            assert _EXPERT_REPLAY.get()
+        assert torch.equal(first, replay_output)
+        assert (pools.router_evaluations, pools.palette_evaluations, pools.expert_rows) == before
 
 
 def test_late_pool_and_site_binding_follow_existing_device_and_dtype():
@@ -271,6 +347,10 @@ def test_router_fold_is_track_aware_and_controller_uses_shared_experts():
     second = pools.router_features(context, track_ids=torch.tensor([1, 0]), role="R")
     assert first.shape == (2, 4)
     assert not torch.allclose(first, second)
+    unknown = pools.router_features(context, track_ids=torch.tensor([-1, -1]), role="R")
+    assert unknown.shape == first.shape
+    with pytest.raises(ValueError, match="track_ids exceed"):
+        pools.router_features(context, track_ids=torch.tensor([0, 99]), role="R")
     output = pools.controller_features(context, track_ids=torch.tensor([0, 1]), role="R")
     assert output.shape == (2, 4)
     assert pools.router_evaluations == 1

@@ -25,7 +25,6 @@ from .expert_pools import (
     checkpoint_context_fn,
     current_adapter_weights,
     expert_scope,
-    iter_sites,
 )
 from .experts import ExpertBank
 from .frontend import SeedControlEncoder
@@ -40,6 +39,26 @@ RECORD_ROLES = tuple(ROLE_TO_ID)
 EFFORTS = (1, 2, 3, 6)
 P_HISTORY_READ_STAGES = (3, 6, 9, 12)
 MODALITY_IDS = {"text": 0, "audio": 1, "image": 2, "video": 3, "compressed_text": 4}
+
+
+def _byte_routing_summary(byte_ids: Tensor, lengths: Tensor | None) -> Tensor:
+    """Cheap input-only routing context, including a finite empty-record value."""
+    if byte_ids.ndim != 2:
+        raise ValueError("A physical record batch must have shape [batch,bytes]")
+    if byte_ids.dtype not in (torch.uint8, torch.int32, torch.int64):
+        raise TypeError("byte_ids must be integer native bytes")
+    if byte_ids.shape[0] < 1:
+        raise ValueError("A physical record batch must contain at least one record")
+    values = byte_ids.float()
+    if lengths is None:
+        return values.sum(-1, keepdim=True) / max(1, values.shape[1]) / 255.0
+    if lengths.dtype not in (torch.int32, torch.int64, torch.uint8):
+        raise TypeError("Record lengths must be integer byte counts")
+    if lengths.shape != (values.shape[0],):
+        raise ValueError("Every record length must be in [0, padded byte length]")
+    lengths = lengths.to(device=values.device, dtype=torch.long)
+    valid = torch.arange(values.shape[1], device=values.device)[None] < lengths[:, None]
+    return (values * valid).sum(-1, keepdim=True) / valid.sum(-1, keepdim=True).clamp_min(1) / 255.0
 
 
 class PairStage(nn.Module):
@@ -559,36 +578,25 @@ class FacetedCore(nn.Module):
             if value.shape != (state.batch_size,) or value.dtype != torch.long:
                 raise ValueError(f"State {name} must be one integer per batch row")
 
-    def encode_chunk(self, byte_ids: Tensor, lengths: Tensor | None = None) -> Tensor:
-        """Encode bytes under one initial route, with an optional causal outer route."""
-        # Standalone ingestion has no committed context. A cheap masked byte
-        # summary initializes its route; multitrack calls supply prior context
-        # and track identity in an enclosing routing epoch.
-        values = byte_ids.to(torch.float32)
-        if lengths is None:
-            summary = values.mean(-1, keepdim=True) / 255.0
-        else:
-            valid = torch.arange(values.shape[1], device=values.device)[None] < lengths[:, None]
-            summary = (values * valid).sum(-1, keepdim=True) / lengths[:, None].clamp_min(1) / 255.0
-        weights = current_adapter_weights(self.initial_facets[None, 0].expand(byte_ids.shape[0], -1))
+    def encode_chunk(
+        self, byte_ids: Tensor, lengths: Tensor | None = None, *, track_ids: Tensor | None = None
+    ) -> Tensor:
+        """Encode bytes under one input- and track-conditioned initial route."""
+        summary = _byte_routing_summary(byte_ids, lengths)
+        weights = current_adapter_weights(summary)
         with self.expert_pools.routing_epoch_if_absent(
-            summary, role="e", adapter_weights=weights
+            summary, track_ids=track_ids, role="e", adapter_weights=weights
         ):
             return self.frontend(byte_ids, lengths)
 
     def encode_media(
-        self, features: Tensor, mask: Tensor | None = None, *, extractor: str
+        self, features: Tensor, mask: Tensor | None = None, *, extractor: str,
+        track_ids: Tensor | None = None,
     ) -> Tensor:
         """Pinned teacher hidden states [B, T, 512] -> raw facets, through the shared E."""
-        if mask is None:
-            summary = features.float().mean(1)
-        else:
-            summary = (features.float() * mask[..., None]).sum(1) / mask.sum(1, keepdim=True).clamp_min(1)
-        weights = current_adapter_weights(summary)
-        with self.expert_pools.routing_epoch_if_absent(
-            summary, role="e", adapter_weights=weights
-        ):
-            return self.media_encoder(self, features, mask, extractor=extractor)
+        return self.media_encoder(
+            self, features, mask, extractor=extractor, track_ids=track_ids
+        )
 
     def encode_control(
         self,
@@ -596,16 +604,13 @@ class FacetedCore(nn.Module):
         lengths: Tensor | None = None,
         *,
         encoder_grad: bool = True,
+        track_ids: Tensor | None = None,
     ) -> Tensor:
         """Keep the control head differentiable while optionally isolating shared E features."""
-        values = byte_ids.float()
-        valid = torch.ones_like(values, dtype=torch.bool) if lengths is None else (
-            torch.arange(values.shape[1], device=values.device)[None] < lengths[:, None]
-        )
-        summary = (values * valid).sum(-1, keepdim=True) / valid.sum(-1, keepdim=True).clamp_min(1) / 255.0
+        summary = _byte_routing_summary(byte_ids, lengths)
         weights = current_adapter_weights(summary)
         with self.expert_pools.routing_epoch_if_absent(
-            summary, role="p", adapter_weights=weights
+            summary, track_ids=track_ids, role="p", adapter_weights=weights
         ):
             with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
                 source = self.frontend.source_features(byte_ids, lengths)
@@ -946,7 +951,7 @@ class FacetedCore(nn.Module):
         # Auxiliary branches also stay out of the global router-balance replay.
         routers = (
             self.p_router, self.u_router, *self.adapters.owners.values(),
-            *(site for _, site in iter_sites(self)),
+            *self.expert_pools.routing_selectors().values(),
         )
         recorders = [router.balance_recorder for router in routers]
         for router in routers:

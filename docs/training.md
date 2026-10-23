@@ -58,13 +58,13 @@ Sites sharing a selector contribute to that selector's combined assignment
 counts instead of creating repeated copies of the same balance term.
 
 In the media-bridge stage, the shared expert pools, bootstrap router, and their
-adapters remain frozen while media-local encoding, site-specific biases/gains,
-and realizer conditions train. Shared routing heads stay frozen with their
-shape pools. The
-E-only recurrent reconstruction path also freezes the global pools and their
-adapters as part of its direct readout; gradients pass through the fixed
-readout to E without updating those shared values. Main recurrent and replay
-objectives continue to update shared pools under their normal training scope.
+adapters remain frozen while media-local encoding, site-specific gains, and
+realizer conditions train. The E-only recurrent reconstruction objective updates
+E-private parameters and any shared pools used by its routed readout. Those pool
+gradients are clipped once in the `shared` domain; E-private gradients use the
+separate `encoder` domain. Other core owners do not receive gradients from that
+auxiliary. Main recurrent and replay objectives update shared pools under their
+normal training scope.
 
 `TrainConfig.representation_mode` selects `bootstrap` or `recurrent`. The value `auto`
 resolves to bootstrap for B0 and recurrent for every other supervised phase. Production
@@ -332,12 +332,15 @@ arithmetic precision.
 
 Adam defaults are β₁=0.9, β₂=0.95, ε=1e-8, matrix weight decay 0.1, and clipping at 1.0
 per active gradient domain. Embeddings, lookups, norms, and biases do not decay.
-The adapter mixture's experts and controllers are ordinary dense parameters: they train
-jointly through the continuation loss, are owned by C, P or R (so pinning one of them pins
-its adapters), and enter the optimizer, DiLoCo fragments and the served bundle like any
-other owner. The media-bridge stage freezes them with everything outside the bridge. The
-three controllers' expert load joins P's and U's in the optimizer-step-global router
-balance (the pooled loss is the mean over all five routers).
+Adapter factors live beside each shared expert in the global pools. Four compact
+role controllers (E/C/P/R) emit adapter preferences from one shared router feature
+per lookup; their heads remain private to their role owners. The media-bridge stage
+freezes the global pools, shared bootstrap router, and all adapter factors, while
+training the bridge's local components. Optimizer-step-global balance covers the
+explicit P/U selectors, the four role controllers, the shared bootstrap selector,
+and one selector per active shape pool. Shared selectors are counted once even when
+many routed sites use them; their balance losses are summed as separate normalized
+terms rather than averaged as if there were only five routers.
 Lookup/control owners use half the base learning rate. Repeated module calls share one
 parameter owner, one FP32 master, and one optimizer slot. Non-finite gradients abort
 before an update.

@@ -98,6 +98,18 @@ block; one final KV projector alone owns persistent history and P's live keys.
 Each C/P block retains its own query/output reader. Intermediate KV is never
 added to the cache.
 
+P's explicit row router compiles routes for all twelve residual stages from one
+compact prediction context feature; the stage code differentiates the decisions
+without repeating the wide context projection. U makes its expansion decisions
+from the selected event's compact realization summary, with growth level encoded
+as the stage, so progressive row counts reuse that event-level context.
+
+The vocabulary readout is a deliberate exception to expert replacement. Its
+rank-factorized `TiedVocabulary` projection is consumed directly by the same
+vocabulary row table used for lexical logits and public value embeddings;
+replacing that projection with an independent expert pool would break the exact
+embedding/output tie. Other eligible learned linear projections remain routed.
+
 ### Central KV refinement and positional semantics
 
 C1 reads historical and current facets, then projects **KV1** from its updated
@@ -164,11 +176,13 @@ terminal outputs need no C pass unless a successor state is requested.
 
 ### Retrieval-conditioned adapters on every expert pool
 
-C, P and R no longer own separate adapter banks. Every shared expert pool stores
+C, P and R no longer own separate adapter banks; E, C, P and R each retain a
+compact role controller. Every shared expert pool stores
 low-rank adapter factors alongside each base expert; `adapter_experts`,
 `adapter_rank` and `adapter_topk` are part of the architecture identity. The
-site-local controller receives the retrieval-conditioned preference. After
-every transducer lookup, the shared router bootstrap folds the lookup's blended
+site-local controller adds its learned track and site preferences to the
+retrieval-conditioned preference. After each successful transducer lookup, the
+shared router bootstrap folds the lookup's blended
 32,768-wide knowledge value to a compact feature and executes one shared router
 expert. Four small role-local heads turn that one feature into E/C/P/R adapter
 preferences. Scaled by one minus the sink's share of the lookup,
@@ -288,8 +302,11 @@ Outcome RL must freeze the complete conditional action map: **E, C, shared KV
 projection, and R**, including core-owned U transforms. P, its remix, controls,
 and Gaussian scale remain trainable. The `encoder_parameters`,
 `central_parameters`, `predictor_parameters`, and `realizer_parameters` interfaces
-expose disjoint owners without duplicate registration. Separate gradient clipping
-keeps the encoder-only auxiliary from rescaling main recurrent gradients.
+expose disjoint private owners without duplicate registration; global expert pools
+are listed separately and frozen with the complete map. Shared pools used by an
+encoder reconstruction auxiliary receive gradients once under the shared owner,
+while E-private gradients are clipped in their encoder domain. This keeps shared
+pool gradients from being duplicated across sites or folded into the E-private norm.
 
 ## Public controls and replay
 

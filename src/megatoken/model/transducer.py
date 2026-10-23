@@ -164,7 +164,9 @@ class HindsightRealizer(nn.Module):
         self.output_norm = nn.LayerNorm(self.width)
         self.output = nn.Linear(self.width, self.width, bias=False)
 
-    def forward(self, states: Tensor, visible: Tensor) -> Tensor:
+    def forward(
+        self, states: Tensor, visible: Tensor, *, event_track_ids: Tensor | None = None
+    ) -> Tensor:
         """``states`` [slots, width]; ``visible`` [lookups, slots] -> [lookups, value_dim].
 
         A lookup whose row of ``visible`` is empty reads the sink alone: its
@@ -178,10 +180,27 @@ class HindsightRealizer(nn.Module):
             return states.new_empty((0, self.value_dim))
         dtype = self.queries.dtype
         pools = self._expert_pools
-        state_context = states.float().mean(0, keepdim=True)
-        # Route source states once; route each hindsight query's output rows
-        # separately below so batches never share one collapsed context.
-        with pools.routing_epoch(state_context, role="other", adapter_weights=None):
+        source_tracks = None
+        if event_track_ids is None:
+            state_context = states.float().mean(0, keepdim=True)
+        else:
+            if event_track_ids.ndim != 1 or event_track_ids.numel() < 1:
+                raise ValueError("Hindsight event tracks must be one ID per source event")
+            if states.shape[0] % event_track_ids.numel():
+                raise ValueError("Hindsight source rows must divide evenly across events")
+            facets_per_event = states.shape[0] // event_track_ids.numel()
+            state_context = states.float().reshape(
+                event_track_ids.numel(), facets_per_event, self.width
+            ).mean(1)
+            source_tracks = event_track_ids.to(device=states.device, dtype=torch.long)
+        # Route each event's source states together, keyed by its stable track;
+        # route each hindsight query's output rows separately below.
+        with pools.routing_epoch(
+            state_context,
+            track_ids=source_tracks,
+            role="r",
+            adapter_weights=None,
+        ):
             normalized = self.norm(states.to(dtype))
             keys = torch.cat((self.key(normalized), self.sink_key[None]), dim=0)
             values = torch.cat((self.value(normalized), self.sink_value[None]), dim=0)
@@ -298,8 +317,11 @@ class NativeTransducer(nn.Module):
         visible = (slot_groups[None] == read[:, None]) & (read[:, None] >= 0)
         # Future evidence must never inherit an adapter mixture from the live
         # session that happened to call this training-only path.
+        event_tracks = torch.tensor(
+            [registry.index(track) for track in events.tracks], device=device, dtype=torch.long
+        )
         with expert_scope(None):
-            values = self.hindsight_realizer(final, visible)
+            values = self.hindsight_realizer(final, visible, event_track_ids=event_tracks)
         return HindsightValues(values, ~visible.any(dim=1))
 
     # -------------------------------------------------------------- lookups
@@ -506,7 +528,7 @@ class NativeTransducer(nn.Module):
             (state.batch_size,), knowledge_track, device=state.device, dtype=torch.long
         )
         with self.core.expert_pools.routing_epoch(
-            query,
+            query[None] if query.ndim == 1 else query,
             track_ids=knowledge_tracks,
             role="r",
             adapter_weights=readout_weights,

@@ -151,6 +151,7 @@ def encode_controls(
     payloads: Sequence[bytes],
     *,
     encoder_grad: bool = True,
+    track_ids: Tensor | None = None,
 ) -> Tensor | None:
     """Encode independent controls; absent controls are exactly the neutral zero.
 
@@ -167,7 +168,9 @@ def encode_controls(
     from megatoken.tensors import byte_tensor
 
     values, lengths = byte_tensor(payloads, core.initial_facets.device)
-    encoded = core.encode_control(values, lengths=lengths, encoder_grad=encoder_grad)
+    encoded = core.encode_control(
+        values, lengths=lengths, encoder_grad=encoder_grad, track_ids=track_ids
+    )
     return encoded.masked_fill(lengths.eq(0)[:, None], 0)
 
 
