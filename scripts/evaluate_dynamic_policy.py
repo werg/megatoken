@@ -242,6 +242,7 @@ def attempt(model, *, index, profile, serial, decisions, timeout, seed):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--bundle", type=Path, required=True)
+    p.add_argument("--packs", type=Path)
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--device", default="cuda")
     p.add_argument("--families", type=int, default=2)
@@ -251,7 +252,7 @@ def main():
     if min(args.families, args.decisions, args.timeout) <= 0:
         p.error("Positive family, decision and timeout bounds are required")
     args.root.mkdir(parents=True, exist_ok=False)
-    bundle = ServedBundle(args.bundle, device=args.device)
+    bundle = ServedBundle(args.bundle, packs=args.packs, device=args.device)
     indices = []
     for index in range(100000):
         if frozen_split(stable_id(SOURCE_VERSION, str(index))) == "validation":

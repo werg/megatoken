@@ -36,6 +36,7 @@ class _UnusedTeacher:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True)
+    parser.add_argument("--packs", type=Path)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--tasks", type=int, default=8)
@@ -45,7 +46,7 @@ def main():
     if min(args.tasks, args.steps, args.requests) < 1:
         raise ValueError("Task, update and request bounds must be positive")
     args.root.mkdir(parents=True, exist_ok=False)
-    student = ModelTeacher(args.bundle, device=args.device, effort=1, seed=37)
+    student = ModelTeacher(args.bundle, packs=args.packs, device=args.device, effort=1, seed=37)
     codec, snapshot = student.codec, student.snapshot
     tasks = [
         TaskSeed(
