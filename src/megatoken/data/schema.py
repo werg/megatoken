@@ -122,6 +122,8 @@ class Lineage:
         keys = [self.family_id, *self.ancestor_ids]
         if self.repository:
             repo = self.repository.removesuffix(".git").strip("/").casefold()
+            # Sources spell the same repository "o/r", "github.com/o/r" or a full URL.
+            repo = repo.removeprefix("https://").removeprefix("http://").removeprefix("github.com/")
             keys.append(f"repository:{repo}")
         if self.task_id:
             # Task IDs shared by released collections must share this namespace.

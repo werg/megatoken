@@ -64,6 +64,8 @@ class AdapterProfile:
     dialect: str = ""
     # Feedback turns after the task prompt come from the environment, not a user.
     environment_turns: bool = False
+    # An artifact row may omit the request (a rewrite is its own request).
+    prompt_required: bool = True
 
 
 DEFAULT_FIELDS = {
@@ -96,6 +98,8 @@ DEFAULT_FIELDS = {
     "prompt": ("prompt", "instruction", "issue", "problem_statement"),
     "target": ("target", "completion", "response"),
     "before": ("before", "pre_change_state"),
+    "hints": ("hints_text",),
+    "context": ("context", "context_items"),
     "patch": ("patch", "target_patch"),
     "benchmark": ("benchmark_tags", "metadata.benchmark_tags"),
     "dependencies": ("metadata.dependencies",),
@@ -115,6 +119,17 @@ PROFILES: dict[str, AdapterProfile] = {
     "chat": AdapterProfile(),
     "serialized_chat": AdapterProfile(kind="serialized_chat"),
     "artifact": AdapterProfile(kind="artifact"),
+    # A target the publisher checked (unit tests, an instruction checker, an answer match) and
+    # recorded as passing.
+    "tested_artifact": AdapterProfile(kind="artifact", outcome_verification="publisher_tests"),
+    "human_tested_artifact": AdapterProfile(
+        kind="artifact", outcome_verification="publisher_tests", emission_provenance="natural"
+    ),
+    # The original as an observed document, its rewrite as the target; no request is stored.
+    "code_rewrite": AdapterProfile(kind="artifact", prompt_required=False),
+    "human_code_rewrite": AdapterProfile(
+        kind="artifact", prompt_required=False, emission_provenance="natural"
+    ),
     "repository": AdapterProfile(
         kind="repository", emission_provenance="natural", require_parent=True
     ),
@@ -219,6 +234,7 @@ _PROFILE_OPTIONS: dict[str, frozenset[str]] = {
         "assume_outcome",
         "positional_call_ids",
         "admit_unknown_outcome",
+        "path_dependencies",
     },
     "serialized_chat": _HINT_OPTIONS | {"allow_incomplete_serialized"},
     "document": _HINT_OPTIONS | {"allow_incomplete_serialized"},
@@ -299,6 +315,11 @@ class _Reader:
             )
         return default
 
+    def present(self, key: str) -> list[tuple[str, Any]]:
+        """Every configured path that holds a value, with its path, in order."""
+        found = ((path, _path(self.row, path)) for path in self.fields.get(key, (key,)))
+        return [(path, value) for path, value in found if value is not None]
+
     def origin(self, key: str) -> str:
         return next(
             (path for path in self.fields.get(key, (key,)) if _path(self.row, path) is not None),
@@ -322,13 +343,17 @@ def _outcome(value: Any) -> str:
     if value is False or (isinstance(value, (int, float)) and value == 0):
         return "failure"
     normalized = str(value).casefold()
-    if normalized in {"resolved", "success", "passed", "pass"}:
+    if normalized in {"resolved", "success", "passed", "pass", "true"}:
         return "success"
-    if normalized in {"unresolved", "failure", "failed", "fail"}:
+    if normalized in {"unresolved", "failure", "failed", "fail", "false"}:
         return "failure"
     if normalized in {"incomplete", "timeout", "interrupted"}:
         return "incomplete"
-    return "unknown"
+    try:
+        score = float(normalized)  # a pass rate delivered as text: only 0 and 1 are verdicts
+    except ValueError:
+        return "unknown"
+    return "success" if score == 1 else "failure" if score == 0 else "unknown"
 
 
 def _list_of(value: Any, kind: type, name: str) -> tuple[Any, ...]:
@@ -520,7 +545,18 @@ def _tools(value: Any) -> str:
     schemas = [_object(item, "tool schema") for item in schemas]
     if any(not isinstance(item, dict) for item in schemas):
         raise SchemaError("Every tool schema must be an object")
-    return canonical_json(_clean_schema(schemas))
+    return canonical_json(_clean_schema([_function_tool(item) for item in schemas]))
+
+
+def _function_tool(tool: dict[str, Any]) -> dict[str, Any]:
+    """A tool in the AI SDK spelling (``id`` and ``inputSchema.jsonSchema``) as an OpenAI one."""
+    schema = tool.get("inputSchema")
+    if not isinstance(schema, dict) or not isinstance(tool.get("id"), str):
+        return tool
+    function = {"name": tool["id"], "parameters": schema.get("jsonSchema", schema)}
+    if isinstance(tool.get("description"), str):
+        function["description"] = tool["description"]
+    return {"type": "function", "function": function}
 
 
 class _EpisodeBuilder:
@@ -981,12 +1017,19 @@ def _chat(reader: _Reader, builder: _EpisodeBuilder) -> None:
                         transform="canonical-tool-json-v1",
                         parse_hints=block_hints,
                     )
-                elif kind == "tool_result":
+                elif kind in {"tool_result", "tool-result"}:
+                    # Anthropic spells the result's call "tool_use_id" and its text "content";
+                    # the AI SDK spells them "toolCallId" and "output.value".
+                    output = block.get("output")
+                    value = output.get("value") if isinstance(output, Mapping) else None
                     builder.observation(
-                        _bytes(block.get("content", ""), field_name),
+                        _bytes(
+                            value if value is not None else block.get("content", ""), field_name
+                        ),
                         turn=turn,
-                        call_id=block.get("tool_use_id"),
-                        source_field=field_name + ".content",
+                        call_id=block.get("tool_use_id") or block.get("toolCallId"),
+                        source_field=field_name
+                        + (".output.value" if value is not None else ".content"),
                         parse_hints=block_hints,
                     )
                 else:
@@ -1218,21 +1261,12 @@ def _documents(reader: _Reader, builder: _EpisodeBuilder) -> None:
             chunk_diagnostics=tuple(item.code for item in framing.diagnostics),
         )
     elif reader.profile.kind == "artifact":
-        builder.append(
-            _bytes(reader.get("prompt", required=True), "prompt"),
-            role="user",
-            turn=0,
-            source_field=reader.origin("prompt"),
-        )
-        source = reader.get("document")
-        if source:
+        prompt = reader.get("prompt", required=reader.profile.prompt_required)
+        if prompt is not None:
             builder.append(
-                _bytes(source, "document"),
-                role="document",
-                turn=1,
-                source_field=reader.origin("document"),
-                provenance="natural",
+                _bytes(prompt, "prompt"), role="user", turn=0, source_field=reader.origin("prompt")
             )
+        _observed_files(reader, builder, "document", turn=1)
         builder.append(
             _bytes(reader.get("target", required=True), "target"),
             role="assistant",
@@ -1247,23 +1281,22 @@ def _documents(reader: _Reader, builder: _EpisodeBuilder) -> None:
             turn=0,
             source_field=reader.origin("prompt"),
         )
-        builder.append(
-            _bytes(reader.get("before", required=True), "before"),
-            role="document",
-            turn=1,
-            source_field=reader.origin("before"),
-            provenance="natural",
-        )
-        builder.append(
-            _bytes(reader.get("patch", required=True), "patch"),
-            role="assistant",
-            turn=2,
-            score=True,
-            source_field=reader.origin("patch"),
-        )
+        # Discussion before the change, then the files as they were, then the change.
+        _observed_files(reader, builder, "hints", turn=1)
+        _observed_files(reader, builder, "before", turn=1)
+        for path, payload, field_name in _files(reader, "patch", _PATCH_KEYS, required=True):
+            builder.append(
+                payload,
+                role="assistant",
+                turn=2,
+                score=True,
+                source_field=field_name,
+                parse_hints={"filename": path} if path else None,
+            )
     elif reader.profile.kind == "fim":
         # A missing-span task has observed suffix conditioning; this is tagged FIM.
-        for turn, name in enumerate(("prefix", "suffix", "middle")):
+        _observed_files(reader, builder, "context", turn=0)
+        for turn, name in enumerate(("prefix", "suffix", "middle"), start=1):
             builder.append(
                 _bytes(reader.row[name], name),
                 role="assistant" if name == "middle" else "document",
@@ -1271,6 +1304,96 @@ def _documents(reader: _Reader, builder: _EpisodeBuilder) -> None:
                 score=name == "middle",
                 source_field=name,
             )
+
+
+_FILE_PATH_KEYS = ("path", "file_path", "filename", "new_path", "old_path", "old_file", "new_file")
+_FILE_CONTENT_KEYS = ("content", "text", "code", "before_content", "body", "comment")
+_PATCH_KEYS = ("unified_patch", "patch", "diff", "resolving_diff", "content")
+
+
+def _files(
+    reader: _Reader,
+    key: str,
+    content_keys: tuple[str, ...] = _FILE_CONTENT_KEYS,
+    *,
+    required: bool = False,
+) -> list[tuple[str | None, bytes, str]]:
+    """The files or passages a row delivers under a field: text, or a list of either.
+
+    Every configured path that holds a value is read, in the order listed, so a field map
+    can name several row fields (a PR body, then its comments) for one role. A list item is
+    a string or an object with a path and its content under one of ``content_keys``; an
+    object with none of those keys is an error, one whose content is null or empty is
+    skipped. Each item keeps its own source field and, when it names a path, a filename
+    parser hint. A field that yields nothing is an error only when ``required``.
+    """
+    files = []
+    for origin, value in reader.present(key):
+        if isinstance(value, (str, bytes)):
+            items, names = [value], [origin]
+        elif isinstance(value, list):
+            items, names = value, [f"{origin}[{index}]" for index in range(len(value))]
+        else:
+            raise SchemaError(f"{key} must be text or a list of files, got {type(value).__name__}")
+        for item, name in zip(items, names, strict=True):
+            path = None
+            if isinstance(item, Mapping):
+                if not any(candidate in item for candidate in content_keys):
+                    raise SchemaError(f"{name} has none of {content_keys}")
+                path = _first(item, _FILE_PATH_KEYS)
+                item = _first(item, content_keys)
+            if item is not None and (payload := _bytes(item, name)):
+                files.append((path, payload, name))
+    if required and not files:
+        reader.get(key, required=True)  # a missing field names the field map to configure
+        raise SchemaError(f"{key} is empty")
+    return files
+
+
+def _observed_files(reader: _Reader, builder: _EpisodeBuilder, key: str, *, turn: int) -> None:
+    """Natural passages the model reads before it writes: documents, never scored."""
+    for path, payload, name in _files(reader, key):
+        builder.append(
+            payload,
+            role="document",
+            turn=turn,
+            source_field=name,
+            provenance="natural",
+            parse_hints={"filename": path} if path else None,
+        )
+
+
+_EDIT_ARGUMENTS = frozenset({"old_str", "new_str", "file_text", "insert_line"})
+
+
+def _path_dependencies(episode: Episode) -> list[Dependency]:
+    """Link an edit of a file to the first observation that showed the model that file.
+
+    Only structured tool arguments are read: an action whose ``path`` argument names a
+    file, answered by a result, makes that result the file's evidence; a later scored
+    action that edits the same ``path`` (editor arguments ``old_str``, ``new_str``,
+    ``file_text`` or ``insert_line``) depends on it. Shell commands carry no ``path``
+    and so create no link; nothing is inferred from free text.
+    """
+    result_of = {
+        record.result_of: record.record_id
+        for record in episode.records
+        if record.result_of and record.part_index == 0
+    }
+    records = {record.record_id: record for record in episode.records}
+    evidence: dict[str, str] = {}
+    dependencies = []
+    for action in episode.actions:
+        arguments = json.loads(action.arguments_json)
+        path = arguments.get("path") if isinstance(arguments, dict) else None
+        if not isinstance(path, str):
+            continue
+        reader = action.record_ids[0]
+        if path in evidence and _EDIT_ARGUMENTS & arguments.keys() and records[reader].policy_mask:
+            dependencies.append(Dependency(evidence[path], reader, "file_read_to_edit"))
+        if action.action_id in result_of:
+            evidence.setdefault(path, result_of[action.action_id])
+    return dependencies
 
 
 def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> Episode:
@@ -1373,4 +1496,6 @@ def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> 
         dependencies.append(
             Dependency(writers[0].record_id, readers[-1].record_id, item.get("kind", "evidence"))
         )
+    if reader.context.options.get("path_dependencies", False):
+        dependencies.extend(_path_dependencies(episode))
     return sequential_meridians(replace(episode, dependencies=tuple(dependencies)))
