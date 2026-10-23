@@ -22,6 +22,7 @@ from megatoken.data.schema import (
     Dependency,
     Episode,
     Lineage,
+    MediaSpan,
     Meridian,
     PhysicalRecord,
     Supervision,
@@ -31,7 +32,7 @@ from megatoken.data.schema import (
     stable_id,
 )
 
-COMPILER_VERSION = "concordance-v1"
+COMPILER_VERSION = "concordance-v2"
 RELATION_KINDS = frozenset(
     {
         "same_spoken_content",
@@ -64,6 +65,8 @@ TASK_FAMILIES = frozenset(
         "edit_judging",
         "edit_plan",
         "cross_track_evidence",
+        "timed_conversation",
+        "streaming_translation",
     }
 )
 
@@ -87,8 +90,18 @@ class BundleArtifact:
     source_end_ms: int | None = None
     verification: str = "unverified"
     provenance: str = "natural"
+    media_span: MediaSpan | None = None
+    available_at_ns: int | None = None
+    speaker: str = ""
+    transform_json: str = "{}"
 
     def __post_init__(self) -> None:
+        if not isinstance(json.loads(self.transform_json), dict):
+            raise ValueError("Media transformation provenance must be a JSON object")
+        if self.available_at_ns is not None and (
+            type(self.available_at_ns) is not int or self.available_at_ns < 0
+        ):
+            raise ValueError("Artifact availability must be an external nonnegative time")
         if not self.artifact_id or not self.label or not self.version:
             raise ValueError("Bundle artifact needs stable ID, label and version")
         if self.modality not in {"text", *FEATURE_MODALITIES}:
@@ -192,10 +205,11 @@ class EventRequest:
 @dataclass(frozen=True, slots=True)
 class TaskGroup:
     events: tuple[EventRequest, ...]
+    selected_at_ns: int | None = None
 
     def __post_init__(self) -> None:
-        if not self.events or len({e.track_id for e in self.events}) != len(self.events):
-            raise ValueError("Task group must have unique event tracks")
+        if not self.events or len({e.artifact_id for e in self.events}) != len(self.events):
+            raise ValueError("Task group must have unique event artifacts")
         if len({e.generated for e in self.events}) != 1:
             raise ValueError("Observed and generated events need separate causal meridians")
 
@@ -321,6 +335,11 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
                     index,
                     record.role,
                     alignment_id=event.alignment_id,
+                    media_span=artifact.media_span,
+                    speaker=artifact.speaker,
+                    direction="outgoing" if current_generated else "incoming",
+                    available_at_ns=None if current_generated else artifact.available_at_ns,
+                    source_revision=artifact.version,
                     asset_sha256=artifact.media.source.sha256 if artifact.media else None,
                     instruction=event.instruction,
                     request_revision=event.revision,
@@ -334,7 +353,7 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
                 output_records[event.artifact_id] = record_id
             if current_generated and artifact.parent_id:
                 deps.append(Dependency(seen_artifacts[artifact.parent_id], record_id, "edit"))
-        groups.append(Meridian(index, tuple(entries)))
+        groups.append(Meridian(index, tuple(entries), item.selected_at_ns))
         seen_artifacts.update(
             {e.artifact_id: event.record_id for e, event in zip(item.events, entries, strict=True)}
         )
@@ -370,6 +389,7 @@ def compile_task(bundle: AlignedBundle, view: TaskView) -> Episode:
         ],
         "target_artifacts": [e.artifact_id for g in view.groups for e in g.events if e.generated],
         "verification": json.loads(view.verification_json),
+        "media_provenance": {a.artifact_id: json.loads(a.transform_json) for a in bundle.artifacts},
     }
     lineage = Lineage(
         source_id=bundle.lineage.source_id,

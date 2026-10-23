@@ -231,16 +231,18 @@ def test_current_stage_budget_units_and_proposed_mixtures():
         "M2": ("D", 40_000_000_000),
         "LC": ("D", 20_000_000_000),
         "S": ("P", 2_000_000_000),
-        "D": ("P", 1_000_000_000),
+        "D": ("Q", 10_000_000),
     }
     m1 = stage_recipe("M1")
-    assert round(m1.mixture["issue_pr_sequences"] * m1.limit) == 17_066_400_000
-    assert round(m1.mixture["build_logs"] * m1.limit) == 669_600_000
+    assert round(m1.mixture["issue_pr_sequences"] * m1.limit) == 16_213_080_000
+    assert round(m1.mixture["build_logs"] * m1.limit) == 636_120_000
     # Media is part of the plan: a bridge stage, then explicit shares and replay.
     assert stage_recipe("MB").constraints["trainable"] == "media_bridge"
     p1 = stage_recipe("P1").mixture
     media = ("audio_identity", "image_identity", "video_identity", "transcription")
-    assert all(p1[name] > 0 for name in media) and p1["long_document_reading"] == 0.03
+    assert all(p1[name] > 0 for name in media) and p1["long_document_reading"] == pytest.approx(
+        0.0285
+    )
     assert stage_recipe("M2").mixture["image_identity"] > 0
 
 
@@ -253,12 +255,12 @@ def test_stage_plan_leans_on_agentic_and_chat_data_over_raw_text():
     # Executed, verified and tool-use agent episodes and chat SFT dominate the text share;
     # raw web text is cut to well under half of its earlier 0.369 (two points of it
     # went to reading from a knowledge base and from a source collection).
-    assert sum(p1.get(name, 0) for name in AGENTIC) == pytest.approx(0.281)
-    assert p1["chat"] == 0.08
-    assert sum(p1[name] for name in RAW_WEB_TEXT) == pytest.approx(0.14)
-    assert p1["base_reading"] == p1["collection_reading"] == 0.01
-    # Media and long-document reading shares are untouched.
-    assert p1["long_document_reading"] == 0.03
+    assert sum(p1.get(name, 0) for name in AGENTIC) == pytest.approx(0.26695)
+    assert p1["chat"] == pytest.approx(0.076)
+    assert sum(p1[name] for name in RAW_WEB_TEXT) == pytest.approx(0.133)
+    assert p1["base_reading"] == p1["collection_reading"] == pytest.approx(0.0095)
+    # Broad replay retains its proportions while dynamic execution gains supply.
+    assert p1["long_document_reading"] == pytest.approx(0.0285)
     assert sum(
         v
         for k, v in p1.items()
@@ -281,14 +283,14 @@ def test_stage_plan_leans_on_agentic_and_chat_data_over_raw_text():
             "speech_edit",
             "av_edit",
         }
-    ) == pytest.approx(0.15)
+    ) == pytest.approx(0.1425)
     for phase in ("M1", "M2", "LC"):
         later = stage_recipe(phase).mixture
-        assert later["executed_trajectories"] >= 0.08 and later["verified_trajectories"] >= 0.08
-    assert stage_recipe("M1").mixture["executed_trajectories"] == 0.21
-    assert stage_recipe("M2").mixture["verified_trajectories"] == 0.49
+        assert later["executed_trajectories"] >= 0.076 and later["verified_trajectories"] >= 0.076
+    assert stage_recipe("M1").mixture["executed_trajectories"] == pytest.approx(0.1995)
+    assert stage_recipe("M2").mixture["verified_trajectories"] == pytest.approx(0.4655)
     s = stage_recipe("S").mixture
-    assert s["tool_use"] + s["typed_exact_instructions"] + s["chat"] >= 0.25
+    assert s["tool_use"] + s["typed_exact_instructions"] + s["chat"] >= 0.225
     assert s["natural_document_replay"] <= 0.02
 
 

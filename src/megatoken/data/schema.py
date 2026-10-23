@@ -25,7 +25,7 @@ from .chunking import ChunkingConfig, segment_bytes
 from .media_assets import MEDIA_RECORD_TYPE
 from .token_offsets import token_edges
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 Role = Literal["system", "user", "assistant", "tool", "document", "environment"]
 Provenance = Literal["natural", "teacher", "student", "executed", "simulated", "unknown"]
 Outcome = Literal["success", "failure", "unknown", "incomplete"]
@@ -199,8 +199,22 @@ class MediaSpan:
     clock_id: str
     start_ms: int
     end_ms: int
+    # Exact original coordinates, when known; milliseconds are display metadata.
+    start_tick: int | None = None
+    end_tick: int | None = None
+    ticks_per_second: int | None = None
 
     def __post_init__(self) -> None:
+        ticks = (self.start_tick, self.end_tick, self.ticks_per_second)
+        if any(x is not None for x in ticks):
+            if (
+                any(type(x) is not int for x in ticks)
+                or not 0 <= self.start_tick <= self.end_tick
+                or self.ticks_per_second < 1
+            ):
+                raise ValueError(
+                    "Exact media coordinates need an ordered interval and positive clock rate"
+                )
         if not self.clock_id or not 0 <= self.start_ms <= self.end_ms:
             raise ValueError("Media span needs an ordered interval on a named clock")
 
@@ -225,6 +239,26 @@ class TrackSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class TrackRevision:
+    """A purpose becomes public after observing this exact physical record."""
+
+    record_id: str
+    track_id: str
+    purpose: str
+    revision: int
+
+    def __post_init__(self):
+        if (
+            not self.record_id
+            or not self.track_id
+            or not self.purpose.strip()
+            or type(self.revision) is not int
+            or self.revision < 0
+        ):
+            raise ValueError("Track revision needs an observed announcement and explicit purpose")
+
+
+@dataclass(frozen=True, slots=True)
 class TrackEvent:
     """One physical event assigned to a semantic meridian."""
 
@@ -241,8 +275,18 @@ class TrackEvent:
     instruction: str = ""
     settings_json: str = "{}"
     reference_event_ids: tuple[str, ...] = ()
+    speaker: str = ""
+    direction: str = ""
+    available_at_ns: int | None = None
+    source_revision: str = ""
 
     def __post_init__(self) -> None:
+        if self.available_at_ns is not None and (
+            type(self.available_at_ns) is not int or self.available_at_ns < 0
+        ):
+            raise ValueError("Event availability needs a nonnegative external time")
+        if self.direction not in {"", "incoming", "outgoing"}:
+            raise ValueError("Unknown event direction")
         if not self.record_id or not self.track_id or self.meridian_id < 0:
             raise ValueError("Track event needs ID, track and nonnegative meridian")
         if self.modality not in {"text", "audio", "image", "video", "compressed_text"}:
@@ -267,6 +311,18 @@ class TrackEvent:
             or not isinstance(json.loads(self.settings_json), dict)
         ):
             raise ValueError("Event request requires a revision, instruction and settings object")
+        settings = json.loads(self.settings_json)
+        if "allowed_modalities" in settings:
+            allowed = settings["allowed_modalities"]
+            if (
+                not isinstance(allowed, list)
+                or not allowed
+                or any(value not in {"text", "audio", "image", "video"} for value in allowed)
+                or len(allowed) != len(set(allowed))
+            ):
+                raise ValueError(
+                    "Public modality constraints need a nonempty list of distinct output modalities"
+                )
         if (
             not isinstance(self.reference_event_ids, tuple)
             or any(not isinstance(ref, str) or not ref for ref in self.reference_event_ids)
@@ -281,14 +337,21 @@ class Meridian:
 
     meridian_id: int
     events: tuple[TrackEvent, ...]
+    selected_at_ns: int | None = None
 
     def __post_init__(self) -> None:
+        if self.selected_at_ns is not None:
+            if type(self.selected_at_ns) is not int or self.selected_at_ns < 0:
+                raise ValueError("Group selection requires a nonnegative external time")
+            if any(
+                e.available_at_ns is not None and e.available_at_ns > self.selected_at_ns
+                for e in self.events
+            ):
+                raise ValueError("Cannot select an event before its actual availability")
         if self.meridian_id < 0 or not self.events:
             raise ValueError("Meridian must contain at least one event")
         if any(event.meridian_id != self.meridian_id for event in self.events):
             raise ValueError("Meridian members must share one causal commit index")
-        if len({event.track_id for event in self.events}) != len(self.events):
-            raise ValueError("A meridian has at most one event per track")
         if len({event.record_id for event in self.events}) != len(self.events):
             raise ValueError("Meridian members must be distinct")
 
@@ -451,6 +514,7 @@ class Episode:
     tracks: tuple[TrackSpec, ...] = ()
     meridians: tuple[Meridian, ...] = ()
     omni_relations: tuple[EpisodeRelation, ...] = ()
+    track_revisions: tuple[TrackRevision, ...] = ()
     # Hashing every payload is linear in the episode; it is computed once, on first use.
     _content_sha256: str = field(default="", init=False, repr=False, compare=False)
 
@@ -523,6 +587,42 @@ class Episode:
                     raise ValueError("A logical action must execute exactly once")
                 result_logical[record.result_of] = logical
         logical_ids = {record.logical_id for record in self.records}
+        known_tracks = {t.track_id for t in self.tracks}
+        revisions = {}
+        last_revision_record = -1
+        for revision in self.track_revisions:
+            position = ids.get(revision.record_id, -1)
+            if (
+                revision.track_id not in known_tracks
+                or position < last_revision_record
+                or position < 0
+                or self.records[position].policy_mask
+                or self.records[position].role == "assistant"
+                or revision.revision <= revisions.get(revision.track_id, -1)
+            ):
+                raise ValueError(
+                    "Track revisions must follow distinct available observation records in order"
+                )
+            announcement = self.records[position]
+            if announcement.part_index + 1 != announcement.part_count:
+                raise ValueError("Track purpose is public only after its complete announcement")
+            logical = announcement.logical_id or announcement.record_id
+            payload = b"".join(
+                r.payload for r in self.records if (r.logical_id or r.record_id) == logical
+            )
+            try:
+                public = json.loads(payload)
+                public = public.get("track", public)
+                if (
+                    public.get("purpose") != revision.purpose
+                    or public.get("revision") != revision.revision
+                    or public.get("address", revision.track_id) != revision.track_id
+                ):
+                    raise ValueError("Purpose differs from the public announcement")
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise ValueError("Track revision must match its exact public announcement") from exc
+            revisions[revision.track_id] = revision.revision
+            last_revision_record = position
         if any(
             relation.left not in logical_ids or relation.right not in logical_ids
             for relation in self.omni_relations
@@ -559,6 +659,7 @@ class Episode:
                 raise ValueError("Track specifications must have distinct identities")
             event_ids: set[str] = set()
             preceding = -1
+            previous_selection = -1
             previous_record = -1
             prior_events: set[str] = set()
             track_revisions: dict[str, int] = {}
@@ -566,6 +667,10 @@ class Episode:
                 if meridian.meridian_id <= preceding:
                     raise ValueError("Causal meridian numbers must increase strictly")
                 preceding = meridian.meridian_id
+                if meridian.selected_at_ns is not None:
+                    if meridian.selected_at_ns < previous_selection:
+                        raise ValueError("Recorded selection times must not go backwards")
+                    previous_selection = meridian.selected_at_ns
                 for event in meridian.events:
                     if any(ref not in prior_events for ref in event.reference_event_ids):
                         raise ValueError(
@@ -586,6 +691,30 @@ class Episode:
                     if self.records[record_index].role != event.role:
                         raise ValueError("Event role differs from its physical record")
                 prior_events.update(event.record_id for event in meridian.events)
+            groups = (
+                {e.record_id: m.meridian_id for m in self.meridians for e in m.events}
+                if self.meridians
+                else ids
+            )
+            for dependency in self.dependencies:
+                if groups[dependency.writer_id] >= groups[dependency.reader_id]:
+                    raise ValueError("A prerequisite must complete in an earlier meridian")
+            action_groups = {
+                a.action_id: max(groups[r] for r in a.record_ids) for a in self.actions
+            }
+            logical_groups = {}
+            for record in self.records:
+                if record.result_of and action_groups[record.result_of] >= groups[record.record_id]:
+                    raise ValueError(
+                        "A result requires its completed action in an earlier meridian"
+                    )
+                logical = record.logical_id or record.record_id
+                if (
+                    record.part_index
+                    and logical_groups.get(logical, -1) >= groups[record.record_id]
+                ):
+                    raise ValueError("Successive stream chunks require earlier meridians")
+                logical_groups[logical] = groups[record.record_id]
             if self.meridians and event_ids != set(ids):
                 raise ValueError("Every physical record requires a meridian event")
 
@@ -662,10 +791,14 @@ class Episode:
             EpisodeRelation(**relation) for relation in obj.get("omni_relations", ())
         )
         obj["tracks"] = tuple(TrackSpec(**spec) for spec in obj.get("tracks", ()))
+        obj["track_revisions"] = tuple(
+            TrackRevision(**spec) for spec in obj.get("track_revisions", ())
+        )
         obj["meridians"] = tuple(
             Meridian(
-                meridian["meridian_id"],
-                tuple(
+                meridian_id=meridian["meridian_id"],
+                selected_at_ns=meridian.get("selected_at_ns"),
+                events=tuple(
                     TrackEvent(
                         **{
                             **event,

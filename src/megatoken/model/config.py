@@ -9,13 +9,17 @@ from typing import Any
 
 from megatoken.teacher import PINNED_TEACHER, validate_extractor
 
-ARCHITECTURE_VERSION = 11
-# Reserved system tracks. Track ``RESERVED_TRACKS[i]`` occupies index
-# ``max_tracks + i`` and never counts against the user-visible track registry.
+ARCHITECTURE_VERSION = 13
+# Reserved system track addresses; they share the session equality registry.
 TRANSDUCER_QUERY_TRACK = "__transducer_query__"
 KNOWLEDGE_TRACK = "__transducer_knowledge__"
 METADATA_TRACK = "__metadata__"
 RESERVED_TRACKS = (TRANSDUCER_QUERY_TRACK, KNOWLEDGE_TRACK, METADATA_TRACK)
+SYSTEM_TRACK_PURPOSES = {
+    TRANSDUCER_QUERY_TRACK: "Retrieve relevant information from available shared history.",
+    KNOWLEDGE_TRACK: "Integrate retrieved evidence for later use.",
+    METADATA_TRACK: "Interpret the available session metadata.",
+}
 
 
 @dataclass(frozen=True)
@@ -30,6 +34,7 @@ class ModelConfig:
     central_layers: int = 4
     prediction_layers: int = 12
     max_history_chunks: int = 1024
+    # Runtime default for simultaneously active tasks; never a learned identity vocabulary.
     max_tracks: int = 8
     # The one media input: pinned EmbeddingGemma2 hidden states (see
     # megatoken/teacher.py). Part of the geometry, so feature caches from a
@@ -49,7 +54,7 @@ class ModelConfig:
     eligible_experts: int = 8
     router_dim: int = 64
     router_experts: int = 8
-    routing_version: int = 3
+    routing_version: int = 4
     query_heads: int = 4
     kv_heads: int = 2
     attention_head_dim: int = 128
@@ -79,7 +84,7 @@ class ModelConfig:
     def __post_init__(self) -> None:
         if self.architecture_version != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Incompatible architecture version: this model requires version 11; "
+                f"Incompatible architecture version: this model requires version {ARCHITECTURE_VERSION}; "
                 "earlier checkpoints cannot be loaded as this architecture"
             )
         positive = (
@@ -201,7 +206,6 @@ class ModelConfig:
             self.central_layers,
             self.prediction_layers,
             self.max_history_chunks,
-            self.max_tracks,
             self.kv_heads,
             self.attention_head_dim,
             self.media_extractor,
@@ -254,7 +258,7 @@ class ModelConfig:
     def from_dict(cls, values: dict[str, Any]) -> ModelConfig:
         if values.get("architecture_version") != ARCHITECTURE_VERSION:
             raise ValueError(
-                "Saved model configuration must explicitly declare architecture_version=11; "
+                f"Saved model configuration must explicitly declare architecture_version={ARCHITECTURE_VERSION}; "
                 "earlier checkpoints are intentionally unsupported"
             )
         unknown = set(values) - {field.name for field in fields(cls)}

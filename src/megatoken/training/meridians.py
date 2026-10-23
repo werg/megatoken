@@ -60,6 +60,7 @@ class MediaPlan:
     mode: str
     facet_count: int
     facet_dim: int
+    native_tape: object | None = None
 
     @property
     def modality(self) -> str:
@@ -78,12 +79,19 @@ class MediaPlan:
         counts["facet_prediction"] = (
             self.facet_count * self.facet_dim if self.mode == "bootstrap" else 0
         )
+        counts["encoder_alignment"] = (
+            self.facet_count * self.facet_dim
+            if self.mode == "recurrent" and self.native_tape is not None
+            else 0
+        )
         counts["router_balance"] = counts["router_z"] = 1
         return counts
 
     def resolve(self, store: TensorAssetStore, device: torch.device) -> MediaTrainTarget:
         source, target = self.reference.source, self.reference.target
         assert target is not None
+        if self.reference.rendered is not None:
+            store.load(self.reference.rendered)  # verify the actual decoded bytes before scoring
         mask = None
         if target.valid_count:
             # Only the leading real latent frames are supervised; codec padding is not.
@@ -97,6 +105,7 @@ class MediaPlan:
             mask,
             target.extractor,
             self.mode,
+            native_tape=self.native_tape,
         )
 
 
@@ -117,6 +126,8 @@ class MeridianStep:
     requests: tuple[tuple[str, int], ...] = ()
     relations: tuple[tuple[str, int, int, float], ...] = ()
     semantic_relations: tuple[tuple[str, int, int], ...] = ()
+    evidence_relations: tuple[tuple[str, int, str], ...] = ()
+    modality_choices: tuple[tuple[str, ...], ...] = ()
 
     @property
     def generated(self) -> bool:
@@ -250,6 +261,7 @@ def prepare_meridian_batch(
     positions = {record.record_id: index for index, record in enumerate(episode.records)}
     prefix, steps = [], []
     counts = dict.fromkeys(DEFAULT_LOSS_WEIGHTS, 0)
+    counts["policy_outcome"] = len(native.policy_entries(window.start, window.end))
     relation_rows = None  # the episode's annotations, parsed at the first supervised meridian
     for meridian in episode.meridians:
         offsets = tuple(positions[event.record_id] for event in meridian.events)
@@ -259,7 +271,11 @@ def prepare_meridian_batch(
             break
         if offsets[0] < window.start <= offsets[-1]:
             raise ValueError("Training window split a meridian")
-        if len(offsets) > 1 and any(native.paired_tape(cursor) is not None for cursor in offsets):
+        if (
+            len(offsets) > 1
+            and any(native.paired_tape(cursor) is not None for cursor in offsets)
+            and native.group_for_records(offsets) is None
+        ):
             raise ValueError(
                 "Individual native action tapes cannot certify a jointly selected "
                 "meridian; record a grouped native tape or use causal text targets"
@@ -295,10 +311,21 @@ def prepare_meridian_batch(
         plans: tuple[Plan, ...] = ()
         if all(selected) and offsets[0] >= window.start:
             plans = tuple(
-                _media_plan(model, record, modality, config)
+                dataclasses.replace(
+                    _media_plan(model, record, modality, config),
+                    native_tape=native.paired_tape(index),
+                )
                 if modality in MEDIA
                 else _target_plan(model, item, record, index, offsets[0], native, config)
                 for record, index, modality in zip(records, offsets, modalities, strict=True)
+            )
+            native_group = native.group_for_records(offsets)
+            # A collected group records its complete joint selection even when
+            # failed or empty outputs have no physical record. Modality choices
+            # remain labels for every selected peer; payload losses below only
+            # have targets for materialized records.
+            counts["modality"] += (
+                len(native_group.tracks) if native_group is not None else len(plans)
             )
             for plan in plans:
                 for name, count in plan.denominators.items():
@@ -314,6 +341,7 @@ def prepare_meridian_batch(
         )
         counts["relation"] += len(same_step_relations)
         semantic_relations = ()
+        evidence_relations = ()
         if plans:
             if relation_rows is None:
                 annotations = json.loads(episode.supervision.annotations_json)
@@ -327,6 +355,16 @@ def prepare_meridian_batch(
                 if relation["left"] in current and relation["right"] in current
             )
             counts["relation_semantic"] += len(semantic_relations)
+            evidence_relations = tuple(
+                (relation["kind"], current[now], earlier)
+                for relation in relation_rows
+                for now, earlier in (
+                    (relation["left"], relation["right"]),
+                    (relation["right"], relation["left"]),
+                )
+                if now in current and earlier in positions and positions[earlier] < offsets[0]
+            )
+            counts["relation_semantic"] += len(evidence_relations)
         step = MeridianStep(
             meridian.meridian_id,
             tuple(event.track_id for event in meridian.events),
@@ -338,6 +376,11 @@ def prepare_meridian_batch(
             tuple((event.request, event.request_revision) for event in meridian.events),
             same_step_relations,
             semantic_relations,
+            evidence_relations,
+            tuple(
+                tuple(json.loads(event.settings_json).get("allowed_modalities", ()))
+                for event in meridian.events
+            ),
         )
         (prefix if offsets[-1] < window.start else steps).append(step)
     if sum(len(x.records) for x in (*prefix, *steps)) != window.end:
@@ -364,24 +407,80 @@ def _actual_raw(
     device: torch.device,
     *,
     encoder_grad: bool,
+    descriptions=(),
+    prefer_native=True,
 ) -> torch.Tensor:
     """Rebuild selected raw blocks, preserving pinned modality and native identity."""
+    from megatoken.controls import encode_controls
+
+    purposes = {t.track_id: t.description for t in descriptions}
     values = []
-    for cursor, entry, modality in zip(step.offsets, step.records, step.modalities, strict=True):
-        tape = native.paired_tape(cursor)
+    for track, cursor, entry, modality in zip(
+        step.tracks, step.offsets, step.records, step.modalities, strict=True
+    ):
+        tape = native.paired_tape(cursor) if prefer_native else None
         if tape is not None:
             raw = tape.single_raw(device)
         else:
             with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
+                semantic = encode_controls(
+                    model.core, [purposes.get(track, "").encode()], encoder_grad=False
+                )
                 if modality in FEATURE_MODALITIES:
                     source = MediaRecord.from_bytes(entry.payload).source
                     features = torch.from_numpy(store.load(source)).to(device)[None]
-                    raw = model.core.encode_media(features, extractor=source.extractor)
+                    raw = model.core.encode_media(
+                        features, extractor=source.extractor, track_semantics=semantic
+                    )
                 else:
                     ids, lengths = byte_tensor([entry.payload], device)
-                    raw = model.core.encode_chunk(ids, lengths)
+                    raw = model.core.encode_chunk(ids, lengths, track_semantics=semantic)
         values.append(raw)
     return torch.stack(values, dim=1)
+
+
+def _modality_masks(model, step, device):
+    from megatoken.model.media import REALIZERS
+
+    names = ("text", "audio", "image", "video")
+    supported = {
+        name for name in names if name == "text" or REALIZERS[name] in model.media_realizers.packs
+    }
+    choices = step.modality_choices or ((),) * len(step.tracks)
+    rows = []
+    for allowed in choices:
+        if any(name not in names for name in allowed) or len(allowed) != len(set(allowed)):
+            raise ValueError(
+                "Public modality constraints require distinct supported modality names"
+            )
+        admitted = supported.intersection(allowed) if allowed else supported
+        if not admitted:
+            raise ValueError("Public output constraints allow no installed decoder")
+        rows.append([name in admitted for name in names])
+    return torch.tensor([rows], device=device, dtype=torch.bool)
+
+
+def _earlier_evidence(model, source, native, store, device, descriptions):
+    step, index = source
+    single = dataclasses.replace(
+        step,
+        tracks=(step.tracks[index],),
+        offsets=(step.offsets[index],),
+        records=(step.records[index],),
+        modalities=(step.modalities[index],),
+        roles=(step.roles[index],),
+        plans=(),
+    )
+    return _actual_raw(
+        model,
+        single,
+        native,
+        store,
+        device,
+        encoder_grad=False,
+        descriptions=descriptions,
+        prefer_native=False,
+    )[:, 0]
 
 
 def _preceding_native(
@@ -394,13 +493,7 @@ def _preceding_native(
     count = 0
     for cursor in step.offsets:
         for tape in native.events_for_record(cursor, include_record=False):
-            state = multi.tracks.advance_group(
-                state,
-                tape.raw(state.device),
-                tracks=tape.tracks,
-                role_ids=torch.tensor([tape.roles], dtype=torch.long, device=state.device),
-                modalities=tape.modalities,
-            )
+            state = multi.commit_tape(state, tape)
             count += 1
     return state, count
 
@@ -482,7 +575,13 @@ def _transducer_sequence(
     sequence.hindsight(
         meridians,
         lambda index: _actual_raw(
-            model, steps[index], batch.native_history, store, device, encoder_grad=False
+            model,
+            steps[index],
+            batch.native_history,
+            store,
+            device,
+            encoder_grad=False,
+            descriptions=batch.windows[0].episode.tracks,
         ),
     )
     return sequence
@@ -508,28 +607,59 @@ def forward_meridian_batch(
     boundaries; ``transducer`` is the run's ``TransducerTrainer`` (in evaluation
     its lookups read the bank alone and record nothing).
     """
-    from megatoken.training.engine import episode_control_payload
-
     multi = MultiTrackGenerator.of(model)
     store = batch.windows[0].assets
     state = multi.tracks.initial_state(1, device=device)
     if state.model_version != model_version:
         # The core owner is versioned by the outer training loop.
         raise ValueError("Meridian trainer received a stale model version")
-    payload = episode_control_payload(batch.windows[0].episode)
-    from megatoken.controls import causal_step_payloads, resolve_event_control
+    from megatoken.controls import resolve_event_control
     from megatoken.model.relations import SelectedRelation
 
     episode = batch.windows[0].episode
+    for track in episode.tracks:
+        if track.description:
+            state = multi.tracks.describe_track(state, track.track_id, track.description)
     event_by_record = {
         event.record_id: event for meridian in episode.meridians for event in meridian.events
     }
+    earlier_steps = {
+        entry.record.record_id: (step, index)
+        for step in (*batch.prefix, *batch.steps)
+        for index, entry in enumerate(step.records)
+    }
+    revisions = {}
+    for revision in episode.track_revisions:
+        revisions.setdefault(revision.record_id, []).append(revision)
+
+    def announce(state, step):
+        for record in step.records:
+            for revision in revisions.get(record.record.record_id, ()):
+                state = multi.tracks.describe_track(
+                    state, revision.track_id, revision.purpose, revision.revision
+                )
+        return state
+
     losses = []
+    from megatoken.training.outcome import policy_outcome
+
+    window = batch.windows[0].window
+    outcome_metrics = {}
+    for tape, credit in batch.native_history.policy_entries(window.start, window.end):
+        terms, measured = policy_outcome(multi, tape, credit, device=device)
+        losses.append(ledger.backward_loss(terms))
+        for name, value in measured.items():
+            outcome_metrics[name] = (
+                outcome_metrics.get(name, 0) + value.detach()
+                if isinstance(value, torch.Tensor)
+                else outcome_metrics.get(name, 0) + value
+            )
     metrics: dict[str, float | torch.Tensor] = {
         "grouped_training_windows": 1,
         "grouped_supervised_meridians": 0,
         "grouped_selected_events": 0,
         "grouped_native_replays": 0,
+        **outcome_metrics,
     }
     seed = int(torch.randint(0, 2**62, (1,)))
     # A reading-from-a-base episode searches the ingested bases of its declared items too.
@@ -555,20 +685,36 @@ def forward_meridian_batch(
             meridian_index += 1
             state, replayed = _preceding_native(multi, state, batch.native_history, step)
             metrics["grouped_native_replays"] += replayed
-            state = multi.tracks.advance_group(
-                state,
-                _actual_raw(
-                    model,
-                    step,
-                    batch.native_history,
-                    store,
-                    device,
-                    encoder_grad=False,
-                ),
-                tracks=step.tracks,
-                role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
-                modalities=step.modalities,
+            native_group = batch.native_history.group_for_records(step.offsets)
+            state = (
+                multi.commit_tape(state, native_group)
+                if native_group is not None
+                else multi.tracks.advance_group(
+                    state,
+                    native_group.raw(device)
+                    if native_group is not None
+                    else _actual_raw(
+                        model,
+                        step,
+                        batch.native_history,
+                        store,
+                        device,
+                        encoder_grad=False,
+                        descriptions=episode.tracks,
+                    ),
+                    tracks=step.tracks if native_group is None else native_group.tracks,
+                    event_ids=tuple(r.record.record_id for r in step.records)
+                    if native_group is None
+                    else native_group.event_ids,
+                    role_ids=torch.tensor(
+                        [step.roles if native_group is None else native_group.roles],
+                        dtype=torch.long,
+                        device=device,
+                    ),
+                    modalities=step.modalities if native_group is None else native_group.modalities,
+                )
             )
+            state = announce(state, step)
     for step in batch.steps:
         if text_anchors is not None:
             anchors, global_count, weight = text_anchors
@@ -589,6 +735,10 @@ def forward_meridian_batch(
         state, replayed = _preceding_native(multi, state, batch.native_history, step)
         metrics["grouped_native_replays"] += replayed
         if step.generated:
+            native_group = batch.native_history.group_for_records(step.offsets)
+            if native_group is not None:
+                for address, purpose, revision in native_group.track_descriptions:
+                    state = multi.tracks.describe_track(state, address, purpose, revision)
             # Recorded edit chains must continue from the *recorded* base,
             # never a sampled media output that the next gold edit did not see.
             edited_versions = {
@@ -614,6 +764,8 @@ def forward_meridian_batch(
             )
             teacher_forced = (
                 semantic_teacher
+                or json.loads(episode.supervision.annotations_json).get("continuation")
+                == "recorded"
                 or recorded_edit_base
                 or any(
                     entry.record.action_id is not None
@@ -628,57 +780,117 @@ def forward_meridian_batch(
                 plan.resolve(store, device) if isinstance(plan, MediaPlan) else plan
                 for plan in step.plans
             )
+            plan_indices = (
+                tuple(
+                    getattr(batch.native_history.paired_tape(cursor), "index", 0)
+                    for cursor in step.offsets
+                )
+                if native_group is not None
+                else None
+            )
+            full_tracks = step.tracks if native_group is None else native_group.tracks
+            full_event_ids = (
+                tuple(r.record.record_id for r in step.records)
+                if native_group is None
+                else native_group.event_ids
+            )
+            full_controls = (
+                tuple(
+                    resolve_event_control(episode, event_by_record[rec.record.record_id])
+                    for rec in step.records
+                )
+                if native_group is None
+                else native_group.controls
+            )
             result = multi.supervised_meridian(
                 state,
-                tracks=step.tracks,
+                tracks=full_tracks,
+                event_ids=full_event_ids,
                 plans=resolved,
-                control_payloads=(
-                    tuple(
-                        resolve_event_control(episode, event_by_record[rec.record.record_id])
-                        for rec in step.records
-                    )
-                    if any(
-                        event_by_record[rec.record.record_id].instruction
-                        or event_by_record[rec.record.record_id].reference_event_ids
-                        for rec in step.records
-                    )
-                    else causal_step_payloads(
-                        episode,
-                        step.meridian_id,
-                        payload,
-                        step.tracks,
-                        step.requests,
-                    )
-                ),
+                control_payloads=full_controls,
+                full_group=native_group,
+                plan_indices=plan_indices,
                 effort=batch.effort,
                 teacher_forced_action=teacher_forced,
-                relations=step.relations,
-                semantic_relations=tuple(SelectedRelation(*rel) for rel in step.semantic_relations),
+                relations=(
+                    tuple(
+                        (kind, plan_indices[left], plan_indices[right], weight)
+                        for kind, left, right, weight in step.relations
+                    )
+                    if plan_indices is not None
+                    else step.relations
+                ),
+                semantic_relations=tuple(
+                    SelectedRelation(
+                        kind,
+                        plan_indices[left] if plan_indices is not None else left,
+                        plan_indices[right] if plan_indices is not None else right,
+                    )
+                    for kind, left, right in step.semantic_relations
+                ),
+                evidence_relations=tuple(
+                    (
+                        kind,
+                        plan_indices[index] if plan_indices is not None else index,
+                        _earlier_evidence(
+                            model,
+                            earlier_steps[record],
+                            batch.native_history,
+                            store,
+                            device,
+                            episode.tracks,
+                        ),
+                    )
+                    for kind, index, record in step.evidence_relations
+                ),
+                modality_masks=_modality_masks(model, step, device)
+                if native_group is None
+                else None,
             )
             state = result.state
             losses.append(ledger.backward_loss(result.losses))
             metrics["grouped_supervised_meridians"] += 1
-            metrics["grouped_selected_events"] += len(step.tracks)
+            metrics["grouped_selected_events"] += len(
+                step.tracks if native_group is None else native_group.tracks
+            )
             for name, value in result.metrics.items():
                 metrics[name] = metrics.get(name, 0) + (
                     value.detach() if isinstance(value, torch.Tensor) else value
                 )
         else:
-            source_raw = _actual_raw(
-                model,
-                step,
-                batch.native_history,
-                store,
-                device,
-                encoder_grad=config.representation_training == "bootstrap",
+            native_group = batch.native_history.group_for_records(step.offsets)
+            source_raw = (
+                native_group.raw(device)
+                if native_group is not None
+                else _actual_raw(
+                    model,
+                    step,
+                    batch.native_history,
+                    store,
+                    device,
+                    encoder_grad=config.representation_training == "bootstrap",
+                    descriptions=episode.tracks,
+                )
             )
-            state = multi.tracks.advance_group(
-                state,
-                source_raw,
-                tracks=step.tracks,
-                role_ids=torch.tensor([step.roles], dtype=torch.long, device=device),
-                modalities=step.modalities,
+            state = (
+                multi.commit_tape(state, native_group)
+                if native_group is not None
+                else multi.tracks.advance_group(
+                    state,
+                    source_raw,
+                    tracks=step.tracks if native_group is None else native_group.tracks,
+                    event_ids=tuple(r.record.record_id for r in step.records)
+                    if native_group is None
+                    else native_group.event_ids,
+                    role_ids=torch.tensor(
+                        [step.roles if native_group is None else native_group.roles],
+                        dtype=torch.long,
+                        device=device,
+                    ),
+                    modalities=step.modalities if native_group is None else native_group.modalities,
+                )
             )
+        state = announce(state, step)
     if batch.retrieval is not None and _question_scored(batch.prefix, batch.steps):
         if sequence.question_search is None:
             raise RuntimeError("The annotated lookup after the question did not run")

@@ -460,6 +460,9 @@ def test_bf16_every_owner_and_unconditional_initial_state_are_differentiable():
         "media_encoder.",
         "central.modality_embedding.",
         "adapters.",
+        "modality_head.",
+        "reference_projection.",
+        "expert_pools.router_semantic_projection.",
     )
     media_only_pools = {
         entry["pool"]

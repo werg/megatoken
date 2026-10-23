@@ -103,6 +103,7 @@ class MediaTrainTarget:
     realizer: str
     mode: str
     role_id: int = 2
+    native_tape: object | None = None
 
     def __post_init__(self) -> None:
         if self.mode not in {"bootstrap", "recurrent"}:
@@ -159,6 +160,7 @@ class MediaEncoder(nn.Module):
         *,
         extractor: str,
         track_ids: Tensor | None = None,
+        track_semantics: Tensor | None = None,
     ) -> Tensor:
         if extractor != self.extractor:
             raise ValueError("Media features come from a different teacher than this model's")
@@ -181,7 +183,11 @@ class MediaEncoder(nn.Module):
         summary = (features.float() * mask[..., None]).sum(1) / mask.sum(1, keepdim=True)
         weights = current_adapter_weights(summary)
         with core.expert_pools.routing_epoch_if_absent(
-            summary, track_ids=track_ids, role="e", adapter_weights=weights
+            summary,
+            track_ids=track_ids,
+            track_semantics=track_semantics,
+            role="e",
+            adapter_weights=weights,
         ):
             projected = self.norm(self.projection(features.to(self.projection.weight.dtype)))
             projected = projected.masked_fill(~mask[..., None], 0)

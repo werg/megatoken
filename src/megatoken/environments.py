@@ -320,3 +320,121 @@ def environment_factory(
     if endpoint == "fixture":
         return FixtureEnvironment
     return lambda: HTTPEnvironment(endpoint, token_env=token_env, timeout=timeout)
+
+
+class SnapshotEnvironment(FixtureEnvironment):
+    """Executed tools over immutable snapshots with per-resource write conflicts.
+
+    Reads do not change state. Co-selected reads share the exact old snapshot;
+    writes to distinct files may commit independently, while a stale write to
+    a changed file fails before its effect. Repeated action identities return
+    the original execution, never perform a second effect.
+    """
+
+    def __init__(self):
+        super().__init__()
+        import threading
+
+        self._lock = threading.RLock()
+        self._snapshots = {}
+        self._resource_versions = {}
+
+    def reset(self, task):
+        with self._lock:
+            result = super().reset(task)
+            self._resource_versions = {key: 0 for key in self.files}
+            self._snapshots = {self.state_id: (dict(self.files), dict(self._resource_versions))}
+            return result
+
+    def step(self, action, *, action_id, expected_state_id):
+        import jsonschema
+
+        from megatoken.tool_schema import parse_tool_action
+
+        with self._lock:
+            if not action_id or expected_state_id not in self._snapshots:
+                raise ValueError(
+                    "Tool action requires an available immutable snapshot and identity"
+                )
+            identity = content_hash(
+                {"action": base64.b64encode(action).decode(), "state": expected_state_id}
+            )
+            if action_id in self._responses:
+                old_identity, result = self._responses[action_id]
+                if old_identity != identity:
+                    raise ValueError(
+                        "An action_id cannot be reused for different bytes or source state"
+                    )
+                return result
+            if self.done:
+                raise ValueError("The environment has already terminated")
+            name, arguments, _, _ = parse_tool_action(action)
+            definition = next((tool for tool in FIXTURE_TOOLS if tool["name"] == name), None)
+            if definition is None:
+                raise ValueError("Unknown snapshot tool")
+            jsonschema.validate(arguments, definition["parameters"])
+            files, versions = self._snapshots[expected_state_id]
+            if name == "read":
+                path = _safe_key(arguments["path"])
+                output = {"path": path, "content": files[path]}
+            elif name == "list":
+                output = {"paths": sorted(files)}
+            elif name == "write":
+                path = _safe_key(arguments["path"])
+                if versions.get(path, 0) != self._resource_versions.get(path, 0):
+                    raise ValueError(
+                        "Conflicting write: the selected resource changed after its snapshot"
+                    )
+                self.files[path] = arguments["content"]
+                self._resource_versions[path] = self._resource_versions.get(path, 0) + 1
+                output = {"written": path}
+            else:
+                if expected_state_id != self.state_id:
+                    raise ValueError("Completion requires the current full environment snapshot")
+                self.done = True
+                output = {"submitted": True}
+            self.sequence += 1
+            # Read execution has an identity but leaves the resource snapshot unchanged.
+            if name in {"write", "finish"}:
+                self.state_id = self._version()
+                self._snapshots[self.state_id] = (dict(self.files), dict(self._resource_versions))
+            result = EnvironmentResult(
+                canonical_json(output),
+                self.state_id,
+                execution_id=f"{self.session}:{self.sequence}",
+                done=self.done,
+                reward=float(self.files == self.expected) if self.done else 0.0,
+                verified=self.done,
+            )
+            self._responses[action_id] = (identity, result)
+            return result
+
+
+@dataclass(frozen=True)
+class SnapshotToolAdapter:
+    """Bind a selected group to one immutable environment snapshot.
+
+    The runtime passes the original call bytes and stable identity. The
+    environment owns concurrency, resource conflict checks and idempotency;
+    a callback cannot accidentally turn co-selected reads into serial reads of
+    different states. Construct a new binding after observing completed writes.
+    """
+
+    environment: SnapshotEnvironment
+    state_id: str
+
+    def execute_selected(self, *, action_id: str, payload: bytes) -> bytes:
+        result = self.environment.step(
+            payload, action_id=action_id, expected_state_id=self.state_id
+        )
+        return canonical_json(
+            {
+                "observation": json.loads(result.observation),
+                "state_id": result.state_id,
+                "execution_id": result.execution_id,
+                "done": result.done,
+                "reward": result.reward,
+                "verified": result.verified,
+                "provenance": result.provenance,
+            }
+        )

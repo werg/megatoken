@@ -179,7 +179,23 @@ def test_the_jsonl_service_mounts_collections_reports_originals_and_adds_files(t
     assert added["ok"] and added["collection"] == {"name": "main", "added": 1}
     assert opened["ok"] and len(opened["retrieved"]) == 3
     first = opened["retrieved"][0]
-    assert set(first) == {"lookup", "collection", "item", "modality", "origin", "score"}
+    assert set(first) == {
+        "lookup",
+        "collection",
+        "item",
+        "event_id",
+        "modality",
+        "origin",
+        "score",
+        "publication_revision",
+        "available_at_ns",
+        "snapshot_revision",
+        "searched_at_ns",
+    }
+    assert first["publication_revision"] <= first["snapshot_revision"]
+    assert first["available_at_ns"] <= first["searched_at_ns"]
+    assert first["event_id"].startswith("source:")
+    assert len({entry["event_id"] for entry in opened["retrieved"]}) == 3
     assert first["collection"] == "main" and first["lookup"] == 0
 
 

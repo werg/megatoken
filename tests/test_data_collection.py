@@ -174,8 +174,49 @@ def test_student_changed_action_gets_fresh_execution_before_teacher_correction(t
     assert (
         len(list(ledger.connection.execute("SELECT * FROM requests"))) == 2
     )  # Student draws are not T.
+    assert "outcome_credit" not in episode.supervision.annotations_json
     ledger.close()
     families.close()
+
+
+@pytest.mark.parametrize("success", (False, True))
+def test_student_only_uses_its_own_verified_outcome_without_teacher_help(tmp_path, success):
+    import json
+    from dataclasses import replace
+
+    from native_support import group_tape
+
+    codec = ByteCodec.byte_fallback()
+    task = seed()
+    environment = json.loads(task.environment_json)
+    if success:
+        environment["expected_files"] = environment["initial_files"]
+    task = replace(task, environment_json=canonical_json(environment))
+    call = TeacherCall("done", "finish", "{}")
+    tape = replace(group_tape(codec, call.action_bytes), policy_context=())
+
+    class Student:
+        model = "frozen-student"
+
+        def respond(self, request):
+            assert "expected_files" not in request.messages_json
+            return TeacherResponse(calls=(call,), native_tape_json=tape.to_json())
+
+    teacher = RepairTeacher()
+    with (
+        registry(tmp_path / "families", [task]) as families,
+        CollectionLedger(tmp_path / "usage", config()) as ledger,
+    ):
+        episode = Collector(teacher, FixtureEnvironment, codec, ledger, families).collect(
+            task, student=Student(), student_snapshot="sha256:frozen", student_only=True
+        )
+        assert not teacher.requests
+        assert episode.supervision.verified_success == success
+        assert episode.stream == ("successful_replay" if success else "student_rollout_failures")
+        (entry,) = json.loads(episode.supervision.annotations_json)["native_action_tapes"]
+        assert entry["outcome_credit"]["reward"] == float(success)
+        assert entry["outcome_credit"]["selected_events"] == 1
+        assert not list(ledger.connection.execute("SELECT * FROM requests"))
 
 
 def test_interrupted_requests_hold_reservations_and_attempt_caps(tmp_path):

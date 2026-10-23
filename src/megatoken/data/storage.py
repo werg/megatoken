@@ -25,7 +25,7 @@ from .dedup import DedupStore
 from .media_assets import MEDIA, MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
 from .schema import Codec, Episode
 
-DATASET_VERSION = 3
+DATASET_VERSION = 5
 
 
 def _scored_media_outputs(episode: Episode) -> dict[str, int]:
@@ -55,6 +55,7 @@ def export_prepared(
     shard_bytes: int = 128 << 20,
     chunking: ChunkingConfig | None = None,
     sidecars: Mapping[str, Any] | None = None,
+    assets: TensorAssetStore | None = None,
 ) -> dict[str, Any]:
     """The manifest is the commit marker; an interrupted export is safely rerun.
 
@@ -88,6 +89,10 @@ def export_prepared(
     scope_counts: dict[str, int] = {}
     feature_counts: dict[str, int] = {}
     scored_media_counts: dict[str, int] = {}
+    from .coverage import Coverage
+
+    coverage = Coverage(connection)
+    asset_store = TensorAssetStore(root)
     shard_index = 0
     shard_handle: BinaryIO | None = None
     shard_temp: Path | None = None
@@ -123,6 +128,21 @@ def export_prepared(
     try:
         for entry_id, row in enumerate(store.accepted_rows()):
             episode = Episode.from_dict(json.loads(row["episode_json"]))
+            for record in episode.records:
+                if record.media_type != MEDIA_RECORD_TYPE:
+                    continue
+                reference = MediaRecord.from_bytes(record.payload)
+                if assets is not None:
+                    assets.copy_record(reference, asset_store)
+                for asset in (
+                    reference.source,
+                    reference.embedding,
+                    reference.target,
+                    reference.rendered,
+                ):
+                    if asset is not None:
+                        asset_store.load(asset)
+            coverage.add(episode, row["split"], row["stream"])
             for modality, count in _scored_media_outputs(episode).items():
                 key = f"{row['split']}|{row['stream']}|{modality}"
                 scored_media_counts[key] = scored_media_counts.get(key, 0) + count
@@ -216,6 +236,7 @@ def export_prepared(
             if entry_id % 256 == 0:
                 connection.commit()
         close_shard()
+        behavior_coverage = coverage.report()
         connection.commit()
         connection.execute("VACUUM")
         connection.close()
@@ -255,6 +276,7 @@ def export_prepared(
             "counts": scope_counts,
             "feature_counts": feature_counts,
             "scored_media_counts": scored_media_counts,
+            "behavior_coverage": behavior_coverage,
             "feature_extractors": feature_extractors,
             "complete": True,
         }
@@ -382,10 +404,7 @@ class PreparedDataset:
                     or count <= 0
                 ):
                     raise ValueError("Prepared scored-media summary is malformed")
-                if (
-                    split == self.split
-                    and stream in selected
-                ):
+                if split == self.split and stream in selected:
                     result.add(modality)
             return result
         result = set()

@@ -1,20 +1,113 @@
-> **Scope:** This page describes the multi-track code (architecture v10), not model quality. Training is launched only through the phase-gated recipes in [README.md](../README.md); the memory mechanism is in [continuous-state-transducer-plan.md](continuous-state-transducer-plan.md) and media phases are in [media.md](media.md). Older stage commands are not supported.
+> **Scope:** This page describes the multi-track code (architecture v13), not model quality. Training is launched only through the phase-gated recipes in [README.md](../README.md); the memory mechanism is in [continuous-state-transducer-plan.md](continuous-state-transducer-plan.md) and media phases are in [media.md](media.md). Older stage commands are not supported.
 
-# Multi-track implementation status (architecture v10)
+# Multi-track implementation status (architecture v13)
 
 This page describes the code that has been written, not model quality. The complete
 research and engineering design is in [multi-track-plan.md](multi-track-plan.md).
+
+## Dynamic addressing and scheduling
+
+Track addresses now serve attachment and equality only. Neither the shared expert
+router nor the retrieval-conditioned expert adjustments contain a learned table
+indexed by track number. Public descriptions and event requests supply meaning for
+singleton and grouped predictions. The instruction encoder is recomputed under the
+current weights; no detached description cache survives an optimizer update.
+Changing a purpose requires a new revision. Changing a label preserves the address.
+The former track setting is only a default active-work budget; it no longer bounds
+session lifetime or state geometry. Memory ingestion and hindsight no longer enforce
+the old lifetime limit.
+
+Each selected group has distinct event addresses, including peers on the same track.
+Random draws and rendering seeds are assigned by event address. An output-modality
+classifier runs before content prediction; supported output specifications determine
+its legal choices. Requests can constrain a single modality or offer several options.
+Absent decoders are rejected before selection, and output extents must be public
+requests. Tapes retain the legal modality masks and categorical log probabilities,
+alongside continuous content densities, and replay checks both. Selection records
+explicitly distinguish unrendered content from a completed rendering outcome; failed
+rendering can be archived without inventing an emitted text event. Served exports
+declare and verify the installed output modalities.
+
+The runtime owns track creation, assignment, progress, waiting, completion,
+cancellation and resumption. Creation returns an address; completed addresses remain
+recognizable for late replies. Lifecycle control messages use the existing constrained
+tool decoder and training objectives. They are selected actions, rather than an
+additional unrecorded policy. `lifecycle_tools` exposes their schemas;
+`execute_lifecycle` accepts only already committed groups. `track_output` queues work
+using host-provided output specifications (text by default). Other modalities require
+explicit supported geometry and installed decoders.
+
+Ready work has event prerequisites, task revisions, budgets and priorities. The
+bounded queue batches compatible ready events without waiting for unrelated work.
+Stale requests are recorded and removed. Periodic oldest-first service prevents
+persistent priority traffic from starving other ready work. Selected representations,
+rendering outcomes and acknowledged delivery are separate records. Rendering uses an
+immutable selection snapshot; new input can commit while rendering runs. Stopping
+delivery does not erase a selection or retract delivered content. Ready tool results
+publish to the original task; interrupted result publication resumes at its next
+chunk, and duplicate dispatch cannot repeat an effect through the same runner.
+
+`start_generation` commits the selection and starts asynchronous rendering;
+`poll_generation` reports completion or failure. `stop_delivery`, `delivered` and
+`release_generation` control delivery and free retained physical outputs. Global and
+session rendering admission are bounded before selection. The synchronous
+`generate` and speculative `speculate`/`accept` interfaces remain available. Call
+`MultiTrackRuntime.close()` when the host stops serving.
+
+The prepared episode and aligned-source compiler retain optional exact media ticks,
+clock rates, speakers, direction, transformation provenance and external availability
+and selection times. Validation rejects events selected before availability,
+same-group prerequisites, dependent stream chunks grouped as peers, and call results
+without a completed earlier call. These metadata checks do **not** establish causal
+feature extraction for an acquisition pipeline that has not been audited.
+
+### Delivery boundary
+
+This delivery changes the model/runtime contracts and adds modality supervision to
+the existing grouped learner and shared loss accounting. It does not establish a
+trained dynamic-worker policy. The collection adapter and native-history pairing
+support grouped selections and media receipts, including empty and failed peers.
+Verified outcome supervision and whole-decision progress accounting are integrated
+with the existing training path. Timed source preparation and checked execution-trace
+import use ordinary deduplication, export, training, and held-out coverage gates.
+The [training runbook](dynamic-training-runbook.md) gives executable preparation
+steps and distinguishes real local producers from acquired supply. No acquired
+production timed corpus, natural full-duplex training run,
+decoded synchronization result, or accelerator speedup is claimed. Timing metadata
+alone cannot make a non-streaming decoder full duplex. Source selection, audited
+channel/prefix preparation, split-wide lineage checks, production supply coverage and
+generated held-out acceptance remain required before a production launch.
+
+The focused dynamic-track tests exercise address remapping, retirement beyond the
+old limit, categorical replay, same-track speech/caption peers, finite gradients,
+input during failed rendering, cancelled delivery, late results after rename,
+prerequisite scheduling, stale tasks, memory release, and exactly-once lifecycle
+execution. Test media decoders isolate protocol behavior; they do not measure quality.
+Existing training/export/restart, distributed, retrieval, student and media suites
+remain regression gates.
+
+The completion review used the local CPU environment with PyTorch 2.14.1. Its broad
+run passed 2,476 tests, skipped five optional ICU checks, and found one outdated
+assertion requiring the old retrieval-response fields. That assertion now includes
+the exact evidence address. The subsequent affected-boundary run passed all 33
+tests, including collection, retrieval, native history, and a newly added collected
+speech/caption export-and-backward test. These sets overlap and must not be added
+together as independent coverage. Ruff lint and whitespace checks passed. A fresh
+authored-text acceptance run completed preparation, optimization, checkpoint restart,
+export, and generation through the public service. No real-weight media or
+production-quality result is implied. See the runbook for the remaining acquisition
+and evaluation gates.
 
 ## Architecture status
 
 | Capability | Current state |
 | --- | --- |
-| Breaking architecture v10 + strict format identities | Implemented in code |
+| Breaking architecture v13 + strict format identities | Implemented in code |
 | Same-meridian full attention using one C and shared final KV | Implemented in code |
 | Joint P12 live queries and existing per-event expert topology | Implemented in code |
 | Stable session track equality bias and learned modality features | Implemented in code |
 | Atomic whole-meridian eviction after the incoming C context read | Implemented in code |
-| Joint Gaussian action, per-event density and effort, canonical track-order draws, grouped replay | Implemented in code |
+| Joint Gaussian action, per-event density and effort, canonical event-order draws, grouped replay | Implemented in code |
 | Heterogeneous text, audio, image and video observations | Implemented in code (media as teacher features) |
 | Shared E reduction and 32-facet readout across modalities | Implemented in code |
 | Media input as pinned EmbeddingGemma2 hidden states through `MediaEncoder` and shared E | Implemented in code ([media.md](media.md)) |
@@ -25,12 +118,13 @@ research and engineering design is in [multi-track-plan.md](multi-track-plan.md)
 | Speculative atomic branches and ready tool result ingestion | Implemented in code |
 | Parallel external IO tool execution | Basic executor implemented |
 | RAG evidence and worker tracks | Supported structurally as ordinary observations/tracks |
-| Data schema meridian IDs, track identities and media alignment intervals | Implemented in code; runtime propagation incomplete |
+| Data group IDs, track/event identities and exact media intervals | Implemented; audited source preparation remains incomplete |
 | Distributed (DiLoCo) multi-track media training phases | Configured ([media.md](media.md)); **no measured GPU-scale result** |
 | Paired speech/video production corpus acquisition | **Not implemented** ([roadmap](pretrained-omnimodal-bottleneck-plan.md)) |
 | High-quality generated voices/images/videos | **Not established** |
 | Joint audiovisual lip-synchronization and perceptual evaluations | **Not implemented** |
-| Full multitrack latent-only outcome RL and executed-trajectory integration | **Not implemented** |
+| Executed-trajectory integration and verified whole-selection outcome supervision | Implemented in the ordinary grouped trainer; quality unmeasured |
+| Separate frozen-decoder latent-only outcome RL stage | **Not implemented** |
 | GPU memory/latency benchmarking of grouped rendering | **Not measured** |
 
 Media realization uses frozen pretrained donors (Pocket, Sana, Sana-Video)
@@ -144,7 +238,8 @@ collects rollouts for training runs it too, so all three behave the same (lookup
 adapter mixture, mounted collections and knowledge bases).
 
 The server accepts `open`, `observe`, `observe_text`, `generate`, `speculate`, `accept`,
-`cancel`, `status` and `close`. `observe_text` (`track`, `role`, `text` or `payload_b64`)
+`cancel`, `status` and `close`, plus the lifecycle, queue and asynchronous-rendering
+operations described above. `observe_text` (`track`, `role`, `text` or `payload_b64`)
 cuts a message into chunks by the bundle's chunk policy, one meridian each, and only the
 last ends the message; `observe` takes events that are already one physical chunk.
 For an example request (supply a live session
@@ -157,6 +252,29 @@ ID returned by `open`):
   {"track":"illustration","modality":"image","height":64,"width":64}
 ]}
 ```
+
+To request corresponding peers on one continuing track, give distinct event addresses:
+
+```json
+{"op":"start_generation","session":"<session-id>","effort":1,"outputs":[
+  {"track":"reply","event_id":"speech-1","modality":"audio","sample_count":24000},
+  {"track":"reply","event_id":"caption-1","modality":"text","max_tokens":64}
+]}
+```
+
+The response supplies `selection_revision`. Send it to `poll_generation`; acknowledge
+actual playback with `delivered` and its `event_ids`, then `release_generation` after
+archiving the tape. Input can arrive through `observe` or `observe_text` while rendering
+runs. `stop_delivery` suppresses later delivery and preserves the selected action.
+Already played audio remains delivered. Renderer failure reports an outcome rather
+than undoing shared selected history. Poll responses include the original `selection`
+record even when no output was rendered.
+
+To let the classifier choose, supply one output with an `options` list, for example
+`[{"modality":"text","max_tokens":64},{"modality":"audio","sample_count":24000}]`.
+Every offered decoder must be installed before selection; no target duration is inferred.
+Repeated calls may omit event addresses when their tracks are distinct within the group;
+the runtime then allocates fresh event addresses from the session chronology.
 
 Media input uses a `payload_f32_b64` field, an explicit `shape`
 `[1, tokens, 512]` and the pinned `extractor` string: the teacher's hidden
@@ -199,7 +317,7 @@ reference assets or fetch pack weights.
 ## Strict formats and no migrations
 
 - Architecture version: **10** (`ARCHITECTURE_VERSION`); the one tape serving, collection
-  and training exchange is `GroupActionTape` (`fmt-multitrack-facets-v12`), recording
+  and training exchange is `GroupActionTape` (`fmt-multitrack-facets-v15`), recording
   renderer seeds and realizer pack identities per event. A single-track draw (a student's
   rollout step) is a group of one event; the decoder-level single-event tape
   `fmt-canonical-facets-v8` is only the output of the single-track diagnostic sampler.

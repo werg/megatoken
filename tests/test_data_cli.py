@@ -223,7 +223,7 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
             self.observed, self.draws = [], 0
 
         def open(self, **options):
-            return SimpleNamespace(facet_advances=0)
+            return SimpleNamespace(facet_advances=0, selected_groups={})
 
         def observe(self, session, events, *, effort):
             (event,) = events
@@ -250,7 +250,7 @@ def test_frozen_student_preserves_native_action_and_does_not_reingest_it(tmp_pat
                 assert all(track != "assistant" for track, _ in self.observed)
                 payload = b'{"name":"read","arguments":{"path":"answer.txt"}}'
             tape = group_tape(codec, payload, valid=valid_draw > 0, facets=(float(self.draws),))
-            return SimpleNamespace(tape=tape)
+            return SimpleNamespace(tape=replace(tape, policy_context=()))
 
     runtime = Runtime()
     student = ModelTeacher(tiny_bundle(codec))
@@ -295,7 +295,7 @@ def test_student_public_controls_and_empty_draw_tapes_survive_collection(tmp_pat
             self.observed, self.tapes = [], []
 
         def open(self, **options):
-            return SimpleNamespace(facet_advances=0)
+            return SimpleNamespace(facet_advances=0, selected_groups={})
 
         def observe(self, session, events, *, effort):
             (event,) = events
@@ -325,8 +325,9 @@ def test_student_public_controls_and_empty_draw_tapes_survive_collection(tmp_pat
                 log_prob=-1.25,
                 control=control,
             )
+            tape = replace(tape, policy_context=())
             self.tapes.append(tape)
-            return SimpleNamespace(tape=tape)
+            return SimpleNamespace(tape=replace(tape, policy_context=()))
 
     class RecordingStudent(ModelTeacher):
         def __init__(self, runtime):

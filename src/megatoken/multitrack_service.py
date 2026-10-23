@@ -45,9 +45,8 @@ from __future__ import annotations
 import base64
 import json
 import math
-import uuid
-from collections.abc import Mapping
-from dataclasses import replace
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -116,6 +115,9 @@ def _read_event(value: Mapping[str, object], device: torch.device) -> ObservedEv
     track = value.get("track")
     if not isinstance(track, str) or not track:
         raise ValueError("Observed track requires a nonempty name")
+    event_id = value.get("event_id", "")
+    if not isinstance(event_id, str):
+        raise ValueError("Observed event address must be a string")
     role_name = value.get("role", "user")
     if not isinstance(role_name, str) or role_name not in ROLE_TO_ID:
         raise ValueError("Unknown observation role")
@@ -126,6 +128,7 @@ def _read_event(value: Mapping[str, object], device: torch.device) -> ObservedEv
             payload=_payload(value),
             role_id=ROLE_TO_ID[role_name],
             terminal=_terminal(value, True),
+            event_id=event_id,
         )
     # Media arrives as pinned teacher hidden states [1, tokens, 512], never raw media.
     return ObservedEvent(
@@ -135,6 +138,7 @@ def _read_event(value: Mapping[str, object], device: torch.device) -> ObservedEv
         role_id=ROLE_TO_ID[role_name],
         extractor=str(value.get("extractor", "")),
         terminal=_terminal(value, True),
+        event_id=event_id,
     )
 
 
@@ -181,6 +185,7 @@ def _output(
             reference=_control_text(value, "control_reference"),
             reference_origin=value.get("reference_origin"),
             tools_json="[]" if tools_json is None else tools_json,
+            reference_event_ids=value.get("reference_event_ids", ()),
         )
     modality = value.get("modality", "text")
     if modality == "text":
@@ -231,9 +236,14 @@ def _retrieved(session: TrackSession, delivered: int) -> tuple[list[dict], int]:
             "lookup": entry.lookup,
             "collection": entry.collection,
             "item": entry.item.item_id,
+            "event_id": entry.event_id,
             "modality": entry.item.modality,
             "origin": entry.item.origin,
             "score": entry.score,
+            "publication_revision": entry.publication_revision,
+            "available_at_ns": entry.available_at_ns,
+            "snapshot_revision": entry.snapshot_revision,
+            "searched_at_ns": entry.searched_at_ns,
         }
         for entry in log[delivered:]
     ]
@@ -245,6 +255,7 @@ def _output_response(group, specs):
     for i, spec in enumerate(specs):
         item = {
             "track": group.tape.tracks[i],
+            "event_id": group.tape.event_ids[i],
             "modality": group.tape.modalities[i],
             "valid": group.tape.valid[i],
         }
@@ -294,6 +305,32 @@ def _knowledge_op(runtime: MultiTrackRuntime, root: Path | None, op: str, reques
         )
     elif op == "kb_create":
         base = memory.create_base(name)
+    elif op == "kb_overlay":
+        base = memory.create_overlay(
+            name,
+            request.get("scope"),
+            _inside(root, request.get("path")),
+            max_edges=int(request.get("max_edges", 2048)),
+            byte_budget=request.get("byte_budget"),
+        )
+    elif op == "kb_forget":
+        return {
+            "forgotten": memory.forget(
+                name,
+                ids=request.get("ids"),
+                session=request.get("session"),
+                scope=request.get("scope"),
+            )
+        }
+    elif op == "kb_promote":
+        return {
+            "promoted": memory.promote(
+                name,
+                request["destination"],
+                request["ids"],
+                reviewed=request.get("reviewed") is True,
+            )
+        }
     elif op == "kb_save":
         base = memory.bases[name]
         base.save(_inside(root, request.get("path")))
@@ -342,6 +379,8 @@ class MultiTrackService:
         *,
         max_sessions: int = 32,
         kb_root: str | Path | None = None,
+        tools: Sequence[dict] = (),
+        adapters: Mapping[str, Any] | None = None,
     ) -> None:
         """``kb_root`` enables the knowledge base operations: every path lies inside it."""
         if max_sessions < 1:
@@ -353,8 +392,16 @@ class MultiTrackService:
         self.root = None if kb_root is None else Path(kb_root).resolve()
         self.sessions: dict[str, TrackSession] = {}
         self.delivered: dict[str, int] = {}
+        self.execution_tools = tuple(tools)
+        self.execution_adapters = dict(adapters or {})
+        self.executors = {}
 
     def serve(self, input_stream: TextIO, output_stream: TextIO) -> None:
+        # Undecodable bytes become U+FFFD, so a bad line fails as its own malformed request
+        # instead of ending the iteration (and with it every open session).
+        reconfigure = getattr(input_stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(errors="replace")
         for line in input_stream:
             try:
                 response = self.handle(strict_json_loads(line))
@@ -366,8 +413,19 @@ class MultiTrackService:
     @staticmethod
     def encode(response: dict[str, Any]) -> str:
         """One response line; a result that is not strict JSON (a NaN density) fails its own request."""
+
+        def dump(value: dict[str, Any]) -> str:
+            text = json.dumps(value, ensure_ascii=False, allow_nan=False)
+            try:
+                text.encode("utf-8")
+            except UnicodeEncodeError:
+                # A lone surrogate (an echoed request id, say) cannot be written as UTF-8;
+                # escaping it keeps the line strict JSON.
+                text = json.dumps(value, ensure_ascii=True, allow_nan=False)
+            return text
+
         try:
-            return json.dumps(response, ensure_ascii=False, allow_nan=False)
+            return dump(response)
         except (ValueError, TypeError) as exc:
             failure = {
                 "ok": False,
@@ -375,7 +433,7 @@ class MultiTrackService:
             }
             if "id" in response:
                 failure["id"] = response["id"]
-            return json.dumps(failure, ensure_ascii=False, allow_nan=False)
+            return dump(failure)
 
     def handle(self, request: Any) -> dict[str, Any]:
         """The answer to one request; an error is the request's own and never ends serving."""
@@ -404,7 +462,34 @@ class MultiTrackService:
             if session_id not in self.sessions:
                 raise ValueError("Unknown or closed session")
             session = self.sessions[session_id]
-            if op == "observe":
+            if op == "step":
+                from megatoken.execution import SessionExecutor
+
+                if session_id not in self.executors:
+                    self.executors[session_id] = SessionExecutor(
+                        runtime,
+                        session,
+                        self.execution_tools,
+                        self.execution_adapters,
+                        max_selections=int(request.get("max_selections", 128)),
+                    )
+                answer = self.executors[session_id].tick(
+                    effort=int(request.get("effort", 6)), seed=int(request.get("seed", 0))
+                )
+                answer["session"] = session_id
+            elif op == "track_action":
+                description = runtime.track_action(
+                    session,
+                    request["operation"],
+                    address=request.get("track"),
+                    **request.get("values", {}),
+                )
+                answer = {
+                    "session": session_id,
+                    "revision": session.revision,
+                    "track": asdict(description),
+                }
+            elif op == "observe":
                 raw = request.get("events", [])
                 if not isinstance(raw, list) or not raw:
                     raise ValueError("Observation meridian needs an event list")
@@ -431,7 +516,79 @@ class MultiTrackService:
                     **hints,
                 )
                 answer = {**self._observed(session_id, session), "chunks": chunks}
-            elif op in {"generate", "speculate"}:
+            elif op == "enqueue":
+                from megatoken.multitrack_runtime import ReadyWork
+
+                spec, control = _output(
+                    request["output"], self.model.config.max_capacity, session.history
+                )
+                runtime.enqueue(
+                    session,
+                    ReadyWork(
+                        request["event_id"],
+                        request["track"],
+                        spec,
+                        control,
+                        tuple(request.get("prerequisites", ())),
+                        int(request.get("task_revision", 0)),
+                        int(request.get("priority", 0)),
+                    ),
+                )
+                answer = {"session": session_id, "queued": len(session.queue)}
+            elif op == "schedule_ready":
+                selected_revision = runtime.schedule_ready(
+                    session,
+                    max_events=int(request.get("max_events", 4)),
+                    effort=int(request.get("effort", 6)),
+                )
+                answer = {
+                    "session": session_id,
+                    "selection_revision": selected_revision,
+                    "queued": len(session.queue),
+                }
+            elif op == "release_generation":
+                runtime.release_generation(session, int(request["selection_revision"]))
+                answer = {"session": session_id, "revision": session.revision}
+            elif op == "lifecycle_tools":
+                answer = {
+                    "session": session_id,
+                    "tools": session.tracks.legal_tools(tuple(runtime.output_specs)),
+                }
+            elif op == "execute_lifecycle":
+                group = session.selected_groups[int(request["selection_revision"])]
+                answer = {
+                    "session": session_id,
+                    "outcomes": runtime.execute_lifecycle(session, group),
+                    "revision": session.revision,
+                }
+            elif op in {"poll_generation", "stop_delivery", "delivered"}:
+                selected_revision = int(request["selection_revision"])
+                if op == "stop_delivery":
+                    work = runtime.stop_delivery(session, selected_revision)
+                elif op == "delivered":
+                    runtime.delivered(
+                        session,
+                        selected_revision,
+                        request["event_ids"],
+                        extents=request.get("extents"),
+                    )
+                    work = runtime.poll_generation(session, selected_revision)
+                else:
+                    work = runtime.poll_generation(session, selected_revision)
+                answer = {
+                    "session": session_id,
+                    "revision": session.revision,
+                    "selection_revision": selected_revision,
+                    "status": work.status,
+                    "error": work.error,
+                    "delivery_progress": dict(work.delivery_progress),
+                    "delivery_log": list(work.delivery_log),
+                    "selection": json.loads(work.selection.tape.to_json()),
+                }
+                if work.result is not None and work.status in {"rendered", "delivered"}:
+                    answer["outputs"] = _output_response(work.result, work.selection.specs)
+                    answer["tape"] = json.loads(work.result.tape.to_json())
+            elif op in {"generate", "speculate", "start_generation"}:
                 answer = self._generate(session_id, session, request, speculative=op == "speculate")
             elif op == "accept":
                 pending = session.pending
@@ -455,15 +612,32 @@ class MultiTrackService:
                     "retained_meridians": len(session.state.meridian_sizes),
                     "retained_events": sum(session.state.meridian_sizes),
                     "track_registry": list(session.state.track_registry),
+                    "tracks": [asdict(t) for t in session.tracks.tracks.values()],
                     "pending": session.pending is not None,
                 }
+            elif op == "flush":
+                self.runtime.memory.flush(session.memory)
+                return {"flushed": session_id}
             elif op == "close":
+                executor = self.executors.pop(session_id, None)
+                if executor is not None:
+                    executor.close()
+                self.runtime.memory.close_session(session.memory)
                 del self.sessions[session_id]
                 self.delivered.pop(session_id, None)
                 return {"closed": session_id}
             else:
                 raise ValueError("Unknown multitrack operation")
-        if op in {"open", "observe", "observe_text", "generate", "accept"}:
+        if op in {
+            "open",
+            "observe",
+            "observe_text",
+            "generate",
+            "accept",
+            "poll_generation",
+            "start_generation",
+            "delivered",
+        }:
             retrieved, self.delivered[session_id] = _retrieved(
                 self.sessions[session_id], self.delivered.get(session_id, 0)
             )
@@ -482,9 +656,13 @@ class MultiTrackService:
             raise ValueError("Mounted bases must be a JSON object of name to weight")
         options = {
             key: request[key]
-            for key in ("collections", "max_sources", "threshold")
+            for key in ("collections", "max_sources", "threshold", "overlay", "scope")
             if key in request
         }
+        if "write_policy" in request:
+            from megatoken.serving_writes import WritePolicy
+
+            options["write_policy"] = WritePolicy(**request["write_policy"])
         session = self.runtime.open(
             metadata,
             bases={str(k): float(v) for k, v in bases.items()},
@@ -492,7 +670,7 @@ class MultiTrackService:
             effort=int(request.get("effort", 6)),
             **options,
         )
-        session_id = uuid.uuid4().hex
+        session_id = session.memory.session_id
         self.sessions[session_id] = session
         return {
             "session": session_id,
@@ -525,6 +703,15 @@ class MultiTrackService:
             _output(item, self.model.config.max_capacity, session.history) for item in requested
         ]
         specs, controls = (tuple(column) for column in zip(*outputs, strict=True))
+        options = tuple(
+            tuple(
+                _output({**item, **option}, self.model.config.max_capacity, session.history)[0]
+                for option in item["options"]
+            )
+            if "options" in item
+            else (spec,)
+            for item, spec in zip(requested, specs, strict=True)
+        )
         rng = (
             None
             if request.get("seed") is None
@@ -532,15 +719,33 @@ class MultiTrackService:
         )
         arguments = dict(
             tracks=names,
+            event_ids=(
+                tuple(item["event_id"] for item in requested)
+                if any("event_id" in item for item in requested)
+                else None
+            ),
             specs=specs,
+            modality_options=options,
             controls=controls,
             effort=int(request.get("effort", 6)),
             generator=rng,
         )
+        if request.get("op") == "start_generation":
+            revision = self.runtime.start_generation(session, **arguments)
+            return {
+                "session": session_id,
+                "revision": session.revision,
+                "selection_revision": revision,
+                "status": "rendering",
+            }
         if speculative:
             group = self.runtime.speculate(session, **arguments).result
         else:
             group = self.runtime.generate(session, **arguments)
+        specs = tuple(
+            next(p for p in choices if self.runtime.generator._spec_id(p) == fingerprint)
+            for choices, fingerprint in zip(options, group.tape.spec_fingerprints, strict=True)
+        )
         return {
             "session": session_id,
             "revision": session.revision,

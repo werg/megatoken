@@ -270,3 +270,26 @@ def test_kb_build_and_inspect_write_a_base_that_the_model_it_was_built_for_mount
     with pytest.raises(ValueError, match="not both"):
         mixed = ["--name", "x", "--items", str(dataset), str(out), "--model", str(bundle)]
         main(["--debug", "kb", "build", *mixed])
+
+
+def test_failure_in_later_ingest_group_publishes_nothing(tmp_path, monkeypatch):
+    from megatoken.data.knowledge import PreparedFile, knowledge_items
+    from megatoken.kb import add_items
+    runtime = _runtime(tmp_path)
+    base = runtime.memory.create_base('atomic')
+    preparer = StubPreparer(tmp_path / 'assets')
+    items = knowledge_items([PreparedFile(p, preparer) for p in _files(tmp_path)])
+    native = runtime.memory.native
+    original = native.ingest_rows
+    calls = 0
+    def fail_later(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError('second group failed')
+        return original(*args, **kwargs)
+    monkeypatch.setattr(native, 'ingest_rows', fail_later)
+    with pytest.raises(RuntimeError, match='second group failed'):
+        add_items(base, runtime.generator.generator, runtime.generator, items, batch=1)
+    assert calls == 2 and base.edge_count == 0 and not base.sources
+    assert base.version == 0 and base.table.next_id == 1

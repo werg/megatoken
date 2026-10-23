@@ -52,6 +52,7 @@ class ControlBundle:
     tools_json: str = "[]"
     settings_json: str = "{}"
     references: tuple[ControlReference, ...] = ()
+    reference_event_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.instructions, bytes) or not isinstance(self.reference_text, bytes):
@@ -70,6 +71,7 @@ class ControlBundle:
             tools_json=self.tools_json,
             settings_json=self.settings_json,
             references=self.references,
+            reference_event_ids=self.reference_event_ids,
             track_override=track_override,
         )
 
@@ -93,6 +95,7 @@ def build_control_payload(
     settings_json: str = "{}",
     references: Sequence[ControlReference] = (),
     track_override: Mapping[str, object] | None = None,
+    reference_event_ids: Sequence[str] = (),
 ) -> bytes:
     """Frame only controls whose reference has explicit causal provenance.
 
@@ -143,7 +146,34 @@ def build_control_payload(
         override = _canonical_object_json(track_override, "track override")
         if override != b"{}":
             payload += b"\n<track>\n" + override
+    if reference_event_ids:
+        if isinstance(reference_event_ids, (str, bytes)):
+            raise ValueError("Event references must be a sequence of addresses")
+        ids = tuple(reference_event_ids)
+        if any(not isinstance(x, str) or not x for x in ids) or len(set(ids)) != len(ids):
+            raise ValueError("Event references require distinct nonempty addresses")
+        payload += b"\n<event_references>\n" + json.dumps(ids, separators=(",", ":")).encode()
     return payload
+
+
+def separate_event_references(payload: bytes) -> tuple[bytes, tuple[str, ...]]:
+    """Keep source addresses out of semantic text and resolve them against history.
+
+    The final frame is emitted by the control builder. A reference selects actual
+    retained evidence; an address spelling is never a learned semantic feature.
+    """
+    marker = b"\n<event_references>\n"
+    if marker not in payload:
+        return payload, ()
+    semantic, encoded = payload.rsplit(marker, 1)
+    ids = strict_json_loads(encoded)
+    if (
+        not isinstance(ids, list)
+        or any(not isinstance(x, str) or not x for x in ids)
+        or len(set(ids)) != len(ids)
+    ):
+        raise ValueError("Event references require distinct nonempty addresses")
+    return semantic, tuple(ids)
 
 
 def encode_controls(
@@ -174,6 +204,49 @@ def encode_controls(
     return encoded.masked_fill(lengths.eq(0)[:, None], 0)
 
 
+def semantic_lifecycle_controls(
+    payload: bytes, descriptions: Mapping[str, tuple[str, int]]
+) -> bytes:
+    """Describe eligible tasks without encoding their arbitrary address spelling.
+
+    The decoder still receives the exact original enum/copy constraints. Only
+    the neural instruction view substitutes meanings for lifecycle addresses.
+    """
+    marker = b"\n<tools>\n"
+    if marker not in payload:
+        return payload
+    before, body = payload.rsplit(marker, 1)
+    text = body.decode("utf-8")
+    tools, end = json.JSONDecoder().raw_decode(text)
+    if not isinstance(tools, list):
+        raise ValueError("Public tools must be a list")
+
+    def task(value):
+        if isinstance(value, str) and value in descriptions:
+            purpose, revision = descriptions[value]
+            return {"eligible_task": purpose or "Continuing work", "revision": revision}
+        if isinstance(value, list):
+            return [task(v) for v in value]
+        if isinstance(value, dict):
+            return {k: task(v) for k, v in value.items()}
+        return value
+
+    for tool in tools:
+        definition = tool.get("function", tool)
+        if not str(definition.get("name", "")).startswith("track_"):
+            continue
+        properties = definition.get("parameters", {}).get("properties", {})
+        for key in ("address", "parent", "prerequisites"):
+            if key in properties:
+                properties[key] = task(properties[key])
+    return (
+        before
+        + marker
+        + json.dumps(tools, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        + text[end:].encode()
+    )
+
+
 def effective_event_payloads(
     session_payload: bytes,
     tracks: Sequence[str],
@@ -184,8 +257,8 @@ def effective_event_payloads(
     A request only affects its own event. This framing is byte-exact and shared
     by the trainer and a caller preparing controls for select_group/replay.
     """
-    if len(tracks) != len(requests) or len(set(tracks)) != len(tracks):
-        raise ValueError("Each unique track requires one effective request")
+    if len(tracks) != len(requests):
+        raise ValueError("Each event requires one effective request")
     if not isinstance(session_payload, bytes):
         raise TypeError("Session control must be bytes")
     result = []
@@ -198,7 +271,7 @@ def effective_event_payloads(
         ):
             raise ValueError("Invalid effective event request")
         suffix = json.dumps(
-            {"track_id": track, "request": instruction, "revision": revision},
+            {"request": instruction, "revision": revision},
             sort_keys=True,
             ensure_ascii=False,
             separators=(",", ":"),
@@ -225,7 +298,6 @@ def causal_step_payloads(
     available = [
         {
             "meridian": m.meridian_id,
-            "track": e.track_id,
             "modality": e.modality,
             "request": e.request,
             "revision": e.request_revision,
@@ -267,38 +339,51 @@ def resolve_event_control(episode: object, event: object) -> bytes:
     if event.track_id not in tracks:
         raise ValueError("Missing event track descriptor")
     track = tracks[event.track_id]
+    descriptions = {name: t.description for name, t in tracks.items()}
+    revisions = {}
+    for revision in getattr(episode, "track_revisions", ()):
+        revisions.setdefault(revision.record_id, []).append(revision)
     available = {}
+    reference_descriptions = {}
     seen = set()
     for meridian in episode.meridians:
         if meridian.meridian_id >= event.meridian_id:
             break
         for prior in meridian.events:
             seen.add(prior.record_id)
+            reference_descriptions[prior.record_id] = {
+                "role": prior.role,
+                "modality": prior.modality,
+                "instruction": prior.instruction or descriptions[prior.track_id],
+                "revision": prior.request_revision,
+            }
             if prior.role != "assistant":
-                prior_track = tracks[prior.track_id]
                 available[prior.track_id] = {
                     "modality": prior.modality,
                     "instruction": prior.instruction
-                    or prior_track.description
+                    or descriptions[prior.track_id]
                     or _DEFAULT_EVENT_INSTRUCTIONS.get(prior.modality, ""),
                     "revision": prior.request_revision,
                 }
+        for prior in meridian.events:
+            for revision in revisions.get(prior.record_id, ()):
+                descriptions[revision.track_id] = revision.purpose
     if any(ref not in seen for ref in event.reference_event_ids):
         raise ValueError("Cannot condition an event on a future reference")
     settings = strict_json_loads(track.settings_json)
     settings.update(strict_json_loads(event.settings_json))
     instruction = (
-        event.instruction or track.description or _DEFAULT_EVENT_INSTRUCTIONS[event.modality]
+        event.instruction
+        or descriptions[event.track_id]
+        or _DEFAULT_EVENT_INSTRUCTIONS[event.modality]
     )
     override = {
-        "track_id": event.track_id,
-        "modality": event.modality,
         "instruction": instruction,
         "revision": event.request_revision,
         "meridian_id": event.meridian_id,
         "settings": settings,
-        "reference_event_ids": list(event.reference_event_ids),
-        "available_input_tracks": available,
+        "references": [reference_descriptions[ref] for ref in event.reference_event_ids],
+        "available_input_tracks": list(available.values()),
     }
     return build_control_payload(
         seed=episode.control_seed,
@@ -306,6 +391,7 @@ def resolve_event_control(episode: object, event: object) -> bytes:
         reference_origin=episode.reference_origin,
         tools_json=episode.tools_json,
         track_override=override,
+        reference_event_ids=event.reference_event_ids,
     )
 
 

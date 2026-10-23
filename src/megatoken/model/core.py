@@ -176,6 +176,7 @@ class CentralProcessor(nn.Module):
         track_ids: Tensor | None = None,
         modality_ids: Tensor | None = None,
         history_track_ids: Tensor | None = None,
+        track_semantics: Tensor | None = None,
         attention_mask: Tensor | None = None,
         adapters: AdapterPlan | None = None,
     ) -> Tensor:
@@ -241,6 +242,7 @@ class CentralProcessor(nn.Module):
                 self._expert_pools.routing_epoch(
                     routing_context,
                     track_ids=track_ids,
+                    track_semantics=track_semantics,
                     role="c",
                     stage=index,
                     adapter_weights=None if adapters is None else adapters.weights[index],
@@ -294,6 +296,7 @@ class CentralProcessor(nn.Module):
         *,
         adapters: AdapterPlan | None = None,
         track_ids: Tensor | None = None,
+        track_semantics: Tensor | None = None,
     ) -> KVHistory:
         """Append all final-stage facets; evict only complete oldest megatokens.
 
@@ -314,6 +317,7 @@ class CentralProcessor(nn.Module):
             self._expert_pools.routing_epoch(
                 final.reshape(final.shape[0], events, c.n_facets, c.facet_dim).mean(2),
                 track_ids=track_ids,
+                track_semantics=track_semantics,
                 role="c",
                 stage=c.central_layers,
                 adapter_weights=None if adapters is None else adapters.weights[-1],
@@ -368,6 +372,10 @@ class FacetedCore(nn.Module):
         self.effort_embedding = nn.Embedding(len(EFFORTS), c.facet_dim)
         nn.init.normal_(self.effort_embedding.weight, std=0.02)
         self.control_injection = nn.Linear(c.control_dim, c.facet_dim, bias=False)
+        self.modality_head = nn.Linear(c.facet_dim + c.control_dim, 4)
+        self.reference_projection = nn.Linear(
+            c.kv_heads * c.attention_head_dim, c.control_dim, bias=False
+        )
         self.remix = FacetRemix(c)
         self.stages = nn.ModuleList(PairStage(c) for _ in range(c.prediction_layers))
         self.p_router = EpochRouter(
@@ -417,6 +425,8 @@ class FacetedCore(nn.Module):
         yield self.stage_codes
         for module in (
             self.control_injection,
+            self.modality_head,
+            self.reference_projection,
             self.effort_embedding,
             self.remix,
             self.stages,
@@ -594,13 +604,22 @@ class FacetedCore(nn.Module):
                 raise ValueError(f"State {name} must be one integer per batch row")
 
     def encode_chunk(
-        self, byte_ids: Tensor, lengths: Tensor | None = None, *, track_ids: Tensor | None = None
+        self,
+        byte_ids: Tensor,
+        lengths: Tensor | None = None,
+        *,
+        track_ids: Tensor | None = None,
+        track_semantics: Tensor | None = None,
     ) -> Tensor:
         """Encode bytes under one input- and track-conditioned initial route."""
         summary = _byte_routing_summary(byte_ids, lengths)
         weights = current_adapter_weights(summary)
         with self.expert_pools.routing_epoch_if_absent(
-            summary, track_ids=track_ids, role="e", adapter_weights=weights
+            summary,
+            track_ids=track_ids,
+            track_semantics=track_semantics,
+            role="e",
+            adapter_weights=weights,
         ):
             return self.frontend(byte_ids, lengths)
 
@@ -611,9 +630,17 @@ class FacetedCore(nn.Module):
         *,
         extractor: str,
         track_ids: Tensor | None = None,
+        track_semantics: Tensor | None = None,
     ) -> Tensor:
         """Pinned teacher hidden states [B, T, 512] -> raw facets, through the shared E."""
-        return self.media_encoder(self, features, mask, extractor=extractor, track_ids=track_ids)
+        return self.media_encoder(
+            self,
+            features,
+            mask,
+            extractor=extractor,
+            track_ids=track_ids,
+            track_semantics=track_semantics,
+        )
 
     def encode_control(
         self,

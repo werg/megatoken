@@ -68,6 +68,7 @@ class TaskSeed:
     # Public source policy belongs in the initial causal control; customer intent
     # remains inside the injected environment until an actual user communicates it.
     policy: bytes = b""
+    outputs_json: str = "[]"
 
     def __post_init__(self) -> None:
         if not all((self.seed_id, self.family_id, self.category, self.revision)):
@@ -78,6 +79,8 @@ class TaskSeed:
             json.loads(self.tools_json), list
         ):
             raise ValueError("Seed environment/tools must be an object/list")
+        if not isinstance(json.loads(self.outputs_json), list):
+            raise ValueError("Public output requests must be a JSON list")
         if self.mode not in {"executed", "artifact", "simulated"}:
             raise ValueError("Unknown collection mode")
 
@@ -167,6 +170,18 @@ class TeacherRequest:
     # Episode supervision/environment configuration. HTTP ignores these fields.
     records: tuple[PhysicalRecord, ...] = ()
     control_seed: bytes = b""
+    # Public event requests use the same shape as the served output protocol.
+    outputs: tuple[Mapping[str, Any], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherEvent:
+    index: int
+    track: str
+    modality: str
+    payload: bytes
+    emitted_ids: tuple[int, ...] | None = None
+    call_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +198,8 @@ class TeacherResponse:
     emitted_ids: tuple[int, ...] | None = None
     native_tape_json: str | None = None
     raw_output_complete: bool = True
+    events: tuple[TeacherEvent, ...] = ()
+    outcome_json: str = "{}"
 
     def output_bytes(self) -> bytes:
         # The raw meter convention includes exposed reasoning and exact generated
@@ -541,9 +558,9 @@ class CollectionLedger:
         input_state: str,
         result: EnvironmentResult,
     ) -> None:
-        if not result.execution_id or result.state_id == input_state:
+        if not result.execution_id or not result.state_id:
             raise ValueError(
-                "An executed/simulated step needs a fresh state identity and execution receipt"
+                "An executed/simulated step needs a resource state identity and execution receipt"
             )
         with self.connection:
             self.connection.execute(
@@ -604,17 +621,29 @@ class CollectionLedger:
         )
         return result
 
-    def export(self, directory: str | Path) -> Path:
+    def export(self, directory: str | Path, *, assets=None) -> Path:
+        from .media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
+
         root = Path(directory)
         root.mkdir(parents=True, exist_ok=True)
+        destination = TensorAssetStore(root)
         sources = []
         for accepted, name in ((True, "accepted"), (False, "failed")):
+            has_media = False
             path = root / f"{name}.jsonl"
             with atomic_binary_writer(path) as handle:
                 for row in self.connection.execute(
                     "SELECT episode_json FROM attempts WHERE episode_json IS NOT NULL AND accepted=? ORDER BY task_key,attempt_index",
                     (int(accepted),),
                 ):
+                    for record in Episode.from_dict(json.loads(row[0])).records:
+                        if record.media_type == MEDIA_RECORD_TYPE:
+                            if assets is None:
+                                raise ValueError(
+                                    "Collected media export needs its original checked asset store"
+                                )
+                            assets.copy_record(MediaRecord.from_bytes(record.payload), destination)
+                            has_media = True
                     handle.write(row[0].encode() + b"\n")
             source = pin_local_source(
                 path,
@@ -629,7 +658,15 @@ class CollectionLedger:
                     notes="Environment, task-source and teacher use approvals belong in the upstream collection configuration.",
                 ),
             )
-            sources.append(replace(source, options={"preserve_native_stream": True}))
+            sources.append(
+                replace(
+                    source,
+                    options={
+                        "preserve_native_stream": True,
+                        **({"media_root": "."} if has_media else {}),
+                    },
+                )
+            )
         write_json(root / "collection_census.json", self.meters())
         manifest = root / "sources.json"
         write_source_manifest(manifest, tuple(sources))
@@ -683,10 +720,13 @@ class Collector:
         student: Teacher | None = None,
         student_snapshot: str | None = None,
         student_prefix_steps: int = 0,
+        student_only: bool = False,
     ) -> Episode:
+        if type(student_only) is not bool or student_only and student_prefix_steps:
+            raise ValueError("Choose student-only rollout or a teacher correction point")
         if (
             student_prefix_steps < 0
-            or student_prefix_steps
+            or (student_prefix_steps or student_only)
             and (student is None or not student_snapshot)
         ):
             raise ValueError(
@@ -708,6 +748,7 @@ class Collector:
         last_observation: str | None = None
         accepted = False
         native_tapes: list[dict[str, Any]] = []
+        selected_groups: list[tuple[tuple[str, ...], object]] = []
 
         def append(
             payload: bytes,
@@ -719,8 +760,28 @@ class Collector:
             result_of: str | None = None,
             execution_id: str | None = None,
             emitted_ids: tuple[int, ...] | None = None,
+            media_type: str | None = None,
         ) -> tuple[PhysicalRecord, ...]:
             nonlocal turn
+            if media_type is not None:
+                from .media_assets import MediaRecord
+
+                MediaRecord.from_bytes(payload)
+                values = (
+                    PhysicalRecord(
+                        stable_id("collected-media", attempt_id, str(turn)),
+                        role,
+                        payload,
+                        logical_id=f"{attempt_id}:{turn}",
+                        turn_index=turn,
+                        policy_mask=score,
+                        provenance=provenance,
+                        media_type=media_type,
+                    ),
+                )
+                records.extend(values)
+                turn += 1
+                return values
             values = make_records(
                 payload,
                 logical_id=f"{attempt_id}:{turn}",
@@ -785,8 +846,13 @@ class Collector:
                 values = append(result.observation, "environment", provenance=result.provenance)
                 last_observation = values[0].record_id
                 messages.append({"role": "user", "content": result.observation.decode("utf-8")})
-            for request_index in range(self.config.max_requests_per_attempt + student_prefix_steps):
-                is_student = request_index < student_prefix_steps
+            request_count = (
+                self.config.max_requests_per_attempt
+                if student_only
+                else self.config.max_requests_per_attempt + student_prefix_steps
+            )
+            for request_index in range(request_count):
+                is_student = student_only or request_index < student_prefix_steps
                 actor = student if is_student else self.teacher
                 assert actor is not None
                 output_limit = self.config.max_output_per_request
@@ -809,6 +875,7 @@ class Collector:
                     session_id=attempt_id,
                     records=tuple(records),
                     control_seed=seed.policy,
+                    outputs=tuple(json.loads(seed.outputs_json)),
                 )
                 raw_input = len(
                     self.codec.encode((request.messages_json + request.tools_json).encode())
@@ -823,8 +890,12 @@ class Collector:
                     from megatoken.model.multitrack import GroupActionTape
 
                     native_tape = GroupActionTape.from_json(response.native_tape_json)
-                    if len(native_tape.tracks) != 1:
-                        raise ValueError("A student draw is one single-event meridian")
+                    if len(native_tape.tracks) != 1 and len(response.events) != len(
+                        native_tape.tracks
+                    ):
+                        raise ValueError(
+                            "Every selected group member requires an explicit response event"
+                        )
                     if native_tape.codec_fingerprint != self.codec.fingerprint:
                         raise ValueError("Native action tape and collection meter codecs differ")
                     native_tapes.append(
@@ -835,6 +906,10 @@ class Collector:
                             # producing an executable transcript record. This
                             # cursor retains its position among physical events.
                             "record_cursor": len(records),
+                            "record_ids": [None] * len(native_tape.tracks)
+                            if response.events
+                            else None,
+                            "outcome": json.loads(response.outcome_json),
                             "tape": json.loads(response.native_tape_json),
                         }
                     )
@@ -844,13 +919,13 @@ class Collector:
                         response,
                         raw_output=len(
                             self.codec.encode(
-                                native_tape.payloads[0]
+                                b"".join(native_tape.payloads)
                                 if native_tape is not None
                                 else response.output_bytes()
                             )
                         ),
                     )
-                if native_tape is not None and not native_tape.valid[0]:
+                if native_tape is not None and not any(native_tape.valid):
                     # The actor already advanced its recurrent state. No tool
                     # execution or invented observation follows an invalid decode.
                     continue
@@ -859,7 +934,69 @@ class Collector:
                 visible = (
                     response.reasoning if self.config.include_reasoning else b""
                 ) + response.content
-                if visible:
+                preappended_calls = {}
+                if response.events:
+                    if native_tape is None:
+                        raise ValueError(
+                            "Grouped response events require their actual selected tape"
+                        )
+                    from .media_assets import MEDIA_RECORD_TYPE
+
+                    calls_by_id = {c.call_id: c for c in response.calls}
+                    bound_ids, bound_indices = [], []
+                    for member, event in enumerate(response.events):
+                        if (
+                            event.index != member
+                            or event.track != native_tape.tracks[member]
+                            or event.modality != native_tape.modalities[member]
+                        ):
+                            raise ValueError(
+                                "Grouped response membership differs from the selected action"
+                            )
+                        if not native_tape.valid[member] or not event.payload:
+                            continue
+                        call = None if event.call_id is None else calls_by_id[event.call_id]
+                        action_id = (
+                            None
+                            if call is None
+                            else stable_id(
+                                "collected-action-v1", request_id, call.call_id, call.action_bytes
+                            )
+                        )
+                        if event.modality == "text" and (
+                            event.payload != native_tape.payloads[member]
+                            or event.emitted_ids != native_tape.emitted_ids[member]
+                        ):
+                            raise ValueError("Grouped text event differs from its actual decoding")
+                        values = append(
+                            event.payload,
+                            "assistant",
+                            score=scored,
+                            provenance=provenance,
+                            action_id=action_id,
+                            emitted_ids=event.emitted_ids,
+                            media_type=MEDIA_RECORD_TYPE if event.modality != "text" else None,
+                        )
+                        if len(values) != 1:
+                            raise ValueError(
+                                "A selected event cannot be split into new policy draws"
+                            )
+                        native_tapes[-1]["record_ids"][member] = values[0].record_id
+                        bound_ids.append(values[0].record_id)
+                        bound_indices.append(member)
+                        if call is not None:
+                            preappended_calls[call.call_id] = (action_id, values)
+                        if scored and last_observation:
+                            dependencies.append(
+                                Dependency(
+                                    last_observation, values[0].record_id, "environment_state"
+                                )
+                            )
+                    if bound_ids:
+                        selected_groups.append(
+                            (tuple(bound_ids), native_tape, tuple(bound_indices))
+                        )
+                if visible and not response.events:
                     values = append(
                         visible,
                         "assistant",
@@ -895,15 +1032,18 @@ class Collector:
                         action_id = stable_id(
                             "collected-action-v1", request_id, call.call_id, payload
                         )
-                        values = append(
-                            payload,
-                            "assistant",
-                            score=scored,
-                            provenance=provenance,
-                            action_id=action_id,
-                            emitted_ids=call.emitted_ids,
-                        )
-                        if scored and last_observation:
+                        if call.call_id in preappended_calls:
+                            action_id, values = preappended_calls[call.call_id]
+                        else:
+                            values = append(
+                                payload,
+                                "assistant",
+                                score=scored,
+                                provenance=provenance,
+                                action_id=action_id,
+                                emitted_ids=call.emitted_ids,
+                            )
+                        if scored and last_observation and call.call_id not in preappended_calls:
                             dependencies.append(
                                 Dependency(
                                     last_observation, values[-1].record_id, "environment_state"
@@ -947,7 +1087,7 @@ class Collector:
                                 "content": result.observation.decode("utf-8"),
                             }
                         )
-                    if result.done and is_student:
+                    if result.done and is_student and not student_only:
                         raise ValueError(
                             "Student terminated before the correction point; collect this task as successful replay"
                         )
@@ -978,7 +1118,11 @@ class Collector:
                 verdict.verified
                 and verdict.reward > 0
                 and verdict.provenance == expected_provenance
-                and any(record.policy_mask for record in records)
+                and (
+                    any(record.policy_mask for record in records)
+                    or student_only
+                    and bool(native_tapes)
+                )
             )
             outcome = "success" if accepted else "failure" if verdict.verified else "unknown"
             verification = (
@@ -986,6 +1130,26 @@ class Collector:
                 if verdict.verified
                 else "none"
             )
+            if student_only and verdict.verified and verdict.provenance == "executed":
+                for entry in native_tapes:
+                    if entry["provenance"] != "student":
+                        continue
+                    tape = entry["tape"]
+                    if tape.get("policy_context") is None:
+                        # External/scripted actors may supply exact output labels
+                        # without a reconstructible policy. Keep those useful
+                        # supervised records, but never invent outcome credit.
+                        entry["outcome_unavailable"] = "actor_did_not_record_policy_context"
+                        continue
+                    entry["outcome_credit"] = {
+                        "reward": max(-1.0, min(1.0, verdict.reward)),
+                        "baseline": 0.5,
+                        "selected_events": len(tape["tracks"]),
+                        "verification": verification,
+                        "work_cost": 0.0,
+                        "delay_seconds": 0.0,
+                        "delay_cost": 0.0,
+                    }
             supervised = Supervision(
                 outcome=outcome,
                 verification=verification,
@@ -996,6 +1160,7 @@ class Collector:
                         "teacher": self.teacher.model,
                         "student_snapshot": student_snapshot,
                         "student_prefix_steps": student_prefix_steps,
+                        "student_only": student_only,
                         "collection_mode": seed.mode,
                         "attempt_id": attempt_id,
                         "task_key": seed.task_key,
@@ -1018,7 +1183,11 @@ class Collector:
                 actions=tuple(actions),
                 supervision=supervised,
                 dependencies=tuple(dependencies),
-                stream="simulated_trajectories"
+                stream="successful_replay"
+                if student_only and accepted
+                else "student_rollout_failures"
+                if student_only
+                else "simulated_trajectories"
                 if seed.mode == "simulated"
                 else "student_state_corrections"
                 if student_prefix_steps
@@ -1028,6 +1197,8 @@ class Collector:
                 tools_json=seed.tools_json,
                 control_seed=seed.policy,
             )
+            if selected_groups:
+                episode = _attach_selected_groups(episode, selected_groups)
             if not accepted:
                 episode = apply_recovery_policy(episode)
             self.ledger.finish(attempt_id, episode, accepted=accepted)
@@ -1045,6 +1216,7 @@ class Collector:
         student: Teacher | None = None,
         student_snapshot: str | None = None,
         student_prefix_steps: int = 0,
+        student_only: bool = False,
     ) -> Iterable[Episode]:
         for seed in seeds:
             for _ in range(self.config.attempts_per_task):
@@ -1056,9 +1228,43 @@ class Collector:
                         student=student,
                         student_snapshot=student_snapshot,
                         student_prefix_steps=student_prefix_steps,
+                        student_only=student_only,
                     )
                 except (QuarantinedSeed, CollectionLimit):
                     break
                 yield episode
                 if episode.supervision.verified_success:
                     break
+
+
+def _attach_selected_groups(episode: Episode, selections) -> Episode:
+    """Use actual selected membership, never infer independence from roles."""
+    from .schema import Meridian, TrackEvent, TrackSpec
+
+    by_first = {ids[0]: (ids, tape, indices) for ids, tape, indices in selections}
+    tracks, groups = {}, []
+    cursor = 0
+    while cursor < len(episode.records):
+        record = episode.records[cursor]
+        selected = by_first.get(record.record_id)
+        if selected is None:
+            ids, tape, indices = (record.record_id,), None, ()
+        else:
+            ids, tape, indices = selected
+        if tuple(r.record_id for r in episode.records[cursor : cursor + len(ids)]) != ids:
+            raise ValueError("Selected physical members are not contiguous in actual history")
+        members = []
+        for offset, record_id in enumerate(ids):
+            physical = episode.records[cursor + offset]
+            if tape is None:
+                track, modality = physical.role, "text"
+            else:
+                # Bind by the explicit collection record map; identical peers
+                # stay distinct because their physical order is retained.
+                bound = indices[offset]
+                track, modality = tape.tracks[bound], tape.modalities[bound]
+            tracks.setdefault(track, TrackSpec(track, physical.role))
+            members.append(TrackEvent(record_id, track, modality, len(groups), physical.role))
+        groups.append(Meridian(len(groups), tuple(members)))
+        cursor += len(ids)
+    return replace(episode, tracks=tuple(tracks.values()), meridians=tuple(groups))

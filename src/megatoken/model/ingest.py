@@ -128,7 +128,7 @@ class IngestHeads(nn.Module):
         # per-event track IDs lets HindsightRealizer form one routing context
         # for each item's C states instead of pooling unrelated records into a
         # single batch-wide source context.
-        metadata_track = core.config.max_tracks + RESERVED_TRACKS.index(METADATA_TRACK)
+        metadata_track = RESERVED_TRACKS.index(METADATA_TRACK)
         event_track_ids = torch.full(
             (items,), metadata_track, device=final.device, dtype=torch.long
         )

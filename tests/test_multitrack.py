@@ -43,14 +43,13 @@ def test_singleton_matches_original_core_and_predictor():
     torch.testing.assert_close(new.history.keys, old.history.keys, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(new.history.values, old.history.values, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(
-        # A true singleton retains track 0. A newly named assistant track has
-        # a distinct routing code and is deliberately a different prediction.
+        # Equality handles have no learned semantic preference.
         multi.predict_group(new, tracks=("user",), effort=1)[:, 0],
         core.predict_facets(old, effort=1),
         atol=1e-5,
         rtol=1e-5,
     )
-    assert not torch.allclose(
+    assert torch.allclose(
         multi.predict_group(new, tracks=("assistant",), effort=1),
         multi.predict_group(new, tracks=("user",), effort=1),
     )
@@ -109,7 +108,7 @@ def test_joint_observation_reads_peers_and_prediction_does_not_commit():
     predicted = multi.predict_group(a, tracks=("transcript", "reply"), effort=1)
     assert predicted.shape == raw.shape
     torch.testing.assert_close(before, a.history.keys)
-    assert not torch.allclose(predicted[:, 0], predicted[:, 1])
+    torch.testing.assert_close(predicted[:, 0], predicted[:, 1])
 
 
 def test_eviction_drops_whole_meridians():
@@ -356,7 +355,7 @@ def test_transducer_query_track_is_reserved_outside_user_capacity():
     assert registry == users and ids[0].tolist() == list(range(cap))
     state = state.__class__(**{**state.__dict__, "track_registry": registry})
     q_ids, q_registry = multi._track_indices(state, (TRANSDUCER_QUERY_TRACK,))
-    assert q_registry == users  # query does not consume a user slot
+    assert q_registry == (*users, TRANSDUCER_QUERY_TRACK)
     assert q_ids[0, 0].item() == cap
-    with pytest.raises(ValueError, match="Too many tracks"):
-        multi._track_indices(state, ("one_too_many",))
+    extra, _ = multi._track_indices(state, ("beyond_old_limit",))
+    assert extra[0, 0].item() == cap

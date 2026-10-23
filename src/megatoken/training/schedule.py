@@ -22,8 +22,8 @@ class Phase:
     def __post_init__(self) -> None:
         if self.name not in {"B0", "MB", "P1", "M1", "M2", "LC", "S", "D"}:
             raise ValueError(f"Unknown training phase {self.name!r}")
-        if self.meter not in {"D", "I", "P", "G"} or self.budget <= 0 or self.peak_lr <= 0:
-            raise ValueError("A phase needs a positive budget/LR and a D, I, P, or G meter")
+        if self.meter not in {"D", "I", "P", "G", "Q"} or self.budget <= 0 or self.peak_lr <= 0:
+            raise ValueError("A phase needs a positive budget/LR and a D, I, P, G, or Q meter")
         if not 0 <= self.warmup_fraction < 1 or not 0 <= self.decay_fraction <= 1:
             raise ValueError("Invalid schedule fractions")
         if self.warmup_fraction + self.decay_fraction > 1:

@@ -23,11 +23,34 @@ from __future__ import annotations
 
 import math
 from fractions import Fraction
+from functools import wraps
 from pathlib import Path
+from threading import Lock, RLock
 from typing import Any
+from weakref import WeakKeyDictionary
 
 import torch
 from torch import Tensor, nn
+
+_PIPELINE_LOCKS = WeakKeyDictionary()
+_PIPELINE_LOCKS_OWNER = Lock()
+
+
+def _serialized_pipeline(method):
+    """Diffusion schedulers and VAE caches belong to one active call at a time.
+
+    Weak ownership keeps locks out of model state and permits model collection.
+    Different resident decoders remain independently executable.
+    """
+
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with _PIPELINE_LOCKS_OWNER:
+            lock = _PIPELINE_LOCKS.setdefault(self, RLock())
+        with lock:
+            return method(self, *args, **kwargs)
+
+    return call
 
 
 def masked_square_error(prediction: Tensor, target: Tensor, mask: Tensor | None) -> Tensor:
@@ -317,6 +340,14 @@ class SanaRealizer(Realizer):
 
     _donor = "pipe"
 
+    @_serialized_pipeline
+    def to_device(self, device):
+        # Diffusers' generic pipeline mover iterates an unordered component
+        # set. Keep large allocations in a reproducible order on shared RAM.
+        self.transformer.to(device)
+        self.vae.to(device)
+        return self.to(device)
+
     def __init__(self, pipeline: Any, modality: str, facet_count: int, facet_width: int):
         super().__init__()
         if modality not in ("image", "video"):
@@ -389,6 +420,7 @@ class SanaRealizer(Realizer):
             else flat
         )
 
+    @_serialized_pipeline
     @torch.no_grad()
     def encode(self, pixels: Tensor) -> Tensor:
         """RGB in [0, 1] already ``fit``: image [B, 3, H, W] -> [B, C, h, w] (scaled);
@@ -448,6 +480,7 @@ class SanaRealizer(Realizer):
             output = output.chunk(2, dim=1)[0]  # learned-sigma head
         return masked_square_error(output, noise - latents, mask)
 
+    @_serialized_pipeline
     @torch.no_grad()
     def realize(self, raw: Tensor, spec, generator=None) -> Tensor:
         """Decoded RGB [B, frames, 3, H, W] through this pipeline's own VAE path."""

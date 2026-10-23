@@ -69,13 +69,17 @@ class DeviceReport:
     matmul_ok: bool
 
 
-def doctor(require_cuda: bool = False, require_blackwell: bool = False) -> dict[str, Any]:
+def doctor(
+    require_cuda: bool = False, require_blackwell: bool = False, *, probe_cuda: bool = True
+) -> dict[str, Any]:
     devices = []
     errors = []
     warnings = []
     if tuple(int(x) for x in torch.__version__.split("+")[0].split(".")[:2]) < (2, 10):
         errors.append("Use PyTorch 2.10 or newer; the validated CPU reference uses 2.10")
-    for index in range(torch.cuda.device_count()):
+    for index in range(
+        torch.cuda.device_count() if probe_cuda or require_cuda or require_blackwell else 0
+    ):
         properties = torch.cuda.get_device_properties(index)
         capability = torch.cuda.get_device_capability(index)
         with torch.cuda.device(index):

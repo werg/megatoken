@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import random
 from collections.abc import Callable, Sequence
@@ -11,6 +12,27 @@ from typing import Any
 from megatoken.data import Episode, PreparedCorpus, TrainingWindow, WindowConfig, iter_windows
 from megatoken.data.media_assets import TensorAssetStore
 from megatoken.io import content_hash
+
+
+def source_sampling_report(cursors: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Sum actual non-padding windows across ranks, without virtual mixture charges."""
+    from collections import Counter
+
+    counts = Counter()
+    complete = True
+
+    def add(cursor):
+        nonlocal complete
+        if cursor.get("kind") == "mixture":
+            for child in cursor["streams"].values():
+                add(child)
+        else:
+            counts.update(cursor.get("sampled_source_windows", {}))
+            complete = complete and cursor.get("sampled_history_complete", False)
+
+    for cursor in cursors:
+        add(cursor)
+    return {"source_windows": dict(sorted(counts.items())), "complete_history": complete}
 
 
 def _validate_topology(
@@ -46,10 +68,27 @@ class _WindowPlan:
         self.episode = episode
         self.spans: list[tuple[int, int, int, tuple]] = []
         last = None
+        annotations = json.loads(episode.supervision.annotations_json)
+        credits = {
+            entry["record_cursor"]
+            for entry in annotations.get("native_action_tapes", ())
+            if entry.get("outcome_credit") is not None
+        }
         for window in iter_windows(episode, codec, config):
-            self.spans.append((window.start, window.end, window.index, window.writer_reader_pairs))
             last = window
+            # Observations remain in the complete prefix of every later
+            # decision. They are not independent optimizer examples with no
+            # scored decision, even when token/record bounds split a trace.
+            if any(entry.record.policy_mask for entry in window.records) or any(
+                window.start <= cursor < window.end for cursor in credits
+            ):
+                self.spans.append(
+                    (window.start, window.end, window.index, window.writer_reader_pairs)
+                )
         self.encoded = () if last is None else (*last.prefix, *last.records)
+        if len(self.encoded) in credits:
+            end = len(self.encoded)
+            self.spans.append((end, end, 0 if last is None else last.index + 1, ()))
 
     def __len__(self) -> int:
         return len(self.spans)
@@ -92,6 +131,8 @@ class WindowStream:
         self._assets: TensorAssetStore | None = None
         self._plan: _WindowPlan | None = None
         self._opened = False
+        self.sampled_source_windows: dict[str, int] = {}
+        self.sampled_history_complete = True
         self.fingerprint = content_hash(
             {
                 "dataset": dataset.identity,
@@ -99,7 +140,7 @@ class WindowStream:
                 "window": asdict(config),
                 # Version the semantics of optimizer window boundaries. Old
                 # cursors must not resume after introducing atomic meridians.
-                "packing_contract": "meridian-atomic-v1",
+                "packing_contract": "meridian-atomic-decisions-tail-v3",
             }
         )
 
@@ -121,8 +162,7 @@ class WindowStream:
                 episode, assets = self.dataset.fetch(self._episode_index())
                 plan = _WindowPlan(episode, self.codec, self.config)
                 local_length = len(plan)
-                if local_length == 0:
-                    raise ValueError(f"Episode {episode.episode_id} has no windows")
+
             except Exception as exc:
                 error = exc
         counts = {
@@ -144,7 +184,7 @@ class WindowStream:
         for field in ("epoch", "block_start", "slot", "block_length"):
             if len({counts[f"cursor:{field}:{rank}"] for rank in range(self.world_size)}) != 1:
                 raise ValueError(f"Synchronized data cursor differs across ranks for {field}")
-        length = max(counts[f"rank:{rank}"] for rank in range(self.world_size))
+        length = max(1, max(counts[f"rank:{rank}"] for rank in range(self.world_size)))
         if length < 1 or self.block_length not in (0, length) or not 0 <= self.slot < length:
             raise ValueError("Invalid or changed synchronized window cursor")
         self.block_length = length
@@ -158,6 +198,8 @@ class WindowStream:
         result = None
         if self.slot < self.local_length:
             result = EpisodeWindow(self._episode, self._plan[self.slot], self._assets)
+            source = result.episode.lineage.source_id
+            self.sampled_source_windows[source] = self.sampled_source_windows.get(source, 0) + 1
         self.slot += 1
         if self.slot == self.block_length:
             self.slot = self.block_length = self.local_length = 0
@@ -181,6 +223,8 @@ class WindowStream:
             "block_length": self.block_length,
             "dataset_fingerprint": self.fingerprint,
             "codec_fingerprint": self.codec.fingerprint,
+            "sampled_source_windows": dict(self.sampled_source_windows),
+            "sampled_history_complete": self.sampled_history_complete,
         }
 
     def close(self) -> None:
@@ -189,6 +233,14 @@ class WindowStream:
     def _validate_state_dict(self, value: dict[str, Any]) -> tuple[int, int, int, int]:
         if not isinstance(value, dict):
             raise ValueError("Invalid data cursor; expected an object")
+        sampled = value.get("sampled_source_windows", {})
+        if not isinstance(sampled, dict) or any(
+            not isinstance(key, str) or not key or type(count) is not int or count < 0
+            for key, count in sampled.items()
+        ):
+            raise ValueError("Invalid sampled source window counts")
+        if type(value.get("sampled_history_complete", False)) is not bool:
+            raise ValueError("Invalid sampled source history flag")
         for key, expected in (
             ("version", 2),
             ("seed", self.seed),
@@ -221,6 +273,8 @@ class WindowStream:
         self.epoch, self.block_start, self.slot, self.block_length = self._validate_state_dict(
             value
         )
+        self.sampled_source_windows = dict(value.get("sampled_source_windows", {}))
+        self.sampled_history_complete = value.get("sampled_history_complete", False)
         self.local_length = 0
         self._episode = self._assets = self._plan = None
         self._opened = False
@@ -310,8 +364,8 @@ class MixtureWindowStream:
             raise ValueError("Stage stream shares must be finite and positive")
         if abs(math.fsum(mixture.values()) - 1.0) > 1e-6:
             raise ValueError("Stage stream shares must sum to one")
-        if meter not in {"D", "I", "P", "G"}:
-            raise ValueError("Window mixture meter must be D, I, P, or G")
+        if meter not in {"D", "I", "P", "G", "Q"}:
+            raise ValueError("Window mixture meter must be D, I, P, G, or Q")
         self.mixture, self.meter = dict(sorted(mixture.items())), meter
         self.reduce_counts = reduce_counts or (lambda counts: counts)
         self.streams: dict[str, WindowStream] = {}

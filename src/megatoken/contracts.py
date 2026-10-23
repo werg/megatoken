@@ -19,6 +19,8 @@ DEFAULT_LOSS_WEIGHTS = {
     # One mean per declared generated peer pair, not per arbitrary all-pairs clique.
     "relation_semantic": 0.25,
     "structure": 0.25,
+    "modality": 0.25,
+    "policy_outcome": 0.1,
     "binding": 0.5,
     "placement": 0.25,
     "terminal": 0.1,

@@ -119,6 +119,70 @@ def item_identity(item):
     }
 
 
+def test_actual_source_sampling_is_restartable_and_excludes_padding(prepared):
+    from megatoken.training.stream import source_sampling_report
+
+    codec = ByteCodec.byte_fallback()
+    original = WindowStream(PreparedCorpus([prepared]), codec, WINDOWS)
+    restarted = WindowStream(PreparedCorpus([prepared]), codec, WINDOWS)
+    try:
+        for _ in range(4):
+            original.next()
+        cursor = original.state_dict()
+        assert source_sampling_report([cursor]) == {
+            "source_windows": {"fixture": 4},
+            "complete_history": True,
+        }
+        restarted.load_state_dict(cursor)
+        assert item_identity(original.next()) == item_identity(restarted.next())
+        assert restarted.state_dict() == original.state_dict()
+        bad = {**cursor, "sampled_source_windows": {"fixture": -1}}
+        before = restarted.state_dict()
+        with pytest.raises(ValueError, match="sampled source"):
+            restarted.load_state_dict(bad)
+        assert restarted.state_dict() == before
+        legacy = dict(cursor)
+        legacy.pop("sampled_source_windows")
+        legacy.pop("sampled_history_complete")
+        restarted.load_state_dict(legacy)
+        assert not source_sampling_report([restarted.state_dict()])["complete_history"]
+    finally:
+        original.close()
+        restarted.close()
+
+
+def test_inventory_separates_preparation_from_actual_source_sampling(prepared, tmp_path):
+    from megatoken.data.inventory import source_inventory
+    from megatoken.io import write_json
+
+    checkpoint = tmp_path / "metadata.json"
+    write_json(
+        checkpoint,
+        {
+            "global_step": 2,
+            "source_sampling": {"source_windows": {"fixture": 3}, "complete_history": True},
+        },
+    )
+    report = source_inventory([], prepared=[prepared], checkpoints=[checkpoint])
+    row = report["sources"]["fixture"]
+    assert row["listed"] == row["access"] == []
+    assert row["prepared"] and row["sampled"][0]["windows"] == 3
+    assert {x["stream"] for x in row["prepared"]} == {"alpha", "beta", "singleton"}
+    with pytest.raises(ValueError, match="locally checked"):
+        source_inventory(
+            [],
+            access_receipts=[
+                {
+                    "source_id": "fixture",
+                    "revision": "v1",
+                    "result": "downloaded",
+                    "checked_at": "2026-10-23",
+                    "evidence": "some download claimed success",
+                }
+            ],
+        )
+
+
 def window_run(root, epochs=2, cursors=None):
     def worker(rank, reduce):
         stream = WindowStream(

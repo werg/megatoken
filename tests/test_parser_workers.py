@@ -486,7 +486,7 @@ def process_stopped(pid):
         try:
             state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
             return state == "Z"
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             return True
     return False
 

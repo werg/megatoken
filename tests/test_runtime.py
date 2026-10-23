@@ -64,6 +64,12 @@ def test_preflight_does_not_label_hopper_blackwell(monkeypatch):
     assert not doctor(require_blackwell=True)["ok"]
 
 
+def test_cpu_preflight_does_not_execute_a_busy_or_broken_gpu(monkeypatch):
+    fake_cuda(monkeypatch, failure=True)
+    assert doctor(probe_cuda=False)["ok"]
+    assert not doctor(probe_cuda=False, require_cuda=True)["ok"]
+
+
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA attention gate requires a GPU")
 @pytest.mark.parametrize("compact", [False, True])
 @pytest.mark.parametrize("source", [False, True])

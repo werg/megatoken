@@ -9,11 +9,13 @@ from typing import Any
 import torch
 
 from megatoken.contracts import ROLE_TO_ID
-from megatoken.controls import encode_controls
+from megatoken.controls import encode_controls, resolve_event_control
 from megatoken.data import encode_record
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.data.knowledge import episode_metadata
+from megatoken.data.media_assets import MEDIA_RECORD_TYPE, MediaRecord
 from megatoken.generation.structure import ActionSpec
+from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import MultiTrackGenerator, ObservedEvent
 from megatoken.multitrack_runtime import MultiTrackRuntime
 from megatoken.training.engine import episode_control_payload, ingest_records
@@ -148,6 +150,7 @@ def evaluate_served_records(
     max_sources: int = 2,
     threshold: float | None = None,
     chunking: ChunkingConfig | None = None,
+    output_specs: dict[str, ActionSpec | MediaOutputSpec] | None = None,
 ) -> dict[str, Any]:
     was_training = model.training
     runtime = None
@@ -156,6 +159,7 @@ def evaluate_served_records(
             MultiTrackGenerator(model),
             chunking=chunking,
             collections=collections,
+            output_specs=output_specs,
         )
         return _evaluate_served_runtime(
             runtime,
@@ -174,6 +178,7 @@ def evaluate_served_records(
     finally:
         try:
             if runtime is not None:
+                runtime.close()
                 for collection in runtime.memory.collections.values():
                     collection.close()
         finally:
@@ -199,9 +204,9 @@ def _evaluate_served_runtime(
 
     The episode is played through :class:`MultiTrackRuntime`: all observed
     events in a causal group commit together, and policy targets are sampled
-    from the previous committed state. Mixed target/observation groups and
-    media records are skipped because they cannot be faithfully replayed as a
-    text-only session without exposing same-group targets or preparing media.
+    from the previous committed state. Media observations use checked prepared
+    features. Generated media needs a supplied capability or an explicitly
+    requested public extent; hidden target geometry never becomes a request.
     """
     if episodes < 1:
         raise ValueError("episodes must be positive")
@@ -212,16 +217,41 @@ def _evaluate_served_runtime(
         runtime.memory.open_base(name, path)
         mounted_bases[name] = 1.0
 
-    exact = attempted = valid = 0
+    exact = attempted = text_attempted = valid = 0
     completed_episodes = skipped_media = skipped_mixed = 0
+    decoded_media = 0
     lookups = collection_retrievals = 0
     for episode_index, episode in enumerate(dataset.iter_episodes()):
         if completed_episodes + skipped_media + skipped_mixed >= episodes:
             break
-        if any(record.media_type != "text/plain; charset=utf-8" for record in episode.records):
+        if any(
+            record.media_type not in {"text/plain; charset=utf-8", MEDIA_RECORD_TYPE}
+            for record in episode.records
+        ):
             skipped_media += 1
             continue
         records = {record.record_id: record for record in episode.records}
+        event_by_id = {
+            event.record_id: event for meridian in episode.meridians for event in meridian.events
+        }
+        media_specs = {}
+        missing_public_spec = False
+        for record in episode.records:
+            if not record.policy_mask or record.media_type != MEDIA_RECORD_TYPE:
+                continue
+            media = MediaRecord.from_bytes(record.payload)
+            if media.modality in runtime.output_specs:
+                media_specs[record.record_id] = runtime.output_specs[media.modality]
+            elif (
+                media.output_geometry is not None
+                and media.output_geometry.provenance == "requested"
+            ):
+                media_specs[record.record_id] = MediaOutputSpec.from_geometry(media.output_geometry)
+            else:
+                missing_public_spec = True
+        if missing_public_spec:
+            skipped_media += 1
+            continue
         if episode.meridians:
             groups = [
                 [(event.track_id, records[event.record_id]) for event in meridian.events]
@@ -246,6 +276,11 @@ def _evaluate_served_runtime(
             max_sources=max_sources,
             threshold=threshold,
         )
+        for track in episode.tracks:
+            if getattr(track, "description", ""):
+                session.memory.state = runtime.generator.tracks.describe_track(
+                    session.state, track.track_id, track.description
+                )
         control_payload = episode_control_payload(episode)
         # An item may be returned at open, after a user observation, and after
         # a generated terminal response. Count the real source-session log.
@@ -254,7 +289,9 @@ def _evaluate_served_runtime(
             if group[0][1].policy_mask:
                 tracks = tuple(track for track, _ in group)
                 specs = tuple(
-                    ActionSpec(
+                    media_specs[record.record_id]
+                    if record.record_id in media_specs
+                    else ActionSpec(
                         max_tokens=config.generated_capacity,
                         require_terminal=(record.part_index + 1 == record.part_count),
                     )
@@ -266,29 +303,78 @@ def _evaluate_served_runtime(
                 generated = runtime.generate(
                     session,
                     tracks=tracks,
+                    event_ids=tuple(record.record_id for _, record in group),
                     specs=specs,
-                    controls=[control_payload] * len(group),
+                    controls=(
+                        tuple(
+                            resolve_event_control(episode, event_by_id[record.record_id])
+                            for _, record in group
+                        )
+                        if all(hasattr(track, "track_id") for track in episode.tracks)
+                        else [control_payload] * len(group)
+                    ),
                     effort=config.effort,
                     generator=rng,
                 )
-                for (_, record), payload, is_valid in zip(
-                    group, generated.tape.payloads, generated.tape.valid, strict=True
+                for index, ((_, record), payload, is_valid) in enumerate(
+                    zip(group, generated.tape.payloads, generated.tape.valid, strict=True)
                 ):
                     attempted += 1
                     valid += int(is_valid)
-                    exact += int(is_valid and payload == record.payload)
+                    if record.record_id in media_specs:
+                        tensor = generated.media_outputs[index]
+                        if is_valid and tensor is not None and torch.isfinite(tensor).all():
+                            decoded_media += 1
+                    else:
+                        text_attempted += 1
+                        exact += int(is_valid and payload == record.payload)
+                runtime.release_generation(session, session.revision)
             else:
-                observed = tuple(
-                    ObservedEvent(
-                        track,
-                        "text",
-                        record.payload,
-                        role_id=ROLE_TO_ID[record.role],
-                        terminal=record.part_index + 1 == record.part_count,
-                    )
-                    for track, record in group
-                )
-                runtime.observe(session, observed, effort=config.effort)
+                stores = getattr(dataset, "stores", ())
+                if getattr(dataset, "assets", None) is not None:
+                    stores = (dataset.assets,)
+                observed = []
+                for track, record in group:
+                    if record.media_type == MEDIA_RECORD_TYPE:
+                        media = MediaRecord.from_bytes(record.payload)
+                        store = next(
+                            (s for s in stores if (s.root / media.source.relative_path).is_file()),
+                            None,
+                        )
+                        if store is None:
+                            raise ValueError(
+                                "Evaluation media observation lacks its checked asset store"
+                            )
+                        source = torch.from_numpy(store.load(media.source)).to(device)[None]
+                        observed.append(
+                            ObservedEvent(
+                                track,
+                                "compressed_text" if media.modality == "text" else media.modality,
+                                source,
+                                role_id=ROLE_TO_ID[record.role],
+                                extractor=media.source.extractor,
+                                terminal=record.part_index + 1 == record.part_count,
+                                event_id=record.record_id,
+                            )
+                        )
+                    else:
+                        observed.append(
+                            ObservedEvent(
+                                track,
+                                "text",
+                                record.payload,
+                                role_id=ROLE_TO_ID[record.role],
+                                terminal=record.part_index + 1 == record.part_count,
+                                event_id=record.record_id,
+                            )
+                        )
+                runtime.observe(session, tuple(observed), effort=config.effort)
+            for _, record in group:
+                for revision in getattr(episode, "track_revisions", ()):
+                    if revision.record_id == record.record_id:
+                        session.memory.state = runtime.generator.tracks.describe_track(
+                            session.state, revision.track_id, revision.purpose, revision.revision
+                        )
         completed_episodes += 1
         lookups += session.memory.agenda.lookups
         collection_retrievals += 0 if sources is None else len(sources.log)
@@ -305,8 +391,11 @@ def _evaluate_served_runtime(
         "skipped_media_episodes": skipped_media,
         "skipped_mixed_meridian_episodes": skipped_mixed,
         "generated_chunks": attempted,
+        "generated_text_chunks": text_attempted,
+        "decoded_media_events": decoded_media,
+        "media_quality_established": False,
         "valid_generation_rate": valid / max(1, attempted),
-        "exact_chunk_rate": exact / max(1, attempted),
+        "exact_chunk_rate": exact / max(1, text_attempted),
         "exact_chunks": exact,
         "session_lookups": lookups,
         "collection_items_retrieved": collection_retrievals,
@@ -317,7 +406,8 @@ def _evaluate_served_runtime(
         "collection_score_threshold": threshold,
         "note": (
             "Generated text chunk agreement after served session lookups; this is a diagnostic, "
-            "not a task benchmark. Unsupported media or mixed causal groups are counted as skipped."
+            "not a task benchmark. Media without public output bounds or mixed causal groups "
+            "are counted as skipped; decoded media availability alone does not measure quality."
         ),
     }
     return report

@@ -14,10 +14,14 @@ without disturbing the committed session.
 
 from __future__ import annotations
 
+import json
+import time
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
+from dataclasses import asdict, dataclass, field, replace
+from functools import wraps
 from pathlib import Path
+from threading import BoundedSemaphore, RLock
 
 import torch
 
@@ -25,12 +29,14 @@ from megatoken.contracts import ROLE_TO_ID
 from megatoken.data.chunking import ChunkingConfig, segment_bytes
 from megatoken.data.knowledge import FilePreparer
 from megatoken.generation.structure import ActionSpec
+from megatoken.lifecycle import TrackRegistry
 from megatoken.model.media import MediaOutputSpec
 from megatoken.model.multitrack import (
     GroupGeneration,
     MultiTrackGenerator,
     MultiTrackState,
     ObservedEvent,
+    SelectedGroup,
 )
 from megatoken.transducer_service import (
     AddedFiles,
@@ -39,10 +45,47 @@ from megatoken.transducer_service import (
 )
 
 
+def _commit_owner(method):
+    @wraps(method)
+    def serialized(self, session, *args, **kwargs):
+        with session.lock:
+            return method(self, session, *args, **kwargs)
+
+    return serialized
+
+
 @dataclass(frozen=True)
 class PendingGroup:
     base_revision: int
     result: GroupGeneration
+    output_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class ReadyWork:
+    event_id: str
+    track: str
+    spec: ActionSpec | MediaOutputSpec
+    control: bytes = b""
+    prerequisites: tuple[str, ...] = ()
+    task_revision: int = 0
+    priority: int = 0
+    modality_options: tuple[ActionSpec | MediaOutputSpec, ...] = ()
+
+
+@dataclass
+class RenderWork:
+    selection: SelectedGroup
+    future: Future
+    status: str = "rendering"
+    result: GroupGeneration | None = None
+    error: str | None = None
+    delivered_events: set[str] = field(default_factory=set)
+    delivery_progress: dict[str, int] = field(default_factory=dict)
+    delivery_log: list[dict] = field(default_factory=list)
+    stop_published: bool = False
+    completion_committed: bool = False
+    outcome_published: bool = False
 
 
 @dataclass
@@ -55,6 +98,23 @@ class TrackSession:
     events: list[tuple[int, tuple[str, ...]]] = field(default_factory=list)
     # Every text payload committed so far, oldest first: what a tool call may copy from.
     history: list[bytes] = field(default_factory=list)
+
+    tracks: TrackRegistry = field(default_factory=TrackRegistry)
+    lock: RLock = field(default_factory=RLock, repr=False)
+    completed_events: set[str] = field(default_factory=set)
+    occupied_events: set[str] = field(default_factory=set)
+    tool_routes: dict[str, tuple[str, str]] = field(default_factory=dict)
+    tool_outcomes: dict[str, str] = field(default_factory=dict)
+    tool_ready: dict[str, bytes] = field(default_factory=dict)
+    tool_errors: dict[str, str] = field(default_factory=dict)
+    tool_publication: dict[str, int] = field(default_factory=dict)
+    selected_groups: dict[int, GroupGeneration] = field(default_factory=dict)
+    rendering: dict[int, RenderWork] = field(default_factory=dict)
+    queue: list[ReadyWork] = field(default_factory=list)
+    work_sequence: int = 0
+    scheduling_steps: int = 0
+    scheduling_log: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    reserved_output_bytes: dict[int, int] = field(default_factory=dict)
 
     @property
     def state(self) -> MultiTrackState:
@@ -71,14 +131,87 @@ class MultiTrackRuntime:
         chunking: ChunkingConfig | None = None,
         collections: Mapping[str, str | Path] | None = None,
         preparer: Callable[[], FilePreparer] | None = None,
+        output_specs: Mapping[str, ActionSpec | MediaOutputSpec] | None = None,
+        record_policy_context: bool = False,
+        max_event_output_bytes: int = 64 << 20,
+        max_session_output_bytes: int = 256 << 20,
     ) -> None:
         """``chunking`` is the served bundle's physical chunk policy (default: the model's)."""
         self.generator = generator
+        if not 1 <= max_event_output_bytes <= max_session_output_bytes:
+            raise ValueError("Output byte budgets must be positive and ordered")
+        self.max_event_output_bytes = max_event_output_bytes
+        self.max_session_output_bytes = max_session_output_bytes
+        generator.tracks.record_policy_context = record_policy_context
+        self.render_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-render")
+        self.max_rendering = 4
+        self.render_capacity = BoundedSemaphore(8)
+        self.max_retained_outputs = 64
         model = generator.generator
+        self.max_piece_bytes = max(
+            len(model.codec.token_bytes(i)) for i in model.codec.allowed_ids()
+        )
+        self.output_specs = dict(
+            output_specs or {"text": ActionSpec(max_tokens=min(512, model.config.max_capacity))}
+        )
+        for modality, spec in self.output_specs.items():
+            if modality != ("text" if isinstance(spec, ActionSpec) else spec.modality):
+                raise ValueError("Output capability and decoder specification disagree")
+            if isinstance(spec, MediaOutputSpec):
+                from megatoken.model.media import validate_public_media_spec
+
+                validate_public_media_spec(spec)
+                model.media_realizers.resident(modality)
         self.chunking = (chunking or ChunkingConfig()).with_hard_limit(model.config.max_capacity)
         self.memory = TransducerInferenceEngine(
             generator, collections=collections, preparer=preparer
         )
+
+    def _output_capacity(self, session, tracks, specs=None, modality_options=None):
+        """Reserve physical-output memory from public geometry before selection."""
+        max_piece = self.max_piece_bytes
+
+        def bound(spec):
+            if isinstance(spec, MediaOutputSpec):
+                return 4 * (
+                    spec.sample_count
+                    if spec.modality == "audio"
+                    else spec.frames * 3 * spec.height * spec.width
+                )
+            copy = max((len(source.payload) for source in spec.copy_sources), default=0)
+            fixed = max(
+                (
+                    sum(
+                        len((field.fixed_json or "").encode()) * 6
+                        + len(field.name.encode()) * 6
+                        + 8
+                        for field in schema.fields
+                    )
+                    for schema in spec.schemas
+                ),
+                default=0,
+            )
+            return fixed + spec.max_tokens * max(max_piece, copy, 1) * 6
+
+        plans = (
+            tuple(specs)
+            if specs is not None
+            else (ActionSpec(max_tokens=self.generator.generator.config.max_capacity),)
+            * len(tracks)
+        )
+        options = modality_options or tuple((spec,) for spec in plans)
+        sizes = [max(bound(spec) for spec in choices) for choices in options]
+        if len(sizes) != len(tracks) or any(size > self.max_event_output_bytes for size in sizes):
+            raise ValueError("Event output exceeds its byte budget; request shorter media chunks")
+        pending = 0 if session.pending is None else session.pending.output_bytes
+        if (
+            sum(session.reserved_output_bytes.values()) + pending + sum(sizes)
+            > self.max_session_output_bytes
+        ):
+            raise ValueError(
+                "Retained output byte budget exhausted; release completed outputs before selecting more"
+            )
+        return sum(sizes)
 
     def open(
         self,
@@ -90,6 +223,9 @@ class MultiTrackRuntime:
         collections: Sequence[str] | None = None,
         max_sources: int | None = None,
         threshold: float | None = None,
+        overlay: str | None = None,
+        scope: str | None = None,
+        write_policy=None,
     ) -> TrackSession:
         """Commit the metadata prefix and the first lookup, before any answer.
 
@@ -113,8 +249,10 @@ class MultiTrackRuntime:
                 effort=effort,
                 collections=collections,
                 threshold=threshold,
+                overlay=overlay, scope=scope, write_policy=write_policy,
                 **options,
-            )
+            ),
+            tracks=TrackRegistry(max_active=self.generator.generator.config.max_tracks),
         )
 
     def add_files(
@@ -128,6 +266,7 @@ class MultiTrackRuntime:
         """Add files to a mounted collection and/or an open base (see ``TransducerInferenceEngine.add_files``)."""
         return self.memory.add_files(paths, collection=collection, base=base, metadata=metadata)
 
+    @_commit_owner
     def observe(
         self, session: TrackSession, events: Sequence[ObservedEvent], *, effort: int = 6
     ) -> MultiTrackState:
@@ -139,6 +278,13 @@ class MultiTrackRuntime:
         ready = tuple(events)
         if not ready:
             raise ValueError("A committed meridian must contain one or more events")
+        ready = tuple(
+            replace(event, event_id=event.event_id or f"observed:{session.revision}:{index}")
+            for index, event in enumerate(ready)
+        )
+        ids = [e.event_id for e in ready]
+        if len(set(ids)) != len(ids) or set(ids) & session.occupied_events:
+            raise ValueError("Observed events need new distinct stable event addresses")
         codec = self.generator.generator.codec
         for event in ready:
             if event.modality == "text" and (
@@ -153,6 +299,8 @@ class MultiTrackRuntime:
         session.pending = None
         session.events.append((session.revision, tuple(x.track for x in ready)))
         session.history.extend(x.payload for x in ready if x.modality == "text")
+        session.completed_events.update(ids)
+        session.occupied_events.update(ids)
         return session.state
 
     def observe_text(
@@ -196,29 +344,53 @@ class MultiTrackRuntime:
             self.observe(session, (event,), effort=effort)
         return len(chunks)
 
+    @_commit_owner
     def speculate(
         self,
         session: TrackSession,
         *,
         tracks: Sequence[str],
+        event_ids: Sequence[str] | None = None,
         specs: Sequence[ActionSpec | MediaOutputSpec] | None = None,
+        modality_options: Sequence[Sequence[ActionSpec | MediaOutputSpec]] | None = None,
         controls: Sequence[bytes] | None = None,
         effort: int = 6,
         generator: torch.Generator | None = None,
     ) -> PendingGroup:
         """Produce a candidate without committing raw state, KV or output."""
+        output_bytes = self._output_capacity(session, tracks, specs, modality_options)
+        if (
+            len(session.selected_groups.keys() | session.rendering.keys())
+            >= self.max_retained_outputs
+        ):
+            raise ValueError(
+                "Retained output capacity exhausted; release delivered output snapshots"
+            )
+        for address in tracks:
+            if address in session.tracks.tracks and not session.tracks.selectable(
+                address, session.completed_events
+            ):
+                raise ValueError("Track is closed, waiting or has unfinished prerequisites")
+        for address in set(tracks):
+            if address in session.tracks.tracks and session.tracks.tracks[
+                address
+            ].budget < tracks.count(address):
+                raise ValueError("Track work budget exhausted before selection")
         result = self.generator.generate_group(
             session.state,
             tracks=tracks,
+            event_ids=event_ids,
             specs=specs,
+            modality_options=modality_options,
             controls=controls,
             effort=effort,
             generator=generator,
         )
-        branch = PendingGroup(session.revision, result)
+        branch = PendingGroup(session.revision, result, output_bytes)
         session.pending = branch
         return branch
 
+    @_commit_owner
     def accept(self, session: TrackSession, branch: PendingGroup) -> GroupGeneration:
         """Atomic group acceptance; stale or foreign branches are never merged."""
         if session.pending is not branch or branch.base_revision != session.revision:
@@ -226,13 +398,25 @@ class MultiTrackRuntime:
         result = branch.result
         if result.tape.meridian_id != int(session.state.meridians_seen[0]):
             raise ValueError("Speculative branch has the wrong causal history")
+        if set(result.tape.event_ids) & session.occupied_events:
+            raise ValueError("Selected events reuse previously committed event addresses")
+        for address in set(result.tape.tracks):
+            if address in session.tracks.tracks and session.tracks.tracks[
+                address
+            ].budget < result.tape.tracks.count(address):
+                raise ValueError("Track work budget exhausted before acceptance")
         # The lookup this meridian makes due thinks as hard as the meridian did.
         self.memory.generated(
             session.memory, result.state, result.tape.terminal, effort=result.tape.effort
         )
+        session.tracks.charge(result.tape.tracks)
         session.revision += 1
         session.pending = None
         session.events.append((session.revision, result.tape.tracks))
+        session.selected_groups[session.revision] = result
+        session.reserved_output_bytes[session.revision] = branch.output_bytes
+        session.completed_events.update(result.tape.event_ids)
+        session.occupied_events.update(result.tape.event_ids)
         session.history.extend(
             payload
             for payload, modality in zip(result.tape.payloads, result.tape.modalities, strict=True)
@@ -245,7 +429,9 @@ class MultiTrackRuntime:
         session: TrackSession,
         *,
         tracks: Sequence[str],
+        event_ids: Sequence[str] | None = None,
         specs: Sequence[ActionSpec | MediaOutputSpec] | None = None,
+        modality_options: Sequence[Sequence[ActionSpec | MediaOutputSpec]] | None = None,
         controls: Sequence[bytes] | None = None,
         effort: int = 6,
         generator: torch.Generator | None = None,
@@ -255,30 +441,560 @@ class MultiTrackRuntime:
             self.speculate(
                 session,
                 tracks=tracks,
+                event_ids=event_ids,
                 specs=specs,
+                modality_options=modality_options,
                 controls=controls,
                 effort=effort,
                 generator=generator,
             ),
         )
 
+    @_commit_owner
     def cancel(self, session: TrackSession) -> None:
         session.pending = None
+
+    @_commit_owner
+    def enqueue(self, session: TrackSession, work: ReadyWork):
+        if len(session.queue) >= 64:
+            raise ValueError("Ready-work queue exhausted; drain ready work before admission")
+        if (
+            not work.event_id
+            or work.event_id in session.occupied_events
+            or any(w.event_id == work.event_id for w in session.queue)
+        ):
+            raise ValueError("Queued work requires a new stable event address")
+        if work.track not in session.tracks.tracks:
+            raise ValueError("Queued work requires a declared track purpose")
+        session.queue.append(work)
+        session.scheduling_log.append(("queued", (work.event_id,)))
+
+    @_commit_owner
+    def schedule_ready(self, session: TrackSession, *, max_events: int = 4, effort: int = 6):
+        if not 1 <= max_events <= self.generator.generator.config.max_history_chunks:
+            raise ValueError("Ready group exceeds the retained-history event capacity")
+        candidates = []
+        for index, work in enumerate(session.queue):
+            track = session.tracks.tracks[work.track]
+            if work.task_revision != track.revision or track.status in {"completed", "cancelled"}:
+                session.scheduling_log.append(("stale", (work.event_id,)))
+                continue
+            candidates.append((index, work))
+        # Drop stale requests explicitly, preserving a deterministic outcome record.
+        session.queue[:] = [work for _, work in candidates]
+        ready = [
+            (i, w)
+            for i, w in candidates
+            if set(w.prerequisites) <= session.completed_events
+            and session.tracks.selectable(w.track, session.completed_events)
+        ]
+        # Periodically serve the oldest ready work; priority protects urgent
+        # user responses while sustained lower-priority work cannot starve.
+        ordered = sorted(
+            ready,
+            key=lambda pair: (
+                0 if session.scheduling_steps % 8 == 7 else pair[1].priority,
+                pair[0],
+            ),
+        )
+        chosen = []
+        for _, work in ordered:
+            # Producers and consumers cannot be selected as simultaneous peers.
+            if set(work.prerequisites) & {w.event_id for w in chosen}:
+                continue
+            count = sum(w.track == work.track for w in chosen)
+            if session.tracks.tracks[work.track].budget > count:
+                chosen.append(work)
+            if len(chosen) == max_events:
+                break
+        if not chosen:
+            return None
+        revision = self.start_generation(
+            session,
+            tracks=tuple(w.track for w in chosen),
+            event_ids=tuple(w.event_id for w in chosen),
+            specs=tuple(w.spec for w in chosen),
+            controls=tuple(w.control for w in chosen),
+            modality_options=tuple(w.modality_options or (w.spec,) for w in chosen),
+            effort=effort,
+        )
+        ids = {w.event_id for w in chosen}
+        session.queue[:] = [w for w in session.queue if w.event_id not in ids]
+        session.scheduling_steps += 1
+        session.scheduling_log.append(("selected", tuple(w.event_id for w in chosen)))
+        return revision
+
+    @_commit_owner
+    def start_generation(self, session: TrackSession, **kwargs) -> int:
+        """Commit selected content before starting bounded asynchronous rendering."""
+        output_bytes = self._output_capacity(
+            session, kwargs["tracks"], kwargs.get("specs"), kwargs.get("modality_options")
+        )
+        if (
+            len(session.selected_groups.keys() | session.rendering.keys())
+            >= self.max_retained_outputs
+        ):
+            raise ValueError(
+                "Retained output capacity exhausted; release delivered output snapshots"
+            )
+        if sum(w.status == "rendering" for w in session.rendering.values()) >= self.max_rendering:
+            raise ValueError("Rendering capacity exhausted; queue selection until work drains")
+        tracks = tuple(kwargs["tracks"])
+        for address in tracks:
+            if address in session.tracks.tracks and not session.tracks.selectable(
+                address, session.completed_events
+            ):
+                raise ValueError("Track is closed, waiting or has unfinished prerequisites")
+        # Check budget before spending work on selection.
+        for address in set(tracks):
+            if address in session.tracks.tracks and session.tracks.tracks[
+                address
+            ].budget < tracks.count(address):
+                raise ValueError("Track work budget exhausted before selection")
+        if not self.render_capacity.acquire(blocking=False):
+            raise ValueError("Global rendering queue exhausted; wait for active decoders")
+        try:
+            selected = self.generator.select_group(session.state, **kwargs)
+            if set(selected.tape.event_ids) & session.occupied_events:
+                raise ValueError("Selected events reuse previously committed event addresses")
+            lookup = self.memory.generated(
+                session.memory, selected.state, selected.tape.terminal, effort=selected.tape.effort
+            )
+            session.tracks.charge(tracks)
+            session.revision += 1
+            session.pending = None
+            revision = session.revision
+            session.reserved_output_bytes[revision] = output_bytes
+            session.events.append((revision, selected.tape.tracks))
+            session.occupied_events.update(selected.tape.event_ids)
+            # A renderer never receives mutable live session state.
+            try:
+                future = self.render_executor.submit(self.generator.render_selected, selected)
+            except RuntimeError as exc:
+                future = Future()
+                future.set_exception(exc)
+            future.add_done_callback(lambda _: self.render_capacity.release())
+            session.rendering[revision] = RenderWork(
+                selected, future, completion_committed=lookup is not None
+            )
+            return revision
+        except BaseException:
+            self.render_capacity.release()
+            raise
+
+    @_commit_owner
+    def poll_generation(self, session: TrackSession, revision: int) -> RenderWork:
+        work = session.rendering[revision]
+        if work.status == "rendering" and work.future.done():
+            try:
+                work.result = work.future.result()
+            except Exception as exc:
+                work.status = "failed"
+                work.error = f"{type(exc).__name__}: {exc}"
+            else:
+                if not work.completion_committed:
+                    self.memory.generated_completion(
+                        session.memory,
+                        work.result.tape.roles,
+                        work.result.tape.terminal,
+                        effort=work.result.tape.effort,
+                    )
+                    work.completion_committed = True
+                work.status = "rendered"
+                session.selected_groups[revision] = work.result
+                session.completed_events.update(work.result.tape.event_ids)
+                session.history.extend(
+                    p
+                    for p, m in zip(
+                        work.result.tape.payloads, work.result.tape.modalities, strict=True
+                    )
+                    if m == "text"
+                )
+        if work.status == "failed" and not work.outcome_published:
+            self.observe_text(
+                session,
+                work.selection.tape.tracks[0],
+                json.dumps(
+                    {"rendering_failed": list(work.selection.tape.event_ids), "error": work.error}
+                ).encode(),
+                role="environment",
+                effort=work.selection.tape.effort,
+            )
+            work.outcome_published = True
+        return work
+
+    @_commit_owner
+    def stop_delivery(self, session: TrackSession, revision: int) -> RenderWork:
+        work = self.poll_generation(session, revision)
+        work.future.cancel()  # running decoder computation may not be cancellable
+        work.status = "cancelled"
+        if not work.stop_published:
+            self.observe_text(
+                session,
+                work.selection.tape.tracks[0],
+                json.dumps(
+                    {
+                        "delivery_stopped": list(work.selection.tape.event_ids),
+                        "delivered_extents": work.delivery_progress,
+                    },
+                    sort_keys=True,
+                ).encode(),
+                role="environment",
+                effort=work.selection.tape.effort,
+            )
+            work.stop_published = True
+        return work
+
+    @_commit_owner
+    def delivered(
+        self,
+        session: TrackSession,
+        revision: int,
+        event_ids: Sequence[str],
+        *,
+        extents: Mapping[str, int] | None = None,
+    ):
+        work = self.poll_generation(session, revision)
+        if work.status not in {"rendered", "delivered"}:
+            raise ValueError("Only completed, uncancelled rendering can be delivered")
+        if not set(event_ids) <= set(work.selection.tape.event_ids):
+            raise ValueError("Delivery must name original selected event addresses")
+        if extents is not None and set(extents) != set(event_ids):
+            raise ValueError("Partial delivery must specify an extent for each acknowledged event")
+        updates = []
+        for event_id in event_ids:
+            index = work.selection.tape.event_ids.index(event_id)
+            spec = work.selection.specs[index]
+            if isinstance(spec, MediaOutputSpec):
+                bound, unit = (
+                    (spec.sample_count, "samples")
+                    if spec.modality == "audio"
+                    else (spec.frames, "frames")
+                )
+            else:
+                bound, unit = len(work.result.tape.payloads[index]), "bytes"
+            extent = bound if extents is None else extents[event_id]
+            if (
+                type(extent) is not int
+                or not work.result.tape.valid[index]
+                or not work.delivery_progress.get(event_id, 0) <= extent <= bound
+            ):
+                raise ValueError("Delivery extent must advance within the actual rendered event")
+            updates.append((event_id, extent, bound, unit))
+        for event_id, extent, bound, unit in updates:
+            work.delivery_progress[event_id] = extent
+            work.delivery_log.append(
+                {
+                    "event_id": event_id,
+                    "delivered": extent,
+                    "extent": bound,
+                    "unit": unit,
+                    "available_at_ns": time.monotonic_ns(),
+                }
+            )
+            if extent == bound:
+                work.delivered_events.add(event_id)
+        if work.delivered_events == set(work.selection.tape.event_ids):
+            work.status = "delivered"
+
+    @_commit_owner
+    def release_generation(self, session: TrackSession, revision: int):
+        """Release physical payloads after the caller archived the returned tape."""
+        if revision in session.rendering:
+            work = self.poll_generation(session, revision)
+            if work.status not in {"delivered", "cancelled", "failed"} or not work.future.done():
+                raise ValueError("Finish or stop delivery before releasing rendering memory")
+            del session.rendering[revision]
+        session.selected_groups.pop(revision, None)
+        session.reserved_output_bytes.pop(revision, None)
+
+    def close(self):
+        self.render_executor.shutdown(wait=True, cancel_futures=True)
+        self.memory.close()
+
+    @_commit_owner
+    def track_action(
+        self, session: TrackSession, operation: str, *, address: str | None = None, **values
+    ):
+        """Apply a validated lifecycle action, publishing its meaning before work."""
+        for key in ("capabilities", "prerequisites"):
+            if key in values:
+                values[key] = tuple(values[key])
+        registry = session.tracks
+        snapshot = (dict(registry.tracks), registry.sequence, list(registry.transitions))
+        try:
+            if operation == "create":
+                while (
+                    f"{registry.address_prefix}:{registry.sequence}" in session.state.track_registry
+                ):
+                    registry.sequence += 1
+                description = registry.create(**values)
+            else:
+                if address is None:
+                    raise ValueError("Lifecycle action needs its returned track address")
+                description = registry.change(address, operation, **values)
+            # Publish only semantic fields. The address attaches the event to
+            # its task through attention equality, never instruction bytes.
+            payload = json.dumps(
+                {
+                    k: v
+                    for k, v in asdict(description).items()
+                    if k not in {"address", "parent", "prerequisites"}
+                },
+                sort_keys=True,
+            ).encode()
+            self.observe_text(session, description.address, payload, role="system", effort=1)
+            session.memory.state = self.generator.tracks.describe_track(
+                session.state, description.address, description.purpose, description.revision
+            )
+        except Exception:
+            # Published chunks remain causal facts. An allocated address is
+            # consumed even if the rest of its announcement could not publish.
+            registry.tracks, _, registry.transitions = snapshot
+            raise
+        return description
+
+    def _publish_tool_result(
+        self, session: TrackSession, action_id: str, payload: bytes, *, effort: int = 6
+    ):
+        address, _ = session.tool_routes[action_id]
+        chunks = segment_bytes(
+            payload, self.generator.generator.codec, self.chunking, chat_template="none"
+        )
+        beginning = session.tool_publication.get(action_id, 0)
+        for index in range(beginning, len(chunks)):
+            self.observe(
+                session,
+                (
+                    ObservedEvent(
+                        address,
+                        "text",
+                        chunks[index].payload,
+                        ROLE_TO_ID["tool"],
+                        terminal=index + 1 == len(chunks),
+                        event_id=f"result:{action_id}:part:{index}",
+                    ),
+                ),
+                effort=effort,
+            )
+            session.tool_publication[action_id] = index + 1
+        session.completed_events.add(f"result:{action_id}")
+        session.occupied_events.add(f"result:{action_id}")
+
+    @_commit_owner
+    def execute_lifecycle(self, session: TrackSession, group: GroupGeneration):
+        """Execute selected, validated control messages through the same policy as tools."""
+        import jsonschema
+
+        from megatoken.lifecycle import lifecycle_tools
+        from megatoken.tool_schema import parse_tool_action
+
+        if not any(value is group for value in session.selected_groups.values()):
+            raise ValueError("Lifecycle execution requires committed selected actions")
+        tools = {
+            tool["name"]: tool["parameters"] for tool in lifecycle_tools(tuple(self.output_specs))
+        }
+        outcomes = []
+        for index, payload in enumerate(group.tape.payloads):
+            if not group.tape.valid[index] or group.tape.modalities[index] != "text":
+                continue
+            try:
+                name, arguments, _, _ = parse_tool_action(payload)
+            except (ValueError, KeyError, TypeError):
+                continue
+            if name not in tools:
+                continue
+            try:
+                jsonschema.validate(arguments, tools[name])
+            except jsonschema.ValidationError:
+                continue  # Malformed like an unparseable action: skipped, later actions still run.
+            action_id = f"{group.tape.meridian_id}:{group.tape.event_ids[index]}"
+            if action_id in session.tool_outcomes:
+                continue
+            address = group.tape.tracks[index]
+            # Keep attachment to the requesting task even when it closes itself.
+            session.tool_routes[action_id] = (address, group.tape.event_ids[index])
+            try:
+                if name == "track_output":
+                    target = session.tracks.tracks[arguments["address"]]
+                    if not session.tracks.selectable(target.address, session.completed_events):
+                        raise ValueError("Output work requires an active ready track")
+                    kinds = (
+                        tuple(self.output_specs)
+                        if arguments["modality"] == "auto"
+                        else (arguments["modality"],)
+                    )
+                    options = tuple(self.output_specs[k] for k in kinds if k in target.capabilities)
+                    if not options:
+                        raise ValueError("No requested output capability is allowed for this track")
+                    event_id = f"work:{session.work_sequence}"
+                    session.work_sequence += 1
+                    self.enqueue(
+                        session,
+                        ReadyWork(
+                            event_id,
+                            target.address,
+                            options[0],
+                            arguments["request"].encode(),
+                            task_revision=target.revision,
+                            modality_options=options,
+                        ),
+                    )
+                    outcome = {
+                        "action_id": action_id,
+                        "event_id": event_id,
+                        "track": target.address,
+                        "status": "queued",
+                    }
+                else:
+                    description = self.track_action(
+                        session, name.removeprefix("track_"), **arguments
+                    )
+                    outcome = {"action_id": action_id, "track": asdict(description)}
+                status = "completed"
+            except (ValueError, KeyError) as exc:
+                outcome = {"action_id": action_id, "error": str(exc)}
+                status = "failed"
+            session.tool_ready[action_id] = json.dumps(outcome, sort_keys=True).encode()
+            session.tool_outcomes[action_id] = status
+            outcomes.append(outcome)
+        # Outcomes are observed after the complete selected group, never as a
+        # hidden input to one of the peer predictions.
+        for action_id, payload in tuple(session.tool_ready.items()):
+            self._publish_tool_result(session, action_id, payload)
+            del session.tool_ready[action_id]
+        return outcomes
+
+    @_commit_owner
+    def prepare_source(self, session: TrackSession, *, track: str, event_id: str, runner, prepare):
+        """Run preparation without owning model state; publish readiness on collection.
+
+        ``prepare`` must finish atomic collection publication and return its
+        immutable receipt. Only collect_tools integrates that receipt into the
+        shared causal history, so ongoing rendering never blocks ingestion.
+        """
+        if not event_id or event_id in session.occupied_events:
+            raise ValueError("Source preparation needs a fresh event identity")
+        action_id = f"source:{event_id}"
+        if action_id in session.tool_routes:
+            raise ValueError("Source preparation already admitted")
+
+        def work():
+            receipt = prepare()
+            if (
+                not isinstance(receipt, dict)
+                or not receipt.get("item_id")
+                or type(receipt.get("revision")) is not int
+                or receipt["revision"] < 1
+                or type(receipt.get("available_at_ns")) is not int
+            ):
+                raise ValueError(
+                    "Source preparation did not return a committed publication receipt"
+                )
+            return json.dumps({"source_ready": receipt}, sort_keys=True).encode()
+
+        runner.submit(action_id, work)
+        session.tool_routes[action_id] = (track, event_id)
+        session.occupied_events.add(event_id)
+        return action_id
+
+    @_commit_owner
+    def dispatch_tools(
+        self, session: TrackSession, group: GroupGeneration, runner, adapters, *, schemas=None
+    ):
+        """Dispatch only accepted, typed model calls through configured adapters.
+
+        Adapter functions explicitly declare the allowed external capability.
+        The immutable selected payload is the call's complete input.
+        """
+        if not any(value is group for value in session.selected_groups.values()):
+            raise ValueError("External execution requires a committed selected group")
+        from megatoken.tool_schema import parse_tool_action
+
+        for index, payload in enumerate(group.tape.payloads):
+            if not group.tape.valid[index] or not payload or group.tape.modalities[index] != "text":
+                continue
+            try:
+                name, arguments, _, _ = parse_tool_action(payload)
+            except (ValueError, KeyError, TypeError):
+                continue
+            if name.startswith("track_"):
+                continue
+            if name not in adapters:
+                raise ValueError("Generated tool capability is not installed")
+            if schemas is not None:
+                import jsonschema
+
+                jsonschema.validate(arguments, schemas[name])
+            address = group.tape.tracks[index]
+            if (
+                address in session.tracks.tracks
+                and name not in session.tracks.tracks[address].capabilities
+            ):
+                raise ValueError("Generated tool exceeds the track's allowed capabilities")
+            action_id = f"{group.tape.meridian_id}:{group.tape.event_ids[index]}"
+            if action_id in session.tool_routes:
+                continue
+            function = adapters[name]
+            if hasattr(function, "execute_selected"):
+                runner.submit(
+                    action_id,
+                    lambda fn=function, identity=action_id, raw=payload: fn.execute_selected(
+                        action_id=identity, payload=raw
+                    ),
+                )
+            else:
+                runner.submit(action_id, lambda fn=function, args=arguments: fn(args))
+            session.tool_routes[action_id] = (address, group.tape.event_ids[index])
+
+    @_commit_owner
+    def collect_tools(self, session: TrackSession, runner, *, effort: int = 6):
+        results, failures = runner.collect_ready()
+        for action_id in (*results, *failures):
+            if action_id not in session.tool_routes:
+                raise ValueError("Tool result has no original selected action")
+            if action_id in session.tool_outcomes:
+                continue
+            if action_id in failures:
+                session.tool_errors[action_id] = str(failures[action_id])
+                session.tool_ready[action_id] = json.dumps(
+                    {"error": str(failures[action_id])}
+                ).encode()
+            else:
+                session.tool_ready[action_id] = results[action_id]
+        # Retain ready outcomes if publication fails; collection never loses an
+        # executed effect merely because ingestion ran out of capacity.
+        for action_id, payload in tuple(session.tool_ready.items()):
+            self._publish_tool_result(session, action_id, payload, effort=effort)
+            session.tool_outcomes[action_id] = (
+                "failed" if action_id in session.tool_errors else "completed"
+            )
+            del session.tool_ready[action_id]
+        return results, failures
 
 
 class ConcurrentToolRunner:
     """IO-only parallel calls; results enter KV only through observe()."""
 
-    def __init__(self, max_workers: int = 4) -> None:
+    def __init__(self, max_workers: int = 4, max_pending: int = 64) -> None:
         if not 1 <= max_workers <= 32:
             raise ValueError("Tool runner requires 1 to 32 IO workers")
+        if max_pending < max_workers:
+            raise ValueError("Tool queue must accommodate its active workers")
+        self.max_pending = max_pending
+        self.seen: set[str] = set()
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.pending: dict[str, Future[bytes]] = {}
 
     def submit(self, action_id: str, function: Callable[[], bytes]) -> None:
-        if not action_id or action_id in self.pending:
+        if not action_id or action_id in self.seen:
             raise ValueError("Parallel action requires a new stable action ID")
+        if len(self.pending) >= self.max_pending:
+            raise ValueError(
+                "Tool request queue exhausted; retry admission after collecting results"
+            )
         self.pending[action_id] = self.executor.submit(function)
+        self.seen.add(action_id)
 
     def collect_ready(self) -> tuple[dict[str, bytes], dict[str, BaseException]]:
         """Finished calls, removed from the pending set: their bytes, and the errors that ended others.
@@ -291,7 +1007,11 @@ class ConcurrentToolRunner:
             if not future.done():
                 continue
             del self.pending[action_id]
-            error = future.exception()
+            error = (
+                CancelledError("Tool computation cancelled before execution")
+                if future.cancelled()
+                else future.exception()
+            )
             if error is None and not isinstance(future.result(), bytes):
                 error = TypeError("Executed tool result must return raw bytes")
             if error is None:

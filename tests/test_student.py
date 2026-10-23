@@ -51,12 +51,21 @@ def draw_seed(seed, request_id):
 
 
 def test_a_student_rollout_is_exactly_a_served_session(bundle):
-    student = ModelTeacher(bundle, effort=1, seed=3)
+    student = ModelTeacher(bundle, effort=1, seed=2)
     response = student.respond(request_for([PROMPT]))
     # The same thing done by hand on the serving runtime: one user message, one draw.
-    runtime = MultiTrackRuntime(MultiTrackGenerator(bundle.model), chunking=bundle.chunking)
+    runtime = MultiTrackRuntime(
+        MultiTrackGenerator(bundle.model), chunking=bundle.chunking, record_policy_context=True
+    )
     session = runtime.open(effort=1)
-    event = ObservedEvent("user", "text", PROMPT.payload, ROLE_TO_ID["user"], terminal=True)
+    event = ObservedEvent(
+        "user",
+        "text",
+        PROMPT.payload,
+        ROLE_TO_ID["user"],
+        terminal=True,
+        event_id=PROMPT.record_id,
+    )
     runtime.observe(session, (event,), effort=1)
     expected = runtime.generate(
         session,
@@ -64,7 +73,7 @@ def test_a_student_rollout_is_exactly_a_served_session(bundle):
         specs=(ActionSpec(max_tokens=8),),
         controls=(build_control_payload(seed=b"public policy", tools_json="[]"),),
         effort=1,
-        generator=torch.Generator().manual_seed(draw_seed(3, "r0")),
+        generator=torch.Generator().manual_seed(draw_seed(2, "r0")),
     )
     assert response.native_tape_json == expected.tape.to_json()
     tape = GroupActionTape.from_json(response.native_tape_json)
@@ -76,7 +85,7 @@ def test_a_student_rollout_is_exactly_a_served_session(bundle):
 
 
 def test_each_record_is_read_once_on_the_track_of_its_role_and_the_draw_is_not_reread(bundle):
-    student = ModelTeacher(bundle, effort=1, seed=3)
+    student = ModelTeacher(bundle, effort=1, seed=2)
     first = student.respond(request_for([PROMPT]))
     answer = GroupActionTape.from_json(first.native_tape_json)
     assert answer.valid == (True,)
@@ -100,10 +109,24 @@ def test_each_record_is_read_once_on_the_track_of_its_role_and_the_draw_is_not_r
     assert seen.count(("assistant",)) == 2  # the two draws, and no re-read of the first
 
 
+def _nonempty_rollout(bundle):
+    # These integrity scenarios require a physical action. Apply the runtime's
+    # public minimum-length constraint; keep the selected bytes and probability
+    # genuine, instead of relying on a random initialization emitting content.
+    student = ModelTeacher(bundle, effort=1, seed=2)
+    original = student.runtime.generate
+
+    def constrained(session, **kwargs):
+        kwargs["specs"] = tuple(replace(spec, min_tokens=1) for spec in kwargs["specs"])
+        return original(session, **kwargs)
+
+    student.runtime.generate = constrained
+    response = student.respond(request_for([PROMPT]))
+    return student, response, GroupActionTape.from_json(response.native_tape_json)
+
+
 def test_a_changed_or_missing_executed_action_is_refused(bundle):
-    student = ModelTeacher(bundle, effort=1, seed=3)
-    first = student.respond(request_for([PROMPT]))
-    answer = GroupActionTape.from_json(first.native_tape_json)
+    student, _, answer = _nonempty_rollout(bundle)
     assert answer.valid[0] and answer.payloads[0]
     executed = PhysicalRecord(
         "answer",
@@ -121,9 +144,7 @@ def test_a_changed_or_missing_executed_action_is_refused(bundle):
 
 
 def test_a_student_tape_is_a_valid_native_annotation_of_its_episode(bundle):
-    student = ModelTeacher(bundle, effort=1, seed=3)
-    response = student.respond(request_for([PROMPT]))
-    tape = GroupActionTape.from_json(response.native_tape_json)
+    _, response, tape = _nonempty_rollout(bundle)
     assert tape.valid[0] and tape.payloads[0]
     answer = PhysicalRecord(
         "answer",
@@ -159,6 +180,9 @@ def test_only_single_event_group_tapes_are_native_history(bundle):
     two = replace(
         one,
         tracks=("assistant", "voice"),
+        event_ids=("first", "second"),
+        modality_masks=one.modality_masks * 2,
+        modality_log_probs=one.modality_log_probs * 2,
         roles=one.roles * 2,
         controls=one.controls * 2,
         spec_fingerprints=one.spec_fingerprints * 2,

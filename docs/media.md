@@ -288,3 +288,20 @@ preparation (teacher features plus Mimi latents and geometry).
 No media-quality, perceptual or GPU-scale training result is implied.
 Rights-cleared media inventories and measured gates per phase are prerequisites
 for such claims.
+
+
+## Dynamic events and timed preparation
+
+An output track can carry different modalities and separately addressed simultaneous
+peers, such as speech and its caption. The output-kind classifier runs before content
+prediction and only considers supported specifications supplied by the host. Explicit
+audio duration and visual geometry remain necessary; target-only extents are refused
+in serving. Selection tapes retain both categorical and content probabilities.
+
+Prepared events can retain exact original sample/frame ticks, a clock rate, speaker,
+direction and external availability time. Content time and actual availability are
+independent. The aligned-source compiler preserves these fields and transformation
+provenance. This is a representation contract, not evidence that the current mono
+conversion and average-frame-rate helpers preserve separated conversations or variable
+frame timing. Audit or replace those preparation steps before admitting timing-sensitive
+sources. Current decoder integration does not establish incremental full-duplex output.

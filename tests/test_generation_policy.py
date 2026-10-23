@@ -214,7 +214,7 @@ def test_single_track_generator_routes_gaussian_scale_as_final_stage_p(model, mo
     calls = []
     original = model.core.expert_pools.router_features
 
-    def record(context, *, track_ids=None, role="other", stage=0):
+    def record(context, *, track_ids=None, track_semantics=None, role="other", stage=0):
         calls.append((role.lower(), stage, tuple(context.shape)))
         return original(context, track_ids=track_ids, role=role, stage=stage)
 
@@ -227,7 +227,7 @@ def test_standalone_embedding_realizer_uses_an_r_routing_epoch(model, monkeypatc
     calls = []
     original = model.core.expert_pools.router_features
 
-    def record(context, *, track_ids=None, role="other", stage=0):
+    def record(context, *, track_ids=None, track_semantics=None, role="other", stage=0):
         calls.append((role.lower(), tuple(context.shape)))
         return original(context, track_ids=track_ids, role=role, stage=stage)
 

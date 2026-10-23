@@ -103,6 +103,12 @@ def build_realizer(
     base: Path, name: str, item: dict, *, facet_count: int, facet_width: int, device
 ):
     """One realizer from an already verified pack entry, its identity bound to its files."""
+    import torch
+
+    if torch.device(device).type == "cuda":
+        # Force creation of the CUDA context before large safetensors mappings
+        # on shared-memory hosts. cuda.init alone can leave this work deferred.
+        torch.cuda.mem_get_info(device)
     if name == "pocket":
         realizer = PocketRealizer.from_checkpoint(
             config=str(base / item["config"]),

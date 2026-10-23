@@ -36,10 +36,10 @@ from megatoken.tensors import byte_tensor, is_host
 
 from .adapters import OWNERS, AdapterMixture, AdapterPlan
 from .attention import AttentionFeatures, join_attention
-from .config import RESERVED_TRACKS
+from .config import RESERVED_TRACKS, SYSTEM_TRACK_PURPOSES
 from .core import EFFORTS, MODALITY_IDS, P_HISTORY_READ_STAGES, ROLE_IDS, FacetedCore
 from .expert_pools import expert_scope
-from .media import MediaOutputSpec, MediaTrainTarget, validate_public_media_spec
+from .media import REALIZERS, MediaOutputSpec, MediaTrainTarget, validate_public_media_spec
 from .relations import KINDS, SelectedRelation, semantic_relation_loss
 from .routing import RowRoute
 from .state import KVHistory, assert_cache_version
@@ -47,7 +47,7 @@ from .state import KVHistory, assert_cache_version
 if TYPE_CHECKING:
     from megatoken.generation.policy import FacetedGenerator
 
-GROUP_TAPE_VERSION = "fmt-multitrack-facets-v12"
+GROUP_TAPE_VERSION = "fmt-multitrack-facets-v15"
 
 
 @dataclass(frozen=True)
@@ -67,6 +67,7 @@ class ObservedEvent:
     valid_mask: Tensor | None = None
     # False for a part of a longer message whose later parts have not arrived.
     terminal: bool = True
+    event_id: str = ""
 
     def __post_init__(self) -> None:
         if self.modality not in MODALITY_IDS:
@@ -103,6 +104,10 @@ class MultiTrackState:
     geometry: tuple[int, ...]
     # The latest lookup's adapter mixture; None until the first lookup.
     adapters: AdapterMixture | None = None
+    frontier_event_ids: tuple[str, ...] = ()
+    track_descriptions: tuple[tuple[str, str, int], ...] = ()
+    policy_history: tuple[str, ...] | None = None
+    history_event_ids: tuple[str, ...] = ()
 
     @property
     def batch_size(self) -> int:
@@ -154,6 +159,7 @@ class MultiTrackCore:
             model_version=state.model_version,
             routing_version=state.routing_version,
             geometry=state.geometry,
+            policy_history=() if getattr(self, "record_policy_context", False) else None,
         )
 
     def _validate(self, state: MultiTrackState) -> None:
@@ -174,13 +180,9 @@ class MultiTrackCore:
             raise ValueError("Selected-event chronology has the wrong batch shape")
         if state.frontier_modalities and len(state.frontier_modalities) != state.frontier_count:
             raise ValueError("Frontier modality metadata must match selected events")
-        if (
-            len(state.track_registry) > core.config.max_tracks
-            or len(set(state.track_registry)) != len(state.track_registry)
-            or any(
-                name not in state.track_registry and name not in RESERVED_TRACKS
-                for name in state.frontier_tracks
-            )
+        if len(set(state.track_registry)) != len(state.track_registry) or any(
+            name not in state.track_registry and name not in RESERVED_TRACKS
+            for name in state.frontier_tracks
         ):
             raise ValueError("Track registry is inconsistent with the shared context")
         if state.frontier_roles.shape != state.raw.shape[:2]:
@@ -189,6 +191,8 @@ class MultiTrackCore:
             raise ValueError("History and retained meridian sizes disagree")
         if state.history_tracks.shape != (state.batch_size, sum(state.meridian_sizes)):
             raise ValueError("Retained track metadata must match whole KV event blocks")
+        if len(state.history_event_ids) != sum(state.meridian_sizes):
+            raise ValueError("Retained evidence addresses must match whole KV event blocks")
         if state.history.slots > core.config.max_history_chunks * f:
             raise ValueError("History exceeds its full-block capacity")
         if state.adapters is not None and state.adapters.logits.shape != (
@@ -203,36 +207,58 @@ class MultiTrackCore:
     @staticmethod
     def _names(tracks: Sequence[str], count: int) -> tuple[str, ...]:
         names = tuple(tracks)
-        if (
-            count < 1
-            or len(names) != count
-            or len(set(names)) != count
-            or any(not s for s in names)
-        ):
-            raise ValueError("One meridian needs unique nonempty event track identities")
+        if count < 1 or len(names) != count or any(not s for s in names):
+            raise ValueError("One meridian needs nonempty track addresses")
         return names
+
+    @staticmethod
+    def _event_ids(tracks: Sequence[str], event_ids: Sequence[str] | None) -> tuple[str, ...]:
+        # Unique-track callers retain a convenient implicit address. Peers on
+        # the same track must explicitly name the distinct selected events.
+        ids = tuple(tracks if event_ids is None else event_ids)
+        if (
+            len(ids) != len(tracks)
+            or len(set(ids)) != len(ids)
+            or any(not isinstance(x, str) or not x for x in ids)
+        ):
+            raise ValueError("Every group member requires a unique nonempty event identity")
+        return ids
 
     def _track_indices(
         self, state: MultiTrackState, names: Sequence[str]
     ) -> tuple[Tensor, tuple[str, ...]]:
         registry = list(state.track_registry)
-        # First appearances within an atomic group cannot depend on the
-        # physical order of its events, now that routing reads track identity.
-        new_names = sorted(set(names) - set(registry) - set(RESERVED_TRACKS))
-        if len(registry) + len(new_names) > self.core.config.max_tracks:
-            raise ValueError("Too many tracks for configured session capacity")
-        registry.extend(new_names)
-        indices = []
-        for name in names:
-            if name in RESERVED_TRACKS:
-                # Internal query/knowledge/hindsight/metadata never consume user slots.
-                indices.append(self.core.config.max_tracks + RESERVED_TRACKS.index(name))
-                continue
-            indices.append(registry.index(name))
+        # Handles serve equality and attachment only; no learned table reads them.
+        registry.extend(sorted(set(names) - set(registry)))
+        indices = [registry.index(name) for name in names]
         values = torch.tensor([indices], device=state.device, dtype=torch.long).expand(
             state.batch_size, -1
         )
         return values, tuple(registry)
+
+    def describe_track(
+        self, state: MultiTrackState, address: str, purpose: str, revision: int = 0
+    ) -> MultiTrackState:
+        """Install an available causal description; labels/addresses are never encoded."""
+        if not address or not purpose.strip() or type(revision) is not int or revision < 0:
+            raise ValueError("A track description needs a purpose and nonnegative revision")
+        descriptions = {a: (p, r) for a, p, r in state.track_descriptions}
+        if address in descriptions:
+            previous, old_revision = descriptions[address]
+            if revision < old_revision or (revision == old_revision and purpose != previous):
+                raise ValueError("Changing a track purpose requires a new causal revision")
+        descriptions[address] = (purpose, revision)
+        return replace(
+            state, track_descriptions=tuple((a, p, r) for a, (p, r) in descriptions.items())
+        )
+
+    def description_controls(self, state: MultiTrackState, tracks: Sequence[str]) -> Tensor | None:
+        descriptions = {a: p for a, p, _ in state.track_descriptions}
+        # System roles have explicit meaning and do not occupy semantic slots.
+        descriptions.update(SYSTEM_TRACK_PURPOSES)
+        payloads = [descriptions.get(a, "").encode() for a in tracks] * state.batch_size
+        encoded = encode_controls(self.core, payloads, encoder_grad=False)
+        return None if encoded is None else encoded.reshape(state.batch_size, len(tracks), -1)
 
     def _history_for(
         self, state: MultiTrackState, new_events: int
@@ -263,8 +289,10 @@ class MultiTrackCore:
         raw: Tensor,
         *,
         tracks: Sequence[str],
+        event_ids: Sequence[str] | None = None,
         role_ids: Tensor,
         modalities: Sequence[str] | None = None,
+        track_semantics: Tensor | None = None,
     ) -> MultiTrackState:
         """Jointly integrate selected blocks and commit one complete meridian."""
         self._validate(state)
@@ -283,6 +311,7 @@ class MultiTrackCore:
         if events > c.max_history_chunks:
             raise ValueError("One meridian exceeds the global historical event capacity")
         names = self._names(tracks, events)
+        identities = self._event_ids(names, event_ids)
         modality_names = tuple(modalities) if modalities is not None else ("text",) * events
         if len(modality_names) != events or any(x not in MODALITY_IDS for x in modality_names):
             raise ValueError("One supported modality is required per selected event")
@@ -302,7 +331,10 @@ class MultiTrackCore:
         modality_ids = torch.tensor(
             [[MODALITY_IDS[x] for x in modality_names]], device=state.device, dtype=torch.long
         ).expand(state.batch_size, -1)
-        adapter_plan = self.core.adapters.plan("c", state.adapters, track_ids)
+        semantics = self.description_controls(state, names)
+        if track_semantics is not None:
+            semantics = track_semantics if semantics is None else semantics + track_semantics
+        adapter_plan = self.core.adapters.plan("c", state.adapters, track_ids, semantics)
         final = self.core.central(
             raw.flatten(1, 2),
             state.history,
@@ -311,16 +343,32 @@ class MultiTrackCore:
             track_ids=track_ids,
             modality_ids=modality_ids,
             history_track_ids=state.history_tracks.repeat_interleave(c.n_facets, dim=1),
+            track_semantics=semantics,
             adapters=adapter_plan,
         )
         history, retained = self._history_for(state, events)
         next_history = self.core.central.write(
-            final, history, state.meridians_seen, adapters=adapter_plan, track_ids=track_ids
+            final,
+            history,
+            state.meridians_seen,
+            adapters=adapter_plan,
+            track_ids=track_ids,
+            track_semantics=semantics,
         )
         kept = sum(retained)
         old_tracks = state.history_tracks[:, -kept:] if kept else state.history_tracks[:, :0]
         next_history_tracks = torch.cat((old_tracks, track_ids), dim=1)
         shape = (state.batch_size, events, c.n_facets, c.facet_dim)
+        policy_history = state.policy_history
+        if policy_history is not None:
+            from megatoken.model.policy_context import MAX_CONTEXT_BYTES, capture
+
+            entry = capture(
+                state, raw, names, identities, role_ids, modality_names, track_semantics
+            )
+            if sum(map(len, policy_history)) + len(entry) > MAX_CONTEXT_BYTES:
+                raise ValueError("Policy collection history exhausted; finish this bounded episode")
+            policy_history = (*policy_history, entry)
         return MultiTrackState(
             raw=raw,
             final=final.reshape(shape),
@@ -337,6 +385,10 @@ class MultiTrackCore:
             routing_version=state.routing_version,
             geometry=state.geometry,
             adapters=state.adapters,
+            frontier_event_ids=identities,
+            track_descriptions=state.track_descriptions,
+            history_event_ids=(*(state.history_event_ids[-kept:] if kept else ()), *identities),
+            policy_history=policy_history,
         )
 
     def observe_group(
@@ -354,8 +406,10 @@ class MultiTrackCore:
             raise ValueError("At least one event is required")
         tracks = tuple(event.track for event in events)
         self._names(tracks, len(tracks))
+        identities = self._event_ids(tracks, tuple(e.event_id or e.track for e in events))
         track_ids, _ = self._track_indices(state, tracks)
-        adapters = self.core.adapters.plan("e", state.adapters, track_ids)
+        semantics = self.description_controls(state, tracks)
+        adapters = self.core.adapters.plan("e", state.adapters, track_ids, semantics)
         raws = []
         with torch.set_grad_enabled(torch.is_grad_enabled() and encoder_grad):
             for index, event in enumerate(events):
@@ -364,7 +418,10 @@ class MultiTrackCore:
                     if event.modality == "text":
                         values, lengths = byte_tensor([event.payload], state.device)
                         encoded = self.core.encode_chunk(
-                            values, lengths=lengths, track_ids=track_ids[:, index]
+                            values,
+                            lengths=lengths,
+                            track_ids=track_ids[:, index],
+                            track_semantics=None if semantics is None else semantics[:, index],
                         )
                     else:
                         if event.payload.device != state.device:
@@ -374,12 +431,14 @@ class MultiTrackCore:
                             event.valid_mask,
                             extractor=event.extractor,
                             track_ids=track_ids[:, index],
+                            track_semantics=None if semantics is None else semantics[:, index],
                         )
                 raws.append(encoded)
         return self.advance_group(
             state,
             torch.stack(raws, dim=1),
             tracks=tracks,
+            event_ids=identities,
             modalities=tuple(event.modality for event in events),
             role_ids=torch.tensor(
                 [[event.role_id for event in events]], dtype=torch.long, device=state.device
@@ -404,6 +463,7 @@ class MultiTrackCore:
         state: MultiTrackState,
         *,
         tracks: Sequence[str],
+        event_ids: Sequence[str] | None = None,
         control: Tensor | None = None,
         effort: int = 6,
         modalities: Sequence[str] | None = None,
@@ -417,6 +477,7 @@ class MultiTrackCore:
         if effort not in EFFORTS:
             raise ValueError(f"Effort must be one of {EFFORTS}")
         events = len(self._names(tracks, len(tracks)))
+        self._event_ids(tracks, event_ids)
         if events > self.core.config.max_history_chunks:
             raise ValueError("One meridian exceeds the global historical event capacity")
         batch, f, d = state.batch_size, self.core.config.n_facets, self.core.config.facet_dim
@@ -425,9 +486,12 @@ class MultiTrackCore:
             or control.device != state.device
         ):
             raise ValueError("Expected one control vector per requested event")
+        descriptions = self.description_controls(state, tracks)
+        if descriptions is not None:
+            control = descriptions if control is None else control + descriptions
         base = self._predict_seed(state)
         track_ids, _ = self._track_indices(state, tracks)
-        adapters = self.core.adapters.plan("p", state.adapters, track_ids)
+        adapters = self.core.adapters.plan("p", state.adapters, track_ids, control)
         first_weights = None if adapters is None else adapters.weights[0]
         modality_names = tuple(modalities) if modalities is not None else ("text",) * events
         if len(modality_names) != events or any(x not in MODALITY_IDS for x in modality_names):
@@ -439,6 +503,7 @@ class MultiTrackCore:
         with self.core.expert_pools.routing_epoch(
             base.mean(1)[:, None].expand(-1, events, -1),
             track_ids=track_ids,
+            track_semantics=control,
             role="p",
             adapter_weights=first_weights,
         ):
@@ -450,20 +515,15 @@ class MultiTrackCore:
                     facets = (
                         facets + self.core.control_injection(control.to(facets.dtype))[:, :, None]
                     )
-            # Track names are request descriptors, independent of physical order.
-            if events > 1:
-                track_bytes = [b"<track>\n" + name.encode("utf-8") for name in tracks]
-                track_payloads = track_bytes * batch
-                with expert_scope(None if first_weights is None else first_weights.flatten(0, 1)):
-                    track_control = encode_controls(self.core, track_payloads, encoder_grad=False)
-                    assert track_control is not None
-                    offsets = self.core.control_injection(track_control.to(facets.dtype))
-                facets = facets + offsets.reshape(batch, events, 1, d)
         facets = facets + self.core.effort_embedding.weight[EFFORTS.index(effort)]
         stages = tuple(range(1, self.core.config.prediction_layers + 1))
         nrows = sum(self.core._row_counts(f, effort))
         with self.core.expert_pools.routing_epoch(
-            facets.mean(2), track_ids=track_ids, role="p", adapter_weights=first_weights
+            facets.mean(2),
+            track_ids=track_ids,
+            track_semantics=control,
+            role="p",
+            adapter_weights=first_weights,
         ):
             routes = self.core.p_router.compile(
                 facets.mean(dim=2).reshape(batch * events, d),
@@ -477,6 +537,7 @@ class MultiTrackCore:
             with self.core.expert_pools.routing_epoch(
                 facets.mean(2),
                 track_ids=track_ids,
+                track_semantics=control,
                 role="p",
                 stage=stage,
                 adapter_weights=None if adapters is None else adapters.weights[stage - 1],
@@ -491,6 +552,33 @@ class MultiTrackCore:
                     ),
                 )
         return facets
+
+    def modality_logits(
+        self,
+        state: MultiTrackState,
+        tracks: Sequence[str],
+        control: Tensor | None = None,
+        legal: Tensor | None = None,
+    ) -> Tensor:
+        """Choose output kinds before content, using only shared available state."""
+        self._validate(state)
+        count = len(self._names(tracks, len(tracks)))
+        purpose = self.description_controls(state, tracks)
+        if purpose is not None:
+            control = purpose if control is None else control + purpose
+        base = self._predict_seed(state).mean(1)[:, None].expand(-1, count, -1)
+        if control is None:
+            control = base.new_zeros(state.batch_size, count, self.core.config.control_dim)
+        logits = self.core.modality_head(torch.cat((base, control.to(base.dtype)), -1)).float()
+        if legal is not None:
+            if (
+                legal.shape != logits.shape
+                or legal.dtype != torch.bool
+                or not bool(legal.any(-1).all())
+            ):
+                raise ValueError("Each event requires a nonempty legal modality mask")
+            logits = logits.masked_fill(~legal, -torch.inf)
+        return logits
 
     def _stage(
         self,
@@ -571,8 +659,16 @@ class GroupActionTape:
     event_log_probs: tuple[float, ...] = ()
     renderer_seeds: tuple[int, ...] = ()
     pack_fingerprints: tuple[str, ...] = ()
+    event_ids: tuple[str, ...] = ()
+    modality_masks: tuple[tuple[bool, ...], ...] = ()
+    modality_log_probs: tuple[float, ...] = ()
+    render_status: str = "rendered"
+    track_descriptions: tuple[tuple[str, str, int], ...] = ()
+    policy_context: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
+        if self.render_status not in {"selected", "rendered"}:
+            raise ValueError("Unknown grouped rendering state")
         if self.version != GROUP_TAPE_VERSION:
             raise ValueError("Incompatible grouped tape version")
         n, f, d = self.facet_shape
@@ -591,7 +687,12 @@ class GroupActionTape:
             len(self.renderer_seeds),
             len(self.pack_fingerprints),
         )
-        if any(k != n for k in lengths) or len(set(self.tracks)) != n:
+        if (
+            any(k != n for k in lengths)
+            or len(self.event_ids) != n
+            or len(set(self.event_ids)) != n
+            or any(not isinstance(x, str) or not x for x in self.event_ids)
+        ):
             raise ValueError("Grouped tape fields must agree on exact event identities")
         if any(type(seed) is not int or not 0 <= seed < 2**63 for seed in self.renderer_seeds):
             raise ValueError("Renderer noise seeds must match group identities")
@@ -606,9 +707,26 @@ class GroupActionTape:
         ):
             raise ValueError("Every selected event needs a finite policy density")
         if not math.isclose(
-            sum(self.event_log_probs), self.behavior_log_prob, rel_tol=1e-5, abs_tol=1e-3
+            sum(self.event_log_probs) + sum(self.modality_log_probs),
+            self.behavior_log_prob,
+            rel_tol=1e-5,
+            abs_tol=1e-3,
         ):
             raise ValueError("Per-event policy density does not sum to the grouped action")
+        if len(self.modality_masks) != n or len(self.modality_log_probs) != n:
+            raise ValueError("Every event requires its modality choice probability and mask")
+        for modality, mask, probability in zip(
+            self.modalities, self.modality_masks, self.modality_log_probs, strict=True
+        ):
+            if len(mask) != 4 or any(type(x) is not bool for x in mask) or not any(mask):
+                raise ValueError("Invalid legal modality mask")
+            if (
+                modality not in ("text", "audio", "image", "video")
+                or not mask[MODALITY_IDS[modality]]
+            ):
+                raise ValueError("Selected modality is illegal")
+            if not math.isfinite(probability) or probability > 0:
+                raise ValueError("Modality choice requires a finite log probability")
         if not np.isfinite(np.frombuffer(self.raw_f32, dtype="<f4")).all():
             raise ValueError("Raw facet tape contains nonfinite coordinates")
 
@@ -630,6 +748,12 @@ class GroupActionTape:
             version=self.version,
             meridian_id=self.meridian_id,
             tracks=self.tracks,
+            event_ids=self.event_ids,
+            render_status=self.render_status,
+            track_descriptions=self.track_descriptions,
+            policy_context=self.policy_context,
+            modality_masks=self.modality_masks,
+            modality_log_probs=self.modality_log_probs,
             modalities=self.modalities,
             roles=self.roles,
             controls=[base64.b64encode(b).decode("ascii") for b in self.controls],
@@ -662,6 +786,14 @@ class GroupActionTape:
             version=value["version"],
             meridian_id=int(value["meridian_id"]),
             tracks=tuple(value["tracks"]),
+            event_ids=tuple(value["event_ids"]),
+            render_status=value["render_status"],
+            track_descriptions=tuple(tuple(x) for x in value["track_descriptions"]),
+            policy_context=None
+            if value["policy_context"] is None
+            else tuple(value["policy_context"]),
+            modality_masks=tuple(tuple(x) for x in value["modality_masks"]),
+            modality_log_probs=tuple(value["modality_log_probs"]),
             roles=tuple(value["roles"]),
             modalities=tuple(value["modalities"]),
             controls=tuple(map(decode, value["controls"])),
@@ -682,12 +814,72 @@ class GroupActionTape:
 
 
 @dataclass(frozen=True)
+class GroupActionMember:
+    """A supervised view of a member, never an independently replayable action.
+
+    Its parent retains the complete group, legal masks and joint probability.
+    Training may align this member's representation with its exact physical
+    record without splitting the causal commit or inventing a new policy draw.
+    """
+
+    group: GroupActionTape
+    index: int
+
+    def __post_init__(self):
+        if not 0 <= self.index < len(self.group.tracks):
+            raise ValueError("Native member index is outside its selected group")
+
+    def single_raw(self, device):
+        return self.group.raw(device)[:, self.index]
+
+    @property
+    def facet_shape(self):
+        return (1, *self.group.facet_shape[1:])
+
+    @property
+    def codec_fingerprint(self):
+        return self.group.codec_fingerprint
+
+    @property
+    def native_tape(self):
+        return self.group
+
+    def __getattr__(self, name):
+        if name in {
+            "tracks",
+            "event_ids",
+            "roles",
+            "controls",
+            "modalities",
+            "payloads",
+            "emitted_ids",
+            "valid",
+            "terminal",
+        }:
+            return (getattr(self.group, name)[self.index],)
+        raise AttributeError(name)
+
+
+@dataclass(frozen=True)
 class GroupSupervisedResult:
     """One differentiable multitrack transaction with independent loss units."""
 
     state: MultiTrackState
     losses: dict[str, tuple[Tensor, int]]
     metrics: dict[str, Tensor | int | float]
+
+
+@dataclass(frozen=True)
+class SelectedGroup:
+    """Immutable selection snapshot; rendering and delivery are later outcomes."""
+
+    before: MultiTrackState
+    state: MultiTrackState
+    raw: Tensor
+    specs: tuple[ActionSpec | MediaOutputSpec, ...]
+    control: Tensor | None
+    tape: GroupActionTape
+    log_prob: Tensor
 
 
 @dataclass(frozen=True)
@@ -723,7 +915,9 @@ class _GroupedTeacherReadout(nn.Module):
             raise ValueError("Realization needs one canonical facet block per target")
         zero = raw.float().sum() * 0
         adapter_plan = (
-            self.core.adapters.plan("r", mixture, track_ids) if mixture is not None else None
+            self.core.adapters.plan("r", mixture, track_ids, control)
+            if mixture is not None
+            else None
         )
         names = (*DECODER_LOSSES, "audio", "visual")
         sums = {name: zero for name in names}
@@ -736,6 +930,7 @@ class _GroupedTeacherReadout(nn.Module):
             with self.core.expert_pools.routing_epoch(
                 selected.mean(1),
                 track_ids=track,
+                track_semantics=None if control is None else control[:, index],
                 role="R",
                 stage=0,
                 adapter_weights=weights,
@@ -815,7 +1010,7 @@ class MultiTrackGenerator:
         names: Sequence[str],
         generator: torch.Generator | None,
     ) -> Tensor:
-        """Assign RNG draws by canonical track identity, not physical slot order."""
+        """Assign RNG draws by canonical event identity, not physical slot order."""
         order = sorted(range(len(names)), key=lambda index: names[index])
         sorted_distribution = DiagonalGaussian(
             distribution.mean[:, order], distribution.log_scale[:, order]
@@ -827,23 +1022,60 @@ class MultiTrackGenerator:
     def _controls(
         self, payloads: Sequence[bytes], state: MultiTrackState, tracks: Sequence[str]
     ) -> Tensor | None:
+        from megatoken.controls import semantic_lifecycle_controls, separate_event_references
+
         core = self.generator.core
+        separated = [separate_event_references(payload) for payload in payloads]
+        descriptions = {a: (p, r) for a, p, r in state.track_descriptions}
+        separated = [
+            (semantic_lifecycle_controls(value, descriptions), references)
+            for value, references in separated
+        ]
         ids, _ = self.tracks._track_indices(state, tracks)
         plan = core.adapters.plan("p", state.adapters, ids)
         weights = None if plan is None else plan.weights[0].flatten(0, 1)
         with expert_scope(weights):
-            encoded = encode_controls(core, payloads, encoder_grad=False, track_ids=ids.flatten())
-        return None if encoded is None else encoded[None].to(state.device)
+            encoded = encode_controls(
+                core, [value[0] for value in separated], encoder_grad=False, track_ids=ids.flatten()
+            )
+        if not any(value[1] for value in separated):
+            return None if encoded is None else encoded[None].to(state.device)
+        rows = []
+        for _, references in separated:
+            if not references:
+                rows.append(core.initial_facets.new_zeros(1, core.config.control_dim))
+                continue
+            indices = []
+            for address in references:
+                if state.history_event_ids.count(address) != 1:
+                    raise ValueError("Reference must identify one retained earlier event")
+                index = state.history_event_ids.index(address)
+                indices.extend(
+                    range(index * core.config.n_facets, (index + 1) * core.config.n_facets)
+                )
+            # Select actual available evidence from the existing bounded history.
+            # Never encode an arbitrary address as meaning or keep a second media memory.
+            values = state.history.values[:, :, indices].mean(2).flatten(1)
+            rows.append(core.reference_projection(values))
+        selected = torch.stack(rows, dim=1)
+        return selected if encoded is None else selected + encoded[None].to(state.device)
 
-    def _prior(self, mean: Tensor, state: MultiTrackState, tracks: Sequence[str]):
+    def _prior(
+        self,
+        mean: Tensor,
+        state: MultiTrackState,
+        tracks: Sequence[str],
+        control: Tensor | None = None,
+    ):
         """The scale projection uses the same causal P mixture as prediction."""
         ids, _ = self.tracks._track_indices(state, tracks)
-        plan = self.generator.core.adapters.plan("p", state.adapters, ids)
+        plan = self.generator.core.adapters.plan("p", state.adapters, ids, control)
         weights = None if plan is None else plan.weights[-1]
         with (
             self.generator.core.expert_pools.routing_epoch(
                 mean.mean(2),
                 track_ids=ids,
+                track_semantics=control,
                 role="p",
                 stage=self.generator.config.prediction_layers,
                 adapter_weights=weights,
@@ -931,7 +1163,7 @@ class MultiTrackGenerator:
         if seeds is not None and len(seeds) != len(specs):
             raise ValueError("Renderer seeds must identify each selected event")
         adapter_plan = (
-            self.generator.core.adapters.plan("r", mixture, track_ids)
+            self.generator.core.adapters.plan("r", mixture, track_ids, control)
             if mixture is not None
             else None
         )
@@ -943,6 +1175,7 @@ class MultiTrackGenerator:
             with self.generator.core.expert_pools.routing_epoch(
                 selected.mean(1),
                 track_ids=track,
+                track_semantics=None if control is None else control[:, index],
                 role="R",
                 stage=0,
                 adapter_weights=weights,
@@ -1001,6 +1234,7 @@ class MultiTrackGenerator:
         state: MultiTrackState,
         *,
         tracks: Sequence[str],
+        event_ids: Sequence[str] | None = None,
         plans: Sequence[PreparedTargets | PreparedAction | MediaTrainTarget],
         control_payloads: Sequence[bytes] | None = None,
         effort: int = 6,
@@ -1008,6 +1242,10 @@ class MultiTrackGenerator:
         generator: torch.Generator | None = None,
         relations: Sequence[tuple[str, int, int, float]] = (),
         semantic_relations: Sequence[SelectedRelation] = (),
+        evidence_relations: Sequence[tuple[str, int, Tensor]] = (),
+        modality_masks: Tensor | None = None,
+        full_group: GroupActionTape | None = None,
+        plan_indices: Sequence[int] | None = None,
     ) -> GroupSupervisedResult:
         """One production grouped objective with bootstrap or live recurrent state.
 
@@ -1019,8 +1257,18 @@ class MultiTrackGenerator:
         if state.batch_size != 1:
             raise ValueError("Grouped supervised meridians require one independent episode")
         names = self.tracks._names(tracks, len(tracks))
+        identities = self.tracks._event_ids(names, event_ids)
         plans = tuple(plans)
-        if len(plans) != len(names) or any(
+        indices = tuple(range(len(names))) if plan_indices is None else tuple(plan_indices)
+        if (
+            not plans
+            or len(plans) != len(indices)
+            or len(set(indices)) != len(indices)
+            or any(type(i) is not int or not 0 <= i < len(names) for i in indices)
+            or (full_group is None and indices != tuple(range(len(names))))
+        ):
+            raise ValueError("Target plans must map to distinct complete-group members")
+        if any(
             not isinstance(plan, (PreparedTargets, PreparedAction, MediaTrainTarget))
             for plan in plans
         ):
@@ -1039,6 +1287,13 @@ class MultiTrackGenerator:
             dtype=torch.long,
             device=state.device,
         )
+        if full_group is not None:
+            if full_group.tracks != names or full_group.event_ids != identities:
+                raise ValueError("Recorded selection membership differs from supervised group")
+            if tuple(full_group.modalities[i] for i in indices) != modalities:
+                raise ValueError("Target modalities differ from their recorded group members")
+            modalities = full_group.modalities
+            roles = torch.tensor([full_group.roles], dtype=torch.long, device=state.device)
         controls = tuple(control_payloads) if control_payloads is not None else (b"",) * len(names)
         if len(controls) != len(names) or any(not isinstance(x, bytes) for x in controls):
             raise ValueError("Every grouped event needs one causal control payload")
@@ -1048,40 +1303,56 @@ class MultiTrackGenerator:
         mean = self.tracks.predict_group(
             state,
             tracks=names,
+            event_ids=identities,
             control=control,
             effort=effort,
             modalities=modalities,
         )
-        prior = self._prior(mean, state, names)
-        sampled = self._sample_policy(prior, names, generator)
+        prior = self._prior(mean, state, names, control)
+        sampled = self._sample_policy(prior, identities, generator)
         # Only recurrent continuation needs C(sampled); R(sampled) does not.
         selected = (
             self.tracks.advance_group(
                 state,
                 sampled,
+                track_semantics=control,
                 tracks=names,
+                event_ids=identities,
                 role_ids=roles,
                 modalities=modalities,
             )
-            if mode == "recurrent"
+            if mode == "recurrent" and not teacher_forced_action and full_group is None
             else None
         )
-        track_ids, _ = self.tracks._track_indices(state, names)
-        encoder_plan = core.adapters.plan("e", state.adapters, track_ids)
+        full_sampled = sampled
+        sampled = sampled[:, indices]
+        target_control = None if control is None else control[:, indices]
+        target_names = tuple(names[i] for i in indices)
+        track_ids, _ = self.tracks._track_indices(state, target_names)
+        semantics = self.tracks.description_controls(state, target_names)
+        encoder_plan = core.adapters.plan("e", state.adapters, track_ids, semantics)
         encoded = []
         for index, plan in enumerate(plans):
             weights = None if encoder_plan is None else encoder_plan.weights[0, :, index]
             with expert_scope(weights):
                 if isinstance(plan, MediaTrainTarget):
                     current = core.encode_media(
-                        plan.source, extractor=plan.extractor, track_ids=track_ids[:, index]
+                        plan.source,
+                        extractor=plan.extractor,
+                        track_ids=track_ids[:, index],
+                        track_semantics=None if semantics is None else semantics[:, index],
                     )
                 else:
                     payload = (
                         plan.payloads[0] if isinstance(plan, PreparedTargets) else plan.payload
                     )
                     values, lengths = byte_tensor([payload], state.device)
-                    current = core.encode_chunk(values, lengths, track_ids=track_ids[:, index])
+                    current = core.encode_chunk(
+                        values,
+                        lengths,
+                        track_ids=track_ids[:, index],
+                        track_semantics=None if semantics is None else semantics[:, index],
+                    )
             encoded.append(current)
         target_raw = torch.stack(encoded, dim=1)
         q = DiagonalGaussian(
@@ -1092,16 +1363,21 @@ class MultiTrackGenerator:
         readout = _GroupedTeacherReadout(
             core, self.generator.decoder, self.generator.media_realizers
         )
-        track_ids, _ = self.tracks._track_indices(state, names)
         prior_terms = readout.losses_for_selected(
-            sampled, plans, control, state.adapters, track_ids
+            sampled, plans, target_control, state.adapters, track_ids
         )
 
         if mode == "bootstrap":
             with core.discard_routing_losses():
-                recon_terms = readout(codec_sample, plans, control, state.adapters, track_ids)
+                recon_terms = readout(
+                    codec_sample, plans, target_control, state.adapters, track_ids
+                )
             continuation = target_raw
-            correspondence = q.detach().kl(prior).sum()
+            correspondence = (
+                q.detach()
+                .kl(DiagonalGaussian(prior.mean[:, indices], prior.log_scale[:, indices]))
+                .sum()
+            )
         else:
             # Direct R is frozen for this encoder-only recurrent auxiliary;
             # only the encoder-produced canonical facets receive its gradient.
@@ -1113,7 +1389,7 @@ class MultiTrackGenerator:
                     (
                         codec_sample,
                         plans,
-                        None if control is None else control.detach(),
+                        None if target_control is None else target_control.detach(),
                         None if state.adapters is None else state.adapters.detach(),
                         track_ids,
                     ),
@@ -1126,7 +1402,7 @@ class MultiTrackGenerator:
                         plan.native_tapes[0]
                         if isinstance(plan, PreparedTargets)
                         else plan.native_tape
-                        if isinstance(plan, PreparedAction)
+                        if isinstance(plan, (PreparedAction, MediaTrainTarget))
                         else None
                     )
                     if tape is None:
@@ -1139,12 +1415,16 @@ class MultiTrackGenerator:
         # Ordinary recurrence keeps its one committed C pass for the next P.
         # Neither prior nor reconstruction realization processes C.
         next_state = (
-            selected
+            self.commit_tape(state, full_group)
+            if full_group is not None
+            else selected
             if mode == "recurrent" and not teacher_forced_action
             else self.tracks.advance_group(
                 state,
                 continuation,
+                track_semantics=control,
                 tracks=names,
+                event_ids=identities,
                 role_ids=roles,
                 modalities=modalities,
             )
@@ -1175,8 +1455,8 @@ class MultiTrackGenerator:
                 or not 0 < strength <= 10
             ):
                 raise ValueError("Unrecognized or invalid jointly selected relation")
-            semantic_a = sampled[:, left].float().mean(dim=1)
-            semantic_b = sampled[:, right].float().mean(dim=1)
+            semantic_a = full_sampled[:, left].float().mean(dim=1)
+            semantic_b = full_sampled[:, right].float().mean(dim=1)
             alignment_loss = 1 - torch.nn.functional.cosine_similarity(
                 semantic_a,
                 semantic_b,
@@ -1186,9 +1466,50 @@ class MultiTrackGenerator:
             sums["relation"] = sums["relation"] + strength * alignment_loss.sum()
             counts["relation"] += 1
         semantic_relations = tuple(semantic_relations)
-        relation_loss, relation_count = semantic_relation_loss(
-            sampled, target_raw, semantic_relations
+        target_relations = tuple(
+            SelectedRelation(rel.kind, indices.index(rel.left), indices.index(rel.right))
+            for rel in semantic_relations
+            if rel.left in indices and rel.right in indices
         )
+        relation_loss, relation_count = semantic_relation_loss(
+            sampled, target_raw, target_relations
+        )
+        for kind, index, evidence in evidence_relations:
+            if (
+                kind not in KINDS
+                or not 0 <= index < len(names)
+                or evidence.shape != full_sampled[:, index].shape
+            ):
+                raise ValueError("Invalid relation to earlier available evidence")
+            current = torch.nn.functional.normalize(full_sampled[:, index].float().mean(1), dim=-1)
+            previous = torch.nn.functional.normalize(evidence.detach().float().mean(1), dim=-1)
+            relation_loss = relation_loss + (1 - (current * previous).sum(-1)).sum()
+            relation_count += 1
+        modality_targets = torch.tensor(
+            [[MODALITY_IDS[m] for m in modalities]], device=state.device
+        )
+        if full_group is not None:
+            modality_masks = torch.tensor(
+                [full_group.modality_masks], device=state.device, dtype=torch.bool
+            )
+        elif modality_masks is None:
+            supported = [
+                True,
+                *(
+                    REALIZERS[m] in self.generator.media_realizers.packs
+                    for m in ("audio", "image", "video")
+                ),
+            ]
+            modality_masks = torch.tensor(
+                [[supported] * len(names)], device=state.device, dtype=torch.bool
+            )
+        if not modality_masks.gather(-1, modality_targets[..., None]).all():
+            raise ValueError("Supervised modality is illegal under the public capability mask")
+        modality_logits = self.tracks.modality_logits(state, names, control, modality_masks)
+        sums["modality"] = torch.nn.functional.cross_entropy(
+            modality_logits.flatten(0, 1), modality_targets.flatten(), reduction="sum"
+        )
+        counts["modality"] = len(names)
         sums["relation_semantic"] = relation_loss
         counts["relation_semantic"] = relation_count
         sums["facet_prediction"] = correspondence
@@ -1202,7 +1523,7 @@ class MultiTrackGenerator:
                     plan.native_tapes[0]
                     if isinstance(plan, PreparedTargets)
                     else plan.native_tape
-                    if isinstance(plan, PreparedAction)
+                    if isinstance(plan, (PreparedAction, MediaTrainTarget))
                     else None
                 )
                 if tape is not None:
@@ -1212,9 +1533,9 @@ class MultiTrackGenerator:
         sums["encoder_alignment"] = alignment
         counts["encoder_alignment"] = native_count * core.config.n_facets * core.config.facet_dim
         balance, z_loss = core.routing_aux_loss(clear=True)
-        sums["router_balance"] = balance * len(names)
-        sums["router_z"] = z_loss * len(names)
-        counts["router_balance"] = counts["router_z"] = len(names)
+        sums["router_balance"] = balance * len(plans)
+        sums["router_z"] = z_loss * len(plans)
+        counts["router_balance"] = counts["router_z"] = len(plans)
 
         def planned(plan, name):
             if not isinstance(plan, MediaTrainTarget):
@@ -1229,17 +1550,30 @@ class MultiTrackGenerator:
                 "router_z",
             ):
                 return 1
+            if (
+                name == "encoder_alignment"
+                and plan.mode == "recurrent"
+                and plan.native_tape is not None
+            ):
+                return core.config.n_facets * core.config.facet_dim
             if name == "facet_prediction" and plan.mode == "bootstrap":
                 return core.config.n_facets * core.config.facet_dim
             return 0
 
         expected = {name: sum(planned(plan, name) for plan in plans) for name in LOSS_NAMES}
+        expected["modality"] += len(names)
         expected["relation"] += len(relations)
-        expected["relation_semantic"] += len(semantic_relations)
+        expected["relation_semantic"] += len(target_relations) + len(evidence_relations)
         if expected != counts:
             raise RuntimeError(f"Grouped loss plan drift: expected {expected}, observed {counts}")
         losses = {name: (sums[name], counts[name]) for name in LOSS_NAMES}
         metrics: dict[str, Tensor | int | float] = {
+            "modality_events": (modality_masks.sum(-1) > 1).sum().detach(),
+            "modality_correct": (
+                (modality_logits.argmax(-1) == modality_targets) & (modality_masks.sum(-1) > 1)
+            )
+            .sum()
+            .detach(),
             "facet_examples": len(names),
             "prior_examples": len(names),
             "reconstruction_examples": len(names),
@@ -1258,7 +1592,7 @@ class MultiTrackGenerator:
             "prediction_facet_norm_sum": mean.detach().float().flatten(2).norm(dim=-1).sum(),
             "encoded_facet_norm_sum": target_raw.detach().float().flatten(2).norm(dim=-1).sum(),
             "facet_alignment_squared_error_sum": (
-                target_raw.detach().float() - mean.detach().float()
+                target_raw.detach().float() - mean[:, indices].detach().float()
             )
             .square()
             .sum(),
@@ -1270,20 +1604,27 @@ class MultiTrackGenerator:
         return GroupSupervisedResult(next_state, losses, metrics)
 
     @torch.no_grad()
-    def generate_group(
+    def select_group(
         self,
         state: MultiTrackState,
         *,
         tracks: Sequence[str],
+        event_ids: Sequence[str] | None = None,
         specs: Sequence[ActionSpec | MediaOutputSpec] | None = None,
+        modality_options: Sequence[Sequence[ActionSpec | MediaOutputSpec]] | None = None,
         controls: Sequence[bytes] | None = None,
         effort: int = 6,
         generator: torch.Generator | None = None,
-    ) -> GroupGeneration:
+    ) -> SelectedGroup:
         self.tracks._validate(state)
         if state.batch_size != 1:
             raise ValueError("Grouped serving requires one independent session")
         names = self.tracks._names(tracks, len(tracks))
+        identities = self.tracks._event_ids(names, event_ids)
+        if event_ids is None:
+            identities = tuple(
+                f"selected:{int(state.meridians_seen[0])}:{name}" for name in identities
+            )
         payloads = tuple(controls) if controls is not None else (b"",) * len(names)
         if len(payloads) != len(names) or any(not isinstance(x, bytes) for x in payloads):
             raise ValueError("Every track needs a byte-exact causal control")
@@ -1295,44 +1636,84 @@ class MultiTrackGenerator:
         core = self.generator.core
         core.routing_aux_loss(clear=True)
         encoded = self._controls(payloads, state, names)
+        choices = (
+            tuple((p,) for p in plans)
+            if modality_options is None
+            else tuple(tuple(x) for x in modality_options)
+        )
+        if len(choices) != len(names) or any(not x for x in choices):
+            raise ValueError("Each event needs at least one supported output option")
+        masks = torch.zeros(1, len(names), 4, dtype=torch.bool, device=state.device)
+        for index, options in enumerate(choices):
+            seen = set()
+            for option in options:
+                kind = "text" if isinstance(option, ActionSpec) else option.modality
+                if kind in seen:
+                    raise ValueError("Only one output specification per modality is allowed")
+                seen.add(kind)
+                if isinstance(option, MediaOutputSpec):
+                    validate_public_media_spec(option)
+                    self.generator.media_realizers.resident(kind)  # readiness before selection
+                masks[0, index, MODALITY_IDS[kind]] = True
+        logits = self.tracks.modality_logits(state, names, encoded, masks)
+        # Canonical event order assigns categorical draws reproducibly too.
+        order = sorted(range(len(identities)), key=lambda i: identities[i])
+        selected_kinds = torch.empty(len(names), dtype=torch.long, device=state.device)
+        for index in order:
+            selected_kinds[index] = torch.multinomial(
+                logits[0, index].softmax(-1), 1, generator=generator
+            )[0]
+        modality_densities = (
+            logits.log_softmax(-1).gather(-1, selected_kinds[None, :, None]).squeeze(-1)
+        )
+        plans = tuple(
+            next(
+                p
+                for p in options
+                if MODALITY_IDS["text" if isinstance(p, ActionSpec) else p.modality] == int(kind)
+            )
+            for options, kind in zip(choices, selected_kinds, strict=True)
+        )
+        pack_fingerprints = self._pack_ids(self.generator, plans)
         modalities = tuple("text" if isinstance(x, ActionSpec) else x.modality for x in plans)
         mean = self.tracks.predict_group(
             state,
             tracks=names,
+            event_ids=identities,
             control=encoded,
             effort=effort,
             modalities=modalities,
         )
-        gaussian = self._prior(mean, state, names)
-        raw = self._sample_policy(gaussian, names, generator)
+        gaussian = self._prior(mean, state, names, encoded)
+        raw = self._sample_policy(gaussian, identities, generator)
         roles = (ROLE_IDS["assistant"],) * len(names)
         seeds = self._renderer_seeds(
             raw,
-            names,
+            identities,
             int(state.meridians_seen[0]),
             tuple(self._spec_id(spec) for spec in plans),
-        )
-        output, emitted, valid, terminal, media = self._realize(
-            raw,
-            plans,
-            encoded,
-            seeds=seeds,
-            mixture=state.adapters,
-            track_ids=self.tracks._track_indices(state, names)[0],
         )
         committed = self.tracks.advance_group(
             state,
             raw,
+            track_semantics=encoded,
             tracks=names,
+            event_ids=identities,
             role_ids=torch.tensor([roles], device=state.device, dtype=torch.long),
             modalities=modalities,
         )
         event_densities = gaussian.elementwise_log_prob(raw).sum(dim=(-1, -2))
-        density = event_densities.sum()
+        density = event_densities.sum() + modality_densities.sum()
         tape = GroupActionTape(
             version=GROUP_TAPE_VERSION,
             meridian_id=int(state.meridians_seen[0]),
             tracks=names,
+            event_ids=identities,
+            render_status="selected",
+            track_descriptions=tuple(d for d in state.track_descriptions if d[0] in names),
+            policy_context=state.policy_history,
+            modality_masks=tuple(tuple(row) for row in masks[0].tolist()),
+            modality_log_probs=tuple(float(x) for x in modality_densities[0]),
             roles=roles,
             controls=payloads,
             modalities=tuple("text" if isinstance(x, ActionSpec) else x.modality for x in plans),
@@ -1352,13 +1733,101 @@ class MultiTrackGenerator:
             event_log_probs=tuple(float(x) for x in event_densities[0]),
             renderer_seeds=seeds,
             pack_fingerprints=pack_fingerprints,
+            payloads=(b"",) * len(names),
+            emitted_ids=((),) * len(names),
+            valid=(False,) * len(names),
+            terminal=(False,) * len(names),
+        )
+        core.routing_aux_loss(clear=True)
+        return SelectedGroup(
+            state,
+            committed,
+            raw.detach().clone(),
+            plans,
+            None if encoded is None else encoded.detach().clone(),
+            tape,
+            density,
+        )
+
+    @torch.no_grad()
+    def render_selected(self, selected: SelectedGroup) -> GroupGeneration:
+        """Render from the selected snapshot, independent of later session input."""
+        self.tracks._validate(selected.before)
+        tape = selected.tape
+        output, emitted, valid, terminal, media = self._realize(
+            selected.raw,
+            selected.specs,
+            selected.control,
+            seeds=tape.renderer_seeds,
+            mixture=selected.before.adapters,
+            track_ids=self.tracks._track_indices(selected.before, tape.tracks)[0],
+        )
+        self.tracks._validate(selected.before)
+        rendered = replace(
+            tape,
             payloads=output,
             emitted_ids=emitted,
             valid=valid,
             terminal=terminal,
+            render_status="rendered",
         )
-        core.routing_aux_loss(clear=True)
-        return GroupGeneration(committed, tape, density, media)
+        return GroupGeneration(selected.state, rendered, selected.log_prob, media)
+
+    @torch.no_grad()
+    def generate_group(self, state: MultiTrackState, **kwargs) -> GroupGeneration:
+        return self.render_selected(self.select_group(state, **kwargs))
+
+    def commit_tape(self, state: MultiTrackState, tape: GroupActionTape) -> MultiTrackState:
+        """Reconstruct one complete committed selection under current weights.
+
+        No prediction, decoder or random draw is repeated. The public purpose
+        revision and event controls are restored before the shared C transition.
+        Failed rendering and empty physical output still have a selected state.
+        """
+        for address, purpose, revision in tape.track_descriptions:
+            state = self.tracks.describe_track(state, address, purpose, revision)
+        control = self._controls(tape.controls, state, tape.tracks)
+        return self.tracks.advance_group(
+            state,
+            tape.raw(state.device),
+            tracks=tape.tracks,
+            event_ids=tape.event_ids,
+            track_semantics=control,
+            role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
+            modalities=tape.modalities,
+        )
+
+    def score_group(self, state: MultiTrackState, tape: GroupActionTape) -> torch.Tensor:
+        """Current joint policy density of an immutable historical selection.
+
+        Unlike exact replay this is differentiable, accepts changed weights and
+        never renders. The recorded capability mask is part of the public state;
+        renderer success, playback and completion timing are not policy draws.
+        """
+        self.tracks._validate(state)
+        if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
+            raise ValueError("Policy scoring requires the original causal meridian")
+        if tape.codec_fingerprint != self.generator.codec.fingerprint:
+            raise ValueError("Policy scoring codec identity mismatch")
+        for address, purpose, revision in tape.track_descriptions:
+            state = self.tracks.describe_track(state, address, purpose, revision)
+        encoded = self._controls(tape.controls, state, tape.tracks)
+        masks = torch.tensor([tape.modality_masks], dtype=torch.bool, device=state.device)
+        kinds = torch.tensor([[MODALITY_IDS[m] for m in tape.modalities]], device=state.device)
+        if not masks.gather(-1, kinds[..., None]).all():
+            raise ValueError("Recorded modality is illegal under its public capability mask")
+        logits = self.tracks.modality_logits(state, tape.tracks, encoded, masks)
+        categorical = logits.log_softmax(-1).gather(-1, kinds[..., None]).sum()
+        mean = self.tracks.predict_group(
+            state,
+            tracks=tape.tracks,
+            event_ids=tape.event_ids,
+            control=encoded,
+            effort=tape.effort,
+            modalities=tape.modalities,
+        )
+        prior = self._prior(mean, state, tape.tracks, encoded)
+        return prior.elementwise_log_prob(tape.raw(state.device)).sum() + categorical
 
     @torch.no_grad()
     def replay_group(
@@ -1371,6 +1840,8 @@ class MultiTrackGenerator:
         atol: float = 1e-4,
         rtol: float = 1e-5,
     ) -> GroupGeneration:
+        if tape.render_status != "rendered":
+            raise ValueError("Replay of rendered output requires a completed rendering outcome")
         self.tracks._validate(state)
         if state.batch_size != 1 or int(state.meridians_seen[0]) != tape.meridian_id:
             raise ValueError("Group replay requires the original causal meridian")
@@ -1394,6 +1865,7 @@ class MultiTrackGenerator:
         mean = self.tracks.predict_group(
             state,
             tracks=tape.tracks,
+            event_ids=tape.event_ids,
             control=encoded,
             effort=effort,
             modalities=tape.modalities,
@@ -1401,9 +1873,20 @@ class MultiTrackGenerator:
         raw = tape.raw(state.device)
         if tuple(raw.shape[1:]) != tuple(mean.shape[1:]):
             raise ValueError("Grouped tape raw shape differs from model geometry")
-        gaussian = self._prior(mean, state, tape.tracks)
+        gaussian = self._prior(mean, state, tape.tracks, encoded)
         event_densities = gaussian.elementwise_log_prob(raw).sum(dim=(-1, -2))
-        density = event_densities.sum()
+        masks = torch.tensor([tape.modality_masks], dtype=torch.bool, device=state.device)
+        kinds = torch.tensor([[MODALITY_IDS[m] for m in tape.modalities]], device=state.device)
+        logits = self.tracks.modality_logits(state, tape.tracks, encoded, masks)
+        modality_densities = logits.log_softmax(-1).gather(-1, kinds[..., None]).squeeze(-1)
+        if not torch.allclose(
+            modality_densities[0],
+            torch.tensor(tape.modality_log_probs, device=state.device),
+            atol=atol,
+            rtol=rtol,
+        ):
+            raise ValueError("Grouped modality choice replay mismatch")
+        density = event_densities.sum() + modality_densities.sum()
         if not torch.allclose(
             event_densities[0].float(),
             torch.tensor(tape.event_log_probs, device=state.device),
@@ -1420,7 +1903,7 @@ class MultiTrackGenerator:
             raise ValueError("Grouped policy density replay mismatch")
         seeds = self._renderer_seeds(
             raw,
-            tape.tracks,
+            tape.event_ids,
             tape.meridian_id,
             tape.spec_fingerprints,
         )
@@ -1437,7 +1920,9 @@ class MultiTrackGenerator:
         committed = self.tracks.advance_group(
             state,
             raw,
+            track_semantics=encoded,
             tracks=tape.tracks,
+            event_ids=tape.event_ids,
             role_ids=torch.tensor([tape.roles], device=state.device, dtype=torch.long),
             modalities=tape.modalities,
         )

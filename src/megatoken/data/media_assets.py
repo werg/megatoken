@@ -30,7 +30,7 @@ from megatoken.io import atomic_binary_writer, canonical_json, strict_json_loads
 from megatoken.teacher import EMBEDDING_WIDTH, HIDDEN_WIDTH, MAX_TOKENS, validate_extractor
 
 MEDIA_RECORD_TYPE = "application/vnd.megatoken.media-reference+json"
-MEDIA_RECORD_VERSION = 5
+MEDIA_RECORD_VERSION = 6
 _MAX_ELEMENTS = 16_000_000
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 Modal = Literal["text", "audio", "image", "video"]
@@ -69,7 +69,7 @@ class TensorAsset:
     """
 
     modality: Literal["text", "audio", "image", "video"]
-    kind: Literal["features", "embedding", "codec_latents"]
+    kind: Literal["features", "embedding", "codec_latents", "rendered"]
     sha256: str
     shape: tuple[int, ...]
     extractor: str
@@ -123,8 +123,15 @@ class TensorAsset:
                 raise ValueError("Video latents, and only they, carry a positive frame rate")
             if self.modality == "image" and self.valid_count:
                 raise ValueError("Still-image latents have no frame axis to pad")
+        elif self.kind == "rendered":
+            if (
+                self.modality not in MEDIA
+                or ":" not in self.extractor
+                or self.sha256 != self.source_family
+            ):
+                raise ValueError("Rendered media must bind its exact bytes and decoder identity")
         else:
-            raise ValueError("Media assets are teacher outputs or realizer codec latents")
+            raise ValueError("Media assets require a supported extraction or rendering kind")
         if self.valid_count < 0 or self.valid_count > self.shape[0]:
             raise ValueError("Valid frames exceed the padded tensor")
 
@@ -192,8 +199,18 @@ class MediaRecord:
     # The teacher's pooled 768-d embedding of the same input, from the same
     # pass: the target for embedding distillation of this item's facets.
     embedding: TensorAsset = field(kw_only=True)
+    rendered: TensorAsset | None = field(default=None, kw_only=True)
+    transform_json: str = field(default="{}", kw_only=True)
 
     def __post_init__(self) -> None:
+        if not isinstance(strict_json_loads(self.transform_json), dict):
+            raise ValueError("Media transforms require a JSON object")
+        if self.rendered is not None and (
+            self.rendered.kind != "rendered"
+            or self.rendered.modality != self.modality
+            or self.rendered.source_family != self.source.source_family
+        ):
+            raise ValueError("Collected media must bind the actual decoded output")
         if not isinstance(self.prompt, str):
             raise ValueError("A teacher prompt is text")
         if self.modality not in ("text", *MEDIA):
@@ -239,6 +256,8 @@ class MediaRecord:
                 "output_geometry",
                 "prompt",
                 "embedding",
+                "rendered",
+                "transform_json",
             }
             or value["version"] != MEDIA_RECORD_VERSION
         ):
@@ -256,6 +275,10 @@ class MediaRecord:
             ),
             prompt=value["prompt"],
             embedding=TensorAsset.from_dict(value["embedding"]),
+            rendered=None
+            if value["rendered"] is None
+            else TensorAsset.from_dict(value["rendered"]),
+            transform_json=value["transform_json"],
         )
 
 
@@ -315,6 +338,18 @@ class TensorAssetStore:
             raise ValueError("Media asset differs from its declared shape or SHA256")
         self._remember(asset.sha256, self._identity(path), result)
         return result.copy()
+
+    def copy_record(self, record: MediaRecord, destination: TensorAssetStore) -> None:
+        """Verify and publish every tensor needed to replay one physical record."""
+        for asset in (record.source, record.embedding, record.target, record.rendered):
+            if asset is None:
+                continue
+            metadata = {
+                key: value for key, value in asdict(asset).items() if key not in {"sha256", "shape"}
+            }
+            held = destination.put(self.load(asset), **metadata)
+            if held != asset:
+                raise ValueError("Published media asset changed its immutable identity")
 
     @staticmethod
     def _identity(path: Path) -> tuple[int, int, int] | None:

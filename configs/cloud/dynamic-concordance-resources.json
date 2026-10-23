@@ -1,0 +1,31 @@
+{
+  "schema": "megatoken.cloud-job/1",
+  "id": "dynamic-concordance-resources-20261023",
+  "image": "nvcr.io/nvidia/pytorch:26.09-py3",
+  "resources": {
+    "cpu": "8",
+    "memory": "64Gi",
+    "gpu": 1
+  },
+  "lifetime_hours": 6,
+  "pip": [
+    "transformers==5.20.2",
+    "diffusers==0.41.0",
+    "librosa",
+    "Pillow",
+    "torchcodec>=0.12,<1",
+    "pocket-tts>=4.0.1,<5",
+    "soundfile",
+    "pytest"
+  ],
+  "command": [
+    "bash",
+    "-c",
+    "set -eo pipefail; export HF_TOKEN=\"$(cat \"$MEGATOKEN_CW_SECRETS/hf-token\")\"; command -v ffmpeg >/dev/null || (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/dev/null); mkdir -p /work/out/dynamic-resources; python scripts/acquire_packs.py --root /work/out/dynamic-resources/packs > /work/out/dynamic-resources/acquisition.json; python scripts/verify_packs.py --manifest /work/out/dynamic-resources/packs/lock.json --rollout --prepare > /work/out/dynamic-resources/decoder-verification.json"
+  ],
+  "outputs": [
+    "out/dynamic-resources"
+  ],
+  "serve_port": 8080,
+  "serve_outputs": true
+}

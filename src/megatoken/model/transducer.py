@@ -253,7 +253,7 @@ class NativeTransducer(nn.Module):
         self.prefix_head = nn.Linear(c.facet_dim, g.query_dim)
         self.readout = WideKnowledgeReadout(core, bank)
         # Training-only: a served model neither ships nor counts it.
-        self.hindsight_realizer = HindsightRealizer(core, bank) if training_heads else None
+        self.hindsight_realizer = HindsightRealizer(core, bank)
         # Written from one item alone, so served too: it adds files to a base while serving.
         self.ingest = IngestHeads(HindsightRealizer(core, bank), core, g.query_dim)
 
@@ -266,13 +266,13 @@ class NativeTransducer(nn.Module):
     def hindsight_pass(
         self, events: OrdinaryEvents, reads: Sequence[int | None], *, mode: str
     ) -> HindsightValues:
-        """One training-only C pass over ordinary events; h_t for every lookup.
+        """One isolated C pass over ordinary events; h_t for every lookup.
 
         ``reads[t]`` is the retrieval group lookup t reads (None: past the end).
-        Nothing here touches KVHistory, a causal state or the serving path.
+        Nothing here mutates KVHistory or a causal state.
         """
-        if not self.training or self.hindsight_realizer is None:
-            raise RuntimeError("Hindsight may not execute on the serving path")
+        if self.hindsight_realizer is None:
+            raise RuntimeError("Hindsight head is unavailable")
         if mode not in ("full", "group-inverse"):
             raise ValueError("Hindsight reads a full or group-inverse pass")
         c = self.core.config
@@ -281,7 +281,7 @@ class NativeTransducer(nn.Module):
             raise ValueError("Hindsight requires one sequence of native event blocks")
         count = raw.shape[1]
         if not count:
-            raise ValueError("No ordinary events for hindsight training")
+            raise ValueError("No ordinary events for hindsight")
         for tensor in (events.roles, events.meridians, events.groups):
             if tensor.shape != (1, count):
                 raise ValueError("Every ordinary event needs role, meridian and group")
@@ -293,8 +293,6 @@ class NativeTransducer(nn.Module):
         for track in events.tracks:
             if track not in registry:
                 registry.append(track)
-        if len(registry) > c.max_tracks:
-            raise ValueError("Too many tracks for configured session capacity")
         device = raw.device
         track_ids = torch.tensor([[registry.index(t) for t in events.tracks]], device=device)
         modality_ids = torch.tensor([[MODALITY_IDS[m] for m in events.modalities]], device=device)
@@ -316,13 +314,18 @@ class NativeTransducer(nn.Module):
         read = torch.tensor([-1 if r is None else r for r in reads], device=device)
         visible = (slot_groups[None] == read[:, None]) & (read[:, None] >= 0)
         # Future evidence must never inherit an adapter mixture from the live
-        # session that happened to call this training-only path.
+        # session that happened to call this isolated pass.
         event_tracks = torch.tensor(
             [registry.index(track) for track in events.tracks], device=device, dtype=torch.long
         )
         with expert_scope(None):
             values = self.hindsight_realizer(final, visible, event_track_ids=event_tracks)
         return HindsightValues(values, ~visible.any(dim=1))
+
+    @torch.no_grad()
+    def retrospective_values(self, events: OrdinaryEvents, reads: Sequence[int | None]):
+        """Read completed recorded groups without changing causal history."""
+        return self.hindsight_pass(events, reads, mode="group-inverse")
 
     # -------------------------------------------------------------- lookups
 
@@ -354,7 +357,7 @@ class NativeTransducer(nn.Module):
         """The query-width vector a committed metadata event maps to under E."""
         pooled = state.final[0, 0].mean(dim=0).to(self.prefix_head.weight.dtype)
         weights = self._event_adapter_weights("e", state, METADATA_TRACK)
-        track = self.core.config.max_tracks + RESERVED_TRACKS.index(METADATA_TRACK)
+        track = state.track_registry.index(METADATA_TRACK)
         track_ids = torch.full((state.batch_size,), track, device=state.device, dtype=torch.long)
         with (
             self.core.expert_pools.routing_epoch(
@@ -370,9 +373,24 @@ class NativeTransducer(nn.Module):
         """One committed owner's mixture for one reserved transducer track."""
         if state.adapters is None:
             return None
-        track_id = self.core.config.max_tracks + RESERVED_TRACKS.index(track)
+        track_id = (
+            state.track_registry.index(track)
+            if track in state.track_registry
+            else len(state.track_registry)
+        )
         ids = torch.full((state.batch_size, 1), track_id, device=state.device, dtype=torch.long)
-        plan = self.core.adapters.plan(owner, state.adapters, ids)
+        from megatoken.controls import encode_controls
+
+        from .config import SYSTEM_TRACK_PURPOSES
+
+        semantics = encode_controls(
+            self.core,
+            [SYSTEM_TRACK_PURPOSES[track].encode()] * state.batch_size,
+            encoder_grad=False,
+        )
+        plan = self.core.adapters.plan(
+            owner, state.adapters, ids, None if semantics is None else semantics[:, None]
+        )
         return None if plan is None else plan.weights[0, :, 0]
 
     # --------------------------------------------------------------- ingest
@@ -397,7 +415,7 @@ class NativeTransducer(nn.Module):
         # Ingested library entries are written outside any live session scope.
         ingest_tracks = torch.full(
             (len(items),),
-            self.core.config.max_tracks + RESERVED_TRACKS.index(METADATA_TRACK),
+            RESERVED_TRACKS.index(METADATA_TRACK),
             device=device,
             dtype=torch.long,
         )
@@ -483,17 +501,16 @@ class NativeTransducer(nn.Module):
         working = agenda.copy()
         mean = multi.tracks.predict_group(state, tracks=(TRANSDUCER_QUERY_TRACK,), effort=effort)
         # The policy's own reparameterized draw; ``generator`` drives only exploration.
-        query_ids = self.core.config.max_tracks + RESERVED_TRACKS.index(TRANSDUCER_QUERY_TRACK)
-        query_tracks = torch.full(
-            (state.batch_size, 1), query_ids, device=state.device, dtype=torch.long
-        )
+        query_tracks, _ = multi.tracks._track_indices(state, (TRANSDUCER_QUERY_TRACK,))
+        query_semantics = multi.tracks.description_controls(state, (TRANSDUCER_QUERY_TRACK,))
         if training:
-            prior_plan = self.core.adapters.plan("p", state.adapters, query_tracks)
+            prior_plan = self.core.adapters.plan("p", state.adapters, query_tracks, query_semantics)
             prior_weights = None if prior_plan is None else prior_plan.weights[0, :, 0]
             with (
                 self.core.expert_pools.routing_epoch(
                     mean[:, 0].mean(1),
                     track_ids=query_tracks[:, 0],
+                    track_semantics=query_semantics[:, 0],
                     role="p",
                     stage=self.core.config.prediction_layers,
                     adapter_weights=prior_weights,
@@ -503,12 +520,13 @@ class NativeTransducer(nn.Module):
                 selected = multi.generator.facet_distribution(mean).sample()
         else:
             selected = mean
-        query_plan = self.core.adapters.plan("r", state.adapters, query_tracks)
+        query_plan = self.core.adapters.plan("r", state.adapters, query_tracks, query_semantics)
         query_weights = None if query_plan is None else query_plan.weights[0, :, 0]
         with (
             self.core.expert_pools.routing_epoch(
                 selected[:, 0].mean(1),
                 track_ids=query_tracks[:, 0],
+                track_semantics=query_semantics[:, 0],
                 role="r",
                 adapter_weights=query_weights,
             ),
@@ -532,15 +550,14 @@ class NativeTransducer(nn.Module):
         )
         if found is None:
             return state, None
-        readout_weights = self._event_adapter_weights("r", state, KNOWLEDGE_TRACK)
-        knowledge_track = self.core.config.max_tracks + RESERVED_TRACKS.index(KNOWLEDGE_TRACK)
-        knowledge_tracks = torch.full(
-            (state.batch_size,), knowledge_track, device=state.device, dtype=torch.long
-        )
+        readout_weights = self._event_adapter_weights("r", queried, KNOWLEDGE_TRACK)
+        knowledge_tracks = multi.tracks._track_indices(queried, (KNOWLEDGE_TRACK,))[0][:, 0]
+        knowledge_semantics = multi.tracks.description_controls(queried, (KNOWLEDGE_TRACK,))
         with (
             self.core.expert_pools.routing_epoch(
                 query[None] if query.ndim == 1 else query,
                 track_ids=knowledge_tracks,
+                track_semantics=knowledge_semantics[:, 0],
                 role="r",
                 adapter_weights=readout_weights,
             ),

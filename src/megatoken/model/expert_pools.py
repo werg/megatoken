@@ -536,7 +536,6 @@ class ShapePools(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        from .config import RESERVED_TRACKS
         from .experts import ExpertBank, LinearExpertBank
 
         self.config = config
@@ -569,14 +568,11 @@ class ShapePools(nn.Module):
             torch.empty(self.router_experts, self.router_dim)
         )
         nn.init.normal_(self.router_bootstrap_codes, std=0.02)
-        self.max_tracks = int(getattr(config, "max_tracks", 8))
-        self.reserved_track_count = len(RESERVED_TRACKS)
-        self.router_track_embedding = nn.Embedding(
-            self.max_tracks + self.reserved_track_count + 1, self.router_dim
+        self.router_semantic_projection = nn.Linear(
+            getattr(config, "control_dim", config.facet_dim), self.router_dim, bias=False
         )
         self.router_role_embedding = nn.Embedding(5, self.router_dim)
         self.router_stage_embedding = nn.Embedding(64, self.router_dim)
-        nn.init.normal_(self.router_track_embedding.weight, std=0.02)
         nn.init.normal_(self.router_role_embedding.weight, std=0.02)
         nn.init.normal_(self.router_stage_embedding.weight, std=0.02)
         self.pool_codes = nn.ParameterDict()
@@ -669,6 +665,7 @@ class ShapePools(nn.Module):
         context: Tensor,
         *,
         track_ids: Tensor | None = None,
+        track_semantics: Tensor | None = None,
         role: str = "other",
         stage: int = 0,
     ) -> Tensor:
@@ -682,24 +679,18 @@ class ShapePools(nn.Module):
             pieces = math.ceil(width / self.router_dim)
             folded = F.pad(context, (0, pieces * self.router_dim - width))
             folded = folded.reshape(*context.shape[:-1], pieces, self.router_dim).mean(-2)
-        if track_ids is None:
-            tracks = torch.zeros(context.shape[:-1], device=context.device, dtype=torch.long)
-        else:
-            tracks = track_ids.to(device=context.device, dtype=torch.long)
-            if tracks.shape != context.shape[:-1]:
-                raise ValueError("track_ids must match routing context leading dimensions")
-            unknown_track = self.max_tracks + self.reserved_track_count
-            valid_tracks = torch.all((tracks >= -1) & (tracks < unknown_track))
-            if tracks.device.type == "meta":
-                pass
-            elif tracks.device.type == "cuda" and hasattr(torch, "_assert_async"):
-                torch._assert_async(
-                    valid_tracks,
-                    "track_ids exceed the configured user/reserved track range",
-                )
-            elif not bool(valid_tracks):
-                raise ValueError("track_ids exceed the configured user/reserved track range")
-            tracks = torch.where(tracks < 0, torch.full_like(tracks, unknown_track), tracks)
+        if track_ids is not None and track_ids.shape != context.shape[:-1]:
+            raise ValueError("track_ids must match routing context leading dimensions")
+        semantic = 0
+        if track_semantics is not None:
+            if track_semantics.shape != (
+                *context.shape[:-1],
+                self.router_semantic_projection.in_features,
+            ):
+                raise ValueError("Track semantics must match routing context leading dimensions")
+            semantic = self.router_semantic_projection(
+                track_semantics.to(self.router_semantic_projection.weight.dtype)
+            )
         role = role.lower()
         roles = {"e": 0, "c": 1, "p": 2, "r": 3, "other": 4}
         try:
@@ -711,7 +702,7 @@ class ShapePools(nn.Module):
         folded = folded.to(self.router_bootstrap_codes.dtype)
         enriched = (
             folded
-            + self.router_track_embedding(tracks)
+            + semantic
             + self.router_role_embedding.weight[role_id]
             + self.router_stage_embedding.weight[int(stage)]
         )
@@ -722,6 +713,7 @@ class ShapePools(nn.Module):
         context: Tensor,
         *,
         track_ids: Tensor | None = None,
+        track_semantics: Tensor | None = None,
         role: str = "R",
         stage: int = 0,
         reuse_active: bool = False,
@@ -748,7 +740,13 @@ class ShapePools(nn.Module):
         features = (
             precomputed_features
             if precomputed_features is not None
-            else self.router_features(context, track_ids=track_ids, role=role, stage=stage)
+            else self.router_features(
+                context,
+                track_ids=track_ids,
+                track_semantics=track_semantics,
+                role=role,
+                stage=stage,
+            )
         )
         flat = features.reshape(-1, self.router_dim)
         if adapter_weights is _INHERIT_ADAPTER:
@@ -795,11 +793,14 @@ class ShapePools(nn.Module):
         context: Tensor,
         *,
         track_ids: Tensor | None = None,
+        track_semantics: Tensor | None = None,
         role: str = "other",
         stage: int = 0,
         adapter_weights: Tensor | None | object = _INHERIT_ADAPTER,
     ):
-        features = self.router_features(context, track_ids=track_ids, role=role, stage=stage)
+        features = self.router_features(
+            context, track_ids=track_ids, track_semantics=track_semantics, role=role, stage=stage
+        )
         flat = features.reshape(-1, self.router_dim)
         router_output = self.controller_features(
             context,

@@ -2,7 +2,7 @@
 
 # Training and operations
 
-> **Implementation boundary (architecture v11):** The stages described below
+> **Implementation boundary (architecture v13):** The stages described below
 > still support legacy one-event episodes. The grouped `MultiTrackGenerator`
 > also supports grouped text, audio, image and video bootstrap/recurrent
 > meridians. Media enters only as pinned EmbeddingGemma2 hidden states and leaves
@@ -18,6 +18,17 @@
 > workflow, and [the concordant task roadmap](pretrained-omnimodal-bottleneck-plan.md)
 > for task families and data. No media-quality or GPU-scale training result is
 > established.
+
+The grouped learner also supervises one output-modality choice per generated event.
+The modality objective has its own event-count denominator in the common loss ledger,
+so group width and media tensor size do not change its effective weight. Its predictor
+parameters and the semantic routing projections are installed before optimizer and
+distributed parameter enumeration. Lifecycle messages reuse ordinary constrained-tool
+content supervision. There is no claim that existing serial corpora already teach
+creation, delegation, interruption, or useful scheduling; those require admitted
+execution examples. Grouped-media student collection and structural-only budget
+accounting remain outstanding, as recorded in the
+[current implementation status](multi-track-implementation.md).
 
 ## Two representation-training modes
 
@@ -507,8 +518,14 @@ during training or serving.
 
 ## Outcome RL
 
-Not implemented: the RL stage and its code were removed. Under the recorded
-future latent-action RL constraint, freeze the conditional decoding map and all
+Verified whole-selection outcome supervision now runs through the ordinary grouped
+training path, including failed final selections without a rendered record. It uses
+independently checked rewards and the recorded serving context to score the joint
+modality/content policy. This is not a separate frozen-decoder latent-only RL stage.
+See the [preparation and training runbook](dynamic-training-runbook.md) for data
+admission, progress accounting, and evaluation requirements.
+
+Under the recorded future latent-action RL constraint, freeze the conditional decoding map and all
 shared expert matrix values and router/pool heads, because those shared values
 also serve E, C, P, U, and R. P-specific route-program parameters and other
 private distribution parameters may still change its density, but P cannot

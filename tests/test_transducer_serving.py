@@ -167,17 +167,17 @@ def test_training_metadata_may_be_partial_or_empty_and_evaluation_is_complete():
         assert all(fields[k] in (None, full[k]) for k in full)
 
 
-def test_the_hindsight_head_is_training_only():
+def test_the_hindsight_head_is_served_for_retrospective_writes():
     torch.manual_seed(0)
     model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
     served = FacetedGenerator(FacetedCore(model.config), model.codec, training_heads=False)
-    assert served.transducer.hindsight_realizer is None
+    assert served.transducer.hindsight_realizer is not None
     weights = model.served_state_dict()
-    assert not any("hindsight_realizer" in name for name in weights)
+    assert any("hindsight_realizer" in name for name in weights)
     served.load_state_dict(weights, strict=True)
     hindsight = sum(p.numel() for p in model.transducer.hindsight_realizer.parameters())
     totals = parameter_report(model)["totals"]
-    assert hindsight and totals["training_only"] == hindsight
+    assert hindsight and totals["training_only"] == 0
     assert totals["served"] == parameter_report(served)["totals"]["served"]
     assert parameter_report(served)["totals"]["training_only"] == 0
 

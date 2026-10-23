@@ -542,10 +542,12 @@ def test_media_bridge_step_changes_only_the_bridge():
     assert all(p.grad is None for n, p in model.named_parameters() if id(p) not in bridge)
     used = [*model.core.media_encoder.parameters(), *realizer.parameters()]
     assert all(p.grad is not None for p in used)  # the other modalities' realizers are unused
+    before_features = model.core.encode_media(x, extractor=PINNED_TEACHER).detach()
     optimizer.step()
     changed = {n for n, p in model.named_parameters() if not torch.equal(p, before[n])}
     assert changed and {id(p) for n, p in model.named_parameters() if n in changed} <= bridge
-    assert "core.media_encoder.projection.output_gain" in changed
+    # Normalization removes scalar gain; useful updates change feature direction.
+    assert not torch.allclose(before_features, model.core.encode_media(x, extractor=PINNED_TEACHER))
     assert set(optimizer.masters) == initial_masters  # DiLoCo owner set is unchanged
     assert optimizer.frozen_names and optimizer.frozen_names.isdisjoint(changed)
 
@@ -733,17 +735,15 @@ def test_startup_media_requirements_follow_outputs_and_active_autoencode_inputs(
     )
     # A media observation has no output modality. Only decoded generated
     # media targets are included in the prepared summary.
-    assert required_media_modalities(
-        dataset, (), autoencode_items=0
-    ) == ()
+    assert required_media_modalities(dataset, (), autoencode_items=0) == ()
     # Creation and edit tasks score generated media; audiovisual creation needs
     # both decoders, while encode-and-reconstruct also samples present media.
-    assert required_media_modalities(
-        dataset, ("audio", "video", "image"), autoencode_items=0
-    ) == ("audio", "image", "video")
-    assert required_media_modalities(
-        dataset, (), autoencode_items=16
-    ) == ("audio", "image")
+    assert required_media_modalities(dataset, ("audio", "video", "image"), autoencode_items=0) == (
+        "audio",
+        "image",
+        "video",
+    )
+    assert required_media_modalities(dataset, (), autoencode_items=16) == ("audio", "image")
 
 
 def test_startup_media_requirements_report_missing_realizer_modalities():

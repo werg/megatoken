@@ -278,7 +278,9 @@ def media_bridge_roots(tmp_path):
 
 def media_bridge_config(tmp_path, roots, **overrides):
     packs = tmp_path / "packs.json"
-    packs.write_text("{}")
+    packs.write_text(
+        json.dumps({"version": 1, "packs": {"pocket": {}, "sana": {}, "sana_video": {}}})
+    )
     return tiny_train_config(
         tmp_path / "base",
         phase="MB",

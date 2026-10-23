@@ -17,8 +17,10 @@ frame policy; long media should be prepared as several events.
 from __future__ import annotations
 
 import hashlib
+import json
+import subprocess
 import tempfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from fractions import Fraction
 from pathlib import Path
 
@@ -142,6 +144,230 @@ class MediaPreparer:
             **clock,
         )
         return MediaRecord(modality, source, latent, geometry, embedding=embedding)
+
+    def audio_interval(
+        self,
+        path: str | Path,
+        *,
+        start_sample: int,
+        end_sample: int,
+        channel: int,
+        target: bool = True,
+    ) -> MediaRecord:
+        """Extract the exact available original speaker channel before the teacher.
+
+        The original clock, silence and source hash survive resampling. A
+        channel is explicit: separated speakers are never silently mixed.
+        """
+        import soundfile as sf
+
+        original = Path(path)
+        if (
+            type(start_sample) is not int
+            or type(end_sample) is not int
+            or not 0 <= start_sample < end_sample
+        ):
+            raise ValueError("Audio interval needs exact ordered original sample coordinates")
+        with sf.SoundFile(original) as audio:
+            if (
+                end_sample > len(audio)
+                or type(channel) is not int
+                or not 0 <= channel < audio.channels
+            ):
+                raise ValueError(
+                    "Audio interval or speaker channel is outside the original recording"
+                )
+            rate = audio.samplerate
+            audio.seek(start_sample)
+            waveform = audio.read(end_sample - start_sample, dtype="float32", always_2d=True)[
+                :, channel
+            ]
+        with tempfile.TemporaryDirectory() as scratch:
+            chunk = Path(scratch) / "available.wav"
+            sf.write(chunk, waveform, rate, subtype="FLOAT")
+            record = self.media("audio", chunk, target=target)
+            transform = {
+                "version": 1,
+                "original_sha256": file_sha256(original),
+                "channel": channel,
+                "start_tick": start_sample,
+                "end_tick": end_sample,
+                "ticks_per_second": rate,
+                "extracted_sha256": file_sha256(chunk),
+                "feature_scope": "exact_available_interval",
+            }
+        return replace(record, transform_json=json.dumps(transform, sort_keys=True))
+
+    def video_interval(
+        self,
+        path: str | Path,
+        *,
+        start_tick: int,
+        end_tick: int,
+        fps: Fraction,
+        target: bool = True,
+    ) -> MediaRecord:
+        """Prepare only the available displayed interval, with exact source PTS.
+
+        Resampling to the output codec's uniform clock retains a correspondence
+        to every original displayed frame. No full-clip teacher features leak
+        into a prefix example. Source ticks use the container's own time base.
+        """
+        from megatoken.data.media_timing import decode_video_interval, video_timeline
+
+        original = Path(path)
+        timeline = video_timeline(original)
+        frames, indices = decode_video_interval(original, timeline, start_tick, end_tick, fps)
+        height, width = frames.shape[-2:]
+        pixels = np.round(frames.clip(0, 1) * 255).astype(np.uint8).transpose(0, 2, 3, 1)
+        with tempfile.TemporaryDirectory() as scratch:
+            chunk = Path(scratch) / "available.mkv"
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-v",
+                    "error",
+                    "-y",
+                    "-f",
+                    "rawvideo",
+                    "-pixel_format",
+                    "rgb24",
+                    "-video_size",
+                    f"{width}x{height}",
+                    "-framerate",
+                    str(fps),
+                    "-i",
+                    "pipe:0",
+                    "-c:v",
+                    "ffv1",
+                    str(chunk),
+                ],
+                input=pixels.tobytes(),
+                check=True,
+                capture_output=True,
+            )
+            record = self.media("video", chunk, target=target)
+            retained = (
+                len(indices) if record.output_geometry is None else record.output_geometry.frames
+            )
+            transform = {
+                "version": 1,
+                "original_sha256": file_sha256(original),
+                "time_base_num": timeline.time_base.numerator,
+                "time_base_den": timeline.time_base.denominator,
+                "start_tick": start_tick,
+                "end_tick": end_tick,
+                "source_display_indices": list(indices),
+                "source_pts": [timeline.pts[index] for index in indices],
+                "retained_display_indices": list(indices[:retained]),
+                "output_fps_num": fps.numerator,
+                "output_fps_den": fps.denominator,
+                "extracted_sha256": file_sha256(chunk),
+                "feature_scope": "exact_available_interval",
+            }
+        return replace(record, transform_json=json.dumps(transform, sort_keys=True))
+
+    def rendered(self, tensor, spec) -> MediaRecord:
+        """Prepare the actual decoded selection, with a cryptographic output receipt.
+
+        Reuse the ordinary media teacher/codec path, never a target substituted
+        for the actor's output. Display quantization is an explicit transform;
+        the original selected float tensor remains a checked shared asset.
+        """
+        import soundfile as sf
+        from PIL import Image
+
+        from megatoken.model.media import validate_public_media_spec
+
+        validate_public_media_spec(spec)
+        values = tensor.detach().float().cpu().contiguous().numpy()
+        if values.shape[0] != 1:
+            raise ValueError("Collected rendering must contain one event")
+        values = values[0].astype("<f4", copy=False)
+        identity = hashlib.sha256(values.tobytes()).hexdigest()
+        decoder = self.realizer(spec.modality)
+        rendered = self.store.put(
+            values,
+            modality=spec.modality,
+            kind="rendered",
+            extractor=decoder.identity,
+            source_family=identity,
+            sample_rate=spec.sample_rate,
+            fps_num=spec.fps_num,
+            fps_den=spec.fps_den,
+        )
+        with tempfile.TemporaryDirectory() as scratch:
+            if spec.modality == "audio":
+                path = Path(scratch) / "selected.wav"
+                if values.shape != (spec.sample_count,):
+                    raise ValueError("Selected speech geometry differs from the public request")
+                sf.write(path, values, spec.sample_rate, subtype="FLOAT")
+            else:
+                if values.shape != (spec.frames, 3, spec.height, spec.width):
+                    raise ValueError("Selected visual geometry differs from the public request")
+                pixels = (
+                    np.round(np.clip(values, 0, 1) * 255).astype(np.uint8).transpose(0, 2, 3, 1)
+                )
+                if spec.modality == "image":
+                    path = Path(scratch) / "selected.png"
+                    Image.fromarray(pixels[0]).save(path)
+                else:
+                    path = Path(scratch) / "selected.mkv"
+                    subprocess.run(
+                        [
+                            "ffmpeg",
+                            "-loglevel",
+                            "error",
+                            "-y",
+                            "-f",
+                            "rawvideo",
+                            "-pixel_format",
+                            "rgb24",
+                            "-video_size",
+                            f"{spec.width}x{spec.height}",
+                            "-framerate",
+                            f"{spec.fps_num}/{spec.fps_den}",
+                            "-i",
+                            "pipe:0",
+                            "-c:v",
+                            "ffv1",
+                            str(path),
+                        ],
+                        input=pixels.tobytes(),
+                        check=True,
+                    )
+            record = self.media(spec.modality, path)
+            transport_hash = file_sha256(path)
+        # These features and codec targets were made from this exact selected
+        # rendering's losslessly transported/display-quantized derivative.
+        geometry = OutputGeometry(
+            spec.modality,
+            sample_count=spec.sample_count,
+            sample_rate=spec.sample_rate,
+            frames=spec.frames,
+            height=spec.height,
+            width=spec.width,
+            fps_num=spec.fps_num,
+            fps_den=spec.fps_den,
+            provenance=spec.provenance,
+        )
+        return replace(
+            record,
+            source=replace(record.source, source_family=identity),
+            embedding=replace(record.embedding, source_family=identity),
+            target=replace(record.target, source_family=identity),
+            output_geometry=geometry,
+            rendered=rendered,
+            transform_json=json.dumps(
+                {
+                    "version": 1,
+                    "selected_sha256": identity,
+                    "transport_sha256": transport_hash,
+                    "display_quantization": "float32" if spec.modality == "audio" else "rgb24",
+                },
+                sort_keys=True,
+            ),
+        )
 
     def video_endpoints(
         self, path: str | Path, *, sampled_source_indices: tuple[int, ...] | None = None

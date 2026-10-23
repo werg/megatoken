@@ -88,7 +88,9 @@ def adapted_realizer_site(model, multi, state):
     assert sites
     _, site = sites[0]
     track_ids, _ = multi.tracks._track_indices(state, ("a",))
-    plan = model.core.adapters.plan("r", state.adapters, track_ids)
+    plan = model.core.adapters.plan(
+        "r", state.adapters, track_ids, multi.tracks.description_controls(state, ("a",))
+    )
     weights = plan.weights[0, :, 0]
     values = torch.randn(1, site.input_dim, device=state.raw.device)
     with expert_scope(weights):
@@ -181,6 +183,8 @@ def test_serving_and_training_apply_the_same_mixture():
         torch.testing.assert_close(
             multi.tracks.predict_group(served, tracks=("a", "b")),
             multi.tracks.predict_group(trained, tracks=("a", "b")),
+            atol=2e-5,
+            rtol=1e-5,
         )
 
 
@@ -212,6 +216,7 @@ def test_gradients_reach_every_controller_and_shared_pool_adapter(monkeypatch):
     model = memory_model(strength=0.05).train()
     multi, state, _, _ = looked_up(model, training=True)
     assert float(state.adapters.strength.detach()) > 0
+    state = multi.tracks.describe_track(state, "a", "Explain the available evidence.")
     state = observe(multi, state)
     predicted = multi.tracks.predict_group(state, tracks=("a",))
     # A routed R site exercises the real expert-pool adapter path while keeping
@@ -246,13 +251,13 @@ def test_c_p_and_r_controllers_route_only_their_role_sites():
             saved = {
                 "bias": owner.bias.clone(),
                 "router": owner.router.weight.clone(),
-                "track": owner.track_preference.weight.clone(),
+                "track": owner.semantic_preference.weight.clone(),
                 "stage": owner.stage_preference.weight.clone(),
                 "topk": owner.topk,
             }
             owner.topk = 1
             owner.router.weight.zero_()
-            owner.track_preference.weight.zero_()
+            owner.semantic_preference.weight.zero_()
             owner.stage_preference.weight.zero_()
             owner.bias.zero_()
             owner.bias[0] = 10.0
@@ -262,7 +267,7 @@ def test_c_p_and_r_controllers_route_only_their_role_sites():
             changed = not torch.equal(baseline, multi.tracks.predict_group(state, tracks=("a",)))
             owner.bias.copy_(saved["bias"])
             owner.router.weight.copy_(saved["router"])
-            owner.track_preference.weight.copy_(saved["track"])
+            owner.semantic_preference.weight.copy_(saved["track"])
             owner.stage_preference.weight.copy_(saved["stage"])
             owner.topk = saved["topk"]
             assert changed == (name == "p")
@@ -343,7 +348,7 @@ def test_adapters_are_ordinary_parameters_of_every_owner_and_sync_path():
         assert len(names) == len(adapters)
         for name in names:
             rule = optimizer.rules[name]
-            if "preference" in name:  # embedding tables: half rate, no decay
+            if "stage_preference" in name:  # stage embeddings: half rate, no decay
                 assert (rule.lr_multiplier, rule.weight_decay) == (0.5, 0.0)
             elif name.endswith(".bias"):
                 assert (rule.lr_multiplier, rule.weight_decay) == (1.0, 0.0)

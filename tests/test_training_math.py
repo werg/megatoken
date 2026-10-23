@@ -292,7 +292,7 @@ def test_rng_resume_is_exact():
 def test_phase_meters_and_schedules():
     assert sum(PHASES[name].budget for name in ("P1", "M1", "M2", "LC")) == 520_000_000_000
     assert PHASES["B0"].meter == "I"
-    assert PHASES["D"].meter == "P"
+    assert PHASES["D"].meter == "Q"
     assert PHASES["B0"].learning_rate(0) == pytest.approx(2e-5)
     assert PHASES["P1"].learning_rate(320_000_000_000) == pytest.approx(2e-4)
     assert PHASES["P1"].learning_rate(400_000_000_000) == pytest.approx(4e-5)

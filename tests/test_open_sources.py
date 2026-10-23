@@ -9,7 +9,11 @@ import pytest
 from megatoken.data.adapters import AdapterContext, adapt_row
 from megatoken.data.open_media import STREAMS
 from megatoken.data.quality import QualityReject, validate_row_filters
-from megatoken.data.recipes import stage_recipe
+from megatoken.data.recipes import (
+    STREAM_PRODUCERS,
+    resolve_stream_producer,
+    stage_recipe,
+)
 from megatoken.data.sources import load_source_manifest
 from megatoken.generation.codec import ByteCodec
 
@@ -71,10 +75,40 @@ def test_streams_cover_the_stage_plan():
         "sources.later-stages.json",
     ):
         text |= {s.stream for s in load_source_manifest(CONFIGS / manifest)}
-    covered = text | STREAMS | {"long_document_reading", "base_reading", "collection_reading"}
+    covered = (
+        text
+        | STREAMS
+        | set(STREAM_PRODUCERS)
+        | {
+            "long_document_reading",
+            "base_reading",
+            "collection_reading",
+        }
+    )
     assert set(stage_recipe("P1").mixture) - covered == set()
     mb_text = {s.stream for s in load_source_manifest(CONFIGS / "sources.open-mb.json")}
-    assert set(stage_recipe("MB").mixture) <= mb_text | STREAMS
+    assert set(stage_recipe("MB").mixture) <= mb_text | STREAMS | set(STREAM_PRODUCERS)
+
+
+def test_procedural_streams_resolve_to_real_local_producers():
+    for stream, path in STREAM_PRODUCERS.items():
+        producer = resolve_stream_producer(stream)
+        assert callable(producer), (stream, path)
+        assert ":" in path and not path.startswith(("http:", "https:"))
+    downloaded_streams = {source.stream for source in SOURCES.values()}
+    for manifest in (
+        "sources.agentic.json",
+        "sources.agentic-coding.json",
+        "sources.later-stages.json",
+        "sources.open-mb.json",
+    ):
+        downloaded_streams.update(
+            source.stream for source in load_source_manifest(CONFIGS / manifest)
+        )
+    assert not {"dynamic_execution", "duplex_execution"} & downloaded_streams
+    assert STREAM_PRODUCERS["duplex_execution"].endswith(
+        "megatoken.data.execution_traces:prepare_traces"
+    )
 
 
 @pytest.mark.parametrize("source_id", sorted(ROWS))

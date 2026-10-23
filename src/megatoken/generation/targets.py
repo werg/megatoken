@@ -169,7 +169,7 @@ def _native_pairs(codec, config, payloads, ids, roles, tapes):
     Chronological linkage to the episode's record cursor is additionally checked by
     NativeHistory upstream.
     """
-    from megatoken.model.multitrack import GroupActionTape
+    from megatoken.model.multitrack import GroupActionMember, GroupActionTape
 
     tapes = (None,) * len(payloads) if tapes is None else tuple(tapes)
     if len(tapes) != len(payloads):
@@ -177,7 +177,7 @@ def _native_pairs(codec, config, payloads, ids, roles, tapes):
     for payload, tokens, role, tape in zip(payloads, ids, roles, tapes, strict=True):
         if tape is None:
             continue
-        if not isinstance(tape, GroupActionTape) or len(tape.tracks) != 1:
+        if not isinstance(tape, (GroupActionTape, GroupActionMember)) or len(tape.tracks) != 1:
             raise ValueError("native alignment requires a current single-event group tape")
         if tape.codec_fingerprint != codec.fingerprint or tape.facet_shape != (
             1,

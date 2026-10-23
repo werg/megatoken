@@ -50,6 +50,38 @@ class TrainingWindow:
         """Actual physical megatokens, independently of lexical token count."""
         return len(self.records)
 
+    @property
+    def Q(self) -> int:
+        """Whole supervised groups and verified outcome-only selections."""
+        import json
+
+        selected_ids = {r.record.record_id for r in self.records if r.record.policy_mask}
+        selected = (
+            sum(
+                any(e.record_id in selected_ids for e in group.events)
+                for group in self.episode.meridians
+            )
+            if self.episode.meridians
+            else len(selected_ids)
+        )
+        annotations = json.loads(self.episode.supervision.annotations_json)
+        for entry in annotations.get("native_action_tapes", ()):
+            cursor = entry["record_cursor"]
+            if entry.get("outcome_credit") is None or not (
+                self.start <= cursor < self.end or self.start == self.end == cursor
+            ):
+                continue
+            bindings = entry.get("record_ids")
+            if bindings is None:
+                bindings = (
+                    [self.episode.records[cursor].record_id]
+                    if cursor < len(self.episode.records)
+                    else []
+                )
+            if not selected_ids.intersection(bindings):
+                selected += 1
+        return selected
+
 
 def iter_windows(
     episode: Episode, codec: Codec, config: WindowConfig | None = None
@@ -140,3 +172,21 @@ def iter_windows(
             writer_reader_pairs=pairs,
         )
         window_index += 1
+    # A failed or empty final selection can have verified policy credit but no
+    # physical output. Give it an explicit transaction instead of losing it at
+    # the final record cursor (or charging the previous payload twice).
+    import json
+
+    annotations = json.loads(episode.supervision.annotations_json)
+    if any(
+        entry.get("outcome_credit") is not None and entry.get("record_cursor") == len(encoded)
+        for entry in annotations.get("native_action_tapes", ())
+    ):
+        yield TrainingWindow(
+            episode=episode,
+            prefix=encoded,
+            records=(),
+            start=len(encoded),
+            end=len(encoded),
+            index=window_index,
+        )

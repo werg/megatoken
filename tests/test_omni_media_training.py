@@ -129,7 +129,7 @@ def test_prepared_media_summary_tracks_scored_outputs_for_custom_stream(tmp_path
 
     from megatoken.io import content_hash, write_json
 
-    _, episode, _, _ = _case(tmp_path / "assets")
+    assets, episode, _, _ = _case(tmp_path / "assets")
     episode = replace(episode, stream="custom_generated_media")
     observation_only = replace(
         episode,
@@ -146,7 +146,12 @@ def test_prepared_media_summary_tracks_scored_outputs_for_custom_stream(tmp_path
             dedup.add(observation_only, CODEC)
         dedup.freeze()
         export_prepared(
-            dedup, root, codec=CODEC, source_receipts=[], pipeline_fingerprint="media-summary-test"
+            dedup,
+            root,
+            codec=CODEC,
+            source_receipts=[],
+            pipeline_fingerprint="media-summary-test",
+            assets=assets,
         )
     with PreparedDataset(root) as dataset:
         assert dataset.scored_media_modalities(("custom_generated_media",)) == {"image"}
@@ -381,7 +386,9 @@ def test_real_event_budget_checkpoint_and_media_data(tmp_path, monkeypatch):
     finally:
         source.close()
     packs = tmp_path / "packs.json"
-    packs.write_text("{}")
+    packs.write_text(
+        json.dumps({"version": 1, "packs": {"pocket": {}, "sana": {}, "sana_video": {}}})
+    )
     monkeypatch.setattr(
         "megatoken.omni.loader.install_realizers",
         lambda model, path, *, device: install_fake_realizers(model),

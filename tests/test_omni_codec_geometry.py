@@ -202,11 +202,11 @@ def test_valid_count_masks_codec_padding_in_the_resolved_target(tmp_path, modali
         assert target.target_mask is None
 
 
-def test_media_record_wire_format_is_strict_v5(tmp_path):
+def test_media_record_wire_format_is_strict_v6(tmp_path):
     record = prepared_record(TensorAssetStore(tmp_path), "image", seed=10)
     raw = record.to_bytes()
     value = json.loads(raw)
-    assert value["version"] == 5
+    assert value["version"] == 6
     assert set(value) == {
         "version",
         "modality",
@@ -215,11 +215,13 @@ def test_media_record_wire_format_is_strict_v5(tmp_path):
         "output_geometry",
         "prompt",
         "embedding",
+        "rendered",
+        "transform_json",
     }
     value["version"] = 4
     with pytest.raises(ValueError, match="unsupported version"):
         MediaRecord.from_bytes(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
-    value["version"] = 5
+    value["version"] = 6
     with pytest.raises(ValueError, match="canonical"):
         MediaRecord.from_bytes(json.dumps(value, indent=1).encode())
     del value["target"]

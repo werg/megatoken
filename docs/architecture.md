@@ -1,6 +1,6 @@
-# Architecture v11: shared expert pools and multi-track causal KV
+# Architecture v13: shared expert pools and multi-track causal KV
 
-**The single-event path below is one special case of the multi-track core (architecture v11).**
+**The single-event path below is one special case of the multi-track core (architecture v13).**
 Multiple tracks are integrated as one atomic meridian with a shared full-resolution
 KV history and joint central processing. For the grouped contract, see the
 [multi-track plan](multi-track-plan.md) and
@@ -22,14 +22,24 @@ C does not participate in the current output realization.
 
 The production preset is `32x512`. `32x256` uses the same architecture at smaller
 width. The test preset is four 32-wide facets with a 128-position output limit.
-Architecture version **11** (`ARCHITECTURE_VERSION`) defines the currently supported
+Architecture version **12** (`ARCHITECTURE_VERSION`) defines the currently supported
 core and grouped state. The one tape that serving, collection and training exchange is
-`GroupActionTape` (`fmt-multitrack-facets-v12`); a single-track draw is a group of one event.
+`GroupActionTape` (`fmt-multitrack-facets-v13`); a single-track draw is a group of one event.
 The decoder-level single-event tape `fmt-canonical-facets-v8` is only the output of the
-single-track diagnostic sampler. Checkpoints require v11 weights and the
-locked pack manifest's fingerprint; dataset schema version 3 remains.
+single-track diagnostic sampler. Checkpoints require v13 weights and the
+locked pack manifest's fingerprint; dataset schema version 4 is required.
 The legacy CLI names `recurrent32` and `compact32` still select the corresponding
 fresh-construction geometry, not old checkpoint semantics.
+
+Track handles are unbounded session-local equality labels. They do not index learned
+routing parameters. Encoded purposes and event instructions condition expert routing;
+roles, modalities and stages remain distinct inputs. Event addresses, rather than
+track names, identify peers and assign deterministic sampling draws. Output modality
+is chosen from a legal mask before predicting the selected content. Its categorical
+probability is part of the action probability. The runtime can commit a selection
+before rendering and accept later input while that rendering runs; rendered content
+is read from the selected snapshot. See [current status](multi-track-implementation.md)
+for supported lifecycle actions and the remaining collection/training boundary.
 
 ## Computation and recurrence
 

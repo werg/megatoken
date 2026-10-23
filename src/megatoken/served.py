@@ -14,6 +14,7 @@ from safetensors.torch import load_file, save_file
 
 from megatoken.data.chunking import ChunkingConfig
 from megatoken.io import fsync_directory, sha256_file, write_json
+from megatoken.lifecycle import LIFECYCLE_VERSION
 from megatoken.loading import build_model, load_codec, load_trained, parameter_report
 from megatoken.model.config import ARCHITECTURE_VERSION, ModelConfig
 from megatoken.model.multitrack import GROUP_TAPE_VERSION
@@ -78,14 +79,20 @@ def export_served(
             "codec_file": bundled_codec,
             "codec_fingerprint": codec.fingerprint,
             "chunking": chunking.identity(codec),
-            "policy_likelihood": "canonical_facet_gaussian_density",
+            "policy_likelihood": "modality_categorical_plus_canonical_facet_gaussian_density",
             "precision": precision,
             "model_version": payload["global_step"],
             "routing_version": config.routing_version,
             "tape_version": GROUP_TAPE_VERSION,
+            "lifecycle_version": LIFECYCLE_VERSION,
+            "output_modalities": sorted(
+                ["text", *(p.modality for p in model.media_realizers.packs.values())]
+            ),
+            "event_addressing": "independent_peer_events",
             "checkpoint_sha256": metadata["state_sha256"],
             "parameters": parameter_report(model)["totals"]["served"],
             "training_heads": False,
+            "retrospective_writes": True,
             "packs_fingerprint": payload["packs_fingerprint"],
         }
         if bundled_codec != "byte":
@@ -128,8 +135,16 @@ class ServedBundle:
             )
         if (None if packs is None else sha256_file(packs)) != manifest["packs_fingerprint"]:
             raise ValueError("Supply the realizer pack manifest the bundle was trained with")
-        if manifest.get("policy_likelihood") != "canonical_facet_gaussian_density":
+        if (
+            manifest.get("policy_likelihood")
+            != "modality_categorical_plus_canonical_facet_gaussian_density"
+        ):
             raise ValueError("Unsupported served action likelihood")
+        if (
+            manifest.get("lifecycle_version") != LIFECYCLE_VERSION
+            or manifest.get("event_addressing") != "independent_peer_events"
+        ):
+            raise ValueError("Served bundle has incompatible lifecycle or event addressing")
         if manifest.get("tape_version") != GROUP_TAPE_VERSION:
             raise ValueError("Served tape protocol differs from the current control-aware policy")
         if manifest.get("precision") not in {"fp32", "bf16"}:
@@ -173,6 +188,11 @@ class ServedBundle:
             training_heads=False,
             packs=packs,
         )
+        supported = sorted(
+            ["text", *(p.modality for p in self.model.media_realizers.packs.values())]
+        )
+        if manifest.get("output_modalities") != supported:
+            raise ValueError("Served output capabilities differ from installed decoders")
         self.model.load_state_dict(
             load_file(str(directory / "model.safetensors"), device=str(self.device)), strict=True
         )

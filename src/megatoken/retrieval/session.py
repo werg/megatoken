@@ -15,6 +15,8 @@ from typing import Any
 
 import numpy as np
 
+from megatoken.io import content_hash
+
 from .collection import Hit, Item, SourceCollection
 
 DEFAULT_MAX_SOURCES = 2
@@ -26,6 +28,8 @@ DEPTH = 16
 class Candidate:
     collection: str
     hit: Hit
+    snapshot_revision: int | None = None
+    searched_at_ns: int | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,17 @@ class Retrieved:
     item: Item
     score: float
     lookup: int
+    publication_revision: int | None = None
+    available_at_ns: int | None = None
+    snapshot_revision: int | None = None
+    searched_at_ns: int | None = None
+
+    @property
+    def event_id(self) -> str:
+        """Opaque address of this exact admitted source observation."""
+        return "source:" + content_hash(
+            {"collection": self.collection, "item": self.item.item_id, "lookup": self.lookup}
+        )
 
 
 @dataclass
@@ -44,6 +59,7 @@ class Search:
 
     query: Any
     candidates: list[Candidate]
+    snapshots: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 @dataclass
@@ -55,6 +71,9 @@ class SourceSession:
     observed: dict[str, set[int]] = field(default_factory=dict)
     log: list[Retrieved] = field(default_factory=list)
     last: Search | None = None
+    revision_limits: Mapping[str, int] | None = None
+    available_at_ns: int | None = None
+    search_snapshots: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.max_sources < 1 or not self.collections:
@@ -67,10 +86,29 @@ class SourceSession:
         Ties go to the earlier-mounted collection, then the lower row.
         """
         merged = []
+        snapshots = {}
         for order, (name, collection) in enumerate(self.collections.items()):
-            for hit in collection.search(query, depth, exclude=self.observed[name]):
-                merged.append((-hit.score, order, hit.row, Candidate(name, hit)))
+            snapshot, hits = collection.search_snapshot(
+                query,
+                depth,
+                exclude=self.observed[name],
+                max_revision=None
+                if self.revision_limits is None
+                else self.revision_limits.get(name),
+                available_at_ns=self.available_at_ns,
+            )
+            snapshots[name] = snapshot
+            for hit in hits:
+                merged.append(
+                    (
+                        -hit.score,
+                        order,
+                        hit.row,
+                        Candidate(name, hit, snapshot["revision"], snapshot["available_at_ns"]),
+                    )
+                )
         merged.sort(key=lambda entry: entry[:3])
+        self.search_snapshots = snapshots
         return [entry[3] for entry in merged[:depth]]
 
     def floor(self, name: str) -> float:
@@ -84,7 +122,28 @@ class SourceSession:
             if candidate.hit.score >= self.floor(candidate.collection):
                 collection = self.collections[candidate.collection]
                 item = collection.item(candidate.hit.row)
-                chosen.append(Retrieved(candidate.collection, item, candidate.hit.score, lookup))
+                publication = collection.publication(candidate.hit.row)
+                if (
+                    candidate.snapshot_revision is not None
+                    and publication["revision"] > candidate.snapshot_revision
+                    or candidate.searched_at_ns is not None
+                    and publication["available_at_ns"] > candidate.searched_at_ns
+                ):
+                    raise ValueError(
+                        "Retrieved evidence is newer than its recorded search snapshot"
+                    )
+                chosen.append(
+                    Retrieved(
+                        candidate.collection,
+                        item,
+                        candidate.hit.score,
+                        lookup,
+                        publication["revision"],
+                        publication["available_at_ns"],
+                        candidate.snapshot_revision,
+                        candidate.searched_at_ns,
+                    )
+                )
             if len(chosen) == self.max_sources:
                 break
         return chosen

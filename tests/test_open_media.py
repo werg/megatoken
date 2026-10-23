@@ -50,7 +50,7 @@ from megatoken.data.open_media import (
     video_edit,
     write_audio,
 )
-from megatoken.data.recipes import stage_recipe
+from megatoken.data.recipes import STREAM_PRODUCERS, resolve_stream_producer, stage_recipe
 from megatoken.data.sources import TermsReview
 
 ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
@@ -994,6 +994,8 @@ def test_unapproved_sources_are_refused(tmp_path, media):
 def test_every_stream_this_module_emits_is_in_the_stage_plan():
     assert STREAMS <= set(stage_recipe("P1").mixture)
     assert STREAMS <= TASK_FAMILIES | {"audio_identity", "image_identity", "video_identity"}
+    assert set(STREAM_PRODUCERS) <= set(stage_recipe("P1").mixture)
+    assert all(callable(resolve_stream_producer(stream)) for stream in STREAM_PRODUCERS)
 
 
 def test_manifest_sources_are_pinned_licensed_approved_and_readable():
@@ -1051,13 +1053,18 @@ def test_manifest_sources_are_pinned_licensed_approved_and_readable():
 
 
 def test_every_stage_plan_media_stream_has_a_source():
+    from megatoken.data.recipes import STREAM_PRODUCERS, resolve_stream_producer
+
     media_streams = {
         name
         for name in stage_recipe("P1").mixture
         if name.endswith(("_identity", "_creation", "_edit", "_translation", "_description"))
         or name in {"transcription", "verbalization", "edit_judging", "edit_plan"}
     }
-    assert media_streams <= {stream for source in SOURCES.values() for stream in source.streams}
+    supplied = {stream for source in SOURCES.values() for stream in source.streams}
+    for stream in media_streams - supplied:
+        assert stream in STREAM_PRODUCERS
+        assert callable(resolve_stream_producer(stream))
 
 
 def test_the_manifest_loads_from_any_path_and_rejects_duplicates(tmp_path):

@@ -383,7 +383,7 @@ def test_shared_hierarchical_routing_computes_once_and_caches_per_pool():
     )
 
 
-def test_router_fold_is_track_aware_and_controller_uses_shared_experts():
+def test_router_fold_reads_semantics_not_addresses_and_controller_uses_shared_experts():
     from megatoken.model.config import RESERVED_TRACKS
 
     pools = ShapePools(config())
@@ -391,7 +391,7 @@ def test_router_fold_is_track_aware_and_controller_uses_shared_experts():
     first = pools.router_features(context, track_ids=torch.tensor([0, 1]), role="R")
     second = pools.router_features(context, track_ids=torch.tensor([1, 0]), role="R")
     assert first.shape == (2, 4)
-    assert not torch.allclose(first, second)
+    torch.testing.assert_close(first, second)
     unknown = pools.router_features(context, track_ids=torch.tensor([-1, -1]), role="R")
     assert unknown.shape == first.shape
     last_reserved = config().max_tracks + len(RESERVED_TRACKS) - 1
@@ -399,10 +399,13 @@ def test_router_fold_is_track_aware_and_controller_uses_shared_experts():
         pools.router_features(context, track_ids=torch.tensor([last_reserved, 0]), role="R").shape
         == first.shape
     )
-    with pytest.raises(ValueError, match="track_ids exceed"):
-        pools.router_features(context, track_ids=torch.tensor([last_reserved + 1, 0]), role="R")
-    with pytest.raises(ValueError, match="track_ids exceed"):
-        pools.router_features(context, track_ids=torch.tensor([0, 99]), role="R")
+    torch.testing.assert_close(
+        pools.router_features(context, track_ids=torch.tensor([900, 301]), role="R"), first
+    )
+    purposes = torch.randn(2, pools.router_semantic_projection.in_features)
+    assert not torch.allclose(
+        pools.router_features(context, track_semantics=purposes, role="R"), first
+    )
     output = pools.controller_features(context, track_ids=torch.tensor([0, 1]), role="R")
     assert output.shape == (2, 4)
     assert pools.router_evaluations == 1

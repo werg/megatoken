@@ -15,7 +15,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from .config import RESERVED_TRACKS, ModelConfig
+from .config import ModelConfig
 
 OWNERS = ("e", "c", "p", "r")
 # The chance a lookup's whole mixture is dropped in training, so the model stays
@@ -68,7 +68,7 @@ class OwnerAdapters(nn.Module):
         experts: int,
         rank: int,
         topk: int,
-        max_tracks: int,
+        control_dim: int,
         sites: int,
         input_dim: int | None = None,
     ) -> None:
@@ -76,11 +76,9 @@ class OwnerAdapters(nn.Module):
         self.width, self.experts, self.rank, self.topk = width, experts, rank, topk
         # A compact shared-router feature fans out to role-local adapter heads.
         self.router = nn.Linear(input_dim or value_dim, experts, bias=False)
-        # Rows 0..max_tracks-1 are user tracks, then the reserved system tracks.
-        self.track_preference = nn.Embedding(max_tracks + len(RESERVED_TRACKS), experts)
+        self.semantic_preference = nn.Linear(control_dim, experts, bias=False)
         self.stage_preference = nn.Embedding(sites, experts)
         self.bias = nn.Parameter(torch.zeros(experts))
-        nn.init.normal_(self.track_preference.weight, std=0.01)
         nn.init.normal_(self.stage_preference.weight, std=0.01)
         self.balance_recorder = None
 
@@ -89,16 +87,24 @@ class OwnerAdapters(nn.Module):
         normalized = F.layer_norm(value.float(), value.shape[-1:], eps=1e-6)
         return self.router(normalized.to(self.router.weight.dtype)).float()
 
-    def preference(self, semantic: Tensor, track: Tensor, site: Tensor | int) -> Tensor:
-        """Expert logits at a (track, site): the lookup's preference plus the site's own."""
-        stage = self.stage_preference.weight[site]
-        return semantic + self.track_preference(track).float() + stage.float() + self.bias.float()
+    def preference(
+        self, semantic: Tensor, description: Tensor | None, site: Tensor | int
+    ) -> Tensor:
+        purpose = (
+            0
+            if description is None
+            else self.semantic_preference(
+                description.to(self.semantic_preference.weight.dtype)
+            ).float()
+        )
+        return semantic + purpose + self.stage_preference.weight[site].float() + self.bias.float()
 
     def balance_probabilities(self, context: Tensor, key: int) -> Tensor:
-        """The global router balance's replay: soft preferences for one (site, track)."""
-        site, track = divmod(key, self.track_preference.num_embeddings)
-        track = torch.full(context.shape[:1], track, device=context.device)
-        return self.preference(self.semantic(context.detach()), track, site).softmax(-1)
+        # Record both lookup context and event purpose so balancing replays the
+        # executed decision without ever reconstructing an address-based lookup.
+        width = self.router.in_features
+        semantic = self.semantic(context[..., :width].detach())
+        return self.preference(semantic, context[..., width:].detach(), key).softmax(-1)
 
     def record_executed(self, route: AdapterRoute) -> None:
         if self.balance_recorder is not None:
@@ -120,7 +126,7 @@ class AdapterBank(nn.Module):
                     experts=c.adapter_experts,
                     rank=c.adapter_rank,
                     topk=c.adapter_topk,
-                    max_tracks=c.max_tracks,
+                    control_dim=c.control_dim,
                     sites=sites,
                     input_dim=c.router_dim,
                 )
@@ -161,7 +167,11 @@ class AdapterBank(nn.Module):
         return AdapterMixture(logits[None], strength.float().reshape(1), context)
 
     def plan(
-        self, name: str, mixture: AdapterMixture | None, track_ids: Tensor
+        self,
+        name: str,
+        mixture: AdapterMixture | None,
+        track_ids: Tensor,
+        track_semantics: Tensor | None = None,
     ) -> AdapterPlan | None:
         """Route one owner's sites for the events of ``track_ids`` [batch, events].
 
@@ -175,24 +185,27 @@ class AdapterBank(nn.Module):
             raise ValueError("Every adapter event needs a mixture of its own session")
         semantic = mixture.logits[:, OWNERS.index(name)]  # [batch, experts]
         stages = torch.arange(owner.stage_preference.num_embeddings, device=semantic.device)
+        purpose = semantic.new_zeros(*track_ids.shape, owner.semantic_preference.in_features)
+        if track_semantics is not None:
+            if track_semantics.shape != purpose.shape:
+                raise ValueError("Adapter semantics must describe every event")
+            purpose = track_semantics
         logits = owner.preference(
-            semantic[None, :, None], track_ids[None], stages[:, None, None]
+            semantic[None, :, None], purpose[None], stages[:, None, None]
         )  # [sites, batch, events, experts]
         top = logits.topk(owner.topk, dim=-1)
         chosen = top.values.softmax(-1)
         weights = torch.zeros_like(logits).scatter(-1, top.indices, chosen)
         weights = weights * mixture.strength[None, :, None, None]
         if mixture.context is not None and owner.balance_recorder is not None:
-            self._record(owner, mixture, track_ids, top.indices)
+            self._record(owner, mixture, purpose, top.indices)
         return AdapterPlan(owner, weights)
 
     @staticmethod
     def _record(
         owner: OwnerAdapters, mixture: AdapterMixture, track_ids: Tensor, chosen: Tensor
     ) -> None:
-        tracks = owner.track_preference.num_embeddings
-        for event, track in enumerate(track_ids[0].tolist()):
+        for event in range(track_ids.shape[1]):
+            context = torch.cat((mixture.context, track_ids[:, event].detach()), dim=-1)
             for site in range(chosen.shape[0]):
-                owner.record_executed(
-                    AdapterRoute(chosen[site, :, event], mixture.context, site * tracks + track)
-                )
+                owner.record_executed(AdapterRoute(chosen[site, :, event], context, site))

@@ -280,7 +280,7 @@ def test_oversized_native_generated_record_is_rejected_without_resegmentation(
 def test_legacy_episode_and_native_tape_versions_fail_explicitly():
     episode = Episode("e", (PhysicalRecord("record", "user", b"source"),), Lineage("s", "v", "f"))
     value = episode.to_dict()
-    assert value["schema_version"] == 3
+    assert value["schema_version"] == 5
     value["schema_version"] = 1
     with pytest.raises(ValueError, match="Unsupported episode schema version"):
         Episode.from_dict(value)

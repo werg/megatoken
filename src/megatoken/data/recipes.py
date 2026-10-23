@@ -5,8 +5,31 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from importlib import import_module
 from importlib.resources import files
 from typing import Any
+
+# Explicit code producers for procedural and locally collected streams. The
+# values name real callables so a catalog entry cannot claim nonexistent data.
+STREAM_PRODUCERS = {
+    "dynamic_execution": "megatoken.data.dynamic_execution:execution_episode",
+    "duplex_execution": "megatoken.data.execution_traces:prepare_traces",
+    "timed_conversation": "megatoken.data.timed_media:prepare_rows",
+    "streaming_translation": "megatoken.data.timed_media:prepare_rows",
+}
+
+
+def resolve_stream_producer(stream: str):
+    """Resolve a registered stream producer to its importable callable."""
+    try:
+        path = STREAM_PRODUCERS[stream]
+        module_name, attribute = path.split(":", 1)
+        producer = getattr(import_module(module_name), attribute)
+    except (KeyError, ImportError, AttributeError, ValueError) as error:
+        raise ValueError(f"Unknown or unavailable stream producer for {stream!r}") from error
+    if not callable(producer):
+        raise ValueError(f"Stream producer for {stream!r} is not callable")
+    return producer
 
 
 @dataclass(frozen=True)

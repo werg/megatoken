@@ -4,9 +4,22 @@ This project is a software prototype, not a pretrained model. Training quality, 
 
 ## One architecture
 
-One selected raw-facet representation powers ordinary E/C/P/R generation, and one learned memory sits beside it: the [Continuous State Transducer](docs/continuous-state-transducer-plan.md) (v10, implemented, not yet trained). At chosen boundaries the model emits a query, searches a sparse bank of location-to-location edges with an agenda-wide neighbourhood search, and admits what it finds as extra attention slots ("knowledge megatokens"). Edges carry FP8 routing vectors and 32,768-wide FP4 values; a momentum-free local-scale optimizer trains them, hindsight writes fill them, and error-driven growth adds and splits them. The transducer is always on: there is no switch and no older retrieval stack (the v9 source catalog, search index and embedding-alignment sidecars were removed). The plan takes precedence over the accompanying research survey.
+One selected raw-facet representation powers ordinary E/C/P/R generation, and one learned memory sits beside it: the [Continuous State Transducer](docs/continuous-state-transducer-plan.md) (v10, implemented, not yet trained). At chosen boundaries the model emits a query, searches a sparse bank of location-to-location edges with an agenda-wide neighbourhood search, and admits what it finds as extra attention slots ("knowledge megatokens"). Edges carry FP8 routing vectors and 32,768-wide FP4 values; a momentum-free local-scale optimizer trains them, hindsight writes fill them, and error-driven growth adds and splits them. The transducer is always on: there is no switch and no older retrieval stack (the v9 source catalog, search index and embedding-alignment sidecars were removed). The implementation and executed checks define current behavior; design documents describe intended work.
 
 The bank travels with every checkpoint (`transducer.pt` beside the weights). Under DiLoCo the coordinator owns the canonical bank and merges each learner's 32-step round of sparse changes; synchronous multi-GPU ranks share it the same way, merged on rank 0.
+
+Tracks have stable session addresses and explicit purposes. Their addresses affect
+attachment and attention equality, rather than learned expert preferences. One track
+can carry successive modalities or several separately addressed output peers. See
+[the current implementation status](docs/multi-track-implementation.md) for the
+lifecycle tools, bounded scheduling, asynchronous rendering, and remaining training
+and media work.
+
+Architecture v13 changes parameter ownership and artifact meaning. Rebuild prepared
+episodes and model-bound knowledge bases and train fresh weights; old slot-based
+checkpoints and old grouped tapes cannot resume exactly. Original media and compatible
+checksummed feature assets remain reusable. The launch commands below still require
+real prepared supply and the matching decoder identities.
 
 ## Prepare, then train
 
@@ -40,7 +53,12 @@ There is one serving program, the multitrack runtime ([generation](docs/generati
 [protocol](docs/multi-track-implementation.md#group-native-jsonl-protocol)). `generate` is a
 one-shot session of the protocol `serve` speaks, and the frozen student that collects rollouts for
 training runs it too, so lookups, the adapter mixture and mounted collections and knowledge bases behave
-the same when serving, collecting and training. Its tape is the group tape (`fmt-multitrack-facets-v12`).
+the same when serving, collecting and training. Its tape is the group tape (`fmt-multitrack-facets-v15`).
+
+For dynamic workers, grouped media collection, timed translation, executed voice/tool
+traces, and their preparation and evaluation gates, use the
+[training runbook](docs/dynamic-training-runbook.md). The runbook distinguishes
+executable preparation paths from data acquisition and learned-quality results.
 
 ## Validation contract
 

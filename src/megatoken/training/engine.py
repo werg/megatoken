@@ -175,13 +175,14 @@ def batch_counters(batches: list[MeridianPreparedBatch]) -> Counters:
                     D=new_tokens,
                     I=new_tokens + prefix_tokens,
                     G=len(window.records),
+                    Q=window.Q,
                     source_bytes=sum(
                         len(record.payload) for record in (*window.prefix, *window.records)
                     ),
                     record_ingestions=len(window.prefix) + len(window.records),
                     reconstruction_tokens=prefix_tokens,
                     reconstruction_records=len(window.prefix),
-                    scored_windows=int(bool(window.P)),
+                    scored_windows=int(bool(window.Q)),
                     writer_reader_windows=int(bool(window.writer_reader_pairs)),
                 )
             )
@@ -321,7 +322,9 @@ def train(
 
     try:
         diagnostics = doctor(
-            require_cuda=config.require_blackwell, require_blackwell=config.require_blackwell
+            require_cuda=context.device.type == "cuda",
+            require_blackwell=config.require_blackwell,
+            probe_cuda=context.device.type == "cuda",
         )
         if not diagnostics["ok"]:
             raise RuntimeError("Runtime preflight failed: " + "; ".join(diagnostics["errors"]))
@@ -341,6 +344,77 @@ def train(
         if config.generated_capacity > model_config.max_capacity:
             raise ValueError("generated_capacity exceeds the model's maximum output positions")
         codec = load_codec(config.codec, vocab_size=model_config.vocab_size)
+        # Reject absent or causally unverified curriculum supply before loading
+        # model weights, donor pipelines, optimizer masters or checkpoint tensors.
+        windows_config = window_config(config)
+        dataset = PreparedCorpus(config.datasets)
+        if dataset.codec_fingerprint != codec.fingerprint:
+            raise ValueError("Prepared datasets use a different codec")
+        if dataset.extractor not in (None, model_config.media_extractor):
+            raise ValueError(
+                f"Prepared features come from teacher {dataset.extractor!r}, "
+                f"not this model's {model_config.media_extractor!r}"
+            )
+        recipe = stage_recipe(config.phase)
+        plan = AutoencodePlan.from_stage(recipe.constraints)
+        if config.use_stage_mixture:
+            from megatoken.data.coverage import require_coverage
+            from megatoken.data.recipes import STREAM_PRODUCERS
+
+            active_streams = recipe.mixture
+            missing = [
+                name
+                for name, weight in active_streams.items()
+                if weight > 0
+                and not any(
+                    part.manifest["counts"].get(f"split:train|stream:{name}", 0)
+                    for part in dataset.parts
+                )
+            ]
+            if missing:
+                raise ValueError(
+                    f"Stage {config.phase} has empty required training streams: {missing}"
+                )
+            requirements = recipe.constraints.get("required_behaviors", {})
+            require_coverage(dataset, requirements, active_streams)
+            if requirements:
+                with PreparedCorpus(config.datasets, split="validation") as validation:
+                    require_coverage(validation, requirements, active_streams, split="validation")
+                    missing = [
+                        name
+                        for name in STREAM_PRODUCERS
+                        if active_streams.get(name, 0) > 0
+                        and not any(
+                            part.manifest["counts"].get(f"split:validation|stream:{name}", 0)
+                            for part in validation.parts
+                        )
+                    ]
+                    if missing:
+                        raise ValueError(
+                            f"Stage {config.phase} has empty required validation streams: {missing}"
+                        )
+        else:
+            active_streams = {
+                scope.removeprefix("stream:")
+                for part in dataset.parts
+                for scope in part.manifest["counts"]
+                if scope.startswith("stream:")
+            }
+        required = required_media_modalities(
+            dataset,
+            dataset.scored_media_modalities(tuple(active_streams)),
+            autoencode_items=plan.items if config.use_stage_mixture else 0,
+        )
+        if required:
+            from megatoken.io import read_mapping
+
+            installed = {} if config.packs is None else read_mapping(config.packs).get("packs", {})
+            pack_names = {"audio": "pocket", "image": "sana", "video": "sana_video"}
+            missing = [kind for kind in required if pack_names[kind] not in installed]
+            if missing:
+                raise ValueError(
+                    f"Active training objectives need installed media packs for: {', '.join(missing)}"
+                )
         packs_fingerprint = sha256_file(config.packs) if config.packs else None
         model = build_model(
             model_config,
@@ -372,31 +446,6 @@ def train(
         # Check decoder requirements before enumerating optimizer owners. This
         # catches a missing pack at startup while leaving media observations
         # that only feed text prediction usable without a decoder.
-        windows_config = window_config(config)
-        dataset = PreparedCorpus(config.datasets)
-        if dataset.codec_fingerprint != codec.fingerprint:
-            raise ValueError("Prepared datasets use a different codec")
-        if dataset.extractor not in (None, model_config.media_extractor):
-            raise ValueError(
-                f"Prepared features come from teacher {dataset.extractor!r}, "
-                f"not this model's {model_config.media_extractor!r}"
-            )
-        plan = AutoencodePlan.from_stage(stage_recipe(config.phase).constraints)
-        if config.use_stage_mixture:
-            active_streams = stage_recipe(config.phase).mixture
-        else:
-            active_streams = {
-                scope.removeprefix("stream:")
-                for part in dataset.parts
-                for scope in part.manifest["counts"]
-                if scope.startswith("stream:")
-            }
-        scored_media = dataset.scored_media_modalities(tuple(active_streams))
-        required = required_media_modalities(
-            dataset,
-            scored_media,
-            autoencode_items=plan.items if config.use_stage_mixture else 0,
-        )
         validate_media_realizers(model, required)
         # Synchronous ranks are learners of one canonical bank merged on rank 0.
         transducer = TransducerTrainer(
@@ -507,6 +556,13 @@ def train(
         data_world = config.decoupled.workers if config.decoupled else context.world_size
         if config.use_stage_mixture:
             mixture = stage_recipe(config.phase).mixture
+            from megatoken.data.coverage import require_coverage
+
+            require_coverage(
+                dataset,
+                stage_recipe(config.phase).constraints.get("required_behaviors", {}),
+                mixture,
+            )
             stream = MixtureWindowStream(
                 config.datasets,
                 codec,
@@ -668,6 +724,11 @@ def train(
                         "routing_version": model_config.routing_version,
                         "config_fingerprint": content_hash(asdict(config)),
                     }
+                    from .stream import source_sampling_report
+
+                    metadata["source_sampling"] = source_sampling_report(
+                        [rank["cursor"] for rank in rank_state]
+                    )
                 except BaseException:
                     shutil.rmtree(staged, ignore_errors=True)
                     raise
@@ -696,6 +757,7 @@ def train(
         last_checkpoint = str(resolve_checkpoint(resume)) if resume else ""
         if phase_transition:
             last_checkpoint = checkpoint("phase-start", pinned=True)
+        empty_selection_rounds = 0
         while (
             consumed < phase.budget
             and (diloco is None or not diloco.finished)
@@ -703,7 +765,7 @@ def train(
         ):
             started = time.perf_counter()
             selected = []
-            selected_counts = {"I": 0, "P": 0, "G": 0}
+            selected_counts = {"I": 0, "P": 0, "G": 0, "Q": 0}
             for _ in range(config.max_accumulation_windows):
                 for _ in range(config.microbatch_episodes):
                     item = stream.next()
@@ -712,6 +774,7 @@ def train(
                     selected.append(item)
                     selected_counts["I"] += item.window.I
                     selected_counts["G"] += item.window.G
+                    selected_counts["Q"] += item.window.Q
                     # Main prediction CE and the byte-codec auxiliary are both
                     # actually evaluated in bootstrap and recurrent modes.
                     selected_counts["P"] += item.window.P * 2
@@ -720,6 +783,7 @@ def train(
                     global_selected["P"] >= config.accumulate_scored
                     or global_selected["I"] >= config.accumulate_ingested
                     or (phase.meter == "G" and global_selected["G"] >= config.accumulate_events)
+                    or (phase.meter == "Q" and global_selected["Q"] >= config.accumulate_events)
                 ):
                     break
             preparation_error = None
@@ -753,9 +817,14 @@ def train(
             )
             anchor_denom = context.sum_counts({"text_anchors": anchor_local})["text_anchors"]
             if not any(global_counts.values()):
-                raise RuntimeError(
-                    "Accumulation window contains no supervision; audit role/turn masks"
-                )
+                empty_selection_rounds += 1
+                if empty_selection_rounds > max(1, len(dataset)):
+                    raise RuntimeError(
+                        "A complete sampling pass contains no supervised decisions; audit role/turn masks"
+                    )
+                logger.log("unscored_source_block", skipped_rounds=empty_selection_rounds)
+                continue
+            empty_selection_rounds = 0
             global_work = Counters(**context.sum_counts(asdict(batch_counters(batches))))
             global_work.validate()
             weights = dict(config.loss_weights)

@@ -35,7 +35,9 @@ def source_event(sources: SourceSession, entry: Retrieved, device: torch.device)
     """The event an item is observed as, in its own medium."""
     item, role = entry.item, ROLE_IDS["document"]
     if item.text is not None:
-        return ObservedEvent(KNOWLEDGE_TRACK, "text", item.text, role_id=role)
+        return ObservedEvent(
+            KNOWLEDGE_TRACK, "text", item.text, role_id=role, event_id=entry.event_id
+        )
     features = torch.from_numpy(sources.collections[entry.collection].features(item))
     return ObservedEvent(
         KNOWLEDGE_TRACK,
@@ -43,6 +45,7 @@ def source_event(sources: SourceSession, entry: Retrieved, device: torch.device)
         features.to(device)[None],
         role_id=role,
         extractor=item.record.source.extractor,
+        event_id=entry.event_id,
     )
 
 
@@ -63,7 +66,7 @@ def read_sources(
     """
     query = source_query(multi, raw)
     candidates = sources.candidates(query.detach().float().cpu().numpy())
-    sources.last = Search(query, candidates)
+    sources.last = Search(query, candidates, dict(sources.search_snapshots))
     chosen = sources.choose(candidates, lookup)
     for entry in chosen:
         if cancelled is not None and cancelled():

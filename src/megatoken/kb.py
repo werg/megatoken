@@ -49,6 +49,8 @@ def weights_digest(model: Any) -> str:
     """
     digest = hashlib.sha256()
     for name, tensor in sorted(model.served_state_dict().items()):
+        if name.startswith("transducer.hindsight_realizer."):
+            continue
         flat = tensor.detach().contiguous().cpu().reshape(-1)
         digest.update(f"{name}:{tensor.dtype}:{tuple(tensor.shape)};".encode())
         digest.update(flat.view(torch.uint8).numpy())
@@ -129,7 +131,8 @@ def add_items(
     if not base.writable:
         raise RuntimeError("This knowledge base is read-only")
     device = model.transducer.bank.device
-    ids: list[int] = []
+    staged = []
+    labels = []
     for group in _groups(items, batch):
         written = []
         for item in group:
@@ -148,14 +151,18 @@ def add_items(
                 )
             )
         rows = model.transducer.ingest_rows(multi, written)
-        ids += base.add(
-            departure=rows.departure,
-            key=rows.key,
-            value=rows.value,
-            destination=rows.destination,
-            sources=[item.source for item in group],
+        staged.append(rows)
+        labels.extend(item.source for item in group)
+    if not staged:
+        return []
+    # Finish model work before taking the lock, then publish every group together.
+    with base.lock:
+        return base.add(
+            **{name: torch.cat([getattr(rows, name) for rows in staged])
+               for name in ("departure", "key", "value", "destination")},
+            sources=labels,
         ).tolist()
-    return ids
+
 
 
 def corpus_items(

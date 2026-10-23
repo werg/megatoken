@@ -85,8 +85,14 @@ def probe_preparation(manifest: str, *, device: str) -> dict:
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         preparer = MediaPreparer(manifest, directory / "prepared", device=device)
-        anchor = preparer.text(b"A short sentence for the byte-E anchor.")
-        results = {"text": {"features": list(anchor.shape), "extractor": anchor.extractor}}
+        anchor, embedding = preparer.text(b"A short sentence for the byte-E anchor.")
+        results = {
+            "text": {
+                "features": list(anchor.shape),
+                "extractor": anchor.extractor,
+                "embedding": list(embedding.shape),
+            }
+        }
         for modality, path in synthetic_media(directory).items():
             record = preparer.media(modality, path, target=REALIZER[modality] in preparer.packs)
             results[modality] = {

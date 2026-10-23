@@ -28,14 +28,15 @@ from typing import Any
 
 import torch
 
-from megatoken.data import PreparedCorpus, WindowConfig, iter_windows, stage_recipe
+from megatoken.data import PreparedCorpus, WindowConfig, stage_recipe
 from megatoken.data.knowledge import declared_items
 from megatoken.runtime import capture_rng, restore_rng
 from megatoken.training.losses import LossLedger
 from megatoken.training.meridians import forward_meridian_batch
+from megatoken.training.metrics import materialize_scalars
 from megatoken.training.reading_base import ReadingBase
 from megatoken.training.retrieval import RECALL_K
-from megatoken.training.stream import EpisodeWindow
+from megatoken.training.stream import EpisodeWindow, _WindowPlan
 
 ALL = "all"  # the stream name when the whole corpus is one stream
 _SEED_OFFSET = 7919  # evaluation draws never share the training run's random stream
@@ -58,6 +59,16 @@ class HeldOutEvaluator:
                 self.corpora[name or ALL] = PreparedCorpus(
                     config.datasets, split="validation", stream=name
                 )
+            if config.use_stage_mixture:
+                from megatoken.data.coverage import require_coverage
+
+                recipe = stage_recipe(config.phase)
+                require_coverage(
+                    next(iter(self.corpora.values())),
+                    recipe.constraints.get("required_behaviors", {}),
+                    recipe.mixture,
+                    split="validation",
+                )
         except BaseException:
             self.close()
             raise
@@ -77,7 +88,7 @@ class HeldOutEvaluator:
         taken = 0
         for index in range(len(corpus)):
             episode, assets = corpus.fetch(index)
-            for window in iter_windows(episode, self.codec, self.window):
+            for window in _WindowPlan(episode, self.codec, self.window):
                 if taken >= self.config.eval_windows:
                     return
                 if taken % world == rank:
@@ -134,6 +145,7 @@ class HeldOutEvaluator:
                                 transducer=transducer,
                             )
                             ledger.finish()
+                            metrics = materialize_scalars(metrics)
                             for target in map(entry, names):
                                 target["windows"] += 1
                                 for term, value in ledger.sums.items():
@@ -145,10 +157,15 @@ class HeldOutEvaluator:
                                         count
                                     )
                                 for key, value in metrics.items():
-                                    if key.startswith("retrieval_"):
-                                        target["recall"][key] = (
-                                            target["recall"].get(key, 0.0) + value
-                                        )
+                                    if key.startswith(
+                                        ("retrieval_", "modality_", "outcome_")
+                                    ) or key in {
+                                        "grouped_selected_events",
+                                        "grouped_supervised_meridians",
+                                    }:
+                                        target["recall"][key] = target["recall"].get(
+                                            key, 0.0
+                                        ) + float(value)
         finally:
             transducer.reading = reading
             model.train(was_training)
@@ -192,13 +209,40 @@ class HeldOutEvaluator:
                     "denominators": {t: n for t, n in entry["count"].items() if n},
                     "weighted_loss": self.weighted(entry["sum"], entry["count"]),
                     **recall_report(entry["recall"]),
+                    **behavior_report(entry["recall"]),
                 }
                 for name, entry in streams.items()
             },
             **recall_report(pooled["recall"]),
+            **behavior_report(pooled["recall"]),
             "pooled_loss": {t: pooled["sum"][t] / n for t, n in pooled["count"].items() if n},
             "pooled_weighted_loss": self.weighted(pooled["sum"], pooled["count"]),
         }
+
+
+def behavior_report(values: dict[str, float]) -> dict[str, Any]:
+    """Report decisions with their own denominators, separately from retrieval."""
+    events = values.get("modality_events", 0)
+    decisions = values.get("outcome_decisions", 0)
+    if not events and not decisions:
+        return {}
+    result = {
+        "selected_events": values.get("grouped_selected_events", 0),
+        "generated_groups": values.get("grouped_supervised_meridians", 0),
+    }
+    if events:
+        result["modality"] = {
+            "events": events,
+            "correct": values.get("modality_correct", 0),
+            "accuracy": values.get("modality_correct", 0) / events,
+        }
+    if decisions:
+        result["outcomes"] = {
+            "decisions": decisions,
+            "mean_advantage": values.get("outcome_advantage_sum", 0) / decisions,
+            "mean_log_ratio": values.get("outcome_log_ratio_sum", 0) / decisions,
+        }
+    return {"behavior": result}
 
 
 def merge(gathered: list[Sums]) -> tuple[Sums, dict[str, Any]]:

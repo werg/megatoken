@@ -16,7 +16,7 @@ from megatoken.data.chunking import ChunkingConfig, segment_bytes
 from megatoken.generation import ActionSpec, ByteCodec
 from megatoken.generation.codec import _byte_alphabet
 from megatoken.loading import build_model
-from megatoken.model.config import ModelConfig
+from megatoken.model.config import ARCHITECTURE_VERSION, ModelConfig
 from megatoken.model.multitrack import (
     GROUP_TAPE_VERSION,
     GroupActionTape,
@@ -129,7 +129,10 @@ def test_export_preserves_the_canonical_facet_policy_and_recurrent_state_exactly
     assert b"".join(sessions[0].history[:-1]) == payload
     assert sessions[0].history[-1] == actual.tape.payloads[0]
     assert metadata["chunking"] == loaded.chunking.identity(loaded.codec)
-    assert metadata["policy_likelihood"] == "canonical_facet_gaussian_density"
+    assert (
+        metadata["policy_likelihood"]
+        == "modality_categorical_plus_canonical_facet_gaussian_density"
+    )
     assert metadata["tape_version"] == GROUP_TAPE_VERSION
 
 
@@ -561,7 +564,7 @@ def test_legacy_bundle_format_is_rejected_before_weight_loading(bundle):
     manifest = json.loads((directory / "manifest.json").read_text())
     manifest["format_version"] = 2
     (directory / "manifest.json").write_text(json.dumps(manifest))
-    with pytest.raises(ValueError, match="requires architecture v11"):
+    with pytest.raises(ValueError, match=f"requires architecture v{ARCHITECTURE_VERSION}"):
         ServedBundle(directory, device="cpu")
 
 

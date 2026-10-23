@@ -299,6 +299,16 @@ def iter_task_seeds(path: str | Path, *, fixture_tools: bool = False) -> Iterato
                     if schemas is None:
                         raise ValueError("Explicit public tools are required for a remote task")
                     tools = canonical_json(schemas)
+                outputs = obj.get("outputs_json", obj.get("outputs", []))
+                if isinstance(outputs, str):
+                    try:
+                        outputs = json.loads(outputs)
+                    except json.JSONDecodeError as error:
+                        raise ValueError("outputs_json must contain valid JSON") from error
+                if not isinstance(outputs, list) or any(
+                    not isinstance(item, dict) for item in outputs
+                ):
+                    raise ValueError("outputs/outputs_json must be a JSON list of output objects")
                 yield TaskSeed(
                     seed_id=obj["seed_id"],
                     family_id=obj["family_id"],
@@ -310,6 +320,7 @@ def iter_task_seeds(path: str | Path, *, fixture_tools: bool = False) -> Iterato
                     ancestor_ids=tuple(obj.get("ancestor_ids", ())),
                     mode=obj.get("mode", "executed"),
                     policy=policy,
+                    outputs_json=canonical_json(outputs),
                 )
             except (KeyError, TypeError, ValueError, AttributeError) as error:
                 raise ValueError(f"Task source {path}, line {index}: {error}") from error
@@ -344,9 +355,17 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
     if args.max_new_attempts is not None and args.max_new_attempts < 1:
         raise ValueError("max-new-attempts must be positive")
-    if args.student_prefix_steps and not args.student_bundle:
+    if (args.student_prefix_steps or args.student_only) and not args.student_bundle:
         raise ValueError("Student prefix execution requires --student-bundle")
-    student_steps = args.student_prefix_steps or (1 if args.student_bundle else 0)
+    if (args.student_packs or args.student_media_root) and not args.student_bundle:
+        raise ValueError("Student media setup requires --student-bundle")
+    if bool(args.student_packs) != bool(args.student_media_root):
+        raise ValueError("--student-packs and --student-media-root must be supplied together")
+    if args.student_only and args.student_prefix_steps:
+        raise ValueError("--student-only and --student-prefix-steps are separate collection modes")
+    student_steps = (
+        0 if args.student_only else args.student_prefix_steps or (1 if args.student_bundle else 0)
+    )
     if student_steps < 0:
         raise ValueError("student-prefix-steps cannot be negative")
     fixture = args.environment == "fixture"
@@ -371,7 +390,14 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
                 "teacher_model": args.teacher_model,
                 "environment": args.environment,
                 "student_manifest_sha256": student_manifest,
+                "student_packs_sha256": sha256_file(args.student_packs)
+                if args.student_packs
+                else None,
+                "student_media_root": str(Path(args.student_media_root).resolve())
+                if args.student_media_root
+                else None,
                 "student_prefix_steps": student_steps,
+                "student_only": args.student_only,
                 "benchmark_quarantine": quarantine,
             }
         )
@@ -446,11 +472,28 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
                 "families_frozen": True,
             }
         student = None
+        media_preparer = None
         if args.student_bundle:
+            from .media_prepare import MediaPreparer
             from .student import ModelTeacher
 
+            packs_manifest = args.student_packs
+            media_preparer = None
+            if args.student_media_root or packs_manifest:
+                if not args.student_media_root or not packs_manifest:
+                    raise ValueError(
+                        "--student-packs and --student-media-root must be supplied together"
+                    )
+                media_preparer = MediaPreparer(
+                    packs_manifest, args.student_media_root, device=args.student_device
+                )
+
             student = ModelTeacher(
-                args.student_bundle, device=args.student_device, effort=args.student_effort
+                args.student_bundle,
+                device=args.student_device,
+                effort=args.student_effort,
+                packs=packs_manifest,
+                media_preparer=media_preparer,
             )
             if student.codec.fingerprint != codec.fingerprint:
                 raise ValueError("Student bundle and collection codecs differ")
@@ -470,6 +513,7 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
             student=student,
             student_snapshot=student.snapshot if student else None,
             student_prefix_steps=student_steps,
+            student_only=args.student_only,
         )
         limited = (
             itertools.islice(episodes, args.max_new_attempts) if args.max_new_attempts else episodes
@@ -487,7 +531,9 @@ def _collect(args: argparse.Namespace) -> dict[str, Any]:
                     }
                 )
         finally:
-            manifest = ledger.export(root / "export")
+            manifest = ledger.export(
+                root / "export", assets=None if media_preparer is None else media_preparer.store
+            )
         return {
             "output": str(root.resolve()),
             "sources": str(manifest.resolve()),
@@ -713,8 +759,19 @@ def add_data_commands(subparsers: argparse._SubParsersAction) -> None:
         help="Checksum-verified frozen served bundle for actual student-state corrections",
     )
     collect.add_argument("--student-prefix-steps", type=int, default=0)
+    collect.add_argument(
+        "--student-only",
+        action="store_true",
+        help="Run only the frozen student; independently verify its own outcome without teacher repair",
+    )
     collect.add_argument("--student-device", default="auto")
     collect.add_argument("--student-effort", type=int, default=6)
+    collect.add_argument(
+        "--student-packs", help="Locked media pack manifest matching the served student bundle"
+    )
+    collect.add_argument(
+        "--student-media-root", help="Asset directory for the student's collected media records"
+    )
     for option in (
         "distinct-tasks",
         "attempts-per-task",

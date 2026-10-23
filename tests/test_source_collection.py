@@ -30,6 +30,29 @@ def text_collection(tmp_path, keys: np.ndarray, **options) -> SourceCollection:
     return collection
 
 
+def test_source_search_records_snapshot_and_excludes_later_publication(tmp_path):
+    keys = clustered_keys(2)
+    collection = text_collection(tmp_path, keys[:1], cells=1)
+    try:
+        source = SourceSession({"docs": collection}, threshold=-1)
+        first = source.candidates(keys[0])
+        original = source.search_snapshots["docs"]
+        assert original["revision"] == 1
+        later = collection.add_text(b"later evidence", keys[1], origin="later.txt")
+        assert collection.publication(later)["revision"] > original["revision"]
+        (chosen,) = source.choose(first, 0)
+        assert chosen.snapshot_revision == chosen.publication_revision == 1
+        assert chosen.available_at_ns <= chosen.searched_at_ns
+        source.revision_limits = {"docs": 1}
+        frozen = source.candidates(keys[1])
+        assert all(candidate.hit.row != later for candidate in frozen)
+        source.available_at_ns = 0
+        assert source.candidates(keys[1]) == []
+        assert source.search_snapshots["docs"]["available_at_ns"] == 0
+    finally:
+        collection.close()
+
+
 def test_the_index_returns_exactly_what_exact_search_returns(tmp_path):
     keys = clustered_keys(900)
     collection = text_collection(tmp_path, keys, cells=16)

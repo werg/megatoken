@@ -298,8 +298,7 @@ def test_meridians_separate_causal_and_media_time():
     transcript = TrackEvent("b", "text", "text", 2, "assistant", "pair", span)
     assert Meridian(1, (recorded,)).meridian_id == 1
     assert Meridian(2, (transcript,)).events[0].media_span == span
-    with pytest.raises(ValueError, match="at most one"):
-        Meridian(1, (recorded, TrackEvent("c", "mic", "audio", 1, "user")))
+    assert len(Meridian(1, (recorded, TrackEvent("c", "mic", "audio", 1, "user"))).events) == 2
 
 
 def test_grouped_bootstrap_kl_is_normalized_once_per_latent_coordinate():

@@ -23,8 +23,10 @@ import json
 import math
 import sqlite3
 import threading
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +47,7 @@ from .index import (
     unit,
 )
 
-SCHEMA = 1
+SCHEMA = 2
 DATABASE = "collection.sqlite"
 TEXT_LIMIT = 4096
 MODALITIES = ("text", "compressed_text", "audio", "image", "video")
@@ -65,6 +67,8 @@ CREATE TABLE items (
     text BLOB,
     descriptor BLOB,
     key BLOB NOT NULL,
+    revision INTEGER NOT NULL UNIQUE,
+    available_at_ns INTEGER NOT NULL,
     CHECK ((text IS NULL) != (descriptor IS NULL))
 );
 CREATE TABLE postings (
@@ -100,6 +104,24 @@ class Hit:
     score: float
 
 
+def _snapshot(method):
+    """One SQLite read snapshot includes index metadata, postings and item keys."""
+
+    @wraps(method)
+    def read(self, *args, **kwargs):
+        with self._lock:
+            owner = not self._db.in_transaction
+            if owner:
+                self._db.execute("BEGIN")
+            try:
+                return method(self, *args, **kwargs)
+            finally:
+                if owner:
+                    self._db.rollback()
+
+    return read
+
+
 class SourceCollection:
     """The catalog, keys and disk index of one collection directory."""
 
@@ -110,6 +132,7 @@ class SourceCollection:
         self._db = db
         self._lock = threading.RLock()
         self._centroids: np.ndarray | None = None
+        self._data_version = None
         self.name = self._meta("name")
         self.teacher = self._meta("teacher")
         if self._meta("schema") != SCHEMA or self._meta("width") != EMBEDDING_WIDTH:
@@ -126,6 +149,7 @@ class SourceCollection:
             raise ValueError("A collection needs a name and the teacher whose keys it holds")
         path.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(path / DATABASE, check_same_thread=False)
+        db.execute("PRAGMA journal_mode=WAL")
         with db:
             db.executescript(_TABLES)
             db.executemany(
@@ -136,6 +160,7 @@ class SourceCollection:
                     ("name", json.dumps(name)),
                     ("teacher", json.dumps(teacher)),
                     ("threshold", json.dumps(DEFAULT_THRESHOLD)),
+                    ("revision", "0"),
                 ],
             )
         return cls(path, db, writable=True)
@@ -193,6 +218,21 @@ class SourceCollection:
             return self._db.execute("SELECT COUNT(*) FROM items").fetchone()[0]
 
     @property
+    def revision(self) -> int:
+        with self._lock:
+            return self._meta("revision")
+
+    def publication(self, row: int) -> dict[str, Any]:
+        """Immutable readiness receipt; published only after assets and posting exist."""
+        with self._lock:
+            value = self._db.execute(
+                "SELECT item_id, revision, available_at_ns FROM items WHERE id=?", (row,)
+            ).fetchone()
+        if value is None:
+            raise KeyError(row)
+        return dict(zip(("item_id", "revision", "available_at_ns"), value, strict=True))
+
+    @property
     def threshold(self) -> float:
         return self._meta("threshold")
 
@@ -236,9 +276,18 @@ class SourceCollection:
             if self._db.execute("SELECT 1 FROM items WHERE item_id=?", (item_id,)).fetchone():
                 return None
             row = self._db.execute(
-                "INSERT INTO items(item_id, modality, origin, text, descriptor, key) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (item_id, modality, origin, text, descriptor, key.tobytes()),
+                "INSERT INTO items(item_id, modality, origin, text, descriptor, key, revision, available_at_ns) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    item_id,
+                    modality,
+                    origin,
+                    text,
+                    descriptor,
+                    key.tobytes(),
+                    self._meta("revision") + 1,
+                    time.monotonic_ns(),
+                ),
             ).lastrowid
             centroids = self._index()
             if centroids is not None:
@@ -247,6 +296,7 @@ class SourceCollection:
                     "INSERT INTO postings VALUES (?, ?, ?, ?)",
                     (int(np.argmax(centroids @ key)), row, scale, code.tobytes()),
                 )
+            self._set_meta("revision", self._meta("revision") + 1)
             return row
 
     def add_text(self, text: bytes, key: np.ndarray, *, origin: str) -> int | None:
@@ -347,6 +397,10 @@ class SourceCollection:
     # ------------------------------------------------------------------- index
 
     def _index(self) -> np.ndarray | None:
+        version = self._db.execute("PRAGMA data_version").fetchone()[0]
+        if version != self._data_version:
+            self._centroids = None
+            self._data_version = version
         if self._centroids is None:
             blob = self._meta("centroids")
             if blob is not None:
@@ -425,6 +479,22 @@ class SourceCollection:
         self._centroids = None
         return report
 
+    @_snapshot
+    def search_snapshot(self, query, limit, *, exclude=(), max_revision=None, available_at_ns=None):
+        """Bind the search and its revision/time receipt to one SQLite snapshot."""
+        revision = self.revision
+        cutoff = time.time_ns() if available_at_ns is None else available_at_ns
+        bound = revision if max_revision is None else min(revision, max_revision)
+        if type(bound) is not int or bound < 0 or type(cutoff) is not int or cutoff < 0:
+            raise ValueError(
+                "Source search needs nonnegative integer revision and availability bounds"
+            )
+        hits = self.search(
+            query, limit, exclude=exclude, max_revision=bound, available_at_ns=cutoff
+        )
+        return {"revision": bound, "available_at_ns": cutoff}, hits
+
+    @_snapshot
     def search(
         self,
         query: np.ndarray,
@@ -432,6 +502,8 @@ class SourceCollection:
         *,
         exclude: Iterable[int] = (),
         probes: int | None = None,
+        max_revision: int | None = None,
+        available_at_ns: int | None = None,
     ) -> list[Hit]:
         """The ``limit`` items of the probed cells with the highest exact cosine to ``query``.
 
@@ -452,9 +524,10 @@ class SourceCollection:
         ]
         with self._lock:
             rows = self._db.execute(
-                "SELECT item, scale, code FROM postings "
-                f"WHERE cell IN ({','.join('?' * len(cells))})",
-                cells,
+                "SELECT p.item, p.scale, p.code FROM postings p JOIN items i ON i.id=p.item "
+                f"WHERE p.cell IN ({','.join('?' * len(cells))}) "
+                "AND (? IS NULL OR i.revision<=?) AND (? IS NULL OR i.available_at_ns<=?)",
+                [*cells, max_revision, max_revision, available_at_ns, available_at_ns],
             ).fetchall()
             blocked = set(exclude)
             if blocked:
@@ -489,15 +562,26 @@ class SourceCollection:
             )
         return found
 
+    @_snapshot
     def search_exact(
-        self, query: np.ndarray, limit: int, *, exclude: Iterable[int] = ()
+        self,
+        query: np.ndarray,
+        limit: int,
+        *,
+        exclude: Iterable[int] = (),
+        max_revision: int | None = None,
+        available_at_ns: int | None = None,
     ) -> list[Hit]:
         """The same search without the index: every item scored (the reference)."""
         q = unit(query, width=EMBEDDING_WIDTH).astype(np.float64)
         blocked = set(exclude)
         scored: list[tuple[float, int]] = []
         with self._lock:
-            cursor = self._db.execute("SELECT id, key FROM items ORDER BY id")
+            cursor = self._db.execute(
+                "SELECT id, key FROM items WHERE (? IS NULL OR revision<=?) "
+                "AND (? IS NULL OR available_at_ns<=?) ORDER BY id",
+                (max_revision, max_revision, available_at_ns, available_at_ns),
+            )
             while rows := cursor.fetchmany(4096):
                 keys = np.stack([np.frombuffer(blob, dtype="<f4") for _, blob in rows])
                 scored += [

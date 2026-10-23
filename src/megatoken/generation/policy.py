@@ -23,7 +23,6 @@ from .structure import TAPE_VERSION, ActionSpec, ActionTape, Observation, TapeMi
 from .targets import LOSS_NAMES, PreparedAction, PreparedTargets, prepare_action, prepare_targets
 
 # Parameters that only train the bank: not exported, not counted as served.
-TRAINING_ONLY_PREFIX = "transducer.hindsight_realizer."
 
 
 @dataclass
@@ -107,8 +106,7 @@ class FacetedGenerator(nn.Module):
         self.transducer = NativeTransducer(
             core,
             TransducerBank(self.config.transducer_geometry),
-            # Construct hindsight temporarily in served mode too, so every
-            # projection shape it needs is present in the shared pool manifest.
+            # Serving uses the hindsight head for completed conversation evidence.
             training_heads=True,
         )
         pools = self.core.expert_pools
@@ -125,8 +123,6 @@ class FacetedGenerator(nn.Module):
                     condition,
                     f"media_realizers.packs.{realizer.name}.condition",
                 )
-        if not training_heads:
-            self.transducer.hindsight_realizer = None
 
     @property
     def latent_dimensions(self) -> int:
@@ -594,12 +590,8 @@ class FacetedGenerator(nn.Module):
     def served_state_dict(self) -> dict[str, Tensor]:
         """All encoder, decoder and predictor owners are shared with serving.
 
-        The hindsight head only trains the bank's values and is not served.
+        The hindsight head is also served for retrospective overlay writes.
         """
         if self.core.frontend.ngrams.has_import:
             raise RuntimeError("bake the engram adapter before served export")
-        return {
-            name: value
-            for name, value in self.state_dict().items()
-            if not name.startswith(TRAINING_ONLY_PREFIX)
-        }
+        return dict(self.state_dict())

@@ -196,6 +196,7 @@ def prepare_sources(
                             max_record_tokens=max_record_tokens,
                             chunking=chunking,
                             compressor=compressor,
+                            assets=TensorAssetStore(root),
                         )
                         with store.row_savepoint():
                             try:

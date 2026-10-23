@@ -34,6 +34,7 @@ from .schema import (
 
 if TYPE_CHECKING:
     from .compression import DocumentCompressor
+    from .media_assets import TensorAssetStore
     from .parsing.chat import ChatParse
 
 
@@ -363,7 +364,7 @@ _PIPELINE_OPTIONS = frozenset(
     {"lineage_join", "row_filters", "quality", "read_batch_rows", "whole_files", "explode"}
 )
 _PROFILE_OPTIONS: dict[str, frozenset[str]] = {
-    "native": frozenset({"preserve_native_stream"}),
+    "native": frozenset({"preserve_native_stream", "media_root"}),
     "chat": _HINT_OPTIONS
     | {
         "allow_pending_final_action",
@@ -411,6 +412,7 @@ class AdapterContext:
     # Reads long observed fields (reference documents, large tool results) as
     # teacher features instead of byte chunks; see data/compression.py.
     compressor: DocumentCompressor | None = None
+    assets: TensorAssetStore | None = None
 
 
 def _object(value: Any, label: str) -> Any:
@@ -1749,6 +1751,25 @@ def adapt_row(row: Mapping[str, Any], adapter: str, context: AdapterContext) -> 
         from .masking import apply_tool_masks
 
         episode = Episode.from_dict(row)
+        if context.assets is not None:
+            from pathlib import Path
+
+            from .media_assets import MEDIA_RECORD_TYPE, MediaRecord, TensorAssetStore
+
+            for record in episode.records:
+                if record.media_type != MEDIA_RECORD_TYPE:
+                    continue
+                root = context.options.get("media_root")
+                if root is None:
+                    raise SchemaError(
+                        "Native media requires its checked media_root asset directory"
+                    )
+                origin = Path(root)
+                if not origin.is_absolute():
+                    origin = Path(context.uri).parent / origin
+                TensorAssetStore(origin).copy_record(
+                    MediaRecord.from_bytes(record.payload), context.assets
+                )
         if context.codec is not None:
             for group in episode.iter_logical_records():
                 cached = [item.cached_ids for item in group]

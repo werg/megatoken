@@ -435,6 +435,7 @@ class Lookup:
     start_key: Tensor  # the query read through the start location
     query: Tensor  # the unit query asked
     versions: tuple[int, ...]  # each mounted base's version when the lookup ran
+    base_edges: dict[str, tuple[Tensor, Tensor]] = field(default_factory=dict)
 
 
 class MasterCache:
@@ -986,6 +987,7 @@ class TransducerBank(EdgeStore, nn.Module):
         pairs: tuple[tuple[int, str, int], ...] = ()
         edge_ids = torch.empty(0, dtype=torch.int64, device=self.device)
         edge_weights = torch.empty(0, device=self.device)
+        base_edges = {}
         if slots.numel():
             runs = torch.bincount(owner, minlength=len(agenda.mounted)).tolist()
             ids, keys, departures, biases, values, destinations = [], [], [], [], [], []
@@ -1027,6 +1029,12 @@ class TransducerBank(EdgeStore, nn.Module):
             destinations = packed_unit(torch.cat(destinations))
             bank_value = weights[-1] * self.sink_value.float() + pair_weights @ values
             landing_raw = weights[-1] * start + pair_weights @ destinations
+            for b, mount in enumerate(agenda.mounted):
+                selected = owner == b
+                distinct, inverse = torch.unique(ids[selected], return_inverse=True)
+                total = torch.zeros(distinct.numel(), device=self.device).index_add(
+                    0, inverse, pair_weights[selected])
+                base_edges[mount.name] = (distinct, total)
             if own is not None and bool((owner == own).any()):
                 mine = owner == own
                 edge_ids, inverse = torch.unique(ids[mine], return_inverse=True)
@@ -1060,6 +1068,7 @@ class TransducerBank(EdgeStore, nn.Module):
             start_key=self.modulated(q, start[None])[0],
             query=q,
             versions=tuple(m.base.version for m in agenda.mounted),
+            base_edges=base_edges,
         )
 
     def _explore(

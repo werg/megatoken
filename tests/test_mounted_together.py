@@ -134,3 +134,40 @@ def test_the_service_adds_files_to_both_and_opens_a_session_on_both(tmp_path):
     assert not by_id[3]["ok"] and "collection name, a base name" in by_id[3]["error"]
     assert not by_id[4]["ok"] and "outside the knowledge base root" in by_id[4]["error"]
     assert by_id[5]["ok"] and by_id[5]["retrieved"]
+
+
+
+def test_private_writes_with_collection_and_failure_restore_sources(tmp_path, monkeypatch):
+    import pytest
+
+    from megatoken.model.transducer import HindsightValues
+    from megatoken.serving_writes import WritePolicy
+
+    runtime = _runtime(tmp_path)
+    memory = runtime.memory
+    base = memory.create_overlay("private", "alice", tmp_path / "private.kb")
+    def values(events, reads):
+        return HindsightValues(torch.ones(len(reads), memory.bank.geometry.value_dim),
+                               torch.zeros(len(reads), dtype=torch.bool))
+    monkeypatch.setattr(memory.native, "retrospective_values", values)
+    session = runtime.open(overlay="private", scope="alice", max_sources=1,
+                           write_policy=WritePolicy(lag=0))
+    runtime.observe(session, _tool())
+    sources = session.memory.sources
+    before = (list(sources.log), {n: set(v) for n, v in sources.observed.items()},
+              sources.last, dict(sources.search_snapshots))
+    state = session.state
+    add_edges = base.add_edges
+    def fail(**kwargs):
+        raise RuntimeError("write failed")
+    monkeypatch.setattr(base, "add_edges", fail)
+    with pytest.raises(RuntimeError, match="write failed"):
+        runtime.observe(session, _tool())
+    assert session.state is state and sources.log == before[0]
+    assert sources.observed == before[1] and sources.last is before[2]
+    assert sources.search_snapshots == before[3]
+    monkeypatch.setattr(base, "add_edges", add_edges)
+    runtime.observe(session, _tool())
+    assert base.edge_count > 0
+    assert [m.name for m in session.memory.agenda.mounted] == ["trained", "private"]
+    runtime.close()

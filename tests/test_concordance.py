@@ -69,7 +69,8 @@ def test_standard_asr_compiles_with_causal_distinct_request(tmp_path):
     assert p0 != p1
     assert b"secret expected transcript" not in p1
     assert b"Transcribe exactly" in p1
-    assert b"source_speech" in p1
+    assert b"Listen to the available source speech" in p1
+    assert b"source_speech" not in p1  # opaque address is not an instruction
     assert all(
         "secret expected transcript" not in x for x in (p0.decode("utf-8"), p1.decode("utf-8"))
     )

@@ -335,7 +335,7 @@ def _evaluate(args):
     dataset = PreparedCorpus(config.datasets, split=args.split)
     try:
         if args.core_only:
-            if args.collection or args.base:
+            if args.collection or args.base or getattr(args, "output_specs", None):
                 raise ValueError(
                     "Mounted collections and knowledge bases require served evaluation"
                 )
@@ -344,6 +344,17 @@ def _evaluate(args):
             )
         collections = _named_paths(args.collection, "--collection")
         bases = _named_paths(args.base, "--base")
+        capabilities = {}
+        if getattr(args, "output_specs", None):
+            from megatoken.multitrack_service import _output
+
+            declared = json.loads(Path(args.output_specs).read_text())
+            if not isinstance(declared, dict):
+                raise ValueError("Public output specifications must map modality to a request")
+            capabilities["output_specs"] = {
+                kind: _output({**spec, "modality": kind}, trained.model.config.max_capacity, [])[0]
+                for kind, spec in declared.items()
+            }
         return evaluate_served_records(
             trained.model,
             dataset,
@@ -357,6 +368,7 @@ def _evaluate(args):
             max_sources=args.max_sources,
             threshold=args.threshold,
             chunking=ChunkingConfig.from_identity(trained.payload["chunking"], trained.codec),
+            **capabilities,
         )
     finally:
         dataset.close()
@@ -742,6 +754,10 @@ def parser() -> argparse.ArgumentParser:
     item.add_argument("--datasets", nargs="+")
     item.add_argument("--codec")
     item.add_argument("--packs", help="Relocate the checkpoint's matching media pack manifest")
+    item.add_argument(
+        "--output-specs",
+        help="JSON of public per-modality output bounds, independent of held-out targets",
+    )
     item.add_argument("--device", default="auto")
     item.add_argument("--split", choices=("validation", "test"), default="validation")
     item.add_argument("--episodes", type=int, default=16)

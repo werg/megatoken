@@ -1,6 +1,6 @@
 """Serving sessions for the v10 transducer: one agenda per session, native C history.
 
-No teacher or training hindsight exists on this path. A
+Opt-in overlays remember completed conversation evidence without retraining. A
 query/knowledge pair is one cancellable transaction: on timeout or
 cancellation neither the agenda nor the native state changes. Only ordinary
 meridians (observed or generated) schedule lookups, and the roles of a
@@ -11,12 +11,13 @@ session as it was. Every call on a session is serialized by that session's lock.
 
 from __future__ import annotations
 
+import copy
 import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from megatoken.model.transducer import metadata_payload, real_boundary
 from megatoken.retrieval.collection import SourceCollection
 from megatoken.retrieval.ingest import FileIngest
 from megatoken.retrieval.session import DEFAULT_MAX_SOURCES, SourceSession
+from megatoken.serving_writes import ConversationWrites, WritePolicy
 from megatoken.training.transducer import BoundaryScheduler
 
 
@@ -44,6 +46,8 @@ class TransducerSession:
     owner: int
     sources: SourceSession | None = None
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    writes: ConversationWrites | None = None
+    closed: bool = False
 
 
 @dataclass
@@ -81,6 +85,7 @@ class TransducerInferenceEngine:
             raise ValueError("The v10 model and packed bank must be on one device")
         self.multi = multi
         self.bases: dict[str, KnowledgeBase] = {}
+        self.sessions: dict[str, TransducerSession] = {}
         self._preparer_factory = preparer
         self._preparer: FilePreparer | None = None
         self._identity: dict[str, Any] | None = None
@@ -100,11 +105,18 @@ class TransducerInferenceEngine:
             self._identity = model_identity(self.multi.generator)
         return self._identity
 
+    def _scope_in_use(self, scope: str) -> bool:
+        return any(b.writable and b.scope == scope for b in self.bases.values()) or any(
+            s.writes is not None and s.writes.scope == scope for s in self.sessions.values()
+        )
+
     def _register(self, name: str, base: KnowledgeBase) -> KnowledgeBase:
         if not name or name in self.bases:
             raise ValueError(
                 f"A knowledge base named {name!r} is already open (or the name is empty)"
             )
+        if base.writable and base.scope is not None and self._scope_in_use(base.scope):
+            raise ValueError("This scope already has an open overlay or an active writing session")
         self.bases[name] = base
         return base
 
@@ -122,6 +134,9 @@ class TransducerInferenceEngine:
 
     def close_base(self, name: str) -> None:
         """Forget a base: no new session can mount it. Open sessions keep searching it."""
+        base = self.bases[name]
+        if base.writable and base.path is not None:
+            base.save(base.path)
         del self.bases[name]
 
     @torch.inference_mode()
@@ -161,11 +176,12 @@ class TransducerInferenceEngine:
         if base is not None:
             target = self.bases[base]
             items = knowledge_items(files, metadata=metadata)
-            with target.lock:
-                added.base = add_items(target, self.multi.generator, self.multi, items)
+            added.base = add_items(target, self.multi.generator, self.multi, items)
         return added
 
     def _check(self, session: TransducerSession) -> None:
+        if session.closed:
+            raise ValueError("Session is closed")
         if session.owner != id(self):
             raise ValueError("Transducer session belongs to a different serving owner")
         if session.scheduler.lookups != session.agenda.lookups:
@@ -185,6 +201,9 @@ class TransducerInferenceEngine:
         collections: Sequence[str] | None = None,
         max_sources: int = DEFAULT_MAX_SOURCES,
         threshold: float | None = None,
+        overlay: str | None = None,
+        scope: str | None = None,
+        write_policy: WritePolicy | None = None,
     ) -> TransducerSession:
         """Commit the metadata prefix, then the first lookup, before any answer.
 
@@ -193,10 +212,19 @@ class TransducerInferenceEngine:
         (default: every mounted one) and observes up to ``max_sources`` items per
         lookup above ``threshold`` (default: each collection's own).
         """
+        if overlay is not None:
+            base = self.bases.get(overlay)
+            if base is None or not base.writable or not scope or base.scope != scope:
+                raise ValueError("Writing requires a writable overlay belonging to this scope")
+            if base.path is None:
+                raise ValueError("Writing requires a persistent overlay path")
+            bases = {**(bases or {}), overlay: 1.0}
         try:
             mounts = {name: (self.bases[name], weight) for name, weight in (bases or {}).items()}
         except KeyError as unknown:
             raise ValueError(f"No open knowledge base named {unknown}") from None
+        if any(m.scope is not None and m.scope != scope for m, _ in mounts.values()):
+            raise ValueError("Private bases can only mount in their own scope")
         state = self.multi.tracks.initial_state(1, device=self.bank.device)
         state, agenda = self.native.begin(
             self.multi,
@@ -214,9 +242,16 @@ class TransducerInferenceEngine:
             else None
         )
         session = TransducerSession(uuid.uuid4().hex, state, agenda, scheduler, id(self), sources)
+        if overlay is not None:
+            session.writes = ConversationWrites(
+                scope, base, metadata_payload(metadata), write_policy or WritePolicy()
+            )
         if scheduler.first_metadata():
             with session.lock:
-                session.state, _ = self._run(session, state, effort, deadline, cancelled)
+                session.state, initial = self._run(session, state, effort, deadline, cancelled)
+                if session.writes is not None:
+                    session.writes.remember_lookup(initial, session.agenda.lookups - 1)
+        self.sessions[session.session_id] = session
         return session
 
     @torch.inference_mode()
@@ -234,9 +269,15 @@ class TransducerInferenceEngine:
             raise ValueError("Only nonempty ordinary meridians may be observed")
         with session.lock:
             self._check(session)
+            scores = []
+            if session.writes is not None and session.writes.policy.surprise:
+                scores = [
+                    (i, session.writes.meter.score(self.multi, session.state, e, effort=effort))
+                    for i, e in enumerate(events)
+                ]
             state = self.multi.tracks.observe_group(session.state, events)
             boundary = real_boundary([e.role_id for e in events], [e.terminal for e in events])
-            return self._commit(session, state, boundary, effort, deadline, cancelled)
+            return self._commit(session, state, boundary, effort, deadline, cancelled, scores)
 
     @torch.inference_mode()
     def generated(
@@ -262,19 +303,203 @@ class TransducerInferenceEngine:
             boundary = real_boundary(state.frontier_roles[0].tolist(), terminal)
             return self._commit(session, state, boundary, effort, deadline, cancelled)
 
-    def _commit(self, session, state, boundary, effort, deadline, cancelled) -> Lookup | None:
-        """Adopt ``state`` with the lookup it makes due; a failure leaves the session as it was."""
+    def _commit(
+        self, session, state, boundary, effort, deadline, cancelled, scores=()
+    ) -> Lookup | None:
+        """Publish accepted history, committed lookup, and memory writes together."""
         scheduler = session.scheduler
-        waited = scheduler.ordinary_since
+        previous = dict(vars(scheduler))
+        agenda = session.agenda.copy()
+        ordinary = state
         lookup = None
+        source_snapshot = self._source_snapshot(session)
         try:
             if scheduler.ordinary_commit(real_boundary=boundary):
                 state, lookup = self._run(session, state, effort, deadline, cancelled)
+            if session.writes is not None:
+                session.writes.commit(session, self.native, self.multi, ordinary, lookup, scores)
         except BaseException:
-            scheduler.ordinary_since = waited
+            vars(scheduler).update(previous)
+            session.agenda.publish(agenda)
+            self._restore_sources(session, source_snapshot)
             raise
         session.state = state
         return lookup
+
+    @staticmethod
+    def _source_snapshot(session):
+        if session.sources is None:
+            return None
+        sources = session.sources
+        return (
+            list(sources.log),
+            {n: set(v) for n, v in sources.observed.items()},
+            sources.last,
+            copy.deepcopy(sources.search_snapshots),
+        )
+
+    @staticmethod
+    def _restore_sources(session, snapshot):
+        if snapshot is not None:
+            sources = session.sources
+            sources.log[:], sources.observed, sources.last, sources.search_snapshots = snapshot
+
+    @torch.inference_mode()
+    def generated_completion(
+        self,
+        session: TransducerSession,
+        roles: Sequence[int],
+        terminal: Sequence[bool],
+        *,
+        effort: int = 6,
+    ) -> Lookup | None:
+        """Finalize a rendered turn without counting its selection a second time.
+
+        Incoming observations may have advanced shared history while rendering.
+        A completion lookup reads that current history, never a stale render state.
+        """
+        with session.lock:
+            self._check(session)
+            previous = dict(vars(session.scheduler))
+            if (
+                real_boundary(roles, terminal)
+                and session.scheduler.ordinary_since
+                and session.scheduler.first_metadata()
+            ):
+                agenda = session.agenda.copy()
+                source_snapshot = self._source_snapshot(session)
+                try:
+                    state, lookup = self._run(session, session.state, effort, None, None)
+                    if session.writes is not None:
+                        session.writes.commit(session, self.native, self.multi, lookup=lookup)
+                except BaseException:
+                    vars(session.scheduler).update(previous)
+                    session.agenda.publish(agenda)
+                    self._restore_sources(session, source_snapshot)
+                    raise
+                session.state = state
+                return lookup
+        return None
+
+    def create_overlay(
+        self,
+        name: str,
+        scope: str,
+        path: str | Path,
+        *,
+        max_edges: int = 2048,
+        byte_budget: int | None = None,
+    ) -> KnowledgeBase:
+        """Create one small persistent store for a caller-authenticated scope."""
+        if not isinstance(scope, str) or not scope or self._scope_in_use(scope):
+            raise ValueError("A scope needs one uniquely named overlay")
+        if Path(path).exists():
+            raise FileExistsError(path)
+        geometry = replace(
+            self.bank.geometry,
+            max_edges=max_edges,
+            byte_budget=(
+                max_edges * self.bank.geometry.row_bytes if byte_budget is None else byte_budget
+            ),
+        )
+        base = KnowledgeBase(
+            geometry, self.identity, name=name, writable=True, device=self.bank.device
+        )
+        base.scope = scope
+        if not name or name in self.bases:
+            raise ValueError("Overlay name is empty or already open")
+        base.save(path)
+        return self._register(name, base)
+
+    @torch.inference_mode()
+    def flush(self, session: TransducerSession) -> None:
+        with session.lock:
+            self._check(session)
+            if session.writes is not None:
+                session.writes.commit(session, self.native, self.multi, flush=True)
+
+    def close_session(self, session: TransducerSession) -> None:
+        with session.lock:
+            self._check(session)
+            if session.writes is not None:
+                session.writes.commit(session, self.native, self.multi, flush=True)
+            session.closed = True
+            if session.writes is not None:
+                session.writes.events.clear()
+                session.writes.pending.clear()
+            self.sessions.pop(session.session_id, None)
+
+    def close(self) -> None:
+        for session in list(self.sessions.values()):
+            self.close_session(session)
+        for base in self.bases.values():
+            if base.writable and base.path is not None:
+                base.save(base.path)
+
+    def forget(
+        self, name: str, *, ids=None, session: str | None = None, scope: str | None = None
+    ) -> list[int]:
+        base = self.bases[name]
+        if ids is None and session is None and scope is None:
+            raise ValueError("Forget needs IDs, session, or scope")
+        if base.path is None:
+            raise ValueError("Forget requires a saved base")
+        affected = sorted(
+            (
+                s
+                for s in self.sessions.values()
+                if s.writes is not None
+                and s.writes.base is base
+                and (session is None or s.session_id == session)
+                and (scope is None or s.writes.scope == scope)
+            ),
+            key=lambda s: s.session_id,
+        )
+        with ExitStack() as locks:
+            for active in affected:
+                locks.enter_context(active.lock)
+            with base.transaction():
+                selected = set(base.edge_ids().tolist() if ids is None else map(int, ids))
+                if session is not None:
+                    selected &= {
+                        e
+                        for e, p in base.provenance.items()
+                        if p.get("session") == session or session in p.get("sessions", [])
+                    }
+                if scope is not None:
+                    selected &= {e for e, p in base.provenance.items() if p.get("scope") == scope}
+                base.retire(sorted(selected))
+                base.save(base.path)
+            # Erase retained evidence too, so a later flush cannot recreate it.
+            for active in affected:
+                active.writes.events.clear()
+                active.writes.pending.clear()
+                active.writes.journal.clear()
+        return sorted(selected)
+
+    def promote(self, name: str, destination: str, ids: Sequence[int], *, reviewed: bool = False):
+        if not reviewed:
+            raise ValueError("Promotion requires explicit review")
+        source, target = self.bases[name], self.bases[destination]
+        if source is target or not target.writable or target.scope is not None:
+            raise ValueError("Promote into a separate writable shared base")
+        from megatoken.memory.knowledge import check_identity
+
+        check_identity(source.identity, target.identity)
+        with source.lock:
+            rows = source.table.state(list(ids))
+        # Copy packed columns exactly; assign fresh IDs in the destination.
+        with target.transaction():
+            if len(ids) > target.edge_room:
+                raise ValueError("Promotion exceeds destination capacity")
+            added = torch.arange(target.table.next_id, target.table.next_id + len(ids))
+            rows["ids"] = added
+            target.table.upsert(rows)
+            target.table.next_id += len(ids)
+            target._changed()
+            if target.path is not None:
+                target.save(target.path)
+        return added.tolist()
 
     def _run(self, session, state, effort, deadline, cancelled):
         """Serve one due lookup; a cancelled or failed one is closed without committing."""

@@ -99,13 +99,13 @@ def test_sink_logit_is_exact_with_one_time_per_slot():
     torch.testing.assert_close(per_row, per_slot, atol=1e-6, rtol=1e-5)
 
 
-def test_reserved_tracks_never_use_user_slots():
+def test_reserved_tracks_share_the_equality_registry_without_semantic_slots():
     model = tiny_model()
     multi = MultiTrackGenerator(model)
     state = multi.tracks.initial_state(1)
     ids, registry = multi.tracks._track_indices(state, RESERVED_TRACKS)
-    cap = model.config.max_tracks
-    assert ids[0].tolist() == [cap + i for i in range(len(RESERVED_TRACKS))] and registry == ()
+    assert registry == tuple(sorted(RESERVED_TRACKS))
+    assert ids[0].tolist() == [registry.index(t) for t in RESERVED_TRACKS]
 
 
 def test_native_lookup_hindsight_and_parameter_ownership():
@@ -119,7 +119,7 @@ def test_native_lookup_hindsight_and_parameter_ownership():
     multi = MultiTrackGenerator(model)
     state = multi.tracks.initial_state(1)
     state, agenda = native.begin(multi, state, metadata_payload({"task": "chat"}))
-    assert state.frontier_tracks == ("__metadata__",) and state.track_registry == ()
+    assert state.frontier_tracks == ("__metadata__",) and state.track_registry == ("__metadata__",)
     state, first = native.boundary(multi, state, agenda, training=True)
     assert float(first.sink_weight.detach()) == 1.0 and agenda.lookups == 1
     assert state.frontier_tracks == ("__transducer_knowledge__",)
@@ -155,8 +155,9 @@ def test_native_lookup_hindsight_and_parameter_ownership():
     for module in (native.query_realizer, native.readout, native.hindsight_realizer):
         assert any(p.grad is not None for p in module.parameters())
     model.eval()
-    with pytest.raises(RuntimeError, match="serving path"):
-        native.hindsight_pass(events, [0], mode="full")
+    retrospective = native.retrospective_values(events, [0, None])
+    assert retrospective.values.shape == (2, native.bank.geometry.value_dim)
+    assert retrospective.sink_only.tolist() == [False, True]
 
 
 def test_transducer_query_and_knowledge_use_prior_committed_adapter_scopes(monkeypatch):
@@ -173,16 +174,16 @@ def test_transducer_query_and_knowledge_use_prior_committed_adapter_scopes(monke
     calls = []
     original_plan = model.core.adapters.plan
 
-    def record(owner, mixture, track_ids):
+    def record(owner, mixture, track_ids, track_semantics=None):
         calls.append((owner, mixture, track_ids.detach().clone()))
-        return original_plan(owner, mixture, track_ids)
+        return original_plan(owner, mixture, track_ids, track_semantics)
 
     monkeypatch.setattr(model.core.adapters, "plan", record)
     committed, found = native.boundary(multi, state, agenda, training=True)
     assert found is not None
 
-    query_id = model.config.max_tracks + RESERVED_TRACKS.index(TRANSDUCER_QUERY_TRACK)
-    knowledge_id = model.config.max_tracks + RESERVED_TRACKS.index(KNOWLEDGE_TRACK)
+    query_id = committed.track_registry.index(TRANSDUCER_QUERY_TRACK)
+    knowledge_id = committed.track_registry.index(KNOWLEDGE_TRACK)
     query_calls = [call for call in calls if int(call[2][0, 0]) == query_id]
     knowledge_calls = [call for call in calls if int(call[2][0, 0]) == knowledge_id]
     assert any(owner == "p" and mixture is active for owner, mixture, _ in query_calls)
@@ -251,11 +252,13 @@ def test_hindsight_source_routing_uses_each_events_track(monkeypatch):
     seen = []
     original = model.core.expert_pools.router_features
 
-    def record(context, *, track_ids=None, role="other", stage=0):
+    def record(context, *, track_ids=None, track_semantics=None, role="other", stage=0):
         if role == "r":
             routed_tracks = track_ids.detach().clone() if track_ids is not None else None
             seen.append((context.shape, routed_tracks))
-        return original(context, track_ids=track_ids, role=role, stage=stage)
+        return original(
+            context, track_ids=track_ids, track_semantics=track_semantics, role=role, stage=stage
+        )
 
     monkeypatch.setattr(model.core.expert_pools, "router_features", record)
     native.hindsight_pass(events, [0, 1, None], mode="group-inverse")

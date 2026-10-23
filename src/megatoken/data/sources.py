@@ -155,6 +155,10 @@ class SourceSpec:
             files.append(item)
         obj["files"] = tuple(files)
         options = dict(obj.get("options", {}))
+        if base is not None and options.get("media_root"):
+            media_root = Path(options["media_root"])
+            if not media_root.is_absolute():
+                options["media_root"] = str((base / media_root).resolve())
         if base is not None and options.get("lineage_join"):
             join = dict(options["lineage_join"])
             location = Path(join["path"])
