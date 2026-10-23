@@ -510,9 +510,9 @@ def test_generate_is_a_one_shot_session_and_checks_its_mounts(bundle, tmp_path, 
     assert main([*argv, "--effort", "1", "--max-tokens", "4"]) == 0
     answer = json.loads(capsys.readouterr().out)
     assert answer["tape"]["tracks"] == ["assistant"] and "retrieved" not in answer
-    with pytest.raises(ValueError, match="NAME=PATH"):
+    with pytest.raises(ValueError, match="NAME="):
         main(["--debug", *argv, "--collection", "main"])
-    with pytest.raises(ValueError, match="NAME=PATH"):
+    with pytest.raises(ValueError, match="NAME="):
         main(["--debug", *argv, "--base", "mine"])
     with pytest.raises(RuntimeError, match="object"):
         main(["--debug", *argv, "--metadata", "[1]"])

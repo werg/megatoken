@@ -89,3 +89,19 @@ def test_waiting_releases_execution_capacity_but_resumption_requires_admission()
         tracks.change(child.address, "wait", prerequisites=())
     tracks.change(child.address, "complete")
     assert tracks.change(parent.address, "continue").status == "active"
+
+
+def test_preparation_rejects_context_pins_to_future_records():
+    import json
+    from dataclasses import replace
+
+    import pytest
+
+    episode = context_episode(1, variant="pin")
+    records = list(episode.records)
+    policy_index = next(i for i, record in enumerate(records) if record.role == "system")
+    policy = json.loads(records[policy_index].payload)
+    policy["context_window"]["pinned_events"] = [records[-1].record_id]
+    records[policy_index] = replace(records[policy_index], payload=json.dumps(policy).encode())
+    with pytest.raises(ValueError, match="earlier group"):
+        behaviors(replace(episode, records=tuple(records)))

@@ -241,6 +241,9 @@ def prepare_meridian_batch(
     validated Episode meridians.
     """
     window, episode = item.window, item.episode
+    from megatoken.data.context import validate_context_announcements
+
+    validate_context_announcements(episode)
     selected = {
         record.record_id
         for record in episode.records[window.start : window.end]

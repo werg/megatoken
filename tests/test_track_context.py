@@ -287,3 +287,16 @@ def test_cuda_context_masks_preserve_finite_gradients_and_reconstruction():
         parameter.grad is not None and torch.isfinite(parameter.grad).all()
         for parameter in multi.generator.core.predictor_parameters()
     )
+
+
+def test_shared_track_view_does_not_keep_old_models_alive():
+    import gc
+    import weakref
+
+    model = build_model(ModelConfig.tiny(), ByteCodec.byte_fallback())
+    view = MultiTrackGenerator.of(model)
+    assert MultiTrackGenerator.of(model) is view
+    reference = weakref.ref(model)
+    del view, model
+    gc.collect()
+    assert reference() is None

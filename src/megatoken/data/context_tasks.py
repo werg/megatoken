@@ -29,6 +29,15 @@ SOURCE_VERSION = "context-demonstrations-v1"
 
 
 def context_episode(index, *, variant="fetch", split="train", local_events=4, cross_events=1):
+    if (
+        type(local_events) is not int
+        or type(cross_events) is not int
+        or not 0 <= cross_events < local_events
+        or local_events < 2
+    ):
+        raise ValueError(
+            "Context demonstrations need room for local evidence and its policy announcement"
+        )
     if variant not in {"fetch", "pin", "local", "unavailable"}:
         raise ValueError("Unknown context demonstration variant")
     family = stable_id(SOURCE_VERSION, str(index))

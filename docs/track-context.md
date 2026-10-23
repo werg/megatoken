@@ -122,6 +122,9 @@ is still required.
 ```bash
 python scripts/accept_track_context.py \
   --root /absolute/new/context-acceptance --device cpu
+python scripts/accept_context_training.py \
+  --data /absolute/new/context-corpus \
+  --root /absolute/new/context-training-acceptance --codec /absolute/codec --device cpu
 ```
 
 The local tiny-model comparison with 24 background observations retained 29,696
@@ -130,6 +133,13 @@ It used identical weights and input observations, checked explicit rereading, an
 reconstructed the selected action's score. The receipt explicitly leaves learned
 quality and whole-device peak memory unmeasured. A separate bounded CUDA regression
 checks masks, reconstruction, and finite gradients.
+
+The training acceptance command runs the ordinary optimizer on prepared context
+demonstrations, restarts from its checkpoint, exports, changes context through the
+public service, and generates with an explicit evidence reference. A bounded local
+run completed this path; it does not establish learned delegation quality. Prepare
+and train against the same unchanged source revision because preparation records
+the reader implementation identity.
 
 The [follow-up plan](dynamic-tracks-defaults-follow-up-plan.md) still requires broad
 task families, learned handoffs and summaries, calibrated windows, sustained voice

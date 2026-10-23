@@ -552,7 +552,8 @@ def test_served_export_contains_all_shared_owners_and_is_identical(model):
         model.core.expert_pools.manifest()["pools"] == served.core.expert_pools.manifest()["pools"]
     )
     weights = model.served_state_dict()
-    assert set(weights) == {n for n in model.state_dict() if "hindsight_realizer" not in n}
+    assert set(weights) == set(model.state_dict())
+    assert any("hindsight_realizer" in name for name in weights)
     assert not any(
         "posterior" in name or "regional" in name or "root_prior" in name or "carry" in name
         for name in weights

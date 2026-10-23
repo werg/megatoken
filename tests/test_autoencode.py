@@ -1,5 +1,7 @@
 """Encode-and-reconstruct: feature items train E and the realizers without the core."""
 
+import json
+
 import torch
 from media_support import install_fake_realizers, prepared_record
 from training_fixture import MODEL_OVERRIDES
@@ -141,7 +143,9 @@ def test_media_bridge_stage_trains_encode_and_reconstruct_end_to_end(tmp_path, m
         dedup.freeze()
         export_prepared(dedup, data, codec=CODEC, source_receipts=[], pipeline_fingerprint="t")
     packs = tmp_path / "packs.json"
-    packs.write_text("{}")
+    packs.write_text(
+        json.dumps({"version": 1, "packs": {"pocket": {}, "sana": {}, "sana_video": {}}})
+    )
     monkeypatch.setattr(
         "megatoken.omni.loader.install_realizers",
         lambda model, path, *, device: install_fake_realizers(model),

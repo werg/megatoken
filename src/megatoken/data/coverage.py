@@ -19,16 +19,22 @@ def behaviors(episode) -> set[str]:
     if any(
         context_announcement(record.payload, record.role) is not None for record in episode.records
     ):
+        from .context import validate_context_announcements
+
+        validate_context_announcements(episode)
         result.add("public_context_window")
     annotations = json.loads(episode.supervision.annotations_json)
     for receipt in annotations.get("context_read_receipts", ()):
         action = actions.get(receipt.get("action_id"))
         record = records.get(receipt.get("result_record_id"))
+        source = records.get(receipt.get("source_event_id"))
         if (
             action is not None
             and action.tool_name == "track_fetch"
             and record is not None
             and record.result_of == action.action_id
+            and source is not None
+            and json.loads(action.arguments_json).get("source_event") == source.record_id
         ):
             from .schema import digest_bytes
 
@@ -36,6 +42,7 @@ def behaviors(episode) -> set[str]:
                 record.execution_id == action.execution_id
                 and digest_bytes(record.payload) == receipt.get("sha256")
                 and type(receipt.get("available")) is bool
+                and (receipt["available"] is False or record.payload == source.payload)
             ):
                 result.add(
                     "explicit_context_read"

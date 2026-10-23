@@ -23,7 +23,7 @@ def main():
     args = parser.parse_args()
     if args.root.exists():
         raise FileExistsError("Context preparation requires a fresh output root")
-    if args.families < 4 or not 0 <= args.cross_events < args.local_events:
+    if args.families < 4 or args.local_events < 2 or not 0 <= args.cross_events < args.local_events:
         parser.error("Use at least four task families and a longer local window")
     codec = load_codec(args.codec)
     with DedupStore(
